@@ -133,6 +133,7 @@ impl DownloadTable {
             | Outgoing::MediaInfo { .. }
             | Outgoing::PickLinks { .. }
             | Outgoing::Quota { .. }
+            | Outgoing::BrowserLink { .. }
             | Outgoing::CookiesWanted { .. }
             | Outgoing::RenderPage { .. }
             | Outgoing::ZipPreview { .. }

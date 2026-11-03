@@ -502,7 +502,15 @@ tests, not in a running Firefox.
   next to the window; unticking removes the key, and the manifest once no
   browser names it. Setup registers Chrome, Edge and Firefox. Vivaldi and
   Opera read Chrome's registration, so the list says so when it finds them
-  instead of listing them. Restart a browser after a change.
+  instead of listing them. Restart a browser after a change: its
+  **Restart** button asks first, then closes it the polite way (as closing
+  its window does, so it keeps its tabs) and starts it again. **Add
+  browser...** adds any other browser by its program file: UIDM tells its
+  family from the program's name and registers it where that browser reads
+  registrations, or, for a Chromium browser it does not know, where Chrome
+  does, which most of them read (a Firefox fork gets Firefox's). Added
+  browsers stay in the list, each with **Remove**. A line above the list
+  says whether the extension is connected, or when it last was.
 
 - **Properties** (a row's **More**) shows a download's status, its file type
   (what Windows calls it, such as "PDF Document (.pdf)"), size and last

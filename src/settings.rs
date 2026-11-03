@@ -198,6 +198,17 @@ pub struct SiteLogin {
     pub plain: bool,
 }
 
+/// A browser the user added in Options by its program file, beyond the
+/// ones UIDM knows: shown in the list, registered where its family reads
+/// registrations, and restarted by starting its program again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddedBrowser {
+    /// The name the list shows, made from the program's name.
+    pub name: String,
+    /// The browser's program file.
+    pub program: String,
+}
+
 /// The most connections UIDM opens to the hosts matching `site` (such as
 /// `*.example.com`), across every download at once.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -554,6 +565,9 @@ pub struct Settings {
     /// The context menu items the extension leaves out, by the names in
     /// `BROWSER_MENU_ITEMS`.
     pub browser_menu_hidden: Vec<String>,
+    /// Browsers added in Options by their program file.
+    #[serde(default)]
+    pub added_browsers: Vec<AddedBrowser>,
     /// ffmpeg.exe, to join streams into .mp4 files. Empty looks on `PATH`.
     pub ffmpeg_path: String,
     /// Ask before removing downloads from the list.
@@ -704,6 +718,7 @@ impl Default for Settings {
             video_view: PanelView::Full,
             video_protected_note: true,
             browser_menu_hidden: Vec::new(),
+            added_browsers: Vec::new(),
             ffmpeg_path: String::new(),
             confirm_remove: true,
             remove_deletes_files: false,
@@ -1322,6 +1337,7 @@ mod tests {
             video_view: PanelView::Mini,
             video_protected_note: false,
             browser_menu_hidden: vec!["all_links".into()],
+            added_browsers: vec![AddedBrowser { name: "Thorium".into(), program: full("C:\\Thorium\\thorium.exe") }],
             ffmpeg_path: full("C:\\ffmpeg\\bin\\ffmpeg.exe"),
             confirm_remove: false,
             remove_deletes_files: true,

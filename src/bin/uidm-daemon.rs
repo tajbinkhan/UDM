@@ -134,6 +134,12 @@ struct Hub {
     dirty: Sender<()>,
     /// Clients that said they are a desktop window.
     windows: Mutex<HashSet<u64>>,
+    /// Clients that said hello as the browser extension does, with no
+    /// `client` (the host strips any).
+    browsers: Mutex<HashSet<u64>>,
+    /// When a browser extension last connected or sent anything, in
+    /// seconds since 1970, for Options' link state.
+    browser_seen: Mutex<Option<u64>>,
     /// Finished and failed downloads, for the notification thread.
     notes: Sender<Note>,
     /// The queues, the main queue first. Lock after `table`, never before.
@@ -361,6 +367,53 @@ impl Hub {
         !self.windows.lock().unwrap().is_empty()
     }
 
+    /// Send `msg` to the desktop windows only.
+    fn to_windows(&self, msg: &Outgoing) {
+        let Ok(frame) = serde_json::to_vec(msg) else {
+            return;
+        };
+        let windows = self.windows.lock().unwrap();
+        for (_, tx) in self.clients.lock().unwrap().iter().filter(|(id, _)| windows.contains(id)) {
+            let _ = tx.send(frame.clone());
+        }
+    }
+
+    /// Whether a browser extension is connected, and when one last was.
+    fn browser_link(&self) -> Outgoing {
+        Outgoing::BrowserLink {
+            connected: !self.browsers.lock().unwrap().is_empty(),
+            last_seen: *self.browser_seen.lock().unwrap(),
+        }
+    }
+
+    /// Note that client `id` is a browser extension; the windows hear of
+    /// it when it is the only one.
+    fn browser_connected(&self, id: u64) {
+        *self.browser_seen.lock().unwrap() = Some(uidm::state::unix_now());
+        let first = {
+            let mut browsers = self.browsers.lock().unwrap();
+            browsers.insert(id) && browsers.len() == 1
+        };
+        if first {
+            self.to_windows(&self.browser_link());
+        }
+    }
+
+    /// Forget client `id`; when it was the last browser extension, the
+    /// windows hear when it went.
+    fn client_gone(&self, id: u64) {
+        self.clients.lock().unwrap().remove(&id);
+        self.windows.lock().unwrap().remove(&id);
+        let last = {
+            let mut browsers = self.browsers.lock().unwrap();
+            browsers.remove(&id) && browsers.is_empty()
+        };
+        if last {
+            *self.browser_seen.lock().unwrap() = Some(uidm::state::unix_now());
+            self.to_windows(&self.browser_link());
+        }
+    }
+
     /// Send every queue to every client, and save them.
     fn publish_queues(&self) {
         let items = self.queues.lock().unwrap().clone();
@@ -568,6 +621,8 @@ impl Daemon {
             requests: Mutex::new(requests),
             dirty,
             windows: Mutex::new(HashSet::new()),
+            browsers: Mutex::new(HashSet::new()),
+            browser_seen: Mutex::new(None),
             notes,
             queues: Mutex::new(queues),
             held: Mutex::new(HashSet::new()),
@@ -3437,8 +3492,7 @@ fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
     // Removing the map's sender and dropping ours leaves the writer's channel
     // with no senders, so it drains what is queued and ends. Downloads this
     // client started keep running.
-    daemon.hub.clients.lock().unwrap().remove(&id);
-    daemon.hub.windows.lock().unwrap().remove(&id);
+    daemon.hub.client_gone(id);
     daemon.stop_grab(id);
     drop(tx);
     let _ = writer.join();
@@ -3495,10 +3549,18 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
     };
 
+    // Anything from the extension shows it is still there.
+    if daemon.hub.browsers.lock().unwrap().contains(&client) {
+        *daemon.hub.browser_seen.lock().unwrap() = Some(uidm::state::unix_now());
+    }
     match incoming {
         Incoming::Hello { client: kind, .. } => {
+            if kind.is_none() {
+                daemon.hub.browser_connected(client);
+            }
             if kind.as_deref() == Some(WINDOW_CLIENT) {
                 daemon.hub.windows.lock().unwrap().insert(client);
+                send(&daemon.hub.browser_link());
                 // A window that opens during a countdown shows it too.
                 if let Some(countdown) = daemon.countdown_message() {
                     send(&countdown);
@@ -4160,6 +4222,35 @@ mod tests {
                 .filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok())
                 .any(|m| wanted(&m))
         }
+    }
+
+    #[test]
+    fn the_windows_hear_when_the_browser_extension_connects_and_goes() {
+        let t = setup("browser_link", Duplicate::Ask);
+        assert!(matches!(t.daemon.hub.browser_link(), Outgoing::BrowserLink { connected: false, last_seen: None }));
+
+        // The extension says hello with no `client`.
+        let (tx, _browser) = channel();
+        t.daemon.hub.clients.lock().unwrap().insert(2, tx.clone());
+        dispatch(br#"{"op":"hello","version":"1"}"#, &t.daemon, 2, &tx);
+        assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: true, .. })));
+        assert!(t.daemon.hub.browser_seen.lock().unwrap().is_some());
+
+        // A second one is no news; the first going is none either.
+        let (tx3, _browser3) = channel();
+        t.daemon.hub.clients.lock().unwrap().insert(3, tx3.clone());
+        dispatch(br#"{"op":"hello"}"#, &t.daemon, 3, &tx3);
+        t.daemon.hub.client_gone(2);
+        assert!(!t.window_got(|m| matches!(m, Outgoing::BrowserLink { .. })));
+
+        // Anything it sends keeps it seen.
+        *t.daemon.hub.browser_seen.lock().unwrap() = Some(1);
+        dispatch(br#"{"op":"ping"}"#, &t.daemon, 3, &tx3);
+        assert!(t.daemon.hub.browser_seen.lock().unwrap().is_some_and(|s| s > 1));
+
+        // The last one going is, with when.
+        t.daemon.hub.client_gone(3);
+        assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: false, last_seen: Some(s) } if *s > 1)));
     }
 
     #[test]

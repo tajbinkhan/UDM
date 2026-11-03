@@ -240,6 +240,9 @@ struct Shared {
     zip_listed: Option<(u64, Result<Vec<uidm::zip::ZipEntry>, String>)>,
     /// Downloads are paused for the quota.
     quota_paused: bool,
+    /// Whether the browser extension is connected, and when one last was,
+    /// as the daemon last said.
+    browser_link: Option<(bool, Option<u64>)>,
 }
 
 /// News of a site crawl.
@@ -319,6 +322,7 @@ impl Shared {
                     self.segments.insert(*id, s.clone());
                 }
             }
+            Outgoing::BrowserLink { connected, last_seen } => self.browser_link = Some((*connected, *last_seen)),
             Outgoing::Started { id, .. } => {
                 self.segments.remove(id);
                 self.started.push(*id);
@@ -853,9 +857,63 @@ impl ProxyLoginDraft {
 /// A browser in Options' list: whether it was registered when the dialog
 /// opened, and whether it should be.
 struct BrowserDraft {
+    /// The browser whose registration it uses: itself, or for an added
+    /// browser the one its family reads.
     browser: uidm::browsers::Browser,
+    name: String,
+    /// The browser the user added by its program, if it is one.
+    added: Option<uidm::settings::AddedBrowser>,
+    /// For an added browser, whether its place is known rather than the
+    /// place most of its family reads.
+    known: bool,
     was: bool,
     on: bool,
+    /// Taken out of the list with Remove; it is saved without it.
+    removed: bool,
+}
+
+impl BrowserDraft {
+    /// The row for a browser added by its program, or `None` when UIDM
+    /// cannot tell what browser it is.
+    fn added(added: uidm::settings::AddedBrowser, registrar: Option<&uidm::browsers::Registrar>) -> Option<Self> {
+        let target = uidm::browsers::target_of(Path::new(&added.program))?;
+        let was = registrar.is_some_and(|r| r.registered(&target.browser));
+        Some(BrowserDraft {
+            browser: target.browser,
+            name: added.name.clone(),
+            added: Some(added),
+            known: target.known,
+            was,
+            on: was,
+            removed: false,
+        })
+    }
+
+    /// How Options restarts it, if it can.
+    fn restart_plan(&self) -> Option<uidm::browsers::RestartPlan> {
+        match &self.added {
+            Some(a) => Some(uidm::browsers::restart_plan_for_program(Path::new(&a.program))),
+            None => self.browser.restart_plan(),
+        }
+    }
+}
+
+/// The Browsers section's line on the extension's link: connected, when
+/// it last was, or not since the daemon started.
+fn browser_link_text(connected: bool, last_seen: Option<u64>, now: u64) -> String {
+    if connected {
+        return tr("The browser extension is connected.").into();
+    }
+    let Some(seen) = last_seen else {
+        return tr("The browser extension has not connected since UIDM started.").into();
+    };
+    let minutes = now.saturating_sub(seen) / 60;
+    match minutes {
+        0 => tr("The browser extension last connected less than a minute ago.").into(),
+        1 => tr("The browser extension last connected a minute ago.").into(),
+        2..=119 => trf!("The browser extension last connected {minutes} minutes ago.", minutes = minutes),
+        _ => trf!("The browser extension last connected {hours} hours ago.", hours = minutes / 60),
+    }
 }
 
 /// One site login being edited. An empty password keeps the stored one.
@@ -971,6 +1029,17 @@ struct OptionsDraft {
     browsers: Vec<BrowserDraft>,
     /// Browsers found that read Chrome's registration.
     chrome_readers: Vec<&'static str>,
+    /// A browser's program chosen with "Add browser...".
+    browser_picked: Picked,
+    /// What happened to the last browser added or restarted.
+    browser_note: Option<String>,
+    /// The row whose Restart waits for the user's yes.
+    restart_ask: Option<usize>,
+    /// A restart's outcome, from its thread.
+    restart_done: Arc<Mutex<Option<String>>>,
+    /// Whether the extension is connected, and when it last was, from the
+    /// daemon; `None` before it says.
+    browser_link: Option<(bool, Option<u64>)>,
     capture_skip_key: CaptureKey,
     capture_force_key: CaptureKey,
     capture_keys_left_click: bool,
@@ -1138,21 +1207,35 @@ impl OptionsDraft {
             manual_user_agent: s.manual_user_agent.clone(),
             temp_dir: s.temp_dir.clone().unwrap_or_default(),
             temp_picked: Picked::default(),
-            browsers: uidm::browsers::Registrar::for_this_user()
-                .map(|r| {
-                    uidm::browsers::BROWSERS
-                        .iter()
-                        .map(|b| (b, r.registered(b), r.installed(b)))
-                        .filter(|(_, registered, installed)| *registered || *installed)
-                        .map(|(b, registered, _)| BrowserDraft {
-                            browser: *b,
-                            was: registered,
-                            on: registered,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            browsers: {
+                let registrar = uidm::browsers::Registrar::for_this_user().ok();
+                let mut list: Vec<BrowserDraft> = registrar
+                    .iter()
+                    .flat_map(|r| {
+                        uidm::browsers::BROWSERS
+                            .iter()
+                            .map(|b| (b, r.registered(b), r.installed(b)))
+                            .filter(|(_, registered, installed)| *registered || *installed)
+                            .map(|(b, registered, _)| BrowserDraft {
+                                browser: *b,
+                                name: b.name.to_string(),
+                                added: None,
+                                known: true,
+                                was: registered,
+                                on: registered,
+                                removed: false,
+                            })
+                    })
+                    .collect();
+                list.extend(s.added_browsers.iter().filter_map(|a| BrowserDraft::added(a.clone(), registrar.as_ref())));
+                list
+            },
             chrome_readers: uidm::browsers::chrome_readers(),
+            browser_picked: Picked::default(),
+            browser_note: None,
+            restart_ask: None,
+            restart_done: Arc::default(),
+            browser_link: None,
             capture_skip_key: s.capture_skip_key,
             capture_force_key: s.capture_force_key,
             capture_keys_left_click: s.capture_keys_left_click,
@@ -1281,6 +1364,7 @@ impl OptionsDraft {
             video_view: self.video_view,
             video_protected_note: self.video_protected_note,
             browser_menu_hidden: self.menu_items.iter().filter(|(_, _, on)| !on).map(|(id, _, _)| id.to_string()).collect(),
+            added_browsers: self.browsers.iter().filter(|b| !b.removed).filter_map(|b| b.added.clone()).collect(),
             video_button_excluded_sites: sites(&self.video_button_excluded_sites),
             ffmpeg_path: self.ffmpeg_path.trim().to_string(),
             confirm_remove: self.confirm_remove,
@@ -1338,21 +1422,68 @@ impl OptionsDraft {
         Ok(settings)
     }
 
-    /// Register or remove the browsers whose box changed, keeping the new
-    /// state of those that worked.
+    /// Whether the browsers registering in row `i`'s place should be
+    /// registered: when one of them still in the list is ticked.
+    fn wanted(&self, i: usize) -> bool {
+        let place = &self.browsers[i].browser;
+        self.browsers.iter().any(|b| !b.removed && b.on && b.browser.same_place(place))
+    }
+
+    /// Register or remove the browsers whose box changed, or that were
+    /// removed from the list, keeping the new state of those that worked.
+    /// Rows sharing a place (an added browser using Chrome's, say) change
+    /// together.
     fn apply_browsers(&mut self) -> Result<(), String> {
-        let changed: Vec<usize> = (0..self.browsers.len()).filter(|&i| self.browsers[i].on != self.browsers[i].was).collect();
+        let changed: Vec<usize> = (0..self.browsers.len()).filter(|&i| self.wanted(i) != self.browsers[i].was).collect();
         if changed.is_empty() {
             return Ok(());
         }
         let registrar = uidm::browsers::Registrar::for_this_user().map_err(|e| e.to_string())?;
         for i in changed {
-            let b = &mut self.browsers[i];
-            let done = if b.on { registrar.register(&b.browser) } else { registrar.unregister(&b.browser) };
-            done.map_err(|e| trf!("Could not change {browser}: {error}", browser = b.browser.name, error = e))?;
-            b.was = b.on;
+            let on = self.wanted(i);
+            if self.browsers[i].was == on {
+                continue; // done with a row sharing its place
+            }
+            let b = &self.browsers[i];
+            let done = if on { registrar.register(&b.browser) } else { registrar.unregister(&b.browser) };
+            done.map_err(|e| trf!("Could not change {browser}: {error}", browser = b.name, error = e))?;
+            let place = b.browser;
+            for other in self.browsers.iter_mut().filter(|o| o.browser.same_place(&place)) {
+                other.was = on;
+            }
         }
         Ok(())
+    }
+
+    /// Add the browser whose program was picked, ticked to be registered
+    /// when Options is saved.
+    fn add_picked_browser(&mut self) {
+        let Some(program) = self.browser_picked.lock().unwrap().take() else {
+            return;
+        };
+        let added = uidm::settings::AddedBrowser {
+            name: uidm::browsers::display_name(&program),
+            program: program.display().to_string(),
+        };
+        let registrar = uidm::browsers::Registrar::for_this_user().ok();
+        let Some(mut row) = BrowserDraft::added(added, registrar.as_ref()) else {
+            self.browser_note = Some(trf!(
+                "UIDM cannot tell what browser {program} is. Pick the program of a browser built on Chromium (such as Chrome, Edge, Brave, Vivaldi, Opera or Yandex) or on Firefox.",
+                program = program.display()
+            ));
+            return;
+        };
+        row.on = true;
+        self.browser_note = Some(match (row.known, row.browser.name == row.name) {
+            (true, true) => trf!("{browser} is added; it is registered when you save.", browser = row.name),
+            (true, false) => trf!("{browser} is added; it reads {place}'s registration, written when you save.", browser = row.name, place = row.browser.name),
+            (false, _) => trf!(
+                "{browser} is added. UIDM does not know where it looks for programs like UIDM, so it registers it where {place} does, which most browsers of its kind read.",
+                browser = row.name,
+                place = row.browser.name
+            ),
+        });
+        self.browsers.push(row);
     }
 }
 
@@ -1387,6 +1518,7 @@ impl App {
                 newer_release: None,
                 installing: None,
                 quota_paused: false,
+                browser_link: None,
             })),
             writer: Arc::new(Mutex::new(None)),
             ctx: ctx.clone(),
@@ -2545,6 +2677,11 @@ impl App {
         }
         take_picked(&draft.picked, &mut draft.folder);
         take_picked(&draft.temp_picked, &mut draft.temp_dir);
+        draft.add_picked_browser();
+        if let Some(note) = draft.restart_done.lock().unwrap().take() {
+            draft.browser_note = Some(note);
+        }
+        draft.browser_link = self.shared.lock().unwrap().browser_link;
         take_picked(&draft.ffmpeg_picked, &mut draft.ffmpeg_path);
         // A picked scanner keeps the arguments typed after the program.
         let mut scanner = String::new();
@@ -3290,14 +3427,88 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
         ui.label(tr("Browsers"));
         ui.vertical(|ui| {
             ui.weak(tr("Capture downloads from these browsers. Each needs UIDM's extension; restart a browser after a change."));
-            if draft.browsers.is_empty() {
+            if let Some((connected, last_seen)) = draft.browser_link {
+                ui.label(browser_link_text(connected, last_seen, uidm::state::unix_now()));
+            }
+            if draft.browsers.iter().all(|b| b.removed) {
                 ui.label(tr("No browser was found."));
             }
-            for b in &mut draft.browsers {
-                ui.checkbox(&mut b.on, b.browser.name);
+            let mut toggled = None;
+            for (i, b) in draft.browsers.iter_mut().enumerate().filter(|(_, b)| !b.removed) {
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut b.on, &b.name).changed() {
+                        toggled = Some(i);
+                    }
+                    let plan = b.restart_plan();
+                    let restart = ui.add_enabled(plan.is_some(), egui::Button::new(tr("Restart")).small());
+                    let restart = if plan.is_some() {
+                        restart.on_hover_text(tr("Close this browser and start it again, so it sees a change"))
+                    } else {
+                        restart.on_disabled_hover_text(tr("UIDM does not know this browser's program; add it with Add browser... to restart it"))
+                    };
+                    if restart.clicked() {
+                        draft.restart_ask = Some(i);
+                    }
+                    if b.added.is_some() && ui.small_button(tr("Remove")).clicked() {
+                        b.removed = true;
+                    }
+                });
+                if let Some(a) = &b.added {
+                    let note = if !b.known {
+                        trf!("{program}; registered where {place} looks, which most browsers of its kind read", program = a.program, place = b.browser.name)
+                    } else if b.browser.name != b.name {
+                        trf!("{program}; uses {place}'s registration", program = a.program, place = b.browser.name)
+                    } else {
+                        a.program.clone()
+                    };
+                    ui.indent(("added_browser", i), |ui| ui.weak(note));
+                }
+            }
+            // Browsers sharing a place are registered together, so their
+            // boxes move together.
+            if let Some(i) = toggled {
+                let (place, on) = (draft.browsers[i].browser, draft.browsers[i].on);
+                for b in draft.browsers.iter_mut().filter(|b| b.browser.same_place(&place)) {
+                    b.on = on;
+                }
             }
             if !draft.chrome_readers.is_empty() {
                 ui.weak(trf!("{browsers} use Google Chrome's setting.", browsers = draft.chrome_readers.join(", ")));
+            }
+            if ui.button(tr("Add browser...")).on_hover_text(tr("Choose the program of a browser that is not in the list")).clicked() {
+                let (slot, ctx) = (Arc::clone(&draft.browser_picked), ui.ctx().clone());
+                thread::spawn(move || {
+                    if let Some(file) = rfd::FileDialog::new().set_title(tr("Add browser")).pick_file() {
+                        *slot.lock().unwrap() = Some(file);
+                        ctx.request_repaint();
+                    }
+                });
+            }
+            if let Some(i) = draft.restart_ask {
+                let name = draft.browsers[i].name.clone();
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(trf!("Restart {browser}? Unsaved work in it may be lost.", browser = name));
+                    if ui.button(tr("Restart")).clicked() {
+                        draft.restart_ask = None;
+                        if let Some(plan) = draft.browsers[i].restart_plan() {
+                            draft.browser_note = Some(trf!("Restarting {browser}...", browser = name));
+                            let (done, ctx) = (Arc::clone(&draft.restart_done), ui.ctx().clone());
+                            thread::spawn(move || {
+                                *done.lock().unwrap() = Some(match uidm::browsers::restart(&plan) {
+                                    Ok(()) => trf!("{browser} was restarted.", browser = name),
+                                    Err(e) => trf!("Could not restart {browser}: {error}", browser = name, error = e),
+                                });
+                                ctx.request_repaint();
+                            });
+                        }
+                    }
+                    if ui.button(tr("Cancel")).clicked() {
+                        draft.restart_ask = None;
+                    }
+                });
+            }
+            if let Some(note) = &draft.browser_note {
+                ui.weak(note);
             }
         });
         ui.end_row();

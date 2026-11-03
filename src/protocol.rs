@@ -732,6 +732,15 @@ pub enum Outgoing {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resumes_at: Option<u64>,
     },
+    /// Whether the browser extension is connected now and, when it is not,
+    /// when one last was (seconds since 1970; `None` when none has since
+    /// the daemon started). Sent to windows when a window connects, and
+    /// when the first extension connects or the last one goes.
+    BrowserLink {
+        connected: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_seen: Option<u64>,
+    },
     /// Asks the browser extension for its cookies for `url` (for a site
     /// crawl that signs in with them); it answers with `cookies`.
     CookiesWanted { request: u64, url: String },
