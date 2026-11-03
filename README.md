@@ -398,11 +398,19 @@ tests, not in a running Firefox.
   login can also go with an address from the start: **Login** next to the
   URL bar shows user name and password fields for the addresses added
   there, and **Add many** has **Use a login** for every address in it.
-- **Download video**: a button appears over a video playing in the browser.
-  It lists what the page loaded: direct video and audio files with their
-  sizes, and streams (HLS `.m3u8`, DASH `.mpd`) with each quality UIDM read
-  from the playlist and its estimated size. Pick one and UIDM downloads it,
-  named after the page's title. A stream's segments are fetched in parallel
+- **Download video**: a button appears over a video playing in the browser,
+  and over `<audio>` players and `<object>`/`<embed>` media players (an
+  audio player gets it just above). It lists what that player loaded:
+  direct video and audio files with their sizes, and streams (HLS `.m3u8`,
+  DASH `.mpd`) with each quality UIDM read from the playlist and its
+  estimated size; on a feed with many players each button lists its own
+  player's streams, and the page's whole list when it cannot tell. The
+  button hides while its player is covered by something else on the page,
+  while the tab is in the background or its window minimized, and in full
+  screen. Pick one and UIDM downloads it, named after the page (its
+  `og:title`, else the tab's title, also for a player in a frame) without the
+  site's name after it ("Cute cat - YouTube" becomes "Cute cat.mp4", on any
+  site). A stream's segments are fetched in parallel
   and joined into one video (see [Streams](#streams-batches-and-the-site-grabber)).
   Videos protected by DRM say so and offer nothing: UIDM does not get around
   DRM. The popup turns the button off everywhere or on the current site;
@@ -1209,12 +1217,29 @@ name with a generic type; anything under `video_min_size_kb`, 128 KiB by
 default, is left out) and the HLS and DASH playlists, of the types in
 `video_types` (`m3u8` and `mpd` for the streams; a file whose type neither
 its name nor its MIME type says is kept). Segments (`.ts`, `.m4s`, `video/mp2t`) are left out, and
-the list starts over when the tab loads a new page. A content script
-(`content.js`) shows **Download video** over a playing `<video>` in a closed
+the list starts over when the tab loads a new page, or when a single-page
+site moves to another (`webNavigation.onHistoryStateUpdated`; what came in
+the second before stays, and the tab's buttons are reset). A content script
+(`content.js`) shows **Download video** over a playing `<video>` or
+`<audio>`, or a media `<object>`/`<embed>` the pointer is over, in a closed
 shadow root, so the page's scripts and styles cannot reach it, and shows
-page and server text with `textContent` only. When clicked it asks the
-worker for its own tab's list, and the worker asks UIDM (`probe_media`) what
-each stream offers. A content script can only pick from what the worker saw
+page and server text with `textContent` only. It tells the worker when each
+player starts loading or playing (`video:started`, with a number per
+player). When clicked it asks the worker for its tab's list for that player
+(`video:menu` with the player's number and its `currentSrc`, `src` and
+`<source>` addresses): the files and streams at those addresses, and the
+playlists its frame asked for while it was the player that started last
+(or that started within 1.5 s after), which tells players fed through
+`blob:` addresses apart; with nothing of its own, the whole list. The worker
+asks UIDM (`probe_media`) what each stream offers. The button hides when, at
+five points of the player, what is on top lies outside the player's box
+(its furthest ancestor not much bigger than it, so a custom player's
+controls and overlays do not count), when `document.hidden`, and when
+something is full screen; it looks again on scroll, resize and once a
+second. Tabs open before the extension was installed, updated or turned
+back on get the content script injected (`scripting.executeScript`, every
+frame that lacks it) on `runtime.onInstalled` and on the first connection
+to UIDM in a browser session. A content script can only pick from what the worker saw
 in its tab, by number, never pass in an address. A video element that raised
 an `encrypted` event or holds `MediaKeys` is DRM protected: the menu says so
 and offers nothing, or with `video_protected_note` off the button does not

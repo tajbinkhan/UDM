@@ -330,7 +330,72 @@ function formFileFields(elements) {
   return { names: [...new Set(files.map((e) => String(e.name)))], chosen: files.some((e) => e.files && e.files.length > 0) };
 }
 
+// The video button's side of a page (content.js), kept here as plain
+// functions the tests can call.
+
+// Media file types and playlists an <object> or <embed> may play.
+const PLUGIN_MEDIA_EXTENSIONS = new Set([
+  "mp4", "m4v", "webm", "mkv", "mov", "ogv", "avi", "wmv", "flv", "3gp",
+  "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "m3u8", "mpd",
+]);
+
+// Whether an <object> or <embed> with type `type` at address `url` (its
+// `data` or `src`) is a media player: its type names video, audio or a
+// stream playlist, its address is a media file or playlist, or it is an
+// embedded YouTube or Vimeo player. Other plugins (PDF viewers, widgets)
+// get no video button.
+function mediaPlugin(type, url) {
+  const mime = String(type || "").split(";")[0].trim().toLowerCase();
+  if (/^(video|audio)\//.test(mime) || /mpegurl$|dash\+xml$/.test(mime)) return true;
+  if (!/^https?:\/\//i.test(String(url || ""))) return false;
+  if (PLUGIN_MEDIA_EXTENSIONS.has(extensionOf(urlPath(url)))) return true;
+  return /^https?:\/\/(?:www\.)?(?:youtube(?:-nocookie)?\.com\/(?:v|embed)\/|player\.vimeo\.com\/video\/)/i.test(url);
+}
+
+// The element that holds the player `el` with its controls and overlays:
+// its furthest ancestor (below <body>) not much bigger than it. A custom
+// player draws its controls, poster and click catcher over the video in
+// such a box, and they do not cover it.
+function playerContainer(el) {
+  const r = el.getBoundingClientRect();
+  const area = Math.max(1, r.width * r.height);
+  let box = el;
+  for (let p = el.parentElement; p && p.parentElement && !/^(body|html)$/i.test(p.tagName); p = p.parentElement) {
+    const q = p.getBoundingClientRect();
+    if (q.width * q.height > area * 1.5) break;
+    box = p;
+  }
+  return box;
+}
+
+// Points of rectangle `r` to look at for what covers it: its centre and
+// four more around it, kept inside a `width` x `height` viewport.
+function samplePoints(r, width, height) {
+  const at = (fx, fy) => [
+    Math.min(width - 1, Math.max(0, r.left + r.width * fx)),
+    Math.min(height - 1, Math.max(0, r.top + r.height * fy)),
+  ];
+  return [at(0.5, 0.5), at(0.25, 0.25), at(0.75, 0.25), at(0.25, 0.75), at(0.75, 0.75)];
+}
+
+// Whether the player `el` is covered by something else on the page (a
+// dialog, a sticky banner, another tab's panel): at every point of `points`
+// the topmost element (`hitAt(x, y)`, document.elementFromPoint) is outside
+// the player's `container` and is not one of its ancestors. UIDM's own
+// button (`ignore`) covers nothing; points where nothing is (off screen)
+// say nothing.
+function playerCovered(el, container, points, hitAt, ignore) {
+  let looked = 0;
+  for (const [x, y] of points) {
+    const hit = hitAt(x, y);
+    if (!hit || hit === ignore) continue;
+    looked++;
+    if (container.contains(hit) || hit.contains(el)) return false;
+  }
+  return looked > 0;
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed, formFileFields, heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS };
+  module.exports = { mediaPlugin, playerContainer, samplePoints, playerCovered, mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed, formFileFields, heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS };
 
 }

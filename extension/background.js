@@ -159,6 +159,14 @@ const media = new Map();
 // (`video_auto_capture`): tab id -> Set(url), so each goes once, and again
 // only after the tab goes to another page.
 const playerTaken = new Map();
+// When each tab's players started loading or playing, as their content
+// scripts say: tab id -> [{ frameId, element, time }] (see noteMediaStart),
+// to tell which player asked for which stream.
+const mediaStarts = new Map();
+// What a single-page site loaded this long before it moved to another page
+// is kept: the new page's player may have asked for its stream just before
+// the browser said the page changed.
+const PAGE_MOVE_GRACE_MS = 1000;
 
 // Hand the file a web player loaded (webRequest details `d`) to UIDM, as a
 // click on it in the video button's menu would, but named by its address.
@@ -190,7 +198,7 @@ if (chrome.webRequest) {
       if (d.tabId < 0 || !privateAllowed(d)) return;
       const found = classifyMedia(d, rules);
       if (found) {
-        recordMedia(media, d.tabId, d.url, found, Date.now());
+        recordMedia(media, d.tabId, d.url, found, Date.now(), d.frameId);
         scheduleRecentMenu();
       }
       if (connected && captureEnabled && tabCaptures(d.tabId) && autoCaptureMedia(d, rules, playerTaken.get(d.tabId))) takeFromPlayer(d);
@@ -201,6 +209,7 @@ if (chrome.webRequest) {
   chrome.webRequest.onBeforeRequest.addListener(
     (d) => {
       if (d.tabId >= 0) playerTaken.delete(d.tabId);
+      if (d.tabId >= 0) mediaStarts.delete(d.tabId);
       if (d.tabId >= 0 && media.delete(d.tabId)) scheduleRecentMenu();
     },
     { urls: ["<all_urls>"], types: ["main_frame"] },
@@ -209,7 +218,27 @@ if (chrome.webRequest) {
 if (chrome.tabs) {
   chrome.tabs.onRemoved.addListener((tabId) => {
     playerTaken.delete(tabId);
+    mediaStarts.delete(tabId);
     if (media.delete(tabId)) scheduleRecentMenu();
+  });
+}
+
+// A single-page site (a feed, YouTube) moving to another page without
+// loading one: the tab's list starts over as on a page load, keeping only
+// what came in just before (PAGE_MOVE_GRACE_MS), and its frames hide their
+// video buttons, whose players belong to the old page.
+function pageMoved(tabId) {
+  const since = Date.now() - PAGE_MOVE_GRACE_MS;
+  playerTaken.delete(tabId);
+  const starts = (mediaStarts.get(tabId) || []).filter((s) => s.time >= since);
+  if (starts.length) mediaStarts.set(tabId, starts);
+  else mediaStarts.delete(tabId);
+  if (forgetMedia(media, tabId, since)) scheduleRecentMenu();
+  if (chrome.tabs && chrome.tabs.sendMessage) chrome.tabs.sendMessage(tabId, { type: "video:reset" }).catch(() => {});
+}
+if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
+  chrome.webNavigation.onHistoryStateUpdated.addListener((d) => {
+    if (d.frameId === 0 && d.tabId >= 0) pageMoved(d.tabId);
   });
 }
 // A YouTube video, which moves between videos without loading a page.
@@ -260,13 +289,21 @@ async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = nul
   });
 }
 
-// The video button's menu for tab `tabId` (`tab`). Pages in a private
-// window are recorded only when they may go to UIDM, so otherwise they stay
-// out of the "last videos" menus.
-async function videoMenu(tabId, referrer, tab) {
+// The video button's menu for tab `tabId` (`tab`), for the player `player`
+// ({ frameId, element, srcs }) whose button was clicked: its own streams
+// when the worker can tell which they are (elementEntries), else all the
+// tab's. Pages in a private window are recorded only when they may go to
+// UIDM, so otherwise they stay out of the "last videos" menus.
+async function videoMenu(tabId, referrer, tab, player = {}) {
   const page = privateAllowed(tab) && videoPageUrl(referrer);
   if (page) recordPage(media, tabId, page, Date.now());
-  const entries = [...(media.get(tabId) || new Map()).values()];
+  const entries = elementEntries(
+    [...(media.get(tabId) || new Map()).values()],
+    mediaStarts.get(tabId),
+    player.frameId,
+    player.element,
+    player.srcs,
+  );
   const streams = entries.filter((e) => e.kind !== "file");
   const infos = new Map();
   await Promise.all(
@@ -278,8 +315,21 @@ async function videoMenu(tabId, referrer, tab) {
   return mediaMenu(entries, infos);
 }
 
-// Send media entry `entryId` of tab `tabId` to UIDM, in the chosen quality.
-// `referrer` is the document that played it, `page` the tab's own address.
+// What the top frame of tab `tabId` calls its page (pageNames, in
+// content.js), for a video downloaded from one of its frames, which cannot
+// read the top page itself. Without an answer, the tab's title.
+async function topPageNames(tabId, tab) {
+  try {
+    const names = await chrome.tabs.sendMessage(tabId, { type: "page:names" }, { frameId: 0 });
+    if (names && typeof names.title === "string") return names;
+  } catch (_) {}
+  return { title: (tab && tab.title) || "" };
+}
+
+// Send media entry `entryId` of tab `tabId` to UIDM, in the chosen quality,
+// named after its page (`msg.title`, `msg.ogTitle`, `msg.siteName`; see
+// videoName). `referrer` is the document that played it, `page` the tab's
+// own address.
 async function downloadMedia(tabId, msg, referrer, page = null) {
   const entry = [...(media.get(tabId) || new Map()).values()].find((e) => e.id === msg.entry);
   if (!entry || !connected) return false;
@@ -289,11 +339,14 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
   if (referrer) download.referrer = referrer;
   if (isWeb(page)) download.page = page;
   await addBrowserProxy(download);
+  const names = { title: msg.title, ogTitle: msg.ogTitle, siteName: msg.siteName };
+  // YouTube's count of new notifications goes before its title.
+  if (entry.kind === "page") names.title = pageTitle(names.title);
+  const title = videoName(names, page || referrer);
   if (entry.kind === "file") {
-    download.filename = titleFileName(msg.title, mediaFileExtension(entry));
+    download.filename = titleFileName(title, mediaFileExtension(entry));
   } else {
     const soundOnly = ["m4a", "mp3"].includes(msg.audioOnly) ? msg.audioOnly : null;
-    const title = entry.kind === "page" ? pageTitle(msg.title) : msg.title;
     download.filename = titleFileName(title, soundOnly || "mp4");
     download.media = { kind: entry.kind };
     if (typeof msg.video === "string") download.media.video = msg.video;
@@ -328,11 +381,27 @@ function onContentMessage(msg, sender, sendResponse) {
         sendResponse({ connected: false, items: [] });
         return false;
       }
-      videoMenu(tabId, pageUrl, sender.tab).then((items) => sendResponse({ connected: true, items }));
+      videoMenu(tabId, pageUrl, sender.tab, {
+        frameId: sender.frameId || 0,
+        element: Number.isInteger(msg.element) ? msg.element : null,
+        srcs: Array.isArray(msg.srcs) ? msg.srcs.filter((u) => typeof u === "string").slice(0, 20) : [],
+      }).then((items) => sendResponse({ connected: true, items }));
       return true;
-    case "video:download":
-      downloadMedia(tabId, msg, pageUrl, sender.tab.url).then((ok) => sendResponse({ ok }));
+    case "video:started":
+      // A player of this frame started loading or playing (see content.js).
+      if (Number.isInteger(msg.element)) noteMediaStart(mediaStarts, tabId, sender.frameId || 0, msg.element, Date.now());
+      sendResponse({ ok: true });
+      return false;
+    case "video:download": {
+      const text = (v) => (typeof v === "string" ? v.slice(0, 1000) : "");
+      const own = { title: text(msg.title), ogTitle: text(msg.ogTitle), siteName: text(msg.siteName) };
+      // A frame's own page is not what the video is called: the tab's is.
+      const names = sender.frameId ? topPageNames(tabId, sender.tab) : Promise.resolve(own);
+      names
+        .then((n) => downloadMedia(tabId, { ...msg, ...n }, pageUrl, sender.tab.url))
+        .then((ok) => sendResponse({ ok }));
       return true;
+    }
     case "selection:enabled":
       sendResponse({ enabled: connected && selectionButtonAllowed(rules, pageUrl), view: (rules && rules.video_view) || "full" });
       return false;
@@ -578,6 +647,7 @@ function onHostMessage(msg) {
       connected = true;
       lastError = "";
       reconnectDelay = RECONNECT_MIN_MS;
+      injectOnConnect();
       break;
     case "ack":
       if (awaitingAck.has(msg.url)) {
@@ -1507,6 +1577,57 @@ async function downloadRecent({ tabId, entry }) {
 }
 
 chrome.runtime.onInstalled.addListener(buildMenus);
+
+// Tabs open before UIDM was installed (or updated, or turned back on) have
+// no content script: the browser only adds it to pages loaded after. They
+// get it here, in every frame that does not have it yet (content.js also
+// does nothing when it runs twice). Pages extensions may not script, and
+// tabs the browser has unloaded, are left as they are.
+async function injectOpenTabs() {
+  if (!chrome.scripting || !chrome.tabs || !chrome.tabs.query) return 0;
+  const scripts = ((chrome.runtime.getManifest().content_scripts || [])[0] || {}).js || [];
+  if (scripts.length === 0) return 0;
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
+  } catch (_) {
+    return 0;
+  }
+  let injected = 0;
+  for (const tab of tabs || []) {
+    if (!tab || tab.id == null || tab.discarded || !isWeb(tab.url)) continue;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        func: () => globalThis.uidmContentLoaded === true,
+      });
+      const missing = (results || []).filter((r) => r && r.result !== true).map((r) => r.frameId);
+      if (missing.length === 0) continue;
+      await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: missing }, files: scripts });
+      injected++;
+    } catch (_) {
+      // A page extensions may not script, such as the web store.
+    }
+  }
+  return injected;
+}
+chrome.runtime.onInstalled.addListener(() => injectOpenTabs());
+
+// The first time UIDM connects in a browser session, open tabs get the
+// content script too: an extension turned off and on again, or reloaded,
+// gets no onInstalled. Once a session (chrome.storage.session) is enough.
+let injectedOnConnect = false;
+async function injectOnConnect() {
+  if (injectedOnConnect) return;
+  injectedOnConnect = true;
+  const store = chrome.storage && chrome.storage.session;
+  if (store) {
+    const s = await store.get({ contentInjected: false }).catch(() => ({}));
+    if (s.contentInjected) return;
+    await store.set({ contentInjected: true }).catch(() => {});
+  }
+  await injectOpenTabs();
+}
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   // A private window's links and media stay out of UIDM, like its downloads,

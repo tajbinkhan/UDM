@@ -162,23 +162,153 @@ function pageTitle(title) {
     .replace(/\s+-\s+YouTube$/, "");
 }
 
+// The label of a host's registrable domain, which sites put after their
+// pages' titles: "youtube" for www.youtube.com, "bbc" for www.bbc.co.uk.
+// Without the public suffix list, a two-letter country code under a short
+// generic second level (co.uk, com.au, ne.jp) counts as one suffix.
+function siteLabel(host) {
+  const labels = String(host || "").toLowerCase().replace(/\.$/, "").split(".").filter(Boolean);
+  if (labels.length < 2) return labels[0] || "";
+  const generic = /^(co|com|net|org|gov|edu|ac|ne|or|go)$/;
+  const twoPart = labels.length >= 3 && labels.at(-1).length === 2 && generic.test(labels.at(-2));
+  return labels.at(twoPart ? -3 : -2);
+}
+
+const titleWords = (s) => String(s || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+
+// `title` without a trailing " - Site", " | Site", " — Site" (or "–", "·",
+// "•") naming the site at `host`: its words run together are the domain's
+// label ("The Verge" on theverge.com), or the first of them is ("BBC News"
+// on bbc.co.uk), or they are the page's og:site_name `siteName`. A dash in
+// the middle of a title is kept: only the last part can be the site's name,
+// and only when it is.
+function stripSiteName(title, host, siteName) {
+  const text = String(title || "").trim();
+  const m = /^(.*\S)\s+[-|\u2013\u2014\u00b7\u2022]\s+([^-|\u2013\u2014\u00b7\u2022]+)$/.exec(text);
+  if (!m) return text;
+  const words = titleWords(m[2]);
+  const label = siteLabel(host);
+  const named = titleWords(siteName).join("");
+  const isSite =
+    words.length > 0 &&
+    ((label && (words.join("") === label || words[0] === label)) || (named && words.join("") === named));
+  return isSite ? m[1] : text;
+}
+
+// The name a video from a page gets: the page's og:title, else its title,
+// without the site's name after it (stripSiteName). `page` is { title,
+// ogTitle, siteName } from the tab's top frame; `url` is the tab's address.
+// A single-page site may leave its first page's og:title behind as it moves
+// on, so og:title is only taken when the title holds it or there is none.
+function videoName(page, url) {
+  const title = String((page && page.title) || "").trim();
+  const og = String((page && page.ogTitle) || "").trim();
+  const chosen = og && (!title || title.toLowerCase().includes(og.toLowerCase())) ? og : title;
+  return stripSiteName(chosen, hostOf(url || ""), page && page.siteName);
+}
+
+// The requests of one media address kept (the newest), each with the frame
+// that made it, so it can be matched to the player that asked.
+const REQUESTS_PER_MEDIA = 10;
+// Players each tab started kept (the newest).
+const STARTS_PER_TAB = 100;
+// A player may fetch its playlist just before its element says it started
+// loading (or the element's message arrives late): a playlist requested
+// this soon before a player's start is that player's when no player was
+// playing yet.
+const START_GRACE_MS = 1500;
+
+// Remember that player `element` (a number the frame's content script gave
+// it) in frame `frameId` of tab `tabId` started loading or playing at `now`.
+// `store` maps tab id -> [{ frameId, element, time }], oldest first.
+function noteMediaStart(store, tabId, frameId, element, now) {
+  if (!store.has(tabId)) store.set(tabId, []);
+  const starts = store.get(tabId);
+  starts.push({ frameId: frameId || 0, element, time: now });
+  if (starts.length > STARTS_PER_TAB) starts.splice(0, starts.length - STARTS_PER_TAB);
+}
+
+// The player of frame `frameId` a request made at `time` belongs to: the one
+// that started last before it, else the first to start within
+// START_GRACE_MS after it. null when no player of that frame started.
+function startedElement(starts, frameId, time) {
+  let before = null;
+  let after = null;
+  for (const s of starts || []) {
+    if (s.frameId !== (frameId || 0)) continue;
+    if (s.time <= time) {
+      if (!before || s.time >= before.time) before = s;
+    } else if (s.time - time <= START_GRACE_MS && (!after || s.time < after.time)) {
+      after = s;
+    }
+  }
+  const found = before || after;
+  return found ? found.element : null;
+}
+
+// The entries of a tab's list (`entries`) that belong to player `element`
+// of frame `frameId`: the files and streams at one of its addresses
+// (`srcs`: its currentSrc, src and <source> children, or an <object>'s or
+// <embed>'s address), and the streams that frame asked for while this
+// player was the one playing (see startedElement), which is how a player
+// fed through a blob: address is told apart from the others on a feed. A
+// video page (YouTube's) goes with them. When nothing belongs to the player,
+// all of `entries`: a menu with the page's videos beats an empty one.
+function elementEntries(entries, starts, frameId, element, srcs) {
+  const addresses = new Set((srcs || []).filter((u) => typeof u === "string" && /^https?:/i.test(u)));
+  const own = entries.filter(
+    (e) =>
+      e.kind !== "page" &&
+      (addresses.has(e.url) ||
+        (e.kind !== "file" &&
+          element != null &&
+          (e.requests || []).some((r) => r.frameId === (frameId || 0) && startedElement(starts, r.frameId, r.time) === element))),
+  );
+  if (own.length === 0) return entries;
+  return [...own, ...entries.filter((e) => e.kind === "page")];
+}
+
+// Forget what tab `tabId` loaded before `before` (a time): a single-page
+// site moved to another page without loading one. What came in after it is
+// the new page's, and so is an address the new page asked for again.
+// Returns whether anything went.
+function forgetMedia(store, tabId, before) {
+  const tab = store.get(tabId);
+  if (!tab) return false;
+  let gone = false;
+  for (const [url, e] of tab) {
+    if (Math.max(e.time, ...(e.requests || []).map((r) => r.time)) < before) {
+      tab.delete(url);
+      gone = true;
+    }
+  }
+  if (tab.size === 0) store.delete(tabId);
+  return gone;
+}
+
 let nextMediaId = 1;
 
 // Remember media `found` (from classifyMedia) at `url` for tab `tabId`.
 // `store` maps tab id -> Map(url -> entry). The same URL again keeps its
-// entry, learning its size if it was unknown. Returns the entry.
-function recordMedia(store, tabId, url, found, now) {
+// entry, learning its size if it was unknown. Each request is noted with
+// the frame `frameId` that made it (see elementEntries). Returns the entry.
+function recordMedia(store, tabId, url, found, now, frameId) {
   let tab = store.get(tabId);
   if (!tab) {
     tab = new Map();
     store.set(tabId, tab);
   }
+  const request = { frameId: frameId || 0, time: now };
   let entry = tab.get(url);
   if (entry) {
     if (!entry.size && found.size) entry.size = found.size;
+    if (found.kind !== "page") {
+      entry.requests.push(request);
+      if (entry.requests.length > REQUESTS_PER_MEDIA) entry.requests.shift();
+    }
     return entry;
   }
-  entry = { id: nextMediaId++, url, kind: found.kind, mime: found.mime, size: found.size, time: now };
+  entry = { id: nextMediaId++, url, kind: found.kind, mime: found.mime, size: found.size, time: now, requests: found.kind === "page" ? [] : [request] };
   tab.set(url, entry);
   while (tab.size > MEDIA_PER_TAB) tab.delete(tab.keys().next().value);
   return entry;
@@ -330,5 +460,5 @@ function titleFileName(title, ext) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
+  module.exports = { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, START_GRACE_MS, adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
 }

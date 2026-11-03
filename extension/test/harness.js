@@ -106,6 +106,7 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
     // parentFrameId, url }].
     webNavigation: {
       frames: new Map(),
+      onHistoryStateUpdated: event(),
       getAllFrames: async ({ tabId }) => chrome.webNavigation.frames.get(tabId) || null,
     },
     tabs: {
