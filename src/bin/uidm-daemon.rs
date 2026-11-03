@@ -96,6 +96,23 @@ const LINK_PROBES: usize = 4;
 /// Where early downloads go: UIDM's own data folder, which only this user
 /// can write. The temporary folder is shared by every user on Linux, where
 /// another user could read the files or plant a link under the folder.
+/// The saved file of an early download reported as stopped, if it in fact
+/// finished: its file is there at the size the server gave, and neither a
+/// partial file nor a resume file is left (a stopped download keeps both).
+fn early_finished_anyway(early: &Early) -> Option<&Path> {
+    let target = early.target.as_deref()?;
+    let total = early.total?;
+    let partial_left = early
+        .file
+        .as_deref()
+        .is_some_and(|f| f != target && f.exists());
+    let finished = !partial_left
+        && !engine::sidecar_path(target).exists()
+        && early.file.as_deref().is_none_or(|f| !engine::sidecar_path(f).exists())
+        && std::fs::metadata(target).is_ok_and(|m| m.is_file() && m.len() == total);
+    finished.then_some(target)
+}
+
 fn early_root() -> PathBuf {
     uidm::platform::data_dir()
         .map(|d| d.join("early"))
@@ -171,6 +188,9 @@ struct Early {
     dir: PathBuf,
     /// The file it writes, once started.
     file: Option<PathBuf>,
+    /// The file it saves to when finished, and its size, once known.
+    target: Option<PathBuf>,
+    total: Option<u64>,
     /// How it ended: finished (with its file), or stopped or failed.
     end: Option<Option<PathBuf>>,
     /// Nobody waits for it: once it ends it goes, with its folder.
@@ -335,9 +355,14 @@ impl Hub {
         match p {
             Progress::Started { path, partial, total, .. } => {
                 e.file = Some(partial.clone().unwrap_or_else(|| path.clone()));
+                e.target = Some(path.clone());
+                e.total = *total;
                 shown = Some((0, *total));
             }
-            Progress::Advanced { done, total, .. } => shown = Some((*done, *total)),
+            Progress::Advanced { done, total, .. } => {
+                e.total = total.or(e.total);
+                shown = Some((*done, *total));
+            }
             Progress::Finished { path, .. } => e.end = Some(Some(path.clone())),
             Progress::Failed { .. } | Progress::Canceled { .. } | Progress::NameTaken { .. } => e.end = Some(None),
         }
@@ -2548,6 +2573,8 @@ impl Daemon {
                 real: id,
                 dir,
                 file: None,
+                target: None,
+                total: None,
                 end: None,
                 discard: false,
             },
@@ -2597,7 +2624,15 @@ impl Daemon {
             asked.unwrap_or(self.settings.lock().unwrap().file_exists) == FileExists::Overwrite
         };
         let mut kept = false;
-        match (entry, path, early.end, early.file) {
+        // Stopping it can land after its last byte was written and its file
+        // saved, which the engine still reports as stopped: a whole file
+        // with no partial file or resume file left is kept as finished,
+        // rather than fetched again.
+        let end = match early.end {
+            Some(None) => Some(early_finished_anyway(&early).map(Path::to_path_buf)),
+            end => end,
+        };
+        match (entry, path, end, early.file) {
             (Some(e), Some(path), Some(Some(finished)), _) => {
                 let to = free_path(&path, overwrite);
                 match move_file(&finished, &to) {
@@ -5863,6 +5898,44 @@ mod tests {
             // Two one-byte probes on top of the file itself.
             assert!(sent.load(Ordering::Relaxed) < LEN as u64 + 4096, "sent {}", sent.load(Ordering::Relaxed));
         }
+    }
+
+    #[test]
+    fn an_early_download_stopped_after_saving_counts_as_finished() {
+        let dir = std::env::temp_dir().join(format!("uidm_early_late_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("big.bin");
+        let partial = dir.join("big.bin.part");
+        let early = |file: &Path| Early {
+            real: 1,
+            dir: dir.clone(),
+            file: Some(file.to_path_buf()),
+            target: Some(target.clone()),
+            total: Some(4),
+            end: Some(None),
+            discard: false,
+        };
+
+        // Stopped half way: the partial file and its resume file are left.
+        std::fs::write(&partial, b"ab").unwrap();
+        std::fs::write(engine::sidecar_path(&partial), b"{}").unwrap();
+        assert_eq!(early_finished_anyway(&early(&partial)), None);
+
+        // Saved before the stop landed: only the whole file is left.
+        std::fs::remove_file(&partial).unwrap();
+        std::fs::remove_file(engine::sidecar_path(&partial)).unwrap();
+        std::fs::write(&target, b"abcd").unwrap();
+        assert_eq!(early_finished_anyway(&early(&partial)), Some(target.as_path()));
+
+        // Written in place without resume data but short: not finished.
+        std::fs::write(&target, b"abc").unwrap();
+        assert_eq!(early_finished_anyway(&early(&target)), None);
+        // In place with its resume file: stopped, not finished.
+        std::fs::write(&target, b"abcd").unwrap();
+        std::fs::write(engine::sidecar_path(&target), b"{}").unwrap();
+        assert_eq!(early_finished_anyway(&early(&target)), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
