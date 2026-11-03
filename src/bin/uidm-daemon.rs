@@ -808,6 +808,8 @@ impl Daemon {
             q.started_by_schedule = false;
             q.when_done_once = None;
             q.open_when_done_once = None;
+            q.force_close_once = None;
+            q.stop_at_once = None;
             Ok(q.order.clone())
         })?;
         self.runs.lock().unwrap().remove(&id);
@@ -839,6 +841,12 @@ impl Daemon {
 
         let queues = self.hub.queues.lock().unwrap().clone();
         for q in &queues {
+            // A run a grabber project started ends at the project's stop time.
+            if q.running && q.stop_at_once.is_some_and(|end| now.total() >= end) {
+                eprintln!("[uidm-daemon] the grabber project's stop time stops queue {}", q.name);
+                let _ = self.stop_queue(q.id);
+                continue;
+            }
             let Some(schedule) = &q.schedule else {
                 continue;
             };
@@ -1070,9 +1078,11 @@ impl Daemon {
         let Ok((name, action, open, force_close)) = self.hub.update_queue(id, |q| {
             q.running = false;
             q.started_by_schedule = false;
+            q.stop_at_once = None;
             let action = q.when_done_once.take().unwrap_or(q.when_done);
             let open = q.open_when_done_once.take().or_else(|| q.open_when_done.clone());
-            Ok((q.name.clone(), action, open, q.force_close))
+            let force_close = q.force_close_once.take().unwrap_or(q.force_close);
+            Ok((q.name.clone(), action, open, force_close))
         }) else {
             return;
         };
@@ -1940,10 +1950,12 @@ impl Daemon {
     /// One scheduled run of a grabber project, as its `run` says: crawl
     /// until done or until the schedule's stop time and keep what it found,
     /// then maybe add the new finds to the project's queue and start it; or
-    /// only add the ticked files and start the queue. What the project asks
-    /// when done happens after the crawl, or once the queue is done.
+    /// only add the ticked files and start the queue. The stop time ends the
+    /// queue's run too, and what the project asks when done (with its own
+    /// force-close choice) happens after the crawl, or once the queue is done.
     fn run_scheduled_grab(self: &Arc<Self>, dir: &Path, mut project: grab::Project, day: i64) {
         eprintln!("[uidm-daemon] schedule runs grabber project {} ({:?})", project.name, project.run);
+        let end = project.schedule.as_ref().filter(|s| s.stop.is_some()).and_then(|s| s.end_of_run(day));
         let resync;
         let to_download = match project.run {
             grab::RunAction::DownloadChecked => {
@@ -1951,7 +1963,6 @@ impl Daemon {
                 project.checked_files()
             }
             run => {
-                let end = project.schedule.as_ref().filter(|s| s.stop.is_some()).and_then(|s| s.end_of_run(day));
                 let stop = AtomicBool::new(false);
                 let out = self.run_crawl(&project.request, &stop, |_| {
                     if end.is_some_and(|end| queue::local_now() >= end) {
@@ -1976,6 +1987,8 @@ impl Daemon {
         let _ = self.hub.update_queue(project.queue, |q| {
             q.when_done_once = Some(project.when_done);
             q.open_when_done_once = project.open_when_done.clone();
+            q.force_close_once = Some(project.force_close);
+            q.stop_at_once = end.map(queue::Moment::total);
             Ok(())
         });
         // A synchronizing project downloads again what earlier runs got and
@@ -1998,12 +2011,14 @@ impl Daemon {
             let _ = self.hub.update_queue(project.queue, |q| {
                 q.when_done_once = None;
                 q.open_when_done_once = None;
+                q.force_close_once = None;
+                q.stop_at_once = None;
                 Ok(())
             });
             if let Some(file) = &project.open_when_done {
                 open_after_run(file);
             }
-            self.when_done(project.when_done, &project.name, None, false);
+            self.when_done(project.when_done, &project.name, None, project.force_close);
         }
     }
     /// Convert finished download `id` on another thread. The new file is a
@@ -5057,6 +5072,92 @@ mod tests {
         }
         t.wait(id, Status::Done);
         assert_eq!(grab::Project::load(&dir, "manuals").unwrap().kind, queue::QueueKind::Synchronize, "the type is saved");
+    }
+
+    #[test]
+    fn a_scheduled_project_stops_its_downloads_at_its_stop_time() {
+        let t = setup("grab_stop_time", Duplicate::NewName);
+        let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
+        let today = queue::local_now().day;
+        let mut project: grab::Project = serde_json::from_value(serde_json::json!({
+            "name": "slow",
+            "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
+            "run": "download_checked",
+            "schedule": { "start": "00:00", "stop": "01:00" },
+        }))
+        .unwrap();
+        project.files = vec![grab::GrabFile { url, name: "slow.bin".into(), page: String::new(), size: None, text: None }];
+        project.checked = vec![true];
+        let dir = t.dir.join("projects");
+        // Tomorrow's run, so its stop time is still ahead.
+        t.daemon.run_scheduled_grab(&dir, project, today + 1);
+        let main = || t.daemon.hub.queues.lock().unwrap().iter().find(|q| q.id == MAIN_QUEUE).cloned().unwrap();
+        assert_eq!(main().stop_at_once, Some((today + 1) * 1440 + 60), "the queue's run has the project's stop time");
+        assert!(main().running);
+        let id = *main().order.first().unwrap();
+        let until = Instant::now() + Duration::from_secs(10);
+        while t.daemon.status(id) != Some(Status::Downloading) {
+            assert!(Instant::now() < until, "never started: {:?}", t.daemon.entry(id));
+            t.daemon.tick();
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        // The stop time comes: the queue stops, its download waits again.
+        t.daemon
+            .hub
+            .update_queue(MAIN_QUEUE, |q| {
+                q.stop_at_once = Some(queue::local_now().total());
+                Ok(())
+            })
+            .unwrap();
+        t.daemon.tick();
+        assert!(!main().running, "the queue stopped");
+        assert_eq!(main().stop_at_once, None, "the stop time was for that run only");
+        t.wait(id, Status::Waiting);
+        assert!(t.daemon.countdown.lock().unwrap().is_none(), "a stopped run does not do its when-done action");
+    }
+
+    #[test]
+    fn a_scheduled_project_force_closes_when_asked() {
+        // Never really shut down, even if a check below fails.
+        std::env::set_var(POWER_DRY_RUN_ENV, "1");
+        let t = setup("grab_force_close", Duplicate::NewName);
+        let dir = t.dir.join("projects");
+        let mut project: grab::Project = serde_json::from_value(serde_json::json!({
+            "name": "shutdown",
+            "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
+            "run": "download_checked",
+            "when_done": "shut_down",
+            "force_close": true,
+        }))
+        .unwrap();
+        assert!(project.force_close, "saved with the project");
+        let countdown_forces = |t: &Setup| {
+            let forced = t.daemon.countdown.lock().unwrap().as_ref().map(|c| (c.action, c.force_close));
+            t.daemon.cancel_countdown();
+            forced
+        };
+
+        // Nothing to download: done at once.
+        t.daemon.run_scheduled_grab(&dir, project.clone(), 1);
+        assert_eq!(countdown_forces(&t), Some((WhenDone::ShutDown, true)));
+
+        // Done once the queue is, which does not force on its own.
+        let file = Arc::new(Mutex::new((b"data".to_vec(), Some("\"d1\"".to_string()))));
+        let url = serve_versions(file);
+        project.files = vec![grab::GrabFile { url, name: "d.bin".into(), page: String::new(), size: None, text: None }];
+        project.checked = vec![true];
+        t.daemon.run_scheduled_grab(&dir, project, 2);
+        assert_eq!(t.daemon.hub.queues.lock().unwrap()[0].force_close_once, Some(true));
+        let until = Instant::now() + Duration::from_secs(10);
+        while t.daemon.hub.queues.lock().unwrap().iter().any(|q| q.id == MAIN_QUEUE && q.running) {
+            assert!(Instant::now() < until, "the run never ended");
+            t.daemon.tick();
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(countdown_forces(&t), Some((WhenDone::ShutDown, true)));
+        let main = t.daemon.hub.queues.lock().unwrap()[0].clone();
+        assert!(!main.force_close && main.force_close_once.is_none(), "the queue's own choice is back for its next run");
     }
 
     /// A download that starts while its dialog is open, the dialog then

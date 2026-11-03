@@ -426,8 +426,9 @@ tests, not in a running Firefox.
   is one-time downloading or periodic synchronization, which also checks the
   files earlier runs found (or the ticked ones) and downloads again those
   changed on the server. It then exits UIDM,
-  sleeps, hibernates or shuts down, and can open a file, after the crawl or
-  once the queue is done.
+  sleeps, hibernates or shuts down (with its own **Force apps to close**),
+  and can open a file, after the crawl or once the queue is done. Its stop
+  time ends the queue's downloads too, as it ends the crawl.
 - **Clipboard** (off by default; **Options > Browser capture**): copying a
   link whose file type is on the capture list brings up a small **Download
   the copied link?** prompt with **Download** and **Ignore**, and the same
@@ -1093,9 +1094,12 @@ given to the downloads on that site. Named filters are kept in
 `grabber\templates\`. With scripts run, the extension closes every window
 the page opens and reports its address; the crawl explores those only when
 **Ignore the windows page scripts open** is off. A scheduled run sets the
-project's when-done action and file on its queue for that run only
-(`when_done_once`, `open_when_done_once`), so the queue's own settings come
-back afterwards; a run that adds nothing does them at once.
+project's when-done action, file and force-close choice on its queue for
+that run only (`when_done_once`, `open_when_done_once`, `force_close_once`),
+so the queue's own settings come back afterwards; a run that adds nothing
+does them at once. With a stop time it also sets `stop_at_once`, and the
+scheduler stops that queue run (its downloads wait again, progress kept)
+once the time passes.
 
 ## Notifications and virus scans
 

@@ -589,6 +589,9 @@ pub struct GrabDialog {
     sync: uidm::queue::QueueKind,
     sched_queue: u64,
     when_done: uidm::queue::WhenDone,
+    /// Shutting down when done closes programs that would hold it up; only
+    /// kept with shutting down, as the Queues dialog does.
+    force_close: bool,
     /// A file to open after a scheduled run; empty for none.
     open_when_done: String,
     /// The file the Browse button picked for `open_when_done`.
@@ -644,6 +647,7 @@ impl GrabDialog {
             download_new: false,
             queue: self.sched_queue,
             when_done: self.when_done,
+            force_close: self.force_close && self.when_done == uidm::queue::WhenDone::ShutDown,
             open_when_done: Some(self.open_when_done.trim().to_string()).filter(|f| !f.is_empty()),
             seen: self.kept.0.clone(),
             last_scheduled_day: self.kept.1,
@@ -674,6 +678,7 @@ impl GrabDialog {
         d.sync = p.kind;
         d.sched_queue = p.queue;
         d.when_done = p.when_done;
+        d.force_close = p.force_close;
         d.open_when_done = p.open_when_done.clone().unwrap_or_default();
         d.kept = (p.seen.clone(), p.last_scheduled_day, p.last_scheduled_start);
         if !p.files.is_empty() {
@@ -768,6 +773,7 @@ impl GrabDialog {
             sync: uidm::queue::QueueKind::OneTime,
             sched_queue: MAIN_QUEUE,
             when_done: uidm::queue::WhenDone::Nothing,
+            force_close: false,
             open_when_done: String::new(),
             open_picked: Picked::default(),
             kept: (Vec::new(), None, None),
@@ -1287,6 +1293,11 @@ fn grab_body(
                     })
                     .response
                     .on_hover_text(tr("After the crawl, or once the queue has downloaded what the run added"));
+                    ui.add_enabled(
+                        d.when_done == uidm::queue::WhenDone::ShutDown,
+                        egui::Checkbox::new(&mut d.force_close, tr("Force apps to close")),
+                    )
+                    .on_hover_text(tr("Shut down even if a program asks to save its work first; unsaved work is lost"));
                 });
             });
             ui.add_space(4.0);

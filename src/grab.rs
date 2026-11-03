@@ -829,6 +829,10 @@ pub struct Project {
     /// A file to open once a scheduled run is done.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_when_done: Option<String>,
+    /// Shutting down when done closes programs that would hold it up, as a
+    /// queue's `force_close` does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force_close: bool,
     /// Every file address earlier runs found, so a run adds only new ones.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seen: Vec<String>,
@@ -1771,6 +1775,7 @@ Crawl-delay: 2.5
             download_new: false,
             when_done: crate::queue::WhenDone::Nothing,
             open_when_done: None,
+            force_close: true,
             queue: crate::queue::MAIN_QUEUE,
             seen: Vec::new(),
             last_scheduled_day: None,

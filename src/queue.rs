@@ -163,6 +163,15 @@ pub struct Queue {
     /// Shutting down when done closes programs that would hold it up.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub force_close: bool,
+    /// Replaces `force_close` for the current run only: a scheduled grabber
+    /// project's own choice, for its when-done action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_close_once: Option<bool>,
+    /// The current run stops at this time, in minutes since 1970 local time:
+    /// the stop time of the scheduled grabber project that started it, so
+    /// its downloads end with the project's run as the crawl does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_at_once: Option<i64>,
     /// Whether finished downloads leave it or stay to be synchronized.
     #[serde(default, skip_serializing_if = "QueueKind::is_one_time")]
     pub kind: QueueKind,
@@ -190,6 +199,8 @@ impl Queue {
             open_when_done_once: None,
             start_on_launch: false,
             force_close: false,
+            force_close_once: None,
+            stop_at_once: None,
             kind: QueueKind::OneTime,
         }
     }
