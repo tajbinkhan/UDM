@@ -570,8 +570,9 @@ enum Action {
     HideScheduleNote,
     /// Open the speed limit dialog for a download.
     OpenSpeedLimit(u64),
-    /// Set or clear a download's own limit, in bytes per second.
-    SetSpeedLimit(u64, Option<u64>),
+    /// Set or clear a download's own limit, in bytes per second, and
+    /// whether it stays when the download is stopped and resumed.
+    SetSpeedLimit(u64, Option<u64>, bool),
     SetProperties {
         id: u64,
         changes: Properties,
@@ -681,6 +682,8 @@ struct LimitDialog {
     enabled: bool,
     value: f64,
     unit: SpeedUnit,
+    /// Keep the limit when the download is stopped and resumed.
+    remember: bool,
 }
 
 /// The files inside a zip download, once the daemon has listed them.
@@ -982,6 +985,10 @@ struct OptionsDraft {
     limit_enabled: bool,
     limit_value: f64,
     limit_unit: SpeedUnit,
+    limit_on_startup: bool,
+    /// The limit for each file, and its value in KB/s, kept while it is off.
+    per_file_on: bool,
+    per_file_kbps: u64,
     resume_at_startup: bool,
     file_exists: FileExists,
     if_duplicate: Duplicate,
@@ -1145,6 +1152,9 @@ impl OptionsDraft {
             limit_enabled: s.speed_limit_enabled,
             limit_value: kbps as f64 / limit_unit.kb(),
             limit_unit,
+            limit_on_startup: s.speed_limit_on_startup,
+            per_file_on: s.speed_limit_per_file_kbps.is_some(),
+            per_file_kbps: s.speed_limit_per_file_kbps.unwrap_or(512),
             resume_at_startup: s.resume_at_startup,
             file_exists: s.file_exists,
             if_duplicate: s.if_duplicate,
@@ -1281,6 +1291,8 @@ impl OptionsDraft {
             max_concurrent: self.max_concurrent,
             speed_limit_enabled: self.limit_enabled,
             speed_limit_kbps: (self.limit_value * self.limit_unit.kb()).round() as u64,
+            speed_limit_on_startup: self.limit_on_startup,
+            speed_limit_per_file_kbps: self.per_file_on.then_some(self.per_file_kbps),
             resume_at_startup: self.resume_at_startup,
             close_to_tray: self.close_to_tray,
             tray_icon: self.tray_icon,
@@ -2008,11 +2020,12 @@ impl App {
                         enabled: e.speed_limit.is_some(),
                         value: kbps as f64 / unit.kb(),
                         unit,
+                        remember: e.limit_remember,
                     });
                 }
             }
-            Action::SetSpeedLimit(id, bytes_per_sec) => {
-                send(&self.writer, &Incoming::SetSpeedLimit { id, bytes_per_sec });
+            Action::SetSpeedLimit(id, bytes_per_sec, remember) => {
+                send(&self.writer, &Incoming::SetSpeedLimit { id, bytes_per_sec, remember: Some(remember) });
             }
             Action::SetProperties { id, changes } => {
                 send(&self.writer, &Incoming::SetProperties { id, changes });
@@ -2843,6 +2856,22 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
                 }
             });
         });
+        ui.end_row();
+
+        ui.label("");
+        ui.add_enabled_ui(draft.limit_enabled, |ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut draft.per_file_on, tr("Limit each file to"));
+                let (lo, hi) = SPEED_LIMIT_RANGE_KBPS;
+                ui.add_enabled(draft.per_file_on, egui::DragValue::new(&mut draft.per_file_kbps).range(lo..=hi).suffix(" KB/s"));
+            })
+            .response
+            .on_hover_text(tr("Downloads with a speed limit of their own keep it instead"));
+        });
+        ui.end_row();
+
+        ui.label("");
+        ui.checkbox(&mut draft.limit_on_startup, tr("Always turn the speed limit on when UIDM starts"));
         ui.end_row();
 
         ui.label(tr("Download quota"));
@@ -4728,7 +4757,7 @@ impl App {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.label(trf!("A speed limit for {name} alone.", name = display_name(e)));
-                ui.weak(tr("The total limit still applies; the lower one wins. The limit stays when it stops and resumes."));
+                ui.weak(tr("The total limit still applies; the lower one wins."));
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut d.enabled, tr("Limit to"));
@@ -4754,11 +4783,12 @@ impl App {
                         }
                     });
                 });
+                ui.add_enabled(d.enabled, egui::Checkbox::new(&mut d.remember, tr("Remember on stop and resume")));
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     if ui.add_enabled(connected, egui::Button::new(tr("Save"))).clicked() {
                         let bytes = d.enabled.then(|| (d.value * d.unit.kb() * 1024.0).round() as u64);
-                        actions.push(Action::SetSpeedLimit(d.id, bytes));
+                        actions.push(Action::SetSpeedLimit(d.id, bytes, d.remember));
                         close = true;
                     }
                     if ui.button(tr("Cancel")).clicked() {

@@ -280,11 +280,19 @@ struct Sched {
     limit: usize,
 }
 
+/// One running download's limiter, and the limit set for it alone.
+type OwnLimit = (Arc<RateLimiter>, Option<u64>);
+
 /// What every running download shares.
 struct Shared {
     limiter: RateLimiter,
-    /// Each running download's own limit, by id.
-    own_limits: Mutex<HashMap<u64, Arc<RateLimiter>>>,
+    /// Each running download's limiter, by id, with the limit set for that
+    /// download alone (`None` when it follows `per_file`).
+    own_limits: Mutex<HashMap<u64, OwnLimit>>,
+    /// The limit for each download that has none of its own, or `None`.
+    /// Every such download gets a bucket of its own at this rate, so it caps
+    /// each file rather than all of them together.
+    per_file: Mutex<Option<u64>>,
     /// Connections in use to hosts with a limit.
     host_slots: HostSlots,
     /// Whether a connection that finishes early takes over half of the
@@ -374,7 +382,7 @@ impl<'a> Gate<'a> {
 impl Shared {
     /// Download `id`'s own limiter; an unlimited one if it has none.
     fn own_limiter(&self, id: u64) -> Arc<RateLimiter> {
-        self.own_limits.lock().unwrap().get(&id).cloned().unwrap_or_default()
+        self.own_limits.lock().unwrap().get(&id).map(|(l, _)| Arc::clone(l)).unwrap_or_default()
     }
 }
 
@@ -407,6 +415,7 @@ impl Engine {
                 shared: Arc::new(Shared {
                     limiter: RateLimiter::default(),
                     own_limits: Mutex::new(HashMap::new()),
+                    per_file: Mutex::new(None),
                     host_slots: HostSlots::default(),
                     resplit: AtomicBool::new(true),
                     claimed: Mutex::new(HashSet::new()),
@@ -468,14 +477,36 @@ impl Engine {
 
     /// Set one download's own speed limit, or `None` to clear it. A running
     /// download slows down or speeds up at once; a queued one starts with it.
+    /// Clearing it falls back to the limit per file, if one is set.
     pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
-        if let Some(own) = self.inner.shared.own_limits.lock().unwrap().get(&id) {
-            own.set_rate(bytes_per_sec);
+        let shared = &self.inner.shared;
+        let per_file = *shared.per_file.lock().unwrap();
+        if let Some((limiter, own)) = shared.own_limits.lock().unwrap().get_mut(&id) {
+            *own = bytes_per_sec;
+            limiter.set_rate(bytes_per_sec.or(per_file));
         }
         let mut sched = self.inner.sched.lock().unwrap();
         for job in sched.queue.iter_mut().filter(|j| j.id == id) {
             job.req.speed_limit = bytes_per_sec;
         }
+    }
+
+    /// Set the limit for each download that has no limit of its own, or
+    /// `None` for none. Running downloads change speed at once.
+    pub fn set_per_file_limit(&self, bytes_per_sec: Option<u64>) {
+        let shared = &self.inner.shared;
+        let rate = bytes_per_sec.filter(|b| *b > 0);
+        *shared.per_file.lock().unwrap() = rate;
+        for (limiter, own) in shared.own_limits.lock().unwrap().values() {
+            if own.is_none() {
+                limiter.set_rate(rate);
+            }
+        }
+    }
+
+    /// The limit a download without one of its own has, if any.
+    pub fn per_file_limit(&self) -> Option<u64> {
+        *self.inner.shared.per_file.lock().unwrap()
     }
 
     /// Downloads queued or running. Each leaves the registry when it finishes,
@@ -543,6 +574,7 @@ pub fn run_blocking(req: DownloadRequest, cb: Arc<dyn Fn(Progress) + Send + Sync
     let shared = Shared {
         limiter: RateLimiter::default(),
         own_limits: Mutex::new(HashMap::new()),
+        per_file: Mutex::new(None),
         host_slots: HostSlots::default(),
         resplit: AtomicBool::new(true),
         claimed: Mutex::new(HashSet::new()),
@@ -561,12 +593,23 @@ fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, sh
         reporter.send(Progress::Canceled { id, url });
         return;
     }
-    let own = Arc::new(RateLimiter::new(req.speed_limit));
-    shared.own_limits.lock().unwrap().insert(id, Arc::clone(&own));
+    let mut req = req;
+    let own_rate = req.speed_limit;
+    let own = {
+        // Read the limit per file under the same lock that a change to it
+        // walks, so a change made now cannot miss this download.
+        let mut own_limits = shared.own_limits.lock().unwrap();
+        let rate = own_rate.or(*shared.per_file.lock().unwrap());
+        // yt-dlp takes one fixed limit when it starts.
+        req.speed_limit = rate;
+        let own = Arc::new(RateLimiter::new(rate));
+        own_limits.insert(id, (Arc::clone(&own), own_rate));
+        own
+    };
     let result = run_inner(id, &token, &req, &reporter, shared);
     {
         let mut own_limits = shared.own_limits.lock().unwrap();
-        if own_limits.get(&id).is_some_and(|o| Arc::ptr_eq(o, &own)) {
+        if own_limits.get(&id).is_some_and(|(o, _)| Arc::ptr_eq(o, &own)) {
             own_limits.remove(&id);
         }
     }
@@ -2226,6 +2269,7 @@ mod tests {
             let shared = Shared {
                 limiter: RateLimiter::default(),
                 own_limits: Mutex::new(HashMap::new()),
+                per_file: Mutex::new(None),
                 host_slots: HostSlots::default(),
                 resplit: AtomicBool::new(true),
                 claimed: Mutex::new(HashSet::new()),

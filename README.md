@@ -306,7 +306,9 @@ tests, not in a running Firefox.
   **Pause** or **Resume** and **Cancel** (which stops it and closes the
   window; the download stays in the list). **Show details** adds the
   connection bars and table from **More > Connections...**, and the **Speed
-  limit** tab sets the download's own limit. The **When done** tab (also in
+  limit** tab sets the download's own limit, with **Remember on stop and
+  resume** (on by default; untick it to have the limit dropped when the
+  download is stopped and resumed). The **When done** tab (also in
   **Properties**) sets what happens once this download finishes: show the
   completion dialog whatever Options says, then exit UIDM, sleep, hibernate
   or shut down (after the same 60-second countdown a queue uses). It runs
@@ -476,7 +478,9 @@ tests, not in a running Firefox.
   unless the pattern names one).
 - **Options** (top right of the window) has five tabs. **General**: the
   download folder, connections per file (1 to 16), downloads at once (1 to
-  10), a total speed limit, a download quota (no more than so many MB every
+  10), a total speed limit (with, while it is on, a limit for each file
+  that has no limit of its own, and **Always turn the speed limit on when
+  UIDM starts**), a download quota (no more than so many MB every
   so many hours, with a warning at 90% that can be turned off), what to do when a file name is taken or an
   address is already in the list, the save-as
   dialog, whether to resume unfinished downloads when UIDM starts, Start with
@@ -734,7 +738,9 @@ The speed limit is one token bucket shared by every connection of every
 download. Each read takes tokens for the bytes it read and sleeps when the
 bucket runs dry, and reads shrink to about a tenth of a second's worth so
 throttled downloads flow evenly. A new limit, or turning it off, applies to
-running downloads within 100 ms.
+running downloads within 100 ms. Each download also has a bucket of its own,
+at its own limit or, while the speed limit is on, at the limit per file;
+a read waits for both, so the lower limit wins.
 
 The daemon keeps each download's original request, cookies included, while it
 can still be retried, so a retry resends the same headers. It drops the request
@@ -791,7 +797,8 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "cancel_grab" }
 { "op": "get_settings" }
 { "op": "set_settings", "settings": { "download_dir": null, "connections": 8, "max_concurrent": 3,
-  "speed_limit_enabled": false, "speed_limit_kbps": 1024, "resume_at_startup": false,
+  "speed_limit_enabled": false, "speed_limit_kbps": 1024, "speed_limit_on_startup": false,
+  "speed_limit_per_file_kbps": null, "resume_at_startup": false,
   "file_exists": "rename", "if_duplicate": "ask", "ask_where_to_save": true,
   "categories": [ { "name": "Compressed", "extensions": ["zip", "rar"], "folder": null } ],
   "capture_types": ["zip", "pdf"], "capture_min_size_kb": 0,

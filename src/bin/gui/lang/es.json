@@ -245,7 +245,7 @@
   "Don't capture this address": "No capturar esta dirección",
   "Keep capturing": "Seguir capturando",
   "A speed limit for {name} alone.": "Un límite de velocidad solo para {name}.",
-  "The total limit still applies; the lower one wins. The limit stays when it stops and resumes.": "El límite total sigue vigente; se aplica el más bajo. El límite se mantiene al detenerla y reanudarla.",
+  "The total limit still applies; the lower one wins.": "El límite total sigue vigente; se aplica el más bajo.",
   "Remove {name} from the list?": "¿Quitar {name} de la lista?",
   "It is not finished, so its partial file goes too.": "No ha terminado, así que también se elimina su archivo parcial.",
   "Remove {count} downloads from the list?": "¿Quitar {count} descargas de la lista?",
@@ -821,5 +821,9 @@
   "Restart {browser}? Unsaved work in it may be lost.": "¿Reiniciar {browser}? Puede perderse el trabajo sin guardar.",
   "Restarting {browser}...": "Reiniciando {browser}...",
   "{browser} was restarted.": "Se ha reiniciado {browser}.",
-  "Could not restart {browser}: {error}": "No se pudo reiniciar {browser}: {error}"
+  "Could not restart {browser}: {error}": "No se pudo reiniciar {browser}: {error}",
+  "Remember on stop and resume": "Recordar al detener y reanudar",
+  "Limit each file to": "Limitar cada archivo a",
+  "Downloads with a speed limit of their own keep it instead": "Las descargas con un límite de velocidad propio mantienen el suyo",
+  "Always turn the speed limit on when UIDM starts": "Activar siempre el límite de velocidad al iniciar UIDM"
 }

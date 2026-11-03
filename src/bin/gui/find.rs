@@ -209,6 +209,7 @@ mod tests {
             category: None,
             login_user: None,
             speed_limit: None,
+            limit_remember: true,
             partial: None,
             from_browser: false,
             on_done: None,

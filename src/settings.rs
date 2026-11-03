@@ -427,6 +427,14 @@ pub struct Settings {
     pub speed_limit_enabled: bool,
     /// Total speed across every download, in KB/s (1 KB = 1024 bytes).
     pub speed_limit_kbps: u64,
+    /// Turn the speed limit on whenever the daemon starts, whatever it was
+    /// when UIDM last ran, for users who only want it off for a while.
+    #[serde(default)]
+    pub speed_limit_on_startup: bool,
+    /// While the speed limit is on, the most each download may take, in
+    /// KB/s, unless it has a limit of its own. `None` caps only the total.
+    #[serde(default)]
+    pub speed_limit_per_file_kbps: Option<u64>,
     /// Queue interrupted downloads again when the daemon starts.
     pub resume_at_startup: bool,
     pub file_exists: FileExists,
@@ -658,6 +666,8 @@ impl Default for Settings {
             max_concurrent: DEFAULT_MAX_CONCURRENT,
             speed_limit_enabled: false,
             speed_limit_kbps: DEFAULT_SPEED_LIMIT_KBPS,
+            speed_limit_on_startup: false,
+            speed_limit_per_file_kbps: None,
             resume_at_startup: false,
             file_exists: FileExists::Rename,
             if_duplicate: Duplicate::Ask,
@@ -836,6 +846,9 @@ impl Settings {
         let (lo, hi) = SPEED_LIMIT_RANGE_KBPS;
         if !(lo..=hi).contains(&self.speed_limit_kbps) {
             return Err(format!("The speed limit must be between {lo} and {hi} KB/s."));
+        }
+        if self.speed_limit_per_file_kbps.is_some_and(|k| !(lo..=hi).contains(&k)) {
+            return Err(format!("The speed limit per file must be between {lo} and {hi} KB/s."));
         }
         if let Some(dir) = &self.download_dir {
             check_folder("The download folder", dir)?;
@@ -1099,6 +1112,14 @@ impl Settings {
             .then(|| self.speed_limit_kbps.saturating_mul(1024))
     }
 
+    /// The limit for each download without one of its own, in bytes per
+    /// second, or `None` when the speed limit is off or has no such limit.
+    pub fn per_file_limit_bytes(&self) -> Option<u64> {
+        self.speed_limit_per_file_kbps
+            .filter(|_| self.speed_limit_enabled)
+            .map(|k| k.saturating_mul(1024))
+    }
+
     /// Read settings from `path`. A missing file gives the defaults; an
     /// unreadable or invalid one is an error, so the caller can say so instead
     /// of silently dropping the user's choices.
@@ -1273,6 +1294,8 @@ mod tests {
             max_concurrent: 5,
             speed_limit_enabled: true,
             speed_limit_kbps: 500,
+            speed_limit_on_startup: true,
+            speed_limit_per_file_kbps: Some(200),
             resume_at_startup: true,
             file_exists: FileExists::Overwrite,
             if_duplicate: Duplicate::Existing,
@@ -1383,6 +1406,20 @@ mod tests {
     }
 
     #[test]
+    fn the_limit_per_file_applies_only_while_the_speed_limit_is_on() {
+        let mut s = Settings { speed_limit_per_file_kbps: Some(200), ..Settings::default() };
+        assert_eq!(s.per_file_limit_bytes(), None);
+        s.speed_limit_enabled = true;
+        assert_eq!(s.per_file_limit_bytes(), Some(200 * 1024));
+        s.speed_limit_per_file_kbps = None;
+        assert_eq!(s.per_file_limit_bytes(), None);
+        // Settings saved before these options load with them off.
+        let old: Settings = serde_json::from_str(r#"{"speed_limit_enabled":false}"#).unwrap();
+        assert!(!old.speed_limit_on_startup);
+        assert_eq!(old.speed_limit_per_file_kbps, None);
+    }
+
+    #[test]
     fn invalid_file_is_an_error() {
         let path = temp_path("invalid.json");
         fs::write(&path, b"{ not json").unwrap();
@@ -1407,6 +1444,10 @@ mod tests {
         }
         let s = Settings { speed_limit_kbps: 0, ..Settings::default() };
         assert!(s.validate().is_err());
+        for (per_file, valid) in [(None, true), (Some(0), false), (Some(1), true), (Some(10_000_001), false)] {
+            let s = Settings { speed_limit_per_file_kbps: per_file, ..Settings::default() };
+            assert_eq!(s.validate().is_ok(), valid, "per file {per_file:?}");
+        }
         for (text_size, valid) in [(79, false), (80, true), (150, true), (151, false)] {
             let s = Settings { text_size, ..Settings::default() };
             assert_eq!(s.validate().is_ok(), valid, "text_size {text_size}");

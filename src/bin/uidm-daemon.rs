@@ -199,6 +199,11 @@ impl Hub {
             if self.held.lock().unwrap().remove(id) {
                 if let Some(mut item) = table.get(*id).cloned() {
                     item.status = Status::Waiting;
+                    // Stopping its queue stops it; starting the queue again
+                    // resumes it, without its own limit unless remembered.
+                    if !item.limit_remember {
+                        item.speed_limit = None;
+                    }
                     let waiting = Outgoing::Updated { item };
                     table.apply(&waiting);
                     let _ = self.dirty.send(());
@@ -579,6 +584,11 @@ impl Daemon {
                 eprintln!("[uidm-daemon] could not give each proxy its own login: {e}");
             }
         }
+        // IDM's "Always turn on Speed Limiter on startup": the limit is on
+        // after every start, even if it was turned off last time.
+        if settings.speed_limit_on_startup {
+            settings.speed_limit_enabled = true;
+        }
         let history = match &paths.history {
             Some(path) => History::load(path).unwrap_or_else(|e| {
                 // Keep the unreadable file for inspection instead of
@@ -641,6 +651,7 @@ impl Daemon {
             settings.max_concurrent,
         );
         engine.set_speed_limit(settings.speed_limit_bytes());
+        engine.set_per_file_limit(settings.per_file_limit_bytes());
         let max_id = hub.table.lock().unwrap().max_id();
         engine.set_next_id(history.next_id.max(max_id + 1));
 
@@ -2813,12 +2824,13 @@ impl Daemon {
                 page: entry.page.clone(),
                 ..Download::default()
             });
-        // The new entry keeps the old one's description, category and speed
-        // limit.
+        // The new entry keeps the old one's description and category, and
+        // its speed limit unless the user chose not to remember it on stop
+        // and resume.
         let download = Download {
             description: entry.description.clone(),
             category: entry.category.clone(),
-            speed_limit: entry.speed_limit,
+            speed_limit: entry.speed_limit.filter(|_| entry.limit_remember),
             ..download
         };
         // A retried download keeps its place in its queue.
@@ -2832,6 +2844,9 @@ impl Daemon {
         let reuse_path = entry.path.filter(|_| started).map(PathBuf::from);
         let reuse_partial = entry.partial.filter(|_| started).map(PathBuf::from);
         let (new_id, url) = self.start_resuming(download, reuse_path, reuse_partial);
+        if !entry.limit_remember {
+            let _ = self.set_limit_remember(new_id, false);
+        }
         if let Some(q) = queue {
             let _ = self.move_to_queue(new_id, q, None);
         }
@@ -2855,6 +2870,16 @@ impl Daemon {
             d.speed_limit = limit;
         }
         self.engine.set_download_limit(id, limit);
+        Ok(())
+    }
+
+    /// Set whether download `id` keeps its own speed limit when it is
+    /// stopped and resumed.
+    fn set_limit_remember(&self, id: u64, remember: bool) -> Result<(), String> {
+        self.hub.update(id, |e| {
+            e.limit_remember = remember;
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -3259,6 +3284,7 @@ impl Daemon {
         }
         self.engine.set_concurrency(new.max_concurrent);
         self.engine.set_speed_limit(new.speed_limit_bytes());
+        self.engine.set_per_file_limit(new.per_file_limit_bytes());
         *self.settings.lock().unwrap() = new.clone();
         self.hub.broadcast(&Outgoing::Settings { settings: new });
         Ok(())
@@ -3742,8 +3768,11 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
                 let _ = tx.send(cookies);
             }
         }
-        Incoming::SetSpeedLimit { id, bytes_per_sec } => {
-            if let Err(message) = daemon.set_download_limit(id, bytes_per_sec) {
+        Incoming::SetSpeedLimit { id, bytes_per_sec, remember } => {
+            let set = daemon
+                .set_download_limit(id, bytes_per_sec)
+                .and_then(|()| remember.map_or(Ok(()), |r| daemon.set_limit_remember(id, r)));
+            if let Err(message) = set {
                 send(&Outgoing::Error { message });
             }
         }
@@ -4623,9 +4652,100 @@ mod tests {
             assert!(Instant::now() < until, "the retry lost its limit");
             thread::sleep(Duration::from_millis(20));
         }
+        assert!(t.daemon.entry(new_id).unwrap().limit_remember, "remembering is on by default");
         t.daemon.cancel(new_id);
         t.daemon.set_download_limit(new_id, None).unwrap();
         assert_eq!(t.daemon.entry(new_id).unwrap().speed_limit, None);
+    }
+
+    #[test]
+    fn a_limit_not_remembered_is_dropped_on_stop_and_resume() {
+        let t = setup("forget_limit", Duplicate::NewName);
+        let id = t.failed("https://x/slow.bin");
+        t.daemon.set_download_limit(id, Some(64 * 1024)).unwrap();
+        t.daemon.set_limit_remember(id, false).unwrap();
+        let (new_id, _) = t.daemon.retry(id).unwrap();
+        // Give the new entry time to take what its request carries.
+        thread::sleep(Duration::from_millis(200));
+        let e = t.daemon.entry(new_id).unwrap();
+        assert_eq!(e.speed_limit, None, "the limit went with the stop");
+        assert!(!e.limit_remember, "the choice stays with the download");
+        t.daemon.cancel(new_id);
+
+        // Stopping its queue and starting it again is a stop and resume too.
+        let id = t.daemon.engine.reserve_id();
+        t.daemon.hub.publish(&Outgoing::Added { id, url: "https://x/q.bin".into() });
+        t.daemon.set_download_limit(id, Some(64 * 1024)).unwrap();
+        t.daemon.set_limit_remember(id, false).unwrap();
+        t.daemon.hub.held.lock().unwrap().insert(id);
+        t.daemon.hub.publish(&Outgoing::Canceled { id, url: "https://x/q.bin".into() });
+        let e = t.daemon.entry(id).unwrap();
+        assert_eq!(e.status, Status::Waiting);
+        assert_eq!(e.speed_limit, None);
+
+        // Remembered, it stays.
+        let id = t.daemon.engine.reserve_id();
+        t.daemon.hub.publish(&Outgoing::Added { id, url: "https://x/r.bin".into() });
+        t.daemon.set_download_limit(id, Some(64 * 1024)).unwrap();
+        t.daemon.hub.held.lock().unwrap().insert(id);
+        t.daemon.hub.publish(&Outgoing::Canceled { id, url: "https://x/r.bin".into() });
+        assert_eq!(t.daemon.entry(id).unwrap().speed_limit, Some(64 * 1024));
+    }
+
+    #[test]
+    fn the_speed_limit_can_turn_on_at_every_start() {
+        let dir = std::env::temp_dir().join(format!("uidm_limit_startup_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        let start = |on_startup: bool| {
+            let s = Settings {
+                speed_limit_enabled: false,
+                speed_limit_kbps: 300,
+                speed_limit_on_startup: on_startup,
+                speed_limit_per_file_kbps: Some(100),
+                ..Settings::default()
+            };
+            s.save(&path).unwrap();
+            let (daemon, ..) = Daemon::new(Paths {
+                settings: Some(path.clone()),
+                history: None,
+                requests: None,
+                quota: None,
+            });
+            let s = daemon.settings.lock().unwrap().clone();
+            (s, daemon.engine.per_file_limit())
+        };
+        let (s, per_file) = start(false);
+        assert!(!s.speed_limit_enabled, "off as it was left");
+        assert_eq!(per_file, None, "the limit per file is off with it");
+        let (s, per_file) = start(true);
+        assert!(s.speed_limit_enabled, "on, though it was left off");
+        assert_eq!(s.speed_limit_bytes(), Some(300 * 1024));
+        assert_eq!(per_file, Some(100 * 1024));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_limit_per_file_caps_each_download_without_its_own() {
+        let t = setup("per_file", Duplicate::NewName);
+        let mut s = t.daemon.settings.lock().unwrap().clone();
+        s.speed_limit_enabled = true;
+        s.speed_limit_kbps = 100_000;
+        s.speed_limit_per_file_kbps = Some(32);
+        t.daemon.set_settings(s.clone()).unwrap();
+        assert_eq!(t.daemon.engine.per_file_limit(), Some(32 * 1024));
+
+        // 48 KiB at 32 KiB/s takes about 1.5s; unlimited, a fraction of that.
+        let started = Instant::now();
+        let id = t.add(&serve_ranges(Arc::new(vec![3u8; 48 * 1024]), Arc::new(AtomicU64::new(0))));
+        t.wait(id, Status::Done);
+        let secs = started.elapsed().as_secs_f64();
+        assert!(secs >= 1.0, "took {secs:.2}s; the limit per file did not hold");
+
+        // It only applies while the speed limit is on.
+        s.speed_limit_enabled = false;
+        t.daemon.set_settings(s).unwrap();
+        assert_eq!(t.daemon.engine.per_file_limit(), None);
     }
 
     #[test]

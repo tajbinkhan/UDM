@@ -313,6 +313,7 @@ mod tests {
             category: None,
             login_user: Some("me".into()),
             speed_limit: None,
+            limit_remember: true,
             partial: None,
             from_browser: false,
             on_done: None,

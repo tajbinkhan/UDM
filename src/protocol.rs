@@ -171,11 +171,15 @@ pub enum Incoming {
     /// login, or (when finished) its file's name and folder.
     SetProperties { id: u64, changes: Properties },
     /// Set or clear one download's own speed limit, in bytes per second. A
-    /// running download changes speed at once.
+    /// running download changes speed at once. `remember` sets whether the
+    /// limit stays when the download is stopped and resumed; missing leaves
+    /// that as it was.
     SetSpeedLimit {
         id: u64,
         #[serde(default)]
         bytes_per_sec: Option<u64>,
+        #[serde(default)]
+        remember: Option<bool>,
     },
     /// Stop the countdown and sleep, hibernate or shut down now.
     CountdownNow,
@@ -194,6 +198,10 @@ pub enum Incoming {
 
 fn yes() -> bool {
     true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 /// The save-as dialog's answer for a `confirming` download, or the start of
@@ -525,10 +533,15 @@ pub struct DownloadEntry {
     /// password stays in the daemon's encrypted request store.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login_user: Option<String>,
-    /// Its own speed limit in bytes per second, kept across stops, retries
-    /// and restarts.
+    /// Its own speed limit in bytes per second, kept across restarts, and
+    /// across stops and retries while `limit_remember` is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_limit: Option<u64>,
+    /// Keep `speed_limit` when the download is stopped and resumed (IDM's
+    /// "Remember on stop and resume"). On unless the user unticks it, as in
+    /// IDM; when off, resuming starts it without its own limit.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub limit_remember: bool,
     /// Where its unfinished data is, when not at `path`: a temporary folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partial: Option<String>,
