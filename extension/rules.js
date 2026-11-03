@@ -182,6 +182,44 @@ function trackKey(held, type, key) {
   return held;
 }
 
+// As in IDM, the skip or force keys held down count not only for a link
+// clicked meanwhile but for any download their tab starts while they are
+// down: a form sent, a script's download. The content script reports what
+// the held keys ask for ("skip", "force" or "") to the service worker when
+// it changes, and again every HELD_REFRESH_MS while a key stays down (the
+// key's own repeats). The worker forgets a report HELD_EXPIRE_MS old, so a
+// release it never heard of (a frame that went away) cannot keep the keys
+// "held" for good.
+const HELD_REFRESH_MS = 10000;
+const HELD_EXPIRE_MS = 30000;
+
+// Whether the content script sends `action` now: it differs from what it
+// last sent, or it is a held key's that is due to be refreshed. `state` is
+// { sent, time }, what was last sent and when; it is updated on a send.
+function heldReport(state, action, now) {
+  const same = action === state.sent;
+  if (same && !(action && now - state.time >= HELD_REFRESH_MS)) return false;
+  state.sent = action;
+  state.time = now;
+  return true;
+}
+
+// Whether the worker's last report for a tab, { action, time }, still holds.
+function heldApplies(entry, now) {
+  return !!entry && !!entry.action && now - entry.time >= 0 && now - entry.time <= HELD_EXPIRE_MS;
+}
+
+// The toolbar icon of a tab with capture off is UIDM's own icon in grey:
+// `data` is an ImageData's RGBA bytes, turned to their brightness in place,
+// a little lighter so the icon reads as "off".
+function greyPixels(data) {
+  for (let i = 0; i + 3 < data.length; i += 4) {
+    const y = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    data[i] = data[i + 1] = data[i + 2] = Math.min(255, Math.round(y * 0.6 + 90));
+  }
+  return data;
+}
+
 // The context menu items UIDM's settings leave out in this browser: Chrome,
 // Edge and the other Chromium browsers have `browser_menu_hidden_chromium`,
 // Firefox `browser_menu_hidden_firefox`. An older UIDM sends one
@@ -293,6 +331,6 @@ function formFileFields(elements) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed, formFileFields };
+  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed, formFileFields, heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS };
 
 }

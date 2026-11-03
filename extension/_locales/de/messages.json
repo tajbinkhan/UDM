@@ -23,6 +23,15 @@
   "captureDownloadsTitle": {
     "message": "Downloads, die der Browser startet, an UIDM senden"
   },
+  "captureInTab": {
+    "message": "Übernahme in diesem Tab"
+  },
+  "captureInTabTitle": {
+    "message": "Abschalten, damit die Downloads dieses Tabs im Browser bleiben"
+  },
+  "captureOffInTab": {
+    "message": "In diesem Tab aus"
+  },
   "statusConnected": {
     "message": "Verbunden. Downloads, die Sie im Browser starten, gehen an UIDM."
   },

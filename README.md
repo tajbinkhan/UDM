@@ -195,7 +195,13 @@ tests, not in a running Firefox.
 - **The toolbar popup** shows whether UIDM is connected, lists recent
   downloads, takes a pasted URL, and has a **Capture downloads** switch. With
   capture off, or while UIDM is not running, the browser keeps its own
-  downloads. Under **Downloading in the browser** it lists the browser's own
+  downloads. At its top, **Capture in this tab** turns capture off for the
+  tab it was opened over only, as IDM's toolbar button does: that tab's
+  downloads, forced links and web players' files stay with the browser, and
+  its toolbar icon turns grey with an "X" badge until it is turned on again
+  or the tab closes. (IDM's button toggles on a click; UIDM's button keeps
+  opening the popup, which holds the rest of these features, so the switch
+  is its first row.) Under **Downloading in the browser** it lists the browser's own
   downloads in progress (ones it kept, or started before UIDM ran): **Send to
   UIDM** cancels and erases the browser's copy and starts it in UIDM, with its
   referrer, name and cookies, as a captured download. This stands in for
@@ -669,7 +675,14 @@ It takes a download from the browser only when all of these hold:
 - the URL is `http` or `https` (`blob:` and `data:` downloads only exist inside
   the browser);
 - it is not from a private window, so private downloads never enter UIDM's
-  list;
+  list, unless **Capture downloads in private windows too** is on in
+  **Options > Browser capture** (off by default; only the window changes it).
+  Then private windows' downloads, links, page buttons and context menus work
+  as in normal windows, with the private window's own cookies. The browser
+  must let the extension in too: **Allow in Incognito** in the extension's
+  details in Chrome and Edge, **Run in Private Windows** in Firefox;
+- capture is not turned off in the tab it comes from (**Capture in this tab**
+  in the popup);
 - the extension did not start it itself (that is how hand-backs avoid loops);
 - it passes the capture rules from **Options > Browser capture**:
   - its file type is in the list (by default every category's types plus
@@ -684,7 +697,8 @@ It takes a download from the browser only when all of these hold:
     `example.com` and `*.example.com` both cover the site and every subdomain;
 - **Skip next download** in the popup was not pressed; it lets exactly one
   download stay in the browser;
-- the skip keys were not held while clicking its link (Alt by default).
+- the skip keys were not held while clicking its link (Alt by default), nor
+  while its tab started it some other way (a form sent, a page's script).
 
 Holding the force keys (Ctrl by default) while clicking a link sends it to
 UIDM whatever the rules say, instead of opening it. Each is any mix of Ctrl,
@@ -694,6 +708,13 @@ middle click and with Enter on a link, or with the option set only with a
 left click. By default the force keys leave links to web pages, pictures and
 scripts (`.html`, `.php`, `.jpg`, `.js`, a path ending in `/` and the like)
 to open as usual.
+
+As in IDM, the keys also count for downloads their tab starts while they
+are held without a click on a link, such as a form sent with Enter or a
+script's download: the page reports the keys going down and up to the
+extension, which applies them to that tab's next downloads. Switching tabs,
+the page losing the focus or being hidden forgets them, and a report not
+refreshed for 30 seconds (the page went away) is dropped.
 
 The extension asks for the rules when it connects and gets every change as it
 is saved, so they are edited only in the window.

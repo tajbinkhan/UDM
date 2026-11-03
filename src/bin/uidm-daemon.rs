@@ -4887,6 +4887,21 @@ mod tests {
     }
 
     #[test]
+    fn only_the_window_turns_on_capture_in_private_windows() {
+        let t = setup("browser_private", Duplicate::NewName);
+        assert!(!t.daemon.settings.lock().unwrap().capture_private, "off by default");
+        let asked = Settings { capture_private: true, ..t.daemon.settings.lock().unwrap().clone() };
+        // A browser client's set_settings keeps the setting as it was...
+        t.daemon.set_settings(t.daemon.with_video_button(&asked)).unwrap();
+        assert!(!t.daemon.settings.lock().unwrap().capture_private);
+        // ...while the window's goes through.
+        t.daemon.set_settings(asked).unwrap();
+        assert!(t.daemon.settings.lock().unwrap().capture_private);
+        let off = Settings { capture_private: false, ..Settings::default() };
+        assert!(t.daemon.with_video_button(&off).capture_private, "nor can the browser turn it off");
+    }
+
+    #[test]
     fn manual_socks_can_carry_https_and_ftp() {
         let t = setup("socks_schemes", Duplicate::NewName);
         let s = Settings {

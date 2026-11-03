@@ -1085,6 +1085,7 @@ struct OptionsDraft {
     capture_force_key: CaptureKey,
     capture_keys_left_click: bool,
     capture_force_skips_pages: bool,
+    capture_private: bool,
     /// One address per line.
     capture_excluded_urls: String,
     offer_exceptions: bool,
@@ -1297,6 +1298,7 @@ impl OptionsDraft {
             capture_force_key: s.capture_force_key,
             capture_keys_left_click: s.capture_keys_left_click,
             capture_force_skips_pages: s.capture_force_skips_pages,
+            capture_private: s.capture_private,
             capture_excluded_urls: s.capture_excluded_urls.join("\n"),
             offer_exceptions: s.offer_exceptions,
             selection_button: s.selection_button,
@@ -1447,6 +1449,7 @@ impl OptionsDraft {
             capture_force_key: self.capture_force_key,
             capture_keys_left_click: self.capture_keys_left_click,
             capture_force_skips_pages: self.capture_force_skips_pages,
+            capture_private: self.capture_private,
             capture_excluded_urls: self
                 .capture_excluded_urls
                 .lines()
@@ -3681,6 +3684,13 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                 tr("The force keys leave links to web pages, pictures and scripts alone"),
             );
         });
+        ui.end_row();
+
+        ui.label(tr("Private windows"));
+        ui.checkbox(&mut draft.capture_private, tr("Capture downloads in private windows too"))
+            .on_hover_text(tr(
+                "Downloads, links and videos in private (incognito) windows go to UIDM as well. The browser must also let the extension in: in Chrome and Edge turn on \"Allow in Incognito\" in the UIDM extension's details, in Firefox \"Run in Private Windows\".",
+            ));
         ui.end_row();
 
         ui.label(tr("Selected links"));

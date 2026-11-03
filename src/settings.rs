@@ -670,6 +670,12 @@ pub struct Settings {
     /// The force key leaves links to web pages, pictures and scripts alone,
     /// so they open as usual.
     pub capture_force_skips_pages: bool,
+    /// Downloads, links and videos in the browser's private windows go to
+    /// UIDM too. Off by default: a private window keeps its downloads out of
+    /// UIDM's list. Only the window changes it, never the browser itself.
+    /// Chrome also needs "Allow in Incognito" turned on for the extension.
+    #[serde(default)]
+    pub capture_private: bool,
     /// Addresses whose downloads stay in the browser, with `*` matching any
     /// run of characters, such as `https://example.com/files/*.zip`.
     pub capture_excluded_urls: Vec<String>,
@@ -826,6 +832,7 @@ impl Default for Settings {
             capture_force_key: CaptureKey::CTRL,
             capture_keys_left_click: false,
             capture_force_skips_pages: true,
+            capture_private: false,
             capture_excluded_urls: Vec::new(),
             offer_exceptions: true,
             selection_button: SelectionButton::Everywhere,
@@ -1409,6 +1416,15 @@ mod tests {
     }
 
     #[test]
+    fn private_windows_are_not_captured_by_default() {
+        assert!(!Settings::default().capture_private);
+        let old: Settings = serde_json::from_str(r#"{"connections":4}"#).unwrap();
+        assert!(!old.capture_private, "a settings file from before the option");
+        let on: Settings = serde_json::from_str(r#"{"capture_private":true}"#).unwrap();
+        assert!(on.capture_private);
+    }
+
+    #[test]
     fn save_load_roundtrip() {
         let path = temp_path("roundtrip.json");
         let s = Settings {
@@ -1502,6 +1518,7 @@ mod tests {
             capture_force_key: CaptureKey { insert: true, ..CaptureKey::CTRL },
             capture_keys_left_click: true,
             capture_force_skips_pages: false,
+            capture_private: true,
             capture_excluded_urls: vec!["https://example.com/files/*".into()],
             offer_exceptions: false,
             selection_button: SelectionButton::Sites,

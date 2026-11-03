@@ -23,6 +23,15 @@
   "captureDownloadsTitle": {
     "message": "Enviar a UIDM las descargas que inicia el navegador"
   },
+  "captureInTab": {
+    "message": "Capturar en esta pestaña"
+  },
+  "captureInTabTitle": {
+    "message": "Desactívalo para dejar las descargas de esta pestaña al navegador"
+  },
+  "captureOffInTab": {
+    "message": "Desactivado en esta pestaña"
+  },
   "statusConnected": {
     "message": "Conectado. Las descargas que inicie en el navegador van a UIDM."
   },

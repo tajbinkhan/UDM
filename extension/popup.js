@@ -113,11 +113,15 @@ function row(e, connected) {
 let skipNext = false;
 // The site of the tab the popup opened over, for the per-site video button.
 let tabHost = "";
+// That tab's id, for "Capture in this tab"; null until known (or when the
+// popup is opened as a page of its own).
+let tabId = null;
 if (chrome.tabs) {
   chrome.tabs
     .query({ active: true, currentWindow: true })
     .then(([tab]) => {
       tabHost = /^https?:/i.test(tab?.url || "") ? new URL(tab.url).hostname.toLowerCase() : "";
+      if (tab && Number.isInteger(tab.id) && tab.id >= 0) tabId = tab.id;
     })
     .catch(() => {});
 }
@@ -135,6 +139,11 @@ function render(state) {
     status.textContent = state.lastError ? t("statusNotConnectedReason", state.lastError) : t("statusNotConnected");
   }
   $("capture").checked = state.capture;
+  // The toolbar button's switch for the tab it was clicked over.
+  $("tab-row").hidden = tabId === null;
+  const tabOn = tabId === null || !(state.tabsOff || []).includes(tabId);
+  $("tab-capture").checked = tabOn;
+  $("tab-note").hidden = tabOn;
   const refresh = $("refresh");
   const waitingFor = state.items.find((e) => e.id === state.refreshWaiting);
   refresh.hidden = !waitingFor;
@@ -171,6 +180,7 @@ function render(state) {
 }
 
 $("capture").addEventListener("change", (ev) => ask({ type: "setCapture", value: ev.target.checked }));
+$("tab-capture").addEventListener("change", (ev) => tabId !== null && ask({ type: "setTabCapture", tabId, value: ev.target.checked }));
 $("skip").addEventListener("click", () => ask({ type: "setSkipNext", value: !skipNext }));
 $("all-links").addEventListener("click", () => ask({ type: "allLinks" }).then(() => window.close()));
 $("refresh-cancel").addEventListener("click", () => ask({ type: "cancelRefresh" }));

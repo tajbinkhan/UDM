@@ -57,9 +57,20 @@ const requestLog = new Map();
 const openedTabs = new Map();
 // Private-window tabs. Firefox marks webRequest events from them, Chrome
 // does not, so they are followed here: what happens in them stays out of
-// UIDM and out of the "recent videos" menus of normal windows.
+// UIDM and out of the "recent videos" menus of normal windows, unless
+// UIDM's `capture_private` is on (see privateAllowed).
 const privateTabs = new Set();
 const isPrivate = (tabId) => privateTabs.has(tabId);
+
+// Whether what `x` stands for may go to UIDM: `x` is a tab, a webRequest
+// event's details or a browser download, and one from a private window
+// goes only with UIDM's "Capture downloads in private windows too"
+// (`capture_private`, off by default and before the settings arrive).
+// Every check for a private window goes through here.
+function privateAllowed(x) {
+  const inPrivate = !!x && (!!x.incognito || isPrivate(x.tabId));
+  return !inPrivate || !!(rules && rules.capture_private);
+}
 if (chrome.tabs) {
   const note = (tab) => tab && tab.incognito && privateTabs.add(tab.id);
   chrome.tabs.query({}).then((tabs) => tabs.forEach(note)).catch(() => {});
@@ -98,7 +109,7 @@ if (chrome.webRequest) {
   const bodies = { urls: ["<all_urls>"], types: ["main_frame", "sub_frame", "xmlhttprequest"] };
   chrome.webRequest.onBeforeRequest.addListener(
     (d) => {
-      if (d.method !== "POST" || d.incognito || isPrivate(d.tabId)) return;
+      if (d.method !== "POST" || !privateAllowed(d)) return;
       const now = Date.now();
       prunePosts(posts, now);
       posts.push({ id: d.requestId, url: d.url, type: d.type, time: now, requestBody: d.requestBody });
@@ -120,7 +131,7 @@ if (chrome.webRequest) {
   if (chrome.webRequest.onSendHeaders) {
     chrome.webRequest.onSendHeaders.addListener(
       (d) => {
-        if (!isFrame(d) || d.incognito || isPrivate(d.tabId)) return;
+        if (!isFrame(d) || !privateAllowed(d)) return;
         noteRequest(requestLog, d, Date.now());
       },
       frames,
@@ -132,7 +143,7 @@ if (chrome.webRequest) {
   }
   chrome.webRequest.onHeadersReceived.addListener(
     (d) => {
-      if (!isFrame(d) || d.incognito || isPrivate(d.tabId)) return undefined;
+      if (!isFrame(d) || !privateAllowed(d)) return undefined;
       const record = noteResponse(requestLog, d, Date.now());
       return record.response ? atHeaders(d, record) : undefined;
     },
@@ -164,7 +175,7 @@ async function takeFromPlayer(d) {
     download.body = post.body;
     if (post.contentType) download.headers = { "Content-Type": post.contentType };
   }
-  const cookies = await cookieHeader(d.url);
+  const cookies = await cookieHeader(d.url, d);
   if (cookies) download.cookies = cookies;
   const page = chrome.tabs && chrome.tabs.get ? await chrome.tabs.get(d.tabId).then((t) => t.url, () => null) : null;
   const from = webReferrer(d.documentUrl, d.originUrl, d.initiator, page);
@@ -176,13 +187,13 @@ async function takeFromPlayer(d) {
 if (chrome.webRequest) {
   chrome.webRequest.onHeadersReceived.addListener(
     (d) => {
-      if (d.tabId < 0 || d.incognito || isPrivate(d.tabId)) return;
+      if (d.tabId < 0 || !privateAllowed(d)) return;
       const found = classifyMedia(d, rules);
       if (found) {
         recordMedia(media, d.tabId, d.url, found, Date.now());
         scheduleRecentMenu();
       }
-      if (connected && captureEnabled && autoCaptureMedia(d, rules, playerTaken.get(d.tabId))) takeFromPlayer(d);
+      if (connected && captureEnabled && tabCaptures(d.tabId) && autoCaptureMedia(d, rules, playerTaken.get(d.tabId))) takeFromPlayer(d);
     },
     { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "object", "other"] },
     ["responseHeaders"],
@@ -204,7 +215,7 @@ if (chrome.tabs) {
 // A YouTube video, which moves between videos without loading a page.
 if (chrome.tabs) {
   chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
-    const page = change.url && !tab.incognito && videoPageUrl(change.url);
+    const page = change.url && privateAllowed(tab) && videoPageUrl(change.url);
     if (page) {
       recordPage(media, tabId, page, Date.now());
       scheduleRecentMenu();
@@ -223,11 +234,11 @@ const PAGE_PROBE_TIMEOUT_MS = 60000;
 
 // Ask UIDM what the stream at `url` offers, sending the page's cookies
 // along. Resolves to a MediaInfo, or null without an answer.
-async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS) {
+async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = null) {
   if (mediaInfos.has(url)) return mediaInfos.get(url);
   const request = nextProbe++;
   const download = { url, user_agent: navigator.userAgent };
-  const cookies = await cookieHeader(url);
+  const cookies = await cookieHeader(url, from);
   if (cookies) download.cookies = cookies;
   if (referrer) download.referrer = referrer;
   return new Promise((resolve) => {
@@ -249,17 +260,18 @@ async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS) {
   });
 }
 
-// The video button's menu for tab `tabId`. Pages in a private window are
-// not recorded, so they stay out of the "last videos" menus.
-async function videoMenu(tabId, referrer, incognito) {
-  const page = !incognito && videoPageUrl(referrer);
+// The video button's menu for tab `tabId` (`tab`). Pages in a private
+// window are recorded only when they may go to UIDM, so otherwise they stay
+// out of the "last videos" menus.
+async function videoMenu(tabId, referrer, tab) {
+  const page = privateAllowed(tab) && videoPageUrl(referrer);
   if (page) recordPage(media, tabId, page, Date.now());
   const entries = [...(media.get(tabId) || new Map()).values()];
   const streams = entries.filter((e) => e.kind !== "file");
   const infos = new Map();
   await Promise.all(
     streams.map(async (e) => {
-      const info = await probeStream(e.url, referrer, e.kind === "page" ? PAGE_PROBE_TIMEOUT_MS : PROBE_TIMEOUT_MS);
+      const info = await probeStream(e.url, referrer, e.kind === "page" ? PAGE_PROBE_TIMEOUT_MS : PROBE_TIMEOUT_MS, tabContext(tab));
       if (info && !adoptFile(e, info)) infos.set(e.url, info);
     }),
   );
@@ -272,7 +284,7 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
   const entry = [...(media.get(tabId) || new Map()).values()].find((e) => e.id === msg.entry);
   if (!entry || !connected) return false;
   const download = { op: "add", url: entry.url, user_agent: navigator.userAgent };
-  const cookies = await cookieHeader(entry.url);
+  const cookies = await cookieHeader(entry.url, { tabId, incognito: isPrivate(tabId) });
   if (cookies) download.cookies = cookies;
   if (referrer) download.referrer = referrer;
   if (isWeb(page)) download.page = page;
@@ -295,9 +307,9 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
 // A content script's request. Pages are untrusted, so a content script can
 // only ask about its own tab and choose among the media the worker saw.
 function onContentMessage(msg, sender, sendResponse) {
-  // Nothing from a private window goes to UIDM: its buttons stay off and
-  // a forced link opens in the browser.
-  if (sender.tab.incognito) {
+  // Nothing from a private window goes to UIDM unless UIDM's settings let
+  // it: its buttons stay off and a forced link opens in the browser.
+  if (!privateAllowed(sender.tab)) {
     sendResponse({ enabled: false, connected: false, ok: false, items: [] });
     return false;
   }
@@ -316,7 +328,7 @@ function onContentMessage(msg, sender, sendResponse) {
         sendResponse({ connected: false, items: [] });
         return false;
       }
-      videoMenu(tabId, pageUrl, sender.tab.incognito).then((items) => sendResponse({ connected: true, items }));
+      videoMenu(tabId, pageUrl, sender.tab).then((items) => sendResponse({ connected: true, items }));
       return true;
     case "video:download":
       downloadMedia(tabId, msg, pageUrl, sender.tab.url).then((ok) => sendResponse({ ok }));
@@ -338,9 +350,15 @@ function onContentMessage(msg, sender, sendResponse) {
       skipClick = { time: Date.now() };
       sendResponse({ ok: true });
       return false;
+    case "keys:held":
+      // The skip or force keys went down or up in this tab (see heldReport).
+      noteHeldKeys(tabId, msg.action);
+      sendResponse({ ok: true });
+      return false;
     case "link:force":
-      // The force key was held: the link goes to UIDM whatever it is.
-      if (!connected || !captureEnabled || !isWeb(msg.url)) {
+      // The force key was held: the link goes to UIDM whatever it is,
+      // unless capture is off, everywhere or in this tab.
+      if (!connected || !captureEnabled || !tabCaptures(tabId) || !isWeb(msg.url)) {
         sendResponse({ ok: false });
         return false;
       }
@@ -348,7 +366,9 @@ function onContentMessage(msg, sender, sendResponse) {
       // nearest one with an address when it has none (about:blank); the
       // tab's address is the page it came from.
       (isWeb(pageUrl) ? Promise.resolve(undefined) : framesReferrer(tabId, sender.frameId))
-        .then((parent) => handOff(msg.url, webReferrer(pageUrl, parent, sender.tab.url), undefined, false, null, null, sender.tab.url))
+        .then((parent) =>
+          handOff(msg.url, webReferrer(pageUrl, parent, sender.tab.url), undefined, false, null, null, sender.tab.url, null, {}, tabContext(sender.tab)),
+        )
         .then((ok) => sendResponse({ ok }));
       return true;
     default:
@@ -374,6 +394,129 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.capture) captureEnabled = changes.capture.newValue;
   if (changes.takeoverNotice) takeoverNotice = changes.takeoverNotice.newValue;
 });
+
+// --- Capture off in one tab ----------------------------------------------------
+
+// The tabs capture is turned off in, from the popup's "Capture in this tab"
+// (IDM's toolbar button does the same): what their pages download, forced
+// links and web players' files stay with the browser. They are kept in
+// session storage, which outlives the worker going to sleep but not the
+// browser; older Firefox has none, and then only this map keeps them. A
+// tab's entry goes when the tab closes.
+const tabsOff = new Set();
+const sessionStore = chrome.storage && chrome.storage.session;
+if (sessionStore) {
+  sessionStore
+    .get({ tabsOff: [] })
+    .then((s) => (s.tabsOff || []).forEach((id) => Number.isInteger(id) && tabsOff.add(id)))
+    .catch(() => {});
+}
+function saveTabsOff() {
+  if (sessionStore) sessionStore.set({ tabsOff: [...tabsOff] }).catch(() => {});
+}
+
+// Whether capture is on in tab `tabId`; a download from no known tab counts
+// as on.
+function tabCaptures(tabId) {
+  return tabId == null || tabId < 0 || !tabsOff.has(tabId);
+}
+
+// Turn capture in tab `tabId` on or off, and show it on its toolbar icon.
+function setTabCapture(tabId, on) {
+  if (on) tabsOff.delete(tabId);
+  else tabsOff.add(tabId);
+  saveTabsOff();
+  showTabCapture(tabId);
+}
+
+// The toolbar icon of a tab with capture off is grey with an "X" badge; one
+// with it on has the usual icon and the badge every tab has (the count of
+// downloads in progress, see updateBadge). Firefox forgets a tab's icon and
+// badge when it loads another page, so this runs again then.
+async function showTabCapture(tabId) {
+  if (!chrome.action) return;
+  const off = tabsOff.has(tabId);
+  const done = (p) => p && p.catch && p.catch(() => {});
+  try {
+    // null drops the tab's own text, so the tab shows the shared one.
+    done(chrome.action.setBadgeText({ tabId, text: off ? "X" : null }));
+    if (!chrome.action.setIcon) return;
+    const grey = off ? await greyIcons() : null;
+    if (grey) done(chrome.action.setIcon({ tabId, imageData: grey }));
+    else if (!off) done(chrome.action.setIcon({ tabId, path: { 16: "icons/16.png", 32: "icons/32.png" } }));
+  } catch (_) {
+    // The tab closed meanwhile.
+  }
+}
+
+// UIDM's icon in grey, made once from its own icons (OffscreenCanvas, in
+// Chrome's worker and Firefox's background page alike): { 16, 32 } as
+// ImageData, or null where the browser cannot draw it; the "X" badge still
+// shows then.
+let greyIconsMade = null;
+function greyIcons() {
+  if (!greyIconsMade) greyIconsMade = makeGreyIcons().catch(() => null);
+  return greyIconsMade;
+}
+async function makeGreyIcons() {
+  if (typeof OffscreenCanvas !== "function" || typeof createImageBitmap !== "function" || typeof fetch !== "function") return null;
+  const icons = {};
+  for (const size of [16, 32]) {
+    const blob = await (await fetch(chrome.runtime.getURL(`icons/${size}.png`))).blob();
+    const bitmap = await createImageBitmap(blob);
+    const canvas = new OffscreenCanvas(size, size);
+    const context = canvas.getContext("2d");
+    context.drawImage(bitmap, 0, 0, size, size);
+    const image = context.getImageData(0, 0, size, size);
+    greyPixels(image.data);
+    icons[size] = image;
+  }
+  return icons;
+}
+
+if (chrome.tabs) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    if (tabsOff.delete(tabId)) saveTabsOff();
+  });
+  chrome.tabs.onUpdated.addListener((tabId, change) => {
+    if (change.status === "loading" && tabsOff.has(tabId)) showTabCapture(tabId);
+  });
+}
+
+// --- Keys held down ---------------------------------------------------------------
+
+// What the skip or force keys held down in each tab ask for, as its content
+// script reported: tab id -> { action, time } (see heldReport). A download
+// the tab starts meanwhile follows it. Switching tabs forgets them all: the
+// keys may be let go in the other tab, which does not tell this one.
+const heldKeys = new Map();
+function noteHeldKeys(tabId, action) {
+  if (action === "skip" || action === "force") heldKeys.set(tabId, { action, time: Date.now() });
+  else heldKeys.delete(tabId);
+}
+// The held keys' action in tab `tabId` now: "skip", "force" or "".
+function heldKey(tabId) {
+  const entry = heldKeys.get(tabId);
+  if (entry && !heldApplies(entry, Date.now())) heldKeys.delete(tabId);
+  return heldApplies(entry, Date.now()) ? entry.action : "";
+}
+if (chrome.tabs) {
+  if (chrome.tabs.onActivated) chrome.tabs.onActivated.addListener(() => heldKeys.clear());
+  chrome.tabs.onRemoved.addListener((tabId) => heldKeys.delete(tabId));
+}
+
+// The tab a browser download came from: its request's, when the worker saw
+// it, else the tab in front, where the user just did something.
+async function downloadTabId(record) {
+  if (record && record.tabId != null && record.tabId >= 0) return record.tabId;
+  if (!chrome.tabs || !chrome.tabs.query) return undefined;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return tab ? tab.id : undefined;
+  } catch (_) {
+    return undefined;
+  }
+}
 
 // --- Connection to the host -------------------------------------------------
 
@@ -657,13 +800,40 @@ function updateBadge() {
 
 const isWeb = (url) => /^https?:\/\//i.test(url || "");
 
-async function cookieHeader(url) {
+// The cookies the browser would send to `url`, as a Cookie header. `from`
+// is where the download comes from, { tabId, incognito, cookieStoreId }:
+// a private window's come from its own cookie store, not the normal one.
+async function cookieHeader(url, from = null) {
   try {
-    const cookies = await chrome.cookies.getAll({ url });
+    const storeId = await privateCookieStore(from);
+    const cookies = await chrome.cookies.getAll(storeId ? { url, storeId } : { url });
     return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
   } catch (_) {
     return "";
   }
+}
+
+// The cookie store of a private window's tab or download `from`, or
+// undefined for a normal one (the default store). Firefox names it on the
+// request, the download and the tab (`cookieStoreId`); Chrome has to be
+// asked which store holds the tab, and calls its private store "1".
+async function privateCookieStore(from) {
+  if (!from || !(from.incognito || isPrivate(from.tabId))) return undefined;
+  if (from.cookieStoreId) return from.cookieStoreId;
+  if (!chrome.cookies.getAllCookieStores) return undefined;
+  try {
+    const stores = (await chrome.cookies.getAllCookieStores()) || [];
+    const own = from.tabId != null && from.tabId >= 0 && stores.find((s) => (s.tabIds || []).includes(from.tabId));
+    const any = stores.find((s) => s.incognito || s.id === "1" || s.id === "firefox-private");
+    return (own || any || {}).id;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+// A tab as the `from` of cookieHeader.
+function tabContext(tab) {
+  return tab ? { tabId: tab.id, incognito: !!tab.incognito, cookieStoreId: tab.cookieStoreId } : null;
 }
 
 function baseName(path) {
@@ -723,9 +893,10 @@ function proxyAddress(scheme, address, defaultPort) {
 // is only shown and sorted by in UIDM, as IDM keeps the two apart.
 // `description` is a note shown with it in UIDM's list (a link's title).
 // `details` is what the browser's own request adds (requestDetails): its
-// other headers, its redirects, and the response's size and type.
-async function handOff(url, referrer, filename, later = false, post = null, refreshId = null, page = null, description = null, details = {}) {
-  const cookies = await cookieHeader(url);
+// other headers, its redirects, and the response's size and type. `from`
+// says which tab or download it comes from, for its cookies (cookieHeader).
+async function handOff(url, referrer, filename, later = false, post = null, refreshId = null, page = null, description = null, details = {}, from = null) {
+  const cookies = await cookieHeader(url, from);
   const msg = { op: "add", url, user_agent: navigator.userAgent, ...details };
   await addBrowserProxy(msg);
   if (post) {
@@ -763,7 +934,7 @@ async function downloadPage(referrer, url) {
     return null;
   }
   const tab = (tabs || [])[0];
-  if (!tab || tab.incognito || !isWeb(tab.url) || tab.url === url) return null;
+  if (!tab || !privateAllowed(tab) || !isWeb(tab.url) || tab.url === url) return null;
   return tab.url;
 }
 
@@ -822,11 +993,13 @@ async function closeIfOpenedFor(tabId, urls) {
   if (openedOnlyFor(tab, openedTabs.get(tabId), urls, Date.now())) chrome.tabs.remove(tabId).catch(() => {});
 }
 
-// Whether a download described by `described` would be taken now: UIDM is
-// connected, capture is on, no skip applies, and the capture rules (or a
-// download waiting for a new link) want it. { refreshId }, or null.
-function takesNow(described) {
+// Whether a download described by `described`, from tab `tabId`, would be
+// taken now: UIDM is connected, capture is on (and on in its tab), no skip
+// applies, and the capture rules (or a download waiting for a new link) want
+// it. A held key's action is in `described.key`. { refreshId }, or null.
+function takesNow(described, tabId) {
   if (!connected || !captureEnabled || skipNext || clickApplies(skipClick, Date.now())) return null;
+  if (!tabCaptures(tabId) || described.key === "skip") return null;
   const refreshId = refreshWaiting;
   if (refreshId === null && !captureDecision(rules, described).capture) return null;
   return { refreshId };
@@ -846,8 +1019,9 @@ function atHeaders(d, record) {
     filename: r.filename,
     mime: r.mime,
     size: r.size,
+    key: heldKey(d.tabId),
   };
-  const verdict = takesNow(described);
+  const verdict = takesNow(described, d.tabId);
   if (!verdict) return undefined;
   if (!BLOCKING) {
     record.bubbleHeld = true;
@@ -871,12 +1045,12 @@ function atHeaders(d, record) {
 // Hand the response `d` canceled at its headers to UIDM (see atHeaders).
 async function takeAtHeaders(d, record, post, requestUrl, refreshId) {
   const tab = d.tabId >= 0 && chrome.tabs && chrome.tabs.get ? await chrome.tabs.get(d.tabId).catch(() => null) : null;
-  const tabUrl = tab && !tab.incognito && isWeb(tab.url) && tab.url !== d.url ? tab.url : null;
+  const tabUrl = tab && privateAllowed(tab) && isWeb(tab.url) && tab.url !== d.url ? tab.url : null;
   const parent = d.type === "sub_frame" ? await framesReferrer(d.tabId, d.parentFrameId) : undefined;
   const referrer = webReferrer(requestReferer(record), d.documentUrl, parent, d.originUrl, tabUrl);
   if (refreshWaiting === refreshId) refreshWaiting = null;
   const details = requestDetails(record);
-  await deliver(requestUrl, referrer, record.response.filename, post, refreshId, tabUrl, details);
+  await deliver(requestUrl, referrer, record.response.filename, post, refreshId, tabUrl, details, d);
   if (d.type === "main_frame") closeIfOpenedFor(d.tabId, [d.url, ...record.redirects]);
 }
 
@@ -897,10 +1071,15 @@ chrome.downloads.onCreated.addListener(async (item) => {
 async function browserDownload(item, record) {
   await settingsReady;
   if (!captureEnabled) return; // let the browser handle it
-  if (item.incognito) return; // keep private-window downloads out of UIDM's list
+  if (!privateAllowed(item)) return; // keep private-window downloads out of UIDM's list
   if (item.byExtensionId === chrome.runtime.id) return; // our own hand-back
   const url = item.finalUrl || item.url;
   if (!isWeb(url)) return; // blob:, data:, file: only exist in the browser
+  // Capture turned off in the tab it comes from leaves it to the browser;
+  // a key held down there (the skip or force keys) decides for it.
+  const tabId = await downloadTabId(record);
+  if (!tabCaptures(tabId)) return;
+  const key = heldKey(tabId);
   // What the response's headers said fills in what the download item does
   // not know yet: Chrome often reports no size and type this early.
   const seen = (record && record.response) || {};
@@ -911,10 +1090,11 @@ async function browserDownload(item, record) {
     filename: baseName(item.filename) || seen.filename,
     mime: item.mime || seen.mime,
     size: itemSize || seen.size || 0,
+    key,
   };
   if (!connected) {
     // It stays in the browser; say so if UIDM would have taken it.
-    if (!skipNext && !clickApplies(skipClick, Date.now()) && captureDecision(rules, described).capture) {
+    if (!skipNext && !clickApplies(skipClick, Date.now()) && key !== "skip" && captureDecision(rules, described).capture) {
       noticeTakeoverFailed(url, described.filename, null);
     }
     return;
@@ -927,6 +1107,7 @@ async function browserDownload(item, record) {
     skipClick = null;
     return;
   }
+  if (key === "skip") return;
   // A download waiting for a new link takes this one, whatever the capture
   // rules say: the user asked for it.
   const refreshId = refreshWaiting;
@@ -975,7 +1156,8 @@ async function takeDownload(item, url, filename, refreshId = null, guessPage = t
   const parent = record && record.type === "sub_frame" ? await framesReferrer(record.tabId, record.parentFrameId) : undefined;
   const referrer = from || (item.referrer ? webReferrer(parent, page) : undefined);
   if (refreshId !== null) refreshWaiting = null;
-  const sent = await deliver(requestUrl, referrer, filename, post, refreshId, page, requestDetails(record));
+  const origin = { tabId: record ? record.tabId : undefined, incognito: !!item.incognito, cookieStoreId: item.cookieStoreId };
+  const sent = await deliver(requestUrl, referrer, filename, post, refreshId, page, requestDetails(record), origin);
   if (record && record.type === "main_frame") closeIfOpenedFor(record.tabId, [url, item.url, ...record.redirects]);
   return sent;
 }
@@ -983,14 +1165,14 @@ async function takeDownload(item, url, filename, refreshId = null, guessPage = t
 // Send a download taken from the browser to UIDM, or as the new link of
 // download `refreshId`; give it back to the browser when the message does
 // not go. Says whether UIDM has it (a refresh counts as taken either way).
-async function deliver(requestUrl, referrer, filename, post, refreshId, page, details) {
+async function deliver(requestUrl, referrer, filename, post, refreshId, page, details, from = null) {
   if (refreshId !== null) {
-    if (await handOff(requestUrl, referrer, filename, false, post, refreshId, page, null, details)) return true;
+    if (await handOff(requestUrl, referrer, filename, false, post, refreshId, page, null, details, from)) return true;
     giveBack(requestUrl, post);
     return true;
   }
   awaitingAck.set(requestUrl, { post, filename });
-  const sent = await handOff(requestUrl, referrer, filename, false, post, null, page, null, details);
+  const sent = await handOff(requestUrl, referrer, filename, false, post, null, page, null, details, from);
   if (!sent) {
     // The port dropped between the check and the send: give it back.
     awaitingAck.delete(requestUrl);
@@ -1004,7 +1186,8 @@ async function deliver(requestUrl, referrer, filename, post, refreshId, page, de
 
 // What the popup lists of the browser's own downloads in progress, which
 // "Send to UIDM" takes over (IDM's "download with IDM" on a started
-// download; Chrome has no menu on its downloads). Private windows' stay out.
+// download; Chrome has no menu on its downloads). Private windows' stay out
+// unless UIDM's settings let them in.
 async function browserDownloads() {
   if (!chrome.downloads.search) return [];
   let items;
@@ -1014,7 +1197,7 @@ async function browserDownloads() {
     return [];
   }
   return (items || [])
-    .filter((d) => !d.incognito && isWeb(d.finalUrl || d.url))
+    .filter((d) => privateAllowed(d) && isWeb(d.finalUrl || d.url))
     .map((d) => ({
       id: d.id,
       url: d.finalUrl || d.url,
@@ -1038,7 +1221,7 @@ async function sendBrowserDownload(id) {
   } catch (_) {
     return false;
   }
-  if (!item || item.state !== "in_progress" || item.incognito) return false;
+  if (!item || item.state !== "in_progress" || !privateAllowed(item)) return false;
   const url = item.finalUrl || item.url;
   if (!isWeb(url)) return false;
   // It may have started long ago, in another tab than the one in front.
@@ -1108,7 +1291,7 @@ async function pickLinks(tabId, pageUrl, selection = false) {
     } catch (_) {
       continue;
     }
-    if (!cookies.has(origin)) cookies.set(origin, await cookieHeader(l.url));
+    if (!cookies.has(origin)) cookies.set(origin, await cookieHeader(l.url, { tabId, incognito: isPrivate(tabId) }));
     if (cookies.get(origin)) l.cookies = cookies.get(origin);
   }
   return send({ op: "pick_links", page: pageUrl, links, user_agent: navigator.userAgent }) ? "sent" : "unreachable";
@@ -1326,8 +1509,9 @@ async function downloadRecent({ tabId, entry }) {
 chrome.runtime.onInstalled.addListener(buildMenus);
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  // A private window's links and media stay out of UIDM, like its downloads.
-  if (tab && tab.incognito) return;
+  // A private window's links and media stay out of UIDM, like its downloads,
+  // unless UIDM's settings let them in.
+  if (!privateAllowed(tab)) return;
   if (info.menuItemId === "uidm-last-video") {
     const [last] = recentMedia(media, 1);
     if (last) await downloadRecent(last);
@@ -1350,7 +1534,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // A frame made from nothing (about:blank) is no page to download.
     const url = webReferrer(info.frameUrl, info.pageUrl);
     if (!isWeb(url)) return;
-    if (!connected || !(await handOff(url, info.pageUrl, undefined, false, null, null, info.pageUrl))) noticeCannotReach();
+    if (!connected || !(await handOff(url, info.pageUrl, undefined, false, null, null, info.pageUrl, null, {}, tabContext(tab)))) noticeCannotReach();
     return;
   }
   const isLink = info.menuItemId === "uidm-link" || info.menuItemId === "uidm-later-link";
@@ -1365,7 +1549,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   // A link's `download` attribute names the file, and its title (or text)
   // is the download's description, as IDM takes them.
   const { filename, description } = isLink && connected ? await linkDetails(tab, info) : {};
-  if (connected && (await handOff(url, referrer, filename, later, null, null, info.pageUrl, description))) return;
+  if (connected && (await handOff(url, referrer, filename, later, null, null, info.pageUrl, description, {}, tabContext(tab)))) return;
   // UIDM is not available; the click should still download something.
   noticeCannotReach(true);
   chrome.downloads.download({ url }).catch(() => {});
@@ -1378,6 +1562,7 @@ function snapshot() {
     connected,
     lastError,
     capture: captureEnabled,
+    tabsOff: [...tabsOff],
     skipNext,
     refreshWaiting,
     videoButton: !rules || rules.video_button !== false,
@@ -1423,6 +1608,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
     case "setSkipNext":
       skipNext = !!msg.value;
+      break;
+    case "setTabCapture":
+      if (!Number.isInteger(msg.tabId)) return;
+      setTabCapture(msg.tabId, !!msg.value);
       break;
     case "setVideoButton":
       setVideoButton(msg);

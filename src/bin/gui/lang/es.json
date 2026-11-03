@@ -854,5 +854,8 @@
   "Its partial file moves there, and it carries on there": "Su archivo parcial se mueve allí y la descarga continúa allí",
   "Asking the server": "Preguntando al servidor",
   "How capture rules work": "Cómo funcionan las reglas de captura",
-  "Which browser downloads UIDM takes, and how to keep others in the browser": "Qué descargas del navegador toma UIDM y cómo dejar otras en el navegador"
+  "Which browser downloads UIDM takes, and how to keep others in the browser": "Qué descargas del navegador toma UIDM y cómo dejar otras en el navegador",
+  "Private windows": "Ventanas privadas",
+  "Capture downloads in private windows too": "Capturar también las descargas en ventanas privadas",
+  "Downloads, links and videos in private (incognito) windows go to UIDM as well. The browser must also let the extension in: in Chrome and Edge turn on \"Allow in Incognito\" in the UIDM extension's details, in Firefox \"Run in Private Windows\".": "Las descargas, enlaces y vídeos de las ventanas privadas (incógnito) también van a UIDM. El navegador también debe permitir la extensión: en Chrome y Edge activa «Permitir en modo incógnito» en los detalles de la extensión UIDM; en Firefox, «Ejecutar en ventanas privadas»."
 }

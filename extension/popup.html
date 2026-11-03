@@ -77,6 +77,10 @@
       #browser-list { max-height: 160px; }
       .empty { color: var(--muted); padding: 24px 12px; text-align: center; }
       label.toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+      /* "Capture in this tab", the toolbar button's switch in IDM, comes first. */
+      .tabrow { padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--track); }
+      .tabrow label.toggle { font-size: 14px; font-weight: 600; }
+      .tabrow .note { color: var(--muted); font-size: 12px; }
       /* The rules above set display, which would otherwise show hidden rows. */
       [hidden] { display: none !important; }
     </style>
@@ -89,6 +93,12 @@
         <input id="capture" type="checkbox" /> <span data-i18n="captureDownloads">Capture downloads</span>
       </label>
     </header>
+    <div id="tab-row" class="row tabrow" hidden>
+      <label class="toggle grow" title="Turn capture off to leave this tab's downloads to the browser" data-i18n-title="captureInTabTitle">
+        <input id="tab-capture" type="checkbox" /> <span data-i18n="captureInTab">Capture in this tab</span>
+      </label>
+      <span id="tab-note" class="note" data-i18n="captureOffInTab" hidden>Off in this tab</span>
+    </div>
     <div id="status" class="status"></div>
     <div id="refresh" class="row skiprow" hidden>
       <span id="refresh-text" class="grow"></span>

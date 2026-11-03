@@ -23,6 +23,15 @@
   "captureDownloadsTitle": {
     "message": "Envoyer à UIDM les téléchargements lancés par le navigateur"
   },
+  "captureInTab": {
+    "message": "Intercepter dans cet onglet"
+  },
+  "captureInTabTitle": {
+    "message": "Désactivez pour laisser au navigateur les téléchargements de cet onglet"
+  },
+  "captureOffInTab": {
+    "message": "Désactivé dans cet onglet"
+  },
   "statusConnected": {
     "message": "Connecté. Les téléchargements que vous lancez dans le navigateur vont à UIDM."
   },

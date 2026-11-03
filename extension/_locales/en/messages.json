@@ -33,6 +33,18 @@
     "message": "Send downloads the browser starts to UIDM",
     "description": "Tooltip of the captureDownloads checkbox."
   },
+  "captureInTab": {
+    "message": "Capture in this tab",
+    "description": "Popup checkbox at the top: whether downloads started in the current tab go to UIDM, like IDM's toolbar button."
+  },
+  "captureInTabTitle": {
+    "message": "Turn capture off to leave this tab's downloads to the browser",
+    "description": "Tooltip of the captureInTab checkbox."
+  },
+  "captureOffInTab": {
+    "message": "Off in this tab",
+    "description": "Popup note shown next to captureInTab while capture is off in the current tab."
+  },
   "statusConnected": {
     "message": "Connected. Downloads you start in the browser go to UIDM.",
     "description": "Popup status line while connected to UIDM with capture on."

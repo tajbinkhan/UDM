@@ -50,8 +50,11 @@ function setBrowserProxy(value) {
 }
 
 // With `firefox`, load it the way Firefox does: the manifest's helper
-// scripts first, no importScripts, and moz-extension:// pages.
-function loadWorker({ firefox = false } = {}) {
+// scripts first, no importScripts, and moz-extension:// pages. `session` is
+// what chrome.storage.session holds when the worker starts, or false for a
+// browser without it (older Firefox). `globals` adds to the worker's globals
+// (OffscreenCanvas and the like, which Node does not have).
+function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
   const sent = [];
   const browserCalls = [];
   const port = {
@@ -73,6 +76,15 @@ function loadWorker({ firefox = false } = {}) {
       // What the worker stored, in order.
       written: [],
       local: { get: async (d) => d, set: async (o) => chrome.storage.written.push(o) },
+      ...(session === false
+        ? {}
+        : {
+            session: {
+              data: { ...session },
+              get: async (d) => ({ ...d, ...chrome.storage.session.data }),
+              set: async (o) => Object.assign(chrome.storage.session.data, o),
+            },
+          }),
       onChanged: event(),
     },
     proxy: { settings: { get: async () => ({ value: proxyValue }) } },
@@ -97,6 +109,7 @@ function loadWorker({ firefox = false } = {}) {
       getAllFrames: async ({ tabId }) => chrome.webNavigation.frames.get(tabId) || null,
     },
     tabs: {
+      onActivated: event(),
       onRemoved: event(),
       onUpdated: event(),
       onCreated: event(),
@@ -132,7 +145,16 @@ function loadWorker({ firefox = false } = {}) {
       // Chrome's download bubble: each setUiOptions call's `enabled`.
       ...(firefox ? {} : { ui: [], setUiOptions: async (o) => chrome.downloads.ui.push(o.enabled) }),
     },
-    cookies: { getAll: async () => [] },
+    // The cookie queries made, and the browser's cookie stores.
+    cookies: {
+      queries: [],
+      stores: [{ id: "0", tabIds: [] }],
+      getAll: async (q) => {
+        chrome.cookies.queries.push(q);
+        return [];
+      },
+      getAllCookieStores: async () => chrome.cookies.stores,
+    },
     contextMenus: {
       // The menu as built: id -> its options.
       items: new Map(),
@@ -157,7 +179,13 @@ function loadWorker({ firefox = false } = {}) {
       // Firefox's menus.onShown, onHidden and refresh; Chrome has none.
       ...(firefox ? { onShown: event(), onHidden: event(), refreshed: 0, refresh: () => chrome.contextMenus.refreshed++ } : {}),
     },
-    action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {} },
+    // The toolbar button: each setBadgeText and setIcon call, in order.
+    action: {
+      calls: [],
+      setBadgeText: (o) => void chrome.action.calls.push(["badge", o]),
+      setBadgeBackgroundColor: () => {},
+      setIcon: (o) => void chrome.action.calls.push(["icon", o]),
+    },
     notifications: {
       shown: [],
       // Firefox's notices take no buttons.
@@ -181,6 +209,7 @@ function loadWorker({ firefox = false } = {}) {
     URL,
     TextEncoder,
     btoa,
+    ...globals,
   });
   const run = (file) => vm.runInContext(fs.readFileSync(path.join(dir, file), "utf8"), context);
   if (firefox) {
@@ -194,9 +223,10 @@ function loadWorker({ firefox = false } = {}) {
     new Promise((resolve) => chrome.runtime.onMessage.fire(msg, { id: "uidm", url: popupUrl }, resolve));
   // A message from the content script in tab `tabId`, on page `url`, from
   // its frame at `frameUrl` (the page itself unless given).
-  const content = (msg, tabId, url = "https://site.net/watch", frameUrl = url) =>
+  // `incognito` makes the tab a private window's.
+  const content = (msg, tabId, url = "https://site.net/watch", frameUrl = url, incognito = false) =>
     new Promise((resolve) =>
-      chrome.runtime.onMessage.fire(msg, { id: "uidm", tab: { id: tabId, url }, url: frameUrl }, resolve),
+      chrome.runtime.onMessage.fire(msg, { id: "uidm", tab: { id: tabId, url, incognito }, url: frameUrl }, resolve),
     );
   return { port, sent, browserCalls, chrome, popup, content };
 }

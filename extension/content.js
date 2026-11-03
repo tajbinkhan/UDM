@@ -53,9 +53,44 @@ function makeMini(button) {
   // Insert and Del are no modifiers, so whether they are down is followed
   // by hand (trackKey, in rules.js).
   const held = { insert: false, del: false };
-  addEventListener("keydown", (ev) => trackKey(held, "keydown", ev.key), true);
-  addEventListener("keyup", (ev) => trackKey(held, "keyup", ev.key), true);
-  addEventListener("blur", () => trackKey(held, "blur"));
+  // What the held keys ask for goes to the worker too, which applies it to
+  // any download this tab starts while they are down: a form, a script's
+  // download (heldReport, in rules.js, sends only changes and refreshes).
+  // Whether only a left click counts does not matter here: no click.
+  const report = { sent: "", time: 0 };
+  function reportHeld(ev) {
+    const action = ev
+      ? keyAction(
+          { ...keys, capture_keys_left_click: false },
+          { alt: ev.altKey, ctrl: ev.ctrlKey, shift: ev.shiftKey, insert: held.insert, del: held.del },
+        )
+      : "";
+    if (heldReport(report, action, Date.now())) chrome.runtime.sendMessage({ type: "keys:held", action }).catch(() => {});
+  }
+  // A page's script can send key events; only the user's own count.
+  addEventListener(
+    "keydown",
+    (ev) => {
+      trackKey(held, "keydown", ev.key);
+      if (ev.isTrusted) reportHeld(ev);
+    },
+    true,
+  );
+  addEventListener(
+    "keyup",
+    (ev) => {
+      trackKey(held, "keyup", ev.key);
+      if (ev.isTrusted) reportHeld(ev);
+    },
+    true,
+  );
+  // Keys let go while the page has no focus are never seen: forget them.
+  const letGo = () => {
+    trackKey(held, "blur");
+    reportHeld(null);
+  };
+  addEventListener("blur", letGo);
+  document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && letGo());
 
   function onClick(ev) {
     // A page's script can send a click with the force key "held"; only the
