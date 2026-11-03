@@ -288,8 +288,8 @@ for (const firefox of [false, true]) {
     same(
       injected.map((o) => [o.target.tabId, o.target.frameIds, o.files]),
       [
-        [1, [1], ["rules.js", "content.js"]],
-        [2, [0], ["rules.js", "content.js"]],
+        [1, [1], ["rules.js", "links.js", "content.js"]],
+        [2, [0], ["rules.js", "links.js", "content.js"]],
       ],
     );
     // The check runs in every frame.

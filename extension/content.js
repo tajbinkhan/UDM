@@ -163,18 +163,14 @@ if (!uidmContentAgain) document.addEventListener(
   true,
 );
 
-// Whether selection `sel` holds a link or a bare web address.
+// Whether selection `sel` (this document's) holds anything "Download
+// selected links" would collect: the same extraction (collectPageLinks, in
+// links.js), so the menu and the button show just when there is something.
 function selectionHasLinks(sel) {
-  if (!sel || sel.isCollapsed) return false;
-  if (/https?:\/\/\S/.test(String(sel))) return true;
-  for (let i = 0; i < sel.rangeCount; i++) {
-    const range = sel.getRangeAt(i);
-    if (range.cloneContents().querySelector("a[href]")) return true;
-    const a = range.commonAncestorContainer;
-    const el = a.nodeType === 1 ? a : a.parentElement;
-    if (el && el.closest("a[href]")) return true;
-  }
-  return false;
+  const box = document.activeElement;
+  const inBox = box && /^(TEXTAREA|INPUT)$/.test(box.tagName) && box.selectionEnd > box.selectionStart;
+  if ((!sel || sel.isCollapsed) && !inBox && !document.querySelector("iframe:not([src]), iframe[src^='about:' i], frame:not([src])")) return false;
+  return selectionHasPageLinks(document);
 }
 
 // What the context menu asks this frame: the right-clicked link's

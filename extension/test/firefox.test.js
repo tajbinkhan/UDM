@@ -21,7 +21,7 @@ function freshCopy(t) {
 test("a fresh Firefox copy passes the check and holds every extension script", (t) => {
   const out = freshCopy(t);
   assert.deepEqual(checkFirefox(out), []);
-  for (const file of ["background.js", "media.js", "rules.js", "post.js", "request.js", "content.js", "popup.js"]) {
+  for (const file of ["background.js", "media.js", "rules.js", "links.js", "post.js", "request.js", "content.js", "popup.js"]) {
     assert.ok(fs.readFileSync(path.join(__dirname, "..", file)).equals(fs.readFileSync(path.join(out, file))), file);
   }
   assert.ok(fs.readFileSync(path.join(out, "media.js"), "utf8").includes("function adoptFile("));

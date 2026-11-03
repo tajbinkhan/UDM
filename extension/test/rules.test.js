@@ -282,6 +282,30 @@ test("all links on a page go to the window's picker with cookies", async () => {
   assert.equal(JSON.stringify(msg.links.map((l) => [l.url, l.cookies ?? null])), JSON.stringify([["https://dl.net/a.zip", "s=1"], ["https://cdn.org/b.png", null]]));
 });
 
+test("all links runs links.js in every frame first, and lists each link once", async () => {
+  const w = loadWorker();
+  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "settings", settings: { capture_types: ["zip", "abc"], capture_min_size_kb: 0, capture_excluded_sites: [] } });
+  const calls = [];
+  w.chrome.scripting = {
+    executeScript: async (o) => {
+      calls.push(o);
+      if (o.files) return [{ result: null }, { result: null }];
+      // The top frame walked into a frame made from nothing, which the
+      // browser also ran the script in.
+      return [
+        { result: [{ url: "https://dl.net/a.zip", text: "" }, { url: "ftp://files.net/b.iso", text: "B" }] },
+        { result: [{ url: "https://dl.net/a.zip#top", text: "A" }] },
+        { result: "not a list" },
+      ];
+    },
+  };
+  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-all-links", pageUrl: "https://dl.net/list" }, { id: 4 });
+  assert.equal(JSON.stringify(calls.map((o) => [o.target.allFrames, o.files || null, o.args || null])), JSON.stringify([[true, ["links.js"], null], [true, null, [false, ["zip", "abc"]]]]));
+  const msg = w.sent.find((m) => m.op === "pick_links");
+  assert.equal(JSON.stringify(msg.links), JSON.stringify([{ url: "https://dl.net/a.zip", text: "A" }, { url: "ftp://files.net/b.iso", text: "B" }]));
+});
+
 test("where the selection button shows", () => {
   assert.ok(selectionButtonAllowed(null, "https://x.net/"), "on everywhere by default");
   assert.ok(selectionButtonAllowed({ selection_button: "everywhere" }, "https://x.net/"));
@@ -303,7 +327,7 @@ test("the selection button asks for the selection's links only", async () => {
   };
   const answer = await w.content({ type: "selection:links" }, 5, "https://dl.net/list");
   assert.equal(answer.ok, true);
-  assert.equal(JSON.stringify(asked), "[true]");
+  assert.equal(JSON.stringify(asked), "[true,[]]");
   assert.equal(w.sent.at(-1).op, "pick_links");
 });
 

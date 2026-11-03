@@ -20,7 +20,7 @@
 // Chrome runs this as a service worker and it loads its helpers itself;
 // Firefox runs it as a background script after the helpers the manifest
 // lists, and has no importScripts.
-if (typeof importScripts === "function") importScripts("rules.js", "post.js", "media.js", "request.js");
+if (typeof importScripts === "function") importScripts("rules.js", "links.js", "post.js", "media.js", "request.js");
 
 const HOST = "com.uidm.host";
 const RECONNECT_MIN_MS = 1000;
@@ -1312,30 +1312,13 @@ async function sendBrowserDownload(id) {
 // The most links one page sends to the picker.
 const MAX_PAGE_LINKS = 5000;
 
-// Runs in each frame of the page (so it cannot use anything outside itself):
-// the frame's links and images as { url, text, image }. With `selection`,
-// only the links in the selected text, and any bare addresses in it.
-function collectLinks(selection) {
-  const out = [];
-  const sel = getSelection();
-  if (selection && (!sel || sel.isCollapsed)) return out;
-  const ranges = selection ? Array.from({ length: sel.rangeCount }, (_, i) => sel.getRangeAt(i)) : [];
-  const chosen = (node) => !selection || ranges.some((r) => r.intersectsNode(node));
-  const text = (s) => String(s || "").replace(/\s+/g, " ").trim().slice(0, 200);
-  for (const a of document.querySelectorAll("a[href], area[href]")) {
-    if (chosen(a)) out.push({ url: a.href, text: text(a.textContent || a.getAttribute("alt")) });
-  }
-  if (selection) {
-    for (const m of String(sel).matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
-      out.push({ url: m[0].replace(/[).,;:!?\]]+$/, ""), text: "" });
-    }
-  } else {
-    for (const img of document.images) {
-      const src = img.currentSrc || img.src;
-      if (src) out.push({ url: src, text: text(img.alt), image: true });
-    }
-  }
-  return out;
+// Runs in each frame of the page after links.js (so it can use only what
+// that declares): the frame's links as { url, text, image }, from its
+// links, frames, inline scripts and images, and from the frames inside it
+// made from nothing; see collectPageLinks. With `selection`, only what the
+// selection holds.
+function collectLinks(selection, types) {
+  return collectPageLinks(document, { selection, types });
 }
 
 // Collect the links of tab `tabId` (in every frame) and send them to the
@@ -1347,20 +1330,24 @@ async function pickLinks(tabId, pageUrl, selection = false) {
   if (!chrome.scripting || tabId == null || tabId < 0) return "unreadable";
   let results;
   try {
+    // The extraction first: frames made before UIDM was installed, or made
+    // from nothing, have no content script.
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["links.js"] });
     results = await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: collectLinks,
-      args: [selection],
+      args: [selection, (rules && rules.capture_types) || []],
     });
   } catch (_) {
     return "unreadable"; // a page extensions may not script, such as the web store
   }
-  const links = [];
-  for (const r of results || []) {
-    for (const l of r.result || []) {
-      if (links.length < MAX_PAGE_LINKS && isWeb(l.url)) links.push(l);
-    }
-  }
+  // A link in several frames (or in a frame made from nothing, which its
+  // parent walks into and the browser may also have run the script in) is
+  // listed once.
+  const links = dedupeLinks(
+    (results || []).flatMap((r) => (Array.isArray(r && r.result) ? r.result : [])),
+    MAX_PAGE_LINKS,
+  );
   if (links.length === 0) return "none";
   const cookies = new Map();
   for (const l of links) {
@@ -1370,6 +1357,7 @@ async function pickLinks(tabId, pageUrl, selection = false) {
     } catch (_) {
       continue;
     }
+    if (!isWeb(l.url)) continue; // ftp has no cookies
     if (!cookies.has(origin)) cookies.set(origin, await cookieHeader(l.url, { tabId, incognito: isPrivate(tabId) }));
     if (cookies.get(origin)) l.cookies = cookies.get(origin);
   }
@@ -1562,7 +1550,7 @@ if (MENUS && MENUS.onShown && MENUS.refresh) {
   MENUS.onShown.addListener(async (info, tab) => {
     const menu = ++shownMenu;
     if (!(info.menuIds || []).includes("uidm-selection-links") || !tab || tab.id == null) return;
-    let links = /https?:\/\/\S/.test(info.selectionText || "");
+    let links = linksFromText(info.selectionText).length > 0;
     if (!links) {
       try {
         const answer = await chrome.tabs.sendMessage(tab.id, { type: "selection:hasLinks" }, { frameId: info.frameId || 0 });

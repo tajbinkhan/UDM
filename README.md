@@ -530,7 +530,16 @@ tests, not in a running Firefox.
   file type, to check and add.
 - **Download all links with UIDM** (the browser's menu on a page or a text
   selection, and the button over a selection) lists the links in the window
-  to tick: filters hide web pages, images, repeated links, or keep some file
+  to tick. As IDM does, it collects more than a page's links: its frames'
+  addresses, addresses in its inline scripts (absolute ones, and quoted
+  relative paths ending in a captured file type; the first 1 MB of script
+  per page), the pictures images' onclick handlers open, its images (with
+  their largest srcset picture), and the links in frames made from nothing
+  (about:blank or srcdoc, up to three deep). **Download selected links**
+  takes the same from what the selection touches, plus the addresses in its
+  text, or in the text selected in a text box. Only http, https and ftp
+  addresses are kept, each once (a `#fragment` makes no other file), at most
+  5000 a page. In the window: filters hide web pages, images, repeated links, or keep some file
   types, and **Edit...** changes a link's address. Meanwhile the daemon asks
   each link's server for its type and size, four links at a time and with
   the link's cookies, referrer and proxy, and the **Type** and **Size**
@@ -1427,6 +1436,7 @@ is a failed scan, as is one that runs over 10 minutes.
 | `extension/_locales/` | The extension's text in each language |
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
 | `extension/rules.js` | Capture rules (file types, minimum size, excluded sites) |
+| `extension/links.js` | The links of a page for "Download all links" and "selected links" |
 | `extension/post.js` | Matching downloads to the form POSTs that started them |
 | `extension/request.js` | The request behind a download: headers, redirects, response, proxy setting |
 | `extension/media.js` | Which responses are videos and streams, per tab, and the video menu |
