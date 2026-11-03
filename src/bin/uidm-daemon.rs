@@ -45,7 +45,7 @@ use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -89,6 +89,9 @@ const EARLY_STOP_WAIT: Duration = Duration::from_secs(15);
 /// The folder early downloads are written in, inside the temporary folder
 /// when UIDM's data folder cannot be had.
 const EARLY_FOLDER: &str = "UIDM early";
+
+/// Links the link picker's probes ask about at once.
+const LINK_PROBES: usize = 4;
 
 /// Where early downloads go: UIDM's own data folder, which only this user
 /// can write. The temporary folder is shared by every user on Linux, where
@@ -530,6 +533,8 @@ struct Daemon {
     refresh_waiting: Mutex<Option<u64>>,
     /// Each client's running site crawl, by its stop flag.
     grabs: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    /// Each client's link picker probes, by their stop flag.
+    link_probes: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     /// Links from a page, held for the window that is being opened.
     picked_links: Mutex<Option<Outgoing>>,
     /// What the quota stopped (queues and downloads), while it holds them.
@@ -671,6 +676,7 @@ impl Daemon {
             tick_lock: Mutex::new(()),
             refresh_waiting: Mutex::new(None),
             grabs: Mutex::new(HashMap::new()),
+            link_probes: Mutex::new(HashMap::new()),
             picked_links: Mutex::new(None),
             quota_paused: Mutex::new(None),
             quota_warned: AtomicBool::new(false),
@@ -2374,6 +2380,62 @@ impl Daemon {
         }
     }
 
+    /// Ask the server of each of `links` for its size and type, the way a
+    /// download of it would (its cookies, referrer, proxy and login), for
+    /// `client`'s link picker. `LINK_PROBES` links are asked at a time, so a
+    /// long list neither waits on one slow server nor floods the sites, and
+    /// each answer goes out as it comes. Any earlier probing for `client`
+    /// stops.
+    fn probe_links(&self, client: u64, request: u64, links: Vec<Download>, reply: Sender<Vec<u8>>) {
+        let stop = Arc::new(AtomicBool::new(false));
+        if let Some(old) = self.link_probes.lock().unwrap().insert(client, Arc::clone(&stop)) {
+            old.store(true, Ordering::Relaxed);
+        }
+        let reqs: Arc<Vec<DownloadRequest>> = Arc::new(links.into_iter().map(|d| self.request_for(d)).collect());
+        let next = Arc::new(AtomicUsize::new(0));
+        for _ in 0..LINK_PROBES.min(reqs.len()) {
+            let (reqs, next, stop, reply) = (Arc::clone(&reqs), Arc::clone(&next), Arc::clone(&stop), reply.clone());
+            thread::spawn(move || loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some(req) = reqs.get(index).filter(|_| !stop.load(Ordering::Relaxed)) else {
+                    return;
+                };
+                let found = engine::inspect(&req.url, None, &req.headers, &req.net);
+                // Stopped while asking: the picker is gone, or asked anew.
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                let msg = match found {
+                    Ok(i) => Outgoing::LinkInfo {
+                        request,
+                        index,
+                        total: i.total,
+                        content_type: i.content_type,
+                        error: None,
+                    },
+                    Err(e) => Outgoing::LinkInfo {
+                        request,
+                        index,
+                        total: None,
+                        content_type: None,
+                        error: Some(e.to_string()),
+                    },
+                };
+                // A send that fails means the client went.
+                if !serde_json::to_vec(&msg).is_ok_and(|frame| reply.send(frame).is_ok()) {
+                    return;
+                }
+            });
+        }
+    }
+
+    /// Stop `client`'s link probes, if it has any.
+    fn stop_probe_links(&self, client: u64) {
+        if let Some(stop) = self.link_probes.lock().unwrap().remove(&client) {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+
     /// Announce `download` as queued, probe it on another thread, then hold it
     /// as `confirming` with the proposed file until a window answers.
     /// `duplicate_of` is another download with the same address, for the
@@ -2992,7 +3054,8 @@ impl Daemon {
 
     /// Change a stopped or finished download's details. The link, referrer
     /// and login go into the request a retry starts from; a finished
-    /// download's file is renamed or moved on disk first.
+    /// download's file is renamed or moved on disk first, and an unfinished
+    /// one's partial file moves with its folder.
     fn set_properties(&self, id: u64, p: Properties) -> Result<(), String> {
         let entry = self.entry(id).ok_or_else(|| format!("no download with id {id}"))?;
         let done = entry.status == Status::Done;
@@ -3013,9 +3076,29 @@ impl Daemon {
         if p.login.is_some() && done {
             return Err("A finished download keeps no login. Download it again to use one.".into());
         }
+        let mut new_folder = None;
         let moved = match (p.filename, p.folder) {
             (None, None) => None,
-            _ if !done => return Err("Only a finished download's file can be renamed or moved.".into()),
+            (Some(_), _) if !done => return Err("Only a finished download's file can be renamed.".into()),
+            (None, Some(folder)) if !done => {
+                // An unfinished download moves to another folder: its partial
+                // file and resume sidecar go along when they are kept beside
+                // it, and the next attempt saves there. A partial file in the
+                // temporary folder stays put; it is moved into place when the
+                // download finishes, as always.
+                let dir = PathBuf::from(folder.trim());
+                if !dir.is_absolute() {
+                    return Err(format!("The folder must be a full path: {}", dir.display()));
+                }
+                new_folder = Some(dir.clone());
+                entry
+                    .path
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .and_then(|from| Some((from.file_name()?.to_owned(), from)))
+                    .map(|(name, from)| (from, dir.join(name)))
+                    .filter(|(from, to)| to != from)
+            }
             (filename, folder) => {
                 let from = entry.path.as_deref().map(PathBuf::from).ok_or("The download has no file.")?;
                 let name = filename
@@ -3036,7 +3119,15 @@ impl Daemon {
             }
         };
         if let Some((from, to)) = &moved {
-            move_file(from, to)?;
+            if done {
+                move_file(from, to)?;
+            } else if entry.connections > 0 {
+                move_partial(from, to)?;
+            } else if to.exists() {
+                // Never started: only a proposed path, which may be
+                // somebody else's file, so nothing is moved.
+                return Err(format!("{} already exists.", to.display()));
+            }
             eprintln!("[uidm-daemon] moved #{id} to {}", to.display());
         }
         let mut login_user = entry.login_user.clone();
@@ -3056,6 +3147,9 @@ impl Daemon {
             }
             if let Some(d) = &description {
                 req.description = Some(d.clone()).filter(|d| !d.is_empty());
+            }
+            if let Some(dir) = &new_folder {
+                req.folder = Some(dir.display().to_string());
             }
             if let Some(l) = p.login {
                 let username = l.username.trim().to_string();
@@ -3523,6 +3617,7 @@ fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
     // client started keep running.
     daemon.hub.client_gone(id);
     daemon.stop_grab(id);
+    daemon.stop_probe_links(id);
     drop(tx);
     let _ = writer.join();
     eprintln!("[uidm-daemon] client #{id} disconnected");
@@ -3640,6 +3735,14 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             }
         }
         Incoming::CancelGrab => daemon.stop_grab(client),
+        Incoming::ProbeLinks { request, links } => {
+            if let Some(message) = links.iter().find_map(|d| check_body(d).err()) {
+                send(&Outgoing::Error { message });
+                return;
+            }
+            daemon.probe_links(client, request, links, reply.clone());
+        }
+        Incoming::StopProbeLinks => daemon.stop_probe_links(client),
         Incoming::Cancel { id } => {
             eprintln!("[uidm-daemon] cancel #{id}");
             daemon.cancel(id);
@@ -3978,6 +4081,29 @@ fn move_file(from: &Path, to: &Path) -> Result<(), String> {
     }
     std::fs::copy(from, to).map_err(|e| format!("Could not move the file to {}: {e}", to.display()))?;
     std::fs::remove_file(from).map_err(|e| format!("Copied the file, but could not delete {}: {e}", from.display()))
+}
+
+/// Move an unfinished download's file `from` and its resume sidecar to
+/// `to`, refusing to land on any file already there. Either may be missing:
+/// a download that never started has no file yet, and one writing to the
+/// temporary folder keeps its data there.
+fn move_partial(from: &Path, to: &Path) -> Result<(), String> {
+    let (sidecar, new_sidecar) = (engine::sidecar_path(from), engine::sidecar_path(to));
+    for taken in [to, new_sidecar.as_path()] {
+        if taken.exists() {
+            return Err(format!("{} already exists.", taken.display()));
+        }
+    }
+    if let Some(dir) = to.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
+    }
+    if from.is_file() {
+        move_file(from, to)?;
+    }
+    if sidecar.is_file() {
+        move_file(&sidecar, &new_sidecar)?;
+    }
+    Ok(())
 }
 
 /// Keep a page a crawl read under its mirror folder, with its links to
@@ -4522,6 +4648,128 @@ mod tests {
         t.daemon.set_properties(id, clear).unwrap();
         assert_eq!(t.daemon.entry(id).unwrap().login_user, None);
         assert!(t.daemon.hub.requests.lock().unwrap()[&id].login.is_none());
+    }
+
+    /// A stopped download moved to another folder takes its partial file
+    /// and sidecar along, and resumes and finishes there without fetching
+    /// its bytes again.
+    #[test]
+    fn properties_move_a_stopped_download_with_its_partial_file() {
+        const LEN: usize = 1024 * 1024;
+        let t = setup("props_move_partial", Duplicate::NewName);
+        t.daemon.settings.lock().unwrap().connections = 2;
+        let body: Arc<Vec<u8>> = Arc::new((0..LEN).map(|i| (i % 251) as u8).collect());
+        let sent = Arc::new(AtomicU64::new(0));
+        let id = t.add(&serve_ranges(Arc::clone(&body), Arc::clone(&sent)));
+        let until = Instant::now() + Duration::from_secs(30);
+        while t.daemon.status(id) != Some(Status::Downloading) || sent.load(Ordering::Relaxed) < LEN as u64 / 4 {
+            assert!(Instant::now() < until, "the download never got going");
+            thread::sleep(Duration::from_millis(20));
+        }
+        // Running, it cannot move.
+        let elsewhere = t.dir.join("elsewhere");
+        let move_it = || Properties {
+            folder: Some(elsewhere.display().to_string()),
+            ..Properties::default()
+        };
+        assert!(t.daemon.set_properties(id, move_it()).is_err());
+        t.daemon.cancel(id);
+        let stopped = t.wait(id, Status::Canceled);
+        let old = PathBuf::from(stopped.path.unwrap());
+        assert_eq!(old, t.dir.join("big.bin"));
+        assert!(old.is_file() && engine::sidecar_path(&old).is_file());
+        let kept = std::fs::metadata(&old).unwrap().len();
+
+        t.daemon.set_properties(id, move_it()).unwrap();
+        let moved = elsewhere.join("big.bin");
+        assert_eq!(t.daemon.entry(id).unwrap().path.map(PathBuf::from), Some(moved.clone()));
+        assert!(!old.exists() && !engine::sidecar_path(&old).exists(), "nothing is left behind");
+        assert!(moved.is_file() && engine::sidecar_path(&moved).is_file());
+        assert_eq!(std::fs::metadata(&moved).unwrap().len(), kept);
+
+        let before = sent.load(Ordering::Relaxed);
+        let (resumed, _) = t.daemon.retry(id).unwrap();
+        let done = t.wait(resumed, Status::Done);
+        assert_eq!(done.path.map(PathBuf::from), Some(moved.clone()));
+        assert_eq!(std::fs::read(&moved).unwrap(), *body);
+        assert!(!old.exists(), "it did not start over in the old folder");
+        let again = sent.load(Ordering::Relaxed) - before;
+        assert!(again < LEN as u64 - LEN as u64 / 8, "sent {again} bytes again; it did not resume");
+    }
+
+    #[test]
+    fn properties_move_a_download_that_never_started() {
+        let t = setup("props_move_unstarted", Duplicate::NewName);
+        let id = t.failed("https://x/a.bin");
+        let elsewhere = t.dir.join("later");
+        let changes = Properties {
+            folder: Some(elsewhere.display().to_string()),
+            ..Properties::default()
+        };
+        t.daemon.set_properties(id, changes).unwrap();
+        let req = t.daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap();
+        assert_eq!(req.folder.map(PathBuf::from), Some(elsewhere.clone()), "the next attempt saves there");
+
+        // A proposed file that was never started may be somebody else's: it
+        // stays where it is.
+        let other = t.dir.join("theirs.bin");
+        std::fs::write(&other, b"theirs").unwrap();
+        t.daemon
+            .hub
+            .update(id, |e| {
+                e.path = Some(other.display().to_string());
+                Ok(())
+            })
+            .unwrap();
+        let back = Properties {
+            folder: Some(t.dir.join("again").display().to_string()),
+            ..Properties::default()
+        };
+        t.daemon.set_properties(id, back).unwrap();
+        assert_eq!(std::fs::read(&other).unwrap(), b"theirs");
+        assert_eq!(t.daemon.entry(id).unwrap().path.map(PathBuf::from), Some(t.dir.join("again").join("theirs.bin")));
+        let relative = Properties {
+            folder: Some("rel".into()),
+            ..Properties::default()
+        };
+        assert!(t.daemon.set_properties(id, relative).is_err());
+        let rename = Properties {
+            filename: Some("b.bin".into()),
+            ..Properties::default()
+        };
+        assert!(t.daemon.set_properties(id, rename).is_err(), "only a finished file is renamed");
+    }
+
+    #[test]
+    fn the_link_picker_hears_each_links_type_and_size() {
+        let t = setup("probe_links", Duplicate::NewName);
+        let link = |url: String| Download {
+            url,
+            ..Download::default()
+        };
+        let links = vec![link(serve()), link("http://127.0.0.1:1/gone.zip".into()), link(serve())];
+        let (tx, rx) = channel();
+        t.daemon.probe_links(7, 42, links, tx);
+        let mut heard = std::collections::BTreeMap::new();
+        while heard.len() < 3 {
+            let frame = rx.recv_timeout(Duration::from_secs(10)).expect("every link is answered");
+            if let Ok(Outgoing::LinkInfo { request: 42, index, total, content_type, error }) = serde_json::from_slice(&frame) {
+                heard.insert(index, (total, content_type, error));
+            }
+        }
+        let found = (Some(BODY.len() as u64), Some("application/octet-stream".to_string()), None);
+        assert_eq!(heard[&0], found);
+        assert_eq!(heard[&2], found);
+        assert!(heard[&1].2.is_some(), "a link that cannot be reached says why");
+
+        // A new request stops the last; closing the picker stops the new one.
+        let (tx, _rx) = channel();
+        let before = Arc::clone(&t.daemon.link_probes.lock().unwrap()[&7]);
+        t.daemon.probe_links(7, 43, vec![link(serve())], tx);
+        assert!(before.load(Ordering::Relaxed));
+        let now = Arc::clone(&t.daemon.link_probes.lock().unwrap()[&7]);
+        t.daemon.stop_probe_links(7);
+        assert!(now.load(Ordering::Relaxed) && t.daemon.link_probes.lock().unwrap().is_empty());
     }
 
     #[test]

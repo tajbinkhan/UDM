@@ -131,6 +131,7 @@ impl DownloadTable {
             | Outgoing::RefreshMismatch { .. }
             | Outgoing::AddedMany { .. }
             | Outgoing::MediaInfo { .. }
+            | Outgoing::LinkInfo { .. }
             | Outgoing::PickLinks { .. }
             | Outgoing::Quota { .. }
             | Outgoing::BrowserLink { .. }

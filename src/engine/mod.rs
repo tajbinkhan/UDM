@@ -937,6 +937,8 @@ pub struct Inspection {
     pub resumable: bool,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
+    /// The server's `Content-Type`, when it sent one.
+    pub content_type: Option<String>,
 }
 
 impl Inspection {
@@ -952,6 +954,7 @@ impl Inspection {
             resumable: false,
             etag: None,
             last_modified: None,
+            content_type: None,
         }
     }
 }
@@ -972,6 +975,7 @@ pub fn inspect(
         resumable: probe.resumable,
         etag: probe.etag,
         last_modified: probe.last_modified,
+        content_type: probe.content_type,
     })
 }
 

@@ -2,7 +2,8 @@
 //! it is stopped, its link, referrer, description and own login. The web
 //! page it came from is shown beside them; it only says where the download
 //! was found, so it is not edited. A finished download's file can be
-//! renamed or moved from here.
+//! renamed or moved from here, and a stopped one's folder changed: its
+//! partial file moves along and it carries on there.
 
 use std::path::Path;
 
@@ -77,9 +78,11 @@ impl PropertiesDialog {
             description: changed(&self.description, 2),
             ..Properties::default()
         };
+        // A stopped download can move to another folder; only a finished
+        // file can be renamed.
+        p.folder = changed(&self.folder, 4);
         if done {
             p.filename = changed(&self.filename, 3);
-            p.folder = changed(&self.folder, 4);
         } else if !self.use_login && self.had_login {
             p.login = Some(DownloadLogin::default());
         } else if self.use_login && (changed(&self.username, 5).is_some() || !self.password.is_empty() || !self.had_login) {
@@ -201,9 +204,12 @@ pub fn dialog(
                     ui.end_row();
                     ui.label(tr("Folder"));
                     ui.horizontal(|ui| {
-                        ui.add_enabled(done, egui::TextEdit::singleline(&mut d.folder).desired_width(340.0))
-                            .on_disabled_hover_text(tr("A finished file can be moved"));
-                        ui.add_enabled_ui(done, |ui| browse_button(ui, tr("Move the file to"), &d.folder, &d.picked));
+                        let hint = if done { tr("Move the file to") } else { tr("Save the download in") };
+                        let field = ui.add(egui::TextEdit::singleline(&mut d.folder).desired_width(340.0));
+                        if !done {
+                            field.on_hover_text(tr("Its partial file moves there, and it carries on there"));
+                        }
+                        browse_button(ui, hint, &d.folder, &d.picked);
                     });
                     ui.end_row();
                 });
@@ -331,6 +337,13 @@ mod tests {
         assert_eq!(p.description.as_deref(), Some("note"));
         assert_eq!(p.filename, None, "only a finished file is renamed");
         assert!(p.login.is_none(), "the login is unchanged");
+    }
+
+    #[test]
+    fn a_stopped_download_can_change_folder() {
+        let mut d = PropertiesDialog::new(&entry(Status::Interrupted));
+        d.folder = r"D:\later".into();
+        assert_eq!(d.changes(false).folder.as_deref(), Some(r"D:\later"));
     }
 
     #[test]

@@ -161,6 +161,29 @@ pub struct Layout {
     /// How the tray icon looks, from View > Tray icon.
     #[serde(default)]
     pub tray_style: crate::tray::Style,
+    /// The release whose "is available" strip was closed. It stays closed
+    /// for that version; a newer one shows the strip again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismissed_release: Option<String>,
+}
+
+impl Layout {
+    /// Put back what the Columns dialog changes, from `before`. The font
+    /// and tray icon have menus of their own, so they stay as they are now.
+    pub fn restore_columns(&mut self, before: &Layout) {
+        *self = Layout {
+            list_font: self.list_font,
+            tray_style: self.tray_style,
+            dismissed_release: self.dismissed_release.take(),
+            ..before.clone()
+        };
+    }
+
+    /// Whether the strip offering release `version` shows: not once it was
+    /// closed for that version.
+    pub fn shows_release(&self, version: &str) -> bool {
+        self.dismissed_release.as_deref() != Some(version)
+    }
 }
 
 /// The kinds of font egui has: the window's text font and its code font.
@@ -211,6 +234,7 @@ impl Default for Layout {
             categories_width: None,
             list_font: None,
             tray_style: crate::tray::Style::Color,
+            dismissed_release: None,
         }
     }
 }
@@ -443,8 +467,10 @@ pub fn font_dialog(ctx: &egui::Context, draft: &mut ListFont) -> FontChoice {
     choice
 }
 
-/// The Columns dialog, editing `layout` in place. Returns false once closed.
-pub fn dialog(ctx: &egui::Context, layout: &mut Layout) -> bool {
+/// The Columns dialog, editing `layout` in place so the list shows each
+/// change at once. `before` is the layout it opened with: Cancel (or the
+/// window's X) puts that back. Returns false once closed.
+pub fn dialog(ctx: &egui::Context, layout: &mut Layout, before: &Layout) -> bool {
     let mut open = true;
     let mut close = false;
     crate::dialog::Window::new(tr("Columns"))
@@ -507,14 +533,22 @@ pub fn dialog(ctx: &egui::Context, layout: &mut Layout) -> bool {
                     *layout = Layout {
                         list_font: layout.list_font,
                         tray_style: layout.tray_style,
+                        dismissed_release: layout.dismissed_release.take(),
                         ..Layout::default()
                     };
                 }
-                if ui.button(tr("Close")).clicked() {
+                if ui.button(tr("OK")).clicked() {
+                    close = true;
+                }
+                if ui.button(tr("Cancel")).on_hover_text(tr("Undo the changes made here")).clicked() {
+                    layout.restore_columns(before);
                     close = true;
                 }
             });
         });
+    if !open {
+        layout.restore_columns(before);
+    }
     open && !close
 }
 
@@ -554,6 +588,21 @@ mod tests {
 
     fn ids(rows: &[&DownloadEntry]) -> Vec<u64> {
         rows.iter().map(|e| e.id).collect()
+    }
+
+    #[test]
+    fn cancel_puts_the_columns_back_but_not_the_font() {
+        let before = Layout::default();
+        let mut now = before.clone();
+        now.columns.retain(|c| *c != Column::Size);
+        now.set_width(Column::Status, 140.0);
+        now.list_font = Some(ListFont::DEFAULT);
+        now.tray_style = crate::tray::Style::Mono;
+        now.restore_columns(&before);
+        assert_eq!(now.columns, before.columns);
+        assert_eq!(now.widths, before.widths);
+        assert_eq!(now.list_font, Some(ListFont::DEFAULT), "the font has a menu of its own");
+        assert_eq!(now.tray_style, crate::tray::Style::Mono);
     }
 
     #[test]
@@ -690,6 +739,16 @@ mod tests {
         // And the default writes neither the font nor anything new to read.
         let back: Layout = serde_json::from_str(&serde_json::to_string(&Layout::default()).unwrap()).unwrap();
         assert_eq!(back, Layout::default());
+    }
+
+    #[test]
+    fn a_closed_release_strip_stays_closed_until_a_newer_one() {
+        let mut l = Layout::default();
+        assert!(l.shows_release("1.4.0"));
+        l.dismissed_release = Some("1.4.0".into());
+        let back: Layout = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+        assert!(!back.shows_release("1.4.0"), "remembered across a restart");
+        assert!(back.shows_release("1.5.0"));
     }
 
     #[test]

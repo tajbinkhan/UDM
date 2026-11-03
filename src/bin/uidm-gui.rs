@@ -225,6 +225,10 @@ struct Shared {
     started: Vec<u64>,
     /// Links from a page for the link picker, until the window opens it.
     picked_links: Option<links::LinksDialog>,
+    /// The daemon's answers about the link picker's links, until the
+    /// picker takes them: the request, the link's place in it, and what
+    /// its server said.
+    link_info: Vec<(u64, usize, links::Probed)>,
     /// The quota's warning for the status bar, while it matters.
     quota: Option<String>,
     /// The last update check's answer, for the About box: a newer release,
@@ -370,6 +374,22 @@ impl Shared {
             }
             Outgoing::PickLinks { page, links, user_agent } => {
                 self.picked_links = Some(links::LinksDialog::new(page.clone(), links.clone(), user_agent.clone()));
+            }
+            Outgoing::LinkInfo {
+                request,
+                index,
+                total,
+                content_type,
+                error,
+            } => {
+                let probed = match error {
+                    Some(e) => links::Probed::Failed(e.clone()),
+                    None => links::Probed::Found {
+                        total: *total,
+                        content_type: content_type.clone(),
+                    },
+                };
+                self.link_info.push((*request, *index, probed));
             }
             Outgoing::AddedMany { count, skipped } => {
                 let mut notice = match count {
@@ -551,6 +571,10 @@ enum Action {
     OpenGrabProject(String),
     Grab(GrabRequest),
     CancelGrab,
+    /// Ask the servers of the link picker's links for their type and size.
+    ProbeLinks { request: u64, links: Vec<Download> },
+    /// The link picker closed: stop asking.
+    StopProbeLinks,
     /// A click on a download's name: select only it, or with Ctrl add or
     /// take it away, or with Shift select the run from the last one clicked.
     Click {
@@ -635,8 +659,9 @@ struct App {
     order: Vec<u64>,
     /// The list's columns and sort order, saved when they change.
     layout: columns::Layout,
-    /// The Columns dialog is open.
-    columns_dialog: bool,
+    /// The Columns dialog is open, with the layout it opened with, which
+    /// its Cancel puts back.
+    columns_dialog: Option<columns::Layout>,
     /// View > Font > Choose Font is open, with the font being chosen.
     font_dialog: Option<columns::ListFont>,
     /// The list's table between frames.
@@ -1561,6 +1586,7 @@ impl App {
                 segments: HashMap::new(),
                 started: Vec::new(),
                 picked_links: None,
+                link_info: Vec::new(),
                 quota: None,
                 zip_listed: None,
                 update: None,
@@ -1596,7 +1622,7 @@ impl App {
             order: Vec::new(),
             find: None,
             layout: columns::Layout::load(),
-            columns_dialog: false,
+            columns_dialog: None,
             font_dialog: None,
             layout_unsaved: false,
             table: table::TableState::default(),
@@ -2157,6 +2183,12 @@ impl App {
             Action::Grab(req) => {
                 self.shared.lock().unwrap().grab_events.clear();
                 send(&self.writer, &Incoming::Grab(req));
+            }
+            Action::ProbeLinks { request, links } => {
+                send(&self.writer, &Incoming::ProbeLinks { request, links });
+            }
+            Action::StopProbeLinks => {
+                send(&self.writer, &Incoming::StopProbeLinks);
             }
             Action::CancelGrab => {
                 send(&self.writer, &Incoming::CancelGrab);
@@ -3483,7 +3515,10 @@ fn categories_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
 }
 
 fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
-    ui.weak(tr("These rules decide which browser downloads UIDM takes. The rest stay in the browser."));
+    ui.horizontal_wrapped(|ui| {
+        ui.weak(tr("These rules decide which browser downloads UIDM takes. The rest stay in the browser."));
+        ui.hyperlink_to(tr("How capture rules work"), help::CAPTURE);
+    });
     ui.add_space(6.0);
     egui::Grid::new("capture").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
         ui.label(tr("File types"));
@@ -4153,7 +4188,8 @@ impl eframe::App for App {
             stale_daemon: self.shared.lock().unwrap().stale_daemon,
             notice: notice.as_deref(),
             quota: quota.as_deref(),
-            release: release.as_ref().map(|r| banner::Release {
+            // Closed for this version, it stays closed until a newer one.
+            release: release.as_ref().filter(|r| self.layout.shows_release(&r.version)).map(|r| banner::Release {
                 version: &r.version,
                 url: &r.url,
                 installable: r.setup.is_some(),
@@ -4175,6 +4211,11 @@ impl eframe::App for App {
             }
             if dismissed.notice {
                 sh.notice = None;
+            }
+            drop(sh);
+            if let Some(r) = release.filter(|_| dismissed.release) {
+                self.layout.dismissed_release = Some(r.version);
+                self.layout_unsaved = true;
             }
         }
 
@@ -4325,7 +4366,7 @@ impl eframe::App for App {
                 scroll,
             };
             if table::show(ui, &list, &mut self.layout, &mut self.table, &mut actions).open_columns {
-                self.columns_dialog = true;
+                self.columns_dialog.get_or_insert_with(|| self.layout.clone());
             }
             if let Some(note) = empty {
                 ui.painter().text(
@@ -4370,10 +4411,17 @@ impl eframe::App for App {
             }
         }
         self.convert_window(ctx, &rows, connected, &mut actions);
-        if let Some(d) = self.shared.lock().unwrap().picked_links.take() {
-            self.links = Some(d);
-        }
+        let link_info = {
+            let mut sh = self.shared.lock().unwrap();
+            if let Some(d) = sh.picked_links.take() {
+                self.links = Some(d);
+            }
+            std::mem::take(&mut sh.link_info)
+        };
         if let Some(d) = self.links.as_mut() {
+            for (request, index, probed) in link_info {
+                d.heard(request, index, probed);
+            }
             let settings = settings.clone().unwrap_or_default();
             if !links::dialog(ctx, d, &queue_list, &settings, connected, &mut actions) {
                 self.links = None;
@@ -4415,8 +4463,10 @@ impl eframe::App for App {
             }
         }
         self.options_window(ctx, connected, &mut actions);
-        if self.columns_dialog {
-            self.columns_dialog = columns::dialog(ctx, &mut self.layout);
+        if let Some(before) = &self.columns_dialog {
+            if !columns::dialog(ctx, &mut self.layout, before) {
+                self.columns_dialog = None;
+            }
         }
         if let Some(draft) = self.font_dialog.as_mut() {
             match columns::font_dialog(ctx, draft) {
@@ -4626,7 +4676,9 @@ impl App {
                     actions.extend(changed(&|s| s.tray_icon = true));
                 }
             }
-            C::Columns => self.columns_dialog = true,
+            C::Columns => {
+                self.columns_dialog.get_or_insert_with(|| self.layout.clone());
+            }
             C::ToggleDarkMode => actions.extend(changed(&|s| {
                 s.theme = match s.theme {
                     uidm::settings::Theme::Light => uidm::settings::Theme::System,
@@ -4823,6 +4875,8 @@ impl App {
             .show(ctx, |ui| {
                 ui.label(tr("You canceled this download twice. UIDM can leave it to the browser next time."));
                 ui.add(egui::Label::new(egui::RichText::new(url.as_str()).weak()).truncate());
+                ui.hyperlink_to(tr("How capture rules work"), help::CAPTURE)
+                    .on_hover_text(tr("Which browser downloads UIDM takes, and how to keep others in the browser"));
                 ui.add_space(6.0);
                 ui.checkbox(dont_show, tr("Don't show this again"));
                 ui.add_space(6.0);

@@ -51,6 +51,14 @@ pub enum Incoming {
     Grab(GrabRequest),
     /// Stop this client's crawl; `grab_done` follows with what it found.
     CancelGrab,
+    /// Ask each link's server for its type and size, a few links at a time,
+    /// for the window's link picker. Each answer comes as `link_info`, to
+    /// this client only, as it arrives. A new one stops the client's last;
+    /// `stop_probe_links` stops it.
+    ProbeLinks { request: u64, links: Vec<Download> },
+    /// Stop this client's `probe_links`: the links not asked about yet are
+    /// not.
+    StopProbeLinks,
     /// Cancel a queued or running download.
     Cancel { id: u64 },
     /// Start a failed or canceled download again; it resumes from its partial
@@ -401,8 +409,9 @@ pub struct Properties {
     /// A new name for a finished download's file, which is renamed on disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
-    /// A new folder (a full path) for a finished download's file, which is
-    /// moved there.
+    /// A new folder (a full path) for the download's file. A finished file
+    /// is moved there; a stopped, unfinished download moves its partial
+    /// file and resume sidecar there and saves there from then on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
 }
@@ -726,6 +735,19 @@ pub enum Outgoing {
     },
     /// Reply to `probe_media`.
     MediaInfo { request: u64, info: MediaInfo },
+    /// What the server said about link `index` of a `probe_links` request:
+    /// its size and `Content-Type` when it gave them, or why it could not
+    /// be asked.
+    LinkInfo {
+        request: u64,
+        index: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     /// Links from a page for the window's link picker, as `pick_links` sent
     /// them. Sent to windows only.
     PickLinks {
@@ -993,6 +1015,18 @@ mod tests {
             }
             _ => panic!("expected add"),
         }
+    }
+
+    /// The link picker's probes, and an answer that knows only the size.
+    #[test]
+    fn parse_probe_links_and_link_info() {
+        let raw = br#"{"op":"probe_links","request":3,"links":[{"url":"https://x/a.zip"}]}"#;
+        match serde_json::from_slice(raw).unwrap() {
+            Incoming::ProbeLinks { request: 3, links } => assert_eq!(links[0].url, "https://x/a.zip"),
+            other => panic!("expected probe_links, got {other:?}"),
+        }
+        let info: Outgoing = serde_json::from_str(r#"{"op":"link_info","request":3,"index":0,"total":10}"#).unwrap();
+        assert!(matches!(info, Outgoing::LinkInfo { total: Some(10), content_type: None, error: None, .. }));
     }
 
     /// The save-as dialog's answer to a taken name, and a `confirm` without

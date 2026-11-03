@@ -9,6 +9,8 @@ use crate::i18n::tr;
 pub const MANUAL: &str = "https://github.com/tajbinkhan/uidm#readme";
 /// Its section on queues and their schedules.
 pub const SCHEDULER: &str = "https://github.com/tajbinkhan/uidm#queues-and-the-scheduler";
+/// Its section on which browser downloads UIDM takes: the capture rules.
+pub const CAPTURE: &str = "https://github.com/tajbinkhan/uidm#what-the-extension-does-and-does-not-take";
 /// Its section on the site grabber.
 pub const GRABBER: &str = "https://github.com/tajbinkhan/uidm#streams-batches-and-the-site-grabber";
 /// Its first steps: opening the window, sending downloads from the browser,
@@ -70,4 +72,38 @@ pub fn tip_window(ctx: &egui::Context, t: &mut TipWindow) -> Option<(usize, bool
             });
         });
     (!open || close).then(|| ((t.index + 1) % TIPS.len(), t.on_startup))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// GitHub's anchor for a README heading: lower case, spaces to dashes,
+    /// other punctuation dropped.
+    fn anchor(heading: &str) -> String {
+        heading
+            .trim()
+            .to_lowercase()
+            .chars()
+            .filter_map(|c| match c {
+                ' ' => Some('-'),
+                c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_help_link_names_a_readme_section() {
+        let readme = include_str!("../../../README.md");
+        let anchors: Vec<String> = readme
+            .lines()
+            .filter_map(|l| l.strip_prefix('#'))
+            .map(|l| anchor(l.trim_start_matches('#')))
+            .collect();
+        for link in [SCHEDULER, GRABBER, TUTORIALS, CAPTURE] {
+            let (_, wanted) = link.split_once('#').unwrap();
+            assert!(anchors.iter().any(|a| a == wanted), "README has no section #{wanted}");
+        }
+    }
 }

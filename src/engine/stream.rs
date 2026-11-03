@@ -267,6 +267,7 @@ pub(super) fn run(
         etag: None,
         last_modified: None,
         suggested_filename: None,
+        content_type: None,
     };
     let claim = choose_output(&shared.claimed, &dir, &filename, req, &probe)?;
     let output = claim.path.clone();

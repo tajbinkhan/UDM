@@ -330,6 +330,7 @@ pub fn probe(url: &str, opts: &FtpOptions) -> Result<Probe, EngineError> {
         etag: None,
         last_modified,
         suggested_filename: None,
+        content_type: None,
     })
 }
 

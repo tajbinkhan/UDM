@@ -95,7 +95,9 @@ It checks the file's size, that it is a Windows program, and its SHA-256
 when GitHub lists one, saves it to the temp folder and runs it with
 `/fromuidm=yes`. UIDM then stops its downloads, saves its list and quits;
 Setup closes whatever is left without asking again and replaces the files.
-Stopped downloads resume from the list as usual.
+Stopped downloads resume from the list as usual. The notice's **×** hides it
+for that version (remembered in `window.json`); a newer release shows it
+again.
 
 ### macOS
 
@@ -485,7 +487,11 @@ tests, not in a running Firefox.
 - **Download all links with UIDM** (the browser's menu on a page or a text
   selection, and the button over a selection) lists the links in the window
   to tick: filters hide web pages, images, repeated links, or keep some file
-  types, and **Edit...** changes a link's address. The ticked files go to a
+  types, and **Edit...** changes a link's address. Meanwhile the daemon asks
+  each link's server for its type and size, four links at a time and with
+  the link's cookies, referrer and proxy, and the **Type** and **Size**
+  columns fill in as the answers come (`...` while asking); closing the
+  picker stops the asking. The ticked files go to a
   queue, saved to each one's category folder, all to **one category** (listed
   under it and saved to its folder), or to one folder. **Rename** names them
   by a pattern in list order: `photo_*` gives `photo_01.jpg`, `photo_02.jpg`
@@ -534,12 +540,23 @@ tests, not in a running Firefox.
 - **Properties** (a row's **More**) shows a download's status, its file type
   (what Windows calls it, such as "PDF Document (.pdf)"), size and last
   try, and the web page it came from, and edits its link, referrer,
-  description, name, folder and login. A finished download has an
-  **Open** button.
+  description, name, folder and login. A finished download's file is
+  renamed or moved; a stopped, unfinished one (waiting, failed, canceled or
+  interrupted) can change folder with **Browse...**, and its partial file and
+  resume sidecar move along so it resumes there (one in the temporary
+  folder stays put). A running download must be stopped first. A finished
+  download has an **Open** button.
+- **Find** (Ctrl+F, then F3 and Shift+F3 to step) narrows the list to the
+  matches. **File name**, **Description** and **Links (address/referrer/page)**
+  are each a place to look, at least one ticked. **Whole name only** wants the
+  whole file name, and in descriptions and links whole words: "example"
+  finds `https://www.example.com/x` (a host label; a host or a path segment
+  works too) but not `https://myexample.com`.
 - **The list's columns**: a click on a header sorts by it (again to
   reverse, a third time for the order added), and dragging the thin edge
   after a header sets the column's width. **More > Columns...** shows,
-  hides, orders and sizes them (**Fit** sizes a column to what it holds);
+  hides, orders and sizes them (**Fit** sizes a column to what it holds;
+  the list follows each change at once, and **Cancel** puts it back);
   the columns include **Parent web page**, the page a download came from
   (the browser tab's address), and **Referrer**, the address sent to the
   server as its Referer, which can be a frame inside that page. Both sort
@@ -810,6 +827,8 @@ Client to daemon (the host relays the browser's unchanged):
   "media": { "kind": "hls", "video": "https://.../720/index.m3u8", "audio": null } }
 { "op": "add_many", "items": [ { "url": "https://...", "start": false, "folder": "D:\\Photos" } ], "queue": 1 }
 { "op": "probe_media", "request": 3, "download": { "url": "https://.../manifest.mpd", "cookies": "..." } }
+{ "op": "probe_links", "request": 5, "links": [ { "url": "https://.../a.zip", "referrer": "https://.../page" } ] }
+{ "op": "stop_probe_links" }
 { "op": "add", "url": "https://www.youtube.com/watch?v=...", "filename": "Talk.mp4",
   "media": { "kind": "page", "video": "137", "audio": "140" } }
 { "op": "grab", "start": "https://example.com/docs/", "depth": 2, "same_site": true, "types": ["pdf"],
@@ -864,6 +883,7 @@ Daemon to clients:
 { "op": "media_info", "request": 3, "info": { "kind": "hls", "duration": 1520.0, "drm": false,
   "video": [ { "id": "https://.../1080/index.m3u8", "label": "1080p, 5.0 Mbps", "height": 1080,
   "bandwidth": 5000000, "size": 950000000 } ], "audio": [] } }
+{ "op": "link_info", "request": 5, "index": 0, "total": 1048576, "content_type": "application/zip" }
 { "op": "grab_progress", "pages": 12, "bytes": 380211, "found": 31 }
 { "op": "grab_done", "files": [ { "url": "https://.../a.pdf", "name": "a.pdf", "page": "https://.../docs/" } ],
   "pages": 40, "stopped": "Stopped at the budget of 40 pages." }
@@ -943,7 +963,13 @@ not web addresses, and items already in the list unless `if_duplicate` is
 `new_name`, or `overwrite` for a stopped download (`skipped` counts those);
 `folder`, a full path, fixes where an item is saved.
 `probe_media` echoes `request` in its `media_info`, whose `error` says why a
-stream cannot be downloaded and `drm` whether that is because of DRM. `grab`
+stream cannot be downloaded and `drm` whether that is because of DRM.
+`probe_links` (the window's link picker) asks each link's server for its size
+and type, four at a time, and answers each with a `link_info` naming its
+`index` in `links` (or an `error`), to that client only; a new `probe_links`
+or `stop_probe_links` stops the client's last, as does disconnecting.
+`set_properties` with a `folder` for a stopped, unfinished download moves its
+partial file and sidecar there. `grab`
 answers with `grab_progress` after each page and one `grab_done`, to the
 client that asked only; a client runs one crawl at a time, and its crawl
 stops if it disconnects. `grab` is refused with an `error` unless `start` is

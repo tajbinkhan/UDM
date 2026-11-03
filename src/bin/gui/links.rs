@@ -4,16 +4,19 @@
 //! address can be edited. Ticked links are added waiting in a queue, with the
 //! page as their referrer and the browser's cookies for their site, to each
 //! one's category, one chosen category or one folder, and optionally renamed
-//! by a pattern.
+//! by a pattern. As the dialog opens, the daemon asks each link's server for
+//! its type and size, a few at a time, and the list fills them in as the
+//! answers come.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
 use uidm::protocol::{Download, PageLink};
 use uidm::queue::{Queue, MAIN_QUEUE};
 use uidm::settings::{Settings, GENERAL};
 
-use super::{browse_button, take_picked, Action, Picked};
+use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::i18n::{tr, trf};
 
 /// Extensions of links that lead to another web page rather than a file.
@@ -29,6 +32,20 @@ enum Target {
     /// All in `folder`.
     Folder,
 }
+
+/// What the server said about a link, as far as it is known.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Probed {
+    /// Not answered yet.
+    Asking,
+    /// Its size and `Content-Type`, each when the server gave it.
+    Found { total: Option<u64>, content_type: Option<String> },
+    /// It could not be asked, and why.
+    Failed(String),
+}
+
+/// Numbers the probe requests, so answers to an earlier one are told apart.
+static PROBE_REQUESTS: AtomicU64 = AtomicU64::new(1);
 
 pub struct LinksDialog {
     page: String,
@@ -52,6 +69,13 @@ pub struct LinksDialog {
     /// The link whose address is being edited, and the new address.
     editing: Option<(usize, String)>,
     error: Option<String>,
+    /// Each link's answer from its server.
+    probed: Vec<Probed>,
+    /// The links still waiting for an answer should be asked about: on
+    /// opening, and after a link's address changed.
+    probe_due: bool,
+    /// The probe request out, and the link each of its answers is for.
+    probe: Option<(u64, Vec<usize>)>,
 }
 
 /// A link's file type: its extension in lower case, or "" for none.
@@ -84,6 +108,20 @@ fn pattern_name(pattern: &str, n: usize, count: usize, ext: &str) -> String {
     name
 }
 
+/// A file type from a `Content-Type`: "page" for a web page, "image" for
+/// a picture, else its subtype (`application/zip` is "zip"). `None` when
+/// it says nothing about the file, as `application/octet-stream` does.
+fn type_from_mime(content_type: &str) -> Option<String> {
+    let essence = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let (kind, sub) = essence.split_once('/')?;
+    match (kind, sub) {
+        (_, "html" | "xhtml+xml") => Some(tr("page").into()),
+        ("image", _) => Some(tr("image").into()),
+        (_, "octet-stream" | "binary" | "unknown" | "force-download" | "download") | (_, "") => None,
+        (_, sub) => Some(sub.strip_prefix("x-").unwrap_or(sub).to_string()),
+    }
+}
+
 fn is_page(l: &PageLink) -> bool {
     !l.image && PAGE_TYPES.contains(&link_type(l).as_str())
 }
@@ -104,6 +142,7 @@ impl LinksDialog {
     pub fn new(page: String, links: Vec<PageLink>, user_agent: Option<String>) -> Self {
         // Files start ticked; links to other pages do not.
         let checked = links.iter().map(|l| !is_page(l)).collect();
+        let count = links.len();
         LinksDialog {
             page,
             user_agent,
@@ -122,7 +161,56 @@ impl LinksDialog {
             rename: String::new(),
             editing: None,
             error: None,
+            probed: vec![Probed::Asking; count],
+            probe_due: true,
+            probe: None,
         }
+    }
+
+    /// The links to ask their servers about now, as a request for the
+    /// daemon: those not answered yet. `None` when nothing is due.
+    pub fn take_probe(&mut self) -> Option<(u64, Vec<Download>)> {
+        if !std::mem::take(&mut self.probe_due) {
+            return None;
+        }
+        let asking: Vec<usize> = (0..self.links.len())
+            .filter(|&i| self.probed[i] == Probed::Asking && crate::is_download_url(&self.links[i].url))
+            .collect();
+        if asking.is_empty() {
+            self.probe = None;
+            return None;
+        }
+        let request = PROBE_REQUESTS.fetch_add(1, Ordering::Relaxed);
+        // Asked the way the download would be: from the page, with its
+        // cookies and the browser's user agent.
+        let links = asking
+            .iter()
+            .map(|&i| Download {
+                url: self.links[i].url.clone(),
+                referrer: Some(self.page.clone()),
+                page: Some(self.page.clone()),
+                cookies: self.links[i].cookies.clone(),
+                user_agent: self.user_agent.clone(),
+                ..Download::default()
+            })
+            .collect();
+        self.probe = Some((request, asking));
+        Some((request, links))
+    }
+
+    /// The answer for link `index` of probe `request`. Answers to an
+    /// earlier request are dropped.
+    pub fn heard(&mut self, request: u64, index: usize, probed: Probed) {
+        if let Some((r, asked)) = &self.probe {
+            if let Some(&i) = asked.get(index).filter(|_| *r == request) {
+                self.probed[i] = probed;
+            }
+        }
+    }
+
+    /// Whether a probe was sent, so closing should stop it.
+    pub fn probing(&self) -> bool {
+        self.probe.is_some()
     }
 
     /// Indexes of the links the filters leave in view.
@@ -206,6 +294,12 @@ pub fn dialog(
     actions: &mut Vec<Action>,
 ) -> bool {
     take_picked(&d.picked, &mut d.folder);
+    // Asked in the background; the list fills in as the answers come.
+    if connected {
+        if let Some((request, links)) = d.take_probe() {
+            actions.push(Action::ProbeLinks { request, links });
+        }
+    }
     let mut open = true;
     let mut close = false;
     crate::dialog::Window::new(tr("Download links from the page"))
@@ -236,18 +330,24 @@ pub fn dialog(
             });
             let mut edited = None;
             egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
-                egui::Grid::new("links_grid").striped(true).num_columns(5).spacing([10.0, 4.0]).show(ui, |ui| {
+                egui::Grid::new("links_grid").striped(true).num_columns(6).spacing([10.0, 4.0]).show(ui, |ui| {
+                    ui.label("");
+                    for title in [tr("Name"), tr("Type"), tr("Size"), tr("Link")] {
+                        ui.strong(title);
+                    }
+                    ui.end_row();
                     for &i in &visible {
                         let l = &d.links[i];
                         ui.checkbox(&mut d.checked[i], "");
                         ui.add_sized([200.0, 18.0], egui::Label::new(link_name(l)).truncate())
                             .on_hover_text(if l.text.is_empty() { l.url.as_str() } else { l.text.as_str() });
-                        let kind = match (l.image, link_type(l)) {
-                            (true, _) => tr("image").to_string(),
-                            (_, t) if PAGE_TYPES.contains(&t.as_str()) => tr("page").to_string(),
-                            (_, t) => t,
-                        };
+                        let (kind, size) = link_columns(l, &d.probed[i]);
                         ui.weak(kind);
+                        match &d.probed[i] {
+                            Probed::Failed(why) => ui.weak(size).on_hover_text(why.as_str()),
+                            Probed::Asking => ui.weak(size).on_hover_text(tr("Asking the server")),
+                            Probed::Found { .. } => ui.label(size),
+                        };
                         match d.editing.as_mut().filter(|(at, _)| *at == i) {
                             Some((_, url)) => {
                                 let field = ui.add_sized([320.0, 18.0], egui::TextEdit::singleline(url).font(egui::TextStyle::Monospace));
@@ -287,6 +387,9 @@ pub fn dialog(
                             }
                             d.links[i].url = url;
                             d.error = None;
+                            // Ask about the new address.
+                            d.probed[i] = Probed::Asking;
+                            d.probe_due = true;
                         } else {
                             d.error = Some(trf!("{url} is not an http, https or ftp link", url = url));
                             d.editing = Some((i, url));
@@ -384,7 +487,37 @@ pub fn dialog(
                 }
             });
         });
-    open && !close
+    let open = open && !close;
+    if !open && d.probing() {
+        actions.push(Action::StopProbeLinks);
+    }
+    open
+}
+
+/// A link's Type and Size columns: from its server's answer once there is
+/// one, else from its address.
+fn link_columns(l: &PageLink, probed: &Probed) -> (String, String) {
+    let guessed = match (l.image, link_type(l)) {
+        (true, _) => tr("image").to_string(),
+        (_, t) if PAGE_TYPES.contains(&t.as_str()) => tr("page").to_string(),
+        (_, t) => t,
+    };
+    match probed {
+        Probed::Asking => (guessed, "...".into()),
+        Probed::Failed(_) => (guessed, tr("Unknown").into()),
+        Probed::Found { total, content_type } => {
+            // The server knows a page from a file better than the address
+            // does, but a file's own extension says more than a generic
+            // type such as `application/x-zip-compressed`.
+            let told = content_type.as_deref().and_then(type_from_mime);
+            let page = tr("page");
+            let kind = match told {
+                Some(t) if guessed.is_empty() || guessed == page || t == page || t == tr("image") => t,
+                _ => guessed,
+            };
+            (kind, total.map(human_bytes).unwrap_or_else(|| tr("Unknown").into()))
+        }
+    }
 }
 
 /// Whether two addresses share a scheme, host and port.
@@ -468,6 +601,58 @@ mod tests {
             assert_eq!(item.category.as_deref(), Some("Music"));
             assert_eq!(item.folder.as_deref(), Some(music.as_str()));
         }
+    }
+
+    #[test]
+    fn the_servers_answers_fill_in_type_and_size() {
+        let links = vec![
+            link("https://x.net/a.zip", false),
+            link("https://x.net/get?id=4", false),
+            link("javascript:void(0)", false),
+            link("https://x.net/b.pdf", false),
+        ];
+        let mut d = LinksDialog::new("https://x.net/list".into(), links, Some("UA".into()));
+        let (first, asked) = d.take_probe().unwrap();
+        let urls: Vec<_> = asked.iter().map(|a| a.url.as_str()).collect();
+        assert_eq!(urls, ["https://x.net/a.zip", "https://x.net/get?id=4", "https://x.net/b.pdf"], "only links it could download");
+        assert_eq!(asked[0].cookies.as_deref(), Some("s=1"));
+        assert_eq!(asked[0].referrer.as_deref(), Some("https://x.net/list"));
+        assert!(d.take_probe().is_none(), "asked once");
+
+        // Answers map back to their links; the third asked is link 3.
+        let zip = Probed::Found {
+            total: Some(2048),
+            content_type: Some("application/x-zip-compressed".into()),
+        };
+        d.heard(first, 0, zip.clone());
+        d.heard(first, 1, Probed::Found { total: None, content_type: Some("application/pdf; q=1".into()) });
+        d.heard(first + 100, 2, zip.clone());
+        assert_eq!(d.probed[3], Probed::Asking, "an answer to another request is dropped");
+        assert_eq!(link_columns(&d.links[0], &d.probed[0]), ("zip".into(), human_bytes(2048)));
+        assert_eq!(link_columns(&d.links[1], &d.probed[1]), ("pdf".into(), "Unknown".into()));
+        assert_eq!(link_columns(&d.links[3], &d.probed[3]).1, "...");
+
+        // An edited link is asked about again, with what is still waiting.
+        d.probed[0] = Probed::Asking;
+        d.probe_due = true;
+        let (second, asked) = d.take_probe().unwrap();
+        assert_ne!(second, first);
+        assert_eq!(asked.len(), 2);
+        d.heard(second, 1, Probed::Failed("refused".into()));
+        assert_eq!(d.probed[3], Probed::Failed("refused".into()));
+        assert!(d.probing());
+    }
+
+    #[test]
+    fn a_content_type_names_the_file_type() {
+        assert_eq!(type_from_mime("text/html; charset=utf-8").as_deref(), Some("page"));
+        assert_eq!(type_from_mime("image/png").as_deref(), Some("image"));
+        assert_eq!(type_from_mime("application/x-7z-compressed").as_deref(), Some("7z-compressed"));
+        assert_eq!(type_from_mime("application/octet-stream"), None);
+        assert_eq!(type_from_mime("nonsense"), None);
+        // A page the address did not show as one.
+        let found = Probed::Found { total: None, content_type: Some("text/html".into()) };
+        assert_eq!(link_columns(&link("https://x.net/a.zip", false), &found).0, "page");
     }
 
     #[test]
