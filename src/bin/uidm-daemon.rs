@@ -706,6 +706,7 @@ impl Daemon {
             q.retries = edited.retries;
             q.open_when_done = edited.open_when_done.map(|f| f.trim().to_string()).filter(|f| !f.is_empty());
             q.start_on_launch = edited.start_on_launch;
+            q.force_close = edited.force_close;
             id
         };
         self.hub.publish_queues();
@@ -4380,6 +4381,34 @@ mod tests {
         let e = t.daemon.entry(again).unwrap();
         assert_eq!(e.category.as_deref(), Some("Music"));
         assert_eq!(e.description.as_deref(), Some("the album"));
+    }
+
+    #[test]
+    fn saving_a_queue_keeps_force_close() {
+        let t = setup("queue_force_close", Duplicate::NewName);
+        let id = t
+            .daemon
+            .save_queue(Queue {
+                when_done: WhenDone::ShutDown,
+                force_close: true,
+                ..Queue::new(0, "Night")
+            })
+            .unwrap();
+        let saved = |t: &Setup| t.daemon.hub.queues.lock().unwrap().iter().find(|q| q.id == id).cloned().unwrap();
+        assert!(saved(&t).force_close, "a new queue keeps it");
+
+        let mut edited = saved(&t);
+        edited.force_close = false;
+        t.daemon.save_queue(edited.clone()).unwrap();
+        assert!(!saved(&t).force_close, "turning it off is kept");
+        edited.force_close = true;
+        t.daemon.save_queue(edited).unwrap();
+        assert!(saved(&t).force_close, "turning it on is kept");
+
+        // It survives a restart: the saved form reads back the same.
+        let json = serde_json::to_string(&saved(&t)).unwrap();
+        let back: Queue = serde_json::from_str(&json).unwrap();
+        assert!(back.force_close);
     }
 
     #[test]
