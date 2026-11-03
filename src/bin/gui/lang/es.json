@@ -670,7 +670,7 @@
   "Log in to the start site as": "Iniciar sesión en el sitio inicial como",
   "The project's own login, sent when the start site asks for one. Windows Credential Manager keeps the password.": "El inicio de sesión propio del proyecto, que se envía cuando el sitio inicial lo pide. El Administrador de credenciales de Windows guarda la contraseña.",
   "Otherwise a login set in Options > Connection is used when the site asks for one.": "Si no, se usa un inicio de sesión de Opciones > Conexión cuando el sitio lo pide.",
-  "pdf, zip, or * for every type": "pdf, zip, o * para todos los tipos",
+  "pdf, zip, photo_*.jpg, or * for every type": "pdf, zip, photo_*.jpg, o * para todos los tipos",
   "But not": "Pero no",
   "Only files on this site": "Solo archivos de este sitio",
   "Ignore the windows page scripts open": "Ignorar las ventanas que abren los scripts de la página",

@@ -409,37 +409,121 @@ pub fn rewrite_links(html: &str, page: &Url, here: &Path, root: &Path, local: im
     out
 }
 
-/// The file types a request keeps and skips, as typed: lower case, without
-/// dots or a leading `*.`; `*` keeps every type that is not a page.
+/// One entry of a type list or filter mask, as `GrabRequest::types` keeps
+/// it: lower case; `*` or `*.*` for every type; a bare extension (`jpg`
+/// from `jpg`, `.jpg` or `*.jpg`), which is how older projects saved
+/// their lists; or else a mask on the whole file name, such as
+/// `photo_*.jpg` or `*.tar.gz`. Empty for an empty entry.
+pub fn mask_entry(part: &str) -> String {
+    let t = part.trim().to_lowercase();
+    if t == "*" || t == "*.*" {
+        return "*".to_string();
+    }
+    let rest = t.strip_prefix("*.").or_else(|| t.strip_prefix('.')).unwrap_or(&t);
+    if !rest.is_empty() && !rest.contains(['*', '?', '.']) {
+        return rest.to_string();
+    }
+    t
+}
+
+/// `field` (a type list as typed) with `masks` added after what it holds,
+/// leaving out those it already has, so picking a filter adds to the list
+/// as IDM's does rather than replacing it.
+pub fn add_masks(field: &str, masks: &[String]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for part in field.split([',', ';']).flat_map(str::split_whitespace).chain(masks.iter().map(String::as_str)) {
+        let m = mask_entry(part);
+        if !m.is_empty() && !out.contains(&m) {
+            out.push(m);
+        }
+    }
+    out.join(", ")
+}
+
+/// Whether file name `name` matches `mask`, ignoring case: `*` matches any
+/// run of characters and `?` any one; the rest must match exactly.
+pub fn name_matches(mask: &str, name: &str) -> bool {
+    let p: Vec<char> = mask.to_lowercase().chars().collect();
+    let t: Vec<char> = name.to_lowercase().chars().collect();
+    // Classic backtracking: on a mismatch, let the last `*` take one more
+    // character.
+    let (mut i, mut j) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while j < t.len() {
+        if i < p.len() && (p[i] == '?' || p[i] == t[j]) {
+            i += 1;
+            j += 1;
+        } else if i < p.len() && p[i] == '*' {
+            star = Some((i, j));
+            i += 1;
+        } else if let Some((si, sj)) = star {
+            i = si + 1;
+            j = sj + 1;
+            star = Some((si, sj + 1));
+        } else {
+            return false;
+        }
+    }
+    p[i..].iter().all(|c| *c == '*')
+}
+
+/// The file types a request keeps and skips (see `mask_entry`): bare
+/// extensions, where `*` keeps every type that is not a page, and masks on
+/// the whole file name.
 struct Types {
     keep: HashSet<String>,
     skip: HashSet<String>,
+    keep_names: Vec<String>,
+    skip_names: Vec<String>,
 }
 
 impl Types {
     fn of(req: &GrabRequest) -> Types {
-        let clean = |list: &[String]| -> HashSet<String> {
-            list.iter()
-                .map(|t| t.trim().trim_start_matches("*.").trim_start_matches('.').to_ascii_lowercase())
-                .filter(|t| !t.is_empty())
-                .collect()
+        let split = |list: &[String]| -> (HashSet<String>, Vec<String>) {
+            let mut exts = HashSet::new();
+            let mut names = Vec::new();
+            for m in list.iter().map(|t| mask_entry(t)).filter(|t| !t.is_empty()) {
+                if m == "*" || !m.contains(['*', '?', '.']) {
+                    exts.insert(m);
+                } else {
+                    names.push(m);
+                }
+            }
+            (exts, names)
         };
-        Types {
-            keep: clean(&req.types),
-            skip: clean(&req.skip_types),
-        }
+        let (keep, keep_names) = split(&req.types);
+        let (skip, skip_names) = split(&req.skip_types);
+        Types { keep, skip, keep_names, skip_names }
     }
 
-    fn keeps(&self, ext: &str) -> bool {
-        !self.skip.contains(ext) && (self.keep.contains(ext) || (self.keep.contains("*") && !PAGE_EXTENSIONS.contains(&ext)))
+    /// Whether a file named `name` with extension `ext` is kept.
+    fn keeps(&self, name: &str, ext: &str) -> bool {
+        !self.skip.contains(ext)
+            && !self.skip_names.iter().any(|m| name_matches(m, name))
+            && (self.named(name, ext) || (self.keep.contains("*") && !PAGE_EXTENSIONS.contains(&ext)))
     }
+
+    /// Whether the keep list names this file itself, by its extension or a
+    /// mask on its name (not just through `*`), as a page must be to be
+    /// kept as a file.
+    fn named(&self, name: &str, ext: &str) -> bool {
+        self.keep.contains(ext) || self.keep_names.iter().any(|m| name_matches(m, name))
+    }
+}
+
+/// The last part of `url`'s path, decoded: the file's name.
+fn url_file_name(url: &Url) -> String {
+    url.path_segments()
+        .and_then(|mut s| s.next_back())
+        .map(|n| percent_encoding::percent_decode_str(n).decode_utf8_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// Whether a crawl that saves pages keeps `url` locally, and if so whether
 /// as a page: pages on the start site, and files of the kept types.
 pub fn kept_locally(req: &GrabRequest, url: &Url) -> Option<bool> {
     let ext = url_extension(url);
-    if ext.as_ref().is_some_and(|e| Types::of(req).keeps(e)) {
+    if ext.as_ref().is_some_and(|e| Types::of(req).keeps(&url_file_name(url), e)) {
         return Some(false);
     }
     let page_like = ext.is_none_or(|e| PAGE_EXTENSIONS.contains(&e.as_str()));
@@ -949,13 +1033,12 @@ pub struct Filter {
 }
 
 impl Filter {
-    /// The file types the mask names, as `GrabRequest::types` takes them;
-    /// `*` or `*.*` keeps every type.
+    /// The masks the filter names, as `GrabRequest::types` takes them (see
+    /// `mask_entry`): `*.jpg` becomes `jpg`, `*` or `*.*` keeps every type,
+    /// and a mask with a name part such as `photo_*.jpg` stays whole.
     pub fn types(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        for part in self.mask.split([';', ',', ' ']).map(str::trim).filter(|p| !p.is_empty()) {
-            let t = part.trim_start_matches('*').trim_start_matches('.').to_ascii_lowercase();
-            let t = if t.is_empty() || t == "*" { "*".to_string() } else { t };
+        for t in self.mask.split([';', ',', ' ']).map(mask_entry).filter(|p| !p.is_empty()) {
             if !out.contains(&t) {
                 out.push(t);
             }
@@ -1209,25 +1292,21 @@ pub fn crawl(
                 let (pages, files) = links(&text, &here);
                 for (file, link_text) in files {
                     let Some(ext) = url_extension(&file) else { continue };
-                    if PAGE_EXTENSIONS.contains(&ext.as_str()) && !types.keep.contains(&ext) {
+                    let name = url_file_name(&file);
+                    if PAGE_EXTENSIONS.contains(&ext.as_str()) && !types.named(&name, &ext) {
                         continue;
                     }
                     if !seen_files.insert(file.to_string()) {
                         continue;
                     }
                     out.explored += 1;
-                    if !types.keeps(&ext)
+                    if !types.keeps(&name, &ext)
                         || !passes(file.as_str(), &req.files_only, &req.files_skip)
                         || (req.files_this_site && !on_site(&file))
                         || !reachable(&file)
                     {
                         continue;
                     }
-                    let name = file
-                        .path_segments()
-                        .and_then(|mut s| s.next_back())
-                        .map(|n| percent_encoding::percent_decode_str(n).decode_utf8_lossy().into_owned())
-                        .unwrap_or_default();
                     // Ask the size only when a filter needs it, or to compare
                     // with files of the same name kept earlier (whose sizes
                     // are asked then too).
@@ -1583,6 +1662,37 @@ Crawl-delay: 2.5
     }
 
     #[test]
+    fn masks_match_whole_names_and_filters_add_to_lists() {
+        assert!(name_matches("photo_*.jpg", "Photo_12.JPG"));
+        assert!(!name_matches("photo_*.jpg", "cover.jpg"), "the name part counts");
+        assert!(!name_matches("photo_*.jpg", "photo_1.jpg.html"));
+        assert!(name_matches("img??.png", "img01.png") && !name_matches("img??.png", "img1.png"));
+        assert!(name_matches("*.tar.gz", "src.tar.gz") && name_matches("a*b*c", "aXbYbZc"));
+        assert_eq!(mask_entry(" *.JPG "), "jpg");
+        assert_eq!(mask_entry(".pdf"), "pdf");
+        assert_eq!(mask_entry("*.*"), "*");
+        assert_eq!(mask_entry("Photo_*.jpg"), "photo_*.jpg");
+        let masks = |m: &str| Filter { name: "x".into(), mask: m.into() }.types();
+        assert_eq!(add_masks("pdf, zip", &masks("*.jpg;*.PDF;photo_*.png")), "pdf, zip, jpg, photo_*.png", "added, without repeats");
+        assert_eq!(add_masks("", &masks("*.gif")), "gif");
+        assert_eq!(add_masks("*.pdf; pdf", &[]), "pdf");
+        let none = AtomicBool::new(false);
+        let names = |req: &GrabRequest| -> Vec<String> { crawl(req, site, |_| None, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect() };
+        // Only the name mask keeps a file: `one.zip` is not a pdf.
+        assert_eq!(names(&GrabRequest { types: vec!["ONE.*".into()], ..request(1) }), ["one.pdf", "one.zip"]);
+        // Bare extensions and `*.` masks still keep by type, as old projects saved them.
+        let old = names(&request(1));
+        assert_eq!(names(&GrabRequest { types: vec!["*.pdf".into()], ..request(1) }), old);
+        assert_eq!(old, ["top.pdf", "one.pdf", "two.pdf", "three x.pdf"]);
+        // A name mask leaves files out too, on the decoded name.
+        let skip = GrabRequest { skip_types: vec!["t*.pdf".into(), "three ?.pdf".into()], ..request(1) };
+        assert_eq!(names(&skip), ["one.pdf"]);
+        let req = GrabRequest { types: vec!["one.*".into()], ..request(1) };
+        assert_eq!(kept_locally(&req, &Url::parse("https://s/a/one.zip").unwrap()), Some(false));
+        assert_eq!(kept_locally(&req, &Url::parse("https://cdn.x/two.zip").unwrap()), None);
+    }
+
+    #[test]
     fn filters_narrow_what_is_explored_and_kept() {
         let none = AtomicBool::new(false);
         let skip_b = GrabRequest { explore_skip: vec!["*/b/*".into()], ..request(1) };
@@ -1706,6 +1816,7 @@ Crawl-delay: 2.5
         assert_eq!(f("*.*"), ["*"]);
         assert_eq!(f("*"), ["*"]);
         assert!(f(" ; ").is_empty());
+        assert_eq!(f("Photo_*.JPG;*.tar.gz;*.jp?"), ["photo_*.jpg", "*.tar.gz", "*.jp?"], "name masks stay whole");
         let dir = std::env::temp_dir().join(format!("uidm_grab_filters_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         assert_eq!(load_filters(&dir), default_filters());

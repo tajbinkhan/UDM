@@ -1098,8 +1098,8 @@ fn grab_body(
                 ui.label(tr("Keep files of type"));
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut d.types).hint_text(tr("pdf, zip, or * for every type")).desired_width(220.0));
-                        filter_menu(ui, d);
+                        ui.add(egui::TextEdit::singleline(&mut d.types).hint_text(tr("pdf, zip, photo_*.jpg, or * for every type")).desired_width(220.0));
+                        filter_menu(ui, d, false);
                     });
                     filter_editor(ui, d);
                 });
@@ -1107,6 +1107,7 @@ fn grab_body(
                 ui.label(tr("But not"));
                 ui.horizontal(|ui| {
                     ui.add(egui::TextEdit::singleline(&mut d.skip_types).hint_text("html, js").desired_width(160.0));
+                    filter_menu(ui, d, true);
                     ui.checkbox(&mut d.files_this_site, tr("Only files on this site"));
                 });
                 ui.end_row();
@@ -1536,15 +1537,23 @@ fn tree_ui(ui: &mut egui::Ui, node: &TreeNode, files: &[GrabFile], checked: &mut
     });
 }
 
-/// The named filters: picking one fills the types; Add, Edit and Delete
-/// change the list, which is kept for every project.
-fn filter_menu(ui: &mut egui::Ui, d: &mut GrabDialog) {
+/// The named filters: picking one adds its masks to the types kept (or,
+/// with `skip`, to those left out), as IDM's Add Filter adds to its
+/// Download and Don't download lists; Add, Edit and Delete change the
+/// list, which is kept for every project.
+fn filter_menu(ui: &mut egui::Ui, d: &mut GrabDialog, skip: bool) {
+    // Each menu needs its own id, as both carry the same label.
+    ui.push_id(skip, |ui| filter_menu_inner(ui, d, skip));
+}
+
+fn filter_menu_inner(ui: &mut egui::Ui, d: &mut GrabDialog, skip: bool) {
     ui.menu_button(tr("Filters"), |ui| {
         let mut gone = None;
         for (i, f) in d.filters.iter().enumerate() {
             ui.horizontal(|ui| {
                 if ui.button(&f.name).on_hover_text(&f.mask).clicked() {
-                    d.types = f.types().join(", ");
+                    let field = if skip { &mut d.skip_types } else { &mut d.types };
+                    *field = grab::add_masks(field, &f.types());
                     ui.close_menu();
                 }
                 if ui.small_button(tr("Edit")).clicked() {

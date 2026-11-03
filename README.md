@@ -403,9 +403,13 @@ tests, not in a running Firefox.
   - read up to 10 pages at once, and set how many files its queue
     downloads at once;
   - keep each file's link text as its description;
-  - pick the file types from named filters (a name and a mask such as
-    `*.jpg;*.png`; **Filters** adds, edits and deletes them), keep every type
-    with `*`, leave some types out, and keep only files on the start site;
+  - add the masks of named filters (a name and a mask such as
+    `*.jpg;*.png`) to the types kept or to those left out, as IDM's Add
+    Filter does (**Filters** next to each field; it also adds, edits and
+    deletes them), keep every type with `*`, and keep only files on the
+    start site. A bare type (`jpg` or `*.jpg`) matches the extension; a mask
+    with a name part (`photo_*.jpg`, `img??.png`) matches the whole file
+    name, ignoring case, with `*` for any run of characters and `?` for one;
   - save every file to one category's folder, or to one folder without
     subfolders;
   - start downloading each match as soon as it is found;
