@@ -141,10 +141,19 @@ your system.
 Firefox 128 or later loads the `firefox` folder, a copy of the extension with
 its own manifest and the ID `uidm@uidm.local`. Firefox runs background scripts
 where Chrome runs a service worker, and Chrome warns about Firefox's keys, so
-the two cannot share one `manifest.json`. Setup installs the `firefox` folder
-next to `extension`; with a checkout, `install-host.ps1` makes it, and
-`.\installer\make-firefox.ps1 -Out firefox` remakes it after you change the
-extension. Both register UIDM with Firefox (under
+the two cannot share one `manifest.json`. Setup and the macOS and Linux
+packages install the `firefox` folder next to `extension`. In a checkout it
+is made from `extension`, not kept in git, so a `firefox` folder made before
+you updated or changed the extension lacks those changes: `install-host.ps1`
+makes it again each time it runs, and so does
+`.\installer\make-firefox.ps1 -Out firefox` (or
+`node installer/make-firefox.js firefox`). Run one of them after every
+update, then reload the add-on. To tell whether a copy is out of date,
+`node installer/make-firefox.js --check firefox` (or
+`.\installer\make-firefox.ps1 -Check firefox`) lists each file that differs,
+is missing or is extra, and fails if there is any; CI checks that both
+makers produce the same copy. Setup and `install-host.ps1` register UIDM with
+Firefox (under
 `HKCU\Software\Mozilla\NativeMessagingHosts`, with a host manifest that names
 that ID). Until the extension is signed by Mozilla, load it for each Firefox
 session:
@@ -1274,7 +1283,8 @@ is a failed scan, as is one that runs over 10 minutes.
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
 | `installer/uidm.iss` | Inno Setup script for `UIDM-Setup-<version>.exe` |
 | `installer/build.ps1` | Builds the programs and the installer into `dist\` |
-| `installer/make-firefox.ps1` | Makes the Firefox copy of the extension |
+| `installer/make-firefox.ps1` | Makes the Firefox copy of the extension, or with `-Check` tells whether one is out of date |
+| `installer/make-firefox.js` | The same for macOS and Linux, with `--check` |
 | `installer/uidm.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
 
 ## Build

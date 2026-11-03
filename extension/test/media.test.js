@@ -362,34 +362,36 @@ test("an address that is no stream is left out when another can be downloaded", 
   same(alone.map((i) => [i.entry, i.error]), [[2, notStream.error]]);
 });
 
-test("a video file caught under a playlist's name is offered and sent as a file", async () => {
-  const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
-  w.chrome.webRequest.onHeadersReceived.fire({
-    tabId: 7,
-    url: "https://v.net/movie.m3u8?t=1",
-    type: "xmlhttprequest",
-    responseHeaders: [{ name: "Content-Type", value: "application/vnd.apple.mpegurl" }],
+for (const firefox of [false, true]) {
+  test(`a video file caught under a playlist's name is offered and sent as a file${firefox ? " in Firefox" : ""}`, async () => {
+    const w = loadWorker({ firefox });
+    w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+    w.chrome.webRequest.onHeadersReceived.fire({
+      tabId: 7,
+      url: "https://v.net/movie.m3u8?t=1",
+      type: "xmlhttprequest",
+      responseHeaders: [{ name: "Content-Type", value: "application/vnd.apple.mpegurl" }],
+    });
+    const menu = await new Promise((resolve) => {
+      const asked = w.content({ type: "video:menu" }, 7);
+      setTimeout(() => {
+        const probe = w.sent.find((m) => m.op === "probe_media");
+        w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { video: [], audio: [], file: { ext: "mp4", size: 5000000 } } });
+      }, 0);
+      asked.then(resolve);
+    });
+    same(menu.items.map((i) => [i.label, i.options.map((o) => [o.label, o.size])]), [["MP4 video", [["Download", 5000000]]]]);
+    await w.content({ type: "video:download", entry: menu.items[0].entry, title: "Film" }, 7);
+    const add = w.sent.find((m) => m.op === "add");
+    assert.equal(add.url, "https://v.net/movie.m3u8?t=1");
+    assert.equal(add.filename, "Film.mp4");
+    assert.equal(add.media, undefined);
+    // It is a file now: the next menu does not probe it again.
+    const before = w.sent.filter((m) => m.op === "probe_media").length;
+    await w.content({ type: "video:menu" }, 7);
+    assert.equal(w.sent.filter((m) => m.op === "probe_media").length, before);
   });
-  const menu = await new Promise((resolve) => {
-    const asked = w.content({ type: "video:menu" }, 7);
-    setTimeout(() => {
-      const probe = w.sent.find((m) => m.op === "probe_media");
-      w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { video: [], audio: [], file: { ext: "mp4", size: 5000000 } } });
-    }, 0);
-    asked.then(resolve);
-  });
-  same(menu.items.map((i) => [i.label, i.options.map((o) => [o.label, o.size])]), [["MP4 video", [["Download", 5000000]]]]);
-  await w.content({ type: "video:download", entry: menu.items[0].entry, title: "Film" }, 7);
-  const add = w.sent.find((m) => m.op === "add");
-  assert.equal(add.url, "https://v.net/movie.m3u8?t=1");
-  assert.equal(add.filename, "Film.mp4");
-  assert.equal(add.media, undefined);
-  // It is a file now: the next menu does not probe it again.
-  const before = w.sent.filter((m) => m.op === "probe_media").length;
-  await w.content({ type: "video:menu" }, 7);
-  assert.equal(w.sent.filter((m) => m.op === "probe_media").length, before);
-});
+}
 
 test("a whole file's type comes from what UIDM found in it", () => {
   const { adoptFile } = require("../media.js");
