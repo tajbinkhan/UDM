@@ -259,6 +259,9 @@ impl Hub {
             if let Some(d) = request {
                 let _ = self.update(*id, |e| {
                     let before = e.clone();
+                    // A source that knows no page apart from the referrer
+                    // (a list file, the batch dialog) found the link there.
+                    e.page = e.page.take().or(d.page).or_else(|| d.referrer.clone());
                     e.referrer = e.referrer.take().or(d.referrer);
                     e.description = e.description.take().or(d.description);
                     e.category = e.category.take().or(d.category);
@@ -632,6 +635,7 @@ impl Daemon {
         let download = download.unwrap_or_else(|| Download {
             url: item.url.clone(),
             referrer: item.referrer.clone(),
+            page: item.page.clone(),
             ..Download::default()
         });
         let mut req = self.request_for(download);
@@ -1025,6 +1029,7 @@ impl Daemon {
         let download = self.hub.requests.lock().unwrap().get(&entry.id).cloned().unwrap_or_else(|| Download {
             url: entry.url.clone(),
             referrer: entry.referrer.clone(),
+            page: entry.page.clone(),
             ..Download::default()
         });
         if entry.parts.is_some() || download.media.is_some() || download.body.is_some() {
@@ -2750,6 +2755,7 @@ impl Daemon {
             .unwrap_or_else(|| Download {
                 url: entry.url.clone(),
                 referrer: entry.referrer.clone(),
+                page: entry.page.clone(),
                 ..Download::default()
             });
         // The new entry keeps the old one's description, category and speed
@@ -2814,6 +2820,7 @@ impl Daemon {
         let mut download = stored.unwrap_or_else(|| Download {
             url: entry.url.clone(),
             referrer: entry.referrer.clone(),
+            page: entry.page.clone(),
             ..Download::default()
         });
         download.description = entry.description.clone();
@@ -2957,6 +2964,7 @@ impl Daemon {
             let req = requests.entry(id).or_insert_with(|| Download {
                 url: entry.url.clone(),
                 referrer: entry.referrer.clone(),
+                page: entry.page.clone(),
                 ..Download::default()
             });
             if let Some(u) = &url {
@@ -4593,6 +4601,34 @@ mod tests {
         let s = t.daemon.settings.lock().unwrap().clone();
         assert_eq!(s.categories[0].last_folder.as_deref(), Some(chosen.display().to_string().as_str()));
         assert_eq!(s.folders().for_name("b.zip"), chosen);
+    }
+
+    #[test]
+    fn a_download_keeps_its_referrer_and_page_apart() {
+        let t = setup("page", Duplicate::NewName);
+        let (id, _) = t.daemon.add_later(Download {
+            url: "https://cdn.x/a.zip".into(),
+            referrer: Some("https://x/frame".into()),
+            page: Some("https://x/article".into()),
+            ..Download::default()
+        });
+        let e = t.daemon.entry(id).unwrap();
+        assert_eq!(e.referrer.as_deref(), Some("https://x/frame"));
+        assert_eq!(e.page.as_deref(), Some("https://x/article"));
+        // Only the referrer goes to the server.
+        let req = t.daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap();
+        let headers = t.daemon.request_for(req).headers;
+        let sent: Vec<&str> = headers.iter().filter(|(k, _)| k == "Referer").map(|(_, v)| v.as_str()).collect();
+        assert_eq!(sent, ["https://x/frame"]);
+        assert!(!headers.iter().any(|(_, v)| v.contains("article")));
+
+        // A source that knows only the referrer found the link on it.
+        let (id, _) = t.daemon.add_later(Download {
+            url: "https://x/b.zip".into(),
+            referrer: Some("https://x/list".into()),
+            ..Download::default()
+        });
+        assert_eq!(t.daemon.entry(id).unwrap().page.as_deref(), Some("https://x/list"));
     }
 
     #[test]

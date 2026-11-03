@@ -235,7 +235,8 @@ pub fn model(s: &State) -> Vec<Node> {
                 arrange(tr("By &Last Try Date"), Some(Column::LastTry)),
                 arrange(tr("By &Description"), Some(Column::Description)),
                 arrange(tr("By Save &Path"), Some(Column::SaveTo)),
-                arrange(tr("By Parent &Web Page"), Some(Column::Referrer)),
+                arrange(tr("By R&eferrer"), Some(Column::Referer)),
+                arrange(tr("By Parent &Web Page"), Some(Column::Page)),
             ],
         ),
         menu(

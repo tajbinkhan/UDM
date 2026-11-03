@@ -246,7 +246,8 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
             let folder = e.path.as_deref().and_then(|p| Path::new(p).parent()).map(|d| d.display().to_string());
             text(ui, folder.as_deref().unwrap_or(""));
         }
-        Column::Referrer => text(ui, e.referrer.as_deref().unwrap_or("")),
+        Column::Page => text(ui, e.page.as_deref().unwrap_or("")),
+        Column::Referer => text(ui, e.referrer.as_deref().unwrap_or("")),
         Column::Description => text(ui, e.description.as_deref().unwrap_or("")),
     }
 }

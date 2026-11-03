@@ -30,12 +30,17 @@ pub enum Column {
     Status,
     LastTry,
     SaveTo,
-    Referrer,
+    /// The web page a download came from. Saved as `referrer`: that is
+    /// what layouts called it when the referrer stood for the page too.
+    #[serde(rename = "referrer")]
+    Page,
+    /// The Referer its request sends.
+    Referer,
     Description,
 }
 
 impl Column {
-    pub const ALL: [Column; 11] = [
+    pub const ALL: [Column; 12] = [
         Column::Name,
         Column::Queue,
         Column::Size,
@@ -45,7 +50,8 @@ impl Column {
         Column::Status,
         Column::LastTry,
         Column::SaveTo,
-        Column::Referrer,
+        Column::Page,
+        Column::Referer,
         Column::Description,
     ];
 
@@ -84,7 +90,8 @@ impl Column {
             Column::Status => tr("Status"),
             Column::LastTry => tr("Last Try Date"),
             Column::SaveTo => tr("Save to"),
-            Column::Referrer => tr("Parent web page"),
+            Column::Page => tr("Parent web page"),
+            Column::Referer => tr("Referrer"),
             Column::Description => tr("Description"),
         }
     }
@@ -100,7 +107,7 @@ impl Column {
             Column::TimeLeft => 80.0,
             Column::Status => 95.0,
             Column::LastTry => 110.0,
-            Column::SaveTo | Column::Referrer | Column::Description => TEXT_WIDTH,
+            Column::SaveTo | Column::Page | Column::Referer | Column::Description => TEXT_WIDTH,
         }
     }
 
@@ -111,7 +118,10 @@ impl Column {
 
     /// Whether the column holds long text, cut to a fixed width.
     pub fn is_text(self) -> bool {
-        matches!(self, Column::Name | Column::SaveTo | Column::Referrer | Column::Description)
+        matches!(
+            self,
+            Column::Name | Column::SaveTo | Column::Page | Column::Referer | Column::Description
+        )
     }
 }
 
@@ -262,7 +272,8 @@ fn compare(sort: Sort, a: &DownloadEntry, b: &DownloadEntry, speed: &impl Fn(u64
         Column::Status => known(Some(status_rank(a.status)), Some(status_rank(b.status)), down),
         Column::LastTry => known(a.last_try, b.last_try, down),
         Column::SaveTo => known(lower(a.path.as_deref()), lower(b.path.as_deref()), down),
-        Column::Referrer => known(lower(a.referrer.as_deref()), lower(b.referrer.as_deref()), down),
+        Column::Page => known(lower(a.page.as_deref()), lower(b.page.as_deref()), down),
+        Column::Referer => known(lower(a.referrer.as_deref()), lower(b.referrer.as_deref()), down),
         Column::Description => known(lower(a.description.as_deref()), lower(b.description.as_deref()), down),
     }
 }
@@ -424,6 +435,7 @@ mod tests {
             note: None,
             duplicate_of: None,
             referrer: None,
+            page: None,
             last_try: None,
             description: None,
             category: None,
@@ -498,9 +510,9 @@ mod tests {
         assert_eq!(l.width(Column::Name), Some(TEXT_WIDTH));
         assert_eq!(l.width(Column::Size), None, "fits its content");
         l.set_width(Column::Size, 5.0);
-        l.set_width(Column::Referrer, 333.4);
+        l.set_width(Column::Page, 333.4);
         assert_eq!(l.width(Column::Size), Some(WIDTH_RANGE.0));
-        assert_eq!(l.width(Column::Referrer), Some(333.0));
+        assert_eq!(l.width(Column::Page), Some(333.0));
         let json = serde_json::to_string(&l).unwrap();
         let back: Layout = serde_json::from_str(&json).unwrap();
         assert_eq!(back, l);
@@ -512,15 +524,48 @@ mod tests {
     #[test]
     fn sorts_by_parent_page_without_case() {
         let mut a = entry(1, "a", None, Status::Done);
-        a.referrer = Some("https://B.example/page".into());
+        a.page = Some("https://B.example/page".into());
         let mut b = entry(2, "b", None, Status::Done);
-        b.referrer = Some("https://a.example/page".into());
+        b.page = Some("https://a.example/page".into());
         let c = entry(3, "c", None, Status::Done);
         let mut l = Layout::default();
-        l.click(Column::Referrer);
+        l.click(Column::Page);
         let mut rows = vec![&a, &b, &c];
         l.sort(&mut rows, |_| None);
         assert_eq!(ids(&rows), [2, 1, 3], "no page last");
+    }
+
+    #[test]
+    fn sorts_by_referrer_apart_from_the_page() {
+        // Same page, different frames: only the referrer tells them apart.
+        let mut a = entry(1, "a", None, Status::Done);
+        a.page = Some("https://a.example/".into());
+        a.referrer = Some("https://ads.example/frame".into());
+        let mut b = entry(2, "b", None, Status::Done);
+        b.page = Some("https://b.example/".into());
+        b.referrer = Some("https://Cdn.example/frame".into());
+        let mut c = entry(3, "c", None, Status::Done);
+        c.page = Some("https://c.example/".into());
+        let mut l = Layout::default();
+        l.click(Column::Referer);
+        let mut rows = vec![&c, &b, &a];
+        l.sort(&mut rows, |_| None);
+        assert_eq!(ids(&rows), [1, 2, 3], "by referrer, none last");
+        l.click(Column::Page);
+        l.sort(&mut rows, |_| None);
+        assert_eq!(ids(&rows), [1, 2, 3]);
+        l.click(Column::Page);
+        l.sort(&mut rows, |_| None);
+        assert_eq!(ids(&rows), [3, 2, 1], "by page, descending");
+    }
+
+    #[test]
+    fn a_saved_referrer_column_is_still_the_parent_page() {
+        let l: Layout =
+            serde_json::from_str(r#"{"columns":["name","referrer","referer"],"sort":{"column":"referrer","descending":false}}"#)
+                .unwrap();
+        assert_eq!(l.columns, [Column::Name, Column::Page, Column::Referer]);
+        assert_eq!(l.sort.map(|s| s.column), Some(Column::Page));
     }
 
     #[test]

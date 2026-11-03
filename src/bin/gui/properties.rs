@@ -1,6 +1,8 @@
 //! A download's Properties dialog: what it is and where it stands, and, while
-//! it is stopped, its link, referrer, description and own login. A finished
-//! download's file can be renamed or moved from here.
+//! it is stopped, its link, referrer, description and own login. The web
+//! page it came from is shown beside them; it only says where the download
+//! was found, so it is not edited. A finished download's file can be
+//! renamed or moved from here.
 
 use std::path::Path;
 
@@ -154,6 +156,12 @@ pub fn dialog(
                     None => human_bytes(e.done),
                 });
                 ui.end_row();
+                ui.weak(tr("Parent web page")).on_hover_text(tr("The page the download came from"));
+                match &e.page {
+                    Some(page) => ui.add(egui::Label::new(page.as_str()).truncate()).on_hover_text(page.as_str()),
+                    None => ui.weak(tr("None")),
+                };
+                ui.end_row();
                 ui.weak(tr("Last try"));
                 ui.label(e.last_try.map(super::columns::local_date).unwrap_or_else(|| tr("Not started yet").into()));
                 ui.end_row();
@@ -172,7 +180,7 @@ pub fn dialog(
                     ui.label(tr("Link"));
                     ui.add(egui::TextEdit::singleline(&mut d.url).desired_width(420.0));
                     ui.end_row();
-                    ui.label(tr("Referrer")).on_hover_text(tr("The page the download came from"));
+                    ui.label(tr("Referrer")).on_hover_text(tr("The address sent as the Referer header when it downloads"));
                     ui.add(
                         egui::TextEdit::singleline(&mut d.referrer)
                             .hint_text(tr("None"))
@@ -299,6 +307,7 @@ mod tests {
             note: None,
             duplicate_of: None,
             referrer: None,
+            page: None,
             last_try: None,
             description: None,
             category: None,

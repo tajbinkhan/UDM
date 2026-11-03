@@ -502,14 +502,19 @@ tests, not in a running Firefox.
 
 - **Properties** (a row's **More**) shows a download's status, its file type
   (what Windows calls it, such as "PDF Document (.pdf)"), size and last
-  try, and edits its link, parent page, description, name, folder and
-  login. A finished download has an **Open** button.
+  try, and the web page it came from, and edits its link, referrer,
+  description, name, folder and login. A finished download has an
+  **Open** button.
 - **The list's columns**: a click on a header sorts by it (again to
   reverse, a third time for the order added), and dragging the thin edge
   after a header sets the column's width. **More > Columns...** shows,
   hides, orders and sizes them (**Fit** sizes a column to what it holds);
-  the columns include **Parent web page**, the page a download came from,
-  which sorts like the rest. The layout is kept in
+  the columns include **Parent web page**, the page a download came from
+  (the browser tab's address), and **Referrer**, the address sent to the
+  server as its Referer, which can be a frame inside that page. Both sort
+  like the rest, and **View > Arrange files** has **By Referrer** and **By
+  Parent Web Page**. Downloads from before the two were kept apart use
+  their referrer as their page. The layout is kept in
   `%LOCALAPPDATA%\UIDM\window.json`.
 - **Help** (next to **More**): **Help contents** opens this README on
   GitHub, two more items open its sections on queues and the scheduler and
@@ -733,7 +738,7 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "hello", "version": "0.2.0", "client": "window" }
 { "op": "ping" }
 { "op": "add", "url": "https://...", "headers": { "X-Example": "1" }, "cookies": "...",
-  "referrer": "https://...", "user_agent": "...", "filename": "f.zip" }
+  "referrer": "https://...", "page": "https://...", "user_agent": "...", "filename": "f.zip" }
 { "op": "add", "url": "https://.../export", "method": "POST", "body": "<base64>",
   "headers": { "Content-Type": "application/x-www-form-urlencoded" } }
 { "op": "cancel", "id": 1 }

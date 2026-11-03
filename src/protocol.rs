@@ -279,8 +279,16 @@ pub struct Download {
     pub headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cookies: Option<String>,
+    /// The address sent as the HTTP `Referer` header: the document that
+    /// held the link, which may be a frame inside the page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub referrer: Option<String>,
+    /// The web page the download came from (the browser tab's address),
+    /// kept apart from the referrer the way IDM keeps both. It is only
+    /// shown and sorted by, never sent to the server. Missing means the
+    /// referrer is the page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
     /// Suggested filename, when the client could derive one.
@@ -495,9 +503,14 @@ pub struct DownloadEntry {
     /// address, and the save-as dialog asks what to do about it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duplicate_of: Option<u64>,
-    /// The page the download came from, for finding it in the list.
+    /// The Referer its request sends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub referrer: Option<String>,
+    /// The web page it came from, for finding it in the list. Entries saved
+    /// before it was kept apart from the referrer get the referrer here
+    /// when the history is read (see `History::load`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
     /// When it last started, in seconds since 1970.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_try: Option<u64>,
@@ -891,6 +904,29 @@ mod tests {
         assert_eq!(e.validator, None);
         let json = serde_json::to_string(&e).unwrap();
         assert!(!json.contains("validator"));
+    }
+
+    #[test]
+    fn an_add_carries_its_page_apart_from_the_referrer() {
+        let raw = br#"{"op":"add","url":"https://x/a.zip","referrer":"https://x/frame","page":"https://x/article"}"#;
+        let Incoming::Add(d) = serde_json::from_slice(raw).unwrap() else {
+            panic!("not an add");
+        };
+        assert_eq!(d.referrer.as_deref(), Some("https://x/frame"));
+        assert_eq!(d.page.as_deref(), Some("https://x/article"));
+        // Older senders leave it out, and it is left out when unknown.
+        let Incoming::Add(d) = serde_json::from_slice(br#"{"op":"add","url":"https://x/a.zip"}"#).unwrap() else {
+            panic!("not an add");
+        };
+        assert_eq!(d.page, None);
+        assert!(!serde_json::to_string(&d).unwrap().contains("page"));
+        let e: DownloadEntry = serde_json::from_value(serde_json::json!({
+            "id": 1, "url": "https://x/a", "path": null, "total": 5, "done": 5,
+            "status": "done", "error": null, "resumable": true, "connections": 1,
+            "referrer": "https://x/list",
+        }))
+        .unwrap();
+        assert_eq!((e.referrer.as_deref(), e.page), (Some("https://x/list"), None));
     }
 
     /// A frame written by `write_message` reads back with the same length.

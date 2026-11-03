@@ -315,6 +315,7 @@ mod tests {
             note: None,
             duplicate_of: None,
             referrer: None,
+            page: None,
             last_try: None,
             description: None,
             category: None,

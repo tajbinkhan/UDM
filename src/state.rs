@@ -193,6 +193,7 @@ fn blank(id: u64, url: &str, status: Status) -> DownloadEntry {
         note: None,
         duplicate_of: None,
         referrer: None,
+        page: None,
         last_try: None,
         description: None,
         category: None,

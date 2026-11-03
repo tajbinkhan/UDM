@@ -168,13 +168,15 @@ async function videoMenu(tabId, referrer, incognito) {
 }
 
 // Send media entry `entryId` of tab `tabId` to UIDM, in the chosen quality.
-async function downloadMedia(tabId, msg, referrer) {
+// `referrer` is the document that played it, `page` the tab's own address.
+async function downloadMedia(tabId, msg, referrer, page = null) {
   const entry = [...(media.get(tabId) || new Map()).values()].find((e) => e.id === msg.entry);
   if (!entry || !connected) return false;
   const download = { op: "add", url: entry.url, user_agent: navigator.userAgent };
   const cookies = await cookieHeader(entry.url);
   if (cookies) download.cookies = cookies;
   if (referrer) download.referrer = referrer;
+  if (isWeb(page)) download.page = page;
   const proxy = await browserProxy();
   if (proxy) download.proxy = proxy;
   if (entry.kind === "file") {
@@ -219,7 +221,7 @@ function onContentMessage(msg, sender, sendResponse) {
       videoMenu(tabId, pageUrl, sender.tab.incognito).then((items) => sendResponse({ connected: true, items }));
       return true;
     case "video:download":
-      downloadMedia(tabId, msg, pageUrl).then((ok) => sendResponse({ ok }));
+      downloadMedia(tabId, msg, pageUrl, sender.tab.url).then((ok) => sendResponse({ ok }));
       return true;
     case "selection:enabled":
       sendResponse({ enabled: connected && selectionButtonAllowed(rules, pageUrl), view: (rules && rules.video_view) || "full" });
@@ -239,7 +241,9 @@ function onContentMessage(msg, sender, sendResponse) {
         sendResponse({ ok: false });
         return false;
       }
-      handOff(msg.url, pageUrl).then((ok) => sendResponse({ ok }));
+      // The clicked link's document (maybe a frame) is the referrer; the
+      // tab's address is the page it came from.
+      handOff(msg.url, pageUrl, undefined, false, null, null, sender.tab.url).then((ok) => sendResponse({ ok }));
       return true;
     default:
       return false;
@@ -572,7 +576,10 @@ function proxyAddress(scheme, address, defaultPort) {
   return `${scheme}://${m[1]}:${Number(m[2]) || defaultPort}`;
 }
 
-async function handOff(url, referrer, filename, later = false, post = null, refreshId = null) {
+// Hand `url` to UIDM. `referrer` is sent to the server as the Referer
+// header; `page`, the web page the download came from (the tab's address),
+// is only shown and sorted by in UIDM, as IDM keeps the two apart.
+async function handOff(url, referrer, filename, later = false, post = null, refreshId = null, page = null) {
   const cookies = await cookieHeader(url);
   const msg = { op: "add", url, user_agent: navigator.userAgent };
   const proxy = await browserProxy();
@@ -585,6 +592,7 @@ async function handOff(url, referrer, filename, later = false, post = null, refr
   // "Download later": UIDM adds it to its main queue without starting it.
   if (later) msg.start = false;
   if (referrer) msg.referrer = referrer;
+  if (isWeb(page)) msg.page = page;
   if (filename) msg.filename = filename;
   if (cookies) msg.cookies = cookies;
   if (refreshId !== null) {
@@ -593,6 +601,25 @@ async function handOff(url, referrer, filename, later = false, post = null, refr
     return send({ op: "refresh_link", id: refreshId, download });
   }
   return send(msg);
+}
+
+// The web page a browser download came from. A download item only knows
+// its referrer, the document that started it, which may be a frame inside
+// the page; the page is the tab in front, the one the user clicked in. A
+// download without a referrer (an address typed in) has no page, and a tab
+// already showing the download's own address (a link opened in a new tab)
+// is not one. Null when no tab fits.
+async function downloadPage(referrer, url) {
+  if (!referrer || !chrome.tabs || !chrome.tabs.query) return null;
+  let tabs;
+  try {
+    tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  } catch (_) {
+    return null;
+  }
+  const tab = (tabs || [])[0];
+  if (!tab || tab.incognito || !isWeb(tab.url) || tab.url === url) return null;
+  return tab.url;
 }
 
 chrome.downloads.onCreated.addListener(async (item) => {
@@ -643,14 +670,15 @@ chrome.downloads.onCreated.addListener(async (item) => {
     // Already finished or gone; nothing to take.
     return;
   }
+  const page = await downloadPage(item.referrer, url);
   if (refreshId !== null) {
     refreshWaiting = null;
-    if (await handOff(requestUrl, item.referrer, baseName(item.filename), false, post, refreshId)) return;
+    if (await handOff(requestUrl, item.referrer, baseName(item.filename), false, post, refreshId, page)) return;
     giveBack(requestUrl, post);
     return;
   }
   awaitingAck.set(requestUrl, { post, filename: described.filename });
-  const sent = await handOff(requestUrl, item.referrer, described.filename, false, post);
+  const sent = await handOff(requestUrl, item.referrer, described.filename, false, post, null, page);
   if (!sent) {
     // The port dropped between the check and the send: give it back.
     awaitingAck.delete(requestUrl);
@@ -872,7 +900,7 @@ async function updateRecentMenu() {
 // Send a recent video to UIDM in its best quality, named after its page.
 async function downloadRecent({ tabId, entry }) {
   const { title, url } = await tabInfo(tabId);
-  return downloadMedia(tabId, { entry: entry.id, title }, url);
+  return downloadMedia(tabId, { entry: entry.id, title }, url, url);
 }
 
 chrome.runtime.onInstalled.addListener(buildMenus);
@@ -900,7 +928,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const later = info.menuItemId === "uidm-later-link" || info.menuItemId === "uidm-later-media";
   const url = isLink ? info.linkUrl : info.srcUrl;
   if (!isWeb(url)) return;
-  if (connected && (await handOff(url, info.pageUrl, undefined, later))) return;
+  // The link's frame is the referrer; the tab's page is where it came from.
+  const referrer = info.frameUrl || info.pageUrl;
+  if (connected && (await handOff(url, referrer, undefined, later, null, null, info.pageUrl))) return;
   // UIDM is not available; the click should still download something.
   chrome.downloads.download({ url }).catch(() => {});
 });

@@ -67,6 +67,12 @@ impl History {
             }
             // The question it was waiting on went away with the daemon.
             e.duplicate_of = None;
+            // Before the parent web page was kept apart from the referrer,
+            // the referrer stood for both, so "By Parent Web Page" keeps
+            // sorting old rows by it.
+            if e.page.is_none() {
+                e.page = e.referrer.clone();
+            }
         }
         let max_id = history.items.iter().map(|e| e.id).max().unwrap_or(0);
         history.next_id = history.next_id.max(max_id + 1);
@@ -172,6 +178,7 @@ mod tests {
             note: None,
             duplicate_of: None,
             referrer: None,
+            page: None,
             last_try: None,
             description: None,
             category: None,
@@ -189,6 +196,25 @@ mod tests {
         let h = History::load(&temp_path("missing.json")).unwrap();
         assert!(h.items.is_empty());
         assert!(load_requests(&temp_path("missing.bin")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn old_entries_take_the_referrer_as_their_page() {
+        let path = temp_path("page.json");
+        let mut old = serde_json::to_value(entry(1, Status::Done)).unwrap();
+        old["referrer"] = "https://x/list".into();
+        assert!(old.get("page").is_none(), "saved before pages were kept");
+        let mut new = entry(2, Status::Done);
+        new.referrer = Some("https://x/frame".into());
+        new.page = Some("https://x/article".into());
+        let history = serde_json::json!({ "next_id": 3, "items": [old, new] });
+        fs::write(&path, serde_json::to_vec(&history).unwrap()).unwrap();
+        let h = History::load(&path).unwrap();
+        assert_eq!(h.items[0].referrer.as_deref(), Some("https://x/list"));
+        assert_eq!(h.items[0].page.as_deref(), Some("https://x/list"));
+        assert_eq!(h.items[1].referrer.as_deref(), Some("https://x/frame"));
+        assert_eq!(h.items[1].page.as_deref(), Some("https://x/article"));
+        fs::remove_file(&path).ok();
     }
 
     #[test]

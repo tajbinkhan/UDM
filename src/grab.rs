@@ -583,14 +583,15 @@ pub fn kept_locally(req: &GrabRequest, url: &Url) -> Option<bool> {
     (page_like && on_start_site(req, url.as_str())).then_some(true)
 }
 
-/// The download for found file `f`: waiting, with the page as referrer,
-/// its link text as description when the crawl keeps those, and in the
-/// folder the request saves to: under the mirror folder when the crawl
-/// keeps one, else one category's folder (from `settings`) or one folder
-/// for every file. `login_cookies`, the login page site's cookies, go
-/// with a file on that site only (`crawl_cookies`), as a captured
-/// download carries the browser's. `None` when the mirror skips existing
-/// files and this one is there.
+/// The download for found file `f`: waiting, with the page it was found on
+/// as both its referrer and its parent web page, its link text as
+/// description when the crawl keeps those, and in the folder the request
+/// saves to: under the mirror folder when the crawl keeps one, else one
+/// category's folder (from `settings`) or one folder for every file.
+/// `login_cookies`, the login page site's cookies, go with a file on that
+/// site only (`crawl_cookies`), as a captured download carries the
+/// browser's. `None` when the mirror skips existing files and this one
+/// is there.
 pub fn download_for(
     req: &GrabRequest,
     f: &GrabFile,
@@ -600,6 +601,7 @@ pub fn download_for(
     let mut d = crate::protocol::Download {
         url: f.url.clone(),
         referrer: Some(f.page.clone()),
+        page: Some(f.page.clone()),
         cookies: crawl_cookies(req, &f.url, None, login_cookies),
         start: Some(false),
         description: f.text.clone().filter(|t| req.link_text && !t.is_empty()),
@@ -1821,6 +1823,7 @@ Crawl-delay: 2.5
             ..crate::settings::Settings::default()
         };
         let d = download_for(&request(1), &file, &settings, None).unwrap();
+        assert_eq!((d.referrer.as_deref(), d.page.as_deref()), (Some("https://s/a/"), Some("https://s/a/")));
         assert_eq!((d.category, d.folder, d.description), (None, None, None));
         let req = GrabRequest { save_to: SaveTo::Category("Music".into()), link_text: true, ..request(1) };
         let d = download_for(&req, &file, &settings, None).unwrap();

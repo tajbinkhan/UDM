@@ -179,7 +179,9 @@ impl LinksDialog {
                     .then(|| pattern_name(&self.rename, n + 1, ticked.len(), &link_type(l)));
                 Download {
                     url: l.url.clone(),
+                    // The page the links were picked from is both.
                     referrer: Some(self.page.clone()),
+                    page: Some(self.page.clone()),
                     cookies: l.cookies.clone(),
                     user_agent: self.user_agent.clone(),
                     folder: folder.clone(),
@@ -437,6 +439,7 @@ mod tests {
         assert_eq!(items.len(), 1);
         let a = &items[0];
         assert_eq!(a.referrer.as_deref(), Some("https://x.net/list"));
+        assert_eq!(a.page.as_deref(), Some("https://x.net/list"));
         assert_eq!(a.cookies.as_deref(), Some("s=1"));
         assert_eq!(a.description.as_deref(), Some("Get it"));
         assert_eq!(a.folder.as_deref(), Some(DL));

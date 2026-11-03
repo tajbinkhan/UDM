@@ -59,7 +59,7 @@ impl FindBar {
         if hit(&display_name(e)) || e.description.as_deref().is_some_and(hit) {
             return true;
         }
-        self.scope == Scope::NameAndAddress && (hit(&e.url) || e.referrer.as_deref().is_some_and(hit))
+        self.scope == Scope::NameAndAddress && (hit(&e.url) || [&e.referrer, &e.page].into_iter().flatten().any(|s| hit(s)))
     }
 
     /// Move to the match after the current one in `ids` (before it when
@@ -203,6 +203,7 @@ mod tests {
             note: None,
             duplicate_of: None,
             referrer: referrer.map(str::to_string),
+            page: None,
             last_try: None,
             description: None,
             category: None,

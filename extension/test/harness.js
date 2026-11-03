@@ -139,9 +139,12 @@ function loadWorker({ firefox = false } = {}) {
   const popupUrl = chrome.runtime.getURL("popup.html");
   const popup = (msg) =>
     new Promise((resolve) => chrome.runtime.onMessage.fire(msg, { id: "uidm", url: popupUrl }, resolve));
-  // A message from the content script in tab `tabId`, on page `url`.
-  const content = (msg, tabId, url = "https://site.net/watch") =>
-    new Promise((resolve) => chrome.runtime.onMessage.fire(msg, { id: "uidm", tab: { id: tabId, url }, url }, resolve));
+  // A message from the content script in tab `tabId`, on page `url`, from
+  // its frame at `frameUrl` (the page itself unless given).
+  const content = (msg, tabId, url = "https://site.net/watch", frameUrl = url) =>
+    new Promise((resolve) =>
+      chrome.runtime.onMessage.fire(msg, { id: "uidm", tab: { id: tabId, url }, url: frameUrl }, resolve),
+    );
   return { port, sent, browserCalls, chrome, popup, content };
 }
 

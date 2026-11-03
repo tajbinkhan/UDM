@@ -354,6 +354,7 @@
   "Stop the download to change these.": "Para cambiar esto, detenga la descarga.",
   "Link": "Enlace",
   "The page the download came from": "La página de la que procede la descarga",
+  "The address sent as the Referer header when it downloads": "La dirección que se envía como cabecera Referer al descargar",
   "A note for yourself": "Una nota personal",
   "A finished file can be renamed": "Se puede cambiar el nombre de un archivo finalizado",
   "A finished file can be moved": "Se puede mover un archivo finalizado",
