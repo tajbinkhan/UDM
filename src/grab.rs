@@ -941,7 +941,13 @@ impl Project {
     }
 
     pub fn load(dir: &Path, name: &str) -> io::Result<Project> {
-        let bytes = fs::read(project_file(dir, name))?;
+        Project::load_file(&project_file(dir, name))
+    }
+
+    /// A project file from anywhere, such as one copied from another
+    /// computer; read and checked as one from the projects folder is.
+    pub fn load_file(path: &Path) -> io::Result<Project> {
+        let bytes = fs::read(path)?;
         let mut p: Project = serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         if std::mem::take(&mut p.download_new) && p.run == RunAction::Explore {
             p.run = RunAction::ExploreAndDownload;
@@ -952,6 +958,36 @@ impl Project {
     /// The files ticked in the project.
     pub fn checked_files(&self) -> Vec<GrabFile> {
         self.files.iter().zip(&self.checked).filter(|(_, c)| **c).map(|(f, _)| f.clone()).collect()
+    }
+}
+
+/// Whether `current` holds changes its saved copy does not: it differs
+/// from `saved`, the project as last saved or opened. A project never saved
+/// counts once it has a start page; until then there is nothing to keep.
+pub fn unsaved(current: &Project, saved: Option<&Project>) -> bool {
+    match saved {
+        Some(saved) => current != saved,
+        None => !current.request.start.trim().is_empty(),
+    }
+}
+
+/// Whether saving a project named `name` in `dir` keeps every other saved
+/// project: no file there has that name, or it is the project's own copy,
+/// saved under `own`. Names are compared as their files are, and ignoring
+/// case as Windows does, so "a:b" and "a_b", or "Docs" and "docs", are the
+/// same name.
+pub fn name_is_unique(dir: &Path, name: &str, own: Option<&str>) -> bool {
+    if name.trim().is_empty() {
+        return false;
+    }
+    let file = project_file(dir, name);
+    let same = |a: &Path, b: &Path| a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase();
+    if own.is_some_and(|own| same(&project_file(dir, own), &file)) {
+        return true;
+    }
+    match fs::read_dir(dir) {
+        Ok(entries) => !entries.flatten().any(|e| same(&e.path(), &file)),
+        Err(_) => true,
     }
 }
 
@@ -1792,6 +1828,83 @@ Crawl-delay: 2.5
         assert_eq!((t.max_pages, t.start.as_str()), (7, ""), "a template has no start page");
         assert!(Project { name: " ".into(), ..p }.save(&dir).is_err());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_files_load_from_anywhere_and_names_are_checked() {
+        let dir = std::env::temp_dir().join(format!("uidm_grab_elsewhere_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let p = Project {
+            name: "Docs".into(),
+            request: request(1),
+            files: Vec::new(),
+            checked: Vec::new(),
+            schedule: None,
+            run: RunAction::Explore,
+            download_new: false,
+            when_done: crate::queue::WhenDone::Nothing,
+            open_when_done: None,
+            force_close: false,
+            queue: crate::queue::MAIN_QUEUE,
+            seen: Vec::new(),
+            last_scheduled_day: None,
+            last_scheduled_start: None,
+            kind: crate::queue::QueueKind::OneTime,
+        };
+        assert!(name_is_unique(&dir, "Docs", None), "nothing saved yet");
+        p.save(&dir).unwrap();
+        // A copy kept elsewhere, from an older version that said
+        // download_new, loads and moves it into `run` as the folder's do.
+        let elsewhere = dir.join("copied from work.json");
+        let mut old = serde_json::to_value(&p).unwrap();
+        old["download_new"] = true.into();
+        fs::write(&elsewhere, serde_json::to_vec(&old).unwrap()).unwrap();
+        let loaded = Project::load_file(&elsewhere).unwrap();
+        assert_eq!(loaded, Project { run: RunAction::ExploreAndDownload, ..p.clone() });
+        fs::write(&elsewhere, b"{\"not\": \"a project\"}").unwrap();
+        assert_eq!(Project::load_file(&elsewhere).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(Project::load_file(&dir.join("missing.json")).is_err());
+
+        assert!(!name_is_unique(&dir, "Docs", None), "another project has it");
+        assert!(!name_is_unique(&dir, "docs", None), "names are compared as files are");
+        assert!(name_is_unique(&dir, "Docs", Some("Docs")), "its own saved copy");
+        assert!(!name_is_unique(&dir, "Docs", Some("Other")));
+        assert!(name_is_unique(&dir, "Manuals", Some("Docs")));
+        assert!(!name_is_unique(&dir, " ", None), "a project needs a name");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_project_is_unsaved_once_it_differs_from_its_copy() {
+        let p = Project {
+            name: String::new(),
+            request: GrabRequest::default(),
+            files: Vec::new(),
+            checked: Vec::new(),
+            schedule: None,
+            run: RunAction::Explore,
+            download_new: false,
+            when_done: crate::queue::WhenDone::Nothing,
+            open_when_done: None,
+            force_close: false,
+            queue: crate::queue::MAIN_QUEUE,
+            seen: Vec::new(),
+            last_scheduled_day: None,
+            last_scheduled_start: None,
+            kind: crate::queue::QueueKind::OneTime,
+        };
+        assert!(!unsaved(&p, None), "a new, empty project has nothing to keep");
+        let started = Project { request: request(1), ..p.clone() };
+        assert!(unsaved(&started, None), "never saved");
+        assert!(!unsaved(&started, Some(&started)));
+        let crawled = Project {
+            files: vec![GrabFile { url: "https://s/a.pdf".into(), name: "a.pdf".into(), page: "https://s/".into(), size: None, text: None }],
+            checked: vec![true],
+            ..started.clone()
+        };
+        assert!(unsaved(&crawled, Some(&started)), "a crawl found new files");
+        assert!(unsaved(&Project { name: "Renamed".into(), ..started.clone() }, Some(&started)));
     }
 
     #[test]

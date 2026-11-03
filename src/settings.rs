@@ -619,6 +619,12 @@ pub struct Settings {
     pub progress_done_tab: bool,
     /// The note that a queue's schedule needs UIDM running was dismissed.
     pub schedule_note_hidden: bool,
+    /// Closing the site grabber adds the files ticked in its results to the
+    /// list and queue, as its Add button does.
+    pub grab_add_on_close: bool,
+    /// Closing a grabber project, or starting its crawl, saves it without
+    /// asking when no other saved project has its name.
+    pub grab_save_unique_silently: bool,
     /// Show a tip when the window opens.
     pub tips_on_startup: bool,
     /// The tip to show next.
@@ -725,6 +731,8 @@ impl Default for Settings {
             progress_speed_tab: true,
             progress_done_tab: true,
             schedule_note_hidden: false,
+            grab_add_on_close: false,
+            grab_save_unique_silently: false,
             tips_on_startup: true,
             next_tip: 0,
             theme: Theme::System,
@@ -1344,6 +1352,8 @@ mod tests {
             progress_speed_tab: false,
             progress_done_tab: false,
             schedule_note_hidden: true,
+            grab_add_on_close: true,
+            grab_save_unique_silently: true,
             tips_on_startup: false,
             next_tip: 3,
             theme: Theme::Dark,

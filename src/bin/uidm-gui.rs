@@ -483,6 +483,12 @@ enum Action {
     SaveSettings(Settings),
     /// Send new settings without the Options dialog (the speed limit toggle).
     QuickSettings(Settings),
+    /// The site grabber's own choices: add the ticked files on closing, and
+    /// save a project whose name is unique without asking.
+    GrabOptions {
+        add_on_close: bool,
+        save_unique_silently: bool,
+    },
     /// Answer a save-as dialog, or start a waiting download.
     Confirm(Answer),
     StartQueue(u64),
@@ -980,6 +986,9 @@ struct OptionsDraft {
     progress_done_tab: bool,
     /// Kept as it is; only the Queues dialog changes it.
     schedule_note_hidden: bool,
+    /// Kept as they are; only the site grabber changes them.
+    grab_add_on_close: bool,
+    grab_save_unique_silently: bool,
     tips_on_startup: bool,
     /// Kept as it is; only the tip window changes it.
     next_tip: usize,
@@ -1154,6 +1163,8 @@ impl OptionsDraft {
             progress_speed_tab: s.progress_speed_tab,
             progress_done_tab: s.progress_done_tab,
             schedule_note_hidden: s.schedule_note_hidden,
+            grab_add_on_close: s.grab_add_on_close,
+            grab_save_unique_silently: s.grab_save_unique_silently,
             tips_on_startup: s.tips_on_startup,
             next_tip: s.next_tip,
             theme: s.theme,
@@ -1300,6 +1311,8 @@ impl OptionsDraft {
             progress_speed_tab: self.progress_speed_tab,
             progress_done_tab: self.progress_done_tab,
             schedule_note_hidden: self.schedule_note_hidden,
+            grab_add_on_close: self.grab_add_on_close,
+            grab_save_unique_silently: self.grab_save_unique_silently,
             tips_on_startup: self.tips_on_startup,
             next_tip: self.next_tip,
             theme: self.theme,
@@ -1761,6 +1774,19 @@ impl App {
             Action::QuickSettings(settings) => {
                 send(&self.writer, &Incoming::SetSettings { settings });
             }
+            Action::GrabOptions {
+                add_on_close,
+                save_unique_silently,
+            } => {
+                let settings = self.shared.lock().unwrap().settings.clone();
+                if let Some(s) = settings {
+                    self.perform(Action::QuickSettings(Settings {
+                        grab_add_on_close: add_on_close,
+                        grab_save_unique_silently: save_unique_silently,
+                        ..s
+                    }));
+                }
+            }
             Action::Confirm(answer) => {
                 send(&self.writer, &Incoming::Confirm(answer));
             }
@@ -1922,7 +1948,11 @@ impl App {
             Action::OpenGrabProject(name) => {
                 let project = uidm::grab::projects_dir().and_then(|d| uidm::grab::Project::load(&d, &name));
                 match project {
-                    Ok(p) => self.grabber = Some(tools::GrabDialog::open(p)),
+                    // An open grabber asks to save its project first.
+                    Ok(p) => match self.grabber.as_mut() {
+                        Some(d) => d.switch_to(tools::GrabDialog::open(p)),
+                        None => self.grabber = Some(tools::GrabDialog::open(p)),
+                    },
                     Err(e) => {
                         self.shared.lock().unwrap().last_error =
                             Some(trf!("Could not open {name}: {error}", name = name, error = e));

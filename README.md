@@ -429,6 +429,13 @@ tests, not in a running Firefox.
   sleeps, hibernates or shuts down (with its own **Force apps to close**),
   and can open a file, after the crawl or once the queue is done. Its stop
   time ends the queue's downloads too, as it ends the crawl.
+  **Add the ticked files when the grabber closes** adds them on closing as
+  **Add** does. Closing, starting a crawl or switching to another project
+  asks to save one that changed since it was saved (or was never saved),
+  unless **Don't ask if the name is unique** is ticked and no other saved
+  project has its name; then it is saved without asking. **Open > From
+  another folder...** opens a project file kept anywhere, such as one copied
+  from another computer; saving it keeps it with the other projects.
 - **Clipboard** (off by default; **Options > Browser capture**): copying a
   link whose file type is on the capture list brings up a small **Download
   the copied link?** prompt with **Download** and **Ignore**, and the same

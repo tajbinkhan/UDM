@@ -675,7 +675,7 @@
   "Only files on this site": "Solo archivos de este sitio",
   "Ignore the windows page scripts open": "Ignorar las ventanas que abren los scripts de la página",
   "Off, the pages a script opens in a new window are explored like links": "Desactivado, las páginas que un script abre en una ventana nueva se exploran como enlaces",
-  "Grabber settings": "Configuración del capturador",
+  "Grabber settings": "Configuración del rastreador",
   "Explore": "Explorar",
   "pages at once, and download": "páginas a la vez, y descargar",
   "files at once": "archivos a la vez",
@@ -756,5 +756,17 @@
   "Open this file when done": "Abrir este archivo al terminar",
   "Start now": "Iniciar ahora",
   "Start the queue as saved, without waiting for its schedule": "Iniciar la cola tal como está guardada, sin esperar a su programación",
-  "Help": "Ayuda"
+  "Help": "Ayuda",
+  "Opened {file}. Save keeps it with your projects.": "Se abrió {file}. Guardar lo deja con sus proyectos.",
+  "Save the project?": "¿Guardar el proyecto?",
+  "This project has changes that are not saved. Save it first?": "Este proyecto tiene cambios sin guardar. ¿Guardarlo primero?",
+  "Another saved project has this name; saving replaces it.": "Otro proyecto guardado tiene este nombre; guardar lo reemplaza.",
+  "Don't ask if the name is unique": "No preguntar si el nombre es único",
+  "Don't save": "No guardar",
+  "From another folder...": "De otra carpeta...",
+  "A project file kept anywhere, such as one copied from another computer": "Un archivo de proyecto guardado en cualquier lugar, como uno copiado de otro equipo",
+  "Open a grabber project": "Abrir un proyecto del rastreador",
+  "Grabber projects": "Proyectos del rastreador",
+  "Add the ticked files when the grabber closes": "Añadir los archivos marcados al cerrar el rastreador",
+  "Closing the grabber adds them to the list and queue, as Add does": "Al cerrar el rastreador se añaden a la lista y la cola, como hace Añadir"
 }

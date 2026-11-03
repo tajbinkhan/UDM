@@ -756,5 +756,17 @@
   "Open this file when done": "Diese Datei nach Abschluss öffnen",
   "Start now": "Jetzt starten",
   "Start the queue as saved, without waiting for its schedule": "Die Warteschlange wie gespeichert starten, ohne auf ihren Zeitplan zu warten",
-  "Help": "Hilfe"
+  "Help": "Hilfe",
+  "Opened {file}. Save keeps it with your projects.": "{file} geöffnet. Speichern legt es zu Ihren Projekten.",
+  "Save the project?": "Projekt speichern?",
+  "This project has changes that are not saved. Save it first?": "Dieses Projekt hat ungespeicherte Änderungen. Zuerst speichern?",
+  "Another saved project has this name; saving replaces it.": "Ein anderes gespeichertes Projekt hat diesen Namen; Speichern ersetzt es.",
+  "Don't ask if the name is unique": "Nicht fragen, wenn der Name eindeutig ist",
+  "Don't save": "Nicht speichern",
+  "From another folder...": "Aus einem anderen Ordner...",
+  "A project file kept anywhere, such as one copied from another computer": "Eine Projektdatei an beliebigem Ort, etwa von einem anderen Computer kopiert",
+  "Open a grabber project": "Grabber-Projekt öffnen",
+  "Grabber projects": "Grabber-Projekte",
+  "Add the ticked files when the grabber closes": "Angehakte Dateien beim Schließen des Grabbers hinzufügen",
+  "Closing the grabber adds them to the list and queue, as Add does": "Beim Schließen des Grabbers werden sie wie mit Hinzufügen zur Liste und Warteschlange hinzugefügt"
 }

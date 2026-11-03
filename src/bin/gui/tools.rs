@@ -599,6 +599,33 @@ pub struct GrabDialog {
     /// What earlier runs found and the last run's day and start time, kept
     /// as they are.
     kept: (Vec<String>, Option<i64>, Option<i64>),
+    /// The project as it was last saved or opened, to tell whether leaving
+    /// it loses changes; `None` until it is saved.
+    saved: Option<grab::Project>,
+    /// The name its copy in the projects folder has, so saving over that
+    /// copy does not count as taking another project's name.
+    saved_as: Option<String>,
+    /// What waits on the save question, and whether the question shows.
+    leaving: Option<Leave>,
+    asking: bool,
+    /// The question's "Don't ask if the name is unique" box, and why saving
+    /// from it failed.
+    dont_ask: bool,
+    ask_error: Option<String>,
+    /// A project file picked anywhere with Open > From another folder.
+    file_picked: Picked,
+}
+
+/// What closing or leaving a project goes on to do once the save question
+/// is answered.
+enum Leave {
+    /// Close the grabber; `add` adds the ticked files first, for the Add
+    /// button or when the grabber adds them on closing.
+    Close { add: bool },
+    /// Start the crawl the form describes.
+    Start,
+    /// Show another project, opened or new.
+    Replace(Box<GrabDialog>),
 }
 
 /// Patterns typed one per line or separated by spaces.
@@ -681,6 +708,7 @@ impl GrabDialog {
         d.force_close = p.force_close;
         d.open_when_done = p.open_when_done.clone().unwrap_or_default();
         d.kept = (p.seen.clone(), p.last_scheduled_day, p.last_scheduled_start);
+        d.saved_as = Some(p.name.clone());
         if !p.files.is_empty() {
             let mut checked = p.checked;
             checked.resize(p.files.len(), true);
@@ -692,7 +720,106 @@ impl GrabDialog {
                 stopped: Some(tr("Opened from the saved project. New crawl explores the site again.").into()),
             };
         }
+        // Compared with what the fields make of it, so opening it is not
+        // a change by itself.
+        d.saved = d.project().ok();
         d
+    }
+
+    /// A project read from a file outside the projects folder. Saving puts
+    /// it in the folder with the others.
+    fn open_file(p: grab::Project, path: &std::path::Path) -> Self {
+        let mut d = Self::open(p);
+        d.saved_as = None;
+        d.project_note = Some(trf!("Opened {file}. Save keeps it with your projects.", file = path.display()));
+        d
+    }
+
+    /// Show `next` instead, once the save question for this project is
+    /// answered.
+    pub fn switch_to(&mut self, next: GrabDialog) {
+        self.leave(Leave::Replace(Box::new(next)));
+    }
+
+    fn leave(&mut self, then: Leave) {
+        self.leaving = Some(then);
+        self.asking = false;
+        self.ask_error = None;
+    }
+
+    /// Whether leaving the project loses changes; a schedule that is not
+    /// valid counts, so the question can say why it cannot be saved.
+    fn unsaved(&self) -> bool {
+        match self.project() {
+            Ok(p) => grab::unsaved(&p, self.saved.as_ref()),
+            Err(_) => true,
+        }
+    }
+
+    /// Save the project in `dir`, with a new password first.
+    fn save_project(&mut self, dir: &std::path::Path) -> Result<(), String> {
+        let p = self.store_login().and_then(|()| self.project())?;
+        p.save(dir).map_err(|e| trf!("Could not save it: {error}", error = e))?;
+        self.project_note = Some(trf!("Saved \"{name}\".", name = p.name));
+        self.saved_as = Some(p.name.clone());
+        self.saved = Some(p);
+        Ok(())
+    }
+
+    /// Start the crawl the form describes.
+    fn start_crawl(&mut self, queues: &[Queue], actions: &mut Vec<Action>) {
+        let req = self.request();
+        match req.validate().and_then(|()| self.store_login()) {
+            Ok(()) => {
+                self.error = None;
+                self.phase = GrabPhase::Running {
+                    pages: 0,
+                    bytes: 0,
+                    found: 0,
+                    explored: 0,
+                };
+                if let Some(q) = req.download_found.and_then(|id| queues.iter().find(|q| q.id == id)) {
+                    actions.push(Action::SaveQueue(Queue {
+                        max_concurrent: req.download_at_once as usize,
+                        ..q.clone()
+                    }));
+                }
+                actions.push(Action::Grab(req));
+            }
+            Err(e) => self.error = Some(e),
+        }
+    }
+
+    /// Add the ticked results to the list in the chosen queue. Returns
+    /// false when none are ticked.
+    fn add_checked(&self, queues: &[Queue], settings: &uidm::settings::Settings, actions: &mut Vec<Action>) -> bool {
+        let GrabPhase::Review { files, checked, .. } = &self.phase else {
+            return false;
+        };
+        // The settings found files are saved with.
+        let req = self.request();
+        let items: Vec<Download> = files
+            .iter()
+            .zip(checked.iter())
+            .filter(|(_, c)| **c)
+            .filter_map(|(f, _)| grab::download_for(&req, f, settings))
+            .collect();
+        if items.is_empty() {
+            return false;
+        }
+        // The queue downloads as many at once as the grabber says.
+        if let Some(q) = queues.iter().find(|q| q.id == self.queue && q.max_concurrent != req.download_at_once as usize) {
+            actions.push(Action::SaveQueue(Queue {
+                max_concurrent: req.download_at_once as usize,
+                ..q.clone()
+            }));
+        }
+        actions.push(Action::AddMany {
+            items,
+            queue: self.queue,
+            start_queue: self.start_queue,
+        });
+        true
     }
 
     /// The form filled from `d`.
@@ -777,6 +904,13 @@ impl GrabDialog {
             open_when_done: String::new(),
             open_picked: Picked::default(),
             kept: (Vec::new(), None, None),
+            saved: None,
+            saved_as: None,
+            leaving: None,
+            asking: false,
+            dont_ask: false,
+            ask_error: None,
+            file_picked: Picked::default(),
         }
     }
 
@@ -873,7 +1007,8 @@ impl GrabDialog {
 /// Draw the site grabber. `settings` give the categories to save into
 /// and their folders; `done` the addresses of the finished downloads in the list, for
 /// counting what was downloaded. Returns false once it is closed (a
-/// running crawl is stopped first).
+/// running crawl is stopped first). Closing, starting a crawl or switching
+/// projects asks to save an unsaved project first.
 pub fn grab_dialog(
     ctx: &egui::Context,
     d: &mut GrabDialog,
@@ -886,9 +1021,18 @@ pub fn grab_dialog(
     take_picked(&d.mirror_picked, &mut d.mirror_folder);
     take_picked(&d.save_picked, &mut d.save_folder);
     take_picked(&d.open_picked, &mut d.open_when_done);
+    let file = d.file_picked.lock().unwrap().take();
+    if let Some(path) = file {
+        match grab::Project::load_file(&path) {
+            Ok(p) => d.switch_to(GrabDialog::open_file(p, &path)),
+            Err(e) => d.project_note = Some(trf!("Could not open {name}: {error}", name = path.display(), error = e)),
+        }
+    }
     let mut open = true;
     let mut close = false;
+    let mut added = false;
     let mut again = false;
+    let mut start = false;
     let mut replace = None;
     crate::dialog::Window::new(tr("Site grabber"))
         .id(egui::Id::new("Site grabber"))
@@ -903,19 +1047,141 @@ pub fn grab_dialog(
                 replace = project_bar(ui, d);
                 ui.separator();
             }
-            grab_body(ui, d, queues, settings, done, connected, actions, &mut close, &mut again);
+            grab_body(ui, d, queues, settings, done, connected, actions, &mut close, &mut added, &mut again, &mut start);
         });
     if let Some(next) = replace {
-        *d = next;
+        d.switch_to(next);
     }
     if again {
         d.phase = GrabPhase::Form;
     }
-    let closed = !open || close;
-    if closed && d.running() {
-        actions.push(Action::CancelGrab);
+    if !open || close || added {
+        if d.running() {
+            // Nothing found yet to keep; Start already offered to save.
+            actions.push(Action::CancelGrab);
+            return false;
+        }
+        d.leave(Leave::Close {
+            add: added || settings.grab_add_on_close,
+        });
     }
-    !closed
+    if start {
+        d.leave(Leave::Start);
+    }
+    let dir = grab::projects_dir().ok();
+    if d.leaving.is_some() && !d.asking {
+        if !d.unsaved() {
+            return go_on(d, queues, settings, connected, actions);
+        }
+        let silent_dir = dir
+            .as_deref()
+            .filter(|dir| settings.grab_save_unique_silently && grab::name_is_unique(dir, &d.project, d.saved_as.as_deref()));
+        if let Some(dir) = silent_dir {
+            match d.save_project(dir) {
+                Ok(()) => return go_on(d, queues, settings, connected, actions),
+                Err(e) => d.ask_error = Some(e),
+            }
+        }
+        d.asking = true;
+        d.dont_ask = settings.grab_save_unique_silently;
+    }
+    if d.asking {
+        match save_question(ctx, d, dir.as_deref(), settings, connected, actions) {
+            Some(true) => return go_on(d, queues, settings, connected, actions),
+            Some(false) => {
+                d.leaving = None;
+                d.asking = false;
+            }
+            None => {}
+        }
+    }
+    true
+}
+
+/// Do what waited on the save question. Returns false when that closes the
+/// grabber.
+fn go_on(d: &mut GrabDialog, queues: &[Queue], settings: &uidm::settings::Settings, connected: bool, actions: &mut Vec<Action>) -> bool {
+    d.asking = false;
+    match d.leaving.take() {
+        Some(Leave::Close { add }) => {
+            if add && connected {
+                d.add_checked(queues, settings, actions);
+            }
+            false
+        }
+        Some(Leave::Start) => {
+            d.start_crawl(queues, actions);
+            true
+        }
+        Some(Leave::Replace(next)) => {
+            *d = *next;
+            true
+        }
+        None => true,
+    }
+}
+
+/// Ask to save the unsaved project before leaving it. Returns `Some(true)`
+/// to go on (saved, or not wanted), `Some(false)` to stay, `None` while it
+/// is open.
+fn save_question(
+    ctx: &egui::Context,
+    d: &mut GrabDialog,
+    dir: Option<&std::path::Path>,
+    settings: &uidm::settings::Settings,
+    connected: bool,
+    actions: &mut Vec<Action>,
+) -> Option<bool> {
+    let mut answer = None;
+    let mut open = true;
+    crate::dialog::Window::new(tr("Save the project?"))
+        .id(egui::Id::new("Save the grabber project"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(tr("This project has changes that are not saved. Save it first?"));
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(tr("Project"));
+                ui.add(egui::TextEdit::singleline(&mut d.project).hint_text(tr("Name, to save it")).desired_width(200.0));
+            });
+            let named = !d.project.trim().is_empty();
+            if named && dir.is_some_and(|dir| !grab::name_is_unique(dir, &d.project, d.saved_as.as_deref())) {
+                ui.weak(tr("Another saved project has this name; saving replaces it."));
+            }
+            if ui.checkbox(&mut d.dont_ask, tr("Don't ask if the name is unique")).changed() && connected {
+                actions.push(Action::GrabOptions {
+                    add_on_close: settings.grab_add_on_close,
+                    save_unique_silently: d.dont_ask,
+                });
+            }
+            if let Some(e) = &d.ask_error {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.add_enabled(named && dir.is_some(), egui::Button::new(tr("Save"))).clicked() {
+                    if let Some(dir) = dir {
+                        match d.save_project(dir) {
+                            Ok(()) => answer = Some(true),
+                            Err(e) => d.ask_error = Some(e),
+                        }
+                    }
+                }
+                if ui.button(tr("Don't save")).clicked() {
+                    answer = Some(true);
+                }
+                if ui.button(tr("Cancel")).clicked() {
+                    answer = Some(false);
+                }
+            });
+        });
+    if !open {
+        answer = Some(false);
+    }
+    answer
 }
 
 /// The project strip: its name, Save, Open, New and Save as template.
@@ -930,28 +1196,48 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
         let named = !d.project.trim().is_empty();
         if ui.add_enabled(named && dir.is_some(), egui::Button::new(tr("Save"))).clicked() {
             if let Some(dir) = &dir {
-                d.project_note = Some(match d.store_login().and_then(|()| d.project()).map(|p| p.save(dir)) {
-                    Ok(Ok(())) => trf!("Saved \"{name}\".", name = d.project.trim()),
-                    Ok(Err(e)) => trf!("Could not save it: {error}", error = e),
-                    Err(e) => e,
-                });
+                if let Err(e) = d.save_project(dir) {
+                    d.project_note = Some(e);
+                }
             }
         }
         let recent = dir.as_deref().map(grab::recent_projects).unwrap_or_default();
-        ui.add_enabled_ui(!recent.is_empty(), |ui| {
-            ui.menu_button(tr("Open"), |ui| {
-                for name in &recent {
-                    if ui.button(name).clicked() {
-                        if let Some(dir) = &dir {
-                            match grab::Project::load(dir, name) {
-                                Ok(p) => next = Some(GrabDialog::open(p)),
-                                Err(e) => d.project_note = Some(trf!("Could not open {name}: {error}", name = name, error = e)),
-                            }
+        ui.menu_button(tr("Open"), |ui| {
+            for name in &recent {
+                if ui.button(name).clicked() {
+                    if let Some(dir) = &dir {
+                        match grab::Project::load(dir, name) {
+                            Ok(p) => next = Some(GrabDialog::open(p)),
+                            Err(e) => d.project_note = Some(trf!("Could not open {name}: {error}", name = name, error = e)),
                         }
-                        ui.close_menu();
                     }
+                    ui.close_menu();
                 }
-            });
+            }
+            if !recent.is_empty() {
+                ui.separator();
+            }
+            if ui
+                .button(tr("From another folder..."))
+                .on_hover_text(tr("A project file kept anywhere, such as one copied from another computer"))
+                .clicked()
+            {
+                // The picker blocks, so it gets its own thread.
+                let (slot, ctx, start) = (Arc::clone(&d.file_picked), ui.ctx().clone(), dir.clone());
+                thread::spawn(move || {
+                    let mut dialog = rfd::FileDialog::new()
+                        .set_title(tr("Open a grabber project"))
+                        .add_filter(tr("Grabber projects"), &["json"]);
+                    if let Some(start) = start {
+                        dialog = dialog.set_directory(start);
+                    }
+                    if let Some(file) = dialog.pick_file() {
+                        *slot.lock().unwrap() = Some(file);
+                        ctx.request_repaint();
+                    }
+                });
+                ui.close_menu();
+            }
         });
         ui.menu_button(tr("New"), |ui| {
             if ui.button(tr("From my last template")).on_hover_text(tr("The settings saved with Save as template, or the defaults")).clicked() {
@@ -1030,10 +1316,10 @@ fn grab_body(
     connected: bool,
     actions: &mut Vec<Action>,
     close: &mut bool,
+    added: &mut bool,
     again: &mut bool,
+    start: &mut bool,
 ) {
-    // The settings found files are saved with.
-    let req = d.request();
     match &mut d.phase {
         GrabPhase::Form => {
             ui.weak(tr("Reads a site's pages and lists the files they link to. It follows robots.txt and waits between pages."));
@@ -1314,23 +1600,11 @@ fn grab_body(
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.add_enabled(connected, egui::Button::new(tr("Start"))).clicked() {
-                    let req = d.request();
-                    match req.validate().and_then(|()| d.store_login()) {
+                    // Checked before the save question, which comes next.
+                    match d.request().validate() {
                         Ok(()) => {
                             d.error = None;
-                            d.phase = GrabPhase::Running {
-                                pages: 0,
-                                bytes: 0,
-                                found: 0,
-                                explored: 0,
-                            };
-                            if let Some(q) = req.download_found.and_then(|id| queues.iter().find(|q| q.id == id)) {
-                                actions.push(Action::SaveQueue(Queue {
-                                    max_concurrent: req.download_at_once as usize,
-                                    ..q.clone()
-                                }));
-                            }
-                            actions.push(Action::Grab(req));
+                            *start = true;
                         }
                         Err(e) => d.error = Some(e),
                     }
@@ -1428,28 +1702,21 @@ fn grab_body(
                 queue_combo(ui, "grab_queue", &mut d.queue, queues);
                 ui.checkbox(&mut d.start_queue, tr("Start the queue now"));
             });
+            let mut on_close = settings.grab_add_on_close;
+            if ui
+                .add_enabled(connected, egui::Checkbox::new(&mut on_close, tr("Add the ticked files when the grabber closes")))
+                .on_hover_text(tr("Closing the grabber adds them to the list and queue, as Add does"))
+                .changed()
+            {
+                actions.push(Action::GrabOptions {
+                    add_on_close: on_close,
+                    save_unique_silently: settings.grab_save_unique_silently,
+                });
+            }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.add_enabled(connected && n > 0, egui::Button::new(trf!("Add {count}", count = n))).clicked() {
-                    let items = files
-                        .iter()
-                        .zip(checked.iter())
-                        .filter(|(_, c)| **c)
-                        .filter_map(|(f, _)| grab::download_for(&req, f, settings))
-                        .collect();
-                    // The queue downloads as many at once as the grabber says.
-                    if let Some(q) = queues.iter().find(|q| q.id == d.queue && q.max_concurrent != req.download_at_once as usize) {
-                        actions.push(Action::SaveQueue(Queue {
-                            max_concurrent: req.download_at_once as usize,
-                            ..q.clone()
-                        }));
-                    }
-                    actions.push(Action::AddMany {
-                        items,
-                        queue: d.queue,
-                        start_queue: d.start_queue,
-                    });
-                    *close = true;
+                    *added = true;
                 }
                 if ui.button(tr("New crawl")).clicked() {
                     *again = true;

@@ -756,5 +756,17 @@
   "Open this file when done": "Ouvrir ce fichier une fois terminé",
   "Start now": "Démarrer maintenant",
   "Start the queue as saved, without waiting for its schedule": "Démarrer la file telle qu'enregistrée, sans attendre sa planification",
-  "Help": "Aide"
+  "Help": "Aide",
+  "Opened {file}. Save keeps it with your projects.": "{file} ouvert. Enregistrer le range avec vos projets.",
+  "Save the project?": "Enregistrer le projet ?",
+  "This project has changes that are not saved. Save it first?": "Ce projet a des modifications non enregistrées. L'enregistrer d'abord ?",
+  "Another saved project has this name; saving replaces it.": "Un autre projet enregistré porte ce nom ; l'enregistrer le remplace.",
+  "Don't ask if the name is unique": "Ne pas demander si le nom est unique",
+  "Don't save": "Ne pas enregistrer",
+  "From another folder...": "D'un autre dossier...",
+  "A project file kept anywhere, such as one copied from another computer": "Un fichier de projet rangé n'importe où, comme un fichier copié d'un autre ordinateur",
+  "Open a grabber project": "Ouvrir un projet de l'aspirateur",
+  "Grabber projects": "Projets de l'aspirateur",
+  "Add the ticked files when the grabber closes": "Ajouter les fichiers cochés à la fermeture de l'aspirateur",
+  "Closing the grabber adds them to the list and queue, as Add does": "Fermer l'aspirateur les ajoute à la liste et à la file, comme Ajouter"
 }
