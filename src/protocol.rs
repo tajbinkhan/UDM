@@ -100,6 +100,11 @@ pub enum Incoming {
         #[serde(default)]
         position: Option<usize>,
     },
+    /// Take a download out of its queue but keep it in the list. A waiting
+    /// download stays waiting, outside every queue, so no queue starts it;
+    /// it starts by hand or goes back with `move_to_queue`. A running one
+    /// keeps running.
+    RemoveFromQueue { id: u64 },
     /// Stop the countdown before sleeping or shutting down.
     CancelCountdown,
     /// Give a failed, canceled, interrupted or waiting download a new link.

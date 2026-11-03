@@ -495,6 +495,8 @@ enum Action {
         queue: u64,
         position: Option<usize>,
     },
+    /// Take a download out of its queue, keeping it in the list.
+    RemoveFromQueue(u64),
     /// What a queue does when this run ends, this time only.
     SetQueueOnce(u64, Option<WhenDone>),
     CancelCountdown,
@@ -1779,6 +1781,9 @@ impl App {
             }
             Action::MoveToQueue { id, queue, position } => {
                 send(&self.writer, &Incoming::MoveToQueue { id, queue, position });
+            }
+            Action::RemoveFromQueue(id) => {
+                send(&self.writer, &Incoming::RemoveFromQueue { id });
             }
             Action::SetQueueOnce(id, when_done) => {
                 send(&self.writer, &Incoming::SetQueueOnce { id, when_done });
@@ -4021,7 +4026,8 @@ impl eframe::App for App {
         }
         self.properties.retain_mut(|d| {
             let entry = rows.iter().find(|e| e.id == d.id);
-            properties::dialog(ctx, d, entry, connected, &mut actions)
+            let queued = queue_list.iter().any(|q| q.order.contains(&d.id));
+            properties::dialog(ctx, d, entry, queued, connected, &mut actions)
         });
         // Saved once a drag on a header's edge is over, not on every frame
         // of it.

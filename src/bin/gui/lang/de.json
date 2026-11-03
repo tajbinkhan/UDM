@@ -346,6 +346,8 @@
   "Finished": "Abgeschlossen",
   "Waiting for the save-as dialog": "Wartet auf den Dialog „Speichern unter“",
   "Waiting in a queue": "Wartet in einer Warteschlange",
+  "Remove from queue": "Aus der Warteschlange entfernen",
+  "Waiting, in no queue": "Wartet, in keiner Warteschlange",
   "Properties of {name}": "Eigenschaften von {name}",
   "Not started yet": "Noch nicht gestartet",
   "Result": "Ergebnis",

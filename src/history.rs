@@ -44,14 +44,17 @@ impl History {
             Ok(b) => b,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 let mut history = History::default();
-                history.tidy_queues();
+                history.tidy_queues(false);
                 return Ok(history);
             }
             Err(e) => return Err(e),
         };
         let mut history: History = serde_json::from_slice(&bytes)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        history.tidy_queues();
+        // Every daemon with queues saves at least the main one, so a history
+        // without any is from before queues.
+        let before_queues = history.queues.is_empty();
+        history.tidy_queues(before_queues);
         let queued: std::collections::HashSet<u64> =
             history.queues.iter().flat_map(|q| q.order.iter().copied()).collect();
         for e in &mut history.items {
@@ -72,10 +75,12 @@ impl History {
 
     /// Make the queues consistent with the downloads: the main queue exists
     /// and comes first, every queue lists only downloads that exist, no
-    /// download is in two queues, and every waiting download is in one (the
-    /// main queue for older histories, from before queues). Finished downloads
-    /// leave their queue.
-    pub fn tidy_queues(&mut self) {
+    /// download is in two queues, and finished downloads leave their queue.
+    /// With `before_queues` (a history saved before there were queues) every
+    /// waiting download joins the main queue. Otherwise a waiting download
+    /// outside every queue stays there: the user took it out with "Remove
+    /// from queue", and putting it back would let a queue start it.
+    pub fn tidy_queues(&mut self, before_queues: bool) {
         if !self.queues.iter().any(|q| q.id == MAIN_QUEUE) {
             self.queues.insert(0, Queue::main());
         }
@@ -90,7 +95,7 @@ impl History {
         for q in &mut self.queues {
             q.order.retain(|id| ids.contains(id) && seen.insert(*id));
         }
-        for e in &self.items {
+        for e in self.items.iter().filter(|_| before_queues) {
             if e.status == Status::Waiting && !seen.contains(&e.id) {
                 self.queues[0].order.push(e.id);
             }
@@ -234,11 +239,28 @@ mod tests {
         let h = History::load(&path).unwrap();
         assert_eq!(h.queues[0].id, MAIN_QUEUE, "the main queue is added first");
         assert_eq!(h.queues[1].order, [3, 2], "finished, missing and repeated ids are dropped");
-        assert_eq!(h.queues[0].order, [4], "a waiting download outside any queue joins the main one");
+        assert!(h.queues[0].order.is_empty(), "a download taken out of its queue stays out");
         assert!(h.queues[1].running, "a running queue stays started");
         let status = |id: u64| h.items.iter().find(|e| e.id == id).unwrap().status;
         assert_eq!(status(2), Status::Waiting, "a queued download waits again");
+        assert_eq!(status(4), Status::Waiting, "and one outside every queue still waits");
         assert_eq!(status(5), Status::Interrupted, "a download outside queues is interrupted");
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn waiting_downloads_from_before_queues_join_the_main_queue() {
+        let path = temp_path("before_queues.json");
+        History {
+            next_id: 3,
+            items: vec![entry(1, Status::Waiting), entry(2, Status::Failed)],
+            queues: Vec::new(),
+        }
+        .save(&path)
+        .unwrap();
+        let h = History::load(&path).unwrap();
+        assert_eq!(h.queues.len(), 1);
+        assert_eq!(h.queues[0].order, [1], "only the waiting download joins");
         fs::remove_file(&path).ok();
     }
 

@@ -252,8 +252,10 @@ tests, not in a running Firefox.
   with UIDM** menu item add a download to a queue without opening a
   connection. Pick a queue in the sidebar to see its downloads in order, with
   **Up** and **Down** to reorder them, **Start**/**Stop** for the queue, and
-  what happens when this run ends. A download's **Queue** menu moves it to
-  another queue. A started queue runs its waiting downloads in order, as many
+  what happens when this run ends. A download's **Move to queue** menu moves
+  it to another queue, and **Remove from queue** takes it out of its queue
+  but keeps it in the list: it waits outside every queue, also after a
+  restart, until you start it by hand or move it to a queue again. A started queue runs its waiting downloads in order, as many
   at once as it allows. **Stop** pauses its running downloads back into it,
   progress kept. When nothing is left the queue stops by itself. Finished
   downloads leave their queue. **Manage queues...** creates, renames and
@@ -710,6 +712,7 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "stop_queue", "id": 2 }
 { "op": "set_queue_once", "id": 2, "when_done": "sleep" }
 { "op": "move_to_queue", "id": 7, "queue": 2, "position": 0 }
+{ "op": "remove_from_queue", "id": 7 }
 { "op": "cancel_countdown" }
 { "op": "refresh_link", "id": 7, "download": { "url": "https://...", "cookies": "..." }, "restart": false }
 { "op": "refresh_link", "id": 7 }

@@ -339,6 +339,10 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
         vec![e.id]
     };
     item(ui, on && e.status.is_terminal(), tr("Remove"), Action::Remove(ids));
+    // Leaves the download in the list, outside every queue, so no queue
+    // starts it; Move to queue puts it back.
+    let queued = list.queues.iter().any(|q| q.order.contains(&e.id));
+    item(ui, on && queued, tr("Remove from queue"), Action::RemoveFromQueue(e.id));
     ui.add_enabled_ui(on && e.status.is_terminal() && !done, |ui| {
         ui.menu_button(tr("Move to queue"), |ui| {
             for q in list.queues {

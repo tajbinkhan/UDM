@@ -346,6 +346,8 @@
   "Finished": "Terminé",
   "Waiting for the save-as dialog": "En attente de la boîte Enregistrer sous",
   "Waiting in a queue": "En attente dans une file",
+  "Remove from queue": "Retirer de la file",
+  "Waiting, in no queue": "En attente, hors de toute file",
   "Properties of {name}": "Propriétés de {name}",
   "Not started yet": "Pas encore démarré",
   "Result": "Résultat",

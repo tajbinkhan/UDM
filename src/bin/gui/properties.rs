@@ -99,7 +99,9 @@ fn is_empty(p: &Properties) -> bool {
         && p.folder.is_none()
 }
 
-fn status_text(s: Status) -> &'static str {
+/// `queued` tells a waiting download in a queue from one taken out of it,
+/// which only starts by hand.
+fn status_text(s: Status, queued: bool) -> &'static str {
     match s {
         Status::Queued => tr("Queued"),
         Status::Downloading => tr("Downloading"),
@@ -108,7 +110,8 @@ fn status_text(s: Status) -> &'static str {
         Status::Canceled => tr("Canceled"),
         Status::Interrupted => tr("Interrupted"),
         Status::Confirming => tr("Waiting for the save-as dialog"),
-        Status::Waiting => tr("Waiting in a queue"),
+        Status::Waiting if queued => tr("Waiting in a queue"),
+        Status::Waiting => tr("Waiting, in no queue"),
     }
 }
 
@@ -118,6 +121,7 @@ pub fn dialog(
     ctx: &egui::Context,
     d: &mut PropertiesDialog,
     entry: Option<&DownloadEntry>,
+    queued: bool,
     connected: bool,
     actions: &mut Vec<Action>,
 ) -> bool {
@@ -138,7 +142,7 @@ pub fn dialog(
         .show(ctx, |ui| {
             egui::Grid::new("properties_info").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 ui.weak(tr("Status"));
-                ui.label(status_text(e.status));
+                ui.label(status_text(e.status, queued));
                 ui.end_row();
                 ui.weak(tr("Type"));
                 ui.label(type_text(&display_name(e)));

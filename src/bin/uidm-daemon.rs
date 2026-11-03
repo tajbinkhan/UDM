@@ -669,6 +669,18 @@ impl Daemon {
         })
     }
 
+    /// Take download `id` out of its queue, keeping it in the list. Nothing
+    /// puts it back by itself (see `History::tidy_queues`), so no queue
+    /// starts it until it is started by hand or moved to a queue again.
+    fn remove_from_queue(&self, id: u64) -> Result<(), String> {
+        self.status(id).ok_or_else(|| format!("no download with id {id}"))?;
+        if !self.hub.leave_queues(id) {
+            return Err("That download is not in a queue.".to_string());
+        }
+        self.hub.publish_queues();
+        Ok(())
+    }
+
     /// Create a queue (id 0) or change one. Its downloads and running state
     /// are kept; only what the user edits changes.
     fn save_queue(&self, edited: Queue) -> Result<u64, String> {
@@ -3362,6 +3374,11 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
                 send(&Outgoing::Error { message });
             }
         }
+        Incoming::RemoveFromQueue { id } => {
+            if let Err(message) = daemon.remove_from_queue(id) {
+                send(&Outgoing::Error { message });
+            }
+        }
         Incoming::CancelCountdown => daemon.cancel_countdown(),
         Incoming::CountdownNow => daemon.countdown_now(),
         Incoming::RefreshLink { id, download, restart } => {
@@ -4678,6 +4695,41 @@ mod tests {
         let id = t.add(&serve());
         assert_eq!(t.daemon.status(id), Some(Status::Waiting));
         assert_eq!(t.daemon.hub.queue_of(id), Some(MAIN_QUEUE));
+    }
+
+    #[test]
+    fn a_download_removed_from_its_queue_stays_listed_and_waits_for_a_hand_start() {
+        let t = setup("remove_from_queue", Duplicate::NewName);
+        let (id, _) = t.daemon.add_later(Download {
+            url: serve(),
+            ..Download::default()
+        });
+        let (kept, _) = t.daemon.add_later(Download {
+            url: format!("{}#kept", serve()),
+            ..Download::default()
+        });
+        assert_eq!(t.daemon.hub.queue_of(id), Some(MAIN_QUEUE));
+
+        t.daemon.remove_from_queue(id).unwrap();
+        assert_eq!(t.daemon.hub.queue_of(id), None, "it left the queue");
+        assert_eq!(t.daemon.status(id), Some(Status::Waiting), "and still waits in the list");
+        assert!(t.daemon.remove_from_queue(id).is_err(), "it is in no queue now");
+
+        // Starting the queue runs what is left in it, not the removed one.
+        t.daemon.start_queue(MAIN_QUEUE, None).unwrap();
+        t.daemon.tick();
+        t.wait(kept, Status::Done);
+        t.daemon.tick();
+        assert_eq!(t.daemon.status(id), Some(Status::Waiting), "no queue started it");
+
+        // Move to queue puts it back.
+        t.daemon.move_to_queue(id, MAIN_QUEUE, None).unwrap();
+        assert_eq!(t.daemon.hub.queue_of(id), Some(MAIN_QUEUE));
+        t.daemon.remove_from_queue(id).unwrap();
+
+        // Starting it by hand still works.
+        t.daemon.confirm(Answer::start(id)).unwrap();
+        t.wait(id, Status::Done);
     }
 
     /// A download that starts while its dialog is open, the dialog then

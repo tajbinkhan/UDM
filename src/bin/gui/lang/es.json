@@ -346,6 +346,8 @@
   "Finished": "Finalizada",
   "Waiting for the save-as dialog": "Esperando al diálogo Guardar como",
   "Waiting in a queue": "En espera en una cola",
+  "Remove from queue": "Quitar de la cola",
+  "Waiting, in no queue": "En espera, fuera de toda cola",
   "Properties of {name}": "Propiedades de {name}",
   "Not started yet": "Aún no iniciada",
   "Result": "Resultado",
