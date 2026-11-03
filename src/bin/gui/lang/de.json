@@ -741,5 +741,10 @@
   "Warn me when 90% of it is used": "Warnen, wenn 90 % davon verbraucht sind",
   "Choose the scanner program": "Das Scanprogramm wählen",
   "The types UIDM starts with": "Die Typen, mit denen UIDM beginnt",
-  "No site left out, as UIDM starts": "Keine Website ausgenommen, wie beim Start von UIDM"
+  "No site left out, as UIDM starts": "Keine Website ausgenommen, wie beim Start von UIDM",
+  "Add a queue": "Eine Warteschlange hinzufügen",
+  "Queue name": "Name der Warteschlange",
+  "Adding the queue {name}...": "Warteschlange {name} wird hinzugefügt...",
+  "With Download later, start the queue it waits in at once": "Bei „Später herunterladen“ die Warteschlange, in der der Download wartet, sofort starten",
+  "A queue needs a name.": "Eine Warteschlange braucht einen Namen."
 }

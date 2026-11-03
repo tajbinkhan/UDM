@@ -741,6 +741,14 @@ struct ConfirmDraft {
     remember_duplicate: bool,
     /// "Don't ask me again" for the Download later queue.
     remember_queue: bool,
+    /// "Start the queue now": start the queue Download later puts it in,
+    /// as IDM's "Start queue processing" does, rather than leave it waiting.
+    start_queue: bool,
+    /// The name box the queue picker's "+" opened, with its error, if open.
+    new_queue: Option<(String, Option<String>)>,
+    /// A queue "+" just created, to select once the daemon lists it (the
+    /// daemon picks its id).
+    pending_queue: Option<String>,
 }
 
 /// A category added from the save-as dialog.
@@ -2088,6 +2096,9 @@ impl App {
                 remember_folder: settings.remembers_folder(&category),
                 remember_duplicate: false,
                 remember_queue: false,
+                start_queue: false,
+                new_queue: None,
+                pending_queue: None,
                 category,
                 filename,
                 folder: path
@@ -2105,6 +2116,11 @@ impl App {
             return;
         };
         take_picked(&draft.picked, &mut draft.folder);
+        // Select a queue "+" created, once the daemon lists it.
+        if let Some(id) = draft.pending_queue.as_deref().and_then(|name| queues::named(&queue_list, name)) {
+            draft.later_queue = id;
+            draft.pending_queue = None;
+        }
         let waiting = rows.iter().filter(|e| e.status == Status::Confirming).count();
         // Another download with the same address, which the dialog asks
         // about. A running one cannot be replaced.
@@ -2285,9 +2301,10 @@ impl App {
                 if waiting > 1 {
                     ui.weak(trf!("{count} more downloads are waiting after this one.", count = waiting - 1));
                 }
-                // Unless Download later has a queue of its own, ask which.
+                // Unless Download later has a queue of its own, ask which,
+                // even with only the main queue, so "+" can add another.
                 let later_set = settings.later_queue.is_some_and(|id| queue_list.iter().any(|q| q.id == id));
-                if queue_list.len() > 1 && !later_set {
+                if !later_set {
                     ui.horizontal(|ui| {
                         ui.label(tr("Download later in"));
                         let name = queue_list
@@ -2301,10 +2318,53 @@ impl App {
                                     ui.selectable_value(&mut draft.later_queue, q.id, &q.name);
                                 }
                             });
+                        let add = ui
+                            .add_enabled(
+                                connected && draft.new_queue.is_none() && draft.pending_queue.is_none(),
+                                egui::Button::new("+"),
+                            )
+                            .on_hover_text(tr("Add a queue"));
+                        if add.clicked() {
+                            draft.new_queue = Some((String::new(), None));
+                        }
                         ui.checkbox(&mut draft.remember_queue, tr("Don't ask me again"))
                             .on_hover_text(tr("Download later uses this queue from now on; Options can change it"));
                     });
+                    // The name box "+" opened; the queue is saved at once and
+                    // chosen for this download when the daemon lists it.
+                    let mut close_new = false;
+                    if let Some((name, error)) = draft.new_queue.as_mut() {
+                        ui.horizontal(|ui| {
+                            ui.label(tr("Queue name"));
+                            let edit = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
+                            let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if ui.add_enabled(connected, egui::Button::new(tr("Add"))).clicked() || (enter && connected) {
+                                match queues::new_named(name, &queue_list) {
+                                    Ok(q) => {
+                                        draft.pending_queue = Some(q.name.clone());
+                                        actions.push(Action::SaveQueue(q));
+                                        close_new = true;
+                                    }
+                                    Err(e) => *error = Some(e),
+                                }
+                            }
+                            if ui.button(tr("Cancel")).clicked() {
+                                close_new = true;
+                            }
+                        });
+                        if let Some(e) = error {
+                            ui.colored_label(ui.visuals().error_fg_color, e.as_str());
+                        }
+                    }
+                    if close_new {
+                        draft.new_queue = None;
+                    }
+                    if let Some(name) = &draft.pending_queue {
+                        ui.weak(trf!("Adding the queue {name}...", name = name));
+                    }
                 }
+                ui.checkbox(&mut draft.start_queue, tr("Start the queue now"))
+                    .on_hover_text(tr("With Download later, start the queue it waits in at once"));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.add_enabled_ui(connected, |ui| {
@@ -2342,6 +2402,15 @@ impl App {
                             }
                             if ui.button(tr("Download later")).clicked() {
                                 actions.push(answer(false));
+                                // Sent after the answer, so the download is
+                                // already waiting in the queue it starts.
+                                if draft.start_queue {
+                                    let queue = match settings.later_queue {
+                                        Some(id) if later_set => id,
+                                        _ => draft.later_queue,
+                                    };
+                                    actions.push(Action::StartQueue(queue));
+                                }
                             }
                         }
                         if ui.button(tr("Cancel")).clicked() {

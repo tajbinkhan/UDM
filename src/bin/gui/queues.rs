@@ -28,6 +28,28 @@ pub fn next_run(q: &Queue) -> Option<String> {
     s.next_run(now, q.last_scheduled_start).map(|m| m.display())
 }
 
+/// A new queue called `name`, added from outside the Queues dialog (the
+/// "+" by the save-as dialog's queue picker), checked as that dialog checks
+/// one before the daemon sees it, so a mistake shows next to the box.
+pub fn new_named(name: &str, queues: &[Queue]) -> Result<Queue, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(tr("A queue needs a name.").to_string());
+    }
+    if named(queues, name).is_some() {
+        return Err(trf!("There is already a queue named \"{name}\".", name = name));
+    }
+    // Id 0 asks the daemon to create it and pick the id.
+    Ok(Queue::new(0, name))
+}
+
+/// The queue called `name`, matched the way the daemon matches names (case
+/// ignored), so a queue just created can be found once it is listed.
+pub fn named(queues: &[Queue], name: &str) -> Option<u64> {
+    let name = name.trim();
+    queues.iter().find(|q| q.name.eq_ignore_ascii_case(name)).map(|q| q.id)
+}
+
 /// "Start again every N hours M minutes" for a queue's or a grabber
 /// project's schedule.
 pub fn repeat_fields(ui: &mut egui::Ui, on: &mut bool, hours: &mut u32, minutes: &mut u32) {
@@ -232,7 +254,7 @@ pub fn dialog(
 ) -> bool {
     // Select a queue that was just created, once it exists.
     if let Some(name) = &d.pending_name {
-        if let Some(q) = queues.iter().find(|q| q.name.eq_ignore_ascii_case(name)) {
+        if let Some(q) = named(queues, name).and_then(|id| queues.iter().find(|q| q.id == id)) {
             d.selected = q.id;
             d.draft = QueueDraft::from(q);
             d.pending_name = None;
@@ -500,6 +522,23 @@ pub fn countdown(
 mod tests {
     use super::*;
     use uidm::queue::{parse_date, parse_time};
+
+    #[test]
+    fn new_named_checks_the_name() {
+        let queues = [Queue::main(), Queue::new(2, "Night")];
+        let q = new_named("  Weekend ", &queues).unwrap();
+        assert_eq!((q.id, q.name.as_str()), (0, "Weekend"));
+        assert!(q.validate().is_ok());
+        assert!(new_named("   ", &queues).is_err());
+        assert!(new_named("night", &queues).is_err(), "names differ by more than case");
+    }
+
+    #[test]
+    fn named_finds_a_queue_whatever_the_case() {
+        let queues = [Queue::main(), Queue::new(2, "Night")];
+        assert_eq!(named(&queues, "NIGHT "), Some(2));
+        assert_eq!(named(&queues, "Day"), None);
+    }
 
     #[test]
     fn draft_round_trips_a_queue() {

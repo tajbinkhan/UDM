@@ -203,11 +203,13 @@ tests, not in a running Firefox.
   dialog, until the queue or the download is started. **Remember this path for <category>**
   sends the category's new files to the folder last chosen for it, General
   included (the categories' **Last folder** box in Options, and the box under
-  them for General). With more than one queue, the dialog asks which one
-  **Download later** uses; **Don't ask me again** makes that queue the
+  them for General). The dialog asks which queue **Download later** uses,
+  even when only the main queue exists; its **+** adds a queue by name and
+  chooses it. **Don't ask me again** makes that queue the
   answer for the dialog, **Later** and the browser's **Download later with
   UIDM** alike, until **Download later puts files in** in Options changes
-  it.
+  it. **Start the queue now** starts that queue as soon as **Download
+  later** has put the download in it.
 - **When a file name is taken**, UIDM saves the new file as `name (1).ext`
   by default. Options (**If the file exists**) can make it overwrite the old
   file instead, or ask. With **Ask me**, the save-as dialog says the name is

@@ -741,5 +741,10 @@
   "Warn me when 90% of it is used": "Avisarme cuando se haya usado el 90 %",
   "Choose the scanner program": "Elegir el programa de análisis",
   "The types UIDM starts with": "Los tipos con los que empieza UIDM",
-  "No site left out, as UIDM starts": "Ningún sitio excluido, como al empezar UIDM"
+  "No site left out, as UIDM starts": "Ningún sitio excluido, como al empezar UIDM",
+  "Add a queue": "Añadir una cola",
+  "Queue name": "Nombre de la cola",
+  "Adding the queue {name}...": "Añadiendo la cola {name}...",
+  "With Download later, start the queue it waits in at once": "Con «Descargar más tarde», iniciar ya la cola en la que espera",
+  "A queue needs a name.": "Una cola necesita un nombre."
 }

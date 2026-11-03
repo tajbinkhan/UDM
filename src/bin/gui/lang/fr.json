@@ -741,5 +741,10 @@
   "Warn me when 90% of it is used": "M'avertir quand 90 % en sont utilisés",
   "Choose the scanner program": "Choisir le programme d'analyse",
   "The types UIDM starts with": "Les types de départ d'UIDM",
-  "No site left out, as UIDM starts": "Aucun site exclu, comme au départ d'UIDM"
+  "No site left out, as UIDM starts": "Aucun site exclu, comme au départ d'UIDM",
+  "Add a queue": "Ajouter une file",
+  "Queue name": "Nom de la file",
+  "Adding the queue {name}...": "Ajout de la file {name}...",
+  "With Download later, start the queue it waits in at once": "Avec « Télécharger plus tard », démarrer tout de suite la file où il attend",
+  "A queue needs a name.": "Une file doit avoir un nom."
 }
