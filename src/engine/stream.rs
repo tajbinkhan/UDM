@@ -307,6 +307,7 @@ pub(super) fn run(
         resumable: true,
         connections: workers,
         partial: (parts != beside).then(|| parts.clone()),
+        validator: None,
     });
     fetch_all(id, token, agent, req, &jobs, workers, reporter, shared)?;
     if token.load(Ordering::Relaxed) {

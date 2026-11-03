@@ -755,6 +755,11 @@ pub struct Project {
     /// for starting it again every so often.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_scheduled_start: Option<i64>,
+    /// One-time downloading adds only what no earlier run found; periodic
+    /// synchronization also checks the files earlier runs downloaded and
+    /// downloads again the ones whose server copy changed.
+    #[serde(default, skip_serializing_if = "crate::queue::QueueKind::is_one_time")]
+    pub kind: crate::queue::QueueKind,
 }
 
 fn main_queue() -> u64 {
@@ -827,6 +832,24 @@ impl Project {
         self.checked = found.iter().map(|f| !seen.contains(&f.url)).collect();
         self.files = found;
         new
+    }
+
+    /// The addresses a scheduled run checks for changes when the project
+    /// synchronizes: those of `found` an earlier run found too (call it
+    /// before `record_run`), or for a run that does not crawl, the ticked
+    /// files. A one-time project checks none.
+    pub fn to_resync(&self, found: &[GrabFile]) -> Vec<String> {
+        if !self.kind.is_sync() {
+            return Vec::new();
+        }
+        match self.run {
+            RunAction::Explore => Vec::new(),
+            RunAction::DownloadChecked => self.checked_files().into_iter().map(|f| f.url).collect(),
+            RunAction::ExploreAndDownload => {
+                let seen: HashSet<&str> = self.seen.iter().map(String::as_str).collect();
+                found.iter().filter(|f| seen.contains(f.url.as_str())).map(|f| f.url.clone()).collect()
+            }
+        }
     }
 
     pub fn load(dir: &Path, name: &str) -> io::Result<Project> {
@@ -1642,6 +1665,7 @@ Crawl-delay: 2.5
             seen: Vec::new(),
             last_scheduled_day: None,
             last_scheduled_start: None,
+            kind: crate::queue::QueueKind::Synchronize,
         };
         p.save(&dir).unwrap();
         assert_eq!(Project::load(&dir, "Docs: manuals").unwrap(), p);
@@ -1716,6 +1740,25 @@ Crawl-delay: 2.5
         assert_eq!(second.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["c.pdf"]);
         assert_eq!(p.checked, [false, true], "only the new one is ticked");
         assert_eq!(p.seen.len(), 3);
+    }
+
+    #[test]
+    fn a_synchronizing_project_checks_what_earlier_runs_found() {
+        let file = |u: &str| GrabFile { url: u.into(), name: u.rsplit('/').next().unwrap().into(), page: "https://s/".into(), size: None, text: None };
+        let mut p: Project = serde_json::from_str(r#"{"name":"p","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000},"run":"explore_and_download"}"#).unwrap();
+        assert_eq!(p.kind, crate::queue::QueueKind::OneTime, "an older project file is one-time");
+        p.record_run(vec![file("https://s/a.pdf"), file("https://s/b.pdf")]);
+        let now = [file("https://s/b.pdf"), file("https://s/c.pdf")];
+        assert!(p.to_resync(&now).is_empty(), "a one-time project checks nothing");
+        p.kind = crate::queue::QueueKind::Synchronize;
+        assert_eq!(p.to_resync(&now), ["https://s/b.pdf"], "only what an earlier run found");
+        p.record_run(now.to_vec());
+        p.run = RunAction::DownloadChecked;
+        assert_eq!(p.to_resync(&[]), ["https://s/c.pdf"], "the ticked files");
+        p.run = RunAction::Explore;
+        assert!(p.to_resync(&now).is_empty(), "exploring downloads nothing");
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"kind\":\"synchronize\""), "the type is saved: {json}");
     }
 
     #[test]

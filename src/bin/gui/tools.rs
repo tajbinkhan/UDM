@@ -584,6 +584,9 @@ pub struct GrabDialog {
     sched_repeat_minutes: u32,
     /// What a scheduled run does, in `sched_queue`.
     run: grab::RunAction,
+    /// One-time downloading, or periodic synchronization of what earlier
+    /// runs downloaded.
+    sync: uidm::queue::QueueKind,
     sched_queue: u64,
     when_done: uidm::queue::WhenDone,
     /// A file to open after a scheduled run; empty for none.
@@ -635,6 +638,7 @@ impl GrabDialog {
             checked,
             schedule,
             run: self.run,
+            kind: self.sync,
             download_new: false,
             queue: self.sched_queue,
             when_done: self.when_done,
@@ -665,6 +669,7 @@ impl GrabDialog {
             }
         }
         d.run = p.run;
+        d.sync = p.kind;
         d.sched_queue = p.queue;
         d.when_done = p.when_done;
         d.open_when_done = p.open_when_done.clone().unwrap_or_default();
@@ -758,6 +763,7 @@ impl GrabDialog {
             sched_repeat_hours: 2,
             sched_repeat_minutes: 0,
             run: grab::RunAction::Explore,
+            sync: uidm::queue::QueueKind::OneTime,
             sched_queue: MAIN_QUEUE,
             when_done: uidm::queue::WhenDone::Nothing,
             open_when_done: String::new(),
@@ -1251,7 +1257,18 @@ fn grab_body(
                             queue_combo(ui, "grab_sched_queue", &mut d.sched_queue, queues)
                         });
                     });
-                    ui.weak(tr("Exploring and downloading adds only files no earlier run found, then starts the queue."));
+                    ui.add_enabled_ui(d.run != grab::RunAction::Explore, |ui| {
+                        ui.horizontal(|ui| {
+                            for k in uidm::queue::QueueKind::ALL {
+                                ui.radio_value(&mut d.sync, k, tr(k.label()));
+                            }
+                        })
+                    });
+                    ui.weak(tr(if d.sync.is_sync() {
+                        "Each run also checks the files earlier runs downloaded and downloads again those changed on the server."
+                    } else {
+                        "Exploring and downloading adds only files no earlier run found, then starts the queue."
+                    }));
                     ui.horizontal(|ui| {
                         ui.label(tr("When done"));
                         egui::ComboBox::from_id_salt("grab_when_done").selected_text(tr(d.when_done.label())).show_ui(ui, |ui| {

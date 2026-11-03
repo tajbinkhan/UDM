@@ -748,5 +748,9 @@
   "Queue name": "Nom de la file",
   "Adding the queue {name}...": "Ajout de la file {name}...",
   "With Download later, start the queue it waits in at once": "Avec « Télécharger plus tard », démarrer tout de suite la file où il attend",
-  "A queue needs a name.": "Une file doit avoir un nom."
+  "A queue needs a name.": "Une file doit avoir un nom.",
+  "One-time downloading": "Téléchargement unique",
+  "Periodic synchronization": "Synchronisation périodique",
+  "Periodic synchronization keeps finished downloads in the queue. Each run asks the server about them and downloads again those whose size, ETag or date changed.": "La synchronisation périodique garde les téléchargements terminés dans la file. Chaque exécution interroge le serveur à leur sujet et télécharge à nouveau ceux dont la taille, l'ETag ou la date a changé.",
+  "Each run also checks the files earlier runs downloaded and downloads again those changed on the server.": "Chaque exécution vérifie aussi les fichiers téléchargés par les exécutions précédentes et télécharge à nouveau ceux modifiés sur le serveur."
 }

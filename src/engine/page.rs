@@ -133,6 +133,7 @@ pub(super) fn run(
         resumable: true,
         connections: 1,
         partial: None,
+        validator: None,
     });
 
     let tally = Arc::new(Mutex::new(Tally::default()));

@@ -525,6 +525,43 @@ pub struct DownloadEntry {
     /// What to do once it finishes, if anything.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_done: Option<OnDone>,
+    /// What the server said about the file when it was last downloaded or
+    /// checked, so a synchronizing queue can tell whether it changed since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validator: Option<Validator>,
+}
+
+/// What a server says identifies one version of a file: its size, ETag and
+/// Last-Modified date, whichever it sends.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Validator {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+}
+
+impl Validator {
+    /// Whether the server's copy described by `now` differs from the one
+    /// this describes. Only what both sides know is compared: a different
+    /// size always means a change; an ETag on both sides then decides alone
+    /// (servers can touch a date without changing the file); without one a
+    /// different Last-Modified means a change. When nothing can be compared
+    /// the file counts as unchanged, so a server that says nothing about its
+    /// files is not downloaded again on every run.
+    pub fn changed(&self, now: &Validator) -> bool {
+        if let (Some(a), Some(b)) = (self.size, now.size) {
+            if a != b {
+                return true;
+            }
+        }
+        if let (Some(a), Some(b)) = (&self.etag, &now.etag) {
+            return a != b;
+        }
+        matches!((&self.last_modified, &now.last_modified), (Some(a), Some(b)) if a != b)
+    }
 }
 
 /// What to do once one download finishes, set from its window or
@@ -570,6 +607,9 @@ pub enum Outgoing {
         /// temporary folder).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         partial: Option<String>,
+        /// The server's size, ETag and date for the file, when it said.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        validator: Option<Validator>,
     },
     /// Periodic progress for a running download.
     Progress {
@@ -801,6 +841,48 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buf: &mut [u8]) -> io::Result<bool
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    fn v(size: Option<u64>, etag: Option<&str>, date: Option<&str>) -> Validator {
+        Validator {
+            size,
+            etag: etag.map(str::to_string),
+            last_modified: date.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_server_copy_changes_by_size_etag_or_date() {
+        const MON: &str = "Mon, 02 Nov 2026 10:00:00 GMT";
+        const TUE: &str = "Tue, 03 Nov 2026 10:00:00 GMT";
+        let old = v(Some(1000), Some("\"a\""), Some(MON));
+        assert!(!old.changed(&old.clone()), "the same file");
+        assert!(old.changed(&v(Some(1001), Some("\"a\""), Some(MON))), "a new size");
+        assert!(old.changed(&v(Some(1000), Some("\"b\""), Some(MON))), "a new ETag");
+        assert!(!old.changed(&v(Some(1000), Some("\"a\""), Some(TUE))), "the ETag outranks a touched date");
+        // Without ETags the date decides.
+        let dated = v(Some(1000), None, Some(MON));
+        assert!(dated.changed(&v(Some(1000), None, Some(TUE))));
+        assert!(!dated.changed(&v(Some(1000), None, Some(MON))));
+        assert!(!dated.changed(&v(Some(1000), Some("\"a\""), None)), "nothing new to compare");
+        // A size alone (from before validators were kept) still counts.
+        assert!(v(Some(10), None, None).changed(&v(Some(20), Some("\"x\""), Some(TUE))));
+        assert!(!v(Some(10), None, None).changed(&v(Some(10), Some("\"x\""), Some(TUE))));
+        // A server that says nothing is not downloaded again every run.
+        assert!(!v(None, None, None).changed(&v(None, None, None)));
+        assert!(!v(Some(10), None, None).changed(&v(None, None, None)));
+    }
+
+    #[test]
+    fn an_entry_without_a_validator_still_loads() {
+        let e: DownloadEntry = serde_json::from_value(serde_json::json!({
+            "id": 1, "url": "https://x/a", "path": null, "total": 5, "done": 5,
+            "status": "done", "error": null, "resumable": true, "connections": 1,
+        }))
+        .unwrap();
+        assert_eq!(e.validator, None);
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(!json.contains("validator"));
+    }
 
     /// A frame written by `write_message` reads back with the same length.
     #[test]

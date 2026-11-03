@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use eframe::egui;
 use uidm::queue::{
-    self, Queue, Schedule, WhenDone, MAIN_QUEUE, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX,
+    self, Queue, QueueKind, Schedule, WhenDone, MAIN_QUEUE, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX,
 };
 
 use super::Action;
@@ -131,6 +131,7 @@ pub struct QueueDraft {
     name: String,
     max_concurrent: usize,
     retries: u32,
+    kind: QueueKind,
     when_done: WhenDone,
     /// Empty opens nothing.
     open_when_done: String,
@@ -168,6 +169,7 @@ impl QueueDraft {
             name: q.name.clone(),
             max_concurrent: q.max_concurrent,
             retries: q.retries,
+            kind: q.kind,
             when_done: q.when_done,
             open_when_done: q.open_when_done.clone().unwrap_or_default(),
             force_close: q.force_close,
@@ -191,6 +193,7 @@ impl QueueDraft {
         let mut q = Queue::new(self.id, self.name.trim());
         q.max_concurrent = self.max_concurrent;
         q.retries = self.retries;
+        q.kind = self.kind;
         q.when_done = self.when_done;
         q.open_when_done = Some(self.open_when_done.trim().to_string()).filter(|f| !f.is_empty());
         q.force_close = self.force_close && self.when_done == WhenDone::ShutDown;
@@ -318,6 +321,18 @@ fn form(
             ui.add(egui::DragValue::new(&mut draft.retries).range(0..=QUEUE_RETRIES_MAX));
             ui.label(tr("times"));
         });
+        ui.end_row();
+
+        ui.label(tr("Type"));
+        ui.vertical(|ui| {
+            for k in QueueKind::ALL {
+                ui.radio_value(&mut draft.kind, k, tr(k.label()));
+            }
+        })
+        .response
+        .on_hover_text(tr(
+            "Periodic synchronization keeps finished downloads in the queue. Each run asks the server about them and downloads again those whose size, ETag or date changed.",
+        ));
         ui.end_row();
 
         ui.label(tr("When it is done"));
@@ -549,6 +564,7 @@ mod tests {
         let after = if cfg!(windows) { r"C:\Tools\after.bat" } else { "/opt/tools/after.sh" };
         q.open_when_done = Some(after.into());
         q.start_on_launch = true;
+        q.kind = QueueKind::Synchronize;
         q.schedule = Some(Schedule {
             start: "23:00".into(),
             stop: Some("07:00".into()),
@@ -561,6 +577,7 @@ mod tests {
         assert_eq!((back.max_concurrent, back.retries, back.when_done), (2, 1, WhenDone::ShutDown));
         assert_eq!(back.open_when_done.as_deref(), Some(after));
         assert!(back.start_on_launch);
+        assert_eq!(back.kind, QueueKind::Synchronize);
         let mut relative = QueueDraft::from(&q);
         relative.open_when_done = "after.bat".into();
         assert!(relative.to_queue().is_err(), "only full paths");

@@ -60,7 +60,7 @@ use uidm::history::{self, History};
 use uidm::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_ADDR, DAEMON_LABEL, HOST_LABEL};
 use uidm::protocol::{
     read_message, write_frame, Answer, Download, DownloadEntry, DownloadLogin, Incoming, OnDone, Outgoing, Properties,
-    Status,
+    Status, Validator,
 };
 use uidm::settings::{self, Duplicate, FileExists, Folders, Settings, SPEED_LIMIT_RANGE_KBPS};
 use uidm::notify::{self, Sound, Toast};
@@ -221,9 +221,10 @@ impl Hub {
             // It ended before the stop reached it; nothing to hold.
             self.held.lock().unwrap().remove(id);
         }
-        // A queue holds what is still to do: a finished download leaves it.
+        // A one-time queue holds what is still to do: a finished download
+        // leaves it. A synchronizing queue keeps it, to check next run.
         if let Outgoing::Done { id, .. } = msg {
-            if self.leave_queues(*id) {
+            if self.leave_queues_where(*id, |q| !q.kind.is_sync()) {
                 self.publish_queues();
             }
         }
@@ -381,8 +382,13 @@ impl Hub {
 
     /// Take download `id` out of whatever queue holds it.
     fn leave_queues(&self, id: u64) -> bool {
+        self.leave_queues_where(id, |_| true)
+    }
+
+    /// Take download `id` out of the queues `which` picks.
+    fn leave_queues_where(&self, id: u64, which: impl Fn(&Queue) -> bool) -> bool {
         let mut changed = false;
-        for q in self.queues.lock().unwrap().iter_mut() {
+        for q in self.queues.lock().unwrap().iter_mut().filter(|q| which(q)) {
             let before = q.order.len();
             q.order.retain(|x| *x != id);
             changed |= q.order.len() != before;
@@ -453,6 +459,8 @@ struct Daemon {
     runs: Mutex<HashMap<u64, HashSet<u64>>>,
     /// Retries each download got from its queue in the current run.
     attempts: Mutex<HashMap<u64, u32>>,
+    /// Finished downloads a synchronizing queue is checking with the server.
+    checking: Mutex<HashSet<u64>>,
     /// The countdown before a power action, while one runs.
     countdown: Mutex<Option<Countdown>>,
     /// Keeps two scheduler passes from running at once.
@@ -589,6 +597,7 @@ impl Daemon {
             paused_queues: Mutex::new(HashSet::new()),
             runs: Mutex::new(HashMap::new()),
             attempts: Mutex::new(HashMap::new()),
+            checking: Mutex::new(HashSet::new()),
             countdown: Mutex::new(None),
             tick_lock: Mutex::new(()),
             refresh_waiting: Mutex::new(None),
@@ -622,13 +631,30 @@ impl Daemon {
         })?;
         let download = download.unwrap_or_else(|| Download {
             url: item.url.clone(),
+            referrer: item.referrer.clone(),
             ..Download::default()
         });
         let mut req = self.request_for(download);
         req.speed_limit = item.speed_limit;
         req.reuse_partial = item.partial.as_deref().map(PathBuf::from);
         match plan {
-            (Some(path), true) => req.reuse_path = Some(PathBuf::from(path)),
+            (Some(path), true) => {
+                let path = PathBuf::from(path);
+                // A finished file whose server copy changed (see
+                // `check_for_change`): nothing of the new copy is here yet,
+                // and the file has no resume sidecar. Download beside it and
+                // swap it in at the end, so a failed or stopped download
+                // leaves the old file whole.
+                let replacing = item.done == 0
+                    && req.temp_dir.is_none()
+                    && req.reuse_partial.is_none()
+                    && path.is_file()
+                    && !engine::sidecar_path(&path).exists();
+                if replacing {
+                    req.temp_dir = path.parent().map(Path::to_path_buf);
+                }
+                req.reuse_path = Some(path);
+            }
             (Some(path), false) => {
                 let path = PathBuf::from(path);
                 if let (Some(name), Some(dir)) = (path.file_name(), path.parent()) {
@@ -646,11 +672,14 @@ impl Daemon {
     /// download that is not running waits there.
     fn move_to_queue(&self, id: u64, queue: u64, position: Option<usize>) -> Result<(), String> {
         let status = self.status(id).ok_or_else(|| format!("no download with id {id}"))?;
-        if matches!(status, Status::Done | Status::Confirming) {
+        let sync = {
+            let queues = self.hub.queues.lock().unwrap();
+            let q = queues.iter().find(|q| q.id == queue).ok_or_else(|| format!("no queue with id {queue}"))?;
+            q.kind.is_sync()
+        };
+        // A synchronizing queue also keeps finished downloads, to check.
+        if status == Status::Confirming || (status == Status::Done && !sync) {
             return Err("Only a download that has not finished can wait in a queue.".to_string());
-        }
-        if !self.hub.queues.lock().unwrap().iter().any(|q| q.id == queue) {
-            return Err(format!("no queue with id {queue}"));
         }
         // Joining a queue (not just moving within it) makes a stopped download
         // wait to run again.
@@ -686,6 +715,7 @@ impl Daemon {
     fn save_queue(&self, edited: Queue) -> Result<u64, String> {
         edited.validate()?;
         let name = edited.name.trim().to_string();
+        let finished = self.finished_ids();
         let id = {
             let mut queues = self.hub.queues.lock().unwrap();
             if queues
@@ -719,6 +749,11 @@ impl Daemon {
             q.open_when_done = edited.open_when_done.map(|f| f.trim().to_string()).filter(|f| !f.is_empty());
             q.start_on_launch = edited.start_on_launch;
             q.force_close = edited.force_close;
+            q.kind = edited.kind;
+            // A one-time queue holds only what is still to do.
+            if !q.kind.is_sync() {
+                q.order.retain(|d| !finished.contains(d));
+            }
             id
         };
         self.hub.publish_queues();
@@ -732,6 +767,7 @@ impl Daemon {
         if id == MAIN_QUEUE {
             return Err("The main queue cannot be deleted.".to_string());
         }
+        let finished = self.finished_ids();
         {
             let mut queues = self.hub.queues.lock().unwrap();
             let pos = queues
@@ -740,7 +776,8 @@ impl Daemon {
                 .ok_or_else(|| format!("no queue with id {id}"))?;
             let gone = queues.remove(pos);
             if let Some(main) = queues.iter_mut().find(|q| q.id == MAIN_QUEUE) {
-                main.order.extend(gone.order);
+                let keep_done = main.kind.is_sync();
+                main.order.extend(gone.order.into_iter().filter(|d| keep_done || !finished.contains(d)));
             }
         }
         self.runs.lock().unwrap().remove(&id);
@@ -795,7 +832,7 @@ impl Daemon {
     /// One pass of the scheduler: start and stop queues on their schedules,
     /// start waiting downloads in started queues, retry failed ones, and end
     /// the runs that are done.
-    fn tick(&self) {
+    fn tick(self: &Arc<Self>) {
         let _guard = self.tick_lock.lock().unwrap();
         self.check_quota();
         let now = queue::local_now();
@@ -862,9 +899,10 @@ impl Daemon {
                     .collect()
             };
 
+            let checking = self.checking.lock().unwrap().clone();
             let mut active = statuses
                 .iter()
-                .filter(|(_, s)| matches!(s, Status::Queued | Status::Downloading))
+                .filter(|(id, s)| matches!(s, Status::Queued | Status::Downloading) || checking.contains(id))
                 .count();
             for (id, status) in &statuses {
                 if active >= q.max_concurrent {
@@ -873,6 +911,20 @@ impl Daemon {
                 if *status == Status::Waiting && self.dispatch(*id).is_ok() {
                     self.runs.lock().unwrap().entry(q.id).or_default().insert(*id);
                     active += 1;
+                }
+                // A synchronizing run checks each finished download once,
+                // as many at a time as it downloads.
+                let unchecked = || !self.runs.lock().unwrap().get(&q.id).is_some_and(|r| r.contains(id));
+                if q.kind.is_sync() && *status == Status::Done && !checking.contains(id) && unchecked() {
+                    self.runs.lock().unwrap().entry(q.id).or_default().insert(*id);
+                    self.checking.lock().unwrap().insert(*id);
+                    active += 1;
+                    let (daemon, id) = (Arc::clone(self), *id);
+                    thread::spawn(move || {
+                        let _ = daemon.check_for_change(id);
+                        daemon.checking.lock().unwrap().remove(&id);
+                        let _ = daemon.hub.wake.send(());
+                    });
                 }
             }
 
@@ -888,6 +940,121 @@ impl Daemon {
                 self.finish_run(q.id);
             }
         }
+    }
+
+    /// The downloads that have finished.
+    fn finished_ids(&self) -> HashSet<u64> {
+        let table = self.hub.table.lock().unwrap();
+        table.entries().filter(|e| e.status == Status::Done).map(|e| e.id).collect()
+    }
+
+    /// Ask the server about finished download `id` and, when its copy
+    /// changed since (by size, ETag or Last-Modified, see
+    /// `Validator::changed`) or the file is gone, make it wait to be
+    /// downloaded again in place: same row, same file, which `dispatch`
+    /// replaces only once the new copy is complete. Returns whether it
+    /// changed. A check that fails leaves the download and its file alone,
+    /// with a note saying why.
+    fn check_for_change(&self, id: u64) -> Result<bool, String> {
+        let entry = self.entry(id).ok_or_else(|| format!("no download with id {id}"))?;
+        if entry.status != Status::Done {
+            return Err(format!("download {id} has not finished"));
+        }
+        let found = self.probe_finished(&entry);
+        let found = match found {
+            Ok(found) => found,
+            Err(e) => {
+                eprintln!("[uidm-daemon] could not check #{id} for changes: {e}");
+                let note = format!("Could not check the server for a newer copy: {e}");
+                let _ = self.hub.update(id, |e| {
+                    if e.status != Status::Done {
+                        return Err("started meanwhile".into());
+                    }
+                    e.note = Some(note);
+                    Ok(())
+                });
+                return Err(e);
+            }
+        };
+        let known = entry.validator.clone().unwrap_or(Validator {
+            size: entry.total,
+            ..Validator::default()
+        });
+        let gone = !entry.path.as_deref().is_some_and(|p| Path::new(p).is_file());
+        let changed = gone || known.changed(&found);
+        self.hub.update(id, |e| {
+            if e.status != Status::Done {
+                return Err("The download started again in the meantime.".into());
+            }
+            e.note = None;
+            if changed {
+                // Its own file, to download over (see `dispatch`). The
+                // validator stays the old one until the new copy starts, so
+                // a download that fails is found changed again next time.
+                e.status = Status::Waiting;
+                e.done = 0;
+                e.parts = None;
+                e.error = None;
+                e.scan = None;
+                e.partial = None;
+                e.connections = e.connections.max(1);
+            } else {
+                // Learn what the server says now, such as an ETag it did
+                // not send before.
+                e.validator = Some(found);
+            }
+            Ok(())
+        })?;
+        eprintln!("[uidm-daemon] #{id} {}: {}", if changed { "changed on the server" } else { "is unchanged" }, entry.url);
+        Ok(changed)
+    }
+
+    /// What the server says now about finished download `entry`'s file.
+    fn probe_finished(&self, entry: &DownloadEntry) -> Result<Validator, String> {
+        if entry.path.is_none() {
+            return Err("it has no file".into());
+        }
+        let download = self.hub.requests.lock().unwrap().get(&entry.id).cloned().unwrap_or_else(|| Download {
+            url: entry.url.clone(),
+            referrer: entry.referrer.clone(),
+            ..Download::default()
+        });
+        if entry.parts.is_some() || download.media.is_some() || download.body.is_some() {
+            return Err("a stream or a form's answer cannot be checked".into());
+        }
+        let req = self.request_for(download);
+        let found = engine::inspect(&req.url, None, &req.headers, &req.net).map_err(|e| e.to_string())?;
+        Ok(Validator {
+            size: found.total,
+            etag: found.etag,
+            last_modified: found.last_modified,
+        })
+    }
+
+    /// Check the finished downloads at `urls` for changes, and put those
+    /// whose server copy changed in `queue` to be downloaded again, starting
+    /// it. Returns how many changed, and the addresses it found finished in
+    /// the list (which need no new row).
+    fn resync(&self, urls: &[String], queue: u64) -> (usize, HashSet<String>) {
+        let urls: HashSet<&str> = urls.iter().map(String::as_str).collect();
+        let (ids, listed): (Vec<u64>, HashSet<String>) = {
+            let table = self.hub.table.lock().unwrap();
+            table
+                .entries()
+                .filter(|e| e.status == Status::Done && urls.contains(e.url.as_str()))
+                .map(|e| (e.id, e.url.clone()))
+                .unzip()
+        };
+        let changed = ids
+            .into_iter()
+            .filter(|id| matches!(self.check_for_change(*id), Ok(true)) && self.move_to_queue(*id, queue, None).is_ok())
+            .count();
+        if changed > 0 && !self.hub.queues.lock().unwrap().iter().any(|q| q.id == queue && q.running) {
+            if let Err(e) = self.start_queue(queue, None) {
+                eprintln!("[uidm-daemon] could not start queue {queue}: {e}");
+            }
+        }
+        (changed, listed)
     }
 
     /// A started queue has nothing left to do: stop it and, if it started
@@ -1777,8 +1944,12 @@ impl Daemon {
     /// when done happens after the crawl, or once the queue is done.
     fn run_scheduled_grab(self: &Arc<Self>, dir: &Path, mut project: grab::Project, day: i64) {
         eprintln!("[uidm-daemon] schedule runs grabber project {} ({:?})", project.name, project.run);
+        let resync;
         let to_download = match project.run {
-            grab::RunAction::DownloadChecked => project.checked_files(),
+            grab::RunAction::DownloadChecked => {
+                resync = project.to_resync(&[]);
+                project.checked_files()
+            }
             run => {
                 let end = project.schedule.as_ref().filter(|s| s.stop.is_some()).and_then(|s| s.end_of_run(day));
                 let stop = AtomicBool::new(false);
@@ -1787,6 +1958,7 @@ impl Daemon {
                         stop.store(true, Ordering::Relaxed);
                     }
                 });
+                resync = project.to_resync(&out.files);
                 let new = project.record_run(out.files);
                 eprintln!("[uidm-daemon] grabber project {} found {} new files", project.name, new.len());
                 if run == grab::RunAction::ExploreAndDownload {
@@ -1806,13 +1978,21 @@ impl Daemon {
             q.open_when_done_once = project.open_when_done.clone();
             Ok(())
         });
+        // A synchronizing project downloads again what earlier runs got and
+        // the server has since changed.
+        let (changed, listed) = self.resync(&resync, project.queue);
+        let to_download: Vec<grab::GrabFile> = to_download.into_iter().filter(|f| !listed.contains(&f.url)).collect();
         // Through the usual path, which skips addresses already in the list.
         let added = if to_download.is_empty() {
             0
         } else {
             self.download_in_queue(&project.request, &to_download, project.queue, true)
         };
-        eprintln!("[uidm-daemon] grabber project {} added {added} files to its queue", project.name);
+        eprintln!(
+            "[uidm-daemon] grabber project {} added {added} files to its queue, {changed} changed",
+            project.name
+        );
+        let added = added + changed;
         if added == 0 {
             // Nothing to wait for: done now.
             let _ = self.hub.update_queue(project.queue, |q| {
@@ -1865,6 +2045,7 @@ impl Daemon {
             resumable: false,
             connections: 1,
             partial: None,
+            validator: None,
         });
         let stop = Arc::new(AtomicBool::new(false));
         self.conversions.lock().unwrap().insert(new_id, Arc::clone(&stop));
@@ -4730,6 +4911,152 @@ mod tests {
         // Starting it by hand still works.
         t.daemon.confirm(Answer::start(id)).unwrap();
         t.wait(id, Status::Done);
+    }
+
+    /// A server whose one file is `body` with ETag `etag`, both changeable
+    /// meanwhile; with no ETag set it answers 500.
+    fn serve_versions(file: Arc<Mutex<(Vec<u8>, Option<String>)>>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let file = Arc::clone(&file);
+                thread::spawn(move || {
+                    let mut req = Vec::new();
+                    let mut buf = [0u8; 1024];
+                    while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match stream.read(&mut buf) {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => req.extend_from_slice(&buf[..n]),
+                        }
+                    }
+                    let (body, etag) = file.lock().unwrap().clone();
+                    let Some(etag) = etag else {
+                        let _ = stream.write_all(b"HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        return;
+                    };
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nETag: {etag}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes());
+                    if !req.starts_with(b"HEAD") {
+                        let _ = stream.write_all(&body);
+                    }
+                });
+            }
+        });
+        format!("http://{addr}/mirror.bin")
+    }
+
+    impl Setup {
+        /// Start queue `q` and run the scheduler until the run ends.
+        fn run_queue(&self, q: u64) {
+            self.daemon.start_queue(q, None).unwrap();
+            let until = Instant::now() + Duration::from_secs(10);
+            while self.daemon.hub.queues.lock().unwrap().iter().any(|x| x.id == q && x.running) {
+                assert!(Instant::now() < until, "the run never ended");
+                self.daemon.tick();
+                thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+
+    #[test]
+    fn a_synchronizing_queue_downloads_again_only_what_changed() {
+        let t = setup("sync_queue", Duplicate::NewName);
+        let file = Arc::new(Mutex::new((b"version 1".to_vec(), Some("\"v1\"".to_string()))));
+        let url = serve_versions(Arc::clone(&file));
+        let id = t.add(&url);
+        let first = t.wait(id, Status::Done);
+        let path = PathBuf::from(first.path.clone().unwrap());
+        assert_eq!(first.validator.as_ref().and_then(|v| v.etag.as_deref()), Some("\"v1\""), "the ETag is kept");
+
+        // A one-time queue takes only what is still to do.
+        assert!(t.daemon.move_to_queue(id, MAIN_QUEUE, None).is_err());
+        let mut mirror = Queue::new(0, "Mirror");
+        mirror.kind = queue::QueueKind::Synchronize;
+        let q = t.daemon.save_queue(mirror.clone()).unwrap();
+        t.daemon.move_to_queue(id, q, None).unwrap();
+        assert_eq!(t.daemon.status(id), Some(Status::Done), "it stays finished in the queue");
+
+        // Unchanged: left alone.
+        t.run_queue(q);
+        assert_eq!(t.daemon.status(id), Some(Status::Done));
+        assert_eq!(std::fs::read(&path).unwrap(), b"version 1");
+        assert_eq!(t.daemon.hub.queue_of(id), Some(q), "a finished download stays in its queue");
+
+        // Same size, new ETag: downloaded again over the same file, in the
+        // same row.
+        *file.lock().unwrap() = (b"version 2".to_vec(), Some("\"v2\"".to_string()));
+        t.run_queue(q);
+        let again = t.wait(id, Status::Done);
+        assert_eq!(again.path, first.path, "the same file");
+        assert_eq!(std::fs::read(&path).unwrap(), b"version 2");
+        assert_eq!(again.validator.as_ref().and_then(|v| v.etag.as_deref()), Some("\"v2\""));
+        assert_eq!(std::fs::read_dir(&t.dir).unwrap().count(), 1, "no second copy or leftover");
+        assert_eq!(t.daemon.hub.queue_of(id), Some(q), "and it stays in the queue");
+
+        // A check that fails keeps the file.
+        file.lock().unwrap().1 = None;
+        t.run_queue(q);
+        let kept = t.wait(id, Status::Done);
+        assert_eq!(std::fs::read(&path).unwrap(), b"version 2");
+        assert!(kept.note.is_some_and(|n| n.contains("newer copy")), "it says why");
+
+        // A gone file is downloaded again.
+        file.lock().unwrap().1 = Some("\"v2\"".to_string());
+        std::fs::remove_file(&path).unwrap();
+        t.run_queue(q);
+        t.wait(id, Status::Done);
+        assert_eq!(std::fs::read(&path).unwrap(), b"version 2");
+
+        // Made one-time again, it lets its finished downloads go.
+        mirror.id = q;
+        mirror.kind = queue::QueueKind::OneTime;
+        t.daemon.save_queue(mirror).unwrap();
+        assert_eq!(t.daemon.hub.queue_of(id), None);
+    }
+
+    #[test]
+    fn a_synchronizing_project_downloads_changed_finds_again() {
+        let t = setup("sync_project", Duplicate::Existing);
+        let file = Arc::new(Mutex::new((b"manual 1".to_vec(), Some("\"m1\"".to_string()))));
+        let url = serve_versions(Arc::clone(&file));
+        let id = t.add(&url);
+        let path = PathBuf::from(t.wait(id, Status::Done).path.unwrap());
+        let found = grab::GrabFile { url: url.clone(), name: "mirror.bin".into(), page: String::new(), size: None, text: None };
+        let mut project: grab::Project = serde_json::from_value(serde_json::json!({
+            "name": "manuals",
+            "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
+            "run": "download_checked",
+        }))
+        .unwrap();
+        project.files = vec![found];
+        project.checked = vec![true];
+        let dir = t.dir.join("projects");
+
+        // One-time: what is in the list already is not looked at.
+        *file.lock().unwrap() = (b"manual 2!".to_vec(), Some("\"m2\"".to_string()));
+        t.daemon.run_scheduled_grab(&dir, project.clone(), 1);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t.daemon.status(id), Some(Status::Done));
+        assert_eq!(std::fs::read(&path).unwrap(), b"manual 1");
+
+        // Synchronizing: it is checked and downloaded again in its row, even
+        // where a duplicate would get a new name.
+        t.daemon.settings.lock().unwrap().if_duplicate = Duplicate::NewName;
+        project.kind = queue::QueueKind::Synchronize;
+        t.daemon.run_scheduled_grab(&dir, project, 2);
+        assert_eq!(t.len(), 1, "no new row");
+        let until = Instant::now() + Duration::from_secs(10);
+        while std::fs::read(&path).unwrap() != b"manual 2!" {
+            assert!(Instant::now() < until, "never downloaded again: {:?}", t.daemon.entry(id));
+            t.daemon.tick();
+            thread::sleep(Duration::from_millis(20));
+        }
+        t.wait(id, Status::Done);
+        assert_eq!(grab::Project::load(&dir, "manuals").unwrap().kind, queue::QueueKind::Synchronize, "the type is saved");
     }
 
     /// A download that starts while its dialog is open, the dialog then

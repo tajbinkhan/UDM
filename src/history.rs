@@ -75,8 +75,8 @@ impl History {
 
     /// Make the queues consistent with the downloads: the main queue exists
     /// and comes first, every queue lists only downloads that exist, no
-    /// download is in two queues, and finished downloads leave their queue.
-    /// With `before_queues` (a history saved before there were queues) every
+    /// download is in two queues, and finished downloads leave a one-time
+    /// queue (a synchronizing queue keeps them, to check each run). With `before_queues` (a history saved before there were queues) every
     /// waiting download joins the main queue. Otherwise a waiting download
     /// outside every queue stays there: the user took it out with "Remove
     /// from queue", and putting it back would let a queue start it.
@@ -85,15 +85,13 @@ impl History {
             self.queues.insert(0, Queue::main());
         }
         self.queues.sort_by_key(|q| q.id != MAIN_QUEUE);
-        let ids: std::collections::HashSet<u64> = self
-            .items
-            .iter()
-            .filter(|e| e.status != Status::Done)
-            .map(|e| e.id)
-            .collect();
+        let status: HashMap<u64, Status> = self.items.iter().map(|e| (e.id, e.status)).collect();
         let mut seen = std::collections::HashSet::new();
         for q in &mut self.queues {
-            q.order.retain(|id| ids.contains(id) && seen.insert(*id));
+            let keep_done = q.kind.is_sync();
+            q.order.retain(|id| {
+                status.get(id).is_some_and(|s| keep_done || *s != Status::Done) && seen.insert(*id)
+            });
         }
         for e in self.items.iter().filter(|_| before_queues) {
             if e.status == Status::Waiting && !seen.contains(&e.id) {
@@ -182,6 +180,7 @@ mod tests {
             partial: None,
             from_browser: false,
             on_done: None,
+            validator: None,
         }
     }
 
@@ -245,6 +244,33 @@ mod tests {
         assert_eq!(status(2), Status::Waiting, "a queued download waits again");
         assert_eq!(status(4), Status::Waiting, "and one outside every queue still waits");
         assert_eq!(status(5), Status::Interrupted, "a download outside queues is interrupted");
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_synchronizing_queue_keeps_its_finished_downloads() {
+        let path = temp_path("sync_queue.json");
+        let mut sync = Queue::new(2, "Mirror");
+        sync.kind = crate::queue::QueueKind::Synchronize;
+        sync.order = vec![1, 2];
+        let mut once = Queue::new(3, "Once");
+        once.order = vec![3, 4];
+        History {
+            next_id: 5,
+            items: vec![
+                entry(1, Status::Done),
+                entry(2, Status::Waiting),
+                entry(3, Status::Done),
+                entry(4, Status::Waiting),
+            ],
+            queues: vec![Queue::main(), sync, once],
+        }
+        .save(&path)
+        .unwrap();
+        let h = History::load(&path).unwrap();
+        assert_eq!(h.queues[1].kind, crate::queue::QueueKind::Synchronize, "the type is saved");
+        assert_eq!(h.queues[1].order, [1, 2], "a finished download stays to be checked");
+        assert_eq!(h.queues[2].order, [4], "a one-time queue lets it go");
         fs::remove_file(&path).ok();
     }
 

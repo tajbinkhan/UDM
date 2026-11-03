@@ -432,6 +432,7 @@ mod tests {
             partial: None,
             from_browser: false,
             on_done: None,
+            validator: None,
         }
     }
 

@@ -24,6 +24,18 @@ pub struct Probe {
     pub suggested_filename: Option<String>,
 }
 
+impl Probe {
+    /// What identifies this version of the file, for telling later whether
+    /// the server's copy changed.
+    pub fn validator(&self) -> crate::protocol::Validator {
+        crate::protocol::Validator {
+            size: self.total,
+            etag: self.etag.clone(),
+            last_modified: self.last_modified.clone(),
+        }
+    }
+}
+
 /// A blocking HTTP client for one download: an agent that validates TLS
 /// through the OS (SChannel on Windows via native-tls), with bounded timeouts,
 /// going through the download's proxy, plus the site logins it may answer a

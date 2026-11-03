@@ -56,6 +56,40 @@ impl WhenDone {
     }
 }
 
+/// What a queue does with downloads that have finished, as IDM's "One-time
+/// downloading" and "Periodic synchronization" queues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueKind {
+    /// A finished download leaves the queue: it holds only what is still to
+    /// do.
+    #[default]
+    OneTime,
+    /// A finished download stays in the queue, and each run checks it with
+    /// the server, downloading it again over the old file when the server's
+    /// copy changed.
+    Synchronize,
+}
+
+impl QueueKind {
+    pub const ALL: [QueueKind; 2] = [QueueKind::OneTime, QueueKind::Synchronize];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            QueueKind::OneTime => "One-time downloading",
+            QueueKind::Synchronize => "Periodic synchronization",
+        }
+    }
+
+    pub fn is_sync(self) -> bool {
+        self == QueueKind::Synchronize
+    }
+
+    pub fn is_one_time(&self) -> bool {
+        *self == QueueKind::OneTime
+    }
+}
+
 /// When a queue starts and stops by itself.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Schedule {
@@ -129,6 +163,9 @@ pub struct Queue {
     /// Shutting down when done closes programs that would hold it up.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub force_close: bool,
+    /// Whether finished downloads leave it or stay to be synchronized.
+    #[serde(default, skip_serializing_if = "QueueKind::is_one_time")]
+    pub kind: QueueKind,
 }
 
 pub const QUEUE_CONCURRENCY_RANGE: (usize, usize) = (1, 10);
@@ -153,6 +190,7 @@ impl Queue {
             open_when_done_once: None,
             start_on_launch: false,
             force_close: false,
+            kind: QueueKind::OneTime,
         }
     }
 
@@ -596,6 +634,14 @@ mod tests {
 
         let mut q = Queue::new(2, "Night");
         assert!(q.validate().is_ok());
+        // Old queues, saved without a type, are one-time queues.
+        let json = serde_json::to_value(&q).unwrap();
+        assert!(json.get("kind").is_none());
+        let back: Queue = serde_json::from_value(json).unwrap();
+        assert_eq!(back.kind, QueueKind::OneTime);
+        q.kind = QueueKind::Synchronize;
+        let back: Queue = serde_json::from_value(serde_json::to_value(&q).unwrap()).unwrap();
+        assert!(back.kind.is_sync());
         q.max_concurrent = 0;
         assert!(q.validate().is_err());
         q.max_concurrent = 3;

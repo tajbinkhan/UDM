@@ -257,10 +257,17 @@ tests, not in a running Firefox.
   but keeps it in the list: it waits outside every queue, also after a
   restart, until you start it by hand or move it to a queue again. A started queue runs its waiting downloads in order, as many
   at once as it allows. **Stop** pauses its running downloads back into it,
-  progress kept. When nothing is left the queue stops by itself. Finished
-  downloads leave their queue. **Manage queues...** creates, renames and
-  deletes queues (the main queue stays) and sets each one's downloads at
-  once, retries for failed downloads, and what to do when it is done.
+  progress kept. When nothing is left the queue stops by itself. A queue is
+  **One-time downloading** (finished downloads leave it) or **Periodic
+  synchronization**: finished downloads stay in it, and each run asks the
+  server about them and downloads again, over the same file in the same row,
+  those whose size, ETag or Last-Modified date changed (or whose file is
+  gone). The new copy is written beside the old file and replaces it only
+  once complete; a check that fails leaves the file alone and notes why.
+  Streams and form answers are not checked. **Manage queues...** creates,
+  renames and deletes queues (the main queue stays) and sets each one's
+  type, downloads at once, retries for failed downloads, and what to do when
+  it is done.
 - **Scheduler**: a queue can start at a set time on chosen days of the week,
   or once on a date, and optionally stop at a set time (the next morning if
   earlier than the start). **Start again every** N hours M minutes starts
@@ -408,7 +415,10 @@ tests, not in a running Firefox.
   from a saved template or one that comes with UIDM (pictures, audio,
   video, documents, or archives and programs from a site). A scheduled
   project explores only, explores and downloads the new files (starting the
-  queue), or downloads the ticked files without exploring, then exits UIDM,
+  queue), or downloads the ticked files without exploring. Like a queue, it
+  is one-time downloading or periodic synchronization, which also checks the
+  files earlier runs found (or the ticked ones) and downloads again those
+  changed on the server. It then exits UIDM,
   sleeps, hibernates or shuts down, and can open a file, after the crawl or
   once the queue is done.
 - **Clipboard** (off by default; **Options > Browser capture**): copying a

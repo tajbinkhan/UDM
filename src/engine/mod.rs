@@ -30,7 +30,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::media::MediaChoice;
-use crate::protocol::{SegmentInfo, SegmentState};
+use crate::protocol::{SegmentInfo, SegmentState, Validator};
 use crate::net::NetConfig;
 use crate::settings::{FileExists, Folders};
 use limit::{RateLimiter, Throttle};
@@ -121,6 +121,8 @@ pub enum Progress {
         connections: usize,
         /// Where the data goes until it is complete, when not at `path`.
         partial: Option<PathBuf>,
+        /// What the server said identifies this version of the file.
+        validator: Option<Validator>,
     },
     Advanced {
         id: u64,
@@ -644,6 +646,7 @@ fn run_inner(
         resumable: probe.resumable,
         connections,
         partial: (work != output).then(|| work.clone()),
+        validator: Some(probe.validator()),
     });
 
     let own = shared.own_limiter(id);
@@ -733,6 +736,7 @@ fn run_post(
         resumable: false,
         connections: 1,
         partial: None,
+        validator: None,
     });
     let mut file = File::create(&output)?;
     let mut buf = vec![0u8; BUF_SIZE];

@@ -748,5 +748,9 @@
   "Queue name": "Nombre de la cola",
   "Adding the queue {name}...": "Añadiendo la cola {name}...",
   "With Download later, start the queue it waits in at once": "Con «Descargar más tarde», iniciar ya la cola en la que espera",
-  "A queue needs a name.": "Una cola necesita un nombre."
+  "A queue needs a name.": "Una cola necesita un nombre.",
+  "One-time downloading": "Descarga única",
+  "Periodic synchronization": "Sincronización periódica",
+  "Periodic synchronization keeps finished downloads in the queue. Each run asks the server about them and downloads again those whose size, ETag or date changed.": "La sincronización periódica mantiene las descargas terminadas en la cola. Cada ejecución consulta al servidor por ellas y vuelve a descargar las que cambiaron de tamaño, ETag o fecha.",
+  "Each run also checks the files earlier runs downloaded and downloads again those changed on the server.": "Cada ejecución también comprueba los archivos que descargaron ejecuciones anteriores y vuelve a descargar los que cambiaron en el servidor."
 }

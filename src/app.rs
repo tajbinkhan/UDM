@@ -92,6 +92,7 @@ pub fn progress_to_outgoing(p: Progress) -> Outgoing {
             resumable,
             connections,
             partial,
+            validator,
         } => Outgoing::Started {
             id,
             url,
@@ -100,6 +101,7 @@ pub fn progress_to_outgoing(p: Progress) -> Outgoing {
             resumable,
             connections,
             partial: partial.map(|p| p.display().to_string()),
+            validator,
         },
         Progress::Advanced {
             id,
