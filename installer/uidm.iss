@@ -32,6 +32,14 @@ VersionInfoDescription=UIDM setup
 ; daemon keeps its data under the user's profile. {autopf} is then
 ; %LOCALAPPDATA%\Programs.
 PrivilegesRequired=lowest
+#if Ver >= EncodeVer(6, 7, 0)
+; Inno Setup 6.7 turns on Windows' RedirectionGuard for Setup, and every
+; program Setup starts inherits it: UIDM from the last page or after Update
+; now, then its daemon, then yt-dlp. yt-dlp then fails with WinError 448 on
+; a junction a user made, such as pnpm's on PATH. The guard stops junction
+; tricks that gain privileges, and this Setup never has more than the user.
+RedirectionGuard=no
+#endif
 DefaultDirName={autopf}\UIDM
 DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
