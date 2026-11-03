@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use eframe::egui;
-use uidm::batch::{self, MAX_BATCH};
+use uidm::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
 use uidm::grab::{self, GrabFile, GrabRequest, SaveTo};
 use uidm::listfile;
 use uidm::protocol::{Download, DownloadEntry, DownloadLogin, Status};
@@ -66,7 +66,14 @@ enum Source {
 pub struct BatchDialog {
     source: Source,
     pattern: String,
-    /// The pattern last expanded, and what it gave.
+    /// IDM's batch settings, used when the pattern has a `*`: what replaces
+    /// it, From, To and the wildcard size numbers are padded to.
+    wildcard: Wildcard,
+    wild_from: String,
+    wild_to: String,
+    wild_size: usize,
+    /// The settings last expanded (pattern and wildcard settings), and what
+    /// they gave, so the list is not rebuilt every frame.
     expanded: Option<(String, Result<Vec<String>, String>)>,
     list: String,
     /// An imported file's name, downloads and the entries left out.
@@ -87,6 +94,10 @@ impl BatchDialog {
         BatchDialog {
             source: Source::Pattern,
             pattern: String::new(),
+            wildcard: Wildcard::Numbers,
+            wild_from: "1".into(),
+            wild_to: "10".into(),
+            wild_size: 1,
             expanded: None,
             list: String::new(),
             imported: None,
@@ -123,14 +134,26 @@ impl BatchDialog {
     fn urls(&mut self) -> Result<(Vec<String>, usize), String> {
         match self.source {
             Source::Pattern => {
-                let fresh = self.expanded.as_ref().is_none_or(|(p, _)| *p != self.pattern);
+                // A `*` means IDM's form, so its settings count too.
+                let asterisk = self.pattern.contains('*');
+                let key = if asterisk {
+                    format!(
+                        "{}\n{:?}\n{}\n{}\n{}",
+                        self.pattern, self.wildcard, self.wild_from, self.wild_to, self.wild_size
+                    )
+                } else {
+                    self.pattern.clone()
+                };
+                let fresh = self.expanded.as_ref().is_none_or(|(k, _)| *k != key);
                 if fresh {
                     let result = if self.pattern.trim().is_empty() {
                         Ok(Vec::new())
+                    } else if asterisk {
+                        batch::expand_asterisk(&self.pattern, self.wildcard, &self.wild_from, &self.wild_to, self.wild_size)
                     } else {
                         batch::expand(&self.pattern)
                     };
-                    self.expanded = Some((self.pattern.clone(), result));
+                    self.expanded = Some((key, result));
                 }
                 let (_, result) = self.expanded.as_ref().unwrap();
                 result.clone().map(|u| (u, 0))
@@ -139,6 +162,34 @@ impl BatchDialog {
             Source::Imported => Ok((Vec::new(), 0)),
         }
     }
+}
+
+/// IDM's batch settings for an address with a `*`: numbers or letters, From,
+/// To and the wildcard size. Changes show at once, as the preview is rebuilt
+/// whenever they differ from the ones last expanded.
+fn wildcard_controls(ui: &mut egui::Ui, d: &mut BatchDialog) {
+    egui::Grid::new("batch_wildcard").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+        ui.label(tr("Replace the * with"));
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut d.wildcard, Wildcard::Numbers, tr("Numbers"));
+            ui.radio_value(&mut d.wildcard, Wildcard::Letters, tr("Letters (a to z)"));
+        });
+        ui.end_row();
+        ui.label(tr("From"));
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut d.wild_from).desired_width(90.0));
+            ui.label(tr("To"));
+            ui.add(egui::TextEdit::singleline(&mut d.wild_to).desired_width(90.0));
+        });
+        ui.end_row();
+        let numbers = d.wildcard == Wildcard::Numbers;
+        ui.add_enabled(numbers, egui::Label::new(tr("Wildcard size")));
+        ui.horizontal(|ui| {
+            ui.add_enabled(numbers, egui::DragValue::new(&mut d.wild_size).range(1..=MAX_WILDCARD_SIZE));
+            ui.add_enabled(numbers, egui::Label::new(egui::RichText::new(tr("digits; numbers are padded with zeros, 1 adds none")).weak()));
+        });
+        ui.end_row();
+    });
 }
 
 /// Draw the Batch dialog. Returns false once it is closed.
@@ -181,13 +232,17 @@ pub fn batch_dialog(
             let urls = d.urls();
             match d.source {
                 Source::Pattern => {
-                    ui.label(tr("Address with ranges in brackets:"));
+                    ui.label(tr("Address with ranges in brackets, or with one * as in IDM:"));
                     ui.add(
                         egui::TextEdit::singleline(&mut d.pattern)
                             .hint_text("https://example.com/photo[001-120].jpg")
                             .desired_width(600.0),
                     );
-                    ui.weak(tr("[1-20] counts, [001-120] keeps the zeros, [0-100:5] counts in fives, [a-z] runs through letters."));
+                    if d.pattern.contains('*') {
+                        wildcard_controls(ui, d);
+                    } else {
+                        ui.weak(tr("[1-20] counts, [001-120] keeps the zeros, [0-100:5] counts in fives, [a-z] runs through letters."));
+                    }
                 }
                 Source::List => {
                     ui.horizontal(|ui| {

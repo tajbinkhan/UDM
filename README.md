@@ -378,7 +378,14 @@ tests, not in a running Firefox.
 - **More > Add many...** adds downloads from a pattern such as
   `https://example.com/photo[001-120].jpg` (with steps like `[0-100:5]` and
   letter ranges like `[a-z]`), or from a pasted list or a text file with one
-  address per line. It previews the addresses, skips blank lines, repeats and
+  address per line. IDM's form works too: type one `*` in the address, as in
+  `https://example.com/photo*.jpg`, and the dialog shows IDM's settings:
+  replace the `*` with **Numbers** or **Letters (a to z)**, **From** and
+  **To**, and a **Wildcard size** that pads numbers with zeros to that many
+  digits (1, the default, adds none; letters keep the case typed and ignore
+  it). From 1 to 120 with size 3 gives `photo001.jpg` to `photo120.jpg`, the
+  same list as IDM; From after To is refused, as in IDM, and only one `*` is
+  allowed. An address without a `*` uses the bracket ranges. It previews the addresses, skips blank lines, repeats and
   anything that is not a web address, refuses more than 10,000 at once, and
   adds them waiting to the queue you pick, optionally into one folder and
   optionally starting the queue.
@@ -1323,7 +1330,9 @@ would not display correctly yet.
   the choice. The window's dialog was built but not tried on screen.
 - Streams, batches, lists and the grabber (milestone 6). Unit tests cover URL
   patterns (padding, steps, counting down, letters, several ranges, other
-  brackets kept, the 10,000 cap and overflow), pasted lists, the clipboard
+  brackets kept, the 10,000 cap and overflow), IDM's `*` form (numbers with
+  a wildcard size, letters, From after To and other mistakes refused, the
+  same cap), pasted lists, the clipboard
   link rule, list export and import (round trips in both formats, exports
   with exactly the five list fields, bad folders and repeats dropped, newer
   formats refused), HLS (attribute lists, master playlists with audio groups,
