@@ -336,7 +336,7 @@ function formFileFields(elements) {
 // Media file types and playlists an <object> or <embed> may play.
 const PLUGIN_MEDIA_EXTENSIONS = new Set([
   "mp4", "m4v", "webm", "mkv", "mov", "ogv", "avi", "wmv", "flv", "3gp",
-  "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "m3u8", "mpd",
+  "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "m3u8", "mpd", "f4m",
 ]);
 
 // Whether an <object> or <embed> with type `type` at address `url` (its

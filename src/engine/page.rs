@@ -201,7 +201,7 @@ pub(super) fn run(
         None => output,
     };
     let note = req.ffmpeg.is_none().then(|| {
-        "Saved with its sound in one file, the best quality YouTube sends that way. With ffmpeg (set in Options) UIDM saves the quality you chose."
+        "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) UIDM saves the quality you chose."
             .to_string()
     });
     drop(claim);

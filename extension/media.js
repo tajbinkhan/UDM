@@ -2,10 +2,11 @@
 // per tab, and the menu the video button shows.
 //
 // The service worker watches responses (webRequest) and keeps, for each tab,
-// the direct video and audio files and the HLS (.m3u8) and DASH (.mpd)
-// playlists its pages loaded, and the YouTube video it shows. YouTube's
-// player streams in POST requests that are none of those, so its page is
-// kept instead, and UIDM reads the page with yt-dlp. The segments a player fetches one by one are
+// the direct video and audio files, the HLS (.m3u8), DASH (.mpd) and HDS
+// (.f4m) playlists its pages loaded, and the YouTube, Facebook, Instagram or
+// Vimeo video it shows. Those sites' players fetch pieces that are none of
+// those, so their page is kept instead, and UIDM reads the page with
+// yt-dlp. The segments a player fetches one by one are
 // left out: UIDM fetches those itself from the playlist. These are plain
 // functions: the worker loads them with importScripts, the tests with
 // require. In the worker, rules.js is loaded first.
@@ -39,9 +40,12 @@ const HLS_MIME = new Set([
   "audio/x-mpegurl",
 ]);
 const DASH_MIME = new Set(["application/dash+xml"]);
-// Pieces of a stream rather than whole files.
-const SEGMENT_MIME = new Set(["video/mp2t", "video/iso.segment", "audio/iso.segment"]);
-const SEGMENT_EXTENSIONS = new Set(["ts", "m4s", "m4f", "cmfv", "cmfa", "m4v_seg"]);
+// Adobe HDS manifests (.f4m), whose fragments are F4F files.
+const HDS_MIME = new Set(["application/f4m+xml", "application/f4m", "video/f4m"]);
+// Pieces of a stream rather than whole files. HDS fragments have no
+// extension ("...Seg1-Frag3"), only their type.
+const SEGMENT_MIME = new Set(["video/mp2t", "video/iso.segment", "audio/iso.segment", "video/f4f"]);
+const SEGMENT_EXTENSIONS = new Set(["ts", "m4s", "m4f", "cmfv", "cmfa", "m4v_seg", "f4f"]);
 const MEDIA_FILE_EXTENSIONS = {
   mp4: "video",
   m4v: "video",
@@ -82,11 +86,11 @@ function responseSize(statusCode, headers) {
   return Number.isFinite(length) && length > 0 ? length : 0;
 }
 
-// What a response is: { kind: "hls" | "dash" | "file", mime, size }, or null
-// for anything that is not a video, audio file or stream playlist.
+// What a response is: { kind: "hls" | "dash" | "hds" | "file", mime, size },
+// or null for anything that is not a video, audio file or stream playlist.
 // `d` is a webRequest response: { url, statusCode, responseHeaders }.
 // `rules` is UIDM's settings, or null before they arrive: their
-// `video_types` (with `m3u8` and `mpd` for streams) and `video_min_size_kb`
+// `video_types` (with `m3u8`, `mpd` and `f4m` for streams) and `video_min_size_kb`
 // narrow what counts.
 function classifyMedia(d, rules) {
   if (!/^https?:\/\//i.test(d.url || "") || d.statusCode >= 400) return null;
@@ -96,6 +100,7 @@ function classifyMedia(d, rules) {
   const offered = (type) => !types || !type || types.includes(type);
   if (HLS_MIME.has(mime) || ext === "m3u8") return offered("m3u8") ? { kind: "hls", mime, size: 0 } : null;
   if (DASH_MIME.has(mime) || ext === "mpd") return offered("mpd") ? { kind: "dash", mime, size: 0 } : null;
+  if (HDS_MIME.has(mime) || ext === "f4m") return offered("f4m") ? { kind: "hds", mime, size: 0 } : null;
   if (SEGMENT_MIME.has(mime) || SEGMENT_EXTENSIONS.has(ext)) return null;
   const media = mime.startsWith("video/") || mime.startsWith("audio/");
   const generic = !mime || mime === "application/octet-stream" || mime === "binary/octet-stream";
@@ -133,10 +138,76 @@ function autoCaptureMedia(d, rules, taken) {
   );
 }
 
-// The YouTube video page at `url` as one address per video
-// (https://www.youtube.com/watch?v=ID), or null for any other page. Shorts
-// and youtu.be links are the same videos.
-function videoPageUrl(url) {
+// The sites whose video pages UIDM reads with yt-dlp, because their
+// players name no file or playlist the browser could catch (YouTube's
+// SABR, Facebook's and Instagram's signed pieces, Vimeo's player config).
+// Each `match` takes a parsed address and gives the one address the video
+// is known by (so the same video under two addresses is one entry), or
+// null. `label` is the menu's heading for it.
+const VIDEO_SITES = [
+  {
+    site: "youtube",
+    hosts: ["youtu.be", "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"],
+    label: () => uiText("youtubeVideo"),
+    match(u) {
+      let id = null;
+      if (u.hostname === "youtu.be") id = u.pathname.slice(1).split("/")[0];
+      else if (u.pathname === "/watch") id = u.searchParams.get("v");
+      else id = (/^\/(?:shorts|live)\/([^/]+)/.exec(u.pathname) || [])[1];
+      return id && /^[\w-]+$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : null;
+    },
+  },
+  {
+    site: "facebook",
+    hosts: ["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com", "fb.watch"],
+    label: () => uiText("facebookVideo"),
+    match(u) {
+      if (u.hostname === "fb.watch") {
+        const code = u.pathname.slice(1).split("/")[0];
+        return /^[\w-]+$/.test(code) ? `https://fb.watch/${code}/` : null;
+      }
+      const id = (u.pathname.replace(/\/$/, "") === "/watch" && u.searchParams.get("v")) ||
+        (/^\/[^/]+\/videos\/(?:[^/]+\/)?(\d+)/.exec(u.pathname) || [])[1];
+      if (id && /^\d+$/.test(id)) return `https://www.facebook.com/watch/?v=${id}`;
+      const reel = (/^\/reel\/(\d+)/.exec(u.pathname) || [])[1];
+      return reel ? `https://www.facebook.com/reel/${reel}` : null;
+    },
+  },
+  {
+    site: "instagram",
+    hosts: ["instagram.com", "www.instagram.com"],
+    label: () => uiText("instagramVideo"),
+    match(u) {
+      const m = /^\/(p|reels?|tv)\/([\w-]+)/.exec(u.pathname);
+      if (!m) return null;
+      // A reel is the same post under /reel/ and /reels/.
+      const kind = m[1] === "reels" ? "reel" : m[1];
+      return `https://www.instagram.com/${kind}/${m[2]}/`;
+    },
+  },
+  {
+    site: "vimeo",
+    hosts: ["vimeo.com", "www.vimeo.com", "player.vimeo.com"],
+    label: () => uiText("vimeoVideo"),
+    match(u) {
+      if (u.hostname === "player.vimeo.com") {
+        const id = (/^\/video\/(\d+)\/?$/.exec(u.pathname) || [])[1];
+        if (!id) return null;
+        // An unlisted video's player needs its hash.
+        const h = u.searchParams.get("h");
+        return `https://player.vimeo.com/video/${id}${h && /^\w+$/.test(h) ? `?h=${h}` : ""}`;
+      }
+      const m = /^\/(?:channels\/[\w-]+\/)?(\d+)(?:\/(\w+))?\/?$/.exec(u.pathname);
+      if (!m) return null;
+      // vimeo.com/<id>/<hash> is an unlisted video, which needs the hash.
+      return `https://vimeo.com/${m[1]}${m[2] && /^[0-9a-f]+$/i.test(m[2]) ? `/${m[2]}` : ""}`;
+    },
+  },
+];
+
+// The site (an entry of VIDEO_SITES) whose video page `url` is, and the
+// one address of its video, or null for any other page.
+function videoPage(url) {
   let u;
   try {
     u = new URL(url);
@@ -145,13 +216,17 @@ function videoPageUrl(url) {
   }
   if (!/^https?:$/.test(u.protocol)) return null;
   const host = u.hostname.toLowerCase();
-  let id = null;
-  if (host === "youtu.be") id = u.pathname.slice(1).split("/")[0];
-  else if (["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"].includes(host)) {
-    if (u.pathname === "/watch") id = u.searchParams.get("v");
-    else id = (/^\/(?:shorts|live)\/([^/]+)/.exec(u.pathname) || [])[1];
-  }
-  return id && /^[\w-]+$/.test(id) ? `https://www.youtube.com/watch?v=${id}` : null;
+  const site = VIDEO_SITES.find((s) => s.hosts.includes(host));
+  const page = site && site.match(u);
+  return page ? { site: site.site, url: page } : null;
+}
+
+// The video page at `url` as one address per video (a YouTube watch page,
+// a Facebook, Instagram or Vimeo video), or null for any other page.
+// Shorts and youtu.be links are the same videos as watch pages.
+function videoPageUrl(url) {
+  const page = videoPage(url);
+  return page ? page.url : null;
 }
 
 // A YouTube page's title without the count of new notifications YouTube
@@ -349,12 +424,15 @@ function adoptFile(entry, info) {
 }
 
 // Remember that tab `tabId` shows the video page `url` (from videoPageUrl).
-// YouTube moves between videos without loading a new page, so the tab's
+// These sites move between videos without loading a new page, so the tab's
 // earlier video page goes.
 function recordPage(store, tabId, url, now) {
   const tab = store.get(tabId);
   if (tab) for (const [key, e] of tab) if (e.kind === "page" && key !== url) tab.delete(key);
-  return recordMedia(store, tabId, url, { kind: "page", mime: "", size: 0 }, now);
+  const entry = recordMedia(store, tabId, url, { kind: "page", mime: "", size: 0 }, now);
+  const page = videoPage(url);
+  if (page) entry.site = page.site;
+  return entry;
 }
 
 // The `n` newest media entries across `store` (tab id -> Map(url ->
@@ -368,14 +446,20 @@ function recentMedia(store, n) {
 }
 
 // A stream's or page's kind for people: "HLS stream", "YouTube video".
-function streamLabel(kind) {
-  if (kind === "page") return uiText("youtubeVideo");
-  return kind === "hls" ? uiText("hlsStream") : uiText("dashStream");
+// A page's site is the entry's `site` (see recordPage), else its address's.
+function streamLabel(entry) {
+  if (entry.kind === "page") {
+    const site = VIDEO_SITES.find((s) => s.site === (entry.site || (videoPage(entry.url) || {}).site));
+    return (site || VIDEO_SITES[0]).label();
+  }
+  if (entry.kind === "hls") return uiText("hlsStream");
+  if (entry.kind === "hds") return uiText("hdsStream");
+  return uiText("dashStream");
 }
 
 // A media entry's kind for people: "MP4 video", "HLS stream".
 function mediaLabel(entry) {
-  return entry.kind === "file" ? fileLabel(entry) : streamLabel(entry.kind);
+  return entry.kind === "file" ? fileLabel(entry) : streamLabel(entry);
 }
 
 // The video button's menu for a tab's `entries`, newest first. `infos` maps a
@@ -398,7 +482,7 @@ function mediaMenu(entries, infos) {
     }
     if (parts.has(e.url)) continue;
     const info = infos.get(e.url);
-    const label = streamLabel(e.kind);
+    const label = streamLabel(e);
     if (!info) {
       items.push({ entry: e.id, label, options: [], error: uiText("mediaNoAnswer") });
       continue;
@@ -460,5 +544,5 @@ function titleFileName(title, ext) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, START_GRACE_MS, adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
+  module.exports = { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, START_GRACE_MS, adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
 }

@@ -201,8 +201,20 @@
   "dashStream": {
     "message": "DASH-Stream"
   },
+  "hdsStream": {
+    "message": "HDS-Stream"
+  },
   "youtubeVideo": {
     "message": "YouTube-Video"
+  },
+  "facebookVideo": {
+    "message": "Facebook-Video"
+  },
+  "instagramVideo": {
+    "message": "Instagram-Video"
+  },
+  "vimeoVideo": {
+    "message": "Vimeo-Video"
   },
   "mediaNoAnswer": {
     "message": "UIDM hat nicht geantwortet."

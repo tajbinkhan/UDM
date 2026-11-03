@@ -238,10 +238,19 @@ function pageMoved(tabId) {
 }
 if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
   chrome.webNavigation.onHistoryStateUpdated.addListener((d) => {
-    if (d.frameId === 0 && d.tabId >= 0) pageMoved(d.tabId);
+    if (d.frameId !== 0 || d.tabId < 0) return;
+    pageMoved(d.tabId);
+    // The page moved to may be a video yt-dlp reads (YouTube, Facebook,
+    // Instagram, Vimeo), which tabs.onUpdated may have told before this.
+    const page = d.url && privateAllowed({ tabId: d.tabId }) && videoPageUrl(d.url);
+    if (page) {
+      recordPage(media, d.tabId, page, Date.now());
+      scheduleRecentMenu();
+    }
   });
 }
-// A YouTube video, which moves between videos without loading a page.
+// A video on a site yt-dlp reads, which moves between videos without
+// loading a page.
 if (chrome.tabs) {
   chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
     const page = change.url && privateAllowed(tab) && videoPageUrl(change.url);

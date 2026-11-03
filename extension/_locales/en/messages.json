@@ -263,9 +263,25 @@
     "message": "DASH stream",
     "description": "The video button's menu: heading for a video streamed with MPEG-DASH (a technical name)."
   },
+  "hdsStream": {
+    "message": "HDS stream",
+    "description": "The video button's menu: heading for a video streamed with Adobe HTTP Dynamic Streaming (a technical name)."
+  },
   "youtubeVideo": {
     "message": "YouTube video",
     "description": "The video button's menu: heading for a YouTube video, which UIDM reads with yt-dlp."
+  },
+  "facebookVideo": {
+    "message": "Facebook video",
+    "description": "The video button's menu: heading for a Facebook video, which UIDM reads with yt-dlp."
+  },
+  "instagramVideo": {
+    "message": "Instagram video",
+    "description": "The video button's menu: heading for an Instagram video, which UIDM reads with yt-dlp."
+  },
+  "vimeoVideo": {
+    "message": "Vimeo video",
+    "description": "The video button's menu: heading for a Vimeo video, which UIDM reads with yt-dlp."
   },
   "mediaNoAnswer": {
     "message": "UIDM did not answer.",

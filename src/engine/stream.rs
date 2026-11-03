@@ -1,6 +1,7 @@
-//! Downloading a stream: read its HLS playlist or DASH manifest, fetch the
-//! segments of the chosen quality in parallel, decrypt AES-128 segments, join
-//! each track into one file, and make one video with ffmpeg when it is there.
+//! Downloading a stream: read its HLS playlist, DASH manifest or HDS
+//! manifest, fetch the segments of the chosen quality in parallel, decrypt
+//! AES-128 segments, join each track into one file (for HDS, an FLV of the
+//! fragments' tags), and make one video with ffmpeg when it is there.
 //!
 //! Segments are saved one file each in a `<file>.uidmparts` folder next to
 //! the output (or in the temporary folder, when one is set), first as `.tmp` and renamed once complete, so a canceled or
@@ -8,8 +9,8 @@
 //! again. The folder goes once the video is made.
 //!
 //! Without ffmpeg an HLS stream is saved as its joined `.ts` (or `.mp4` for
-//! fragmented MP4 segments), and a stream with separate audio is saved as two
-//! files, with a note saying so.
+//! fragmented MP4 segments), an HDS stream as its `.flv`, and a stream with
+//! separate audio is saved as two files, with a note saying so.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -30,7 +31,7 @@ use super::{
     backoff, choose_output, derive_filename, fetch_with, http, numbered_name, sanitize_filename, CancelToken,
     DownloadRequest, EngineError, Progress, Reporter, Saved, Shared, BUF_SIZE, MAX_CONNECTIONS, MAX_RETRIES,
 };
-use crate::media::{dash, hls, sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED};
+use crate::media::{dash, hds, hls, sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED};
 use crate::net::NetConfig;
 
 /// Most bytes read of a playlist or manifest.
@@ -85,9 +86,10 @@ fn load_tracks(
     let kind = choice
         .kind
         .or_else(|| sniff(&text))
-        .ok_or_else(|| refused("This address is not an HLS playlist or a DASH manifest.".into()))?;
+        .ok_or_else(|| refused(NOT_A_STREAM.into()))?;
     match kind {
         MediaKind::Page => Err(refused("A video page is not an HLS playlist or a DASH manifest.".into())),
+        MediaKind::Hds => Ok((hds_track(agent, req, &text, &base, choice.video.as_deref())?, None)),
         MediaKind::Dash => {
             let manifest = dash::parse(&text, &base).map_err(refused)?;
             dash::pick(&manifest, choice.video.as_deref(), choice.audio.as_deref()).map_err(refused)
@@ -116,6 +118,38 @@ fn load_tracks(
     }
 }
 
+/// The track of the HDS manifest `text` (fetched from `base`) in the
+/// quality `video`: its fragments, from its bootstrap info, which may be at
+/// another address, as may the manifest that lists them (F4M 2.0).
+fn hds_track(
+    agent: &http::Client,
+    req: &DownloadRequest,
+    text: &str,
+    base: &str,
+    video: Option<&str>,
+) -> Result<Track, EngineError> {
+    let manifest = hds::parse(text, base).map_err(refused)?;
+    let mut media = hds::pick(&manifest, video).clone();
+    let mut duration = manifest.duration;
+    if let hds::Source::Manifest(url) = &media.source {
+        let (base, text) = get_text(agent, url, &headers_for(&req.url, &req.headers, url))?;
+        let inner = hds::parse(&text, &base).map_err(refused)?;
+        duration = duration.or(inner.duration);
+        media = hds::pick(&inner, None).clone();
+    }
+    let bootstrap = match &media.source {
+        hds::Source::Fragments { bootstrap: hds::Bootstrap::Inline(data), .. } => data.clone(),
+        hds::Source::Fragments { bootstrap: hds::Bootstrap::Url(url), .. } => {
+            fetch_with(agent, url, &headers_for(&req.url, &req.headers, url), MAX_PLAYLIST_BYTES)?.body
+        }
+        hds::Source::Manifest(_) => return Err(refused("A quality's manifest lists more manifests.".into())),
+    };
+    hds::track(&media, &bootstrap, duration).map_err(refused)
+}
+
+/// What a stream address that is none of the formats is told.
+const NOT_A_STREAM: &str = "This address is not an HLS playlist, a DASH manifest or an HDS manifest.";
+
 /// Bytes read before deciding whether an address is a playlist, a manifest
 /// or a media file.
 const SNIFF_BYTES: u64 = 64 * 1024;
@@ -142,7 +176,7 @@ fn read_playlist(
         }
         return Ok(Err(MediaInfo {
             not_stream: true,
-            ..MediaInfo::failed(None, "This address is not an HLS playlist or a DASH manifest.".into())
+            ..MediaInfo::failed(None, NOT_A_STREAM.into())
         }));
     }
     reader.read_to_end(&mut body)?;
@@ -166,6 +200,13 @@ pub fn probe(url: &str, headers: &[(String, String)], net: &NetConfig) -> MediaI
         Some(MediaKind::Dash) => match dash::parse(&text, &base) {
             Ok(m) => dash::describe(&m),
             Err(e) => MediaInfo::failed(Some(MediaKind::Dash), e),
+        },
+        Some(MediaKind::Hds) => match hds::parse(&text, &base) {
+            Ok(m) => hds::describe(&m),
+            Err(e) => MediaInfo {
+                drm: e == DRM_REFUSED,
+                ..MediaInfo::failed(Some(MediaKind::Hds), e)
+            },
         },
         Some(MediaKind::Hls) => match hls::parse(&text, &base, false) {
             Err(e) => MediaInfo {
@@ -315,8 +356,10 @@ pub(super) fn run(
         return Ok(output.into());
     }
 
-    for (joined, range, _) in &tracks {
-        join(&jobs[range.clone()], joined)?;
+    // Only the main track can be HDS: its manifests have no separate audio.
+    let headers = [main.hds_header.as_deref(), extra.as_ref().and_then(|t| t.hds_header.as_deref())];
+    for ((joined, range, _), header) in tracks.iter().zip(headers) {
+        join(&jobs[range.clone()], joined, header)?;
     }
     let note = match (choice.audio_only, &req.ffmpeg) {
         (Some(target), Some(ffmpeg)) => {
@@ -374,6 +417,7 @@ fn finish(
     let Some((audio, _, ext)) = tracks.get(1) else {
         return Ok(match main.2 {
             "ts" => Some("Saved as a .ts video. With ffmpeg (set in Options) it would be an .mp4.".into()),
+            "flv" => Some("Saved as an .flv video. With ffmpeg (set in Options) it would be an .mp4.".into()),
             _ => None,
         });
     };
@@ -394,12 +438,21 @@ fn finish(
     )))
 }
 
-/// Concatenate the segment files of one track, in order.
-fn join(jobs: &[Job], joined: &Path) -> Result<(), EngineError> {
+/// Concatenate the segment files of one track, in order. With an HDS
+/// `header`, the file is that header followed by each F4F fragment's FLV
+/// tags, which is what makes it an FLV video.
+fn join(jobs: &[Job], joined: &Path, header: Option<&[u8]>) -> Result<(), EngineError> {
     let mut out = BufWriter::new(File::create(joined)?);
+    if let Some(header) = header {
+        out.write_all(header)?;
+    }
     for job in jobs {
         let mut part = File::open(&job.path)?;
-        std::io::copy(&mut part, &mut out)?;
+        if header.is_some() {
+            hds::copy_mdat(&mut part, &mut out)?;
+        } else {
+            std::io::copy(&mut part, &mut out)?;
+        }
     }
     out.flush()?;
     Ok(())
@@ -1022,6 +1075,82 @@ mod tests {
             files.insert("/m/v-2.m4s".into(), b"V2".to_vec());
             files.insert("/m/a.m4a".into(), b"A".to_vec());
             files
+        }
+
+        /// An HDS stream with two bit rates: the manifest (signed with a
+        /// query, as Akamai's are), inline bootstrap info, metadata, and two
+        /// F4F fragments for the higher one. Also the FLV it makes.
+        fn hds_site() -> (HashMap<String, Vec<u8>>, Vec<u8>) {
+            use base64::Engine as _;
+            use crate::media::hds::tests::{abst, fragment};
+            let b64 = |d: &[u8]| base64::engine::general_purpose::STANDARD.encode(d);
+            let meta = b"\x02\x00\x0aonMetaData\x08\x00\x00\x00\x00".to_vec();
+            let manifest = format!(
+                r#"<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns="http://ns.adobe.com/f4m/1.0">
+  <duration>8</duration>
+  <bootstrapInfo profile="named" id="b">{boot}</bootstrapInfo>
+  <media url="low_" bitrate="300" height="240" bootstrapInfoId="b"/>
+  <media url="high_" bitrate="1200" height="720" bootstrapInfoId="b"><metadata>{meta}</metadata></media>
+</manifest>"#,
+                boot = b64(&abst(false, &[(1, 2)], 1)),
+                meta = b64(&meta)
+            );
+            let tags = [segment(1), segment(2)];
+            let mut files = HashMap::new();
+            files.insert("/h/manifest.f4m?hdnea=tok".to_string(), manifest.into_bytes());
+            files.insert("/h/high_Seg1-Frag1?hdnea=tok".to_string(), fragment(&tags[0]));
+            files.insert("/h/high_Seg1-Frag2?hdnea=tok".to_string(), fragment(&tags[1]));
+            let mut flv = hds::flv_header(Some(&meta));
+            flv.extend_from_slice(&tags[0]);
+            flv.extend_from_slice(&tags[1]);
+            (files, flv)
+        }
+
+        #[test]
+        fn hds_fragments_become_an_flv() {
+            let (files, flv) = hds_site();
+            let server = TestServer::start_files(files);
+            let dir = temp_dir("hds");
+            let url = format!("{}/h/manifest.f4m?hdnea=tok", server.url);
+
+            let info = probe(&url, &[], &NetConfig::default());
+            assert_eq!(info.kind, Some(MediaKind::Hds));
+            let labels: Vec<&str> = info.video.iter().map(|o| o.label.as_str()).collect();
+            assert_eq!(labels, ["720p, 1.2 Mbps", "240p, 300 kbps"]);
+            assert_eq!(info.video[0].size, Some(1_200_000));
+
+            let (result, parts) = run(request(url.clone(), &dir, MediaChoice::default()));
+            let (path, note) = result.unwrap();
+            assert_eq!(path, dir.join("Movie night.flv"));
+            let saved = fs::read(&path).unwrap();
+            assert_eq!(saved, flv, "the FLV header, the metadata, then each fragment's tags");
+            assert_eq!(crate::media::sniff_file(&saved), Some("flv"));
+            assert!(note.unwrap().contains(".flv"));
+            assert_eq!(parts.last(), Some(&[2, 2]));
+            assert!(!parts_dir(&path).exists());
+
+            // An F4M 2.0 manifest pointing at that one gives the same video.
+            let mut files = hds_site().0;
+            files.insert(
+                "/h/set.f4m?hdnea=tok".into(),
+                br#"<manifest xmlns="http://ns.adobe.com/f4m/2.0"><media href="manifest.f4m" bitrate="1200"/></manifest>"#.to_vec(),
+            );
+            let set = TestServer::start_files(files);
+            let (result, _) = run(request(format!("{}/h/set.f4m?hdnea=tok", set.url), &dir, MediaChoice::default()));
+            assert_eq!(fs::read(result.unwrap().0).unwrap(), flv);
+
+            // With ffmpeg it is remuxed into an MP4.
+            let tools = temp_dir("hds_tools");
+            let mut req = request(url, &dir, MediaChoice::default());
+            req.ffmpeg = Some(fake_ffmpeg(&tools, false));
+            let (result, _) = run(req);
+            let (path, note) = result.unwrap();
+            assert_eq!((path.file_name().unwrap().to_str().unwrap(), note), ("Movie night.mp4", None));
+            let args = fs::read_to_string(tools.join("args.txt")).unwrap();
+            assert!(args.contains("v.flv") && args.contains("-c copy"), "{args}");
+            fs::remove_dir_all(&dir).ok();
+            fs::remove_dir_all(&tools).ok();
         }
 
         #[test]

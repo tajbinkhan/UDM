@@ -3,8 +3,8 @@
 A download manager for Windows, macOS and Linux, rebuilt from scratch in
 Rust. It catches downloads in Chrome, Edge, Firefox and other browsers, fetches each file over parallel connections,
 resumes after interruptions, keeps downloading after the browser closes, and
-shows everything in a desktop window. It also downloads streamed videos (HLS
-and DASH) from a button over the video, adds many files at once from a
+shows everything in a desktop window. It also downloads streamed videos (HLS,
+DASH and HDS) from a button over the video, adds many files at once from a
 pattern, a list or a site crawl, and watches the clipboard for links.
 
 ## Install
@@ -74,7 +74,8 @@ For streamed videos to end up as one `.mp4`, install
 **Options > General**. Without it UIDM still downloads streams, as `.ts`
 files or as separate video and audio files.
 
-YouTube videos need [yt-dlp](https://github.com/yt-dlp/yt-dlp) as well:
+Videos on YouTube, Facebook, Instagram and Vimeo pages need
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) as well:
 `winget install yt-dlp.yt-dlp` installs it with ffmpeg and Deno, which
 yt-dlp uses to read YouTube's player. UIDM finds `yt-dlp.exe` on `PATH`, next
 to UIDM's programs or next to ffmpeg. Restart UIDM after installing it, so
@@ -402,7 +403,7 @@ tests, not in a running Firefox.
   and over `<audio>` players and `<object>`/`<embed>` media players (an
   audio player gets it just above). It lists what that player loaded:
   direct video and audio files with their sizes, and streams (HLS `.m3u8`,
-  DASH `.mpd`) with each quality UIDM read from the playlist and its
+  DASH `.mpd`, HDS `.f4m`) with each quality UIDM read from the playlist and its
   estimated size; on a feed with many players each button lists its own
   player's streams, and the page's whole list when it cannot tell. The
   button hides while its player is covered by something else on the page,
@@ -1214,9 +1215,10 @@ retried.
 response a tab gets (`webRequest.onHeadersReceived`) and keeps, per tab, the
 direct video and audio files (a `video/` or `audio/` type, or a media file
 name with a generic type; anything under `video_min_size_kb`, 128 KiB by
-default, is left out) and the HLS and DASH playlists, of the types in
-`video_types` (`m3u8` and `mpd` for the streams; a file whose type neither
-its name nor its MIME type says is kept). Segments (`.ts`, `.m4s`, `video/mp2t`) are left out, and
+default, is left out) and the HLS, DASH and HDS playlists, of the types in
+`video_types` (`m3u8`, `mpd` and `f4m` for the streams; a file whose type neither
+its name nor its MIME type says is kept). Segments (`.ts`, `.m4s`, `video/mp2t`,
+HDS fragments' `video/f4f`) are left out, and
 the list starts over when the tab loads a new page, or when a single-page
 site moves to another (`webNavigation.onHistoryStateUpdated`; what came in
 the second before stays, and the tab's buttons are reset). A content script
@@ -1248,13 +1250,26 @@ selected-links button look; the mini one is a round arrow with its text as
 a tooltip. Playlists that are themselves one quality of a listed
 master playlist are folded into it.
 
-**YouTube.** YouTube's player streams over SABR: POST requests to
-`googlevideo.com/videoplayback` whose bodies hold video and sound in
-YouTube's own framing (`application/vnd.yt-ump`), so no response is a file,
-a playlist or a manifest. The worker keeps the tab's video page instead
-(`kind: "page"`, as `https://www.youtube.com/watch?v=ID` for watch pages,
-Shorts and `youtu.be` links), from the tab's address as YouTube moves between
-videos without loading a page. `probe_media` on such an address runs
+**YouTube, Facebook, Instagram and Vimeo.** YouTube's player streams over
+SABR: POST requests to `googlevideo.com/videoplayback` whose bodies hold
+video and sound in YouTube's own framing (`application/vnd.yt-ump`), so no
+response is a file, a playlist or a manifest; Facebook and Instagram fetch
+signed pieces, and Vimeo reads its streams from its player's configuration.
+For these sites the worker keeps the tab's video page instead
+(`kind: "page"`, one address per video):
+
+| Site | Pages | Kept as |
+|---|---|---|
+| YouTube | `/watch?v=ID`, `/shorts/ID`, `/live/ID`, `youtu.be/ID` | `https://www.youtube.com/watch?v=ID` |
+| Facebook | `facebook.com/<page>/videos/ID`, `facebook.com/watch?v=ID`, `facebook.com/reel/ID`, `fb.watch/CODE` | `https://www.facebook.com/watch/?v=ID`, `.../reel/ID`, `https://fb.watch/CODE/` |
+| Instagram | `instagram.com/p/CODE`, `/reel/CODE`, `/reels/CODE`, `/tv/CODE` | `https://www.instagram.com/p/CODE/` (or `reel/`, `tv/`) |
+| Vimeo | `vimeo.com/ID` (with an unlisted video's hash), `vimeo.com/channels/<name>/ID`, `player.vimeo.com/video/ID` | `https://vimeo.com/ID`, the player's address with its `h=` hash |
+
+The page is taken from the tab's address as these sites move between videos
+without loading a page (`tabs.onUpdated` and
+`webNavigation.onHistoryStateUpdated`). The daemon sends only these
+addresses to yt-dlp (`ytdlp::supports`); any other goes to the stream
+reader. `probe_media` on such an address runs
 `yt-dlp -J` and offers one video per height (H.264 first, then the highest
 bit rate) and the sound per language. The download runs yt-dlp with the
 chosen formats and `--ffmpeg-location`, so ffmpeg joins them into an `.mp4`;
@@ -1262,8 +1277,9 @@ the sound alone is `-x --audio-format mp3|m4a`. UIDM reads yt-dlp's progress
 lines, and canceling ends yt-dlp and its children (`taskkill /T` on
 Windows); its `.part` files let a retry carry on. Without ffmpeg the best
 format with both video and sound in one file is saved, with a note. Live
-streams are refused. UIDM does not send the browser's YouTube cookies, so
-only videos anyone can watch signed out are offered.
+streams are refused. UIDM does not send the browser's cookies to yt-dlp, so
+only videos anyone can watch signed out are offered (on Facebook and
+Instagram that is public posts only).
 
 **HLS.** UIDM reads master playlists (qualities, separate audio tracks) and
 media playlists (segments, `#EXT-X-BYTERANGE`, `#EXT-X-MAP` headers,
@@ -1283,6 +1299,21 @@ It picks the best video and audio, or the ones chosen. `ContentProtection`
 marks DRM, refused; live (`dynamic`) manifests and manifests split into
 several periods are refused too.
 
+**HDS.** Adobe HTTP Dynamic Streaming (`.f4m`, `application/f4m+xml`, or XML
+whose root is `<manifest>` in the `ns.adobe.com/f4m` namespace). UIDM reads
+F4M 1.0 manifests (`<media url bitrate width height bootstrapInfoId>`, each
+offered as a quality, `<bootstrapInfo>` inline in base64 or at a `url`,
+`<baseURL>`, `<metadata>`, `<duration>`) and F4M 2.0 manifests whose
+`<media href>` points at another manifest. The bootstrap's `abst` box gives
+the segment run table (`asrt`) and fragment run table (`afrt`), from which
+every fragment's address is made: `<baseURL>/<media url>Seg<s>-Frag<n>`. The
+manifest's own query string (Akamai's `hdnea`/`pvtoken` signature) and any
+`<pv-2.0>` token go on every fragment, bootstrap and child manifest. Each
+F4F fragment's `mdat` box holds FLV tags; the joined video is an FLV header,
+the media's metadata as an `onMetaData` tag, then every fragment's tags.
+`<drmAdditionalHeader>` marks DRM and is refused, as are live streams
+(`<streamType>live</streamType>` or the bootstrap's live flag).
+
 **Downloading.** Segments go one file each into `<file>.uidmparts` next to
 the output, written as `.tmp` and renamed once complete, up to **Connections
 per file** at once, through the shared speed limit, each retried with the
@@ -1291,7 +1322,8 @@ follows the segments. Canceling keeps the finished segments; a retry fetches
 only the missing ones. Then each track is joined in order. With ffmpeg,
 `ffmpeg -i video [-i audio] -c copy` makes one `.mp4` (or `.webm`) without
 re-encoding; without it, an HLS video is saved as its `.ts` (or `.mp4` for
-fragmented MP4 segments) and a stream with separate audio as two files, and
+fragmented MP4 segments), an HDS video as its `.flv`, and a stream with
+separate audio as two files, and
 the entry carries a note saying so. ffmpeg runs without a console window and
 its error, if any, becomes the download's error. Streams land in the Video
 category's folder whatever their extension.
@@ -1381,7 +1413,7 @@ is a failed scan, as is one that runs over 10 minutes.
 | `src/queue.rs` | Queues, schedules and their calendar arithmetic |
 | `src/power.rs` | Sleep, hibernate and shut down |
 | `src/net.rs` | Proxies, site logins, HTTP authentication, Credential Manager |
-| `src/media/` | HLS playlists and DASH manifests: qualities, segments, keys, DRM |
+| `src/media/` | HLS playlists, DASH and HDS manifests: qualities, segments, keys, DRM; yt-dlp pages |
 | `src/batch.rs` | URL patterns, pasted lists and the clipboard link rule |
 | `src/listfile.rs` | Exporting and importing the download list |
 | `src/grab.rs` | The site grabber's crawler and `robots.txt` |
@@ -1550,7 +1582,13 @@ would not display correctly yet.
   keys and IVs, byte ranges, `#EXT-X-MAP`, FairPlay, Widevine and session-key
   DRM, live playlists), DASH (ISO durations, template filling, fixed-duration
   and timeline templates including `r="-1"`, segment lists with ranges,
-  single files, DRM, live and multi-period manifests), AES-128 decryption,
+  single files, DRM, live and multi-period manifests), HDS (F4M 1.0 with
+  inline and linked bootstrap info and several bit rates, F4M 2.0 child
+  manifests, the manifest's query and `<pv-2.0>` carried to every fragment,
+  hand-built `abst` boxes with several segment runs, fragment addresses,
+  `mdat` extraction from F4F fragments, FLV headers with `onMetaData`, DRM
+  and live refused), the yt-dlp sites (YouTube, Facebook, Instagram and
+  Vimeo video pages accepted, their other pages refused), AES-128 decryption,
   `robots.txt` (groups, wildcards, `$`, `Crawl-delay` and its cap), link
   extraction (only web links, nothing from script text, `<base href>`), and
   crawls (depth, same site, robots, one wait before every request, budgets,
@@ -1564,7 +1602,10 @@ would not display correctly yet.
   `ffmpeg.bat` the two tracks go to it with `-map 0:v:0? -map 1:a:0? -c
   copy` and come back as one file, and a failing ffmpeg fails the download
   with its message and keeps the segments; a DRM stream is refused, and
-  probing reports DRM, qualities, sizes and the length.
+  probing reports DRM, qualities, sizes and the length; an HDS manifest
+  signed with a query is probed for its two bit rates and downloads its two
+  F4F fragments into one valid `.flv` (directly and through an F4M 2.0
+  manifest), or an `.mp4` with ffmpeg.
 - Under Wine against the real host and daemon: `add_many` adds five pattern
   files waiting in the main queue with paths in the chosen folder (and drops
   a `javascript:` item), starting the queue saves them there; `probe_media`

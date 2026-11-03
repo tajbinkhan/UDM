@@ -1,4 +1,5 @@
-//! Streamed video: HLS playlists (`.m3u8`) and DASH manifests (`.mpd`).
+//! Streamed video: HLS playlists (`.m3u8`), DASH manifests (`.mpd`) and HDS
+//! manifests (`.f4m`).
 //!
 //! A stream is a list of short segments rather than one file. This module
 //! reads playlists and manifests into `Track`s (the segments of one video or
@@ -11,21 +12,24 @@
 //!
 //! `convert` turns a finished video into an MP4, or its sound into an MP3
 //! or M4A, with ffmpeg. `ytdlp` reads video pages that name no stream at
-//! all (YouTube) with yt-dlp.
+//! all (YouTube, Facebook, Instagram, Vimeo) with yt-dlp.
 
 pub mod convert;
 pub mod dash;
+pub mod hds;
 pub mod hls;
 pub mod ytdlp;
 
 use serde::{Deserialize, Serialize};
 
-/// The two stream formats, and a video page yt-dlp reads.
+/// The stream formats, and a video page yt-dlp reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaKind {
     Hls,
     Dash,
+    /// Adobe HTTP Dynamic Streaming: an F4M manifest and F4F fragments.
+    Hds,
     Page,
 }
 
@@ -155,6 +159,10 @@ pub struct Track {
     pub ext: &'static str,
     /// Length in seconds, when known.
     pub duration: Option<f64>,
+    /// HDS: the segments are F4F fragments, and the joined track is this
+    /// (an FLV header and the stream's metadata) followed by each
+    /// fragment's FLV tags (its `mdat`), not the fragments as they are.
+    pub hds_header: Option<Vec<u8>>,
 }
 
 /// Why a stream is refused, in words for the user.
@@ -200,7 +208,8 @@ pub fn estimate_size(bandwidth: Option<u64>, seconds: Option<f64>) -> Option<u64
     (s > 0.0).then(|| (b as f64 * s / 8.0) as u64)
 }
 
-/// Whether `text` looks like an HLS playlist or a DASH manifest.
+/// Whether `text` looks like an HLS playlist, a DASH manifest or an HDS
+/// manifest.
 pub fn sniff(text: &str) -> Option<MediaKind> {
     let head = text.trim_start_matches('\u{feff}').trim_start();
     if head.starts_with("#EXTM3U") {
@@ -209,6 +218,8 @@ pub fn sniff(text: &str) -> Option<MediaKind> {
         && head.as_bytes()[..head.len().min(4096)].windows(4).any(|w| w == b"<MPD")
     {
         Some(MediaKind::Dash)
+    } else if hds::sniff(head) {
+        Some(MediaKind::Hds)
     } else {
         None
     }
@@ -274,6 +285,10 @@ mod tests {
     fn sniffing() {
         assert_eq!(sniff("\u{feff}#EXTM3U\n"), Some(MediaKind::Hls));
         assert_eq!(sniff("<?xml version=\"1.0\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\">"), Some(MediaKind::Dash));
+        assert_eq!(
+            sniff("<?xml version=\"1.0\"?>\n<manifest xmlns=\"http://ns.adobe.com/f4m/1.0\">"),
+            Some(MediaKind::Hds)
+        );
         assert_eq!(sniff("<html>"), None);
     }
 

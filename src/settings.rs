@@ -135,11 +135,11 @@ pub const BROWSER_MENU_ITEMS: [(&str, &str); 7] = [
 ];
 
 /// The video and audio types the video button offers, unless the settings
-/// say otherwise. `m3u8` and `mpd` are HLS and DASH streams.
+/// say otherwise. `m3u8`, `mpd` and `f4m` are HLS, DASH and HDS streams.
 pub fn default_video_types() -> Vec<String> {
     [
         "mp4", "m4v", "webm", "mkv", "mov", "avi", "wmv", "flv", "3gp", "ogv", "mp3", "m4a", "aac", "ogg", "oga",
-        "opus", "flac", "wav", "m3u8", "mpd",
+        "opus", "flac", "wav", "m3u8", "mpd", "f4m",
     ]
     .map(String::from)
     .to_vec()

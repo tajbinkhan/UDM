@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
+const { autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
 const { loadWorker } = require("./harness.js");
 const { hiddenMenuItems } = require("../rules.js");
 
@@ -277,6 +277,83 @@ test("a YouTube video goes to UIDM as a page yt-dlp reads", async () => {
   assert.equal(second.download.url, "https://www.youtube.com/watch?v=abc");
   w.port.onMessage.fire({ op: "media_info", request: second.request, info: { kind: "page", video: [{ id: "18", label: "360p" }], audio: [] } });
   assert.equal((await next).items.length, 1);
+});
+
+test("Facebook, Instagram and Vimeo video pages are one address per video", () => {
+  const cases = [
+    ["https://www.facebook.com/NASA/videos/1234567890/", "https://www.facebook.com/watch/?v=1234567890", "facebook"],
+    ["https://m.facebook.com/NASA/videos/vb.11/1234567890/?type=3", "https://www.facebook.com/watch/?v=1234567890", "facebook"],
+    ["https://www.facebook.com/watch/?v=1234567890&ref=x", "https://www.facebook.com/watch/?v=1234567890", "facebook"],
+    ["https://www.facebook.com/watch?v=1234567890", "https://www.facebook.com/watch/?v=1234567890", "facebook"],
+    ["https://www.facebook.com/reel/987654321?s=1", "https://www.facebook.com/reel/987654321", "facebook"],
+    ["https://fb.watch/aBc-12/", "https://fb.watch/aBc-12/", "facebook"],
+    ["https://www.instagram.com/p/CxYz_12-a/?img_index=1", "https://www.instagram.com/p/CxYz_12-a/", "instagram"],
+    ["https://instagram.com/reel/CxYz12/", "https://www.instagram.com/reel/CxYz12/", "instagram"],
+    ["https://www.instagram.com/reels/CxYz12/", "https://www.instagram.com/reel/CxYz12/", "instagram"],
+    ["https://www.instagram.com/tv/CxYz12", "https://www.instagram.com/tv/CxYz12/", "instagram"],
+    ["https://vimeo.com/76979871", "https://vimeo.com/76979871", "vimeo"],
+    ["https://vimeo.com/76979871/a1b2c3d4e5", "https://vimeo.com/76979871/a1b2c3d4e5", "vimeo"],
+    ["https://vimeo.com/channels/staffpicks/76979871", "https://vimeo.com/76979871", "vimeo"],
+    ["https://player.vimeo.com/video/76979871?h=abc123&autoplay=1", "https://player.vimeo.com/video/76979871?h=abc123", "vimeo"],
+    ["https://www.youtube.com/watch?v=jNQXAC9IVRw", "https://www.youtube.com/watch?v=jNQXAC9IVRw", "youtube"],
+  ];
+  for (const [url, page, site] of cases) same(videoPage(url), { site, url: page });
+  for (const url of [
+    "https://www.facebook.com/",
+    "https://www.facebook.com/NASA",
+    "https://www.facebook.com/NASA/videos/",
+    "https://www.facebook.com/watch/?v=abc",
+    "https://fb.watch/",
+    "https://www.instagram.com/nasa/",
+    "https://www.instagram.com/explore/",
+    "https://vimeo.com/",
+    "https://vimeo.com/staff",
+    "https://vimeo.com/channels/staffpicks",
+    "https://player.vimeo.com/video/abc",
+    "https://notvimeo.com/76979871",
+    "https://evil.net/www.facebook.com/x/videos/1",
+    "ftp://vimeo.com/76979871",
+  ]) {
+    assert.equal(videoPageUrl(url), null, url);
+  }
+});
+
+test("a Facebook video goes to UIDM as a page, also after moving there in the page", async () => {
+  const w = connected();
+  // The site moves to a video without loading a page.
+  await w.chrome.webNavigation.onHistoryStateUpdated.fire({ tabId: 7, frameId: 0, url: "https://www.facebook.com/NASA/videos/42/" });
+  const asked = w.content({ type: "video:menu" }, 7, "https://www.facebook.com/NASA");
+  await tick();
+  const probe = w.sent.find((m) => m.op === "probe_media");
+  assert.equal(probe.download.url, "https://www.facebook.com/watch/?v=42");
+  w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { kind: "page", video: [{ id: "hd", label: "720p" }], audio: [] } });
+  const menu = await asked;
+  same(menu.items.map((i) => i.label), ["Facebook video"]);
+  await w.content({ type: "video:download", entry: menu.items[0].entry, video: "hd", title: "Launch | Facebook" }, 7, "https://www.facebook.com/NASA/videos/42/");
+  const add = w.sent.find((m) => m.op === "add");
+  same([add.url, add.filename, add.media], ["https://www.facebook.com/watch/?v=42", "Launch.mp4", { kind: "page", video: "hd" }]);
+
+  // Another video replaces it.
+  await w.chrome.webNavigation.onHistoryStateUpdated.fire({ tabId: 7, frameId: 0, url: "https://vimeo.com/76979871" });
+  const next = w.content({ type: "video:menu" }, 7, "https://vimeo.com/76979871");
+  await tick();
+  const second = w.sent.filter((m) => m.op === "probe_media").at(-1);
+  assert.equal(second.download.url, "https://vimeo.com/76979871");
+  w.port.onMessage.fire({ op: "media_info", request: second.request, info: { kind: "page", video: [{ id: "x", label: "1080p" }], audio: [] } });
+  same((await next).items.map((i) => i.label), ["Vimeo video"]);
+});
+
+test("HDS manifests are streams and their fragments are left out", () => {
+  assert.equal(classifyMedia(response("https://v.net/z/manifest.f4m?hdnea=x", "text/xml")).kind, "hds");
+  assert.equal(classifyMedia(response("https://v.net/z/manifest", "application/f4m+xml")).kind, "hds");
+  assert.equal(classifyMedia(response("https://v.net/z/video_1000Seg1-Frag3", "video/f4f")), null);
+  // The video types can leave HDS out.
+  assert.equal(classifyMedia(response("https://v.net/z/manifest.f4m", "text/xml"), { video_types: ["m3u8"] }), null);
+  const entries = [{ id: 1, url: "https://v.net/z/manifest.f4m", kind: "hds", time: 1 }];
+  const infos = new Map([["https://v.net/z/manifest.f4m", { kind: "hds", video: [{ id: "video_1000", label: "1.0 Mbps" }], audio: [] }]]);
+  const menu = mediaMenu(entries, infos);
+  same(menu.map((i) => i.label), ["HDS stream"]);
+  same(menu[0].options[0], { label: "1.0 Mbps", size: null, video: "video_1000" });
 });
 
 test("content scripts cannot use the popup's commands", async () => {

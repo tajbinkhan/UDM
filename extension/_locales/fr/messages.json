@@ -201,8 +201,20 @@
   "dashStream": {
     "message": "Flux DASH"
   },
+  "hdsStream": {
+    "message": "Flux HDS"
+  },
   "youtubeVideo": {
     "message": "Vidéo YouTube"
+  },
+  "facebookVideo": {
+    "message": "Vidéo Facebook"
+  },
+  "instagramVideo": {
+    "message": "Vidéo Instagram"
+  },
+  "vimeoVideo": {
+    "message": "Vidéo Vimeo"
   },
   "mediaNoAnswer": {
     "message": "UIDM n’a pas répondu."

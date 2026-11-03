@@ -267,6 +267,7 @@ fn parse_media(text: &str, base: &str, audio: bool) -> Result<Track, String> {
         segments,
         ext,
         duration: Some(duration),
+        hds_header: None,
     })
 }
 
