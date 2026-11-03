@@ -331,5 +331,47 @@
   "recentVideos": {
     "message": "Recent videos (UIDM)",
     "description": "Context menu item on a page or video: a submenu of the last 10 videos or audio files the browser loaded, to send one to UIDM."
+  },
+  "downloadPageWithUidm": {
+    "message": "Download page with UIDM",
+    "description": "Context menu item on a page or frame: sends the address of the page (or the frame clicked in) itself to UIDM."
+  },
+  "noLinksFound": {
+    "message": "No links found on this page.",
+    "description": "Notice when \"Download all links with UIDM\" finds no links on the page."
+  },
+  "noSelectedLinksFound": {
+    "message": "No links found in the selection.",
+    "description": "Notice when \"Download selected links with UIDM\" finds no links in the selected text."
+  },
+  "linksUnreadable": {
+    "message": "The browser does not let UIDM read the links of this page.",
+    "description": "Notice when the extension may not read a page's links (a browser page or the extension store)."
+  },
+  "cannotReachUidm": {
+    "message": "Cannot reach UIDM. Is it running?",
+    "description": "Notice when a context menu item or button could not send something to UIDM."
+  },
+  "cannotReachUidmReason": {
+    "message": "Cannot reach UIDM ($REASON$).",
+    "description": "Notice when a context menu item or button could not send something to UIDM. REASON is the browser's error.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Native host has exited."
+      }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "The browser downloads it instead.",
+    "description": "Added to the \"Cannot reach UIDM\" notice when the browser downloads the link itself."
+  },
+  "browserDownloadsHeading": {
+    "message": "Downloading in the browser",
+    "description": "Popup heading over the browser's own downloads in progress, which can be sent to UIDM."
+  },
+  "sendToUidm": {
+    "message": "Send to UIDM",
+    "description": "Popup button next to a download in progress in the browser: cancels it in the browser and downloads it with UIDM."
   }
 }

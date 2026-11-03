@@ -147,6 +147,7 @@ function render(state) {
   skip.textContent = state.skipNext ? t("dontSkip") : t("skipNextDownload");
   skip.title = state.skipNext ? t("skippingNextDownloadTitle") : t("skipNextDownloadTitle");
   $("add").disabled = !state.connected;
+  browserConnected = state.connected;
 
   const video = $("video");
   video.checked = state.videoButton;
@@ -178,6 +179,46 @@ $("video-site").addEventListener("change", (ev) =>
   ask({ type: "setVideoButton", site: tabHost, siteOn: ev.target.checked }),
 );
 
+// The browser's own downloads in progress, each with "Send to UIDM", which
+// cancels the browser's copy and starts it in UIDM. Chrome's downloads have
+// no context menu, so this is where a started download is handed over.
+let browserConnected = false;
+// The ones UIDM could not take, which say so while they are listed.
+const notSent = new Set();
+function renderBrowser(answer) {
+  const items = (answer && answer.items) || [];
+  $("browser").hidden = items.length === 0;
+  const list = $("browser-list");
+  list.replaceChildren();
+  for (const d of items) {
+    const li = el("li");
+    li.append(el("div", { className: "name", title: d.url }, d.filename || d.url));
+    const meta = el("div", { className: "meta" });
+    if (notSent.has(d.id)) meta.append(el("span", { className: "failed" }, t("couldNotReachUidm")));
+    meta.append(el("span", { className: "grow" }, d.total ? t("sizeProgress", [human(d.done), human(d.total)]) : human(d.done)));
+    const send = button(
+      t("sendToUidm"),
+      () => {
+        send.disabled = true;
+        chrome.runtime
+          .sendMessage({ type: "sendBrowserDownload", id: d.id })
+          .then((r) => {
+            if (!(r && r.ok)) notSent.add(d.id);
+            listBrowser();
+          })
+          .catch(() => {});
+      },
+      !browserConnected,
+    );
+    meta.append(send);
+    li.append(meta);
+    list.append(li);
+  }
+}
+function listBrowser() {
+  return chrome.runtime.sendMessage({ type: "browserDownloads" }).then(renderBrowser).catch(() => {});
+}
+
 function addFromInput() {
   const url = $("url").value.trim();
   if (!/^https?:\/\//i.test(url)) return;
@@ -193,3 +234,5 @@ $("url").addEventListener("keydown", (ev) => {
 // fresh attempt instead of waiting out the backoff.
 ask({ type: "reconnect" });
 setInterval(() => ask({ type: "state" }), 500);
+listBrowser();
+setInterval(listBrowser, 1000);

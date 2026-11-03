@@ -193,6 +193,29 @@ function hiddenMenuItems(rules, firefox) {
   return Array.isArray(rules.browser_menu_hidden) ? rules.browser_menu_hidden : [];
 }
 
+// A link's `download` attribute as a file name for UIDM: the page chose it,
+// so only its last part counts (no folders), without the characters Windows
+// forbids, and none when it is empty (a bare `download` keeps the server's).
+function linkFileName(name) {
+  const base = String(name || "")
+    .split(/[\\/]/)
+    .pop()
+    .replace(/[<>:"|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|[. ]+$/g, "")
+    .slice(0, 200);
+  return base || undefined;
+}
+
+// A link's description for UIDM's list: its title, else its text, on one
+// line and not too long; none when it has neither.
+function linkDescription(title, text) {
+  const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const description = (clean(title) || clean(text)).slice(0, 300);
+  return description || undefined;
+}
+
 // Web pages, pictures and scripts, which the force key leaves alone when
 // `capture_force_skips_pages` is on.
 const PAGE_EXTENSIONS = new Set([
@@ -259,6 +282,6 @@ function captureDecision(rules, item) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed };
+  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed };
 
 }

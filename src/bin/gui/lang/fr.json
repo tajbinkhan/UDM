@@ -646,6 +646,7 @@
   "Off, the video button does not show on protected videos": "Désactivé, le bouton vidéo n'apparaît pas sur les vidéos protégées",
   "Context menu": "Menu contextuel",
   "The items UIDM adds to the browser's menu for links, pages and videos": "Les éléments qu'UIDM ajoute au menu du navigateur pour les liens, les pages et les vidéos",
+  "Download page with UIDM (the page or frame itself)": "Télécharger la page avec UIDM (la page ou le cadre lui-même)",
   "Download with UIDM (links, pictures, videos)": "Télécharger avec UIDM (liens, images, vidéos)",
   "Download later with UIDM": "Télécharger plus tard avec UIDM",
   "Download all links with UIDM": "Télécharger tous les liens avec UIDM",

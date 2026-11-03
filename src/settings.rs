@@ -124,7 +124,8 @@ pub enum PanelView {
 
 /// The items UIDM can add to the browser's context menu, by the names the
 /// extension knows them by, with their labels.
-pub const BROWSER_MENU_ITEMS: [(&str, &str); 6] = [
+pub const BROWSER_MENU_ITEMS: [(&str, &str); 7] = [
+    ("page", "Download page with UIDM (the page or frame itself)"),
     ("download", "Download with UIDM (links, pictures, videos)"),
     ("download_later", "Download later with UIDM"),
     ("all_links", "Download all links with UIDM"),
@@ -1850,6 +1851,25 @@ mod tests {
         fs::remove_file(&path).ok();
         let bad = Settings { browser_menu_hidden_firefox: vec!["nope".into()], ..Settings::default() };
         assert!(bad.validate().is_err());
+    }
+
+    /// Options lists exactly the items the extension's menu has, so each can
+    /// be left out (the page item came later, in #150).
+    #[test]
+    fn the_menu_items_are_the_extensions() {
+        let worker = include_str!("../extension/background.js");
+        let start = worker.find("const MENU_ITEMS = {").unwrap();
+        let end = start + worker[start..].find("\n};").unwrap();
+        let in_extension: Vec<&str> = worker[start..end]
+            .lines()
+            .skip(1)
+            .filter_map(|l| l.strip_prefix("  ")?.split_once(':').map(|(name, _)| name))
+            .filter(|name| !name.starts_with(' '))
+            .collect();
+        let in_options: Vec<&str> = BROWSER_MENU_ITEMS.iter().map(|(id, _)| *id).collect();
+        assert_eq!(in_extension, in_options);
+        let page = Settings { browser_menu_hidden_chromium: vec!["page".into()], ..Settings::default() };
+        assert!(page.validate().is_ok());
     }
 
     #[test]

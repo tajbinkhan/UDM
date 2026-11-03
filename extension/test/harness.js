@@ -74,11 +74,28 @@ function loadWorker({ firefox = false } = {}) {
       onBeforeSendHeaders: event(),
       onHeadersReceived: event(),
     },
-    tabs: { onRemoved: event(), onUpdated: event(), onCreated: event(), query: async () => [] },
+    tabs: {
+      onRemoved: event(),
+      onUpdated: event(),
+      onCreated: event(),
+      query: async () => [],
+      // Messages to content scripts as [tabId, msg, options]; `reply`, when
+      // a test sets it, answers them as the frame's content script would.
+      messages: [],
+      reply: null,
+      sendMessage: async (tabId, msg, options) => {
+        chrome.tabs.messages.push([tabId, msg, options]);
+        return chrome.tabs.reply ? chrome.tabs.reply(msg, options) : undefined;
+      },
+    },
     downloads: {
       onCreated: event(),
+      // The browser's download list, which search() looks in.
+      items: [],
+      search: async (q) =>
+        chrome.downloads.items.filter((d) => (q.id === undefined || d.id === q.id) && (q.state === undefined || d.state === q.state)),
       cancel: async (id) => browserCalls.push(["cancel", id]),
-      erase: async () => {},
+      erase: async (q) => browserCalls.push(["erase", q.id]),
       download: async (o) => browserCalls.push(["download", o.url, o]),
     },
     cookies: { getAll: async () => [] },
@@ -103,6 +120,8 @@ function loadWorker({ firefox = false } = {}) {
         if (cb) cb();
       },
       onClicked: event(),
+      // Firefox's menus.onShown, onHidden and refresh; Chrome has none.
+      ...(firefox ? { onShown: event(), onHidden: event(), refreshed: 0, refresh: () => chrome.contextMenus.refreshed++ } : {}),
     },
     action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {} },
     notifications: {

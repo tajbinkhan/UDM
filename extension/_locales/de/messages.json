@@ -258,5 +258,38 @@
   },
   "recentVideos": {
     "message": "Letzte Videos (UIDM)"
+  },
+  "downloadPageWithUidm": {
+    "message": "Seite mit UIDM herunterladen"
+  },
+  "noLinksFound": {
+    "message": "Auf dieser Seite wurden keine Links gefunden."
+  },
+  "noSelectedLinksFound": {
+    "message": "In der Markierung wurden keine Links gefunden."
+  },
+  "linksUnreadable": {
+    "message": "Der Browser lässt UIDM die Links dieser Seite nicht lesen."
+  },
+  "cannotReachUidm": {
+    "message": "UIDM ist nicht erreichbar. Läuft UIDM?"
+  },
+  "cannotReachUidmReason": {
+    "message": "UIDM ist nicht erreichbar ($REASON$).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Native host has exited."
+      }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "Der Browser lädt es stattdessen herunter."
+  },
+  "browserDownloadsHeading": {
+    "message": "Downloads im Browser"
+  },
+  "sendToUidm": {
+    "message": "An UIDM senden"
   }
 }

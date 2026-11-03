@@ -91,6 +91,53 @@ function makeMini(button) {
   document.addEventListener("auxclick", onClick, true);
 })();
 
+// Whether selection `sel` holds a link or a bare web address.
+function selectionHasLinks(sel) {
+  if (!sel || sel.isCollapsed) return false;
+  if (/https?:\/\/\S/.test(String(sel))) return true;
+  for (let i = 0; i < sel.rangeCount; i++) {
+    const range = sel.getRangeAt(i);
+    if (range.cloneContents().querySelector("a[href]")) return true;
+    const a = range.commonAncestorContainer;
+    const el = a.nodeType === 1 ? a : a.parentElement;
+    if (el && el.closest("a[href]")) return true;
+  }
+  return false;
+}
+
+// What the context menu asks this frame: the right-clicked link's
+// `download` attribute and title (the menu only knows its address), and
+// whether the selection holds links (Firefox hides "Download selected
+// links" when not). The link is the last one right-clicked, and is only
+// described when it is the menu's link.
+(() => {
+  let menuLink = null;
+  document.addEventListener(
+    "contextmenu",
+    (ev) => {
+      menuLink = ev.composedPath().find((n) => (n instanceof HTMLAnchorElement || n instanceof HTMLAreaElement) && n.href) || null;
+    },
+    true,
+  );
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg && msg.type === "link:details") {
+      const a = menuLink && menuLink.href === msg.url ? menuLink : null;
+      sendResponse(
+        a
+          ? {
+              download: a.getAttribute("download") || "",
+              title: a.getAttribute("title") || "",
+              text: String(a.textContent || a.getAttribute("alt") || "").slice(0, 1000),
+            }
+          : null,
+      );
+    } else if (msg && msg.type === "selection:hasLinks") {
+      sendResponse({ links: selectionHasLinks(getSelection()) });
+    }
+    return false;
+  });
+})();
+
 // The selection button: selecting text that holds links (or bare web
 // addresses) shows a small "Download with UIDM" button by the selection.
 // It opens UIDM's link picker with just those links. Whether it shows at
@@ -131,21 +178,9 @@ function makeMini(button) {
     if (host) host.style.display = "none";
   }
 
-  function hasLinks(sel) {
-    if (/https?:\/\/\S/.test(String(sel))) return true;
-    for (let i = 0; i < sel.rangeCount; i++) {
-      const range = sel.getRangeAt(i);
-      if (range.cloneContents().querySelector("a[href]")) return true;
-      const a = range.commonAncestorContainer;
-      const el = a.nodeType === 1 ? a : a.parentElement;
-      if (el && el.closest("a[href]")) return true;
-    }
-    return false;
-  }
-
   async function check() {
     const sel = getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount || !hasLinks(sel)) return hide();
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !selectionHasLinks(sel)) return hide();
     if (enabled === null) {
       const answer = await chrome.runtime.sendMessage({ type: "selection:enabled" }).catch(() => null);
       enabled = !!(answer && answer.enabled);

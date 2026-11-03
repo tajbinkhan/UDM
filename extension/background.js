@@ -2,7 +2,8 @@
 //
 // Keeps one native-messaging port to the UIDM host (which relays to the
 // daemon), takes downloads away from the browser and hands them to UIDM,
-// adds a "Download with UIDM" context menu, and serves the popup.
+// adds a "Download with UIDM" context menu, and serves the popup, which can
+// also hand UIDM a download the browser already started.
 //
 // A download is only taken from the browser while UIDM is connected, capture
 // is on, and it passes the capture rules from UIDM's settings (see rules.js);
@@ -256,7 +257,7 @@ function onContentMessage(msg, sender, sendResponse) {
       return false;
     case "selection:links":
       // Only the selection's links, from every frame of this tab.
-      pickLinks(tabId, sender.tab.url || pageUrl, true).then((ok) => sendResponse({ ok }));
+      pickLinks(tabId, sender.tab.url || pageUrl, true).then((result) => sendResponse({ ok: noticePick(result, true) }));
       return true;
     case "link:skip":
       // The skip key was held: the download this click starts stays.
@@ -333,7 +334,9 @@ function send(msg) {
   try {
     port.postMessage(msg);
     return true;
-  } catch (_) {
+  } catch (e) {
+    // Kept for the "cannot reach UIDM" notice.
+    if (e && e.message) lastError = e.message;
     return false;
   }
 }
@@ -531,6 +534,28 @@ if (chrome.notifications) {
   });
 }
 
+// --- Other notices -------------------------------------------------------------
+
+const MESSAGE_NOTICE = "uidm-message";
+
+// A short notice from UIDM, for a menu item or button that could not do what
+// it was asked. One notice replaces the last.
+function notice(message) {
+  if (!chrome.notifications) return;
+  chrome.notifications
+    .create(MESSAGE_NOTICE, { type: "basic", iconUrl: chrome.runtime.getURL("icons/48.png"), title: "UIDM", message })
+    .catch(() => {});
+}
+
+// UIDM could not be reached: not connected, or the message to the host did
+// not go. Says why when the browser did (the port's runtime.lastError).
+// `fallback` adds that the browser downloads it instead.
+function noticeCannotReach(fallback = false) {
+  let message = lastError ? chrome.i18n.getMessage("cannotReachUidmReason", lastError) : chrome.i18n.getMessage("cannotReachUidm");
+  if (fallback) message += ` ${chrome.i18n.getMessage("browserDownloadsInstead")}`;
+  notice(message);
+}
+
 // Let the browser download it after all, the way it was first requested.
 function giveBack(url, post) {
   if (!post) {
@@ -607,7 +632,8 @@ function proxyAddress(scheme, address, defaultPort) {
 // Hand `url` to UIDM. `referrer` is sent to the server as the Referer
 // header; `page`, the web page the download came from (the tab's address),
 // is only shown and sorted by in UIDM, as IDM keeps the two apart.
-async function handOff(url, referrer, filename, later = false, post = null, refreshId = null, page = null) {
+// `description` is a note shown with it in UIDM's list (a link's title).
+async function handOff(url, referrer, filename, later = false, post = null, refreshId = null, page = null, description = null) {
   const cookies = await cookieHeader(url);
   const msg = { op: "add", url, user_agent: navigator.userAgent };
   const proxy = await browserProxy();
@@ -622,6 +648,7 @@ async function handOff(url, referrer, filename, later = false, post = null, refr
   if (referrer) msg.referrer = referrer;
   if (isWeb(page)) msg.page = page;
   if (filename) msg.filename = filename;
+  if (description) msg.description = description;
   if (cookies) msg.cookies = cookies;
   if (refreshId !== null) {
     // The same request, as the new link of a download already in UIDM.
@@ -679,6 +706,18 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const refreshId = refreshWaiting;
   if (refreshId === null && !captureDecision(rules, described).capture) return;
 
+  await takeDownload(item, url, described.filename, refreshId);
+});
+
+// Take browser download `item` (its address `url`, named `filename`) from
+// the browser and hand it to UIDM, or, with `refreshId`, give that download
+// in UIDM it as its new link. Used for the downloads the browser starts and
+// for one the popup hands over after it started. False when UIDM did not get
+// it: a form whose request cannot be rebuilt or one already finished stays
+// in the browser, one the host did not take goes back to it.
+// `guessPage` takes the tab in front as its page (see downloadPage), which
+// only holds while the download has just started.
+async function takeDownload(item, url, filename, refreshId = null, guessPage = true) {
   // A form's download is sent as the same POST; one whose request cannot be
   // rebuilt stays in the browser.
   let post = null;
@@ -686,7 +725,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const record = findPost(posts, item.url, Date.now()) || findPost(posts, url, Date.now());
   if (record) {
     post = rebuildPost(record);
-    if (post.leave) return;
+    if (post.leave) return false;
     requestUrl = record.url;
   }
 
@@ -696,24 +735,70 @@ chrome.downloads.onCreated.addListener(async (item) => {
     await chrome.downloads.erase({ id: item.id });
   } catch (_) {
     // Already finished or gone; nothing to take.
-    return;
+    return false;
   }
-  const page = await downloadPage(item.referrer, url);
+  const page = guessPage ? await downloadPage(item.referrer, url) : null;
   if (refreshId !== null) {
     refreshWaiting = null;
-    if (await handOff(requestUrl, item.referrer, baseName(item.filename), false, post, refreshId, page)) return;
+    if (await handOff(requestUrl, item.referrer, baseName(item.filename), false, post, refreshId, page)) return true;
     giveBack(requestUrl, post);
-    return;
+    return true;
   }
-  awaitingAck.set(requestUrl, { post, filename: described.filename });
-  const sent = await handOff(requestUrl, item.referrer, described.filename, false, post, null, page);
+  awaitingAck.set(requestUrl, { post, filename });
+  const sent = await handOff(requestUrl, item.referrer, filename, false, post, null, page);
   if (!sent) {
     // The port dropped between the check and the send: give it back.
     awaitingAck.delete(requestUrl);
     giveBack(requestUrl, post);
-    noticeTakeoverFailed(requestUrl, described.filename, null);
+    noticeTakeoverFailed(requestUrl, filename, null);
   }
-});
+  return sent;
+}
+
+// --- Downloads the browser already started ----------------------------------
+
+// What the popup lists of the browser's own downloads in progress, which
+// "Send to UIDM" takes over (IDM's "download with IDM" on a started
+// download; Chrome has no menu on its downloads). Private windows' stay out.
+async function browserDownloads() {
+  if (!chrome.downloads.search) return [];
+  let items;
+  try {
+    items = await chrome.downloads.search({ state: "in_progress" });
+  } catch (_) {
+    return [];
+  }
+  return (items || [])
+    .filter((d) => !d.incognito && isWeb(d.finalUrl || d.url))
+    .map((d) => ({
+      id: d.id,
+      url: d.finalUrl || d.url,
+      filename: baseName(d.filename) || "",
+      done: d.bytesReceived || 0,
+      total: d.totalBytes > 0 ? d.totalBytes : null,
+    }));
+}
+
+// Hand the browser's download `id` to UIDM: the browser's copy is canceled
+// and erased, and UIDM starts it again with its referrer, name and cookies,
+// as a captured download. Whatever the capture rules say: the user asked.
+async function sendBrowserDownload(id) {
+  if (!connected) {
+    noticeCannotReach();
+    return false;
+  }
+  let item;
+  try {
+    [item] = await chrome.downloads.search({ id });
+  } catch (_) {
+    return false;
+  }
+  if (!item || item.state !== "in_progress" || item.incognito) return false;
+  const url = item.finalUrl || item.url;
+  if (!isWeb(url)) return false;
+  // It may have started long ago, in another tab than the one in front.
+  return takeDownload(item, url, baseName(item.filename), null, false);
+}
 
 // --- All links on a page ----------------------------------------------------
 
@@ -747,9 +832,12 @@ function collectLinks(selection) {
 }
 
 // Collect the links of tab `tabId` (in every frame) and send them to the
-// window's picker, with the cookies of each site they point to.
+// window's picker, with the cookies of each site they point to. Says how it
+// went: "sent", "none" (no links), "unreadable" (a page extensions may not
+// script) or "unreachable" (UIDM is not connected); see noticePick.
 async function pickLinks(tabId, pageUrl, selection = false) {
-  if (!connected || !chrome.scripting || tabId == null || tabId < 0) return false;
+  if (!connected) return "unreachable";
+  if (!chrome.scripting || tabId == null || tabId < 0) return "unreadable";
   let results;
   try {
     results = await chrome.scripting.executeScript({
@@ -758,7 +846,7 @@ async function pickLinks(tabId, pageUrl, selection = false) {
       args: [selection],
     });
   } catch (_) {
-    return false; // a page extensions may not script, such as the web store
+    return "unreadable"; // a page extensions may not script, such as the web store
   }
   const links = [];
   for (const r of results || []) {
@@ -766,7 +854,7 @@ async function pickLinks(tabId, pageUrl, selection = false) {
       if (links.length < MAX_PAGE_LINKS && isWeb(l.url)) links.push(l);
     }
   }
-  if (links.length === 0) return false;
+  if (links.length === 0) return "none";
   const cookies = new Map();
   for (const l of links) {
     let origin;
@@ -778,7 +866,17 @@ async function pickLinks(tabId, pageUrl, selection = false) {
     if (!cookies.has(origin)) cookies.set(origin, await cookieHeader(l.url));
     if (cookies.get(origin)) l.cookies = cookies.get(origin);
   }
-  return send({ op: "pick_links", page: pageUrl, links, user_agent: navigator.userAgent });
+  return send({ op: "pick_links", page: pageUrl, links, user_agent: navigator.userAgent }) ? "sent" : "unreachable";
+}
+
+// Say why the links of a page did not reach UIDM's picker, when they did not:
+// a menu item or button that does nothing would look broken.
+function noticePick(result, selection) {
+  if (result === "none" && selection) notice(chrome.i18n.getMessage("noSelectedLinksFound"));
+  else if (result === "none") notice(chrome.i18n.getMessage("noLinksFound"));
+  else if (result === "unreadable") notice(chrome.i18n.getMessage("linksUnreadable"));
+  else if (result === "unreachable") noticeCannotReach();
+  return result === "sent";
 }
 
 // --- Pages for a site crawl --------------------------------------------------
@@ -841,6 +939,7 @@ async function renderPage(url) {
 // them), with their titles and contexts.
 const PAGE_CONTEXTS = ["page", "frame", "video", "audio"];
 const MENU_ITEMS = {
+  page: [{ id: "uidm-page", title: chrome.i18n.getMessage("downloadPageWithUidm"), contexts: ["page", "frame"] }],
   download: [
     { id: "uidm-link", title: chrome.i18n.getMessage("downloadWithUidm"), contexts: ["link"] },
     { id: "uidm-media", title: chrome.i18n.getMessage("downloadWithUidm"), contexts: ["image", "video", "audio"] },
@@ -930,6 +1029,49 @@ async function updateRecentMenu() {
   chrome.contextMenus.update("uidm-recent", { enabled: recent.length > 0 }, ignoreMenuError);
 }
 
+// The right-clicked link's `download` attribute and title, from the content
+// script of its frame (which saw the click), as { filename, description };
+// empty when it cannot tell (a page extensions may not script).
+async function linkDetails(tab, info) {
+  if (!tab || tab.id == null || tab.id < 0 || !chrome.tabs || !chrome.tabs.sendMessage) return {};
+  let answer;
+  try {
+    answer = await chrome.tabs.sendMessage(tab.id, { type: "link:details", url: info.linkUrl }, { frameId: info.frameId || 0 });
+  } catch (_) {
+    return {};
+  }
+  if (!answer) return {};
+  return { filename: linkFileName(answer.download), description: linkDescription(answer.title, answer.text) };
+}
+
+// Firefox shows "Download selected links" only when the selection holds
+// links: when the menu opens it asks the selection's frame and hides the
+// item if not (menus.onShown and menus.refresh). Chrome has neither, so
+// there the item shows for every selection.
+const MENUS = chrome.menus || chrome.contextMenus;
+if (MENUS && MENUS.onShown && MENUS.refresh) {
+  // Counts menus opened, so a late answer for an earlier menu is dropped.
+  let shownMenu = 0;
+  MENUS.onShown.addListener(async (info, tab) => {
+    const menu = ++shownMenu;
+    if (!(info.menuIds || []).includes("uidm-selection-links") || !tab || tab.id == null) return;
+    let links = /https?:\/\/\S/.test(info.selectionText || "");
+    if (!links) {
+      try {
+        const answer = await chrome.tabs.sendMessage(tab.id, { type: "selection:hasLinks" }, { frameId: info.frameId || 0 });
+        // No answer (a page extensions may not script): leave the item.
+        links = !answer || answer.links !== false;
+      } catch (_) {
+        links = true;
+      }
+    }
+    if (menu !== shownMenu) return;
+    MENUS.update("uidm-selection-links", { visible: links }, ignoreMenuError);
+    MENUS.refresh();
+  });
+  if (MENUS.onHidden) MENUS.onHidden.addListener(() => shownMenu++);
+}
+
 // Send a recent video to UIDM in its best quality, named after its page.
 async function downloadRecent({ tabId, entry }) {
   const { title, url } = await tabInfo(tabId);
@@ -954,7 +1096,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
   if (info.menuItemId === "uidm-all-links" || info.menuItemId === "uidm-selection-links") {
     const selection = info.menuItemId === "uidm-selection-links";
-    await pickLinks(tab && tab.id, info.pageUrl || (tab && tab.url) || "", selection);
+    noticePick(await pickLinks(tab && tab.id, info.pageUrl || (tab && tab.url) || "", selection), selection);
+    return;
+  }
+  if (info.menuItemId === "uidm-page") {
+    // The page (or the frame clicked in) itself, as IDM's "Download with
+    // IDM" on a page does; the tab's page is its referrer and its page.
+    const url = info.frameUrl || info.pageUrl;
+    if (!isWeb(url)) return;
+    if (!connected || !(await handOff(url, info.pageUrl, undefined, false, null, null, info.pageUrl))) noticeCannotReach();
     return;
   }
   const isLink = info.menuItemId === "uidm-link" || info.menuItemId === "uidm-later-link";
@@ -963,8 +1113,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!isWeb(url)) return;
   // The link's frame is the referrer; the tab's page is where it came from.
   const referrer = info.frameUrl || info.pageUrl;
-  if (connected && (await handOff(url, referrer, undefined, later, null, null, info.pageUrl))) return;
+  // A link's `download` attribute names the file, and its title (or text)
+  // is the download's description, as IDM takes them.
+  const { filename, description } = isLink && connected ? await linkDetails(tab, info) : {};
+  if (connected && (await handOff(url, referrer, filename, later, null, null, info.pageUrl, description))) return;
   // UIDM is not available; the click should still download something.
+  noticeCannotReach(true);
   chrome.downloads.download({ url }).catch(() => {});
 });
 
@@ -1027,11 +1181,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "add":
       if (isWeb(msg.url)) send({ op: "add", url: msg.url });
       break;
+    case "browserDownloads":
+      browserDownloads().then((items) => sendResponse({ items }));
+      return true;
+    case "sendBrowserDownload":
+      if (!Number.isInteger(msg.id)) return;
+      sendBrowserDownload(msg.id).then((ok) => sendResponse({ ok }));
+      return true;
     case "allLinks":
       // The picker opens in the window; the popup only starts it.
       chrome.tabs
         .query({ active: true, currentWindow: true })
-        .then(([tab]) => tab && pickLinks(tab.id, tab.url || ""))
+        .then(([tab]) => tab && pickLinks(tab.id, tab.url || "").then((result) => noticePick(result, false)))
         .catch(() => {});
       break;
     case "start":

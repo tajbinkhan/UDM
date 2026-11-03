@@ -73,6 +73,8 @@
       .skiprow { padding-top: 0; }
       .grow { flex: 1; }
       .done { color: var(--ok); }
+      .section { padding: 8px 12px 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
+      #browser-list { max-height: 160px; }
       .empty { color: var(--muted); padding: 24px 12px; text-align: center; }
       label.toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
       /* The rules above set display, which would otherwise show hidden rows. */
@@ -107,6 +109,10 @@
     <div class="row">
       <input id="url" type="url" placeholder="Paste a download URL" data-i18n-placeholder="urlPlaceholder" />
       <button id="add" class="primary" data-i18n="download">Download</button>
+    </div>
+    <div id="browser" hidden>
+      <div class="section" data-i18n="browserDownloadsHeading">Downloading in the browser</div>
+      <ul id="browser-list"></ul>
     </div>
     <ul id="list"></ul>
     <script src="rules.js"></script>

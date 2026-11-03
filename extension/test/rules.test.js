@@ -238,7 +238,7 @@ test("the worker keeps a skip-key download and sends a force-key link", async ()
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/a.zip" }));
   assert.equal(w.browserCalls.length, 0, "the skip click kept it in the browser");
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/b.zip" }));
-  assert.deepEqual(w.browserCalls.map((c) => c[0]), ["cancel"], "only one download is skipped");
+  assert.deepEqual(w.browserCalls.map((c) => c[0]), ["cancel", "erase"], "only one download is skipped");
 
   const answer = await w.content({ type: "link:force", url: "https://dl.net/page.html" }, 3, "https://dl.net/");
   assert.equal(answer.ok, true);

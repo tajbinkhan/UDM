@@ -190,7 +190,12 @@ tests, not in a running Firefox.
 - **The toolbar popup** shows whether UIDM is connected, lists recent
   downloads, takes a pasted URL, and has a **Capture downloads** switch. With
   capture off, or while UIDM is not running, the browser keeps its own
-  downloads.
+  downloads. Under **Downloading in the browser** it lists the browser's own
+  downloads in progress (ones it kept, or started before UIDM ran): **Send to
+  UIDM** cancels and erases the browser's copy and starts it in UIDM, with its
+  referrer, name and cookies, as a captured download. This stands in for
+  IDM's menu on a started download, which Chrome does not let extensions
+  add; it works the same in Firefox.
 
 - **A save-as dialog** opens for each new download, with its real name and
   size, its category, and the folder that category picks. Picking another
@@ -401,12 +406,22 @@ tests, not in a running Firefox.
   "automatically start downloading from web players" does: only whole
   files, not HLS or DASH streams, and each address once per tab.
 - **Context menu**: the extension adds **Download with UIDM**, **Download
-  later with UIDM**, **Download all links**, **Download selected links**,
-  **Download the last video with UIDM** (the video or audio the browser
-  loaded last, in any tab, in its best quality) and **Recent videos**, a
-  submenu of the last 10. **Options > Videos and menus** chooses which of
-  them show, apart for Chromium browsers (Chrome, Edge and the like) and
-  Firefox; the extension knows Firefox by its `moz-extension://` pages.
+  later with UIDM**, **Download page with UIDM** (on a page or a frame: that
+  page's own address, or the frame's), **Download all links**, **Download
+  selected links**, **Download the last video with UIDM** (the video or audio
+  the browser loaded last, in any tab, in its best quality) and **Recent
+  videos**, a submenu of the last 10. **Options > Videos and menus** chooses
+  which of them show, apart for Chromium browsers (Chrome, Edge and the like)
+  and Firefox; the extension knows Firefox by its `moz-extension://` pages.
+  A link sent from the menu takes its `download` attribute as the file name
+  (only its last part, made safe) and its title, else its text, as the
+  download's description, as IDM does. Firefox shows **Download selected
+  links** only when the selection holds links (Chrome cannot hide a menu item
+  as it opens, so there it shows for every selection). When an item cannot
+  do its job, a browser notice says so: no links found on the page or in the
+  selection, a page the browser does not let extensions read, or **Cannot
+  reach UIDM** (with the browser's reason when it gave one; a link then
+  downloads in the browser instead).
 - **More > Add many...** adds downloads from a pattern such as
   `https://example.com/photo[001-120].jpg` (with steps like `[0-100:5]` and
   letter ranges like `[a-z]`), or from a pasted list or a text file with one
