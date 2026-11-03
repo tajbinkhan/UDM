@@ -11,6 +11,9 @@ pub const MANUAL: &str = "https://github.com/tajbinkhan/uidm#readme";
 pub const SCHEDULER: &str = "https://github.com/tajbinkhan/uidm#queues-and-the-scheduler";
 /// Its section on the site grabber.
 pub const GRABBER: &str = "https://github.com/tajbinkhan/uidm#streams-batches-and-the-site-grabber";
+/// Its first steps: opening the window, sending downloads from the browser,
+/// and the toolbar, menus and options from there.
+pub const TUTORIALS: &str = "https://github.com/tajbinkhan/uidm#use";
 /// UIDM's home page.
 pub const HOME: &str = "https://github.com/tajbinkhan/uidm";
 /// Where to report a problem or ask for help.
@@ -50,6 +53,8 @@ pub fn tip_window(ctx: &egui::Context, t: &mut TipWindow) -> Option<(usize, bool
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.set_max_width(380.0);
+            ui.label(egui::RichText::new(tr("Do you know...")).strong());
+            ui.add_space(4.0);
             ui.label(tr(TIPS[t.index % TIPS.len()]));
             ui.add_space(10.0);
             ui.horizontal(|ui| {

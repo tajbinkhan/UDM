@@ -632,6 +632,8 @@ struct App {
     layout: columns::Layout,
     /// The Columns dialog is open.
     columns_dialog: bool,
+    /// View > Font > Choose Font is open, with the font being chosen.
+    font_dialog: Option<columns::ListFont>,
     /// The list's table between frames.
     table: table::TableState,
     /// The column layout changed and waits to be saved until no drag is on.
@@ -1414,6 +1416,7 @@ impl App {
             find: None,
             layout: columns::Layout::load(),
             columns_dialog: false,
+            font_dialog: None,
             layout_unsaved: false,
             table: table::TableState::default(),
             properties: Vec::new(),
@@ -1549,7 +1552,8 @@ impl App {
         });
         let shared = Arc::clone(&self.shared);
         let tooltip = Arc::new(move || shared.lock().unwrap().tooltip());
-        if let Err(e) = tray::install(ICON_RGBA.to_vec(), ICON_SIZE, on_command, tooltip) {
+        let rgba = self.layout.tray_style.apply(ICON_RGBA);
+        if let Err(e) = tray::install(rgba, ICON_SIZE, on_command, tooltip) {
             self.shared.lock().unwrap().last_error = Some(trf!("No tray icon: {error}", error = e));
         }
     }
@@ -4061,6 +4065,16 @@ impl eframe::App for App {
         if self.columns_dialog {
             self.columns_dialog = columns::dialog(ctx, &mut self.layout);
         }
+        if let Some(draft) = self.font_dialog.as_mut() {
+            match columns::font_dialog(ctx, draft) {
+                columns::FontChoice::Open => {}
+                columns::FontChoice::Cancel => self.font_dialog = None,
+                columns::FontChoice::Apply(font) => {
+                    self.layout.list_font = Some(font);
+                    self.font_dialog = None;
+                }
+            }
+        }
         self.properties.retain_mut(|d| {
             let entry = rows.iter().find(|e| e.id == d.id);
             let queued = queue_list.iter().any(|q| q.order.contains(&d.id));
@@ -4155,6 +4169,8 @@ impl App {
             queues: queues.iter().map(|q| (q.id, q.name.clone(), q.running)).collect(),
             sort: self.layout.sort,
             toolbar_small: self.layout.toolbar_small,
+            list_font: self.layout.list_font.is_some(),
+            tray_style: self.layout.tray_style,
             dark: ctx.style().visuals.dark_mode,
         };
         let mut commands = menubar::take();
@@ -4240,7 +4256,23 @@ impl App {
                 self.layout.toolbar_small = small;
                 self.layout_unsaved = true;
             }
-            C::ToggleTrayIcon => actions.extend(changed(&|s| s.tray_icon = !s.tray_icon)),
+            C::ChooseFont => self.font_dialog = Some(self.layout.list_font.unwrap_or(columns::ListFont::DEFAULT)),
+            C::ResetFont => {
+                self.layout.list_font = None;
+                self.layout_unsaved = true;
+            }
+            C::TrayIcon(None) => actions.extend(changed(&|s| s.tray_icon = false)),
+            // Picking a style also shows the icon if it was hidden.
+            C::TrayIcon(Some(style)) => {
+                if self.layout.tray_style != style {
+                    self.layout.tray_style = style;
+                    self.layout_unsaved = true;
+                    tray::set_icon(style.apply(ICON_RGBA), ICON_SIZE);
+                }
+                if settings.is_some_and(|s| !s.tray_icon) {
+                    actions.extend(changed(&|s| s.tray_icon = true));
+                }
+            }
             C::Columns => self.columns_dialog = true,
             C::ToggleDarkMode => actions.extend(changed(&|s| {
                 s.theme = match s.theme {
@@ -4319,7 +4351,12 @@ impl App {
             .show(ctx, |ui| {
                 ui.heading("UIDM");
                 ui.label(trf!("Version {version}", version = env!("CARGO_PKG_VERSION")));
-                ui.hyperlink_to("github.com/tajbinkhan/uidm", "https://github.com/tajbinkhan/uidm");
+                ui.label(tr("Copyright © 2026 UIDM contributors. Released under the MIT License."));
+                ui.hyperlink_to("github.com/tajbinkhan/uidm", help::HOME);
+                ui.horizontal(|ui| {
+                    ui.label(tr("Support:"));
+                    ui.hyperlink_to(tr("report a problem or ask a question"), help::SUPPORT);
+                });
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     let busy = checking && answer.is_none();

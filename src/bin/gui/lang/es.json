@@ -789,5 +789,15 @@
   "Off, a file already there is kept: the new one gets another name, or saving for offline browsing skips it": "Desactivado, se conserva un archivo que ya existe: el nuevo recibe otro nombre, o guardar para navegar sin conexión lo omite",
   "Downloaded {done} of {count} files added so far.": "Descargados {done} de {count} archivos añadidos hasta ahora.",
   "Stop {count}": "Detener {count}",
-  "Stop the ticked files' downloads that are running or waiting; Resume goes on from where they stopped": "Detiene las descargas de los archivos marcados que están en curso o en espera; Reanudar sigue desde donde se detuvieron"
+  "Stop the ticked files' downloads that are running or waiting; Resume goes on from where they stopped": "Detiene las descargas de los archivos marcados que están en curso o en espera; Reanudar sigue desde donde se detuvieron",
+  "Font": "Fuente",
+  "Font:": "Fuente:",
+  "Size:": "Tamaño:",
+  "Text font": "Fuente de texto",
+  "Fixed-width font": "Fuente de ancho fijo",
+  "The quick brown fox jumps over the lazy dog": "El veloz murciélago hindú comía feliz cardillo y kiwi",
+  "Do you know...": "¿Sabías que...",
+  "Copyright © 2026 UIDM contributors. Released under the MIT License.": "Copyright © 2026 los colaboradores de UIDM. Publicado bajo la licencia MIT.",
+  "Support:": "Soporte:",
+  "report a problem or ask a question": "informar de un problema o hacer una pregunta"
 }

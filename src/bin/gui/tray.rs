@@ -12,9 +12,35 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
+use serde::{Deserialize, Serialize};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use crate::i18n::tr;
+
+/// How the tray icon looks, from View > Tray icon. Kept with the window's
+/// layout, since only the window draws the icon.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Style {
+    /// UIDM's own colored icon.
+    #[default]
+    Color,
+    /// A plain white silhouette of it, like the system's own icons on a dark
+    /// taskbar.
+    Mono,
+}
+
+impl Style {
+    /// The icon's RGBA pixels in this style, made from the colored icon's
+    /// so no second image is bundled. The size is unchanged.
+    pub fn apply(self, rgba: &[u8]) -> Vec<u8> {
+        match self {
+            Style::Color => rgba.to_vec(),
+            // Keep each pixel's coverage, paint it white.
+            Style::Mono => rgba.chunks_exact(4).flat_map(|p| [255, 255, 255, p[3]]).collect(),
+        }
+    }
+}
 
 /// What the tray asks the window to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,6 +228,18 @@ pub fn set_visible(on: bool) {
     });
 }
 
+/// Swap the icon's picture, for a new style.
+pub fn set_icon(rgba: Vec<u8>, size: u32) {
+    if !installed() {
+        return;
+    }
+    with_tray(move |tray| {
+        if let Ok(icon) = Icon::from_rgba(rgba, size, size) {
+            let _ = tray.icon.set_icon(Some(icon));
+        }
+    });
+}
+
 pub fn set_tooltip(text: String) {
     with_tray(move |tray| {
         let _ = tray.icon.set_tooltip(Some(text));
@@ -238,4 +276,24 @@ pub fn relabel() {
         tray.speed_limit.set_text(&speed);
         tray.drop_target.set_text(&drop);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mono_keeps_the_size_and_coverage() {
+        let rgba = [10, 20, 30, 0, 200, 100, 50, 128, 1, 2, 3, 255];
+        let mono = Style::Mono.apply(&rgba);
+        assert_eq!(mono.len(), rgba.len());
+        assert_eq!(mono, [255, 255, 255, 0, 255, 255, 255, 128, 255, 255, 255, 255]);
+        assert_eq!(Style::Color.apply(&rgba), rgba);
+    }
+
+    #[test]
+    fn mono_of_the_real_icon_is_64_by_64() {
+        let rgba = include_bytes!("../../../assets/icon-64.rgba");
+        assert_eq!(Style::Mono.apply(rgba).len(), 64 * 64 * 4);
+    }
 }

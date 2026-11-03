@@ -86,7 +86,8 @@ script, `.\install-host.ps1 -Uninstall` removes what it added. Downloaded
 files are left alone either way.
 
 **Updates.** UIDM looks for a newer release on GitHub once a week (Options >
-General can turn that off), and **About** checks on demand. When a newer
+General can turn that off), and **About** (which also shows the version,
+the copyright, and a support link to the issue tracker) checks on demand. When a newer
 release has a Setup attached, **Update now** (in About, and next to the
 notice in the status bar) has the daemon download `UIDM-Setup-<version>.exe`
 through your proxy settings, only from this repository's release downloads.
@@ -294,6 +295,9 @@ tests, not in a running Firefox.
   window; downloads keep going and the daemon stops on its own once idle.
   **Pause all** stops every queued and running download, keeping its partial
   file; **Resume all** starts them again, along with any interrupted ones.
+  **View > Tray icon** picks the **Colored icon** or a **White icon** (a
+  white silhouette of it, for a dark taskbar), or **Don't show**; the style
+  changes at once and is kept with the window's layout.
 - **Start with Windows** (in Options) starts UIDM hidden in the tray when you
   sign in, ready for the browser.
 - **The download window** (double-click a download's name, or **More >
@@ -514,12 +518,16 @@ tests, not in a running Firefox.
   server as its Referer, which can be a frame inside that page. Both sort
   like the rest, and **View > Arrange files** has **By Referrer** and **By
   Parent Web Page**. Downloads from before the two were kept apart use
-  their referrer as their page. The layout is kept in
-  `%LOCALAPPDATA%\UIDM\window.json`.
+  their referrer as their page. **View > Font > Choose Font...** sets the
+  list's text: the window's text font or its fixed-width font (Segoe UI and
+  Consolas on Windows; there is no system font picker), at 8 to 24 points,
+  with a sample; **Reset to default** goes back to the window's font. The
+  layout and font are kept in `%LOCALAPPDATA%\UIDM\window.json`.
 - **Help** (next to **More**): **Help contents** opens this README on
   GitHub, two more items open its sections on queues and the scheduler and
-  on the site grabber, **Tip of the day** shows a tip with **Next tip**, and
-  **Contact support** opens the issue tracker. A tip shows when the window
+  on the site grabber, **Tutorials** opens its first steps (this **Use**
+  section), **Tip of the day** shows a tip under a "Do you know..." header
+  with **Next tip**, and **Contact support** opens the issue tracker. A tip shows when the window
   opens unless its **Show tips on startup** box (also in **Options >
   General**) is cleared; the next start shows the next tip. **About** sits
   beside **Help**, and **More > Manage queues...** opens the queues even with

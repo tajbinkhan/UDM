@@ -155,6 +155,50 @@ pub struct Layout {
     /// The categories panel's width, once it was dragged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub categories_width: Option<f32>,
+    /// The list's text, from View > Font; `None` is the window's own font.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_font: Option<ListFont>,
+    /// How the tray icon looks, from View > Tray icon.
+    #[serde(default)]
+    pub tray_style: crate::tray::Style,
+}
+
+/// The kinds of font egui has: the window's text font and its code font.
+/// On Windows these are Segoe UI and Consolas (see `theme`), elsewhere
+/// egui's own; there is no font picker to offer the system's others.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FontKind {
+    #[default]
+    Proportional,
+    Monospace,
+}
+
+/// A font chosen for the download list.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ListFont {
+    #[serde(default)]
+    pub kind: FontKind,
+    /// In points, within `ListFont::SIZES`.
+    pub size: f32,
+}
+
+impl ListFont {
+    /// The sizes offered, like a font dialog's 8 to 24 points.
+    pub const SIZES: (f32, f32) = (8.0, 24.0);
+    /// The window's own list text: 12 point Segoe UI (see `theme`).
+    pub const DEFAULT: ListFont = ListFont {
+        kind: FontKind::Proportional,
+        size: 12.0,
+    };
+
+    pub fn id(&self) -> egui::FontId {
+        let size = self.size.clamp(Self::SIZES.0, Self::SIZES.1);
+        match self.kind {
+            FontKind::Proportional => egui::FontId::proportional(size),
+            FontKind::Monospace => egui::FontId::monospace(size),
+        }
+    }
 }
 
 impl Default for Layout {
@@ -165,6 +209,8 @@ impl Default for Layout {
             widths: BTreeMap::new(),
             toolbar_small: false,
             categories_width: None,
+            list_font: None,
+            tray_style: crate::tray::Style::Color,
         }
     }
 }
@@ -345,6 +391,58 @@ pub fn local_date(unix: u64) -> String {
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02}", minute / 60, minute % 60)
 }
 
+/// What the font dialog ended with.
+pub enum FontChoice {
+    Open,
+    Cancel,
+    Apply(ListFont),
+}
+
+/// View > Font > Choose Font: a kind and a size for the list's text, with
+/// a sample in them. egui has no system font dialog, so it offers the two
+/// fonts the window has loaded.
+pub fn font_dialog(ctx: &egui::Context, draft: &mut ListFont) -> FontChoice {
+    let mut open = true;
+    let mut choice = FontChoice::Open;
+    crate::dialog::Window::new(tr("Font"))
+        .id(egui::Id::new("list_font"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            egui::Grid::new("list_font_grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+                ui.label(tr("Font:"));
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut draft.kind, FontKind::Proportional, tr("Text font"));
+                    ui.radio_value(&mut draft.kind, FontKind::Monospace, tr("Fixed-width font"));
+                });
+                ui.end_row();
+                ui.label(tr("Size:"));
+                ui.add(egui::Slider::new(&mut draft.size, ListFont::SIZES.0..=ListFont::SIZES.1).step_by(1.0).suffix(" pt"));
+                ui.end_row();
+            });
+            ui.add_space(6.0);
+            ui.group(|ui| {
+                ui.set_min_width(300.0);
+                ui.label(egui::RichText::new(tr("The quick brown fox jumps over the lazy dog")).font(draft.id()));
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button(tr("OK")).clicked() {
+                    choice = FontChoice::Apply(*draft);
+                }
+                if ui.button(tr("Cancel")).clicked() {
+                    choice = FontChoice::Cancel;
+                }
+            });
+        });
+    if !open {
+        choice = FontChoice::Cancel;
+    }
+    choice
+}
+
 /// The Columns dialog, editing `layout` in place. Returns false once closed.
 pub fn dialog(ctx: &egui::Context, layout: &mut Layout) -> bool {
     let mut open = true;
@@ -405,7 +503,12 @@ pub fn dialog(ctx: &egui::Context, layout: &mut Layout) -> bool {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button(tr("Reset")).on_hover_text(tr("The default columns, in the order added")).clicked() {
-                    *layout = Layout::default();
+                    // The columns only: the font and tray icon have menus of their own.
+                    *layout = Layout {
+                        list_font: layout.list_font,
+                        tray_style: layout.tray_style,
+                        ..Layout::default()
+                    };
                 }
                 if ui.button(tr("Close")).clicked() {
                     close = true;
@@ -576,5 +679,47 @@ mod tests {
         assert_eq!(time_left(&e, None), None);
         e.total = None;
         assert_eq!(time_left(&e, Some(100.0)), None);
+    }
+
+    #[test]
+    fn an_old_layout_has_the_default_font_and_tray_icon() {
+        let l: Layout = serde_json::from_str(r#"{"columns":["name","size"]}"#).unwrap();
+        assert_eq!(l.list_font, None);
+        assert_eq!(l.tray_style, crate::tray::Style::Color);
+        // And the default writes neither the font nor anything new to read.
+        let back: Layout = serde_json::from_str(&serde_json::to_string(&Layout::default()).unwrap()).unwrap();
+        assert_eq!(back, Layout::default());
+    }
+
+    #[test]
+    fn a_chosen_font_and_tray_style_survive_a_save() {
+        let l = Layout {
+            list_font: Some(ListFont {
+                kind: FontKind::Monospace,
+                size: 16.0,
+            }),
+            tray_style: crate::tray::Style::Mono,
+            ..Layout::default()
+        };
+        let json = serde_json::to_string(&l).unwrap();
+        assert!(json.contains(r#""kind":"monospace""#) && json.contains(r#""tray_style":"mono""#));
+        assert_eq!(serde_json::from_str::<Layout>(&json).unwrap(), l);
+        // A font saved without its kind is the text font.
+        let f: ListFont = serde_json::from_str(r#"{"size":10.0}"#).unwrap();
+        assert_eq!(f.kind, FontKind::Proportional);
+    }
+
+    #[test]
+    fn a_font_size_stays_in_range() {
+        let big = ListFont {
+            kind: FontKind::Proportional,
+            size: 300.0,
+        };
+        assert_eq!(big.id(), egui::FontId::proportional(ListFont::SIZES.1));
+        let small = ListFont {
+            kind: FontKind::Monospace,
+            size: 1.0,
+        };
+        assert_eq!(small.id(), egui::FontId::monospace(ListFont::SIZES.0));
     }
 }
