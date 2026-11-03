@@ -94,6 +94,9 @@ pub struct DownloadRequest {
     pub speed_limit: Option<u64>,
     /// Give the finished file the server's `Last-Modified` date.
     pub server_date: bool,
+    /// Make that date the file's creation time too, where the system lets
+    /// it be set (Windows and macOS; Linux keeps no settable one).
+    pub server_date_created: bool,
     /// Resume a partial file even if the server's `Last-Modified` changed,
     /// as long as its size (and ETag, when it sends one) did not.
     pub ignore_date: bool,
@@ -714,14 +717,40 @@ fn run_inner(
     // A canceled download also returns its path; only a finished one gets
     // the server's date.
     if let Ok(path) = &result {
-        if req.server_date && !token.load(Ordering::Relaxed) {
+        if (req.server_date || req.server_date_created) && !token.load(Ordering::Relaxed) {
             if let Some(date) = probe.last_modified.as_deref().and_then(http_date) {
-                let _ = OpenOptions::new().write(true).open(path).and_then(|f| f.set_modified(date));
+                let _ = set_file_date(path, date, req.server_date, req.server_date_created);
             }
         }
     }
     result.map(Saved::from)
 }
+
+/// Give the file at `path` the time `date` as its modified time, its
+/// creation time, or both. The creation time is set only where the system
+/// allows it (Windows and macOS); elsewhere that part does nothing.
+fn set_file_date(path: &Path, date: std::time::SystemTime, modified: bool, created: bool) -> std::io::Result<()> {
+    let mut times = std::fs::FileTimes::new();
+    if modified {
+        times = times.set_modified(date);
+    }
+    if created {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTimesExt;
+            times = times.set_created(date);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::macos::fs::FileTimesExt;
+            times = times.set_created(date);
+        }
+    }
+    OpenOptions::new().write(true).open(path)?.set_times(times)
+}
+
+/// Whether `set_file_date` can set a file's creation time on this system.
+pub const CAN_SET_CREATION_TIME: bool = cfg!(any(windows, target_os = "macos"));
 
 /// An HTTP date (`Sun, 06 Nov 1994 08:49:37 GMT`, or the older
 /// `Sunday, 06-Nov-94 08:49:37 GMT` and `Sun Nov  6 08:49:37 1994`) as a
@@ -1801,6 +1830,7 @@ mod tests {
                 ffmpeg: None,
                 speed_limit: None,
                 server_date: false,
+                server_date_created: false,
                 ignore_date: false,
                 temp_dir: None,
                 reuse_partial: None,
@@ -2418,6 +2448,19 @@ mod tests {
             let path = download(|_| {}, req);
             let age = fs::metadata(&path).unwrap().modified().unwrap().elapsed().unwrap();
             assert!(age < Duration::from_secs(60));
+
+            // The creation time alone: the modified time stays the time it
+            // was written, and where the system allows it the file was
+            // "created" on the server's date.
+            let server = TestServer::start_with(body(LEN), Behavior { last_modified: Some(date.into()), ..Behavior::default() });
+            let mut req = request(&server.url, &dir, FileExists::Rename);
+            req.server_date_created = true;
+            let path = download(|_| {}, req);
+            let meta = fs::metadata(&path).unwrap();
+            assert!(meta.modified().unwrap().elapsed().unwrap() < Duration::from_secs(60));
+            if CAN_SET_CREATION_TIME {
+                assert_eq!(meta.created().unwrap(), http_date(date).unwrap());
+            }
             fs::remove_dir_all(&dir).ok();
         }
 

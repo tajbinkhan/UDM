@@ -109,6 +109,30 @@ function classifyMedia(d, rules) {
   return { kind: "file", mime, size };
 }
 
+// Whether the response `d` is media a web player loaded that UIDM takes at
+// once, without the video button: UIDM's `video_auto_capture` is on, and it
+// is a whole file (not an HLS or DASH stream, nor a stream's segment) of
+// one of `video_auto_types`, by its address or else its MIME type, that a
+// page's <video> or <audio> element asked for (`d.type` "media"; players
+// that feed the element pieces through scripts are left alone), from a
+// site whose downloads are not excluded from capture. `taken` is the set
+// of addresses this tab already handed over: each goes once.
+function autoCaptureMedia(d, rules, taken) {
+  if (!rules || !rules.video_auto_capture) return false;
+  const types = Array.isArray(rules.video_auto_types) ? rules.video_auto_types : [];
+  if (types.length === 0 || (d.type && d.type !== "media")) return false;
+  if (taken && taken.has(d.url)) return false;
+  const found = classifyMedia(d, { ...rules, video_types: types });
+  if (!found || found.kind !== "file") return false;
+  const ext = extensionOf(urlPath(d.url));
+  const type = MEDIA_FILE_EXTENSIONS[ext] ? ext : mimeExtension(found.mime);
+  if (!types.includes(type)) return false;
+  const from = d.documentUrl || d.initiator || "";
+  return !(rules.capture_excluded_sites || []).some(
+    (site) => siteMatches(site, hostOf(d.url)) || (from && siteMatches(site, hostOf(from))),
+  );
+}
+
 // The YouTube video page at `url` as one address per video
 // (https://www.youtube.com/watch?v=ID), or null for any other page. Shorts
 // and youtu.be links are the same videos.
@@ -306,5 +330,5 @@ function titleFileName(title, ext) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { adoptFile, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
+  module.exports = { adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
 }

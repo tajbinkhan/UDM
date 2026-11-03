@@ -89,6 +89,12 @@ impl Client {
                 logins: net.logins.clone(),
                 proxy: net.ftp_proxy.clone(),
                 proxy_login: net.ftp_proxy_login.clone(),
+                // SOCKS for ftp:// only when no FTP proxy is set.
+                socks: net
+                    .proxy
+                    .as_ref()
+                    .filter(|_| ftp && net.ftp_proxy.is_none())
+                    .and_then(|rules| rules.socks_for_ftp(url)),
 
             },
         })

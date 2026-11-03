@@ -2,12 +2,13 @@
 //! address, status, size, speed, time left and whether it can resume, with
 //! Pause or Resume and Cancel. "Show details" adds the Connections dialog's
 //! bar and table. Two more tabs hold its speed limit and what to do once it
-//! finishes; Options can hide them.
+//! finishes; Options can hide them, and their Hide tab buttons, and choose
+//! the tab and whether the details show when the window opens.
 
 use eframe::egui;
 use uidm::protocol::{DownloadEntry, OnDone, SegmentInfo, Status};
 use uidm::queue::WhenDone;
-use uidm::settings::SPEED_LIMIT_RANGE_KBPS;
+use uidm::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 
 use crate::i18n::{tr, trf};
 
@@ -24,6 +25,18 @@ pub enum Tab {
 pub struct Tabs {
     pub speed_limit: bool,
     pub on_done: bool,
+    /// Those tabs have a Hide tab button.
+    pub hide_buttons: bool,
+}
+
+/// The tab a window opens on, by Options' choice. A tab Options hide falls
+/// back to the status when the window is drawn.
+fn start_tab(t: ProgressTab) -> Tab {
+    match t {
+        ProgressTab::Status => Tab::Status,
+        ProgressTab::SpeedLimit => Tab::SpeedLimit,
+        ProgressTab::WhenDone => Tab::OnDone,
+    }
 }
 
 pub struct ProgressWindow {
@@ -41,11 +54,11 @@ pub struct ProgressWindow {
 }
 
 impl ProgressWindow {
-    pub fn new(e: &DownloadEntry) -> Self {
+    pub fn new(e: &DownloadEntry, s: &Settings) -> Self {
         ProgressWindow {
             id: e.id,
-            tab: Tab::Status,
-            details: false,
+            tab: start_tab(s.progress_start_tab),
+            details: s.progress_start_details,
             limit_on: e.speed_limit.is_some(),
             limit_kbps: e.speed_limit.map_or(512, |b| (b / 1024).max(1)),
             limit_remember: e.limit_remember,
@@ -126,8 +139,8 @@ pub fn window(
             }
             match w.tab {
                 Tab::Status => status_tab(ui, e, fraction, running),
-                Tab::SpeedLimit => limit_tab(ui, w, e, running, connected, actions),
-                Tab::OnDone => done_tab(ui, w, connected, actions),
+                Tab::SpeedLimit => limit_tab(ui, w, e, running, tabs.hide_buttons, connected, actions),
+                Tab::OnDone => done_tab(ui, w, tabs.hide_buttons, connected, actions),
             }
             ui.add_space(6.0);
             let bar = egui::ProgressBar::new(fraction.unwrap_or(0.0)).desired_width(480.0);
@@ -232,6 +245,7 @@ fn limit_tab(
     w: &mut ProgressWindow,
     e: &DownloadEntry,
     running: Option<f64>,
+    hide_button: bool,
     connected: bool,
     actions: &mut Vec<Action>,
 ) {
@@ -254,21 +268,23 @@ fn limit_tab(
         if ui.add_enabled(connected && changed, egui::Button::new(tr("Apply"))).clicked() {
             actions.push(Action::SetSpeedLimit(e.id, wanted, w.limit_remember));
         }
-        if ui.button(tr("Hide tab")).on_hover_text(tr("Options > General can show it again")).clicked() {
+        if hide_button && ui.button(tr("Hide tab")).on_hover_text(tr("Options > General can show it again")).clicked() {
             actions.push(Action::HideProgressTab(Tab::SpeedLimit));
         }
     });
 }
 
-fn done_tab(ui: &mut egui::Ui, w: &mut ProgressWindow, connected: bool, actions: &mut Vec<Action>) {
+fn done_tab(ui: &mut egui::Ui, w: &mut ProgressWindow, hide_button: bool, connected: bool, actions: &mut Vec<Action>) {
     let before = w.on_done;
     ui.add_enabled_ui(connected, |ui| on_done_fields(ui, &mut w.on_done));
     if w.on_done != before {
         actions.push(Action::SetOnDone(w.id, Some(w.on_done)));
     }
-    ui.add_space(4.0);
-    if ui.button(tr("Hide tab")).on_hover_text(tr("Options > General can show it again")).clicked() {
-        actions.push(Action::HideProgressTab(Tab::OnDone));
+    if hide_button {
+        ui.add_space(4.0);
+        if ui.button(tr("Hide tab")).on_hover_text(tr("Options > General can show it again")).clicked() {
+            actions.push(Action::HideProgressTab(Tab::OnDone));
+        }
     }
 }
 

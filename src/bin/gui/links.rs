@@ -298,12 +298,16 @@ pub fn dialog(
             }
             ui.add_space(6.0);
             egui::Grid::new("links_target").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                ui.label(tr("Queue"));
-                ui.horizontal(|ui| {
-                    super::tools::queue_combo(ui, "links_queue", &mut d.queue, queues);
-                    ui.checkbox(&mut d.start_queue, tr("Start the queue now"));
-                });
-                ui.end_row();
+                // Options can hide the queue panel; the links then go to the
+                // main queue without starting it.
+                if settings.list_queue_panel {
+                    ui.label(tr("Queue"));
+                    ui.horizontal(|ui| {
+                        super::tools::queue_combo(ui, "links_queue", &mut d.queue, queues);
+                        ui.checkbox(&mut d.start_queue, tr("Start the queue now"));
+                    });
+                    ui.end_row();
+                }
                 ui.label(tr("Save to"));
                 ui.vertical(|ui| {
                     ui.radio_value(&mut d.target, Target::ByType, tr("The folder of each file's category"));

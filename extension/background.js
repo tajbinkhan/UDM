@@ -81,6 +81,27 @@ if (chrome.webRequest) {
 // Video and audio each tab loaded: tab id -> Map(url -> entry). A tab's list
 // starts over when it goes to another page.
 const media = new Map();
+// The web players' files each tab handed to UIDM without the video button
+// (`video_auto_capture`): tab id -> Set(url), so each goes once, and again
+// only after the tab goes to another page.
+const playerTaken = new Map();
+
+// Hand the file a web player loaded (webRequest details `d`) to UIDM, as a
+// click on it in the video button's menu would, but named by its address.
+async function takeFromPlayer(d) {
+  if (!playerTaken.has(d.tabId)) playerTaken.set(d.tabId, new Set());
+  playerTaken.get(d.tabId).add(d.url);
+  const download = { op: "add", url: d.url, user_agent: navigator.userAgent };
+  const cookies = await cookieHeader(d.url);
+  if (cookies) download.cookies = cookies;
+  const from = d.documentUrl || d.initiator;
+  if (isWeb(from)) download.referrer = from;
+  const page = chrome.tabs && chrome.tabs.get ? await chrome.tabs.get(d.tabId).then((t) => t.url, () => null) : null;
+  if (isWeb(page)) download.page = page;
+  const proxy = await browserProxy();
+  if (proxy) download.proxy = proxy;
+  send(download);
+}
 if (chrome.webRequest) {
   chrome.webRequest.onHeadersReceived.addListener(
     (d) => {
@@ -90,18 +111,25 @@ if (chrome.webRequest) {
         recordMedia(media, d.tabId, d.url, found, Date.now());
         scheduleRecentMenu();
       }
+      if (connected && captureEnabled && autoCaptureMedia(d, rules, playerTaken.get(d.tabId))) takeFromPlayer(d);
     },
     { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "object", "other"] },
     ["responseHeaders"],
   );
   chrome.webRequest.onBeforeRequest.addListener(
     (d) => {
+      if (d.tabId >= 0) playerTaken.delete(d.tabId);
       if (d.tabId >= 0 && media.delete(d.tabId)) scheduleRecentMenu();
     },
     { urls: ["<all_urls>"], types: ["main_frame"] },
   );
 }
-if (chrome.tabs) chrome.tabs.onRemoved.addListener((tabId) => media.delete(tabId) && scheduleRecentMenu());
+if (chrome.tabs) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    playerTaken.delete(tabId);
+    if (media.delete(tabId)) scheduleRecentMenu();
+  });
+}
 // A YouTube video, which moves between videos without loading a page.
 if (chrome.tabs) {
   chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
@@ -400,7 +428,7 @@ function onHostMessage(msg) {
           capture_force_skips_pages: rules.capture_force_skips_pages !== false,
         },
       });
-      if (JSON.stringify(rules.browser_menu_hidden || []) !== menuBuiltFor) buildMenus();
+      if (JSON.stringify(menuHidden()) !== menuBuiltFor) buildMenus();
       break;
     case "refresh_waiting":
       refreshWaiting = msg.id ?? null;
@@ -809,7 +837,8 @@ async function renderPage(url) {
 // --- Context menu -----------------------------------------------------------
 
 // The menu entries of each item UIDM's Options can leave out (its
-// `browser_menu_hidden` names them), with their titles and contexts.
+// `browser_menu_hidden_chromium` and `browser_menu_hidden_firefox` name
+// them), with their titles and contexts.
 const PAGE_CONTEXTS = ["page", "frame", "video", "audio"];
 const MENU_ITEMS = {
   download: [
@@ -832,8 +861,12 @@ const RECENT_PREFIX = "uidm-recent-";
 let menuBuiltFor = null;
 const ignoreMenuError = () => void chrome.runtime.lastError;
 
+// Firefox has a list of its own: its extension pages are moz-extension://
+// ones, where Chrome's and Edge's are chrome-extension://.
+const IS_FIREFOX = String(chrome.runtime.getURL("")).startsWith("moz-extension:");
+
 function menuHidden() {
-  return (rules && rules.browser_menu_hidden) || [];
+  return hiddenMenuItems(rules, IS_FIREFOX);
 }
 
 // Build the context menu with the items UIDM's settings leave in.

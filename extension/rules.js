@@ -137,17 +137,19 @@ function downloadType(item) {
 }
 
 // A key combination as UIDM stores it ("ctrl+shift", "none") made into
-// { alt, ctrl, shift, insert }.
+// { alt, ctrl, shift, insert, del }. Del is stored "del" ("delete" also
+// reads).
+const KEY_NAMES = ["alt", "ctrl", "shift", "insert", "del"];
 function parseKeys(combo) {
-  const parts = String(combo || "none").toLowerCase().split("+").map((p) => p.trim());
+  const parts = String(combo || "none").toLowerCase().split("+").map((p) => p.trim()).map((p) => (p === "delete" ? "del" : p));
   const keys = {};
-  for (const k of ["alt", "ctrl", "shift", "insert"]) keys[k] = parts.includes(k);
+  for (const k of KEY_NAMES) keys[k] = parts.includes(k);
   return keys;
 }
 
 // What the keys held on a link click ask for, by UIDM's `capture_skip_key`
 // and `capture_force_key`: "skip", "force" or "". `keys` is the click's
-// { alt, ctrl, shift, insert, button, mouse }: `mouse` is false for a click
+// { alt, ctrl, shift, insert, del, button, mouse }: `mouse` is false for a click
 // made with Enter. A combination must be held exactly, no more and no less.
 // With `capture_keys_left_click`, only a left mouse click counts.
 function keyAction(rules, keys) {
@@ -155,12 +157,40 @@ function keyAction(rules, keys) {
   if (rules.capture_keys_left_click && !(keys.button === 0 && keys.mouse !== false)) return "";
   const held = (combo) => {
     const want = parseKeys(combo);
-    const any = want.alt || want.ctrl || want.shift || want.insert;
-    return any && ["alt", "ctrl", "shift", "insert"].every((k) => want[k] === !!keys[k]);
+    const any = KEY_NAMES.some((k) => want[k]);
+    return any && KEY_NAMES.every((k) => want[k] === !!keys[k]);
   };
   if (held(rules.capture_skip_key)) return "skip";
   if (held(rules.capture_force_key)) return "force";
   return "";
+}
+
+// Insert and Del are no modifiers, so a click does not say whether they are
+// down: the content script follows them with `trackKey` on every keydown,
+// keyup and blur of the window. `held` is { insert, del }; `type` is the
+// event's type and `key` its `key`. A blur forgets both, since the key may be
+// let go while another window has the focus.
+function trackKey(held, type, key) {
+  if (type === "blur") {
+    held.insert = false;
+    held.del = false;
+  } else if (type === "keydown" || type === "keyup") {
+    const down = type === "keydown";
+    if (key === "Insert") held.insert = down;
+    if (key === "Delete" || key === "Del") held.del = down;
+  }
+  return held;
+}
+
+// The context menu items UIDM's settings leave out in this browser: Chrome,
+// Edge and the other Chromium browsers have `browser_menu_hidden_chromium`,
+// Firefox `browser_menu_hidden_firefox`. An older UIDM sends one
+// `browser_menu_hidden` for both.
+function hiddenMenuItems(rules, firefox) {
+  if (!rules) return [];
+  const own = firefox ? rules.browser_menu_hidden_firefox : rules.browser_menu_hidden_chromium;
+  if (Array.isArray(own)) return own;
+  return Array.isArray(rules.browser_menu_hidden) ? rules.browser_menu_hidden : [];
 }
 
 // Web pages, pictures and scripts, which the force key leaves alone when
@@ -229,6 +259,6 @@ function captureDecision(rules, item) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed };
+  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed };
 
 }

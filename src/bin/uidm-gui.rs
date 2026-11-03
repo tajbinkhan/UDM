@@ -94,7 +94,7 @@ use uidm::queue::{Queue, WhenDone, MAIN_QUEUE};
 use uidm::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, SelectionButton, SocksVersion, ServerLimit, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE, FileExists, Notify, ProxyMode, Scanner, Settings, SiteLogin, CAPTURE_MIN_SIZE_MAX_KB,
     CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
-    BROWSER_MENU_ITEMS, PanelView,
+    BROWSER_MENU_ITEMS, PanelView, ProgressTab,
 };
 use uidm::state::DownloadTable;
 
@@ -968,6 +968,8 @@ struct OptionsDraft {
     proxy_ftp: String,
     ftp_active: bool,
     proxy_socks5: String,
+    proxy_socks_https: bool,
+    proxy_socks_ftp: bool,
     proxy_socks_version: SocksVersion,
     proxy_remote_dns: bool,
     proxy_bypass: String,
@@ -1003,6 +1005,8 @@ struct OptionsDraft {
     /// The queue Download later uses without asking; `None` asks.
     later_queue: Option<u64>,
     categories: Vec<CategoryDraft>,
+    /// General's own types, comma-separated.
+    general_extensions: String,
     capture_types: String,
     capture_min_size_kb: u64,
     /// One site per line.
@@ -1017,8 +1021,12 @@ struct OptionsDraft {
     video_min_size_kb: u64,
     video_view: PanelView,
     video_protected_note: bool,
-    /// Each context menu item, its label, and whether it shows.
-    menu_items: Vec<(&'static str, &'static str, bool)>,
+    video_auto_capture: bool,
+    /// Comma-separated.
+    video_auto_types: String,
+    /// Each context menu item, its label, and whether it shows in Chromium
+    /// browsers and in Firefox.
+    menu_items: Vec<(&'static str, &'static str, bool, bool)>,
     /// One site per line.
     video_button_excluded_sites: String,
     ffmpeg_path: String,
@@ -1027,6 +1035,7 @@ struct OptionsDraft {
     confirm_remove: bool,
     remove_deletes_files: bool,
     server_file_date: bool,
+    server_file_date_created: bool,
     resume_ignores_date: bool,
     manual_user_agent: String,
     /// Empty writes partial files in place.
@@ -1070,6 +1079,10 @@ struct OptionsDraft {
     progress_on_start: bool,
     progress_speed_tab: bool,
     progress_done_tab: bool,
+    progress_hide_buttons: bool,
+    progress_start_tab: ProgressTab,
+    progress_start_details: bool,
+    list_queue_panel: bool,
     /// Kept as it is; only the Queues dialog changes it.
     schedule_note_hidden: bool,
     /// Kept as they are; only the site grabber changes them.
@@ -1123,6 +1136,8 @@ impl OptionsDraft {
             proxy_ftp: s.proxy_ftp.clone(),
             ftp_active: s.ftp_active,
             proxy_socks5: s.proxy_socks5.clone(),
+            proxy_socks_https: s.proxy_socks_https,
+            proxy_socks_ftp: s.proxy_socks_ftp,
             proxy_socks_version: s.proxy_socks_version,
             proxy_remote_dns: s.proxy_remote_dns,
             proxy_bypass: s.proxy_bypass.clone(),
@@ -1178,6 +1193,7 @@ impl OptionsDraft {
                     picked: Picked::default(),
                 })
                 .collect(),
+            general_extensions: s.general_extensions.join(", "),
             capture_types: s.capture_types.join(", "),
             capture_min_size_kb: s.capture_min_size_kb,
             capture_excluded_sites: s.capture_excluded_sites.join("\n"),
@@ -1203,9 +1219,14 @@ impl OptionsDraft {
             video_min_size_kb: s.video_min_size_kb,
             video_view: s.video_view,
             video_protected_note: s.video_protected_note,
+            video_auto_capture: s.video_auto_capture,
+            video_auto_types: s.video_auto_types.join(", "),
             menu_items: BROWSER_MENU_ITEMS
                 .iter()
-                .map(|(id, label)| (*id, *label, !s.browser_menu_hidden.iter().any(|h| h == id)))
+                .map(|(id, label)| {
+                    let shown = |hidden: &[String]| !hidden.iter().any(|h| h == id);
+                    (*id, *label, shown(&s.browser_menu_hidden_chromium), shown(&s.browser_menu_hidden_firefox))
+                })
                 .collect(),
             video_button_excluded_sites: s.video_button_excluded_sites.join("\n"),
             ffmpeg_path: s.ffmpeg_path.clone(),
@@ -1213,6 +1234,7 @@ impl OptionsDraft {
             confirm_remove: s.confirm_remove,
             remove_deletes_files: s.remove_deletes_files,
             server_file_date: s.server_file_date,
+            server_file_date_created: s.server_file_date_created,
             resume_ignores_date: s.resume_ignores_date,
             manual_user_agent: s.manual_user_agent.clone(),
             temp_dir: s.temp_dir.clone().unwrap_or_default(),
@@ -1265,6 +1287,10 @@ impl OptionsDraft {
             progress_on_start: s.progress_on_start,
             progress_speed_tab: s.progress_speed_tab,
             progress_done_tab: s.progress_done_tab,
+            progress_hide_buttons: s.progress_hide_buttons,
+            progress_start_tab: s.progress_start_tab,
+            progress_start_details: s.progress_start_details,
+            list_queue_panel: s.list_queue_panel,
             schedule_note_hidden: s.schedule_note_hidden,
             grab_add_on_close: s.grab_add_on_close,
             grab_save_unique_silently: s.grab_save_unique_silently,
@@ -1314,6 +1340,8 @@ impl OptionsDraft {
             proxy_ftp: self.proxy_ftp.trim().to_string(),
             ftp_active: self.ftp_active,
             proxy_socks5: self.proxy_socks5.trim().to_string(),
+            proxy_socks_https: self.proxy_socks_https,
+            proxy_socks_ftp: self.proxy_socks_ftp,
             proxy_socks_version: self.proxy_socks_version,
             proxy_remote_dns: self.proxy_remote_dns,
             proxy_bypass: self.proxy_bypass.trim().to_string(),
@@ -1365,6 +1393,7 @@ impl OptionsDraft {
                     last_folder: c.last_folder.clone().filter(|_| c.remember_folder),
                 })
                 .collect(),
+            general_extensions: parse_extensions(&self.general_extensions),
             capture_types: parse_extensions(&self.capture_types),
             capture_min_size_kb: self.capture_min_size_kb,
             capture_excluded_sites: sites(&self.capture_excluded_sites),
@@ -1375,13 +1404,17 @@ impl OptionsDraft {
             video_min_size_kb: self.video_min_size_kb,
             video_view: self.video_view,
             video_protected_note: self.video_protected_note,
-            browser_menu_hidden: self.menu_items.iter().filter(|(_, _, on)| !on).map(|(id, _, _)| id.to_string()).collect(),
+            video_auto_capture: self.video_auto_capture,
+            video_auto_types: parse_extensions(&self.video_auto_types),
+            browser_menu_hidden_chromium: self.menu_items.iter().filter(|m| !m.2).map(|m| m.0.to_string()).collect(),
+            browser_menu_hidden_firefox: self.menu_items.iter().filter(|m| !m.3).map(|m| m.0.to_string()).collect(),
             added_browsers: self.browsers.iter().filter(|b| !b.removed).filter_map(|b| b.added.clone()).collect(),
             video_button_excluded_sites: sites(&self.video_button_excluded_sites),
             ffmpeg_path: self.ffmpeg_path.trim().to_string(),
             confirm_remove: self.confirm_remove,
             remove_deletes_files: self.remove_deletes_files,
             server_file_date: self.server_file_date,
+            server_file_date_created: self.server_file_date_created,
             resume_ignores_date: self.resume_ignores_date,
             manual_user_agent: self.manual_user_agent.trim().to_string(),
             temp_dir: optional(&self.temp_dir),
@@ -1416,6 +1449,10 @@ impl OptionsDraft {
             progress_on_start: self.progress_on_start,
             progress_speed_tab: self.progress_speed_tab,
             progress_done_tab: self.progress_done_tab,
+            progress_hide_buttons: self.progress_hide_buttons,
+            progress_start_tab: self.progress_start_tab,
+            progress_start_details: self.progress_start_details,
+            list_queue_panel: self.list_queue_panel,
             schedule_note_hidden: self.schedule_note_hidden,
             grab_add_on_close: self.grab_add_on_close,
             grab_save_unique_silently: self.grab_save_unique_silently,
@@ -1984,7 +2021,8 @@ impl App {
             Action::OpenProgress(id) => {
                 let entry = self.shared.lock().unwrap().table.get(id).cloned();
                 if let Some(e) = entry.filter(|e| e.status != Status::Done && !self.progress_windows.iter().any(|w| w.id == id)) {
-                    self.progress_windows.push(progress::ProgressWindow::new(&e));
+                    let settings = self.shared.lock().unwrap().settings.clone().unwrap_or_default();
+                    self.progress_windows.push(progress::ProgressWindow::new(&e, &settings));
                 }
             }
             Action::HideProgressTab(tab) => {
@@ -2160,7 +2198,8 @@ impl App {
             }
         }
         if let Some(d) = self.batch.as_mut() {
-            if !tools::batch_dialog(ctx, d, &queue_list, connected, actions) {
+            let queue_panel = self.shared.lock().unwrap().settings.as_ref().is_none_or(|s| s.list_queue_panel);
+            if !tools::batch_dialog(ctx, d, &queue_list, queue_panel, connected, actions) {
                 self.batch = None;
             }
         }
@@ -2962,6 +3001,16 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         ui.end_row();
 
         ui.label("");
+        let created = ui.add_enabled(
+            uidm::engine::CAN_SET_CREATION_TIME,
+            egui::Checkbox::new(&mut draft.server_file_date_created, tr("Use the server's date for the file's creation time too")),
+        );
+        created
+            .on_hover_text(tr("Windows and macOS keep a creation time that can be set; Linux does not."))
+            .on_disabled_hover_text(tr("This system keeps no creation time that can be set; Windows and macOS do."));
+        ui.end_row();
+
+        ui.label("");
         ui.checkbox(
             &mut draft.start_with_windows,
             if cfg!(windows) { tr("Start with Windows, in the tray") } else { tr("Start when I sign in, in the tray") },
@@ -2992,7 +3041,26 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
                 .on_hover_text(tr("Double-clicking a download's name opens it at any time"));
             ui.checkbox(&mut draft.progress_speed_tab, tr("Show its Speed limit tab"));
             ui.checkbox(&mut draft.progress_done_tab, tr("Show its When done tab"));
+            ui.checkbox(&mut draft.progress_hide_buttons, tr("Show the Hide tab buttons on those tabs"));
+            ui.horizontal(|ui| {
+                ui.label(tr("Open it on"));
+                egui::ComboBox::from_id_salt("progress_start_tab")
+                    .selected_text(tr(progress_tab_label(draft.progress_start_tab)))
+                    .show_ui(ui, |ui| {
+                        for t in ProgressTab::ALL {
+                            ui.selectable_value(&mut draft.progress_start_tab, t, tr(progress_tab_label(t)));
+                        }
+                    })
+                    .response
+                    .on_hover_text(tr("A hidden tab opens Download status instead"));
+            });
+            ui.checkbox(&mut draft.progress_start_details, tr("Open it with its details shown"));
         });
+        ui.end_row();
+
+        ui.label(tr("Adding many"));
+        ui.checkbox(&mut draft.list_queue_panel, tr("Show the queue panel in the batch download and link list dialogs"))
+            .on_hover_text(tr("Off, their downloads go to the main queue without starting it"));
         ui.end_row();
 
         ui.label("");
@@ -3156,6 +3224,16 @@ fn connection_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                 let v5 = draft.proxy_socks_version == SocksVersion::V5;
                 ui.add_enabled(!v5, egui::Checkbox::new(&mut draft.proxy_remote_dns, tr("The proxy looks up host names (SOCKS4a)")))
                     .on_disabled_hover_text(tr("A SOCKS5 proxy always looks up host names"));
+            });
+        });
+        ui.end_row();
+        ui.label(tr("SOCKS also for"));
+        ui.add_enabled_ui(manual, |ui| {
+            ui.vertical(|ui| {
+                ui.checkbox(&mut draft.proxy_socks_https, tr("https addresses, even with an HTTP or HTTPS proxy set"))
+                    .on_hover_text(tr("So plain http goes through the HTTP proxy and https through SOCKS"));
+                ui.checkbox(&mut draft.proxy_socks_ftp, tr("ftp:// downloads, when no FTP proxy is set"))
+                    .on_hover_text(tr("Data then always uses passive mode, since the server cannot connect back through the proxy"));
             });
         });
         ui.end_row();
@@ -3381,6 +3459,11 @@ fn categories_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
         draft.categories.remove(i);
     }
     ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label(trf!("\"{general}\" file types", general = GENERAL));
+        ui.add_sized([260.0, 20.0], egui::TextEdit::singleline(&mut draft.general_extensions).hint_text(tr("Only what no category takes")))
+            .on_hover_text(tr("These types go to the download folder even when a category lists them"));
+    });
     ui.checkbox(
         &mut draft.general_remember_folder,
         trf!("Save new \"{general}\" files to the folder last chosen for them", general = GENERAL),
@@ -3681,15 +3764,43 @@ fn video_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
         });
         ui.end_row();
 
+        ui.label(tr("Web players"));
+        ui.vertical(|ui| {
+            ui.checkbox(&mut draft.video_auto_capture, tr("Download these types from web players at once, without the video button:"))
+                .on_hover_text(tr("Whole files a page's player loads, each address once per tab; not HLS or DASH streams"));
+            ui.add_enabled(
+                draft.video_auto_capture,
+                egui::TextEdit::singleline(&mut draft.video_auto_types).hint_text("mp4, mp3, flv").desired_width(300.0),
+            );
+        });
+        ui.end_row();
+
         ui.label(tr("Context menu"));
         ui.vertical(|ui| {
             ui.weak(tr("The items UIDM adds to the browser's menu for links, pages and videos"));
-            for (_, label, on) in &mut draft.menu_items {
-                ui.checkbox(on, tr(label));
-            }
+            egui::Grid::new("menu_items").num_columns(3).spacing([12.0, 4.0]).show(ui, |ui| {
+                ui.label("");
+                ui.strong("Chrome, Edge");
+                ui.strong("Firefox");
+                ui.end_row();
+                for (id, label, chromium, firefox) in &mut draft.menu_items {
+                    ui.label(tr(label));
+                    ui.checkbox(chromium, "").on_hover_text(tr("Chrome, Edge and other Chromium browsers"));
+                    ui.push_id(*id, |ui| ui.checkbox(firefox, ""));
+                    ui.end_row();
+                }
+            });
         });
         ui.end_row();
     });
+}
+
+fn progress_tab_label(t: ProgressTab) -> &'static str {
+    match t {
+        ProgressTab::Status => "Download status",
+        ProgressTab::SpeedLimit => "Speed limit",
+        ProgressTab::WhenDone => "When done",
+    }
 }
 
 fn selection_label(b: SelectionButton) -> &'static str {
@@ -3701,13 +3812,14 @@ fn selection_label(b: SelectionButton) -> &'static str {
 }
 
 /// A box for each key of a combination; none ticked turns it off. Only
-/// forcing offers Insert.
+/// forcing offers Insert and Del, which are no modifiers.
 fn key_boxes(ui: &mut egui::Ui, key: &mut CaptureKey, insert: bool) {
     ui.checkbox(&mut key.ctrl, "Ctrl");
     ui.checkbox(&mut key.alt, "Alt");
     ui.checkbox(&mut key.shift, "Shift");
     if insert {
         ui.checkbox(&mut key.insert, "Insert");
+        ui.checkbox(&mut key.delete, "Del");
     }
 }
 
@@ -4279,6 +4391,7 @@ impl eframe::App for App {
         let tabs = progress::Tabs {
             speed_limit: settings.as_ref().is_none_or(|s| s.progress_speed_tab),
             on_done: settings.as_ref().is_none_or(|s| s.progress_done_tab),
+            hide_buttons: settings.as_ref().is_none_or(|s| s.progress_hide_buttons),
         };
         self.progress_windows.retain_mut(|w| {
             let entry = rows.iter().find(|e| e.id == w.id);

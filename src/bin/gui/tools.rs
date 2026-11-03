@@ -193,10 +193,13 @@ fn wildcard_controls(ui: &mut egui::Ui, d: &mut BatchDialog) {
 }
 
 /// Draw the Batch dialog. Returns false once it is closed.
+/// `queue_panel` shows the queue picker; Options can hide it, and the
+/// downloads then go to the main queue without starting it.
 pub fn batch_dialog(
     ctx: &egui::Context,
     d: &mut BatchDialog,
     queues: &[Queue],
+    queue_panel: bool,
     connected: bool,
     actions: &mut Vec<Action>,
 ) -> bool {
@@ -313,12 +316,14 @@ pub fn batch_dialog(
 
             ui.add_space(6.0);
             egui::Grid::new("batch_target").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                ui.label(tr("Queue"));
-                ui.horizontal(|ui| {
-                    queue_combo(ui, "batch_queue", &mut d.queue, queues);
-                    ui.checkbox(&mut d.start, tr("Start the queue now"));
-                });
-                ui.end_row();
+                if queue_panel {
+                    ui.label(tr("Queue"));
+                    ui.horizontal(|ui| {
+                        queue_combo(ui, "batch_queue", &mut d.queue, queues);
+                        ui.checkbox(&mut d.start, tr("Start the queue now"));
+                    });
+                    ui.end_row();
+                }
                 if d.source != Source::Imported {
                     ui.label(tr("Save to"));
                     ui.horizontal(|ui| {

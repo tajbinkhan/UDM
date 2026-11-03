@@ -2469,6 +2469,7 @@ impl Daemon {
         req.file_exists = FileExists::Overwrite;
         req.temp_dir = None;
         req.server_date = false;
+        req.server_date_created = false;
         let shadow = self.engine.reserve_id();
         self.hub.early.lock().unwrap().insert(
             shadow,
@@ -3186,6 +3187,8 @@ impl Daemon {
                     http_login: proxy_login(&s.proxy_username, ProxyKind::Http),
                     https_login,
                     socks_login: proxy_login(&s.proxy_socks_username, ProxyKind::Socks),
+                    socks_for_https: s.proxy_socks_https,
+                    socks_for_ftp: s.proxy_socks_ftp,
                     pac: None,
                 })
             }
@@ -4545,6 +4548,51 @@ mod tests {
         assert_eq!(through(&after).as_deref(), Some("http://bp:3128"), "once it failed");
         // A download that never failed is not retried through it.
         assert!(!t.daemon.retry_through_browser_proxy(999, &after));
+    }
+
+    #[test]
+    fn the_browser_changes_only_the_video_button() {
+        let t = setup("browser_settings", Duplicate::NewName);
+        let asked = Settings {
+            video_button: false,
+            video_button_excluded_sites: vec!["v.net".into()],
+            video_auto_capture: true,
+            browser_menu_hidden_firefox: vec!["download".into()],
+            capture_force_key: settings::CaptureKey { delete: true, ..settings::CaptureKey::NONE },
+            ..Settings::default()
+        };
+        let kept = t.daemon.with_video_button(&asked);
+        assert!(!kept.video_button);
+        assert_eq!(kept.video_button_excluded_sites, ["v.net"]);
+        assert!(!kept.video_auto_capture, "web players' files are the window's to turn on");
+        assert!(kept.browser_menu_hidden_firefox.is_empty());
+        assert_eq!(kept.capture_force_key, settings::CaptureKey::CTRL);
+    }
+
+    #[test]
+    fn manual_socks_can_carry_https_and_ftp() {
+        let t = setup("socks_schemes", Duplicate::NewName);
+        let s = Settings {
+            proxy_mode: ProxyMode::Manual,
+            proxy_http: "web:8080".into(),
+            proxy_socks5: "sock:1080".into(),
+            proxy_socks_https: true,
+            ..Settings::default()
+        };
+        let net = |url: &str, s: &Settings| t.daemon.net_for(&Download { url: url.into(), ..Download::default() }, s);
+        let via = |url: &str, s: &Settings| net(url, s).proxy.and_then(|p| p.proxy_for(url));
+        assert_eq!(via("http://x.net/a.zip", &s).as_deref(), Some("http://web:8080"));
+        assert_eq!(via("https://x.net/a.zip", &s).as_deref(), Some("socks5://sock:1080"));
+        let off = Settings { proxy_socks_https: false, ..s.clone() };
+        assert_eq!(via("https://x.net/a.zip", &off).as_deref(), Some("http://web:8080"), "an empty HTTPS proxy is the HTTP one");
+
+        // ftp:// takes the SOCKS proxy (on by default) unless an FTP proxy
+        // is set, or it is turned off.
+        let ftp = |s: &Settings| net("ftp://x.net/a.zip", s).proxy.and_then(|p| p.socks_for_ftp("ftp://x.net/a.zip"));
+        assert_eq!(ftp(&s).map(|p| p.addr).as_deref(), Some("sock:1080"));
+        assert_eq!(ftp(&Settings { proxy_socks_ftp: false, ..s.clone() }), None);
+        let with_ftp_proxy = Settings { proxy_ftp: "ftpproxy:21".into(), ..s.clone() };
+        assert_eq!(net("ftp://x.net/a.zip", &with_ftp_proxy).ftp_proxy.as_deref(), Some("ftpproxy:21"));
     }
 
     #[test]

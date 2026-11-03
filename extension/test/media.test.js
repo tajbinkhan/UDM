@@ -4,8 +4,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
+const { autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
 const { loadWorker } = require("./harness.js");
+const { hiddenMenuItems } = require("../rules.js");
 
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
 const response = (url, type, extra = {}) => ({
@@ -398,4 +399,62 @@ test("a whole file's type comes from what UIDM found in it", () => {
   same(mediaMenu([entry], new Map()).map((i) => i.label), ["TS video"]);
   assert.equal(adoptFile({ kind: "hls" }, { file: { ext: "exe" } }), false);
   assert.equal(adoptFile({ kind: "hls" }, { video: [] }), false);
+});
+
+test("Chromium browsers and Firefox each have their own context menu list", () => {
+  const rules = { browser_menu_hidden_chromium: ["all_links"], browser_menu_hidden_firefox: ["recent_videos", "download"] };
+  same(hiddenMenuItems(rules, false), ["all_links"]);
+  same(hiddenMenuItems(rules, true), ["recent_videos", "download"]);
+  // An older UIDM's one list serves both.
+  same(hiddenMenuItems({ browser_menu_hidden: ["last_video"] }, true), ["last_video"]);
+  same(hiddenMenuItems(null, false), []);
+
+  const lists = { browser_menu_hidden_chromium: ["all_links"], browser_menu_hidden_firefox: ["download"] };
+  const menu = (w) => [...w.chrome.contextMenus.items.keys()];
+  const chrome = loadWorker();
+  chrome.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  chrome.port.onMessage.fire({ op: "settings", settings: lists });
+  assert.ok(!menu(chrome).includes("uidm-all-links") && menu(chrome).includes("uidm-link"));
+  const firefox = loadWorker({ firefox: true });
+  firefox.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  firefox.port.onMessage.fire({ op: "settings", settings: lists });
+  assert.ok(menu(firefox).includes("uidm-all-links") && !menu(firefox).includes("uidm-link"));
+});
+
+test("web players' files of the listed types go to UIDM without the video button", async () => {
+  const rules = { video_auto_capture: true, video_auto_types: ["mp4", "mp3"], capture_excluded_sites: ["blocked.net"] };
+  const player = (url, type, extra = {}) => ({ type: "media", ...response(url, type, extra) });
+  assert.equal(autoCaptureMedia(player("https://v.net/a.mp4", "video/mp4"), rules), true);
+  assert.equal(autoCaptureMedia(player("https://v.net/song", "audio/mpeg"), rules), true, "the type from the MIME type");
+  assert.equal(autoCaptureMedia(player("https://v.net/a.webm", "video/webm"), rules), false, "not a listed type");
+  assert.equal(autoCaptureMedia(player("https://v.net/clip", "video/x-unknown"), rules), false, "an unknown type");
+  assert.equal(autoCaptureMedia(player("https://v.net/a.m3u8", "application/vnd.apple.mpegurl"), { ...rules, video_auto_types: ["m3u8"] }), false, "no streams");
+  assert.equal(autoCaptureMedia(player("https://v.net/s.ts", "video/mp2t"), rules), false, "no segments");
+  assert.equal(autoCaptureMedia({ ...player("https://v.net/a.mp4", "video/mp4"), type: "xmlhttprequest" }, rules), false, "a script's fetch");
+  assert.equal(autoCaptureMedia(player("https://blocked.net/a.mp4", "video/mp4"), rules), false, "an excluded site");
+  assert.equal(autoCaptureMedia(player("https://v.net/a.mp4", "video/mp4"), { ...rules, video_auto_capture: false }), false, "off");
+  assert.equal(autoCaptureMedia(player("https://v.net/a.mp4", "video/mp4"), rules, new Set(["https://v.net/a.mp4"])), false, "once");
+
+  const w = connected(rules);
+  const play = (tabId, url) =>
+    w.chrome.webRequest.onHeadersReceived.fire({ tabId, initiator: "https://v.net", ...player(url, "video/mp4", { headers: { "Content-Length": "9000000" } }) });
+  const adds = () => w.sent.filter((m) => m.op === "add").map((m) => m.url);
+  await play(3, "https://v.net/a.mp4");
+  await tick();
+  await play(3, "https://v.net/a.mp4");
+  await tick();
+  same(adds(), ["https://v.net/a.mp4"]);
+  assert.equal(w.sent.filter((m) => m.op === "add")[0].referrer, "https://v.net");
+  // Another tab, or the same tab on a new page, takes it again.
+  await play(4, "https://v.net/a.mp4");
+  await w.chrome.webRequest.onBeforeRequest.fire({ tabId: 3, type: "main_frame", url: "https://v.net/next" });
+  await play(3, "https://v.net/a.mp4");
+  await tick();
+  assert.equal(adds().length, 3);
+
+  // Off by default.
+  const plain = connected();
+  await plain.chrome.webRequest.onHeadersReceived.fire({ tabId: 3, ...player("https://v.net/a.mp4", "video/mp4") });
+  await tick();
+  assert.equal(plain.sent.filter((m) => m.op === "add").length, 0);
 });

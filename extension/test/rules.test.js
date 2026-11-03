@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { extensionOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed } = require("../rules.js");
+const { extensionOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed } = require("../rules.js");
 
 const RULES = {
   capture_types: ["zip", "pdf", "exe", "mp4"],
@@ -173,6 +173,20 @@ test("the force key can leave pages, pictures and scripts alone", () => {
   assert.ok(!forceLeavesLink({ capture_force_skips_pages: false }, "https://a.net/a.html"));
 });
 
+test("Insert and Del are followed while held and forgotten on blur", () => {
+  const held = { insert: false, del: false };
+  trackKey(held, "keydown", "Delete");
+  assert.deepEqual(held, { insert: false, del: true });
+  trackKey(held, "keydown", "Insert");
+  trackKey(held, "keyup", "Delete");
+  assert.deepEqual(held, { insert: true, del: false });
+  trackKey(held, "keydown", "Delete");
+  trackKey(held, "keydown", "a");
+  assert.deepEqual(held, { insert: true, del: true }, "other keys change nothing");
+  trackKey(held, "blur");
+  assert.deepEqual(held, { insert: false, del: false });
+});
+
 test("held keys skip or force capture", () => {
   const keys = { capture_skip_key: "alt", capture_force_key: "ctrl" };
   assert.equal(keyAction(keys, { alt: true }), "skip");
@@ -187,8 +201,16 @@ test("held keys skip or force capture", () => {
   assert.equal(keyAction(combos, { alt: true }), "");
   assert.equal(keyAction(combos, { ctrl: true, insert: true }), "force");
   assert.equal(keyAction(combos, { ctrl: true }), "");
-  assert.deepEqual(parseKeys("Shift+ctrl"), { alt: false, ctrl: true, shift: true, insert: false });
-  assert.deepEqual(parseKeys(undefined), { alt: false, ctrl: false, shift: false, insert: false });
+  assert.deepEqual(parseKeys("Shift+ctrl"), { alt: false, ctrl: true, shift: true, insert: false, del: false });
+  assert.deepEqual(parseKeys(undefined), { alt: false, ctrl: false, shift: false, insert: false, del: false });
+
+  // Del can force capture too, alone or with modifiers.
+  const del = { capture_skip_key: "alt", capture_force_key: "del" };
+  assert.equal(keyAction(del, { del: true }), "force");
+  assert.equal(keyAction(del, { del: true, ctrl: true }), "", "held exactly");
+  assert.equal(keyAction(del, { insert: true }), "");
+  assert.equal(keyAction({ capture_force_key: "ctrl+delete" }, { ctrl: true, del: true }), "force");
+  assert.deepEqual(parseKeys("ctrl+del"), { alt: false, ctrl: true, shift: false, insert: false, del: true });
 
   const left = { ...keys, capture_keys_left_click: true };
   assert.equal(keyAction(left, { alt: true, button: 0, mouse: true }), "skip");

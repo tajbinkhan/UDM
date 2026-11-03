@@ -242,12 +242,17 @@ tests, not in a running Firefox.
   skipped unless the setting adds them with a new name or replaces stopped
   ones, and taken names follow the setting. A scheduled grabber run never
   asks. The name checked is the one the address gives; a server that names
-  the file otherwise is still asked about in the save-as dialog.
+  the file otherwise is still asked about in the save-as dialog. **Options >
+  General > Adding many** can hide the queue panel of **Add many** and the
+  link picker; their downloads then go to the main queue without starting
+  it.
 - **Categories** sort downloads by file type into their own folders:
   Compressed, Documents, Music, Programs and Video go into folders of those
   names inside the download folder, and everything else (**General**) goes
   into the download folder itself. The window's sidebar filters the list by
   category. Options edits the categories, their file types and folders.
+  General has a type list of its own too, empty at first: a type listed
+  there is General's even when a category lists it.
 - **Queues** hold downloads to run later. **Later** (next to Download), the
   save-as dialog's **Download later**, and the browser's **Download later
   with UIDM** menu item add a download to a queue without opening a
@@ -314,8 +319,10 @@ tests, not in a running Firefox.
   or shut down (after the same 60-second countdown a queue uses). It runs
   once, after the virus scan, and not for a download that fails.
   **Options > General** can open the window whenever a download starts and
-  hide either tab (as can its **Hide tab** button). The window closes when
-  the download finishes.
+  hide either tab (as can its **Hide tab** button), hide the **Hide tab**
+  buttons themselves, and choose the tab the window opens on and whether it
+  opens with its details shown. The window closes when the download
+  finishes.
 - **When a download ends**, UIDM shows a Windows notification: **Open** and
   **Show in folder** for a finished file, **Retry** for a failed one. Options
   can show an IDM-style dialog in the window instead (a notification still
@@ -342,7 +349,9 @@ tests, not in a running Firefox.
 - **Proxies and site logins** (Options, **Connection**): no proxy, the
   Windows proxy setting, or HTTP, HTTPS, FTP and SOCKS proxies, each with
   its own optional user name and password; **Get System** fills them in from
-  the Windows setting. The SOCKS proxy carries what has no proxy of its own.
+  the Windows setting. The SOCKS proxy carries what has no proxy of its own,
+  `ftp://` downloads too when no FTP proxy is set, and can carry every
+  `https://` address while plain `http://` goes through the HTTP proxy.
   Downloads from the browser can use the browser's proxy, always or only to
   retry one that failed. Site logins pair a site with a user name and
   password; a site can name one of its folders, such as
@@ -375,12 +384,18 @@ tests, not in a running Firefox.
   and **Add**; M3U8 and MPD stand for streams), the smallest file it lists
   (128 KB by default), a full or mini look for it and for the button by
   selected links, and whether it shows on protected videos to say so.
+  **Web players** (off by default) hands a web player's media of the listed
+  types (MP4, M4V, WebM, FLV, MP3 and M4A at first) to UIDM as soon as the
+  page's `<video>` or `<audio>` loads it, without the button, as IDM's
+  "automatically start downloading from web players" does: only whole
+  files, not HLS or DASH streams, and each address once per tab.
 - **Context menu**: the extension adds **Download with UIDM**, **Download
   later with UIDM**, **Download all links**, **Download selected links**,
   **Download the last video with UIDM** (the video or audio the browser
   loaded last, in any tab, in its best quality) and **Recent videos**, a
   submenu of the last 10. **Options > Videos and menus** chooses which of
-  them show.
+  them show, apart for Chromium browsers (Chrome, Edge and the like) and
+  Firefox; the extension knows Firefox by its `moz-extension://` pages.
 - **More > Add many...** adds downloads from a pattern such as
   `https://example.com/photo[001-120].jpg` (with steps like `[0-100:5]` and
   letter ranges like `[a-z]`), or from a pasted list or a text file with one
@@ -627,7 +642,7 @@ It takes a download from the browser only when all of these hold:
 
 Holding the force keys (Ctrl by default) while clicking a link sends it to
 UIDM whatever the rules say, instead of opening it. Each is any mix of Ctrl,
-Alt and Shift, plus Insert for forcing, set in **Options > Browser capture**,
+Alt and Shift, plus Insert or Del for forcing, set in **Options > Browser capture**,
 and must be held exactly: Alt+Shift is not Alt. They work with a left or
 middle click and with Enter on a link, or with the option set only with a
 left click. By default the force keys leave links to web pages, pictures and
@@ -708,6 +723,11 @@ Given an `add`, the engine:
    request; for them, **Options > General > Ignore file modification time
    changes when resuming** drops the date check, keeping the size and ETag
    checks.
+   **Give finished files the date the server reports** sets a finished
+   file's modified time to the server's Last-Modified date, and **Use the
+   server's date for the file's creation time too** sets its creation time
+   as well. Only Windows and macOS keep a creation time that can be set;
+   on Linux that option is greyed out.
 4. Retries a segment that fails with exponential backoff (400 ms doubling to a
    10 s ceiling, up to 5 times), resuming from that segment's own cursor.
 
@@ -1009,9 +1029,14 @@ with `ftp=`; Windows' SOCKS proxy speaks SOCKS4. The
 manual HTTPS proxy is the proxy for `https://` URLs (an HTTP proxy reached
 with `CONNECT`; empty means the HTTP one, with its login). A SOCKS4 or
 SOCKS5 proxy carries the `http://` and `https://` URLs that have no proxy of
-their own. `ftp://` downloads go only through the FTP proxy: UIDM logs in to
-it first with its own login, when it has one (`USER`, `PASS`), then as
-`user@host`.
+their own, and with `proxy_socks_https` every `https://` URL even when an
+HTTP or HTTPS proxy is set. `ftp://` downloads go through the FTP proxy:
+UIDM logs in to it first with its own login, when it has one (`USER`,
+`PASS`), then as `user@host`. Without an FTP proxy they go through the SOCKS
+proxy (`proxy_socks_ftp`, on by default): UIDM opens both the control and
+the data connections with a SOCKS CONNECT itself (SOCKS4, SOCKS4a or SOCKS5,
+with the SOCKS login), and always in passive mode, since the server cannot
+connect back through the proxy.
 ureq sends proxy credentials only when it tunnels `https://` requests, so
 for plain `http://` requests through a proxy with a login UIDM adds
 `Proxy-Authorization` itself and follows redirects itself, adding it only on

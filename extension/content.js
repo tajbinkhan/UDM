@@ -50,11 +50,12 @@ function makeMini(button) {
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.captureKeys && changes.captureKeys.newValue) keys = changes.captureKeys.newValue;
   });
-  // Insert is no modifier, so whether it is down is followed by hand.
-  let insert = false;
-  addEventListener("keydown", (ev) => ev.key === "Insert" && (insert = true), true);
-  addEventListener("keyup", (ev) => ev.key === "Insert" && (insert = false), true);
-  addEventListener("blur", () => (insert = false));
+  // Insert and Del are no modifiers, so whether they are down is followed
+  // by hand (trackKey, in rules.js).
+  const held = { insert: false, del: false };
+  addEventListener("keydown", (ev) => trackKey(held, "keydown", ev.key), true);
+  addEventListener("keyup", (ev) => trackKey(held, "keyup", ev.key), true);
+  addEventListener("blur", () => trackKey(held, "blur"));
 
   function onClick(ev) {
     // A page's script can send a click with the force key "held"; only the
@@ -66,7 +67,8 @@ function makeMini(button) {
       alt: ev.altKey,
       ctrl: ev.ctrlKey,
       shift: ev.shiftKey,
-      insert,
+      insert: held.insert,
+      del: held.del,
       button: ev.button,
       // A click made with Enter has a detail of 0.
       mouse: ev.detail > 0,

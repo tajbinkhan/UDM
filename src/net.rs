@@ -146,6 +146,12 @@ pub struct ProxyRules {
     pub http_login: ProxyLogin,
     pub https_login: ProxyLogin,
     pub socks_login: ProxyLogin,
+    /// https URLs go through the SOCKS proxy even when an HTTP or HTTPS
+    /// proxy is set, so plain http can use a filtering web proxy while
+    /// https, which it cannot read anyway, goes through SOCKS.
+    pub socks_for_https: bool,
+    /// ftp:// URLs go through the SOCKS proxy when no FTP proxy is set.
+    pub socks_for_ftp: bool,
     /// A proxy auto-config script that picks the proxy per URL. When it
     /// cannot be found or run, the proxies above apply.
     pub pac: Option<crate::pac::PacSource>,
@@ -208,10 +214,13 @@ impl ProxyRules {
     }
 
     /// The fixed proxy for `url` as its scheme, `host:port` and login: the
-    /// proxy for the URL's own scheme, else the SOCKS proxy.
+    /// proxy for the URL's own scheme, else the SOCKS proxy. With
+    /// `socks_for_https`, https URLs take the SOCKS proxy first.
     fn fixed_for(&self, url: &str) -> Option<(&str, &str, &ProxyLogin)> {
         let https = url.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://"));
-        let own = if https {
+        let own = if https && self.socks_for_https && self.socks.is_some() {
+            None
+        } else if https {
             self.https.as_deref().map(|a| (a, &self.https_login))
         } else {
             self.http.as_deref().map(|a| (a, &self.http_login))
@@ -222,6 +231,16 @@ impl ProxyRules {
         let socks = self.socks.as_deref()?;
         let (scheme, addr) = socks.split_once("://").unwrap_or(("socks5", socks));
         Some((scheme, addr, &self.socks_login))
+    }
+
+    /// The SOCKS proxy an ftp:// `url` goes through: with `socks_for_ftp`,
+    /// when its host is not bypassed and no configuration script is set
+    /// (scripts answer for web addresses).
+    pub fn socks_for_ftp(&self, url: &str) -> Option<SocksProxy> {
+        if !self.socks_for_ftp || self.pac.is_some() || self.bypassed(&host_of(url)) {
+            return None;
+        }
+        SocksProxy::parse(self.socks.as_deref()?, &self.socks_login)
     }
 
     fn bypassed(&self, host: &str) -> bool {
@@ -235,6 +254,162 @@ impl ProxyRules {
                 !b.is_empty() && b == host
             }
         })
+    }
+}
+
+/// A SOCKS proxy that UIDM speaks to itself, for the FTP connections ureq
+/// does not make.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SocksProxy {
+    /// `host:port` of the proxy.
+    pub addr: String,
+    pub v5: bool,
+    /// The proxy looks up host names (SOCKS5 and SOCKS4a); otherwise they
+    /// are looked up here and sent as an IPv4 address (SOCKS4).
+    pub remote_dns: bool,
+    pub login: ProxyLogin,
+}
+
+impl SocksProxy {
+    /// From `socks5://host:port` (or `socks4://`, `socks4a://`; no scheme is
+    /// SOCKS5) and its login.
+    pub fn parse(proxy: &str, login: &ProxyLogin) -> Option<SocksProxy> {
+        let (scheme, addr) = proxy.split_once("://").unwrap_or(("socks5", proxy));
+        let (v5, remote_dns) = match scheme.to_ascii_lowercase().as_str() {
+            "socks5" | "socks5h" | "socks" => (true, true),
+            "socks4a" => (false, true),
+            "socks4" => (false, false),
+            _ => return None,
+        };
+        // A login in the address itself (`user:pw@host:port`) is dropped;
+        // the separate one counts.
+        let addr = addr.rsplit_once('@').map_or(addr, |(_, a)| a).trim_end_matches('/');
+        (!addr.is_empty()).then(|| SocksProxy { addr: addr.to_string(), v5, remote_dns, login: login.clone() })
+    }
+
+    /// Open a connection to `host:port` through the proxy (a SOCKS CONNECT).
+    pub fn connect(&self, host: &str, port: u16, timeout: std::time::Duration) -> io::Result<std::net::TcpStream> {
+        use std::io::{Read, Write};
+        use std::net::{IpAddr, TcpStream, ToSocketAddrs};
+        let fail = |m: String| io::Error::other(format!("the SOCKS proxy {}: {m}", self.addr));
+        let proxy = self
+            .addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| fail("could not be found".into()))?;
+        let mut s = TcpStream::connect_timeout(&proxy, timeout)?;
+        s.set_read_timeout(Some(timeout))?;
+        s.set_write_timeout(Some(timeout))?;
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        if self.v5 {
+            let login = !self.login.is_empty();
+            s.write_all(if login { &[5, 2, 0, 2] } else { &[5, 1, 0] })?;
+            let mut choice = [0u8; 2];
+            s.read_exact(&mut choice)?;
+            match choice {
+                [5, 0] => {}
+                [5, 2] if login => {
+                    let (u, p) = (self.login.username.as_bytes(), self.login.password.as_bytes());
+                    if u.len() > 255 || p.len() > 255 {
+                        return Err(fail("the user name or password is too long".into()));
+                    }
+                    let mut auth = vec![1, u.len() as u8];
+                    auth.extend_from_slice(u);
+                    auth.push(p.len() as u8);
+                    auth.extend_from_slice(p);
+                    s.write_all(&auth)?;
+                    let mut answer = [0u8; 2];
+                    s.read_exact(&mut answer)?;
+                    if answer[1] != 0 {
+                        return Err(fail("refused the login".into()));
+                    }
+                }
+                [5, 0xff] => return Err(fail("wants a login".into())),
+                _ => return Err(fail("did not answer as SOCKS5".into())),
+            }
+            let mut req = vec![5, 1, 0];
+            match host.parse::<IpAddr>() {
+                Ok(IpAddr::V4(ip)) => {
+                    req.push(1);
+                    req.extend_from_slice(&ip.octets());
+                }
+                Ok(IpAddr::V6(ip)) => {
+                    req.push(4);
+                    req.extend_from_slice(&ip.octets());
+                }
+                Err(_) => {
+                    if host.len() > 255 {
+                        return Err(fail("the host name is too long".into()));
+                    }
+                    req.push(3);
+                    req.push(host.len() as u8);
+                    req.extend_from_slice(host.as_bytes());
+                }
+            }
+            req.extend_from_slice(&port.to_be_bytes());
+            s.write_all(&req)?;
+            let mut head = [0u8; 4];
+            s.read_exact(&mut head)?;
+            if head[1] != 0 {
+                return Err(fail(format!("could not reach {host}:{port} (error {})", head[1])));
+            }
+            // The address it bound, which is not needed.
+            let rest = match head[3] {
+                1 => 4,
+                4 => 16,
+                3 => {
+                    let mut n = [0u8; 1];
+                    s.read_exact(&mut n)?;
+                    n[0] as usize
+                }
+                _ => return Err(fail("gave an unknown address type".into())),
+            };
+            let mut skip = vec![0u8; rest + 2];
+            s.read_exact(&mut skip)?;
+        } else {
+            let user = self.login.username.as_bytes();
+            let mut req = vec![4, 1];
+            req.extend_from_slice(&port.to_be_bytes());
+            let ip = host.parse::<std::net::Ipv4Addr>().ok();
+            let name = match ip {
+                Some(ip) => {
+                    req.extend_from_slice(&ip.octets());
+                    None
+                }
+                // SOCKS4a: an address 0.0.0.x asks the proxy to look the
+                // name up.
+                None if self.remote_dns => {
+                    req.extend_from_slice(&[0, 0, 0, 1]);
+                    Some(host)
+                }
+                None => {
+                    let ip = (host, port)
+                        .to_socket_addrs()?
+                        .find_map(|a| match a.ip() {
+                            IpAddr::V4(ip) => Some(ip),
+                            IpAddr::V6(_) => None,
+                        })
+                        .ok_or_else(|| fail(format!("SOCKS4 needs an IPv4 address, and {host} has none")))?;
+                    req.extend_from_slice(&ip.octets());
+                    None
+                }
+            };
+            req.extend_from_slice(user);
+            req.push(0);
+            if let Some(name) = name {
+                req.extend_from_slice(name.as_bytes());
+                req.push(0);
+            }
+            s.write_all(&req)?;
+            let mut answer = [0u8; 8];
+            s.read_exact(&mut answer)?;
+            if answer[1] != 0x5a {
+                return Err(fail(format!("could not reach {host}:{port} (error {})", answer[1])));
+            }
+        }
+        s.set_read_timeout(None)?;
+        s.set_write_timeout(None)?;
+        Ok(s)
     }
 }
 
@@ -839,6 +1014,8 @@ mod tests {
             http_login: ProxyLogin::new("me@corp", "p:w/d"),
             https_login: ProxyLogin::new("tls", "pw"),
             socks_login: ProxyLogin::default(),
+            socks_for_https: false,
+            socks_for_ftp: false,
             pac: None,
         };
         assert_eq!(rules.proxy_for("http://a.com/f").as_deref(), Some("http://me%40corp:p%3Aw%2Fd@proxy:3128"));
@@ -879,6 +1056,81 @@ mod tests {
             ..rules
         };
         assert_eq!(no_login.login_for("https://a.com/"), None);
+    }
+
+    #[test]
+    fn https_can_take_socks_while_http_takes_the_web_proxy() {
+        let rules = ProxyRules {
+            http: Some("web:8080".into()),
+            https: Some("web:8080".into()),
+            socks: Some("socks5://s:1080".into()),
+            socks_for_https: true,
+            ..ProxyRules::default()
+        };
+        assert_eq!(rules.proxy_for("http://a.com/").as_deref(), Some("http://web:8080"));
+        assert_eq!(rules.proxy_for("https://a.com/").as_deref(), Some("socks5://s:1080"));
+        let off = ProxyRules { socks_for_https: false, ..rules.clone() };
+        assert_eq!(off.proxy_for("https://a.com/").as_deref(), Some("http://web:8080"));
+        // Without a SOCKS proxy, the setting changes nothing.
+        let no_socks = ProxyRules { socks: None, ..rules };
+        assert_eq!(no_socks.proxy_for("https://a.com/").as_deref(), Some("http://web:8080"));
+    }
+
+    #[test]
+    fn ftp_takes_socks_only_when_asked() {
+        let rules = ProxyRules {
+            socks: Some("socks4a://s:1080".into()),
+            socks_login: ProxyLogin::new("me", "pw"),
+            bypass: parse_bypass("<local>"),
+            ..ProxyRules::default()
+        };
+        assert_eq!(rules.socks_for_ftp("ftp://f.net/a"), None);
+        let rules = ProxyRules { socks_for_ftp: true, ..rules };
+        let socks = rules.socks_for_ftp("ftp://f.net/a").unwrap();
+        assert_eq!((socks.addr.as_str(), socks.v5, socks.remote_dns), ("s:1080", false, true));
+        assert_eq!(socks.login.username, "me");
+        assert_eq!(rules.socks_for_ftp("ftp://intranet/a"), None, "bypassed");
+        assert_eq!(SocksProxy::parse("http://x:1", &ProxyLogin::default()), None);
+        assert!(SocksProxy::parse("x:1", &ProxyLogin::default()).unwrap().v5);
+    }
+
+    #[test]
+    fn socks_connects_through_versions_4_4a_and_5() {
+        use std::io::{Read, Write};
+        let target = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = target.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for mut s in target.incoming().flatten() {
+                let _ = s.write_all(b"hello");
+            }
+        });
+        let timeout = std::time::Duration::from_secs(5);
+        let read = |mut s: std::net::TcpStream| {
+            let mut text = String::new();
+            s.read_to_string(&mut text).unwrap();
+            text
+        };
+        let cases = [
+            ("socks5", ProxyLogin::new("ann", "pw")),
+            ("socks5", ProxyLogin::default()),
+            ("socks4a", ProxyLogin::new("ann", "")),
+            ("socks4", ProxyLogin::default()),
+        ];
+        for (scheme, login) in cases {
+            let wants_login = scheme == "socks5" && !login.is_empty();
+            let server = socks_server::start(wants_login.then_some("ann:pw"));
+            let proxy = SocksProxy::parse(&format!("{scheme}://{}", server.addr), &login).unwrap();
+            let s = proxy.connect("localhost", port, timeout).unwrap_or_else(|e| panic!("{scheme}: {e}"));
+            assert_eq!(read(s), "hello", "{scheme}");
+            let seen = server.targets.lock().unwrap().clone();
+            let want = if scheme == "socks4" { format!("127.0.0.1:{port}") } else { format!("localhost:{port}") };
+            assert_eq!(seen, [want], "{scheme}");
+        }
+        // A wrong password is refused.
+        let server = socks_server::start(Some("ann:pw"));
+        let proxy = SocksProxy::parse(&format!("socks5://{}", server.addr), &ProxyLogin::new("ann", "no")).unwrap();
+        let e = proxy.connect("localhost", port, timeout).unwrap_err();
+        assert!(e.to_string().contains("refused the login"), "{e}");
     }
 
     #[test]
@@ -1031,5 +1283,122 @@ mod tests {
         save_proxy_password(&path, "").unwrap();
         assert!(!path.exists());
         assert_eq!(load_proxy_password(&path), "");
+    }
+}
+
+/// A tiny SOCKS4/4a/5 proxy for tests: it relays each CONNECT to its target
+/// and keeps the targets asked for, as `host:port`.
+#[cfg(test)]
+pub(crate) mod socks_server {
+    use std::io::{Read, Write};
+    use std::net::{Shutdown, TcpListener, TcpStream};
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    pub struct SocksServer {
+        pub addr: String,
+        pub targets: Arc<Mutex<Vec<String>>>,
+    }
+
+    /// With `login` (`user:password`), SOCKS5 clients must log in with it.
+    pub fn start(login: Option<&'static str>) -> SocksServer {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let targets = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&targets);
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let seen = Arc::clone(&seen);
+                thread::spawn(move || {
+                    let _ = session(stream, login, &seen);
+                });
+            }
+        });
+        SocksServer { addr, targets }
+    }
+
+    fn byte(s: &mut TcpStream) -> std::io::Result<u8> {
+        let mut b = [0u8; 1];
+        s.read_exact(&mut b)?;
+        Ok(b[0])
+    }
+
+    fn until_nul(s: &mut TcpStream) -> std::io::Result<String> {
+        let mut out = Vec::new();
+        loop {
+            match byte(s)? {
+                0 => return Ok(String::from_utf8_lossy(&out).into_owned()),
+                b => out.push(b),
+            }
+        }
+    }
+
+    fn session(mut c: TcpStream, login: Option<&str>, seen: &Mutex<Vec<String>>) -> std::io::Result<()> {
+        let target = match byte(&mut c)? {
+            5 => {
+                let n = byte(&mut c)? as usize;
+                let mut methods = vec![0u8; n];
+                c.read_exact(&mut methods)?;
+                if let Some(login) = login {
+                    if !methods.contains(&2) {
+                        return c.write_all(&[5, 0xff]);
+                    }
+                    c.write_all(&[5, 2])?;
+                    byte(&mut c)?;
+                    let mut u = vec![0u8; byte(&mut c)? as usize];
+                    c.read_exact(&mut u)?;
+                    let mut p = vec![0u8; byte(&mut c)? as usize];
+                    c.read_exact(&mut p)?;
+                    let given = format!("{}:{}", String::from_utf8_lossy(&u), String::from_utf8_lossy(&p));
+                    if given != login {
+                        return c.write_all(&[1, 1]);
+                    }
+                    c.write_all(&[1, 0])?;
+                } else {
+                    c.write_all(&[5, 0])?;
+                }
+                let mut head = [0u8; 4];
+                c.read_exact(&mut head)?;
+                let host = match head[3] {
+                    1 => {
+                        let mut ip = [0u8; 4];
+                        c.read_exact(&mut ip)?;
+                        std::net::Ipv4Addr::from(ip).to_string()
+                    }
+                    3 => {
+                        let mut name = vec![0u8; byte(&mut c)? as usize];
+                        c.read_exact(&mut name)?;
+                        String::from_utf8_lossy(&name).into_owned()
+                    }
+                    _ => return Ok(()),
+                };
+                let port = u16::from_be_bytes([byte(&mut c)?, byte(&mut c)?]);
+                c.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0])?;
+                format!("{host}:{port}")
+            }
+            4 => {
+                byte(&mut c)?;
+                let port = u16::from_be_bytes([byte(&mut c)?, byte(&mut c)?]);
+                let mut ip = [0u8; 4];
+                c.read_exact(&mut ip)?;
+                until_nul(&mut c)?;
+                let host = if ip[..3] == [0, 0, 0] && ip[3] != 0 { until_nul(&mut c)? } else { std::net::Ipv4Addr::from(ip).to_string() };
+                c.write_all(&[0, 0x5a, 0, 0, 0, 0, 0, 0])?;
+                format!("{host}:{port}")
+            }
+            _ => return Ok(()),
+        };
+        seen.lock().unwrap().push(target.clone());
+        let upstream = TcpStream::connect(target.as_str())?;
+        let (mut up_r, mut c_w) = (upstream.try_clone()?, c.try_clone()?);
+        let down = thread::spawn(move || {
+            let _ = std::io::copy(&mut up_r, &mut c_w);
+            let _ = c_w.shutdown(Shutdown::Write);
+        });
+        let (mut c_r, mut up_w) = (c, upstream);
+        let _ = std::io::copy(&mut c_r, &mut up_w);
+        let _ = up_w.shutdown(Shutdown::Write);
+        let _ = down.join();
+        Ok(())
     }
 }
