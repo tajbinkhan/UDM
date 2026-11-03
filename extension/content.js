@@ -91,6 +91,23 @@ function makeMini(button) {
   document.addEventListener("auxclick", onClick, true);
 })();
 
+// A form with file fields tells the service worker which they are as it is
+// sent: the browser shares a multipart form's text fields with extensions
+// but not its files, so a download the form starts is rebuilt without
+// them, or left in the browser when a file goes along (see post.js).
+document.addEventListener(
+  "submit",
+  (ev) => {
+    const form = ev.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const files = formFileFields(form.elements);
+    if (!files) return;
+    const action = (ev.submitter && ev.submitter.formAction) || form.action;
+    chrome.runtime.sendMessage({ type: "form:files", url: action, ...files }).catch(() => {});
+  },
+  true,
+);
+
 // Whether selection `sel` holds a link or a bare web address.
 function selectionHasLinks(sel) {
   if (!sel || sel.isCollapsed) return false;

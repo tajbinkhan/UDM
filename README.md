@@ -59,10 +59,13 @@ Either way, load the extension once:
    carries a fixed public key, so the ID is the same on every machine.
 
 After updating, reload the extension on the extensions page. It asks for
-`webRequest` (to send downloads started by a form as the same POST, and to
-notice the videos a page loads) and `proxy` (to read the browser's proxy
-setting, which it never changes), in addition to native messaging,
-downloads, cookies, context menus, storage and notifications. A small
+`webRequest` (to send downloads started by a form as the same POST, to send
+UIDM the browser's whole request, and to notice the videos a page loads),
+`webNavigation` (to find the frame a link in an `about:blank` frame belongs
+to), `downloads.ui` (to keep the download bubble hidden for a download UIDM
+takes) and `proxy` (to read the browser's proxy setting, which it never
+changes), in addition to native messaging, downloads, cookies, context
+menus, storage, scripting and notifications. A small
 content script runs on every page for the video button; it does nothing
 until a video plays.
 
@@ -168,9 +171,11 @@ session:
 Known gaps in Firefox:
 
 - A temporary add-on is removed when Firefox closes.
-- **Use the browser's proxy** finds Firefox's manual proxy only; with
-  **Use system proxy settings** or a configuration script it finds nothing,
-  as in Chrome.
+- Firefox has no way to hide its download panel, as Chrome's `downloads.ui`
+  does. It needs it less: it lets the extension cancel a download at its
+  headers (`webRequestBlocking`, which only the Firefox copy asks for), so
+  a download UIDM takes there never starts in Firefox. One it only takes
+  later (a link with a `download` attribute, say) may show the panel.
 
 These were checked against a stand-in for the browser API in the extension's
 tests, not in a running Firefox.
@@ -693,14 +698,53 @@ to open as usual.
 The extension asks for the rules when it connects and gets every change as it
 is saved, so they are edited only in the window.
 
+**Caught at the headers.** As IDM does, the extension looks at each page
+and frame response when its headers arrive (`webRequest.onHeadersReceived`):
+one marked `Content-Disposition: attachment`, or of a type the browser
+cannot show, is a download, and the capture rules are applied to its name,
+type and size there. Firefox lets the extension cancel it then
+(`webRequestBlocking`), so the browser never starts it and UIDM gets it at
+once. Chrome lets extensions like this one only look, not cancel, so there
+the download still appears in the browser and is taken from it at once
+(`downloads.onCreated`), with the size, type and name the headers gave
+(the download item often has none yet); the download bubble is hidden from
+the moment the headers say UIDM takes it (`downloads.setUiOptions`) until
+the browser's copy is canceled and erased, and comes back after ten seconds
+whatever happens. A tab another tab opened a moment before only for the
+download (it still shows nothing or the download's address, and never
+showed a page) is closed once UIDM takes the download.
+
+**The whole request.** The extension follows the requests of pages and
+frames: the headers the browser sent (`onSendHeaders`, with Chrome's
+`extraHeaders` so nothing is hidden), the redirects it followed, and what
+the response said. A download goes to UIDM with them: `request_headers`
+(without `Cookie`, which goes as `cookies`), `redirects`, `size` and
+`content_type`. The daemon repeats the headers that are safe to: not the
+ones about the connection (`Connection`, `Keep-Alive`, `TE`, `Upgrade`,
+...), not `Host`, `Content-Length`, `Range`, the conditional `If-*` ones or
+`Accept-Encoding` (the engine asks for ranges and decompresses what it asks
+for itself), not `Authorization` (logins are UIDM's), and not `Cookie`,
+`Referer` and `User-Agent`, which come in their own fields. It keeps at most
+64 headers, 20 redirects and values of 8 KB. The size and type are shown
+until the server is asked, and are all a form download has before it
+starts. The referrer is the document that started the download; a frame
+made from nothing (`about:blank`, `about:srcdoc`) is skipped for the
+nearest frame above it with an address (`webNavigation.getAllFrames`), else
+the page.
+
 A download a form started, with a POST, is sent to UIDM as the same POST.
 The extension records the method and body of recent form submissions in
-frames (`webRequest`, `requestBody`) and matches a new download to the latest
-one to the same URL in the last minute. It rebuilds URL-encoded forms and raw
-bodies. A multipart form (which may carry files), or a body the browser did
-not share, cannot be resent, so that download stays in the browser. UIDM sends
-the POST once and saves the response as one stream; it is not resumable, and
-it is not repeated on a failure, since a form may not be safe to send twice.
+frames and of scripts' requests (`webRequest`, `requestBody`) and matches a
+new download to the request it came from, else the latest form to the same
+URL in the last minute (a script's XMLHttpRequest or fetch is matched only
+as itself, as when a web player's file is taken). It rebuilds URL-encoded
+forms, multipart forms (with a boundary of its own) and raw bodies such as
+a script's JSON. The browser does not share a multipart form's files, so
+the page tells the extension which of its fields are files as the form is
+sent: they are left out, and a form that sends a chosen file stays in the
+browser, as does a body the browser did not share. UIDM sends the POST once
+and saves the response as one stream; it is not resumable, and it is not
+repeated on a failure, since a form may not be safe to send twice.
 Downloads without a recorded POST are fetched with GET as before.
 
 If UIDM takes a download but cannot even start it, for example because the
@@ -824,6 +868,9 @@ Client to daemon (the host relays the browser's unchanged):
   "referrer": "https://...", "page": "https://...", "user_agent": "...", "filename": "f.zip" }
 { "op": "add", "url": "https://.../export", "method": "POST", "body": "<base64>",
   "headers": { "Content-Type": "application/x-www-form-urlencoded" } }
+{ "op": "add", "url": "https://cdn.../a.zip", "request_headers": [["Accept", "*/*"]],
+  "redirects": ["https://.../get/a"], "size": 1048576, "content_type": "application/zip",
+  "browser_proxy": { "mode": "fixed", "http": "http://proxy:3128", "bypass": ["<local>"] } }
 { "op": "cancel", "id": 1 }
 { "op": "retry", "id": 1 }
 { "op": "remove", "id": 1 }
@@ -1047,8 +1094,12 @@ Without `download`, the daemon waits for the browser: it broadcasts
 `refresh_waiting`, and the extension sends its next captured download as that
 `refresh_link`, whatever the capture rules say. `cancel_refresh` stops
 waiting; `refresh_waiting` with `id: null` says nothing waits.
-`add` may carry `proxy`, the browser's proxy, used when the
-`use_browser_proxy` setting is on.
+`add` may carry `browser_proxy`, the browser's proxy setting, used when the
+`use_browser_proxy` setting is on: `mode` (`direct`, `fixed`, `pac`,
+`auto_detect` or `system`), the fixed proxies `http`, `https` and `socks`
+(each `scheme://host:port`), the configuration script's `pac_url` or its
+text `pac_script`, and the `bypass` list. Older extensions send only
+`proxy`, the fixed proxy, which `browser_proxy` replaces when both come.
 
 ## Proxies and logins
 
@@ -1092,9 +1143,18 @@ for plain `http://` requests through a proxy with a login UIDM adds
 `Proxy-Authorization` itself and follows redirects itself, adding it only on
 `http://` hops and dropping `Cookie` and `Authorization` on every hop, so
 neither the proxy login nor a site's cookies reach another server. With
-`use_browser_proxy`, the extension reports the browser's fixed proxy
-(`chrome.proxy`, plain HTTP or SOCKS only) with each download, and that proxy
-wins for downloads that carry one. With `browser_proxy_after_errors` too, a
+`use_browser_proxy`, the extension reports the browser's whole proxy
+setting (`chrome.proxy`, Firefox's `browser.proxy`) with each download, and
+it wins for downloads that carry one: no proxy, its fixed HTTP and SOCKS
+proxies (an HTTPS or QUIC proxy, which the engine cannot speak, is left
+out), its configuration script (WinHTTP fetches one at an address; one the
+browser was given as text is served to WinHTTP from a loopback-only address
+of the daemon's), automatic detection (WPAD), or the system proxy, as
+**Use system proxy settings** reads it. The bypass list goes along:
+Chrome's `<local>`, `*.corp.net` and `host:port` entries and Firefox's
+`.corp.net`; address ranges have no counterpart and are dropped. Without
+WinHTTP (macOS, Linux) a script or detection cannot run, so those downloads
+connect directly. With `browser_proxy_after_errors` too, a
 download goes through UIDM's own proxy setting first; when it fails, the
 daemon retries it once through the browser's proxy, and that address keeps
 using it until the daemon restarts.
@@ -1290,6 +1350,7 @@ is a failed scan, as is one that runs over 10 minutes.
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
 | `extension/rules.js` | Capture rules (file types, minimum size, excluded sites) |
 | `extension/post.js` | Matching downloads to the form POSTs that started them |
+| `extension/request.js` | The request behind a download: headers, redirects, response, proxy setting |
 | `extension/media.js` | Which responses are videos and streams, per tab, and the video menu |
 | `extension/content.js` | The video button over playing videos |
 | `extension/test/` | Node tests for the rules and the service worker |
@@ -1519,13 +1580,20 @@ would not display correctly yet.
   skips exactly one download after **Skip next download**, and starts a
   download waiting for its dialog from the popup; **Download later with
   UIDM** adds with `start: false`. Form downloads: URL-encoded forms rebuild
-  as the browser encodes them and raw bodies byte for byte; multipart forms,
-  forms with files and bodies the browser withheld stay in the browser; a
+  as the browser encodes them, multipart forms with a boundary of their own
+  and without their file fields, and raw bodies byte for byte; forms that
+  send a file and bodies the browser withheld stay in the browser; a
   download matches the latest POST to its URL within a minute; a form's
   download reaches UIDM as the same POST with its content type while a link
   next to it stays a GET; and a POST UIDM cannot start goes back to the
-  browser as a POST with its form. The browser's fixed HTTP or SOCKS proxy
-  goes along with a download, and other proxy settings report none. While a
+  browser as a POST with its form. A web player's file a script asked for
+  with a POST goes as the same POST. The browser's whole proxy setting goes
+  along with a download, read from Chrome's and Firefox's shapes. A
+  download's request headers (without cookies), redirects, size and type go
+  along; Chrome hides the bubble from the headers until the download is
+  taken or left, Firefox cancels at the headers, a tab opened only for the
+  download is closed, and a link in an `about:blank` frame takes the frame
+  above it as referrer. While a
   download waits for a new link, the next browser download (even one the
   capture rules would leave) goes to it as `refresh_link`, once.
 - Proxies, logins and new links. Unit tests cover site matching, proxies by
@@ -1533,7 +1601,11 @@ would not display correctly yet.
   the registry, off and on), Digest against the worked examples of RFC 2617
   (MD5) and RFC 7616 (SHA-256), Basic, the most specific login, Credential
   Manager and DPAPI round trips, passwords never reaching the settings file,
-  proxy and login validation, and whether a new link fits a partial file
+  proxy and login validation, the browser's proxy setting as proxy rules
+  (direct, fixed, script by address or as text, detection, system, and its
+  bypass list), a script given as text served on the loopback address
+  alone, which browser request headers a download repeats, the limits on
+  what a browser request may carry, and whether a new link fits a partial file
   (size, ETag, unknown size, no partial file). Engine tests against local
   servers: a site that needs a login fails at once with "This site needs a
   login", a wrong password is refused, the right one downloads every range;
@@ -1674,8 +1746,12 @@ arguments; no real ffmpeg was run on real video.
 - A queue run started by hand with nothing in it ends at once, and a run that
   is only waiting on failed downloads ends too: failed downloads count as
   finished unless the queue retries them.
-- Form downloads with a multipart body stay in the browser, and a POST
-  download cannot resume: a failure means sending the form again with Retry.
+- A form download that sends a file stays in the browser (the browser does
+  not share the file), and a POST download cannot resume: a failure means
+  sending the form again with Retry.
+- Chrome does not let an extension cancel a download at its headers, so
+  there it is still taken from the browser as it starts; Firefox cancels it
+  at the headers.
 - Streams: live streams, DASH manifests split into several periods (often
   ads), and HLS `SAMPLE-AES` without a key system are refused. Subtitles are
   not downloaded. The size shown for a quality is an estimate from its bit

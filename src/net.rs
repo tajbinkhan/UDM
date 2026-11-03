@@ -523,6 +523,98 @@ pub fn proxy_from_env(var: impl Fn(&str) -> Option<String>) -> Option<ProxyRules
     (rules.http.is_some() || rules.https.is_some() || rules.socks.is_some() || rules.ftp.is_some()).then_some(rules)
 }
 
+/// The proxies a download goes through when it uses the browser's proxy
+/// setting `p`. `None` connects directly, as the browser does. The
+/// browser's own fixed proxies, script, automatic detection and bypass list
+/// carry over; under "system" the system proxy is read here, as UIDM's own
+/// System mode reads it. A script given as text runs as one at an address
+/// does (see `pac::PacSource::Script`). HTTPS and QUIC proxies, which the
+/// download engine cannot speak, are left out.
+pub fn browser_proxy_rules(p: &crate::protocol::BrowserProxy) -> Option<ProxyRules> {
+    use crate::pac::PacSource;
+    use crate::protocol::BrowserProxyMode;
+    let bypass = browser_bypass(&p.bypass);
+    match p.mode {
+        BrowserProxyMode::Direct => None,
+        BrowserProxyMode::System => system_proxy(),
+        BrowserProxyMode::AutoDetect => Some(ProxyRules {
+            pac: Some(PacSource::AutoDetect),
+            bypass,
+            ..ProxyRules::default()
+        }),
+        BrowserProxyMode::Pac => {
+            let source = match (p.pac_url.as_deref().map(str::trim), p.pac_script.as_deref()) {
+                (Some(url), _) if crate::batch::is_web_url(url) => PacSource::Url(url.to_string()),
+                (_, Some(script)) if !script.trim().is_empty() => PacSource::Script(script.to_string()),
+                // A script nothing here can fetch (a file:// one): direct,
+                // as the browser goes when its script cannot be read.
+                _ => return None,
+            };
+            Some(ProxyRules {
+                pac: Some(source),
+                bypass,
+                ..ProxyRules::default()
+            })
+        }
+        BrowserProxyMode::Fixed => {
+            // `host:port` of a plain HTTP proxy; a SOCKS one keeps its scheme.
+            let http = |a: &Option<String>| {
+                let a = a.as_deref()?.trim();
+                match a.split_once("://") {
+                    None => Some(a.to_string()),
+                    Some((scheme, rest)) if scheme.eq_ignore_ascii_case("http") => Some(rest.trim_end_matches('/').to_string()),
+                    _ => None,
+                }
+            };
+            let socks_of = |a: &Option<String>| {
+                let a = a.as_deref()?.trim();
+                let scheme = a.split_once("://")?.0.to_ascii_lowercase();
+                matches!(scheme.as_str(), "socks4" | "socks4a" | "socks5" | "socks5h").then(|| a.trim_end_matches('/').to_string())
+            };
+            let rules = ProxyRules {
+                http: http(&p.http),
+                https: http(&p.https),
+                // A SOCKS proxy named for one scheme carries that scheme.
+                socks: socks_of(&p.socks).or_else(|| socks_of(&p.https)).or_else(|| socks_of(&p.http)),
+                socks_for_https: p.https.is_some() && socks_of(&p.https).is_some(),
+                bypass,
+                ..ProxyRules::default()
+            };
+            (rules.http.is_some() || rules.https.is_some() || rules.socks.is_some()).then_some(rules)
+        }
+    }
+}
+
+/// A browser's bypass list as `ProxyRules::bypass` patterns: Chrome's
+/// `<local>`, `*.corp.net` and `host:port` entries, and Firefox's
+/// `.corp.net` (a domain and its hosts). The scheme and port an entry may
+/// name are dropped, since bypassing goes by host. Chrome's `<-loopback>`
+/// and address ranges have no counterpart and are left out.
+pub fn browser_bypass(list: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for entry in list.iter().flat_map(|e| e.split([',', ';', ' '])) {
+        let e = entry.trim().to_ascii_lowercase();
+        if e.is_empty() || e == "<-loopback>" || (e.contains('/') && !e.contains("://")) {
+            continue;
+        }
+        if e == "<local>" {
+            out.push(e);
+            continue;
+        }
+        let host = e.split_once("://").map_or(e.as_str(), |(_, h)| h).trim_end_matches('/');
+        // A port after the host, but not inside an IPv6 address.
+        let host = match host.rsplit_once(':') {
+            Some((h, port)) if !h.ends_with(':') && !h.contains('[') && port.bytes().all(|b| b.is_ascii_digit()) => h,
+            _ => host,
+        };
+        let host = if host.starts_with('.') { format!("*{host}") } else { host.to_string() };
+        if !host.is_empty() && !out.contains(&host) {
+            out.push(host);
+        }
+    }
+    out
+}
+
 /// A login for the sites matching `site`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Login {
@@ -1037,6 +1129,52 @@ mod tests {
         };
         assert_eq!(https_only.proxy_for("http://a.com/"), None, "no proxy for http");
         assert_eq!(ProxyRules::default().proxy_for("http://a.com/"), None);
+    }
+
+    #[test]
+    fn the_browsers_proxy_setting_maps_to_proxy_rules() {
+        use crate::pac::PacSource;
+        use crate::protocol::{BrowserProxy, BrowserProxyMode};
+        let p = |mode, f: &dyn Fn(&mut BrowserProxy)| {
+            let mut p = BrowserProxy { mode, ..BrowserProxy::default() };
+            f(&mut p);
+            browser_proxy_rules(&p)
+        };
+        assert_eq!(p(BrowserProxyMode::Direct, &|_| {}), None);
+
+        let fixed = p(BrowserProxyMode::Fixed, &|p| {
+            p.http = Some("http://web.corp:3128".into());
+            p.https = Some("http://web.corp:3129".into());
+            p.bypass = vec!["<local>".into(), ".corp.net".into(), "http://intra:8080".into(), "10.0.0.0/8".into()];
+        })
+        .unwrap();
+        assert_eq!((fixed.http.as_deref(), fixed.https.as_deref(), fixed.socks.as_deref()), (Some("web.corp:3128"), Some("web.corp:3129"), None));
+        assert_eq!(fixed.bypass, ["<local>", "*.corp.net", "intra"]);
+        assert_eq!(fixed.proxy_for("https://files.x/a"), Some("http://web.corp:3129".into()));
+        assert_eq!(fixed.proxy_for("http://a.corp.net/a"), None, "bypassed");
+        assert_eq!(fixed.proxy_for("http://intra/a"), None, "bypassed");
+
+        let socks = p(BrowserProxyMode::Fixed, &|p| p.socks = Some("socks5://s:1080".into())).unwrap();
+        assert_eq!(socks.proxy_for("https://x/a"), Some("socks5://s:1080".into()));
+        // Chrome's one SOCKS proxy for https only.
+        let https_socks = p(BrowserProxyMode::Fixed, &|p| {
+            p.http = Some("http://web:80".into());
+            p.https = Some("socks4://s:1080".into());
+        })
+        .unwrap();
+        assert_eq!(https_socks.proxy_for("https://x/a"), Some("socks4://s:1080".into()));
+        assert_eq!(https_socks.proxy_for("http://x/a"), Some("http://web:80".into()));
+        // An HTTPS proxy the engine cannot reach is no proxy.
+        assert_eq!(p(BrowserProxyMode::Fixed, &|p| p.http = Some("https://p:443".into())), None);
+
+        let script = p(BrowserProxyMode::Pac, &|p| p.pac_url = Some("http://wpad/proxy.pac".into())).unwrap();
+        assert_eq!(script.pac, Some(PacSource::Url("http://wpad/proxy.pac".into())));
+        let text = p(BrowserProxyMode::Pac, &|p| p.pac_script = Some("function FindProxyForURL(){return 'DIRECT'}".into())).unwrap();
+        assert!(matches!(text.pac, Some(PacSource::Script(_))));
+        assert_eq!(p(BrowserProxyMode::Pac, &|p| p.pac_url = Some("file:///etc/p.pac".into())), None);
+        let auto = p(BrowserProxyMode::AutoDetect, &|p| p.bypass = vec!["localhost".into()]).unwrap();
+        assert_eq!((auto.pac, auto.bypass), (Some(PacSource::AutoDetect), vec!["localhost".to_string()]));
+        assert_eq!(p(BrowserProxyMode::System, &|_| {}), system_proxy());
     }
 
     #[test]

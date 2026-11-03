@@ -356,6 +356,117 @@ pub struct Download {
     /// setting says; missing follows the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ask: Option<bool>,
+    /// The other headers the browser sent with the request, in its order,
+    /// so the server sees the same request (IDM sends them all). The daemon
+    /// keeps only the ones that are safe to repeat; see
+    /// `app::browser_request_headers`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub request_headers: Vec<(String, String)>,
+    /// The addresses the browser was redirected through before `url`,
+    /// first to last.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redirects: Vec<String>,
+    /// The size the browser's response gave (its `Content-Length`), shown
+    /// until the daemon asks the server itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// The `Content-Type` of the browser's response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /// The browser's whole proxy setting, for the "use the browser's
+    /// proxy" option. It wins over `proxy`, which only ever named a fixed
+    /// proxy and is still sent for older daemons.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_proxy: Option<BrowserProxy>,
+}
+
+/// How the browser reaches the web, as its extension reads it
+/// (`chrome.proxy.settings`, or Firefox's `browser.proxy.settings`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserProxyMode {
+    /// No proxy.
+    #[default]
+    Direct,
+    /// The fixed proxies in `http`, `https` and `socks`.
+    Fixed,
+    /// A proxy auto-config script, from `pac_url` or given in `pac_script`.
+    Pac,
+    /// The script WPAD finds on the network.
+    AutoDetect,
+    /// Whatever the system's proxy setting says.
+    System,
+}
+
+/// The browser's proxy setting.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserProxy {
+    #[serde(default)]
+    pub mode: BrowserProxyMode,
+    /// `scheme://host:port` of the proxy for `http://` addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http: Option<String>,
+    /// `scheme://host:port` of the proxy for `https://` addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub https: Option<String>,
+    /// `socks4://` or `socks5://host:port` for what has no proxy of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socks: Option<String>,
+    /// Where the auto-config script is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pac_url: Option<String>,
+    /// The auto-config script itself, when the browser was given its text
+    /// instead of an address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pac_script: Option<String>,
+    /// Hosts reached directly, as the browser lists them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bypass: Vec<String>,
+}
+
+/// The most of each thing a browser request may carry; what is past them
+/// is dropped (see `Download::limit_browser_request`). A page decides much
+/// of what the browser sends, so none of it is trusted to be small.
+pub const MAX_REQUEST_HEADERS: usize = 64;
+pub const MAX_HEADER_NAME: usize = 128;
+pub const MAX_HEADER_VALUE: usize = 8 * 1024;
+pub const MAX_REDIRECTS: usize = 20;
+pub const MAX_URL: usize = 8 * 1024;
+pub const MAX_PAC_SCRIPT: usize = 512 * 1024;
+pub const MAX_BYPASS: usize = 256;
+
+impl Download {
+    /// Drop what is too much or malformed in the request details the
+    /// browser sent: headers whose name is not a header name or whose value
+    /// could start another header, past the limits above; redirects that
+    /// are not web addresses; an overlong content type or proxy setting.
+    pub fn limit_browser_request(&mut self) {
+        let token = |n: &str| {
+            !n.is_empty()
+                && n.len() <= MAX_HEADER_NAME
+                && n.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+        };
+        let value = |v: &str| v.len() <= MAX_HEADER_VALUE && !v.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0);
+        self.request_headers.retain(|(n, v)| token(n) && value(v));
+        self.request_headers.truncate(MAX_REQUEST_HEADERS);
+        self.redirects.retain(|u| u.len() <= MAX_URL && crate::batch::is_web_url(u));
+        self.redirects.truncate(MAX_REDIRECTS);
+        if self.content_type.as_deref().is_some_and(|t| !value(t) || t.len() > 256) {
+            self.content_type = None;
+        }
+        if let Some(p) = &mut self.browser_proxy {
+            for field in [&mut p.http, &mut p.https, &mut p.socks, &mut p.pac_url] {
+                if field.as_deref().is_some_and(|a| a.len() > MAX_URL) {
+                    *field = None;
+                }
+            }
+            if p.pac_script.as_deref().is_some_and(|s| s.len() > MAX_PAC_SCRIPT) {
+                p.pac_script = None;
+            }
+            p.bypass.retain(|b| !b.trim().is_empty() && b.len() <= 256);
+            p.bypass.truncate(MAX_BYPASS);
+        }
+    }
 }
 
 /// A link on a web page, offered in the window's link picker.
@@ -914,6 +1025,59 @@ mod tests {
             etag: etag.map(str::to_string),
             last_modified: date.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn a_browser_download_carries_its_whole_request() {
+        let json = r#"{"op":"add","url":"https://cdn.x/a.zip",
+            "request_headers":[["Accept","*/*"],["Sec-Fetch-Mode","navigate"]],
+            "redirects":["https://x/get/a"],"size":1048576,"content_type":"application/zip",
+            "browser_proxy":{"mode":"pac","pac_url":"http://wpad/proxy.pac","bypass":["<local>"]}}"#;
+        let Incoming::Add(d) = serde_json::from_str::<Incoming>(json).unwrap() else {
+            panic!("not an add");
+        };
+        assert_eq!(d.request_headers, [("Accept".to_string(), "*/*".to_string()), ("Sec-Fetch-Mode".into(), "navigate".into())]);
+        assert_eq!(d.redirects, ["https://x/get/a"]);
+        assert_eq!((d.size, d.content_type.as_deref()), (Some(1048576), Some("application/zip")));
+        let proxy = d.browser_proxy.clone().unwrap();
+        assert_eq!((proxy.mode, proxy.pac_url.as_deref(), proxy.bypass.len()), (BrowserProxyMode::Pac, Some("http://wpad/proxy.pac"), 1));
+        // Round trips, and an older add without any of it still reads.
+        let back: Download = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
+        assert_eq!(back.request_headers, d.request_headers);
+        let old: Download = serde_json::from_str(r#"{"url":"https://x/a"}"#).unwrap();
+        assert!(old.request_headers.is_empty() && old.redirects.is_empty() && old.browser_proxy.is_none());
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("request_headers") && !text.contains("browser_proxy"), "{text}");
+    }
+
+    #[test]
+    fn what_a_browser_request_may_carry_is_limited() {
+        let mut d = Download {
+            url: "https://x/a".into(),
+            request_headers: vec![
+                ("Accept".into(), "*/*".into()),
+                ("Bad Name".into(), "x".into()),
+                ("X-Split".into(), "a\r\nSet-Cookie: b".into()),
+                ("X-Long".into(), "v".repeat(MAX_HEADER_VALUE + 1)),
+            ],
+            redirects: vec!["https://x/1".into(), "javascript:alert(1)".into(), format!("https://x/{}", "a".repeat(MAX_URL))],
+            content_type: Some("a\nb".into()),
+            browser_proxy: Some(BrowserProxy {
+                pac_script: Some("x".repeat(MAX_PAC_SCRIPT + 1)),
+                bypass: vec!["".into(), "*.corp".into(), "h".repeat(300)],
+                ..BrowserProxy::default()
+            }),
+            ..Download::default()
+        };
+        d.request_headers.extend((0..100).map(|i| (format!("X-{i}"), "1".to_string())));
+        d.limit_browser_request();
+        assert_eq!(d.request_headers.len(), MAX_REQUEST_HEADERS);
+        assert_eq!(d.request_headers[0].0, "Accept");
+        assert_eq!(d.request_headers[1].0, "X-0", "the bad ones are gone");
+        assert_eq!(d.redirects, ["https://x/1"]);
+        assert_eq!(d.content_type, None);
+        let proxy = d.browser_proxy.unwrap();
+        assert_eq!((proxy.pac_script, proxy.bypass), (None, vec!["*.corp".to_string()]));
     }
 
     #[test]

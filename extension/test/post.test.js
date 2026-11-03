@@ -5,7 +5,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { encodeForm, rebuildPost, findPost, prunePosts, POST_MATCH_MS } = require("../post.js");
+const { encodeForm, encodeMultipart, rebuildPost, findPost, postById, prunePosts, POST_MATCH_MS } = require("../post.js");
 const { loadWorker, download, setBrowserProxy } = require("./harness.js");
 
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
@@ -32,11 +32,35 @@ test("rebuilding a recorded request", () => {
   assert.equal(raw.contentType, "application/json");
   assert.equal(raw.text, undefined, "the browser cannot resend raw bytes");
 
+  // A multipart form, rebuilt with a boundary of its own and without its
+  // file fields; one that sends a file stays in the browser.
+  const multi = rebuildPost(
+    {
+      requestBody: { formData: { id: ["7"], note: ['a "b"'], upload: [""] } },
+      contentType: "multipart/form-data; boundary=----WebKitFormBoundaryX",
+      files: { names: ["upload"], chosen: false },
+    },
+    "B",
+  );
+  assert.equal(multi.contentType, "multipart/form-data; boundary=B");
+  assert.equal(
+    multi.text,
+    '--B\r\nContent-Disposition: form-data; name="id"\r\n\r\n7\r\n--B\r\nContent-Disposition: form-data; name="note"\r\n\r\na "b"\r\n--B--\r\n',
+  );
+  assert.equal(multi.body, b64(multi.text));
+  assert.ok(rebuildPost({ requestBody: { formData: { a: ["1"] } }, contentType: "multipart/form-data; boundary=x", files: { names: ["f"], chosen: true } }).leave);
+  assert.match(rebuildPost({ requestBody: { formData: { a: ["1"] } }, contentType: "multipart/form-data; boundary=x" }).contentType, /^multipart\/form-data; boundary=----UIDMFormBoundary[0-9a-f]{24}$/);
+
   // What cannot be rebuilt stays in the browser.
-  assert.ok(rebuildPost({ requestBody: { formData: { a: ["1"] } }, contentType: "multipart/form-data; boundary=x" }).leave);
+  assert.ok(rebuildPost({ requestBody: { formData: { a: ["1"] } }, contentType: "text/csv" }).leave);
   assert.ok(rebuildPost({ requestBody: { raw: [{ file: "C:\\secret.txt" }] } }).leave);
   assert.ok(rebuildPost({ requestBody: { error: "too big" } }).leave);
   assert.ok(rebuildPost({}).leave);
+});
+
+test("multipart fields are written as the browser writes them", () => {
+  assert.equal(encodeMultipart({ 'a"\nb': ["x"] }, "Z"), '--Z\r\nContent-Disposition: form-data; name="a%22%0Ab"\r\n\r\nx\r\n--Z--\r\n');
+  assert.equal(encodeMultipart({ a: ["1"], b: ["2"] }, "Z", ["a", "b"]), "--Z--\r\n");
 });
 
 test("a download matches the latest recent POST to its URL", () => {
@@ -50,6 +74,10 @@ test("a download matches the latest recent POST to its URL", () => {
   assert.equal(findPost(records, "https://x/get", now).n, 3);
   assert.equal(findPost(records, "https://x/none", now), null);
   assert.equal(findPost(records, "https://x/get", now + POST_MATCH_MS), null, "too old");
+  // A script's request matches only by its id.
+  const xhr = [...records, { id: "x1", url: "https://x/api", type: "xmlhttprequest", time: now }];
+  assert.equal(findPost(xhr, "https://x/api", now), null);
+  assert.equal(postById(xhr, "x1").url, "https://x/api");
   prunePosts(records, now);
   assert.equal(records.length, 3);
 });
@@ -94,15 +122,74 @@ test("a form's download is handed to UIDM as the same POST", async () => {
 
 test("a form that cannot be resent stays in the browser", async () => {
   const w = connected();
+  // Its page says it sends a file, which the browser does not share.
+  await w.content({ type: "form:files", url: "https://site.net/upload", names: ["doc"], chosen: true }, 4, "https://site.net/form");
   submit(w, {
     requestId: "2",
     url: "https://site.net/upload",
-    requestBody: { formData: { a: ["1"] } },
+    requestBody: { formData: { a: ["1"], doc: ["cv.pdf"] } },
     contentType: "multipart/form-data; boundary=----x",
   });
   await w.chrome.downloads.onCreated.fire(download({ url: "https://site.net/upload" }));
   assert.equal(w.sent.filter((m) => m.op === "add").length, 0);
   assert.equal(w.browserCalls.filter((c) => c[0] === "cancel").length, 0, "the browser keeps it");
+});
+
+test("a multipart form's download is resent without its empty file field", async () => {
+  const w = connected();
+  await w.content({ type: "form:files", url: "https://site.net/export", names: ["logo"], chosen: false }, 4, "https://site.net/form");
+  submit(w, {
+    requestId: "9",
+    url: "https://site.net/export",
+    requestBody: { formData: { year: ["2026"], logo: [""] } },
+    contentType: "multipart/form-data; boundary=----x",
+  });
+  await w.chrome.downloads.onCreated.fire(download({ url: "https://site.net/export" }));
+  const add = w.sent.find((m) => m.op === "add");
+  const type = add.headers["Content-Type"];
+  const boundary = type.split("boundary=")[1];
+  assert.match(type, /^multipart\/form-data; boundary=/);
+  assert.equal(
+    Buffer.from(add.body, "base64").toString(),
+    `--${boundary}\r\nContent-Disposition: form-data; name="year"\r\n\r\n2026\r\n--${boundary}--\r\n`,
+  );
+});
+
+test("a web player's file asked for with a script's POST goes as the same POST", async () => {
+  const w = loadWorker();
+  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({
+    op: "settings",
+    settings: { capture_types: [], video_auto_capture: true, video_auto_types: ["mp4"], capture_excluded_sites: [] },
+  });
+  const url = "https://media.net/get";
+  w.chrome.webRequest.onBeforeRequest.fire({
+    requestId: "x7",
+    url,
+    method: "POST",
+    type: "xmlhttprequest",
+    tabId: 3,
+    requestBody: { raw: [{ bytes: new TextEncoder().encode('{"id":42}').buffer }] },
+  });
+  w.chrome.webRequest.onBeforeSendHeaders.fire({ requestId: "x7", url, method: "POST", requestHeaders: [{ name: "Content-Type", value: "application/json" }] });
+  await w.chrome.webRequest.onHeadersReceived.fire({
+    requestId: "x7",
+    url,
+    method: "POST",
+    type: "media",
+    tabId: 3,
+    statusCode: 200,
+    responseHeaders: [
+      { name: "Content-Type", value: "video/mp4" },
+      { name: "Content-Length", value: "9000000" },
+    ],
+  });
+  await new Promise((r) => setTimeout(r, 0));
+  const add = w.sent.find((m) => m.op === "add");
+  same([add.method, Buffer.from(add.body, "base64").toString(), add.headers["Content-Type"]], ["POST", '{"id":42}', "application/json"]);
+  // A script's POST is never taken for a link's GET to the same address.
+  await w.chrome.downloads.onCreated.fire(download({ url }));
+  assert.equal(w.sent.filter((m) => m.op === "add").at(-1).method, undefined);
 });
 
 test("a POST UIDM cannot start goes back to the browser as a POST", async () => {

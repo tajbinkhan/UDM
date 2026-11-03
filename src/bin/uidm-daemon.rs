@@ -1753,6 +1753,8 @@ impl Daemon {
             .map(PathBuf::from)
             .filter(|f| f.is_absolute())
             .map(|f| f.join(engine::Inspection::unprobed(&url, download.filename.as_deref()).filename));
+        // The size the browser's response gave, until the server is asked.
+        let size = download.size;
         let id = self.engine.reserve_id();
         self.hub.requests.lock().unwrap().insert(id, download);
         self.hub.publish(&Outgoing::Added {
@@ -1761,6 +1763,9 @@ impl Daemon {
         });
         let _ = self.hub.update(id, |e| {
             e.status = Status::Waiting;
+            if e.total.is_none() {
+                e.total = size;
+            }
             if let Some(p) = &path {
                 e.path = Some(p.display().to_string());
             }
@@ -2454,8 +2459,12 @@ impl Daemon {
             let req = daemon.request_for(download.clone());
             // Probing a POST download would send a GET (or repeat the POST),
             // so its dialog proposes a name from the request alone.
+            // What the browser's response said is all there is to show then.
             let probed = if uidm::app::post_body(&download).is_some() {
-                Ok(engine::Inspection::unprobed(&download.url, download.filename.as_deref()))
+                let mut found = engine::Inspection::unprobed(&download.url, download.filename.as_deref());
+                found.total = download.size;
+                found.content_type = download.content_type.clone();
+                Ok(found)
             } else {
                 engine::inspect(&download.url, download.filename.as_deref(), &req.headers, &req.net)
             };
@@ -3212,7 +3221,7 @@ impl Daemon {
         if !(s.use_browser_proxy && s.browser_proxy_after_errors) {
             return false;
         }
-        let url = self.hub.requests.lock().unwrap().get(&id).filter(|d| d.proxy.is_some()).map(|d| d.url.clone());
+        let url = self.hub.requests.lock().unwrap().get(&id).filter(|d| d.proxy.is_some() || d.browser_proxy.is_some()).map(|d| d.url.clone());
         let Some(url) = url else {
             return false;
         };
@@ -3237,16 +3246,20 @@ impl Daemon {
     fn net_for(&self, download: &Download, s: &Settings) -> NetConfig {
         let browser_wanted = s.use_browser_proxy
             && (!s.browser_proxy_after_errors || self.browser_proxy_retries.lock().unwrap().contains(&download.url));
-        let browser = download
-            .proxy
-            .as_deref()
-            .filter(|_| browser_wanted)
-            .map(|p| net::ProxyRules {
+        // The browser's whole setting when it sent one (its direct
+        // connection too, as `Some(None)`), else the fixed proxy an older
+        // extension sends.
+        let browser = match (&download.browser_proxy, download.proxy.as_deref()) {
+            _ if !browser_wanted => None,
+            (Some(setting), _) => Some(net::browser_proxy_rules(setting)),
+            (None, Some(p)) => Some(Some(net::ProxyRules {
                 http: p.strip_prefix("http://").map(str::to_string),
                 https: p.strip_prefix("http://").map(str::to_string),
                 socks: p.starts_with("socks").then(|| p.to_string()),
                 ..net::ProxyRules::default()
-            });
+            })),
+            (None, None) => None,
+        };
         let addr = |a: &str| (!a.trim().is_empty()).then(|| a.trim().to_string());
         let proxy_login = |user: &str, kind: ProxyKind| {
             if user.trim().is_empty() {
@@ -3255,7 +3268,7 @@ impl Daemon {
             let password = net::proxy_password_path(kind).map(|p| net::load_proxy_password(&p)).unwrap_or_default();
             ProxyLogin::new(user.trim(), &password)
         };
-        let proxy = browser.or_else(|| match s.proxy_mode {
+        let proxy = browser.unwrap_or_else(|| match s.proxy_mode {
             ProxyMode::None => None,
             ProxyMode::System => net::system_proxy(),
             ProxyMode::Script => Some(net::ProxyRules {
@@ -3704,7 +3717,8 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             })
         }
         Incoming::Ping => send(&Outgoing::Pong),
-        Incoming::Add(download) => {
+        Incoming::Add(mut download) => {
+            download.limit_browser_request();
             if let Err(message) = check_body(&download) {
                 send(&Outgoing::Rejected { url: download.url, message });
                 return;
@@ -3722,7 +3736,8 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             eprintln!("[uidm-daemon] added {count} downloads to wait, skipped {skipped} already in the list");
             send(&Outgoing::AddedMany { count, skipped });
         }
-        Incoming::ProbeMedia { request, download } => {
+        Incoming::ProbeMedia { request, mut download } => {
+            download.limit_browser_request();
             if let Err(message) = check_body(&download) {
                 send(&Outgoing::Error { message });
                 return;
@@ -3811,7 +3826,10 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::CancelCountdown => daemon.cancel_countdown(),
         Incoming::CountdownNow => daemon.countdown_now(),
-        Incoming::RefreshLink { id, download, restart } => {
+        Incoming::RefreshLink { id, mut download, restart } => {
+            if let Some(d) = &mut download {
+                d.limit_browser_request();
+            }
             let url = download.as_ref().map(|d| d.url.clone()).unwrap_or_default();
             if let Some(d) = &download {
                 if let Err(message) = check_body(d) {
@@ -4796,6 +4814,57 @@ mod tests {
         assert_eq!(through(&after).as_deref(), Some("http://bp:3128"), "once it failed");
         // A download that never failed is not retried through it.
         assert!(!t.daemon.retry_through_browser_proxy(999, &after));
+    }
+
+    #[test]
+    fn the_browsers_whole_proxy_setting_is_used() {
+        use uidm::protocol::{BrowserProxy, BrowserProxyMode};
+        let t = setup("browser_proxy_setting", Duplicate::NewName);
+        let s = Settings {
+            use_browser_proxy: true,
+            proxy_mode: ProxyMode::Manual,
+            proxy_http: "uidm:8080".into(),
+            ..Settings::default()
+        };
+        let through = |setting: Option<BrowserProxy>, s: &Settings| {
+            let d = Download {
+                url: "http://x.net/a.zip".into(),
+                proxy: Some("http://old:1".into()),
+                browser_proxy: setting,
+                ..Download::default()
+            };
+            t.daemon.net_for(&d, s).proxy.and_then(|p| p.proxy_for(&d.url))
+        };
+        // The browser connects directly: so does the download, whatever
+        // UIDM's own setting and the older field say.
+        let direct = BrowserProxy::default();
+        assert_eq!(through(Some(direct.clone()), &s), None);
+        let fixed = BrowserProxy {
+            mode: BrowserProxyMode::Fixed,
+            http: Some("http://bp:3128".into()),
+            bypass: vec!["x.net".into()],
+            ..BrowserProxy::default()
+        };
+        assert_eq!(through(Some(fixed.clone()), &s), None, "the browser's bypass list");
+        let fixed = BrowserProxy { bypass: vec![], ..fixed };
+        assert_eq!(through(Some(fixed), &s).as_deref(), Some("http://bp:3128"));
+        // Older extensions send only the fixed proxy.
+        assert_eq!(through(None, &s).as_deref(), Some("http://old:1"));
+        // Without the option, UIDM's own setting applies.
+        let own = Settings { use_browser_proxy: false, ..s.clone() };
+        assert_eq!(through(Some(direct), &own).as_deref(), Some("http://uidm:8080"));
+    }
+
+    #[test]
+    fn a_browser_download_shows_the_size_the_browser_saw() {
+        let t = setup("browser_size", Duplicate::NewName);
+        let (id, _) = t.daemon.add_later(Download {
+            url: "https://x/big.iso".into(),
+            size: Some(4_000_000_000),
+            content_type: Some("application/x-iso9660-image".into()),
+            ..Download::default()
+        });
+        assert_eq!(t.daemon.entry(id).unwrap().total, Some(4_000_000_000));
     }
 
     #[test]

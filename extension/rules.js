@@ -281,7 +281,18 @@ function captureDecision(rules, item) {
     : { capture: false, reason: "unknown file type" };
 }
 
+// The file fields of a form being sent, from its `elements`: { names,
+// chosen }, the names of its named file inputs and whether any has a file.
+// The service worker rebuilds a multipart form's download without them, or
+// leaves it in the browser when a file goes along (its bytes cannot be
+// read back from the request). Null for a form without file fields.
+function formFileFields(elements) {
+  const files = Array.from(elements || []).filter((e) => e && String(e.type).toLowerCase() === "file" && e.name && !e.disabled);
+  if (!files.length) return null;
+  return { names: [...new Set(files.map((e) => String(e.name)))], chosen: files.some((e) => e.files && e.files.length > 0) };
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed };
+  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed, formFileFields };
 
 }

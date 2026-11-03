@@ -8,7 +8,10 @@
 // A download is only taken from the browser while UIDM is connected, capture
 // is on, and it passes the capture rules from UIDM's settings (see rules.js);
 // otherwise the browser downloads it as usual. If UIDM cannot even start a
-// download it took, it is handed back to the browser.
+// download it took, it is handed back to the browser. A download is seen
+// when its response headers arrive: Firefox lets the worker cancel it then,
+// Chrome only lets it look, so there it is taken as it appears, with the
+// browser's whole request (see request.js) and its bubble kept hidden.
 //
 // It also notes the videos each tab loads (see media.js) for the video
 // button that content.js shows over playing videos, and collects a page's
@@ -17,7 +20,7 @@
 // Chrome runs this as a service worker and it loads its helpers itself;
 // Firefox runs it as a background script after the helpers the manifest
 // lists, and has no importScripts.
-if (typeof importScripts === "function") importScripts("rules.js", "post.js", "media.js");
+if (typeof importScripts === "function") importScripts("rules.js", "post.js", "media.js", "request.js");
 
 const HOST = "com.uidm.host";
 const RECONNECT_MIN_MS = 1000;
@@ -37,11 +40,21 @@ const downloads = new Map();
 const awaitingAck = new Map();
 const captured = new Map();
 
-// Recent requests in frames that sent a body (form submissions), oldest
-// first, and the Content-Type each sent, by request id. A download a form
-// started is matched to its request here (see post.js).
+// Recent requests in frames and scripts that sent a body (form
+// submissions, XMLHttpRequest and fetch), oldest first, with the Content-Type
+// each sent. A download a form started is matched to its request here (see
+// post.js).
 const posts = [];
-const postTypes = new Map();
+// The file fields of forms recently sent, as their pages reported them
+// (content.js): { url, names, chosen, time }, oldest first.
+const formFiles = [];
+// The requests of frames: what the browser sent, where it was redirected
+// and what came back, by request id (see request.js). A download is matched
+// to its request here, for the whole request to go to UIDM.
+const requestLog = new Map();
+// Tabs other tabs opened lately: tab id -> { time, opener, loaded }, for
+// closing a tab that was opened only for a download UIDM took.
+const openedTabs = new Map();
 // Private-window tabs. Firefox marks webRequest events from them, Chrome
 // does not, so they are followed here: what happens in them stays out of
 // UIDM and out of the "recent videos" menus of normal windows.
@@ -53,18 +66,44 @@ if (chrome.tabs) {
   chrome.tabs.onCreated.addListener(note);
   chrome.tabs.onUpdated.addListener((_id, _change, tab) => note(tab));
   chrome.tabs.onRemoved.addListener((id) => privateTabs.delete(id));
+  chrome.tabs.onCreated.addListener((tab) => {
+    if (!tab || tab.openerTabId == null) return;
+    const now = Date.now();
+    for (const [id, o] of openedTabs) if (now - o.time > 60000) openedTabs.delete(id);
+    openedTabs.set(tab.id, { time: now, opener: tab.openerTabId, loaded: false });
+  });
+  // A tab that showed a page has history of its own: it stays.
+  chrome.tabs.onUpdated.addListener((id, change, tab) => {
+    const o = openedTabs.get(id);
+    if (o && change.status === "complete" && tab && isWeb(tab.url)) o.loaded = true;
+  });
+  chrome.tabs.onRemoved.addListener((id) => openedTabs.delete(id));
 }
+
+// What the browser lets the worker see of requests. Chrome hides some
+// headers (Cookie, Referer, ...) unless asked with "extraHeaders", an
+// option Firefox does not know; Firefox can hold a response until the
+// worker decides ("blocking", with the webRequestBlocking permission), which
+// Chrome keeps from extensions like this one.
+const hasOption = (options, name) => !!options && Object.values(options).includes(name);
+const EXTRA_HEADERS =
+  chrome.webRequest && hasOption(chrome.webRequest.OnSendHeadersOptions, "extraHeaders") ? ["extraHeaders"] : [];
+const EXTRA_RESPONSE_HEADERS =
+  chrome.webRequest && hasOption(chrome.webRequest.OnHeadersReceivedOptions, "extraHeaders") ? ["extraHeaders"] : [];
+const BLOCKING = ((chrome.runtime.getManifest && chrome.runtime.getManifest().permissions) || []).includes("webRequestBlocking");
 
 if (chrome.webRequest) {
   const frames = { urls: ["<all_urls>"], types: ["main_frame", "sub_frame"] };
+  const isFrame = (d) => d.type === "main_frame" || d.type === "sub_frame";
+  const bodies = { urls: ["<all_urls>"], types: ["main_frame", "sub_frame", "xmlhttprequest"] };
   chrome.webRequest.onBeforeRequest.addListener(
     (d) => {
       if (d.method !== "POST" || d.incognito || isPrivate(d.tabId)) return;
       const now = Date.now();
       prunePosts(posts, now);
-      posts.push({ id: d.requestId, url: d.url, time: now, requestBody: d.requestBody });
+      posts.push({ id: d.requestId, url: d.url, type: d.type, time: now, requestBody: d.requestBody });
     },
-    frames,
+    bodies,
     ["requestBody"],
   );
   chrome.webRequest.onBeforeSendHeaders.addListener(
@@ -74,8 +113,31 @@ if (chrome.webRequest) {
       const record = posts.find((r) => r.id === d.requestId);
       if (record && type) record.contentType = type.value;
     },
-    frames,
+    bodies,
     ["requestHeaders"],
+  );
+  // The headers as they left, after other extensions changed them.
+  if (chrome.webRequest.onSendHeaders) {
+    chrome.webRequest.onSendHeaders.addListener(
+      (d) => {
+        if (!isFrame(d) || d.incognito || isPrivate(d.tabId)) return;
+        noteRequest(requestLog, d, Date.now());
+      },
+      frames,
+      ["requestHeaders", ...EXTRA_HEADERS],
+    );
+  }
+  if (chrome.webRequest.onBeforeRedirect) {
+    chrome.webRequest.onBeforeRedirect.addListener((d) => isFrame(d) && noteRedirect(requestLog, d), frames);
+  }
+  chrome.webRequest.onHeadersReceived.addListener(
+    (d) => {
+      if (!isFrame(d) || d.incognito || isPrivate(d.tabId)) return undefined;
+      const record = noteResponse(requestLog, d, Date.now());
+      return record.response ? atHeaders(d, record) : undefined;
+    },
+    frames,
+    ["responseHeaders", ...EXTRA_RESPONSE_HEADERS, ...(BLOCKING ? ["blocking"] : [])],
   );
 }
 
@@ -93,14 +155,22 @@ async function takeFromPlayer(d) {
   if (!playerTaken.has(d.tabId)) playerTaken.set(d.tabId, new Set());
   playerTaken.get(d.tabId).add(d.url);
   const download = { op: "add", url: d.url, user_agent: navigator.userAgent };
+  // A player's script may ask for its file with a POST; it goes the same.
+  if (d.method === "POST") {
+    const posted = postById(posts, d.requestId);
+    const post = posted ? rebuildPost(posted) : { leave: "no body" };
+    if (post.leave) return;
+    download.method = "POST";
+    download.body = post.body;
+    if (post.contentType) download.headers = { "Content-Type": post.contentType };
+  }
   const cookies = await cookieHeader(d.url);
   if (cookies) download.cookies = cookies;
-  const from = d.documentUrl || d.initiator;
-  if (isWeb(from)) download.referrer = from;
   const page = chrome.tabs && chrome.tabs.get ? await chrome.tabs.get(d.tabId).then((t) => t.url, () => null) : null;
+  const from = webReferrer(d.documentUrl, d.originUrl, d.initiator, page);
+  if (from) download.referrer = from;
   if (isWeb(page)) download.page = page;
-  const proxy = await browserProxy();
-  if (proxy) download.proxy = proxy;
+  await addBrowserProxy(download);
   send(download);
 }
 if (chrome.webRequest) {
@@ -206,8 +276,7 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
   if (cookies) download.cookies = cookies;
   if (referrer) download.referrer = referrer;
   if (isWeb(page)) download.page = page;
-  const proxy = await browserProxy();
-  if (proxy) download.proxy = proxy;
+  await addBrowserProxy(download);
   if (entry.kind === "file") {
     download.filename = titleFileName(msg.title, mediaFileExtension(entry));
   } else {
@@ -259,6 +328,11 @@ function onContentMessage(msg, sender, sendResponse) {
       // Only the selection's links, from every frame of this tab.
       pickLinks(tabId, sender.tab.url || pageUrl, true).then((result) => sendResponse({ ok: noticePick(result, true) }));
       return true;
+    case "form:files":
+      // The file fields of a form this page is sending (see content.js).
+      noteFormFiles(msg);
+      sendResponse({ ok: true });
+      return false;
     case "link:skip":
       // The skip key was held: the download this click starts stays.
       skipClick = { time: Date.now() };
@@ -270,9 +344,12 @@ function onContentMessage(msg, sender, sendResponse) {
         sendResponse({ ok: false });
         return false;
       }
-      // The clicked link's document (maybe a frame) is the referrer; the
+      // The clicked link's document (maybe a frame) is the referrer, or the
+      // nearest one with an address when it has none (about:blank); the
       // tab's address is the page it came from.
-      handOff(msg.url, pageUrl, undefined, false, null, null, sender.tab.url).then((ok) => sendResponse({ ok }));
+      (isWeb(pageUrl) ? Promise.resolve(undefined) : framesReferrer(tabId, sender.frameId))
+        .then((parent) => handOff(msg.url, webReferrer(pageUrl, parent, sender.tab.url), undefined, false, null, null, sender.tab.url))
+        .then((ok) => sendResponse({ ok }));
       return true;
     default:
       return false;
@@ -594,22 +671,34 @@ function baseName(path) {
   return name || undefined;
 }
 
-// The browser's fixed proxy as `scheme://host:port`, for UIDM's "use the
-// browser's proxy" option. Only plain HTTP and SOCKS proxies are reported;
-// automatic and system settings report nothing.
-async function browserProxy() {
+// Add the browser's proxy setting to `msg`, for UIDM's "use the browser's
+// proxy" option: all of it as `browser_proxy` (fixed proxies, a
+// configuration script, automatic detection, the system's setting or none,
+// and the bypass list), and its fixed proxy alone as `proxy`, which is all
+// older versions of UIDM read.
+async function addBrowserProxy(msg) {
+  let value;
   try {
-    const { value } = await chrome.proxy.settings.get({});
-    if (value && "proxyType" in value) return firefoxProxy(value);
-    if (!value || value.mode !== "fixed_servers" || !value.rules) return undefined;
-    const p = value.rules.singleProxy || value.rules.proxyForHttps || value.rules.proxyForHttp;
-    if (!p || !p.host || !["http", "socks4", "socks5"].includes(p.scheme || "http")) return undefined;
-    const scheme = p.scheme || "http";
-    const port = p.port || (scheme === "http" ? 80 : 1080);
-    return `${scheme}://${p.host}:${port}`;
+    ({ value } = await chrome.proxy.settings.get({}));
   } catch (_) {
-    return undefined;
+    return;
   }
+  const fixed = fixedProxy(value);
+  if (fixed) msg.proxy = fixed;
+  const setting = proxySetting(value);
+  if (setting) msg.browser_proxy = setting;
+}
+
+// The browser's fixed proxy as `scheme://host:port`. Only plain HTTP and
+// SOCKS proxies are reported; other settings report nothing.
+function fixedProxy(value) {
+  if (value && "proxyType" in value) return firefoxProxy(value);
+  if (!value || value.mode !== "fixed_servers" || !value.rules) return undefined;
+  const p = value.rules.singleProxy || value.rules.proxyForHttps || value.rules.proxyForHttp;
+  if (!p || !p.host || !["http", "socks4", "socks5"].includes(p.scheme || "http")) return undefined;
+  const scheme = p.scheme || "http";
+  const port = p.port || (scheme === "http" ? 80 : 1080);
+  return `${scheme}://${p.host}:${port}`;
 }
 
 // Firefox reports its proxy as `{ proxyType, http, ssl, socks, ... }`, each
@@ -633,11 +722,12 @@ function proxyAddress(scheme, address, defaultPort) {
 // header; `page`, the web page the download came from (the tab's address),
 // is only shown and sorted by in UIDM, as IDM keeps the two apart.
 // `description` is a note shown with it in UIDM's list (a link's title).
-async function handOff(url, referrer, filename, later = false, post = null, refreshId = null, page = null, description = null) {
+// `details` is what the browser's own request adds (requestDetails): its
+// other headers, its redirects, and the response's size and type.
+async function handOff(url, referrer, filename, later = false, post = null, refreshId = null, page = null, description = null, details = {}) {
   const cookies = await cookieHeader(url);
-  const msg = { op: "add", url, user_agent: navigator.userAgent };
-  const proxy = await browserProxy();
-  if (proxy) msg.proxy = proxy;
+  const msg = { op: "add", url, user_agent: navigator.userAgent, ...details };
+  await addBrowserProxy(msg);
   if (post) {
     msg.method = "POST";
     msg.body = post.body;
@@ -677,15 +767,151 @@ async function downloadPage(referrer, url) {
   return tab.url;
 }
 
+// The browser's download bubble (Chrome's), hidden while a download is
+// taken from it. Firefox cannot hide its download panel.
+const bubble = bubbleGate((enabled) => {
+  if (!chrome.downloads.setUiOptions) return;
+  try {
+    const done = chrome.downloads.setUiOptions({ enabled });
+    if (done && done.catch) done.catch(() => {});
+  } catch (_) {
+    // Not allowed (no downloads.ui permission): the bubble shows.
+  }
+});
+
+// The web address of the frame `frameId` of tab `tabId` or, when it has
+// none (about:blank, about:srcdoc), of the nearest frame above it that
+// has one. Undefined when the browser cannot tell.
+async function framesReferrer(tabId, frameId) {
+  if (!chrome.webNavigation || !chrome.webNavigation.getAllFrames || tabId == null || tabId < 0 || frameId == null) return undefined;
+  try {
+    return frameReferrer(await chrome.webNavigation.getAllFrames({ tabId }), frameId);
+  } catch (_) {
+    return undefined;
+  }
+}
+
+// Keep what a page said about a form's file fields (content.js).
+function noteFormFiles(msg) {
+  if (!isWeb(msg.url) || !Array.isArray(msg.names)) return;
+  const now = Date.now();
+  while (formFiles.length && (now - formFiles[0].time > POST_MATCH_MS || formFiles.length >= 50)) formFiles.shift();
+  const names = msg.names.filter((n) => typeof n === "string").slice(0, 100);
+  formFiles.push({ url: msg.url, names, chosen: !!msg.chosen, time: now });
+}
+
+// The recorded POST a download came from, with its form's file fields: the
+// one its request (`record`) was, else the latest to its address.
+function postFor(record, urls, now) {
+  const posted =
+    (record && record.method === "POST" && postById(posts, record.id)) ||
+    urls.map((u) => findPost(posts, u, now)).find(Boolean) ||
+    null;
+  if (posted) {
+    const files = findPost(formFiles, posted.url, now);
+    if (files) posted.files = files;
+  }
+  return posted;
+}
+
+// Close tab `tabId` when it was opened only for the download at one of
+// `urls`, as IDM does: taken by UIDM, it would stay blank.
+async function closeIfOpenedFor(tabId, urls) {
+  if (tabId == null || tabId < 0 || !chrome.tabs || !chrome.tabs.get || !chrome.tabs.remove) return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (openedOnlyFor(tab, openedTabs.get(tabId), urls, Date.now())) chrome.tabs.remove(tabId).catch(() => {});
+}
+
+// Whether a download described by `described` would be taken now: UIDM is
+// connected, capture is on, no skip applies, and the capture rules (or a
+// download waiting for a new link) want it. { refreshId }, or null.
+function takesNow(described) {
+  if (!connected || !captureEnabled || skipNext || clickApplies(skipClick, Date.now())) return null;
+  const refreshId = refreshWaiting;
+  if (refreshId === null && !captureDecision(rules, described).capture) return null;
+  return { refreshId };
+}
+
+// A frame's response `d` that is a download (`record.response`), seen when
+// its headers arrive, before the browser starts saving it. In Firefox the
+// worker may hold the response: one UIDM takes is canceled here and handed
+// over, and the browser never starts it. Chrome lets the worker only look:
+// the download is taken when it appears (downloads.onCreated), with what was
+// learned here, and the bubble is hidden from now so it does not flash up.
+function atHeaders(d, record) {
+  const r = record.response;
+  const described = {
+    url: d.url,
+    referrer: webReferrer(requestReferer(record), d.documentUrl, d.originUrl) || "",
+    filename: r.filename,
+    mime: r.mime,
+    size: r.size,
+  };
+  const verdict = takesNow(described);
+  if (!verdict) return undefined;
+  if (!BLOCKING) {
+    record.bubbleHeld = true;
+    bubble.hold();
+    return undefined;
+  }
+  let post = null;
+  let requestUrl = d.url;
+  if (d.method === "POST") {
+    const posted = postFor(record, [], Date.now());
+    if (!posted) return undefined;
+    post = rebuildPost(posted);
+    // The browser downloads what cannot be rebuilt, as before.
+    if (post.leave) return undefined;
+    requestUrl = posted.url;
+  }
+  takeAtHeaders(d, record, post, requestUrl, verdict.refreshId);
+  return { cancel: true };
+}
+
+// Hand the response `d` canceled at its headers to UIDM (see atHeaders).
+async function takeAtHeaders(d, record, post, requestUrl, refreshId) {
+  const tab = d.tabId >= 0 && chrome.tabs && chrome.tabs.get ? await chrome.tabs.get(d.tabId).catch(() => null) : null;
+  const tabUrl = tab && !tab.incognito && isWeb(tab.url) && tab.url !== d.url ? tab.url : null;
+  const parent = d.type === "sub_frame" ? await framesReferrer(d.tabId, d.parentFrameId) : undefined;
+  const referrer = webReferrer(requestReferer(record), d.documentUrl, parent, d.originUrl, tabUrl);
+  if (refreshWaiting === refreshId) refreshWaiting = null;
+  const details = requestDetails(record);
+  await deliver(requestUrl, referrer, record.response.filename, post, refreshId, tabUrl, details);
+  if (d.type === "main_frame") closeIfOpenedFor(d.tabId, [d.url, ...record.redirects]);
+}
+
+// A download the browser created. Chrome's bubble may have been hidden for
+// it when its headers came (atHeaders); it shows again once it is decided.
 chrome.downloads.onCreated.addListener(async (item) => {
+  const record = findRequest(requestLog, item.finalUrl || item.url, Date.now()) || findRequest(requestLog, item.url, Date.now());
+  try {
+    await browserDownload(item, record);
+  } finally {
+    if (record && record.bubbleHeld) {
+      record.bubbleHeld = false;
+      bubble.release();
+    }
+  }
+});
+
+async function browserDownload(item, record) {
   await settingsReady;
   if (!captureEnabled) return; // let the browser handle it
   if (item.incognito) return; // keep private-window downloads out of UIDM's list
   if (item.byExtensionId === chrome.runtime.id) return; // our own hand-back
   const url = item.finalUrl || item.url;
   if (!isWeb(url)) return; // blob:, data:, file: only exist in the browser
-  const size = item.totalBytes > 0 ? item.totalBytes : item.fileSize > 0 ? item.fileSize : 0;
-  const described = { url, referrer: item.referrer, filename: baseName(item.filename), mime: item.mime, size };
+  // What the response's headers said fills in what the download item does
+  // not know yet: Chrome often reports no size and type this early.
+  const seen = (record && record.response) || {};
+  const itemSize = item.totalBytes > 0 ? item.totalBytes : item.fileSize > 0 ? item.fileSize : 0;
+  const described = {
+    url,
+    referrer: item.referrer,
+    filename: baseName(item.filename) || seen.filename,
+    mime: item.mime || seen.mime,
+    size: itemSize || seen.size || 0,
+  };
   if (!connected) {
     // It stays in the browser; say so if UIDM would have taken it.
     if (!skipNext && !clickApplies(skipClick, Date.now()) && captureDecision(rules, described).capture) {
@@ -706,8 +932,8 @@ chrome.downloads.onCreated.addListener(async (item) => {
   const refreshId = refreshWaiting;
   if (refreshId === null && !captureDecision(rules, described).capture) return;
 
-  await takeDownload(item, url, described.filename, refreshId);
-});
+  await takeDownload(item, url, described.filename, refreshId, true, record);
+}
 
 // Take browser download `item` (its address `url`, named `filename`) from
 // the browser and hand it to UIDM, or, with `refreshId`, give that download
@@ -716,36 +942,55 @@ chrome.downloads.onCreated.addListener(async (item) => {
 // it: a form whose request cannot be rebuilt or one already finished stays
 // in the browser, one the host did not take goes back to it.
 // `guessPage` takes the tab in front as its page (see downloadPage), which
-// only holds while the download has just started.
-async function takeDownload(item, url, filename, refreshId = null, guessPage = true) {
+// only holds while the download has just started. `record` is the request
+// it came from, when the worker saw it (see request.js).
+async function takeDownload(item, url, filename, refreshId = null, guessPage = true, record = null) {
   // A form's download is sent as the same POST; one whose request cannot be
   // rebuilt stays in the browser.
   let post = null;
   let requestUrl = url;
-  const record = findPost(posts, item.url, Date.now()) || findPost(posts, url, Date.now());
-  if (record) {
-    post = rebuildPost(record);
+  const posted = postFor(record, [item.url, url], Date.now());
+  if (posted) {
+    post = rebuildPost(posted);
     if (post.leave) return false;
-    requestUrl = record.url;
+    requestUrl = posted.url;
   }
 
   // Take it from the browser before it writes much, then hand it over.
+  bubble.hold();
   try {
     await chrome.downloads.cancel(item.id);
     await chrome.downloads.erase({ id: item.id });
   } catch (_) {
     // Already finished or gone; nothing to take.
     return false;
+  } finally {
+    bubble.release();
   }
-  const page = guessPage ? await downloadPage(item.referrer, url) : null;
+  // The referrer is the document that started it, or the nearest one with
+  // an address when that was made from nothing (about:blank).
+  const header = requestReferer(record);
+  const from = webReferrer(item.referrer, header);
+  const page = guessPage ? await downloadPage(from || item.referrer, url) : null;
+  const parent = record && record.type === "sub_frame" ? await framesReferrer(record.tabId, record.parentFrameId) : undefined;
+  const referrer = from || (item.referrer ? webReferrer(parent, page) : undefined);
+  if (refreshId !== null) refreshWaiting = null;
+  const sent = await deliver(requestUrl, referrer, filename, post, refreshId, page, requestDetails(record));
+  if (record && record.type === "main_frame") closeIfOpenedFor(record.tabId, [url, item.url, ...record.redirects]);
+  return sent;
+}
+
+// Send a download taken from the browser to UIDM, or as the new link of
+// download `refreshId`; give it back to the browser when the message does
+// not go. Says whether UIDM has it (a refresh counts as taken either way).
+async function deliver(requestUrl, referrer, filename, post, refreshId, page, details) {
   if (refreshId !== null) {
-    refreshWaiting = null;
-    if (await handOff(requestUrl, item.referrer, baseName(item.filename), false, post, refreshId, page)) return true;
+    if (await handOff(requestUrl, referrer, filename, false, post, refreshId, page, null, details)) return true;
     giveBack(requestUrl, post);
     return true;
   }
   awaitingAck.set(requestUrl, { post, filename });
-  const sent = await handOff(requestUrl, item.referrer, filename, false, post, null, page);
+  const sent = await handOff(requestUrl, referrer, filename, false, post, null, page, null, details);
   if (!sent) {
     // The port dropped between the check and the send: give it back.
     awaitingAck.delete(requestUrl);
@@ -1102,7 +1347,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "uidm-page") {
     // The page (or the frame clicked in) itself, as IDM's "Download with
     // IDM" on a page does; the tab's page is its referrer and its page.
-    const url = info.frameUrl || info.pageUrl;
+    // A frame made from nothing (about:blank) is no page to download.
+    const url = webReferrer(info.frameUrl, info.pageUrl);
     if (!isWeb(url)) return;
     if (!connected || !(await handOff(url, info.pageUrl, undefined, false, null, null, info.pageUrl))) noticeCannotReach();
     return;
@@ -1111,8 +1357,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const later = info.menuItemId === "uidm-later-link" || info.menuItemId === "uidm-later-media";
   const url = isLink ? info.linkUrl : info.srcUrl;
   if (!isWeb(url)) return;
-  // The link's frame is the referrer; the tab's page is where it came from.
-  const referrer = info.frameUrl || info.pageUrl;
+  // The link's frame is the referrer, or the nearest frame above it with an
+  // address when it has none (about:blank); the tab's page is where it came
+  // from.
+  const parent = isWeb(info.frameUrl) ? undefined : await framesReferrer(tab && tab.id, info.frameId);
+  const referrer = webReferrer(info.frameUrl, parent, info.pageUrl);
   // A link's `download` attribute names the file, and its title (or text)
   // is the download's description, as IDM takes them.
   const { filename, description } = isLink && connected ? await linkDetails(tab, info) : {};

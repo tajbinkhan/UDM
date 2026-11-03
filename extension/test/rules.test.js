@@ -417,3 +417,11 @@ test("a crawl's page is rendered in a background tab and the tab is closed", asy
   assert.equal(JSON.stringify(answer.popups), JSON.stringify(["https://site.net/popup.html"]));
   assert.equal(JSON.stringify(removed), "[12,11]", "the popup is closed, and the tab; another tab's window is left alone");
 });
+test("a form's file fields are named, and whether one sends a file", () => {
+  const { formFileFields } = require("../rules.js");
+  const input = (type, name, files = [], disabled = false) => ({ type, name, files, disabled });
+  assert.equal(formFileFields([input("text", "q"), input("submit", "go")]), null);
+  assert.equal(JSON.stringify(formFileFields([input("text", "q"), input("file", "doc"), input("FILE", "doc")])), '{"names":["doc"],"chosen":false}');
+  assert.equal(formFileFields([input("file", "doc", [{}])]).chosen, true);
+  assert.equal(formFileFields([input("file", "", [{}]), input("file", "x", [{}], true)]), null, "unnamed and disabled ones are not sent");
+});

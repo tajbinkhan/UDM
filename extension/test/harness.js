@@ -27,12 +27,19 @@ function getMessage(name, substitutions) {
 function event() {
   const listeners = [];
   return {
-    addListener: (f) => listeners.push(f),
+    // The extra options each listener asked for, as webRequest takes them.
+    options: [],
+    addListener(f, _filter, extra) {
+      listeners.push(f);
+      this.options.push(extra || []);
+    },
     removeListener: (f) => {
       const i = listeners.indexOf(f);
       if (i >= 0) listeners.splice(i, 1);
     },
     fire: (...args) => Promise.all([...listeners].map((f) => f(...args))),
+    // What each listener returned, for a blocking webRequest event.
+    call: (...args) => [...listeners].map((f) => f(...args)),
   };
 }
 
@@ -56,7 +63,7 @@ function loadWorker({ firefox = false } = {}) {
     runtime: {
       id: "uidm",
       connectNative: () => port,
-      getManifest: () => ({ version: "test" }),
+      getManifest: () => ({ ...(firefox ? firefoxManifest() : chromeManifest()), version: "test" }),
       getURL: (path) => (firefox ? `moz-extension://0b1c/${path}` : `chrome-extension://uidm/${path}`),
       onMessage: event(),
       onInstalled: event(),
@@ -72,13 +79,38 @@ function loadWorker({ firefox = false } = {}) {
     webRequest: {
       onBeforeRequest: event(),
       onBeforeSendHeaders: event(),
+      onSendHeaders: event(),
+      onBeforeRedirect: event(),
       onHeadersReceived: event(),
+      // Chrome's "extraHeaders" option; Firefox has none.
+      ...(firefox
+        ? {}
+        : {
+            OnSendHeadersOptions: { REQUEST_HEADERS: "requestHeaders", EXTRA_HEADERS: "extraHeaders" },
+            OnHeadersReceivedOptions: { RESPONSE_HEADERS: "responseHeaders", EXTRA_HEADERS: "extraHeaders" },
+          }),
+    },
+    // The frames of each tab, as tests set them: tab id -> [{ frameId,
+    // parentFrameId, url }].
+    webNavigation: {
+      frames: new Map(),
+      getAllFrames: async ({ tabId }) => chrome.webNavigation.frames.get(tabId) || null,
     },
     tabs: {
       onRemoved: event(),
       onUpdated: event(),
       onCreated: event(),
       query: async () => [],
+      // The tabs get() finds, by id, and the ids remove() closed.
+      known: new Map(),
+      removed: [],
+      get: async (id) => {
+        if (!chrome.tabs.known.has(id)) throw new Error("no such tab");
+        return chrome.tabs.known.get(id);
+      },
+      remove: async (id) => {
+        chrome.tabs.removed.push(id);
+      },
       // Messages to content scripts as [tabId, msg, options]; `reply`, when
       // a test sets it, answers them as the frame's content script would.
       messages: [],
@@ -97,6 +129,8 @@ function loadWorker({ firefox = false } = {}) {
       cancel: async (id) => browserCalls.push(["cancel", id]),
       erase: async (q) => browserCalls.push(["erase", q.id]),
       download: async (o) => browserCalls.push(["download", o.url, o]),
+      // Chrome's download bubble: each setUiOptions call's `enabled`.
+      ...(firefox ? {} : { ui: [], setUiOptions: async (o) => chrome.downloads.ui.push(o.enabled) }),
     },
     cookies: { getAll: async () => [] },
     contextMenus: {
@@ -165,6 +199,10 @@ function loadWorker({ firefox = false } = {}) {
       chrome.runtime.onMessage.fire(msg, { id: "uidm", tab: { id: tabId, url }, url: frameUrl }, resolve),
     );
   return { port, sent, browserCalls, chrome, popup, content };
+}
+
+function chromeManifest() {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"));
 }
 
 // manifest.json as installer\make-firefox.ps1 changes it for Firefox: each
