@@ -591,6 +591,8 @@ pub struct GrabDialog {
     when_done: uidm::queue::WhenDone,
     /// A file to open after a scheduled run; empty for none.
     open_when_done: String,
+    /// The file the Browse button picked for `open_when_done`.
+    open_picked: Picked,
     /// What earlier runs found and the last run's day and start time, kept
     /// as they are.
     kept: (Vec<String>, Option<i64>, Option<i64>),
@@ -767,6 +769,7 @@ impl GrabDialog {
             sched_queue: MAIN_QUEUE,
             when_done: uidm::queue::WhenDone::Nothing,
             open_when_done: String::new(),
+            open_picked: Picked::default(),
             kept: (Vec::new(), None, None),
         }
     }
@@ -876,6 +879,7 @@ pub fn grab_dialog(
 ) -> bool {
     take_picked(&d.mirror_picked, &mut d.mirror_folder);
     take_picked(&d.save_picked, &mut d.save_folder);
+    take_picked(&d.open_picked, &mut d.open_when_done);
     let mut open = true;
     let mut close = false;
     let mut again = false;
@@ -1278,6 +1282,7 @@ fn grab_body(
                         });
                         ui.label(tr("and open"));
                         ui.add(egui::TextEdit::singleline(&mut d.open_when_done).hint_text(tr("A file or program, or nothing")).desired_width(200.0));
+                        crate::queues::open_file_button(ui, &d.open_when_done, &d.open_picked);
                     })
                     .response
                     .on_hover_text(tr("After the crawl, or once the queue has downloaded what the run added"));

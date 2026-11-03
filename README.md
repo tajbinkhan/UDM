@@ -267,13 +267,16 @@ tests, not in a running Firefox.
   Streams and form answers are not checked. **Manage queues...** creates,
   renames and deletes queues (the main queue stays) and sets each one's
   type, downloads at once, retries for failed downloads, and what to do when
-  it is done.
+  it is done, including a file or program to open (**Browse...** picks it).
+  Its **Start now** and **Stop** buttons start or stop the selected queue
+  as saved, and **Help** opens the scheduler's help.
 - **Scheduler**: a queue can start at a set time on chosen days of the week,
   or once on a date, and optionally stop at a set time (the next morning if
   earlier than the start). **Start again every** N hours M minutes starts
   it again that long after each start, until the stop time (or midnight
   without one); the last start is saved, so a restart keeps the rhythm.
-  Grabber projects have the same choice. The queue's header shows its next
+  Grabber projects have the same choice, and the same **Browse...** for the
+  file to open when a run is done. The queue's header shows its next
   run. If UIDM was not running at the start time, the queue starts as soon
   as it is, while the time window is still open. The Queues dialog says so
   next to a schedule until **Don't show this again** hides the note.

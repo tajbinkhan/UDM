@@ -752,5 +752,9 @@
   "One-time downloading": "Einmaliges Herunterladen",
   "Periodic synchronization": "Regelmäßige Synchronisierung",
   "Periodic synchronization keeps finished downloads in the queue. Each run asks the server about them and downloads again those whose size, ETag or date changed.": "Regelmäßige Synchronisierung behält fertige Downloads in der Warteschlange. Jeder Lauf fragt den Server nach ihnen und lädt die erneut herunter, deren Größe, ETag oder Datum sich geändert hat.",
-  "Each run also checks the files earlier runs downloaded and downloads again those changed on the server.": "Jeder Lauf prüft auch die Dateien, die frühere Läufe heruntergeladen haben, und lädt die auf dem Server geänderten erneut herunter."
+  "Each run also checks the files earlier runs downloaded and downloads again those changed on the server.": "Jeder Lauf prüft auch die Dateien, die frühere Läufe heruntergeladen haben, und lädt die auf dem Server geänderten erneut herunter.",
+  "Open this file when done": "Diese Datei nach Abschluss öffnen",
+  "Start now": "Jetzt starten",
+  "Start the queue as saved, without waiting for its schedule": "Die Warteschlange wie gespeichert starten, ohne auf ihren Zeitplan zu warten",
+  "Help": "Hilfe"
 }

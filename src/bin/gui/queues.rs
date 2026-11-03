@@ -2,6 +2,8 @@
 //! Queues dialog where queues and their schedules are edited, and the
 //! countdown before a finished queue sleeps or shuts down the computer.
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use eframe::egui;
@@ -9,7 +11,7 @@ use uidm::queue::{
     self, Queue, QueueKind, Schedule, WhenDone, MAIN_QUEUE, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX,
 };
 
-use super::Action;
+use super::{take_picked, Action, Picked};
 use crate::i18n::{tr, trf};
 
 const DAY_NAMES: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -78,6 +80,38 @@ pub fn repeat_split(repeat: Option<u32>) -> (bool, u32, u32) {
     (repeat.is_some(), every / 60, every % 60)
 }
 
+/// The folder the file picker opens in for an "open when done" field: the
+/// one holding the file already named there, so changing it starts next to
+/// it. None (the picker's own default) when the field is empty or not a
+/// full path.
+pub fn picker_folder(field: &str) -> Option<PathBuf> {
+    let path = Path::new(field.trim());
+    if !path.is_absolute() {
+        return None;
+    }
+    path.parent().filter(|p| !p.as_os_str().is_empty()).map(Path::to_path_buf)
+}
+
+/// The "Browse..." button by an "open when done" field (a queue's or a
+/// grabber project's): picks any file or program on its own thread, since
+/// the picker blocks, and puts it in `slot` for `take_picked`.
+pub fn open_file_button(ui: &mut egui::Ui, field: &str, slot: &Picked) {
+    if ui.button(tr("Browse...")).clicked() {
+        let (slot, ctx) = (Arc::clone(slot), ui.ctx().clone());
+        let start = picker_folder(field);
+        std::thread::spawn(move || {
+            let mut dialog = rfd::FileDialog::new().set_title(tr("Open this file when done"));
+            if let Some(folder) = start {
+                dialog = dialog.set_directory(folder);
+            }
+            if let Some(file) = dialog.pick_file() {
+                *slot.lock().unwrap() = Some(file);
+                ctx.request_repaint();
+            }
+        });
+    }
+}
+
 /// The strip above a queue's downloads: its state, Start or Stop, what
 /// happens after this run, and its next scheduled run.
 pub fn header(ui: &mut egui::Ui, q: &Queue, connected: bool, actions: &mut Vec<Action>) {
@@ -135,6 +169,8 @@ pub struct QueueDraft {
     when_done: WhenDone,
     /// Empty opens nothing.
     open_when_done: String,
+    /// The file the Browse button picked for `open_when_done`.
+    open_picked: Picked,
     force_close: bool,
     start_on_launch: bool,
     scheduled: bool,
@@ -172,6 +208,7 @@ impl QueueDraft {
             kind: q.kind,
             when_done: q.when_done,
             open_when_done: q.open_when_done.clone().unwrap_or_default(),
+            open_picked: Picked::default(),
             force_close: q.force_close,
             start_on_launch: q.start_on_launch,
             scheduled: s.is_some(),
@@ -306,6 +343,7 @@ fn form(
     close: &mut bool,
 ) {
     let draft = &mut d.draft;
+    take_picked(&draft.open_picked, &mut draft.open_when_done);
     egui::Grid::new("queue_form").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
         ui.label(tr("Name"));
         ui.add(egui::TextEdit::singleline(&mut draft.name).desired_width(220.0));
@@ -353,12 +391,15 @@ fn form(
         }
 
         ui.label(tr("Then open"));
-        ui.add(
-            egui::TextEdit::singleline(&mut draft.open_when_done)
-                .hint_text(tr("Nothing; or a program or file, as a full path"))
-                .desired_width(300.0),
-        )
-        .on_hover_text(tr("Opened once each time a run of the queue finishes"));
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut draft.open_when_done)
+                    .hint_text(tr("Nothing; or a program or file, as a full path"))
+                    .desired_width(300.0),
+            )
+            .on_hover_text(tr("Opened once each time a run of the queue finishes"));
+            open_file_button(ui, &draft.open_when_done, &draft.open_picked);
+        });
         ui.end_row();
 
         ui.label("");
@@ -470,6 +511,27 @@ fn form(
                 deleted = true;
             }
         });
+        ui.separator();
+        // Start now and Stop act on the queue as saved, as IDM's do; a new
+        // queue has nothing to start until it is saved.
+        let saved = queues.iter().find(|q| q.id == draft.id && draft.id != 0);
+        let running = saved.is_some_and(|q| q.running);
+        ui.add_enabled_ui(connected && saved.is_some(), |ui| {
+            if ui
+                .add_enabled(!running, egui::Button::new(tr("Start now")))
+                .on_hover_text(tr("Start the queue as saved, without waiting for its schedule"))
+                .clicked()
+            {
+                actions.push(Action::StartQueue(draft.id));
+            }
+            if ui.add_enabled(running, egui::Button::new(tr("Stop"))).clicked() {
+                actions.push(Action::StopQueue(draft.id));
+            }
+        });
+        ui.separator();
+        if ui.button(tr("Help")).clicked() {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(crate::help::SCHEDULER));
+        }
         if ui.button(tr("Close")).clicked() {
             *close = true;
         }
@@ -546,6 +608,18 @@ mod tests {
         assert!(q.validate().is_ok());
         assert!(new_named("   ", &queues).is_err());
         assert!(new_named("night", &queues).is_err(), "names differ by more than case");
+    }
+
+    #[test]
+    fn picker_folder_starts_next_to_the_named_file() {
+        let (file, folder) = if cfg!(windows) {
+            (r"C:\Tools\after.bat", r"C:\Tools")
+        } else {
+            ("/opt/tools/after.sh", "/opt/tools")
+        };
+        assert_eq!(picker_folder(&format!("  {file} ")), Some(PathBuf::from(folder)));
+        assert_eq!(picker_folder(""), None);
+        assert_eq!(picker_folder("after.bat"), None, "not a full path");
     }
 
     #[test]
