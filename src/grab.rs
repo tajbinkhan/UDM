@@ -122,6 +122,49 @@ pub struct GrabRequest {
     /// login; the password is in Credential Manager (`project_login_target`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login_user: Option<String>,
+    /// The site's sign-in page. UIDM has no browser of its own, so the
+    /// user opens this in their browser and signs in there; when the crawl
+    /// starts, the browser extension hands over that site's cookies, which
+    /// go to that site's pages only (`on_login_site`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_url: Option<String>,
+    /// Cookies for the sign-in page's site, pasted by the user, used when
+    /// the browser has none to give (no extension, or another browser).
+    /// Kept sealed in project files, as saved requests are.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "sealed")]
+    pub login_cookies: Option<String>,
+    /// Without a mirror, save each file under subfolders that follow its
+    /// address below the start page's folder (`relative_subfolder`).
+    #[serde(default)]
+    pub subfolders: bool,
+    /// Replace files already there, in a mirror or not; otherwise the
+    /// mirror skips them and other saves follow Options.
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+/// Pasted cookies are a sign-in, so project files keep them encrypted for
+/// this user (see `dpapi`) and a copied project file does not carry one.
+/// Cookies that cannot be read back, such as from another computer, are
+/// dropped.
+mod sealed {
+    use base64::Engine;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &Option<String>, s: S) -> Result<S::Ok, S::Error> {
+        match value.as_deref().map(|v| crate::dpapi::protect(v.as_bytes())) {
+            Some(Ok(sealed)) => s.serialize_some(&base64::engine::general_purpose::STANDARD.encode(sealed)),
+            _ => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+        let text: Option<String> = Option::deserialize(d)?;
+        Ok(text
+            .and_then(|t| base64::engine::general_purpose::STANDARD.decode(t).ok())
+            .and_then(|b| crate::dpapi::unprotect(&b).ok())
+            .and_then(|b| String::from_utf8(b).ok()))
+    }
 }
 
 fn yes() -> bool {
@@ -231,6 +274,10 @@ impl Default for GrabRequest {
             whole_site: false,
             other_depth: None,
             login_user: None,
+            login_url: None,
+            login_cookies: None,
+            subfolders: false,
+            overwrite: false,
         }
     }
 }
@@ -272,6 +319,12 @@ impl GrabRequest {
         }
         if self.types.is_empty() {
             return Err("Choose at least one file type to keep.".into());
+        }
+        if let Some(login) = &self.login_url {
+            let page = Url::parse(login.trim()).map_err(|_| "The login page must be a full web address.".to_string())?;
+            if !matches!(page.scheme(), "http" | "https") {
+                return Err("The login page must start with http:// or https://.".into());
+            }
         }
         if let Some(m) = self.mirror.as_ref().filter(|m| !Path::new(m.folder.trim()).is_absolute()) {
             return Err(format!("The folder to keep the site in must be a full path: {}", m.folder));
@@ -534,12 +587,20 @@ pub fn kept_locally(req: &GrabRequest, url: &Url) -> Option<bool> {
 /// its link text as description when the crawl keeps those, and in the
 /// folder the request saves to: under the mirror folder when the crawl
 /// keeps one, else one category's folder (from `settings`) or one folder
-/// for every file. `None` when the mirror skips existing files and this
-/// one is there.
-pub fn download_for(req: &GrabRequest, f: &GrabFile, settings: &crate::settings::Settings) -> Option<crate::protocol::Download> {
+/// for every file. `login_cookies`, the login page site's cookies, go
+/// with a file on that site only (`crawl_cookies`), as a captured
+/// download carries the browser's. `None` when the mirror skips existing
+/// files and this one is there.
+pub fn download_for(
+    req: &GrabRequest,
+    f: &GrabFile,
+    settings: &crate::settings::Settings,
+    login_cookies: Option<&str>,
+) -> Option<crate::protocol::Download> {
     let mut d = crate::protocol::Download {
         url: f.url.clone(),
         referrer: Some(f.page.clone()),
+        cookies: crawl_cookies(req, &f.url, None, login_cookies),
         start: Some(false),
         description: f.text.clone().filter(|t| req.link_text && !t.is_empty()),
         ..crate::protocol::Download::default()
@@ -565,6 +626,20 @@ pub fn download_for(req: &GrabRequest, f: &GrabFile, settings: &crate::settings:
         } else {
             crate::settings::FileExists::Rename
         });
+    } else if let Ok(url) = Url::parse(&f.url) {
+        // The site's folders under the chosen folder, or under the
+        // category's folder the file would go to by itself.
+        let sub = if req.subfolders { relative_subfolder(&req.start, &url) } else { PathBuf::new() };
+        if !sub.as_os_str().is_empty() {
+            let base = match &d.folder {
+                Some(folder) => PathBuf::from(folder),
+                None => settings.folders_for(&f.url).for_name(&url_file_name(&url)),
+            };
+            d.folder = Some(base.join(sub).display().to_string());
+        }
+        if req.overwrite {
+            d.file_exists = Some(crate::settings::FileExists::Overwrite);
+        }
     }
     // The project's own login goes to the start site's files.
     if let Some(user) = req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
@@ -582,12 +657,83 @@ pub fn download_for(req: &GrabRequest, f: &GrabFile, settings: &crate::settings:
 /// what browser cookies are sent to: the start host, and with `subdomains`
 /// the start domain's other hosts.
 pub fn on_start_site(req: &GrabRequest, url: &str) -> bool {
-    let host = |u: &str| Url::parse(u).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase));
-    let (Some(start), Some(here)) = (host(&req.start), host(url)) else {
+    on_site(&req.start, req.subdomains, url)
+}
+
+/// Whether a page at `url` belongs to the site of `req`'s login page, which
+/// is what that page's cookies are sent to: its host, and with `subdomains`
+/// its domain's other hosts. False without a login page.
+pub fn on_login_site(req: &GrabRequest, url: &str) -> bool {
+    req.login_url.as_deref().is_some_and(|login| on_site(login, req.subdomains, url))
+}
+
+/// Whether `url` is on the host of `site`, or with `subdomains` on its
+/// domain (without `www.`) or one of the domain's subdomains.
+fn on_site(site: &str, subdomains: bool, url: &str) -> bool {
+    let host = |u: &str| Url::parse(u.trim()).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase));
+    let (Some(start), Some(here)) = (host(site), host(url)) else {
         return false;
     };
     let domain = start.strip_prefix("www.").unwrap_or(&start);
-    here == start || (req.subdomains && (here == domain || here.ends_with(&format!(".{domain}"))))
+    here == start || (subdomains && (here == domain || here.ends_with(&format!(".{domain}"))))
+}
+
+/// The `Cookie` header a crawl for `req` sends with a request to `url`:
+/// `start` (the browser's cookies for the start site) on the start site,
+/// and `login` (the login page site's cookies) on that site, joined when
+/// both apply. `None` when neither does, so no other host gets them.
+pub fn crawl_cookies(req: &GrabRequest, url: &str, start: Option<&str>, login: Option<&str>) -> Option<String> {
+    let parts: Vec<&str> = [
+        start.filter(|_| on_start_site(req, url)),
+        login.filter(|_| on_login_site(req, url)),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .filter(|c| !c.is_empty())
+    .collect();
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+/// Pasted cookies as a `Cookie` header: a leading `Cookie:` and line
+/// breaks (as copied from a browser's developer tools) are dropped.
+pub fn clean_cookies(text: &str) -> Option<String> {
+    let text = text.trim();
+    let text = match text.get(..7) {
+        Some(head) if head.eq_ignore_ascii_case("cookie:") => &text[7..],
+        _ => text,
+    };
+    let parts: Vec<&str> = text.split([';', '\n', '\r']).map(str::trim).filter(|p| !p.is_empty()).collect();
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+/// The folders, under where it is saved, that keep a file at `url` in
+/// the place it has on its site: the folders below the start page's
+/// folder when it is under it on the same host, otherwise its host then
+/// every folder of its address. Empty for a file in the start folder.
+pub fn relative_subfolder(start: &str, url: &Url) -> PathBuf {
+    let dirs = |u: &Url| -> Vec<String> {
+        let mut parts: Vec<String> = u.path_segments().map(|s| s.map(str::to_string).collect()).unwrap_or_default();
+        parts.pop();
+        parts.retain(|p| !p.is_empty());
+        parts
+    };
+    let mut path = PathBuf::new();
+    let start = Url::parse(start.trim()).ok();
+    match start.filter(|s| s.host_str() == url.host_str()) {
+        Some(start) if dirs(url).starts_with(&dirs(&start)) => {
+            for d in &dirs(url)[dirs(&start).len()..] {
+                path.push(safe_part(d));
+            }
+        }
+        _ => {
+            path.push(safe_part(url.host_str().unwrap_or("site")));
+            for d in dirs(url) {
+                path.push(safe_part(&d));
+            }
+        }
+    }
+    path
 }
 
 /// Whether `url` is on this computer or the local network: `localhost`, or
@@ -1022,6 +1168,7 @@ pub fn template(dir: &Path) -> GrabRequest {
 pub fn save_template(dir: &Path, req: &GrabRequest) -> io::Result<()> {
     let req = GrabRequest {
         start: String::new(),
+        login_cookies: None,
         ..req.clone()
     };
     let bytes = serde_json::to_vec_pretty(&req).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -1161,6 +1308,7 @@ pub fn save_named_template(dir: &Path, name: &str, req: &GrabRequest) -> io::Res
         request: GrabRequest {
             start: String::new(),
             login_user: None,
+            login_cookies: None,
             ..req.clone()
         },
         built_in: false,
@@ -1672,15 +1820,15 @@ Crawl-delay: 2.5
             download_dir: Some(std::env::temp_dir().join("uidm-grab-dl").display().to_string()),
             ..crate::settings::Settings::default()
         };
-        let d = download_for(&request(1), &file, &settings).unwrap();
+        let d = download_for(&request(1), &file, &settings, None).unwrap();
         assert_eq!((d.category, d.folder, d.description), (None, None, None));
         let req = GrabRequest { save_to: SaveTo::Category("Music".into()), link_text: true, ..request(1) };
-        let d = download_for(&req, &file, &settings).unwrap();
+        let d = download_for(&req, &file, &settings, None).unwrap();
         assert_eq!((d.category.as_deref(), d.description.as_deref()), (Some("Music"), Some("The manual")));
         let music = settings.category_folder("Music").display().to_string();
         assert_eq!(d.folder.as_deref(), Some(music.as_str()), "a pdf saved to Music goes to Music's folder");
         let req = GrabRequest { save_to: SaveTo::Folder(r"D:\grabbed".into()), ..request(1) };
-        assert_eq!(download_for(&req, &file, &settings).unwrap().folder.as_deref(), Some(r"D:\grabbed"));
+        assert_eq!(download_for(&req, &file, &settings, None).unwrap().folder.as_deref(), Some(r"D:\grabbed"));
         assert!(GrabRequest { save_to: SaveTo::Folder("rel".into()), ..request(1) }.validate().is_err());
         assert!(GrabRequest { save_to: SaveTo::Category(" ".into()), ..request(1) }.validate().is_err());
         assert!(GrabRequest { explore_at_once: 11, ..request(1) }.validate().is_err());
@@ -2020,15 +2168,15 @@ Crawl-delay: 2.5
         let settings = crate::settings::Settings::default();
         let dir = std::env::temp_dir().join(format!("uidm_mirror_{}", std::process::id()));
         let mirrored = GrabRequest { mirror: Some(Mirror { folder: dir.display().to_string(), pages: true, overwrite: false }), ..req.clone() };
-        let d = download_for(&mirrored, &file, &settings).unwrap();
+        let d = download_for(&mirrored, &file, &settings, None).unwrap();
         assert_eq!(d.folder.as_deref(), Some(dir.join("s").join("docs").display().to_string().as_str()));
         assert_eq!(d.filename.as_deref(), Some("guide.pdf"));
         std::fs::create_dir_all(dir.join("s").join("docs")).unwrap();
         std::fs::write(dir.join("s").join("docs").join("guide.pdf"), b"x").unwrap();
-        assert!(download_for(&mirrored, &file, &settings).is_none(), "an existing file is skipped");
+        assert!(download_for(&mirrored, &file, &settings, None).is_none(), "an existing file is skipped");
         let replace = GrabRequest { mirror: Some(Mirror { overwrite: true, ..mirrored.mirror.clone().unwrap() }), ..req.clone() };
-        assert!(download_for(&replace, &file, &settings).is_some());
-        assert_eq!(download_for(&req, &file, &settings).unwrap().folder, None, "no mirror: the category decides");
+        assert!(download_for(&replace, &file, &settings, None).is_some());
+        assert_eq!(download_for(&req, &file, &settings, None).unwrap().folder, None, "no mirror: the category decides");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2041,5 +2189,116 @@ Crawl-delay: 2.5
         assert!(GrabRequest { max_pages: 0, ..request(1) }.validate().is_err());
         assert!(GrabRequest { delay_ms: 0, ..request(1) }.validate().is_err());
         assert!(GrabRequest { types: vec![], ..request(1) }.validate().is_err());
+    }
+
+    #[test]
+    fn login_page_cookies_go_to_its_site_only() {
+        let req = GrabRequest {
+            start: "https://docs.example.com/guide/".into(),
+            login_url: Some("https://example.com/login".into()),
+            ..GrabRequest::default()
+        };
+        assert!(req.validate().is_ok());
+        let both = |url: &str| crawl_cookies(&req, url, Some("a=1"), Some("s=2"));
+        assert_eq!(both("https://example.com/files/"), Some("s=2".into()), "the login site gets its cookies");
+        assert_eq!(both("https://docs.example.com/guide/x"), Some("a=1".into()), "the start site gets its own");
+        assert_eq!(both("https://cdn.other.net/x"), None, "another host gets none");
+        assert_eq!(both("https://evil.example.com.other.net/"), None);
+        assert_eq!(crawl_cookies(&req, "https://shop.example.com/", None, Some("s=2")), None, "not a subdomain without the option");
+        let wide = GrabRequest { subdomains: true, ..req.clone() };
+        assert_eq!(crawl_cookies(&wide, "https://shop.example.com/", None, Some("s=2")), Some("s=2".into()));
+        // One site for both: the cookies are joined.
+        let same = GrabRequest { start: "https://example.com/".into(), ..req.clone() };
+        assert_eq!(crawl_cookies(&same, "https://example.com/a", Some("a=1"), Some("s=2")), Some("a=1; s=2".into()));
+        let none = GrabRequest { login_url: None, ..req.clone() };
+        assert_eq!(crawl_cookies(&none, "https://example.com/files/", None, Some("s=2")), None);
+        assert!(GrabRequest { login_url: Some("example.com/login".into()), ..req.clone() }.validate().is_err());
+        assert!(GrabRequest { login_url: Some("ftp://example.com/".into()), ..req }.validate().is_err());
+    }
+
+    #[test]
+    fn pasted_cookies_are_cleaned_and_kept_sealed() {
+        assert_eq!(clean_cookies("Cookie: a=1;\n b=2 ;"), Some("a=1; b=2".into()));
+        assert_eq!(clean_cookies("  \n"), None);
+        let req = GrabRequest {
+            start: "https://s/".into(),
+            login_url: Some("https://s/login".into()),
+            login_cookies: Some("session=topsecret".into()),
+            ..GrabRequest::default()
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("topsecret"), "the cookies are not kept readable");
+        let back: GrabRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, req);
+        // Sealed elsewhere: dropped, not an error.
+        let foreign = json.replace(&json[json.find("\"login_cookies\":\"").unwrap() + 17..].split('"').next().unwrap().to_string(), "AAAA");
+        let back: GrabRequest = serde_json::from_str(&foreign).unwrap();
+        assert_eq!(back.login_cookies, None);
+        // Templates never keep them.
+        let dir = std::env::temp_dir().join(format!("uidm-grab-cookie-template-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        save_template(&dir, &req).unwrap();
+        assert_eq!(template(&dir).login_cookies, None);
+        assert_eq!(template(&dir).login_url.as_deref(), Some("https://s/login"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn normal_saves_keep_relative_subfolders_and_can_overwrite() {
+        let start = "https://s/docs/";
+        let at = |u: &str| relative_subfolder(start, &Url::parse(u).unwrap());
+        assert_eq!(at("https://s/docs/a.pdf"), PathBuf::new());
+        assert_eq!(at("https://s/docs/v1/en/a.pdf"), Path::new("v1").join("en"));
+        assert_eq!(at("https://s/other/a.pdf"), Path::new("s").join("other"), "outside the start folder: host and path");
+        assert_eq!(at("https://cdn.net/x/a.pdf"), Path::new("cdn.net").join("x"));
+        let root = std::env::temp_dir().join("uidm-grab-sub");
+        let settings = crate::settings::Settings {
+            download_dir: Some(root.display().to_string()),
+            ..crate::settings::Settings::default()
+        };
+        let file = GrabFile {
+            url: "https://s/docs/v1/a.pdf".into(),
+            name: "a.pdf".into(),
+            page: start.into(),
+            size: None,
+            text: None,
+        };
+        let folder = root.join("grabbed");
+        let req = GrabRequest {
+            start: start.into(),
+            save_to: SaveTo::Folder(folder.display().to_string()),
+            ..GrabRequest::default()
+        };
+        let d = download_for(&req, &file, &settings, None).unwrap();
+        assert_eq!((d.folder.clone(), d.file_exists), (Some(folder.display().to_string()), None), "off by default");
+        let req = GrabRequest { subfolders: true, overwrite: true, ..req };
+        let d = download_for(&req, &file, &settings, None).unwrap();
+        assert_eq!(d.folder, Some(folder.join("v1").display().to_string()));
+        assert_eq!(d.file_exists, Some(crate::settings::FileExists::Overwrite));
+        // By category: under the folder the file's category has.
+        let req = GrabRequest { save_to: SaveTo::Categories, ..req };
+        let d = download_for(&req, &file, &settings, None).unwrap();
+        let category = settings.folders_for(&file.url).for_name("a.pdf");
+        assert_eq!(d.folder, Some(category.join("v1").display().to_string()));
+        // A file in the start folder keeps the category's own choice.
+        let top = GrabFile { url: "https://s/docs/b.pdf".into(), ..file };
+        assert_eq!(download_for(&req, &top, &settings, None).unwrap().folder, None);
+    }
+
+    #[test]
+    fn found_files_on_the_login_site_carry_its_cookies() {
+        let settings = crate::settings::Settings::default();
+        let req = GrabRequest {
+            start: "https://docs.example.com/".into(),
+            login_url: Some("https://example.com/login".into()),
+            ..GrabRequest::default()
+        };
+        let file = |url: &str| GrabFile { url: url.into(), name: "a.pdf".into(), page: req.start.clone(), size: None, text: None };
+        let cookies = |url: &str| download_for(&req, &file(url), &settings, Some("s=2")).unwrap().cookies;
+        assert_eq!(cookies("https://example.com/files/a.pdf"), Some("s=2".into()));
+        assert_eq!(cookies("https://docs.example.com/a.pdf"), None, "the start site is another host");
+        assert_eq!(cookies("https://cdn.other.net/a.pdf"), None);
+        assert_eq!(download_for(&req, &file("https://example.com/a.pdf"), &settings, None).unwrap().cookies, None);
     }
 }

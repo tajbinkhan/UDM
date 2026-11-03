@@ -768,5 +768,18 @@
   "Open a grabber project": "Ouvrir un projet de l'aspirateur",
   "Grabber projects": "Projets de l'aspirateur",
   "Add the ticked files when the grabber closes": "Ajouter les fichiers cochés à la fermeture de l'aspirateur",
-  "Closing the grabber adds them to the list and queue, as Add does": "Fermer l'aspirateur les ajoute à la liste et à la file, comme Ajouter"
+  "Closing the grabber adds them to the list and queue, as Add does": "Fermer l'aspirateur les ajoute à la liste et à la file, comme Ajouter",
+  "Login page": "Page de connexion",
+  "Opens the page in your browser. Sign in there, then start the crawl.": "Ouvre la page dans votre navigateur. Connectez-vous-y, puis lancez l'exploration.",
+  "When the crawl starts, UIDM's extension hands over the login page's site cookies, which go to that site's pages only.": "Au lancement de l'exploration, l'extension UIDM transmet les cookies du site de la page de connexion, qui ne sont envoyés qu'aux pages de ce site.",
+  "Cookies": "Cookies",
+  "name=value; name2=value2": "nom=valeur; nom2=valeur2",
+  "Only needed when the browser can't hand them over, such as without UIDM's extension. Saved projects keep them encrypted.": "Nécessaire seulement si le navigateur ne peut pas les transmettre, par exemple sans l'extension UIDM. Les projets enregistrés les conservent chiffrés.",
+  "Use original relative subfolders": "Utiliser les sous-dossiers relatifs d'origine",
+  "Each file goes under folders that follow its address below the start page's folder": "Chaque fichier va dans des dossiers qui suivent son adresse sous le dossier de la page de départ",
+  "Overwrite existing files": "Remplacer les fichiers existants",
+  "Off, a file already there is kept: the new one gets another name, or saving for offline browsing skips it": "Désactivé, un fichier déjà présent est conservé : le nouveau prend un autre nom, ou l'enregistrement pour la consultation hors ligne l'ignore",
+  "Downloaded {done} of {count} files added so far.": "{done} sur {count} fichiers ajoutés jusqu'ici téléchargés.",
+  "Stop {count}": "Arrêter {count}",
+  "Stop the ticked files' downloads that are running or waiting; Resume goes on from where they stopped": "Arrête les téléchargements en cours ou en attente des fichiers cochés ; Reprendre continue là où ils se sont arrêtés"
 }

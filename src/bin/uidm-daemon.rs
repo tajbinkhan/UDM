@@ -1699,6 +1699,12 @@ impl Daemon {
     /// stopped download). Returns
     /// how many were added and how many were skipped as duplicates.
     fn add_many(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (usize, usize) {
+        let (ids, skipped) = self.add_many_ids(items, queue);
+        (ids.len(), skipped)
+    }
+
+    /// `add_many`, answering with the new downloads' ids.
+    fn add_many_ids(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (Vec<u64>, usize) {
         let queue = self.queue_or_main(queue);
         let choice = self.settings.lock().unwrap().if_duplicate;
         let mut ids = Vec::new();
@@ -1722,12 +1728,11 @@ impl Daemon {
             }
             ids.push(self.stage(d).0);
         }
-        let count = ids.len();
         let _ = self.hub.update_queue(queue, |q| {
-            q.order.extend(ids);
+            q.order.extend(ids.iter().copied());
             Ok(())
         });
-        (count, skipped)
+        (ids, skipped)
     }
 
     /// Read a stream's playlist on another thread and answer `reply` with
@@ -1764,11 +1769,13 @@ impl Daemon {
             };
             eprintln!("[uidm-daemon] client #{client} crawls {}", req.start);
             let mut handed = 0;
-            let out = daemon.run_crawl(&req, &stop, |o| {
+            let mut added = Vec::new();
+            let login = daemon.login_cookies(&req);
+            let out = daemon.run_crawl(&req, login.as_deref(), &stop, |o| {
                 if let Some(queue) = req.download_found {
                     let fresh = &o.files[handed..];
                     if !fresh.is_empty() {
-                        daemon.download_in_queue(&req, fresh, queue, handed == 0);
+                        added.extend(daemon.download_in_queue(&req, login.as_deref(), fresh, queue, handed == 0));
                     }
                     handed = o.files.len();
                 }
@@ -1777,6 +1784,7 @@ impl Daemon {
                     bytes: o.bytes,
                     found: o.files.len(),
                     explored: o.explored,
+                    added: added.clone(),
                 })
             });
             daemon.grabs.lock().unwrap().remove(&client);
@@ -1786,6 +1794,7 @@ impl Daemon {
                 pages: out.pages,
                 explored: out.explored,
                 stopped: out.stopped,
+                login_cookies: login,
             });
         });
         Ok(())
@@ -1793,10 +1802,19 @@ impl Daemon {
 
     /// Add `files` a crawl for `req` found to `queue` and start it; with
     /// `first`, also set how many it downloads at once to the request's.
-    fn download_in_queue(self: &Arc<Self>, req: &GrabRequest, files: &[grab::GrabFile], queue: u64, first: bool) -> usize {
+    /// Files on the login page's site carry `login` (its cookies).
+    /// Returns the new downloads' ids.
+    fn download_in_queue(
+        self: &Arc<Self>,
+        req: &GrabRequest,
+        login: Option<&str>,
+        files: &[grab::GrabFile],
+        queue: u64,
+        first: bool,
+    ) -> Vec<u64> {
         let settings = self.settings.lock().unwrap().clone();
-        let items = files.iter().filter_map(|f| grab::download_for(req, f, &settings)).collect();
-        let (added, _) = self.add_many(items, Some(queue));
+        let items = files.iter().filter_map(|f| grab::download_for(req, f, &settings, login)).collect();
+        let (added, _) = self.add_many_ids(items, Some(queue));
         if first {
             let at_once = req.download_at_once as usize;
             let _ = self.hub.update_queue(queue, |q| {
@@ -1804,7 +1822,7 @@ impl Daemon {
                 Ok(())
             });
         }
-        if added > 0 && !self.hub.queues.lock().unwrap().iter().any(|q| q.id == queue && q.running) {
+        if !added.is_empty() && !self.hub.queues.lock().unwrap().iter().any(|q| q.id == queue && q.running) {
             if let Err(e) = self.start_queue(queue, None) {
                 eprintln!("[uidm-daemon] could not start the grabber's queue: {e}");
             }
@@ -1814,8 +1832,9 @@ impl Daemon {
 
     /// Crawl for `req` on this thread, with the settings' proxy and logins
     /// (and the project's own login for its start site), the browser's
-    /// cookies when it asks, and short waits so `stop` is noticed quickly.
-    fn run_crawl(&self, req: &GrabRequest, stop: &AtomicBool, progress: impl FnMut(&grab::Outcome)) -> grab::Outcome {
+    /// cookies when it asks, `login` (see `login_cookies`) for its login
+    /// page's site, and short waits so `stop` is noticed quickly.
+    fn run_crawl(&self, req: &GrabRequest, login: Option<&str>, stop: &AtomicBool, progress: impl FnMut(&grab::Outcome)) -> grab::Outcome {
         let settings = self.settings.lock().unwrap().clone();
         let start = Download {
             url: req.start.clone(),
@@ -1835,11 +1854,11 @@ impl Daemon {
         }
         let headers = [("User-Agent".to_string(), GRABBER_AGENT.to_string())];
         let cookies = if req.browser_cookies { self.browser_cookies(&req.start) } else { None };
-        // The browser's cookies go to the start site's pages only.
+        // Each site's cookies go to that site's pages only.
         let page_headers = |url: &str| {
             let mut h = headers.to_vec();
-            if let Some(c) = cookies.as_ref().filter(|_| grab::on_start_site(req, url)) {
-                h.push(("Cookie".to_string(), c.clone()));
+            if let Some(c) = grab::crawl_cookies(req, url, cookies.as_deref(), login) {
+                h.push(("Cookie".to_string(), c));
             }
             h
         };
@@ -1957,6 +1976,7 @@ impl Daemon {
         eprintln!("[uidm-daemon] schedule runs grabber project {} ({:?})", project.name, project.run);
         let end = project.schedule.as_ref().filter(|s| s.stop.is_some()).and_then(|s| s.end_of_run(day));
         let resync;
+        let login = self.login_cookies(&project.request);
         let to_download = match project.run {
             grab::RunAction::DownloadChecked => {
                 resync = project.to_resync(&[]);
@@ -1964,7 +1984,7 @@ impl Daemon {
             }
             run => {
                 let stop = AtomicBool::new(false);
-                let out = self.run_crawl(&project.request, &stop, |_| {
+                let out = self.run_crawl(&project.request, login.as_deref(), &stop, |_| {
                     if end.is_some_and(|end| queue::local_now() >= end) {
                         stop.store(true, Ordering::Relaxed);
                     }
@@ -1999,7 +2019,7 @@ impl Daemon {
         let added = if to_download.is_empty() {
             0
         } else {
-            self.download_in_queue(&project.request, &to_download, project.queue, true)
+            self.download_in_queue(&project.request, login.as_deref(), &to_download, project.queue, true).len()
         };
         eprintln!(
             "[uidm-daemon] grabber project {} added {added} files to its queue, {changed} changed",
@@ -2247,9 +2267,21 @@ impl Daemon {
         got
     }
 
+    /// The cookies for `req`'s login page's site: the browser's, where the
+    /// user signed in after Open, else the ones the user pasted. `None`
+    /// without a login page.
+    fn login_cookies(&self, req: &GrabRequest) -> Option<String> {
+        let login = req.login_url.as_deref()?;
+        self.browser_cookies(login).or_else(|| req.login_cookies.as_deref().and_then(grab::clean_cookies))
+    }
+
     /// Ask the browser extension for its cookies for `url`, waiting a few
     /// seconds for the answer. `None` without an extension or cookies.
     fn browser_cookies(&self, url: &str) -> Option<String> {
+        // Without the extension nobody answers: no need to wait.
+        if !self.hub.extension_connected() {
+            return None;
+        }
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let request = NEXT.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
@@ -4708,6 +4740,9 @@ mod tests {
     #[test]
     fn a_crawl_asks_the_browser_for_its_cookies() {
         let t = setup("crawl_cookies", Duplicate::NewName);
+        // The browser's extension is connected; without it nobody is asked.
+        let (extension, _from_daemon) = channel();
+        t.daemon.hub.clients.lock().unwrap().insert(2, extension);
         let d = Arc::clone(&t.daemon);
         let asking = thread::spawn(move || d.browser_cookies("https://site.net/"));
         let request = loop {
@@ -5255,5 +5290,84 @@ mod tests {
         assert_eq!(done.note.as_deref(), Some("Converted from talk.mkv"));
         assert!(t.daemon.entry(id).is_none() && !clip.exists(), "the original went, as asked");
         assert!(t.daemon.convert(new + 100, uidm::media::convert::Target::Mp3, false).is_err());
+    }
+
+    /// Each request's path and the Cookie header it brought.
+    type CookieLog = Arc<Mutex<Vec<(String, Option<String>)>>>;
+
+    /// A page server that serves `pages` (path, body) and keeps the Cookie
+    /// header each request brought, by path.
+    fn serve_pages(pages: Vec<(&'static str, String)>) -> (u16, CookieLog) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut req = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => req.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let text = String::from_utf8_lossy(&req).to_string();
+                let path = text.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let cookie = text
+                    .lines()
+                    .find(|l| l.to_ascii_lowercase().starts_with("cookie:"))
+                    .map(|l| l[7..].trim().to_string());
+                log.lock().unwrap().push((path.clone(), cookie));
+                let (status, body) = match pages.iter().find(|(p, _)| *p == path) {
+                    Some((_, body)) => ("200 OK", body.clone()),
+                    None => ("404 Not Found", String::new()),
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(body.as_bytes());
+            }
+        });
+        (port, seen)
+    }
+
+    #[test]
+    fn a_crawl_sends_the_login_sites_cookies_to_that_site_only() {
+        let (other, other_seen) = serve_pages(vec![("/elsewhere", "<p>other</p>".to_string())]);
+        let site_pages = vec![
+            ("/", format!("<a href=\"/members\">m</a> <a href=\"http://localhost:{other}/elsewhere\">o</a>")),
+            ("/members", "<a href=\"a.pdf\">a</a>".to_string()),
+        ];
+        let (site, site_seen) = serve_pages(site_pages);
+        let t = setup("grab_login_cookies", Duplicate::NewName);
+        let req = GrabRequest {
+            start: format!("http://127.0.0.1:{site}/"),
+            depth: 2,
+            same_site: false,
+            delay_ms: 200,
+            login_url: Some(format!("http://127.0.0.1:{site}/login")),
+            // No extension is connected, so the pasted cookies are used.
+            login_cookies: Some("Cookie: session=abc".into()),
+            ..GrabRequest::default()
+        };
+        let stop = AtomicBool::new(false);
+        let login = t.daemon.login_cookies(&req);
+        let out = t.daemon.run_crawl(&req, login.as_deref(), &stop, |_| {});
+        assert_eq!(out.files.len(), 1, "the members page was read: {:?}", out.files);
+        let site_seen = site_seen.lock().unwrap().clone();
+        let pages: Vec<_> = site_seen.iter().filter(|(p, _)| p != "/robots.txt").collect();
+        assert!(pages.len() >= 2 && pages.iter().all(|(_, c)| c.as_deref() == Some("session=abc")), "{site_seen:?}");
+        let other_seen = other_seen.lock().unwrap().clone();
+        assert!(other_seen.iter().any(|(p, _)| p == "/elsewhere"), "the other site was read: {other_seen:?}");
+        assert!(other_seen.iter().all(|(_, c)| c.is_none()), "no cookies to another host: {other_seen:?}");
+        // The files it adds carry them on the login site only.
+        let elsewhere = grab::GrabFile { url: format!("http://localhost:{other}/b.pdf"), ..out.files[0].clone() };
+        let ids = t.daemon.download_in_queue(&req, login.as_deref(), &[out.files[0].clone(), elsewhere], queue::MAIN_QUEUE, false);
+        let requests = t.daemon.hub.requests.lock().unwrap();
+        let cookies: Vec<_> = ids.iter().map(|id| requests.get(id).and_then(|d| d.cookies.clone())).collect();
+        assert_eq!(cookies, [Some("session=abc".to_string()), None]);
     }
 }

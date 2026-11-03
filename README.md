@@ -410,14 +410,24 @@ tests, not in a running Firefox.
     start site. A bare type (`jpg` or `*.jpg`) matches the extension; a mask
     with a name part (`photo_*.jpg`, `img??.png`) matches the whole file
     name, ignoring case, with `*` for any run of characters and `?` for one;
-  - save every file to one category's folder, or to one folder without
-    subfolders;
+  - save every file to one category's folder, or to one folder, with or
+    without the site's subfolders (**Use original relative subfolders**:
+    the folders below the start page's folder, or the host and path for a
+    file elsewhere), and overwrite files already there or not, whether or
+    not it saves for offline browsing;
   - start downloading each match as soon as it is found;
   - log in to the start site with the project's own user name and password;
+  - sign in on a login page: **Open** opens it in your browser (UIDM has no
+    browser of its own) so you sign in there, and when the crawl starts
+    the extension hands over that site's cookies; without the extension,
+    paste them in **Cookies**;
   - when scripts run, ignore the windows they open or explore them too.
 
-  The results show as a list or as a tree by page or by folder, with pages
-  processed and file links looked at, matched and downloaded. **Save as
+  While it runs with downloading as found, it shows how many of the files
+  it added are downloaded so far. The results show as a list or as a tree
+  by page or by folder, with pages processed and file links looked at,
+  matched and downloaded; **Stop** stops the running or waiting downloads
+  of the ticked files. **Save as
   template** keeps the settings under a name, and **New** starts a project
   from a saved template or one that comes with UIDM (pictures, audio,
   video, documents, or archives and programs from a site). A scheduled
@@ -1096,7 +1106,15 @@ a page counts as a file. A project's login is stored in Credential Manager
 as `UIDM/grabber/<start host>/<user name>`, so projects on one site can use
 different accounts (a password an older version kept under
 `UIDM/grabber/<start host>` is still read), sent to the start site when it asks, and
-given to the downloads on that site. Named filters are kept in
+given to the downloads on that site. A login page's cookies come from the
+extension's `cookies_wanted` request at crawl start, as the start site's do
+with **Use my browser's sign-in**, or else from the pasted ones, which
+project files keep encrypted for the user (as saved requests are) and
+templates never keep. Each site's cookies go only to pages on that site's
+host (and its subdomains when the crawl explores them), never to other
+hosts the crawl reads; the downloads it adds for files on the login site
+carry that site's cookies too, as captured browser downloads do, and
+files on other hosts get none. Named filters are kept in
 `%APPDATA%\UIDM\grabber\filters.json` and named templates in
 `grabber\templates\`. With scripts run, the extension closes every window
 the page opens and reports its address; the crawl explores those only when

@@ -746,13 +746,17 @@ pub enum Outgoing {
     /// its scripts run, and answer with `rendered`.
     RenderPage { request: u64, url: String },
     /// A crawl's progress: pages read, bytes read, files kept and links to
-    /// files looked at so far.
+    /// files looked at so far, and the ids of the downloads it has added to
+    /// a queue so far (with `download_found`), so the grabber can count the
+    /// finished ones while they download.
     GrabProgress {
         pages: u64,
         bytes: u64,
         found: usize,
         #[serde(default)]
         explored: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        added: Vec<u64>,
     },
     /// A crawl ended: what it found, and why it stopped early, if it did.
     GrabDone {
@@ -762,6 +766,11 @@ pub enum Outgoing {
         explored: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stopped: Option<String>,
+        /// The login page site's cookies the crawl used, so the files the
+        /// window adds from that site carry them. Sent only to the window
+        /// that started the crawl.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        login_cookies: Option<String>,
     },
     /// Any failure the client should hear about.
     Error { message: String },

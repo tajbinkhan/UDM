@@ -244,10 +244,12 @@ struct Shared {
 
 /// News of a site crawl.
 enum GrabEvent {
-    /// Pages read, bytes read, files kept, file links looked at.
-    Progress(u64, u64, usize, u64),
-    /// The files kept, pages read, file links looked at, and why it stopped.
-    Done(Vec<GrabFile>, u64, u64, Option<String>),
+    /// Pages read, bytes read, files kept, file links looked at, and the
+    /// downloads added to a queue so far.
+    Progress(u64, u64, usize, u64, Vec<u64>),
+    /// The files kept, pages read, file links looked at, why it stopped,
+    /// and the login page site's cookies it used.
+    Done(Vec<GrabFile>, u64, u64, Option<String>, Option<String>),
 }
 
 impl Shared {
@@ -383,11 +385,17 @@ impl Shared {
                 }
                 self.notice = Some(notice);
             }
-            Outgoing::GrabProgress { pages, bytes, found, explored } => {
-                self.grab_events.push_back(GrabEvent::Progress(*pages, *bytes, *found, *explored));
+            Outgoing::GrabProgress { pages, bytes, found, explored, added } => {
+                self.grab_events.push_back(GrabEvent::Progress(*pages, *bytes, *found, *explored, added.clone()));
             }
-            Outgoing::GrabDone { files, pages, explored, stopped } => {
-                self.grab_events.push_back(GrabEvent::Done(files.clone(), *pages, *explored, stopped.clone()));
+            Outgoing::GrabDone {
+                files,
+                pages,
+                explored,
+                stopped,
+                login_cookies,
+            } => {
+                self.grab_events.push_back(GrabEvent::Done(files.clone(), *pages, *explored, stopped.clone(), login_cookies.clone()));
             }
             Outgoing::Done { id, .. }
             | Outgoing::Failed { id, .. }
@@ -2017,16 +2025,15 @@ impl App {
         if let Some(d) = self.grabber.as_mut() {
             for event in events {
                 match event {
-                    GrabEvent::Progress(pages, bytes, found, explored) => d.progress(pages, bytes, found, explored),
-                    GrabEvent::Done(files, pages, explored, stopped) => d.done(files, pages, explored, stopped),
+                    GrabEvent::Progress(pages, bytes, found, explored, added) => d.progress(pages, bytes, found, explored, added),
+                    GrabEvent::Done(files, pages, explored, stopped, cookies) => d.done(files, pages, explored, stopped, cookies),
                 }
             }
             if !connected && d.running() {
                 d.failed(tr("The connection to the UIDM daemon was lost.").into());
             }
             let settings = self.shared.lock().unwrap().settings.clone().unwrap_or_default();
-            let done: HashSet<String> = rows.iter().filter(|e| e.status == Status::Done).map(|e| e.url.clone()).collect();
-            if !tools::grab_dialog(ctx, d, &queue_list, &settings, &done, connected, actions) {
+            if !tools::grab_dialog(ctx, d, &queue_list, &settings, rows, connected, actions) {
                 self.grabber = None;
             }
         }
