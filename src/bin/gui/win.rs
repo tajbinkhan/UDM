@@ -14,11 +14,31 @@ const SW_SHOW: i32 = 5;
 const SW_RESTORE: i32 = 9;
 const CF_UNICODETEXT: u32 = 13;
 
+const HWND_TOPMOST: isize = -1;
+const HWND_NOTOPMOST: isize = -2;
+const SWP_NOSIZE: u32 = 0x1;
+const SWP_NOMOVE: u32 = 0x2;
+const SWP_SHOWWINDOW: u32 = 0x40;
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetCurrentThreadId() -> u32;
+    fn GetCurrentProcessId() -> u32;
+}
+
 #[link(name = "user32")]
 extern "system" {
     fn ShowWindow(hwnd: isize, cmd: i32) -> i32;
     fn IsIconic(hwnd: isize) -> i32;
     fn SetForegroundWindow(hwnd: isize) -> i32;
+    fn GetForegroundWindow() -> isize;
+    fn GetWindowThreadProcessId(hwnd: isize, pid: *mut u32) -> u32;
+    fn AttachThreadInput(attach: u32, to: u32, on: i32) -> i32;
+    fn BringWindowToTop(hwnd: isize) -> i32;
+    fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    fn EnumWindows(callback: extern "system" fn(isize, isize) -> i32, param: isize) -> i32;
+    fn GetWindowTextW(hwnd: isize, text: *mut u16, max: i32) -> i32;
+    fn IsWindowVisible(hwnd: isize) -> i32;
     fn OpenClipboard(owner: isize) -> i32;
     fn CloseClipboard() -> i32;
     fn GetClipboardData(format: u32) -> *mut c_void;
@@ -108,8 +128,84 @@ pub fn show() {
         if IsIconic(hwnd) != 0 {
             ShowWindow(hwnd, SW_RESTORE);
         }
-        SetForegroundWindow(hwnd);
     }
+    raise(hwnd);
+}
+
+/// Bring `hwnd` in front of the other programs' windows and give it the
+/// focus. Windows lets only the program the user is in take the foreground,
+/// so a download caught from the browser left the window, and its save-as
+/// dialog, behind the browser. Joining the foreground window's input for
+/// the call is allowed; should the focus still be refused, a pass through
+/// "topmost" at least puts the window on top, where the user sees it.
+fn raise(hwnd: isize) {
+    // SAFETY: plain calls on window and thread handles Windows gave us; the
+    // input is detached again before returning.
+    unsafe {
+        let front = GetForegroundWindow();
+        if front == hwnd {
+            return;
+        }
+        let me = GetCurrentThreadId();
+        let theirs = if front != 0 { GetWindowThreadProcessId(front, std::ptr::null_mut()) } else { 0 };
+        let joined = theirs != 0 && theirs != me && AttachThreadInput(me, theirs, 1) != 0;
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
+        if joined {
+            AttachThreadInput(me, theirs, 0);
+        }
+        if GetForegroundWindow() != hwnd {
+            let keep = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, keep);
+            SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, keep);
+        }
+    }
+}
+
+/// Bring this program's visible window titled `title` to the front, as
+/// `raise` does: a dialog that opens on its own (a save-as dialog for a
+/// caught download, a completion dialog). False when there is no such
+/// window yet.
+pub fn raise_window(title: &str) -> bool {
+    struct Search {
+        pid: u32,
+        title: Vec<u16>,
+        found: isize,
+    }
+    extern "system" fn visit(hwnd: isize, param: isize) -> i32 {
+        // SAFETY: `param` is the `Search` below, alive for the whole
+        // EnumWindows call; the text buffer is sized for the call.
+        unsafe {
+            let search = &mut *(param as *mut Search);
+            let mut pid = 0;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid != search.pid || IsWindowVisible(hwnd) == 0 {
+                return 1;
+            }
+            let mut text = [0u16; 512];
+            let n = GetWindowTextW(hwnd, text.as_mut_ptr(), text.len() as i32).max(0) as usize;
+            if text[..n] == search.title[..] {
+                search.found = hwnd;
+                return 0;
+            }
+            1
+        }
+    }
+    let mut search = Search {
+        // SAFETY: no arguments, no state.
+        pid: unsafe { GetCurrentProcessId() },
+        title: title.encode_utf16().collect(),
+        found: 0,
+    };
+    // SAFETY: `visit` reads `search` only during this call.
+    unsafe {
+        EnumWindows(visit, &mut search as *mut Search as isize);
+    }
+    if search.found == 0 {
+        return false;
+    }
+    raise(search.found);
+    true
 }
 
 /// Hide the window; it lives on in the tray.
