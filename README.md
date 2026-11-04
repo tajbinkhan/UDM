@@ -400,8 +400,9 @@ tests, not in a running Firefox.
   login can also go with an address from the start: **Login** next to the
   URL bar shows user name and password fields for the addresses added
   there, and **Add many** has **Use a login** for every address in it.
-- **Download video**: a button appears over a video playing in the browser,
-  and over `<audio>` players and `<object>`/`<embed>` media players (an
+- **Download this video**: a bar in IDM's style appears over a video playing
+  in the browser, with **?** for help and **x** to close it for that video
+  until the page loads again. It also appears over `<audio>` players and `<object>`/`<embed>` media players (an
   audio player gets it just above). It lists what that player loaded:
   direct video and audio files with their sizes, and streams (HLS `.m3u8`,
   DASH `.mpd`, HDS `.f4m`) with each quality UIDM read from the playlist and its
@@ -565,7 +566,8 @@ tests, not in a running Firefox.
   dialog, whether to resume unfinished downloads when UIDM starts, Start with
   Windows, whether UIDM shows a tray icon (without one, closing the window
   quits and the Start menu opens UIDM again), whether closing the window
-  keeps UIDM in the tray, where ffmpeg
+  keeps UIDM in the tray, whether minimizing the window hides it in the
+  tray (on by default, as in IDM), where ffmpeg
   is, the **Language**, the **Theme** (follow Windows, light or dark) and the
   **Text size** (80% to 150%, scaling the whole window). Language, theme and
   text size change as soon as you save. **More > Hide categories** hides
@@ -983,7 +985,7 @@ Client to daemon (the host relays the browser's unchanged):
   "file_exists": "rename", "if_duplicate": "ask", "ask_where_to_save": true,
   "categories": [ { "name": "Compressed", "extensions": ["zip", "rar"], "folder": null } ],
   "capture_types": ["zip", "pdf"], "capture_min_size_kb": 0,
-  "capture_excluded_sites": ["*.example.com"], "close_to_tray": true,
+  "capture_excluded_sites": ["*.example.com"], "close_to_tray": true, "minimize_to_tray": true,
   "start_with_windows": false, "notify": "toast", "sound_on_done": false,
   "sound_on_failed": false, "scan_after_download": false, "scanner": "defender",
   "scanner_command": "" } }
@@ -1270,7 +1272,7 @@ HDS fragments' `video/f4f`) are left out, and
 the list starts over when the tab loads a new page, or when a single-page
 site moves to another (`webNavigation.onHistoryStateUpdated`; what came in
 the second before stays, and the tab's buttons are reset). A content script
-(`content.js`) shows **Download video** over a playing `<video>` or
+(`content.js`) shows **Download this video** over a playing `<video>` or
 `<audio>`, or a media `<object>`/`<embed>` the pointer is over, in a closed
 shadow root, so the page's scripts and styles cannot reach it, and shows
 page and server text with `textContent` only. It tells the worker when each

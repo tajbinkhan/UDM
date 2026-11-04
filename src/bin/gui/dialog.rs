@@ -43,6 +43,8 @@ struct Placement {
     center: Pos2,
     /// It has been fitted to its contents once.
     fitted: bool,
+    /// It has been brought in front of other programs' windows.
+    raised: bool,
 }
 
 impl<'o> Window<'o> {
@@ -125,7 +127,7 @@ impl<'o> Window<'o> {
         let mut place = ctx
             .data(|d| d.get_temp::<Placement>(key))
             .filter(|p| p.pass + 1 >= pass)
-            .unwrap_or(Placement { pass, center: main.center(), fitted: false });
+            .unwrap_or(Placement { pass, center: main.center(), fitted: false, raised: false });
         place.pass = pass;
         let first = Vec2::new(width, FIRST_HEIGHT);
         let builder = ViewportBuilder::default()
@@ -190,6 +192,13 @@ impl<'o> Window<'o> {
                     }
                 }
                 place.fitted = true;
+            }
+            // A dialog that opens while UIDM is in the background, such as
+            // the save-as dialog of a download caught from the browser,
+            // comes to the front, as IDM's do.
+            if !place.raised {
+                ctx.send_viewport_cmd(ViewportCommand::Focus);
+                place.raised = crate::win::raise_window(&self.title);
             }
             Some(InnerResponse::new(r, panel.response))
         });

@@ -672,6 +672,8 @@ struct App {
     /// Whether the settings last showed the tray icon, so a change shows
     /// or hides it once.
     tray_shown: Option<bool>,
+    /// The window was minimized last frame, so minimizing it is noticed once.
+    was_minimized: bool,
     /// The theme and text size last applied, so they are only set when the
     /// settings change them (Ctrl+Plus and Ctrl+Minus zoom in between).
     appearance: Option<(uidm::settings::Theme, u32)>,
@@ -1017,6 +1019,7 @@ struct CategoryDraft {
 struct OptionsDraft {
     tab: OptionsTab,
     close_to_tray: bool,
+    minimize_to_tray: bool,
     tray_icon: bool,
     /// Kept as it is; the View menu changes it.
     categories_panel: bool,
@@ -1189,6 +1192,7 @@ impl OptionsDraft {
         OptionsDraft {
             tab: OptionsTab::General,
             close_to_tray: s.close_to_tray,
+            minimize_to_tray: s.minimize_to_tray,
             tray_icon: s.tray_icon,
             categories_panel: s.categories_panel,
             start_with_windows: s.start_with_windows,
@@ -1399,6 +1403,7 @@ impl OptionsDraft {
             speed_limit_per_file_kbps: self.per_file_on.then_some(self.per_file_kbps),
             resume_at_startup: self.resume_at_startup,
             close_to_tray: self.close_to_tray,
+            minimize_to_tray: self.minimize_to_tray,
             tray_icon: self.tray_icon,
             categories_panel: self.categories_panel,
             start_with_windows: self.start_with_windows,
@@ -1663,6 +1668,7 @@ impl App {
             threat_prompt: None,
             tooltip: String::new(),
             tray_shown: None,
+            was_minimized: false,
             appearance: None,
             language: None,
             filter: Filter::default(),
@@ -3126,6 +3132,10 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         ui.end_row();
 
         ui.label("");
+        ui.add_enabled(draft.tray_icon, egui::Checkbox::new(&mut draft.minimize_to_tray, tr("Minimizing the window hides it in the tray")));
+        ui.end_row();
+
+        ui.label("");
         ui.checkbox(&mut draft.drop_target, tr("Show the drop target, a small window on top that takes dragged links"))
             .on_hover_text(tr("Drag it to move it, double-click it to open UIDM, right-click it to close it"));
         ui.end_row();
@@ -4220,6 +4230,19 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             win::hide();
         }
+        // Minimizing hides it in the tray too, as IDM does; showing it again
+        // restores it. Elsewhere hiding is minimizing, so there is nothing to
+        // do.
+        let minimized = ctx.input(|i| i.viewport().minimized) == Some(true);
+        if cfg!(windows)
+            && minimized
+            && !self.was_minimized
+            && tray::shown()
+            && settings.as_ref().is_none_or(|s| s.minimize_to_tray)
+        {
+            win::hide();
+        }
+        self.was_minimized = minimized;
         let tooltip = self.shared.lock().unwrap().tooltip();
         if tooltip != self.tooltip {
             tray::set_tooltip(tooltip.clone());

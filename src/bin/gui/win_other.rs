@@ -32,6 +32,12 @@ pub fn show() {
     }
 }
 
+/// Bring a dialog that opened on its own to the front. Here its viewport's
+/// own focus request does that, so there is nothing more to do.
+pub fn raise_window(_title: &str) -> bool {
+    true
+}
+
 /// Put the window away; it lives on in the tray (and the Dock or taskbar).
 pub fn hide() {
     if let Some(ctx) = CTX.get() {
