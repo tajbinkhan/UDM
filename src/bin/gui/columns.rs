@@ -168,15 +168,13 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// Put back what the Columns dialog changes, from `before`. The font
-    /// and tray icon have menus of their own, so they stay as they are now.
+    /// Put back what the Columns dialog changes, from `before`: the columns
+    /// and their widths. The rest (sort, toolbar, panel width, font, tray
+    /// icon) can change through other controls while the dialog is open, and
+    /// stays as it is now.
     pub fn restore_columns(&mut self, before: &Layout) {
-        *self = Layout {
-            list_font: self.list_font,
-            tray_style: self.tray_style,
-            dismissed_release: self.dismissed_release.take(),
-            ..before.clone()
-        };
+        self.columns = before.columns.clone();
+        self.widths = before.widths.clone();
     }
 
     /// Whether the strip offering release `version` shows: not once it was
@@ -529,13 +527,8 @@ pub fn dialog(ctx: &egui::Context, layout: &mut Layout, before: &Layout) -> bool
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button(tr("Reset")).on_hover_text(tr("The default columns, in the order added")).clicked() {
-                    // The columns only: the font and tray icon have menus of their own.
-                    *layout = Layout {
-                        list_font: layout.list_font,
-                        tray_style: layout.tray_style,
-                        dismissed_release: layout.dismissed_release.take(),
-                        ..Layout::default()
-                    };
+                    // The columns only: the rest has controls of its own.
+                    layout.restore_columns(&Layout::default());
                 }
                 if ui.button(tr("OK")).clicked() {
                     close = true;
@@ -598,7 +591,11 @@ mod tests {
         now.set_width(Column::Status, 140.0);
         now.list_font = Some(ListFont::DEFAULT);
         now.tray_style = crate::tray::Style::Mono;
+        now.toolbar_small = !before.toolbar_small;
+        now.categories_width = Some(250.0);
         now.restore_columns(&before);
+        assert_eq!(now.toolbar_small, !before.toolbar_small, "changed outside the dialog");
+        assert_eq!(now.categories_width, Some(250.0));
         assert_eq!(now.columns, before.columns);
         assert_eq!(now.widths, before.widths);
         assert_eq!(now.list_font, Some(ListFont::DEFAULT), "the font has a menu of its own");

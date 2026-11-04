@@ -121,3 +121,18 @@ Browser extension
 - 364 "Save To:" on the completion tab: it has no edit control and may be a leftover.
 - String 34025 "Update all": its purpose isn't clear from the resources.
 - IDMMsgHost.exe internals, the per-site rule letters `GPTSDVACRHX`, and IDM's video format list. The native app supplies these, and they were not disassembled.
+
+## Ghidra pass, 2026-11-04
+
+REA now decompiles through Ghidra 12.1.4. It decompiled 20,705 of IDMan.exe's 21,336 functions (same build, SHA-256 `75ac33a7…2145285`) and IDMMsgHost.exe. Results for the "Undecided" items:
+
+| Item | Finding | UIDM |
+|---|---|---|
+| 195 Sounds | Four events, read from registry values `evDownloadComplete`, `evDownloadFailed`, `evQueueStarted`, `evQueueFinished` (`FUN_00537340`), each a `.wav` under IDM's `Sounds\` folder (`FUN_00512290`). | Missing "Queue started". UIDM has done, failed and queue done (`settings.rs:520-529`). |
+| 292 Reboot | `ExitWindowsEx(EWX_REBOOT)` is called only from `FUN_00410ca0`, whose one caller first sets `NeedSnRpAfRb` in the registry. It is a registration-repair reboot, not a when-done action. Queue shutdown is `FUN_00533380` (power off, forced when the queue says so). | Nothing needed. |
+| 230 Internet check | A one-time test download after IDM changes its network integration, to catch a firewall block. | Nothing needed. |
+| 34025 "Update all" | A Grabber toolbar button that re-runs JavaScript on pages already explored, after script processing is turned on. | Partial. `render_scripts` applies only to a new crawl. |
+| IDMMsgHost.exe | A stdio relay to `\.\pipe\IDMNetworkMonitor.<session>` that starts IDM through COM when it is not running. | Same job: `uidm-host.rs:84` (`connect_or_spawn`). |
+| Video and audio MIME list | 22 `video/` and 9 `audio/` types in IDMan.exe. | UIDM accepts any `video/*` or `audio/*` type, a superset. |
+| 271 Statistics "Simple / Advanced" | Only the resource strings exist. No decompiled code references them. | Still undecided. |
+| Site-rule letters `GPTSDVACRHX` | Not found in IDMan.exe, IDMMsgHost.exe or IDMGCExt.crx. | Dropped. |

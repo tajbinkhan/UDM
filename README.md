@@ -355,8 +355,9 @@ tests, not in a running Firefox.
   **Show in folder** for a finished file, **Retry** for a failed one. Options
   can show an IDM-style dialog in the window instead (a notification still
   appears if the window is not running), or nothing. **Options > When done >
-  Sounds** plays a sound when a download finishes, when one fails, and when
-  a queue is done, each turned on by itself, with a `.wav` file of your own
+  Sounds** plays a sound when a download finishes, when one fails, when a
+  queue starts (by hand or on its schedule) and when a queue is done, each
+  turned on by itself, with a `.wav` file of your own
   (**Browse...**, **Play**) or Windows' sound for the event. The dialog's
   **Don't show this dialog again** goes back to notifications. Canceled
   downloads are never announced.
@@ -481,7 +482,8 @@ tests, not in a running Firefox.
     `*.jpg;*.png`) to the types kept or to those left out, as IDM's Add
     Filter does (**Filters** next to each field; it also adds, edits and
     deletes them), keep every type with `*`, and keep only files on the
-    start site. A bare type (`jpg` or `*.jpg`) matches the extension; a mask
+    start site. A bare type (`jpg` or `*.jpg`) matches the extension, and a
+    type of several parts (`tar.gz`) matches names ending in it; a mask
     with a name part (`photo_*.jpg`, `img??.png`) matches the whole file
     name, ignoring case, with `*` for any run of characters and `?` for one;
   - save every file to one category's folder, or to one folder, with or
@@ -501,7 +503,10 @@ tests, not in a running Firefox.
   it added are downloaded so far. The results show as a list or as a tree
   by page or by folder, with pages processed and file links looked at,
   matched and downloaded; **Stop** stops the running or waiting downloads
-  of the ticked files. **Save as
+  of the ticked files. **Update all** explores the pages again with their
+  scripts run, keeps the list and its ticks, and adds what that finds. When
+  the crawl downloaded its finds as it went, closing the grabber adds
+  nothing more. **Save as
   template** keeps the settings under a name, and **New** starts a project
   from a saved template or one that comes with UIDM (pictures, audio,
   video, documents, or archives and programs from a site). A scheduled
@@ -582,7 +587,9 @@ tests, not in a running Firefox.
   Opera read Chrome's registration, so the list says so when it finds them
   instead of listing them. Restart a browser after a change: its
   **Restart** button asks first, then closes it the polite way (as closing
-  its window does, so it keeps its tabs) and starts it again. **Add
+  its window does, so it keeps its tabs), ends what is left of it after 8
+  seconds (Chromium keeps helper processes, and with "Continue running
+  background apps" the browser itself), and starts it again. **Add
   browser...** adds any other browser by its program file: UIDM tells its
   family from the program's name and registers it where that browser reads
   registrations, or, for a Chromium browser it does not know, where Chrome
@@ -1226,7 +1233,8 @@ direct video and audio files (a `video/` or `audio/` type, or a media file
 name with a generic type; anything under `video_min_size_kb`, 128 KiB by
 default, is left out) and the HLS, DASH and HDS playlists, of the types in
 `video_types` (`m3u8`, `mpd` and `f4m` for the streams; a file whose type neither
-its name nor its MIME type says is kept). Segments (`.ts`, `.m4s`, `video/mp2t`,
+its name nor its MIME type says is kept). A settings file from before HDS
+support gets `f4m` added once, recorded in `video_types_hds`. Segments (`.ts`, `.m4s`, `video/mp2t`,
 HDS fragments' `video/f4f`) are left out, and
 the list starts over when the tab loads a new page, or when a single-page
 site moves to another (`webNavigation.onHistoryStateUpdated`; what came in

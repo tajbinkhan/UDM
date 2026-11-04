@@ -520,12 +520,17 @@ pub struct Settings {
     pub sound_on_done: bool,
     /// Play a sound when a download fails.
     pub sound_on_failed: bool,
+    /// Play a sound when a queue starts a run, by hand or on its schedule.
+    #[serde(default)]
+    pub sound_on_queue_started: bool,
     /// Play a sound when a started queue has finished its run.
     pub sound_on_queue_done: bool,
     /// The WAV files those sounds play, full paths; empty plays Windows'
     /// own sound for the event.
     pub sound_done_file: String,
     pub sound_failed_file: String,
+    #[serde(default)]
+    pub sound_queue_started_file: String,
     pub sound_queue_file: String,
     /// Scan each finished download for viruses.
     pub scan_after_download: bool,
@@ -606,6 +611,11 @@ pub struct Settings {
     /// The video and audio types (lowercase extensions) the video button
     /// offers; `m3u8` and `mpd` stand for HLS and DASH streams.
     pub video_types: Vec<String>,
+    /// Whether `video_types` has been through the step that gave files from
+    /// before HDS support `f4m` (see `add_hds_type`), so a user who later
+    /// turns it off keeps it off.
+    #[serde(default)]
+    pub video_types_hds: bool,
     /// Video and audio files the browser reports as smaller than this, in
     /// KB, are left out of the video button's list.
     pub video_min_size_kb: u64,
@@ -775,9 +785,11 @@ impl Default for Settings {
             notify: Notify::Toast,
             sound_on_done: false,
             sound_on_failed: false,
+            sound_on_queue_started: false,
             sound_on_queue_done: false,
             sound_done_file: String::new(),
             sound_failed_file: String::new(),
+            sound_queue_started_file: String::new(),
             sound_queue_file: String::new(),
             scan_after_download: false,
             // Defender is Windows' own; elsewhere the user names a scanner.
@@ -812,6 +824,7 @@ impl Default for Settings {
             video_button: true,
             video_button_excluded_sites: Vec::new(),
             video_types: default_video_types(),
+            video_types_hds: true,
             video_min_size_kb: 128,
             video_view: PanelView::Full,
             video_protected_note: true,
@@ -887,6 +900,7 @@ impl Settings {
         let file = match sound {
             crate::notify::Sound::Done => &self.sound_done_file,
             crate::notify::Sound::Failed => &self.sound_failed_file,
+            crate::notify::Sound::QueueStarted => &self.sound_queue_started_file,
             crate::notify::Sound::QueueDone => &self.sound_queue_file,
         };
         Some(PathBuf::from(file.trim())).filter(|p| !p.as_os_str().is_empty())
@@ -1046,7 +1060,7 @@ impl Settings {
             }
             sites.push(site);
         }
-        for file in [&self.sound_done_file, &self.sound_failed_file, &self.sound_queue_file] {
+        for file in [&self.sound_done_file, &self.sound_failed_file, &self.sound_queue_started_file, &self.sound_queue_file] {
             let f = file.trim();
             if !f.is_empty() && (!Path::new(f).is_absolute() || extension_of(f).as_deref() != Some("wav")) {
                 return Err(format!("A sound must be the full path of a .wav file: {f}"));
@@ -1244,6 +1258,7 @@ impl Settings {
         let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
         let split = split_proxy_login(&mut value);
         split_browser_menu(&mut value);
+        add_hds_type(&mut value);
         let mut settings: Settings = serde_json::from_value(value).map_err(invalid)?;
         settings.proxy_logins_split = split;
         settings
@@ -1259,6 +1274,24 @@ impl Settings {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         write_atomic(path, &bytes)
     }
+}
+
+/// Give a settings file from before HDS support `f4m` among its video types,
+/// once: those files list the types the video button offers, so without
+/// this an upgraded UIDM never offers HDS streams.
+fn add_hds_type(value: &mut serde_json::Value) {
+    let Some(map) = value.as_object_mut() else {
+        return;
+    };
+    if map.contains_key("video_types_hds") {
+        return;
+    }
+    if let Some(serde_json::Value::Array(list)) = map.get_mut("video_types") {
+        if !list.iter().any(|t| t.as_str().is_some_and(|t| t.eq_ignore_ascii_case("f4m"))) {
+            list.push("f4m".into());
+        }
+    }
+    map.insert("video_types_hds".into(), true.into());
 }
 
 /// Give a settings file from before each proxy had its own login an HTTPS
@@ -1457,9 +1490,11 @@ mod tests {
             notify: Notify::Dialog,
             sound_on_done: true,
             sound_on_failed: true,
+            sound_on_queue_started: true,
             sound_on_queue_done: true,
             sound_done_file: full("C:\\Windows\\Media\\tada.wav"),
             sound_failed_file: String::new(),
+            sound_queue_started_file: full("C:\\Windows\\Media\\ding.wav"),
             sound_queue_file: full("C:\\Windows\\Media\\chimes.wav"),
             scan_after_download: true,
             scanner: Scanner::Custom,
@@ -1498,6 +1533,7 @@ mod tests {
             video_button: false,
             video_button_excluded_sites: vec!["video.example.com".into()],
             video_types: vec!["mp4".into(), "m3u8".into()],
+            video_types_hds: true,
             video_min_size_kb: 512,
             video_view: PanelView::Mini,
             video_protected_note: false,
@@ -1568,6 +1604,20 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"speed_limit_enabled":false}"#).unwrap();
         assert!(!old.speed_limit_on_startup);
         assert_eq!(old.speed_limit_per_file_kbps, None);
+    }
+
+    #[test]
+    fn files_from_before_hds_get_f4m_once() {
+        let path = temp_path("hds.json");
+        fs::write(&path, br#"{"video_types":["mp4","m3u8"]}"#).unwrap();
+        let s = Settings::load(&path).unwrap();
+        assert_eq!(s.video_types, ["mp4", "m3u8", "f4m"]);
+        assert!(s.video_types_hds);
+        // Turned off after that, it stays off.
+        let off = Settings { video_types: vec!["mp4".into()], ..s };
+        off.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).unwrap().video_types, ["mp4"]);
+        fs::remove_file(&path).ok();
     }
 
     #[test]

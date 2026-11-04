@@ -688,6 +688,9 @@ pub struct GrabDialog {
     ask_error: Option<String>,
     /// A project file picked anywhere with Open > From another folder.
     file_picked: Picked,
+    /// The list and its ticks while Update all explores the pages again
+    /// with their scripts run; what that finds is added to it.
+    updating: Option<(Vec<GrabFile>, Vec<bool>)>,
 }
 
 /// What closing or leaving a project goes on to do once the save question
@@ -805,6 +808,8 @@ impl GrabDialog {
     fn open_file(p: grab::Project, path: &std::path::Path) -> Self {
         let mut d = Self::open(p);
         d.saved_as = None;
+        // Not with the others yet, so closing it asks to save it there.
+        d.saved = None;
         d.project_note = Some(trf!("Opened {file}. Save keeps it with your projects.", file = path.display()));
         d
     }
@@ -838,6 +843,30 @@ impl GrabDialog {
         self.saved_as = Some(p.name.clone());
         self.saved = Some(p);
         Ok(())
+    }
+
+    /// IDM's Update all: explore the site again with page scripts run, as
+    /// pages explored without them may hide links, keeping the list and its
+    /// ticks and adding what the new crawl finds.
+    fn update_all(&mut self, queues: &[Queue], actions: &mut Vec<Action>) {
+        let GrabPhase::Review { files, checked, .. } = &self.phase else {
+            return;
+        };
+        self.updating = Some((files.clone(), checked.clone()));
+        self.render_scripts = true;
+        self.start_crawl(queues, actions);
+        if !self.running() {
+            // The form did not validate: back to the list as it was.
+            if let Some((files, checked)) = self.updating.take() {
+                self.phase = GrabPhase::Review {
+                    files,
+                    checked,
+                    pages: 0,
+                    explored: 0,
+                    stopped: self.error.clone(),
+                };
+            }
+        }
     }
 
     /// Start the crawl the form describes.
@@ -991,6 +1020,7 @@ impl GrabDialog {
             asking: false,
             dont_ask: false,
             ask_error: None,
+            updating: None,
             file_picked: Picked::default(),
         }
     }
@@ -1072,7 +1102,13 @@ impl GrabDialog {
     pub fn done(&mut self, files: Vec<GrabFile>, pages: u64, explored: u64, stopped: Option<String>, login_cookies: Option<String>) {
         if matches!(self.phase, GrabPhase::Running { .. }) {
             self.crawl_login_cookies = login_cookies;
-            let checked = vec![true; files.len()];
+            let (files, checked) = match self.updating.take() {
+                Some((old, ticks)) => merge_update(old, ticks, files),
+                None => {
+                    let checked = vec![true; files.len()];
+                    (files, checked)
+                }
+            };
             self.phase = GrabPhase::Review {
                 files,
                 checked,
@@ -1086,7 +1122,17 @@ impl GrabDialog {
     /// The daemon refused the crawl.
     pub fn failed(&mut self, error: String) {
         if matches!(self.phase, GrabPhase::Running { .. }) {
-            self.phase = GrabPhase::Form;
+            // A failed Update all goes back to the list it started from.
+            self.phase = match self.updating.take() {
+                Some((files, checked)) => GrabPhase::Review {
+                    files,
+                    checked,
+                    pages: 0,
+                    explored: 0,
+                    stopped: Some(error.clone()),
+                },
+                None => GrabPhase::Form,
+            };
             self.error = Some(error);
         }
     }
@@ -1124,6 +1170,7 @@ pub fn grab_dialog(
     let mut close = false;
     let mut added = false;
     let mut again = false;
+    let mut update = false;
     let mut start = false;
     let mut replace = None;
     crate::dialog::Window::new(tr("Site grabber"))
@@ -1139,8 +1186,11 @@ pub fn grab_dialog(
                 replace = project_bar(ui, d);
                 ui.separator();
             }
-            grab_body(ui, d, queues, settings, rows, connected, actions, &mut close, &mut added, &mut again, &mut start);
+            grab_body(ui, d, queues, settings, rows, connected, actions, &mut close, &mut added, &mut again, &mut update, &mut start);
         });
+    if update {
+        d.update_all(queues, actions);
+    }
     if let Some(next) = replace {
         d.switch_to(next);
     }
@@ -1153,8 +1203,10 @@ pub fn grab_dialog(
             actions.push(Action::CancelGrab);
             return false;
         }
+        // A crawl that downloaded its finds as it went has them in the list
+        // already: adding them again on close would make copies.
         d.leave(Leave::Close {
-            add: added || settings.grab_add_on_close,
+            add: added || (settings.grab_add_on_close && !d.download_found),
         });
     }
     if start {
@@ -1410,6 +1462,7 @@ fn grab_body(
     close: &mut bool,
     added: &mut bool,
     again: &mut bool,
+    update: &mut bool,
     start: &mut bool,
 ) {
     match &mut d.phase {
@@ -1859,6 +1912,13 @@ fn grab_body(
                 {
                     actions.extend(stoppable.iter().map(|id| Action::Cancel(*id)));
                 }
+                if ui
+                    .add_enabled(connected, egui::Button::new(tr("Update all")))
+                    .on_hover_text(tr("Explore the pages again with their scripts run, and add the files that finds to this list"))
+                    .clicked()
+                {
+                    *update = true;
+                }
                 if ui.button(tr("New crawl")).clicked() {
                     *again = true;
                 }
@@ -1868,6 +1928,19 @@ fn grab_body(
             });
         }
     }
+}
+
+/// The list after Update all: the files listed before, with their ticks,
+/// then those the new crawl found that were not listed, ticked.
+fn merge_update(mut files: Vec<GrabFile>, mut checked: Vec<bool>, found: Vec<GrabFile>) -> (Vec<GrabFile>, Vec<bool>) {
+    let mut listed: HashSet<String> = files.iter().map(|f| f.url.clone()).collect();
+    for f in found {
+        if listed.insert(f.url.clone()) {
+            files.push(f);
+            checked.push(true);
+        }
+    }
+    (files, checked)
 }
 
 /// The downloads in `rows` of the ticked `files` that are running or
@@ -2131,6 +2204,14 @@ mod tests {
             row(6, "https://s/a.pdf", "canceled"),
         ];
         assert_eq!(stoppable_downloads(&files, &checked, &rows), [1, 3], "only ticked files, only running or waiting");
+    }
+
+    #[test]
+    fn update_all_keeps_the_list_and_adds_new_finds() {
+        let file = |url: &str| GrabFile { url: url.into(), name: url.into(), page: String::new(), size: None, text: None };
+        let (files, checked) = merge_update(vec![file("a"), file("b")], vec![true, false], vec![file("b"), file("c")]);
+        assert_eq!(files.iter().map(|f| f.url.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(checked, [true, false, true], "old ticks kept, new finds ticked");
     }
 
     #[test]

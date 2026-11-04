@@ -129,8 +129,9 @@ test("Firefox hides selected links when the selection has none", async () => {
   assert.equal(w.chrome.contextMenus.refreshed, 1);
   same(w.chrome.tabs.messages.at(-1), [5, { type: "selection:hasLinks" }, { frameId: 2 }]);
 
+  // Firefox leaves a hidden item out of menuIds; it still comes back.
   w.chrome.tabs.reply = () => ({ links: true });
-  await shown({ selectionText: "a link" });
+  await shown({ selectionText: "a link", menuIds: [] });
   assert.equal(item().visible, true);
 
   // A bare address in the selection needs no question.

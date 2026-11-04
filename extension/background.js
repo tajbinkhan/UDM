@@ -483,12 +483,14 @@ chrome.storage.onChanged.addListener((changes) => {
 // tab's entry goes when the tab closes.
 const tabsOff = new Set();
 const sessionStore = chrome.storage && chrome.storage.session;
-if (sessionStore) {
-  sessionStore
-    .get({ tabsOff: [] })
-    .then((s) => (s.tabsOff || []).forEach((id) => Number.isInteger(id) && tabsOff.add(id)))
-    .catch(() => {});
-}
+// Settled once the stored tabs are back, so a download that wakes the
+// worker is not checked against an empty set.
+const tabsOffReady = sessionStore
+  ? sessionStore
+      .get({ tabsOff: [] })
+      .then((s) => (s.tabsOff || []).forEach((id) => Number.isInteger(id) && tabsOff.add(id)))
+      .catch(() => {})
+  : Promise.resolve();
 function saveTabsOff() {
   if (sessionStore) sessionStore.set({ tabsOff: [...tabsOff] }).catch(() => {});
 }
@@ -1148,7 +1150,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
 });
 
 async function browserDownload(item, record) {
-  await settingsReady;
+  await Promise.all([settingsReady, tabsOffReady]);
   if (!captureEnabled) return; // let the browser handle it
   if (!privateAllowed(item)) return; // keep private-window downloads out of UIDM's list
   if (item.byExtensionId === chrome.runtime.id) return; // our own hand-back
@@ -1549,7 +1551,11 @@ if (MENUS && MENUS.onShown && MENUS.refresh) {
   let shownMenu = 0;
   MENUS.onShown.addListener(async (info, tab) => {
     const menu = ++shownMenu;
-    if (!(info.menuIds || []).includes("uidm-selection-links") || !tab || tab.id == null) return;
+    // Not menuIds: Firefox lists only the items it shows, so once hidden
+    // the item would never be in it again. A selection menu with the item
+    // in UIDM's menu (the settings may leave it out) is the one to check.
+    const made = !menuHidden().includes("selected_links");
+    if (!made || !(info.contexts || []).includes("selection") || !tab || tab.id == null) return;
     let links = linksFromText(info.selectionText).length > 0;
     if (!links) {
       try {
