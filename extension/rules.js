@@ -4,10 +4,15 @@
 // `capture_excluded_sites` and `capture_excluded_urls`), so they are edited in one place, the
 // window's Options. These are plain functions: the service worker loads them
 // with importScripts, and the tests load them with require.
+//
+// The page loads this file as a content script too, and a frame can get it
+// twice: from the manifest and from the worker's injectOpenTabs. So its
+// top-level names are `var` and `function`, which a second copy may declare
+// again; a `const` or `let` there would throw "has already been declared".
 
 // Types for downloads whose name is not known yet when the browser reports
 // them, by the MIME type the server sent.
-const MIME_EXTENSIONS = {
+var MIME_EXTENSIONS = {
   "application/pdf": "pdf",
   "application/zip": "zip",
   "application/x-zip-compressed": "zip",
@@ -58,7 +63,7 @@ const MIME_EXTENSIONS = {
 // MIME types that say only "a file": taken when the type list is not empty
 // but the name says nothing yet, because that is what most real downloads
 // look like before their name is known.
-const GENERIC_MIME = new Set(["application/octet-stream", "binary/octet-stream", "application/force-download"]);
+var GENERIC_MIME = new Set(["application/octet-stream", "binary/octet-stream", "application/force-download"]);
 
 // The file type a MIME type stands for, such as "video/mp4" -> "mp4", or "".
 function mimeExtension(mime) {
@@ -139,7 +144,7 @@ function downloadType(item) {
 // A key combination as UIDM stores it ("ctrl+shift", "none") made into
 // { alt, ctrl, shift, insert, del }. Del is stored "del" ("delete" also
 // reads).
-const KEY_NAMES = ["alt", "ctrl", "shift", "insert", "del"];
+var KEY_NAMES = ["alt", "ctrl", "shift", "insert", "del"];
 function parseKeys(combo) {
   const parts = String(combo || "none").toLowerCase().split("+").map((p) => p.trim()).map((p) => (p === "delete" ? "del" : p));
   const keys = {};
@@ -190,8 +195,8 @@ function trackKey(held, type, key) {
 // key's own repeats). The worker forgets a report HELD_EXPIRE_MS old, so a
 // release it never heard of (a frame that went away) cannot keep the keys
 // "held" for good.
-const HELD_REFRESH_MS = 10000;
-const HELD_EXPIRE_MS = 30000;
+var HELD_REFRESH_MS = 10000;
+var HELD_EXPIRE_MS = 30000;
 
 // Whether the content script sends `action` now: it differs from what it
 // last sent, or it is a held key's that is due to be refreshed. `state` is
@@ -256,7 +261,7 @@ function linkDescription(title, text) {
 
 // Web pages, pictures and scripts, which the force key leaves alone when
 // `capture_force_skips_pages` is on.
-const PAGE_EXTENSIONS = new Set([
+var PAGE_EXTENSIONS = new Set([
   "htm", "html", "shtml", "xhtml", "php", "asp", "aspx", "jsp", "cgi", "pl",
   "jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg", "ico",
   "js", "mjs", "css",
@@ -274,7 +279,7 @@ function forceLeavesLink(rules, url) {
 
 // A click with the skip key held keeps the next download in the browser if
 // it starts this soon after (its link may redirect elsewhere first).
-const CLICK_WINDOW_MS = 5000;
+var CLICK_WINDOW_MS = 5000;
 
 function clickApplies(click, now) {
   return !!click && now - click.time >= 0 && now - click.time <= CLICK_WINDOW_MS;
@@ -334,7 +339,7 @@ function formFileFields(elements) {
 // functions the tests can call.
 
 // Media file types and playlists an <object> or <embed> may play.
-const PLUGIN_MEDIA_EXTENSIONS = new Set([
+var PLUGIN_MEDIA_EXTENSIONS = new Set([
   "mp4", "m4v", "webm", "mkv", "mov", "ogv", "avi", "wmv", "flv", "3gp",
   "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "m3u8", "mpd", "f4m",
 ]);
