@@ -1,6 +1,6 @@
 [package]
 name = "uidm"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "A download manager rebuilt in Rust: native-messaging host, persistent daemon, and download engine"
 license = "MIT"
