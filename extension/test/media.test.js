@@ -4,8 +4,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
+const { autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
 const { loadWorker } = require("./harness.js");
+const { hiddenMenuItems } = require("../rules.js");
 
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
 const response = (url, type, extra = {}) => ({
@@ -278,6 +279,83 @@ test("a YouTube video goes to UIDM as a page yt-dlp reads", async () => {
   assert.equal((await next).items.length, 1);
 });
 
+test("Facebook, Instagram and Vimeo video pages are one address per video", () => {
+  const cases = [
+    ["https://www.facebook.com/NASA/videos/1234567890/", "https://www.facebook.com/watch/?v=1234567890", "facebook"],
+    ["https://m.facebook.com/NASA/videos/vb.11/1234567890/?type=3", "https://www.facebook.com/watch/?v=1234567890", "facebook"],
+    ["https://www.facebook.com/watch/?v=1234567890&ref=x", "https://www.facebook.com/watch/?v=1234567890", "facebook"],
+    ["https://www.facebook.com/watch?v=1234567890", "https://www.facebook.com/watch/?v=1234567890", "facebook"],
+    ["https://www.facebook.com/reel/987654321?s=1", "https://www.facebook.com/reel/987654321", "facebook"],
+    ["https://fb.watch/aBc-12/", "https://fb.watch/aBc-12/", "facebook"],
+    ["https://www.instagram.com/p/CxYz_12-a/?img_index=1", "https://www.instagram.com/p/CxYz_12-a/", "instagram"],
+    ["https://instagram.com/reel/CxYz12/", "https://www.instagram.com/reel/CxYz12/", "instagram"],
+    ["https://www.instagram.com/reels/CxYz12/", "https://www.instagram.com/reel/CxYz12/", "instagram"],
+    ["https://www.instagram.com/tv/CxYz12", "https://www.instagram.com/tv/CxYz12/", "instagram"],
+    ["https://vimeo.com/76979871", "https://vimeo.com/76979871", "vimeo"],
+    ["https://vimeo.com/76979871/a1b2c3d4e5", "https://vimeo.com/76979871/a1b2c3d4e5", "vimeo"],
+    ["https://vimeo.com/channels/staffpicks/76979871", "https://vimeo.com/76979871", "vimeo"],
+    ["https://player.vimeo.com/video/76979871?h=abc123&autoplay=1", "https://player.vimeo.com/video/76979871?h=abc123", "vimeo"],
+    ["https://www.youtube.com/watch?v=jNQXAC9IVRw", "https://www.youtube.com/watch?v=jNQXAC9IVRw", "youtube"],
+  ];
+  for (const [url, page, site] of cases) same(videoPage(url), { site, url: page });
+  for (const url of [
+    "https://www.facebook.com/",
+    "https://www.facebook.com/NASA",
+    "https://www.facebook.com/NASA/videos/",
+    "https://www.facebook.com/watch/?v=abc",
+    "https://fb.watch/",
+    "https://www.instagram.com/nasa/",
+    "https://www.instagram.com/explore/",
+    "https://vimeo.com/",
+    "https://vimeo.com/staff",
+    "https://vimeo.com/channels/staffpicks",
+    "https://player.vimeo.com/video/abc",
+    "https://notvimeo.com/76979871",
+    "https://evil.net/www.facebook.com/x/videos/1",
+    "ftp://vimeo.com/76979871",
+  ]) {
+    assert.equal(videoPageUrl(url), null, url);
+  }
+});
+
+test("a Facebook video goes to UIDM as a page, also after moving there in the page", async () => {
+  const w = connected();
+  // The site moves to a video without loading a page.
+  await w.chrome.webNavigation.onHistoryStateUpdated.fire({ tabId: 7, frameId: 0, url: "https://www.facebook.com/NASA/videos/42/" });
+  const asked = w.content({ type: "video:menu" }, 7, "https://www.facebook.com/NASA");
+  await tick();
+  const probe = w.sent.find((m) => m.op === "probe_media");
+  assert.equal(probe.download.url, "https://www.facebook.com/watch/?v=42");
+  w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { kind: "page", video: [{ id: "hd", label: "720p" }], audio: [] } });
+  const menu = await asked;
+  same(menu.items.map((i) => i.label), ["Facebook video"]);
+  await w.content({ type: "video:download", entry: menu.items[0].entry, video: "hd", title: "Launch | Facebook" }, 7, "https://www.facebook.com/NASA/videos/42/");
+  const add = w.sent.find((m) => m.op === "add");
+  same([add.url, add.filename, add.media], ["https://www.facebook.com/watch/?v=42", "Launch.mp4", { kind: "page", video: "hd" }]);
+
+  // Another video replaces it.
+  await w.chrome.webNavigation.onHistoryStateUpdated.fire({ tabId: 7, frameId: 0, url: "https://vimeo.com/76979871" });
+  const next = w.content({ type: "video:menu" }, 7, "https://vimeo.com/76979871");
+  await tick();
+  const second = w.sent.filter((m) => m.op === "probe_media").at(-1);
+  assert.equal(second.download.url, "https://vimeo.com/76979871");
+  w.port.onMessage.fire({ op: "media_info", request: second.request, info: { kind: "page", video: [{ id: "x", label: "1080p" }], audio: [] } });
+  same((await next).items.map((i) => i.label), ["Vimeo video"]);
+});
+
+test("HDS manifests are streams and their fragments are left out", () => {
+  assert.equal(classifyMedia(response("https://v.net/z/manifest.f4m?hdnea=x", "text/xml")).kind, "hds");
+  assert.equal(classifyMedia(response("https://v.net/z/manifest", "application/f4m+xml")).kind, "hds");
+  assert.equal(classifyMedia(response("https://v.net/z/video_1000Seg1-Frag3", "video/f4f")), null);
+  // The video types can leave HDS out.
+  assert.equal(classifyMedia(response("https://v.net/z/manifest.f4m", "text/xml"), { video_types: ["m3u8"] }), null);
+  const entries = [{ id: 1, url: "https://v.net/z/manifest.f4m", kind: "hds", time: 1 }];
+  const infos = new Map([["https://v.net/z/manifest.f4m", { kind: "hds", video: [{ id: "video_1000", label: "1.0 Mbps" }], audio: [] }]]);
+  const menu = mediaMenu(entries, infos);
+  same(menu.map((i) => i.label), ["HDS stream"]);
+  same(menu[0].options[0], { label: "1.0 Mbps", size: null, video: "video_1000" });
+});
+
 test("content scripts cannot use the popup's commands", async () => {
   const w = connected();
   const answer = await Promise.race([
@@ -361,34 +439,36 @@ test("an address that is no stream is left out when another can be downloaded", 
   same(alone.map((i) => [i.entry, i.error]), [[2, notStream.error]]);
 });
 
-test("a video file caught under a playlist's name is offered and sent as a file", async () => {
-  const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
-  w.chrome.webRequest.onHeadersReceived.fire({
-    tabId: 7,
-    url: "https://v.net/movie.m3u8?t=1",
-    type: "xmlhttprequest",
-    responseHeaders: [{ name: "Content-Type", value: "application/vnd.apple.mpegurl" }],
+for (const firefox of [false, true]) {
+  test(`a video file caught under a playlist's name is offered and sent as a file${firefox ? " in Firefox" : ""}`, async () => {
+    const w = loadWorker({ firefox });
+    w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+    w.chrome.webRequest.onHeadersReceived.fire({
+      tabId: 7,
+      url: "https://v.net/movie.m3u8?t=1",
+      type: "xmlhttprequest",
+      responseHeaders: [{ name: "Content-Type", value: "application/vnd.apple.mpegurl" }],
+    });
+    const menu = await new Promise((resolve) => {
+      const asked = w.content({ type: "video:menu" }, 7);
+      setTimeout(() => {
+        const probe = w.sent.find((m) => m.op === "probe_media");
+        w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { video: [], audio: [], file: { ext: "mp4", size: 5000000 } } });
+      }, 0);
+      asked.then(resolve);
+    });
+    same(menu.items.map((i) => [i.label, i.options.map((o) => [o.label, o.size])]), [["MP4 video", [["Download", 5000000]]]]);
+    await w.content({ type: "video:download", entry: menu.items[0].entry, title: "Film" }, 7);
+    const add = w.sent.find((m) => m.op === "add");
+    assert.equal(add.url, "https://v.net/movie.m3u8?t=1");
+    assert.equal(add.filename, "Film.mp4");
+    assert.equal(add.media, undefined);
+    // It is a file now: the next menu does not probe it again.
+    const before = w.sent.filter((m) => m.op === "probe_media").length;
+    await w.content({ type: "video:menu" }, 7);
+    assert.equal(w.sent.filter((m) => m.op === "probe_media").length, before);
   });
-  const menu = await new Promise((resolve) => {
-    const asked = w.content({ type: "video:menu" }, 7);
-    setTimeout(() => {
-      const probe = w.sent.find((m) => m.op === "probe_media");
-      w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { video: [], audio: [], file: { ext: "mp4", size: 5000000 } } });
-    }, 0);
-    asked.then(resolve);
-  });
-  same(menu.items.map((i) => [i.label, i.options.map((o) => [o.label, o.size])]), [["MP4 video", [["Download", 5000000]]]]);
-  await w.content({ type: "video:download", entry: menu.items[0].entry, title: "Film" }, 7);
-  const add = w.sent.find((m) => m.op === "add");
-  assert.equal(add.url, "https://v.net/movie.m3u8?t=1");
-  assert.equal(add.filename, "Film.mp4");
-  assert.equal(add.media, undefined);
-  // It is a file now: the next menu does not probe it again.
-  const before = w.sent.filter((m) => m.op === "probe_media").length;
-  await w.content({ type: "video:menu" }, 7);
-  assert.equal(w.sent.filter((m) => m.op === "probe_media").length, before);
-});
+}
 
 test("a whole file's type comes from what UIDM found in it", () => {
   const { adoptFile } = require("../media.js");
@@ -398,4 +478,62 @@ test("a whole file's type comes from what UIDM found in it", () => {
   same(mediaMenu([entry], new Map()).map((i) => i.label), ["TS video"]);
   assert.equal(adoptFile({ kind: "hls" }, { file: { ext: "exe" } }), false);
   assert.equal(adoptFile({ kind: "hls" }, { video: [] }), false);
+});
+
+test("Chromium browsers and Firefox each have their own context menu list", () => {
+  const rules = { browser_menu_hidden_chromium: ["all_links"], browser_menu_hidden_firefox: ["recent_videos", "download"] };
+  same(hiddenMenuItems(rules, false), ["all_links"]);
+  same(hiddenMenuItems(rules, true), ["recent_videos", "download"]);
+  // An older UIDM's one list serves both.
+  same(hiddenMenuItems({ browser_menu_hidden: ["last_video"] }, true), ["last_video"]);
+  same(hiddenMenuItems(null, false), []);
+
+  const lists = { browser_menu_hidden_chromium: ["all_links"], browser_menu_hidden_firefox: ["download"] };
+  const menu = (w) => [...w.chrome.contextMenus.items.keys()];
+  const chrome = loadWorker();
+  chrome.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  chrome.port.onMessage.fire({ op: "settings", settings: lists });
+  assert.ok(!menu(chrome).includes("uidm-all-links") && menu(chrome).includes("uidm-link"));
+  const firefox = loadWorker({ firefox: true });
+  firefox.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  firefox.port.onMessage.fire({ op: "settings", settings: lists });
+  assert.ok(menu(firefox).includes("uidm-all-links") && !menu(firefox).includes("uidm-link"));
+});
+
+test("web players' files of the listed types go to UIDM without the video button", async () => {
+  const rules = { video_auto_capture: true, video_auto_types: ["mp4", "mp3"], capture_excluded_sites: ["blocked.net"] };
+  const player = (url, type, extra = {}) => ({ type: "media", ...response(url, type, extra) });
+  assert.equal(autoCaptureMedia(player("https://v.net/a.mp4", "video/mp4"), rules), true);
+  assert.equal(autoCaptureMedia(player("https://v.net/song", "audio/mpeg"), rules), true, "the type from the MIME type");
+  assert.equal(autoCaptureMedia(player("https://v.net/a.webm", "video/webm"), rules), false, "not a listed type");
+  assert.equal(autoCaptureMedia(player("https://v.net/clip", "video/x-unknown"), rules), false, "an unknown type");
+  assert.equal(autoCaptureMedia(player("https://v.net/a.m3u8", "application/vnd.apple.mpegurl"), { ...rules, video_auto_types: ["m3u8"] }), false, "no streams");
+  assert.equal(autoCaptureMedia(player("https://v.net/s.ts", "video/mp2t"), rules), false, "no segments");
+  assert.equal(autoCaptureMedia({ ...player("https://v.net/a.mp4", "video/mp4"), type: "xmlhttprequest" }, rules), false, "a script's fetch");
+  assert.equal(autoCaptureMedia(player("https://blocked.net/a.mp4", "video/mp4"), rules), false, "an excluded site");
+  assert.equal(autoCaptureMedia(player("https://v.net/a.mp4", "video/mp4"), { ...rules, video_auto_capture: false }), false, "off");
+  assert.equal(autoCaptureMedia(player("https://v.net/a.mp4", "video/mp4"), rules, new Set(["https://v.net/a.mp4"])), false, "once");
+
+  const w = connected(rules);
+  const play = (tabId, url) =>
+    w.chrome.webRequest.onHeadersReceived.fire({ tabId, initiator: "https://v.net", ...player(url, "video/mp4", { headers: { "Content-Length": "9000000" } }) });
+  const adds = () => w.sent.filter((m) => m.op === "add").map((m) => m.url);
+  await play(3, "https://v.net/a.mp4");
+  await tick();
+  await play(3, "https://v.net/a.mp4");
+  await tick();
+  same(adds(), ["https://v.net/a.mp4"]);
+  assert.equal(w.sent.filter((m) => m.op === "add")[0].referrer, "https://v.net");
+  // Another tab, or the same tab on a new page, takes it again.
+  await play(4, "https://v.net/a.mp4");
+  await w.chrome.webRequest.onBeforeRequest.fire({ tabId: 3, type: "main_frame", url: "https://v.net/next" });
+  await play(3, "https://v.net/a.mp4");
+  await tick();
+  assert.equal(adds().length, 3);
+
+  // Off by default.
+  const plain = connected();
+  await plain.chrome.webRequest.onHeadersReceived.fire({ tabId: 3, ...player("https://v.net/a.mp4", "video/mp4") });
+  await tick();
+  assert.equal(plain.sent.filter((m) => m.op === "add").length, 0);
 });

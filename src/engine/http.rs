@@ -22,6 +22,20 @@ pub struct Probe {
     pub last_modified: Option<String>,
     /// Filename from a `Content-Disposition` header, when the server sends one.
     pub suggested_filename: Option<String>,
+    /// The `Content-Type` the server sends, as it sends it.
+    pub content_type: Option<String>,
+}
+
+impl Probe {
+    /// What identifies this version of the file, for telling later whether
+    /// the server's copy changed.
+    pub fn validator(&self) -> crate::protocol::Validator {
+        crate::protocol::Validator {
+            size: self.total,
+            etag: self.etag.clone(),
+            last_modified: self.last_modified.clone(),
+        }
+    }
 }
 
 /// A blocking HTTP client for one download: an agent that validates TLS
@@ -77,6 +91,12 @@ impl Client {
                 logins: net.logins.clone(),
                 proxy: net.ftp_proxy.clone(),
                 proxy_login: net.ftp_proxy_login.clone(),
+                // SOCKS for ftp:// only when no FTP proxy is set.
+                socks: net
+                    .proxy
+                    .as_ref()
+                    .filter(|_| ftp && net.ftp_proxy.is_none())
+                    .and_then(|rules| rules.socks_for_ftp(url)),
 
             },
         })
@@ -206,20 +226,21 @@ pub fn probe(client: &Client, url: &str, headers: &[(String, String)]) -> Result
     let suggested_filename = resp
         .header("content-disposition")
         .and_then(parse_content_disposition_filename);
+    let content_type = resp.header("content-type").map(str::to_string);
     let status = resp.status();
 
     if status == 206 {
         let total = resp
             .header("content-range")
             .and_then(parse_content_range_total);
-        Ok(Probe { final_url, total, resumable: true, etag, last_modified, suggested_filename })
+        Ok(Probe { final_url, total, resumable: true, etag, last_modified, suggested_filename, content_type })
     } else {
         // 200 (or anything else 2xx): no partial content. Read the declared
         // length if present, then let `resp` drop without consuming the body.
         let total = resp
             .header("content-length")
             .and_then(|s| s.trim().parse::<u64>().ok());
-        Ok(Probe { final_url, total, resumable: false, etag, last_modified, suggested_filename })
+        Ok(Probe { final_url, total, resumable: false, etag, last_modified, suggested_filename, content_type })
     }
 }
 
@@ -274,6 +295,7 @@ pub fn post(
         suggested_filename: resp
             .header("content-disposition")
             .and_then(parse_content_disposition_filename),
+        content_type: resp.header("content-type").map(str::to_string),
     };
     Ok((probe, Box::new(resp.into_reader())))
 }

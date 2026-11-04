@@ -37,6 +37,7 @@ impl DownloadTable {
                 resumable,
                 connections,
                 partial,
+                validator,
             } => {
                 let e = self.entry(*id, url);
                 e.status = Status::Downloading;
@@ -45,6 +46,11 @@ impl DownloadTable {
                 e.total = *total;
                 e.resumable = *resumable;
                 e.connections = *connections;
+                // A server that says nothing about the file keeps what an
+                // earlier check learned.
+                if validator.is_some() {
+                    e.validator = validator.clone();
+                }
                 e.error = None;
                 e.scan = None;
                 e.note = None;
@@ -125,8 +131,10 @@ impl DownloadTable {
             | Outgoing::RefreshMismatch { .. }
             | Outgoing::AddedMany { .. }
             | Outgoing::MediaInfo { .. }
+            | Outgoing::LinkInfo { .. }
             | Outgoing::PickLinks { .. }
             | Outgoing::Quota { .. }
+            | Outgoing::BrowserLink { .. }
             | Outgoing::CookiesWanted { .. }
             | Outgoing::RenderPage { .. }
             | Outgoing::ZipPreview { .. }
@@ -187,14 +195,17 @@ fn blank(id: u64, url: &str, status: Status) -> DownloadEntry {
         note: None,
         duplicate_of: None,
         referrer: None,
+        page: None,
         last_try: None,
         description: None,
         category: None,
         login_user: None,
         speed_limit: None,
+        limit_remember: true,
         partial: None,
         from_browser: false,
         on_done: None,
+        validator: None,
     }
 }
 
@@ -218,6 +229,7 @@ mod tests {
             resumable: true,
             connections: 4,
             partial: None,
+            validator: None,
         }
     }
 

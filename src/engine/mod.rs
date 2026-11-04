@@ -30,7 +30,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::media::MediaChoice;
-use crate::protocol::{SegmentInfo, SegmentState};
+use crate::protocol::{SegmentInfo, SegmentState, Validator};
 use crate::net::NetConfig;
 use crate::settings::{FileExists, Folders};
 use limit::{RateLimiter, Throttle};
@@ -94,6 +94,9 @@ pub struct DownloadRequest {
     pub speed_limit: Option<u64>,
     /// Give the finished file the server's `Last-Modified` date.
     pub server_date: bool,
+    /// Make that date the file's creation time too, where the system lets
+    /// it be set (Windows and macOS; Linux keeps no settable one).
+    pub server_date_created: bool,
     /// Resume a partial file even if the server's `Last-Modified` changed,
     /// as long as its size (and ETag, when it sends one) did not.
     pub ignore_date: bool,
@@ -121,6 +124,8 @@ pub enum Progress {
         connections: usize,
         /// Where the data goes until it is complete, when not at `path`.
         partial: Option<PathBuf>,
+        /// What the server said identifies this version of the file.
+        validator: Option<Validator>,
     },
     Advanced {
         id: u64,
@@ -278,11 +283,19 @@ struct Sched {
     limit: usize,
 }
 
+/// One running download's limiter, and the limit set for it alone.
+type OwnLimit = (Arc<RateLimiter>, Option<u64>);
+
 /// What every running download shares.
 struct Shared {
     limiter: RateLimiter,
-    /// Each running download's own limit, by id.
-    own_limits: Mutex<HashMap<u64, Arc<RateLimiter>>>,
+    /// Each running download's limiter, by id, with the limit set for that
+    /// download alone (`None` when it follows `per_file`).
+    own_limits: Mutex<HashMap<u64, OwnLimit>>,
+    /// The limit for each download that has none of its own, or `None`.
+    /// Every such download gets a bucket of its own at this rate, so it caps
+    /// each file rather than all of them together.
+    per_file: Mutex<Option<u64>>,
     /// Connections in use to hosts with a limit.
     host_slots: HostSlots,
     /// Whether a connection that finishes early takes over half of the
@@ -372,7 +385,7 @@ impl<'a> Gate<'a> {
 impl Shared {
     /// Download `id`'s own limiter; an unlimited one if it has none.
     fn own_limiter(&self, id: u64) -> Arc<RateLimiter> {
-        self.own_limits.lock().unwrap().get(&id).cloned().unwrap_or_default()
+        self.own_limits.lock().unwrap().get(&id).map(|(l, _)| Arc::clone(l)).unwrap_or_default()
     }
 }
 
@@ -405,6 +418,7 @@ impl Engine {
                 shared: Arc::new(Shared {
                     limiter: RateLimiter::default(),
                     own_limits: Mutex::new(HashMap::new()),
+                    per_file: Mutex::new(None),
                     host_slots: HostSlots::default(),
                     resplit: AtomicBool::new(true),
                     claimed: Mutex::new(HashSet::new()),
@@ -466,14 +480,36 @@ impl Engine {
 
     /// Set one download's own speed limit, or `None` to clear it. A running
     /// download slows down or speeds up at once; a queued one starts with it.
+    /// Clearing it falls back to the limit per file, if one is set.
     pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
-        if let Some(own) = self.inner.shared.own_limits.lock().unwrap().get(&id) {
-            own.set_rate(bytes_per_sec);
+        let shared = &self.inner.shared;
+        let per_file = *shared.per_file.lock().unwrap();
+        if let Some((limiter, own)) = shared.own_limits.lock().unwrap().get_mut(&id) {
+            *own = bytes_per_sec;
+            limiter.set_rate(bytes_per_sec.or(per_file));
         }
         let mut sched = self.inner.sched.lock().unwrap();
         for job in sched.queue.iter_mut().filter(|j| j.id == id) {
             job.req.speed_limit = bytes_per_sec;
         }
+    }
+
+    /// Set the limit for each download that has no limit of its own, or
+    /// `None` for none. Running downloads change speed at once.
+    pub fn set_per_file_limit(&self, bytes_per_sec: Option<u64>) {
+        let shared = &self.inner.shared;
+        let rate = bytes_per_sec.filter(|b| *b > 0);
+        *shared.per_file.lock().unwrap() = rate;
+        for (limiter, own) in shared.own_limits.lock().unwrap().values() {
+            if own.is_none() {
+                limiter.set_rate(rate);
+            }
+        }
+    }
+
+    /// The limit a download without one of its own has, if any.
+    pub fn per_file_limit(&self) -> Option<u64> {
+        *self.inner.shared.per_file.lock().unwrap()
     }
 
     /// Downloads queued or running. Each leaves the registry when it finishes,
@@ -541,6 +577,7 @@ pub fn run_blocking(req: DownloadRequest, cb: Arc<dyn Fn(Progress) + Send + Sync
     let shared = Shared {
         limiter: RateLimiter::default(),
         own_limits: Mutex::new(HashMap::new()),
+        per_file: Mutex::new(None),
         host_slots: HostSlots::default(),
         resplit: AtomicBool::new(true),
         claimed: Mutex::new(HashSet::new()),
@@ -559,12 +596,23 @@ fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, sh
         reporter.send(Progress::Canceled { id, url });
         return;
     }
-    let own = Arc::new(RateLimiter::new(req.speed_limit));
-    shared.own_limits.lock().unwrap().insert(id, Arc::clone(&own));
+    let mut req = req;
+    let own_rate = req.speed_limit;
+    let own = {
+        // Read the limit per file under the same lock that a change to it
+        // walks, so a change made now cannot miss this download.
+        let mut own_limits = shared.own_limits.lock().unwrap();
+        let rate = own_rate.or(*shared.per_file.lock().unwrap());
+        // yt-dlp takes one fixed limit when it starts.
+        req.speed_limit = rate;
+        let own = Arc::new(RateLimiter::new(rate));
+        own_limits.insert(id, (Arc::clone(&own), own_rate));
+        own
+    };
     let result = run_inner(id, &token, &req, &reporter, shared);
     {
         let mut own_limits = shared.own_limits.lock().unwrap();
-        if own_limits.get(&id).is_some_and(|o| Arc::ptr_eq(o, &own)) {
+        if own_limits.get(&id).is_some_and(|(o, _)| Arc::ptr_eq(o, &own)) {
             own_limits.remove(&id);
         }
     }
@@ -644,6 +692,7 @@ fn run_inner(
         resumable: probe.resumable,
         connections,
         partial: (work != output).then(|| work.clone()),
+        validator: Some(probe.validator()),
     });
 
     let own = shared.own_limiter(id);
@@ -668,14 +717,40 @@ fn run_inner(
     // A canceled download also returns its path; only a finished one gets
     // the server's date.
     if let Ok(path) = &result {
-        if req.server_date && !token.load(Ordering::Relaxed) {
+        if (req.server_date || req.server_date_created) && !token.load(Ordering::Relaxed) {
             if let Some(date) = probe.last_modified.as_deref().and_then(http_date) {
-                let _ = OpenOptions::new().write(true).open(path).and_then(|f| f.set_modified(date));
+                let _ = set_file_date(path, date, req.server_date, req.server_date_created);
             }
         }
     }
     result.map(Saved::from)
 }
+
+/// Give the file at `path` the time `date` as its modified time, its
+/// creation time, or both. The creation time is set only where the system
+/// allows it (Windows and macOS); elsewhere that part does nothing.
+fn set_file_date(path: &Path, date: std::time::SystemTime, modified: bool, created: bool) -> std::io::Result<()> {
+    let mut times = std::fs::FileTimes::new();
+    if modified {
+        times = times.set_modified(date);
+    }
+    if created {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTimesExt;
+            times = times.set_created(date);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::macos::fs::FileTimesExt;
+            times = times.set_created(date);
+        }
+    }
+    OpenOptions::new().write(true).open(path)?.set_times(times)
+}
+
+/// Whether `set_file_date` can set a file's creation time on this system.
+pub const CAN_SET_CREATION_TIME: bool = cfg!(any(windows, target_os = "macos"));
 
 /// An HTTP date (`Sun, 06 Nov 1994 08:49:37 GMT`, or the older
 /// `Sunday, 06-Nov-94 08:49:37 GMT` and `Sun Nov  6 08:49:37 1994`) as a
@@ -733,6 +808,7 @@ fn run_post(
         resumable: false,
         connections: 1,
         partial: None,
+        validator: None,
     });
     let mut file = File::create(&output)?;
     let mut buf = vec![0u8; BUF_SIZE];
@@ -861,6 +937,8 @@ pub struct Inspection {
     pub resumable: bool,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
+    /// The server's `Content-Type`, when it sent one.
+    pub content_type: Option<String>,
 }
 
 impl Inspection {
@@ -876,6 +954,7 @@ impl Inspection {
             resumable: false,
             etag: None,
             last_modified: None,
+            content_type: None,
         }
     }
 }
@@ -896,6 +975,7 @@ pub fn inspect(
         resumable: probe.resumable,
         etag: probe.etag,
         last_modified: probe.last_modified,
+        content_type: probe.content_type,
     })
 }
 
@@ -1754,6 +1834,7 @@ mod tests {
                 ffmpeg: None,
                 speed_limit: None,
                 server_date: false,
+                server_date_created: false,
                 ignore_date: false,
                 temp_dir: None,
                 reuse_partial: None,
@@ -2222,6 +2303,7 @@ mod tests {
             let shared = Shared {
                 limiter: RateLimiter::default(),
                 own_limits: Mutex::new(HashMap::new()),
+                per_file: Mutex::new(None),
                 host_slots: HostSlots::default(),
                 resplit: AtomicBool::new(true),
                 claimed: Mutex::new(HashSet::new()),
@@ -2370,6 +2452,19 @@ mod tests {
             let path = download(|_| {}, req);
             let age = fs::metadata(&path).unwrap().modified().unwrap().elapsed().unwrap();
             assert!(age < Duration::from_secs(60));
+
+            // The creation time alone: the modified time stays the time it
+            // was written, and where the system allows it the file was
+            // "created" on the server's date.
+            let server = TestServer::start_with(body(LEN), Behavior { last_modified: Some(date.into()), ..Behavior::default() });
+            let mut req = request(&server.url, &dir, FileExists::Rename);
+            req.server_date_created = true;
+            let path = download(|_| {}, req);
+            let meta = fs::metadata(&path).unwrap();
+            assert!(meta.modified().unwrap().elapsed().unwrap() < Duration::from_secs(60));
+            if CAN_SET_CREATION_TIME {
+                assert_eq!(meta.created().unwrap(), http_date(date).unwrap());
+            }
             fs::remove_dir_all(&dir).ok();
         }
 

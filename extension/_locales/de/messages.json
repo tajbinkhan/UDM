@@ -23,6 +23,15 @@
   "captureDownloadsTitle": {
     "message": "Downloads, die der Browser startet, an UIDM senden"
   },
+  "captureInTab": {
+    "message": "Übernahme in diesem Tab"
+  },
+  "captureInTabTitle": {
+    "message": "Abschalten, damit die Downloads dieses Tabs im Browser bleiben"
+  },
+  "captureOffInTab": {
+    "message": "In diesem Tab aus"
+  },
   "statusConnected": {
     "message": "Verbunden. Downloads, die Sie im Browser starten, gehen an UIDM."
   },
@@ -192,8 +201,20 @@
   "dashStream": {
     "message": "DASH-Stream"
   },
+  "hdsStream": {
+    "message": "HDS-Stream"
+  },
   "youtubeVideo": {
     "message": "YouTube-Video"
+  },
+  "facebookVideo": {
+    "message": "Facebook-Video"
+  },
+  "instagramVideo": {
+    "message": "Instagram-Video"
+  },
+  "vimeoVideo": {
+    "message": "Vimeo-Video"
   },
   "mediaNoAnswer": {
     "message": "UIDM hat nicht geantwortet."
@@ -258,5 +279,38 @@
   },
   "recentVideos": {
     "message": "Letzte Videos (UIDM)"
+  },
+  "downloadPageWithUidm": {
+    "message": "Seite mit UIDM herunterladen"
+  },
+  "noLinksFound": {
+    "message": "Auf dieser Seite wurden keine Links gefunden."
+  },
+  "noSelectedLinksFound": {
+    "message": "In der Markierung wurden keine Links gefunden."
+  },
+  "linksUnreadable": {
+    "message": "Der Browser lässt UIDM die Links dieser Seite nicht lesen."
+  },
+  "cannotReachUidm": {
+    "message": "UIDM ist nicht erreichbar. Läuft UIDM?"
+  },
+  "cannotReachUidmReason": {
+    "message": "UIDM ist nicht erreichbar ($REASON$).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Native host has exited."
+      }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "Der Browser lädt es stattdessen herunter."
+  },
+  "browserDownloadsHeading": {
+    "message": "Downloads im Browser"
+  },
+  "sendToUidm": {
+    "message": "An UIDM senden"
   }
 }

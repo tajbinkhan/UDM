@@ -1,6 +1,8 @@
 //! Finding downloads in the list. Ctrl+F opens a bar above the list, and
 //! typing narrows the list to the downloads that match. F3 and Shift+F3 step
 //! through them, and Escape closes the bar and shows the whole list again.
+//! As in IDM, the file name, the description and the links are each a
+//! choice of where to look.
 
 use eframe::egui;
 use uidm::protocol::DownloadEntry;
@@ -8,21 +10,18 @@ use uidm::protocol::DownloadEntry;
 use super::display_name;
 use crate::i18n::{tr, trf};
 
-/// What the text is looked for in.
-#[derive(Clone, Copy, PartialEq)]
-pub enum Scope {
-    /// The file name and description.
-    Name,
-    /// The file name and description, the download link and the page it
-    /// came from.
-    NameAndAddress,
-}
-
 pub struct FindBar {
     pub text: String,
-    pub scope: Scope,
+    /// Look in the file name.
+    pub in_name: bool,
+    /// Look in the description.
+    pub in_description: bool,
+    /// Look in the links: the download's address, its referrer and the page
+    /// it came from.
+    pub in_links: bool,
     pub match_case: bool,
-    /// The whole name (or link) must equal the text.
+    /// The whole file name must equal the text; in a description or a link
+    /// the text must be whole words (see `whole_words`).
     pub whole: bool,
     /// The match F3 moved to.
     pub current: Option<u64>,
@@ -36,7 +35,9 @@ impl FindBar {
     pub fn new() -> Self {
         FindBar {
             text: String::new(),
-            scope: Scope::NameAndAddress,
+            in_name: true,
+            in_description: true,
+            in_links: true,
             match_case: false,
             whole: false,
             current: None,
@@ -55,11 +56,35 @@ impl FindBar {
         if text.is_empty() {
             return true;
         }
-        let hit = |field: &str| field_matches(field, text, self.match_case, self.whole);
-        if hit(&display_name(e)) || e.description.as_deref().is_some_and(hit) {
+        let (text, fold) = if self.match_case { (text.to_string(), false) } else { (text.to_lowercase(), true) };
+        let field = |f: &str| if fold { f.to_lowercase() } else { f.to_string() };
+        let words = |f: &str| {
+            let f = field(f);
+            if self.whole {
+                whole_words(&f, &text)
+            } else {
+                f.contains(&text)
+            }
+        };
+        if self.in_name {
+            let name = field(&display_name(e));
+            if if self.whole { name == text } else { name.contains(&text) } {
+                return true;
+            }
+        }
+        if self.in_description && e.description.as_deref().is_some_and(words) {
             return true;
         }
-        self.scope == Scope::NameAndAddress && (hit(&e.url) || e.referrer.as_deref().is_some_and(hit))
+        self.in_links && [Some(&e.url), e.referrer.as_ref(), e.page.as_ref()].into_iter().flatten().any(|s| words(s))
+    }
+
+    /// The places to look, ticked: at least one stays ticked.
+    fn places(&mut self) -> [(&mut bool, &'static str); 3] {
+        [
+            (&mut self.in_name, tr("File name")),
+            (&mut self.in_description, tr("Description")),
+            (&mut self.in_links, tr("Links (address/referrer/page)")),
+        ]
     }
 
     /// Move to the match after the current one in `ids` (before it when
@@ -81,17 +106,20 @@ impl FindBar {
     }
 }
 
-fn field_matches(field: &str, text: &str, match_case: bool, whole: bool) -> bool {
-    let (field, text) = if match_case {
-        (field.to_string(), text.to_string())
-    } else {
-        (field.to_lowercase(), text.to_lowercase())
-    };
-    if whole {
-        field == text
-    } else {
-        field.contains(&text)
-    }
+/// Whether `text` is in `field` as whole words: each place it is found must
+/// not run on into a letter or digit on either side. A link splits into
+/// words at everything else (`.`, `/`, `-`, `?`, ...), so "example" is in
+/// `https://www.example.com/x` (a whole host label), as are "www.example.com"
+/// (the host) and "x" (a path segment), but not in `https://myexample.com`.
+fn whole_words(field: &str, text: &str) -> bool {
+    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    // Only an end of the text that is itself part of a word needs a
+    // boundary: ".com" may follow anything.
+    let (open, close) = (word(text.chars().next()), word(text.chars().last()));
+    !text.is_empty()
+        && field.match_indices(text).any(|(at, _)| {
+            (!open || !word(field[..at].chars().next_back())) && (!close || !word(field[at + text.len()..].chars().next()))
+        })
 }
 
 /// Open the bar on Ctrl+F (or F3 while it is closed), and close it on
@@ -129,7 +157,7 @@ pub fn show(ui: &mut egui::Ui, bar: &mut FindBar, ids: &[u64]) -> bool {
         ui.label(tr("Find:"));
         let input = ui.add(
             egui::TextEdit::singleline(&mut bar.text)
-                .hint_text(tr("File name or link"))
+                .hint_text(tr("Text to find"))
                 .desired_width(220.0),
         );
         if std::mem::take(&mut bar.focus) {
@@ -147,16 +175,19 @@ pub fn show(ui: &mut egui::Ui, bar: &mut FindBar, ids: &[u64]) -> bool {
         if ui.add_enabled(!ids.is_empty(), egui::Button::new(tr("Next"))).on_hover_text("F3").clicked() {
             bar.step(ids, false);
         }
-        egui::ComboBox::from_id_salt("find_scope")
-            .selected_text(scope_label(bar.scope))
-            .show_ui(ui, |ui| {
-                for s in [Scope::Name, Scope::NameAndAddress] {
-                    ui.selectable_value(&mut bar.scope, s, scope_label(s));
-                }
-            });
+        ui.label(tr("Look in:"));
+        let ticked = [bar.in_name, bar.in_description, bar.in_links].iter().filter(|t| **t).count();
+        for (on, label) in bar.places() {
+            // The last place ticked stays ticked.
+            let last = *on && ticked == 1;
+            ui.add_enabled(!last, egui::Checkbox::new(on, label))
+                .on_disabled_hover_text(tr("Find looks in one place at least"));
+        }
+        ui.separator();
         ui.checkbox(&mut bar.match_case, tr("Match case"));
-        ui.checkbox(&mut bar.whole, tr("Whole name only"))
-            .on_hover_text(tr("The whole file name or link must be the text"));
+        ui.checkbox(&mut bar.whole, tr("Whole name only")).on_hover_text(tr(
+            "The whole file name must be the text. In descriptions and links, whole words: \"example\" finds www.example.com but not myexample.com.",
+        ));
         if bar.active() {
             let at = bar.current.and_then(|c| ids.iter().position(|id| *id == c));
             match (ids.len(), at) {
@@ -173,13 +204,6 @@ pub fn show(ui: &mut egui::Ui, bar: &mut FindBar, ids: &[u64]) -> bool {
         });
     });
     open
-}
-
-fn scope_label(s: Scope) -> &'static str {
-    match s {
-        Scope::Name => tr("In names and descriptions"),
-        Scope::NameAndAddress => tr("In names, descriptions and links"),
-    }
 }
 
 #[cfg(test)]
@@ -203,14 +227,17 @@ mod tests {
             note: None,
             duplicate_of: None,
             referrer: referrer.map(str::to_string),
+            page: None,
             last_try: None,
             description: None,
             category: None,
             login_user: None,
             speed_limit: None,
+            limit_remember: true,
             partial: None,
             from_browser: false,
             on_done: None,
+            validator: None,
         }
     }
 
@@ -231,20 +258,58 @@ mod tests {
     }
 
     #[test]
-    fn scope_decides_whether_links_count() {
-        let e = entry(1, "https://cdn.example.com/f.zip", None, Some("https://blog.example.org/post"));
+    fn each_place_is_a_choice_of_its_own() {
+        let mut e = entry(1, "https://cdn.example.com/f.zip", None, Some("https://blog.example.org/post"));
+        e.description = Some("Holiday photos".into());
         assert!(bar("cdn.example").matches(&e));
-        assert!(bar("blog.example").matches(&e), "the page it came from");
-        let names = FindBar { scope: Scope::Name, ..bar("blog") };
-        assert!(!names.matches(&e));
-        assert!(FindBar { scope: Scope::Name, ..bar("f.zip") }.matches(&e));
+        assert!(bar("blog.example").matches(&e), "the referrer");
+        let only = |name, description, links, text| FindBar {
+            in_name: name,
+            in_description: description,
+            in_links: links,
+            ..bar(text)
+        };
+        assert!(!only(true, true, false, "blog").matches(&e), "links not ticked");
+        assert!(only(true, false, false, "f.zip").matches(&e));
+        assert!(!only(true, false, false, "holiday").matches(&e), "the description not ticked");
+        assert!(only(false, true, false, "holiday").matches(&e));
+        assert!(!only(false, true, false, "f.zip").matches(&e));
+        e.page = Some("https://shop.example.net/item".into());
+        assert!(only(false, false, true, "shop.example").matches(&e), "the page it came from");
     }
 
     #[test]
     fn whole_name_must_be_equal() {
         let e = entry(1, "https://x/setup.exe", None, None);
-        assert!(!FindBar { whole: true, ..bar("setup") }.matches(&e));
-        assert!(FindBar { whole: true, ..bar("SETUP.EXE") }.matches(&e));
+        let names = |text| FindBar { whole: true, in_links: false, ..bar(text) };
+        assert!(!names("setup").matches(&e));
+        assert!(names("SETUP.EXE").matches(&e));
+    }
+
+    #[test]
+    fn whole_name_finds_a_site_inside_a_link() {
+        let e = entry(1, "https://www.example.com/x/report.pdf", None, None);
+        let whole = |text| FindBar { whole: true, ..bar(text) };
+        assert!(whole("example").matches(&e), "a whole host label");
+        assert!(whole("www.example.com").matches(&e), "the host");
+        assert!(whole("x").matches(&e), "a path segment");
+        assert!(!whole("exam").matches(&e));
+        let other = entry(2, "https://myexample.com/a.zip", None, None);
+        assert!(!whole("example").matches(&other));
+        assert!(bar("example").matches(&other), "without it, anywhere in the link");
+        assert!(whole(".com").matches(&other), "an end that is not a word needs no boundary");
+    }
+
+    #[test]
+    fn whole_words_are_bounded_by_anything_but_letters_and_digits() {
+        assert!(whole_words("https://a.example.com/", "example"));
+        assert!(whole_words("example", "example"));
+        assert!(whole_words("my example photos", "example"));
+        assert!(!whole_words("examples", "example"));
+        assert!(!whole_words("2example", "example"));
+        // A later place can be whole when the first is not.
+        assert!(whole_words("myexample.org/example", "example"));
+        assert!(!whole_words("abc", ""));
     }
 
     #[test]

@@ -86,6 +86,7 @@ pub(super) fn run(
         etag: None,
         last_modified: None,
         suggested_filename: None,
+        content_type: None,
     };
     let claim = choose_output(&shared.claimed, &dir, &filename, req, &probe)?;
     let output = claim.path.clone();
@@ -133,6 +134,7 @@ pub(super) fn run(
         resumable: true,
         connections: 1,
         partial: None,
+        validator: None,
     });
 
     let tally = Arc::new(Mutex::new(Tally::default()));
@@ -199,7 +201,7 @@ pub(super) fn run(
         None => output,
     };
     let note = req.ffmpeg.is_none().then(|| {
-        "Saved with its sound in one file, the best quality YouTube sends that way. With ffmpeg (set in Options) UIDM saves the quality you chose."
+        "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) UIDM saves the quality you chose."
             .to_string()
     });
     drop(claim);
@@ -319,6 +321,7 @@ mod tests {
             ffmpeg,
             speed_limit: None,
             server_date: false,
+            server_date_created: false,
             ignore_date: false,
             temp_dir: None,
             reuse_partial: None,

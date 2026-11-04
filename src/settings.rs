@@ -33,8 +33,9 @@ pub const GENERAL: &str = "General";
 
 /// The keys held while clicking a link in the browser, to keep the download
 /// in the browser or to send the link to UIDM: any mix of Alt, Ctrl and
-/// Shift, and Insert for forcing. Stored as text such as `ctrl+shift`, or
-/// `none`; files from when one key was allowed say `alt`, `ctrl` or `shift`.
+/// Shift, and Insert or Del for forcing (as IDM offers). Stored as text such
+/// as `ctrl+shift`, or `none`; files from when one key was allowed say `alt`,
+/// `ctrl` or `shift`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub struct CaptureKey {
@@ -42,10 +43,13 @@ pub struct CaptureKey {
     pub ctrl: bool,
     pub shift: bool,
     pub insert: bool,
+    /// The Delete key. Like Insert it is no modifier, so the extension
+    /// follows whether it is held by hand.
+    pub delete: bool,
 }
 
 impl CaptureKey {
-    pub const NONE: CaptureKey = CaptureKey { alt: false, ctrl: false, shift: false, insert: false };
+    pub const NONE: CaptureKey = CaptureKey { alt: false, ctrl: false, shift: false, insert: false, delete: false };
     pub const ALT: CaptureKey = CaptureKey { alt: true, ..CaptureKey::NONE };
     pub const CTRL: CaptureKey = CaptureKey { ctrl: true, ..CaptureKey::NONE };
     pub const SHIFT: CaptureKey = CaptureKey { shift: true, ..CaptureKey::NONE };
@@ -56,7 +60,7 @@ impl CaptureKey {
 
     /// `Ctrl+Shift`, or "" for no key.
     pub fn label(self) -> String {
-        [(self.ctrl, "Ctrl"), (self.alt, "Alt"), (self.shift, "Shift"), (self.insert, "Insert")]
+        [(self.ctrl, "Ctrl"), (self.alt, "Alt"), (self.shift, "Shift"), (self.insert, "Insert"), (self.delete, "Del")]
             .iter()
             .filter(|(on, _)| *on)
             .map(|(_, name)| *name)
@@ -87,7 +91,8 @@ impl TryFrom<String> for CaptureKey {
                 "ctrl" => k.ctrl = true,
                 "shift" => k.shift = true,
                 "insert" => k.insert = true,
-                other => return Err(format!("\"{other}\" is not a key: use alt, ctrl, shift or insert")),
+                "del" | "delete" => k.delete = true,
+                other => return Err(format!("\"{other}\" is not a key: use alt, ctrl, shift, insert or del")),
             }
         }
         Ok(k)
@@ -119,7 +124,8 @@ pub enum PanelView {
 
 /// The items UIDM can add to the browser's context menu, by the names the
 /// extension knows them by, with their labels.
-pub const BROWSER_MENU_ITEMS: [(&str, &str); 6] = [
+pub const BROWSER_MENU_ITEMS: [(&str, &str); 7] = [
+    ("page", "Download page with UIDM (the page or frame itself)"),
     ("download", "Download with UIDM (links, pictures, videos)"),
     ("download_later", "Download later with UIDM"),
     ("all_links", "Download all links with UIDM"),
@@ -129,14 +135,37 @@ pub const BROWSER_MENU_ITEMS: [(&str, &str); 6] = [
 ];
 
 /// The video and audio types the video button offers, unless the settings
-/// say otherwise. `m3u8` and `mpd` are HLS and DASH streams.
+/// say otherwise. `m3u8`, `mpd` and `f4m` are HLS, DASH and HDS streams.
 pub fn default_video_types() -> Vec<String> {
     [
         "mp4", "m4v", "webm", "mkv", "mov", "avi", "wmv", "flv", "3gp", "ogv", "mp3", "m4a", "aac", "ogg", "oga",
-        "opus", "flac", "wav", "m3u8", "mpd",
+        "opus", "flac", "wav", "m3u8", "mpd", "f4m",
     ]
     .map(String::from)
     .to_vec()
+}
+
+/// The tab a download's window opens on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProgressTab {
+    /// Download status.
+    #[default]
+    Status,
+    /// Speed limit, when that tab is shown.
+    SpeedLimit,
+    /// When done, when that tab is shown.
+    WhenDone,
+}
+
+impl ProgressTab {
+    pub const ALL: [ProgressTab; 3] = [ProgressTab::Status, ProgressTab::SpeedLimit, ProgressTab::WhenDone];
+}
+
+/// The file types web players' media is taken from without the video
+/// button, when that is on, unless the settings say otherwise.
+pub fn default_video_auto_types() -> Vec<String> {
+    ["mp4", "m4v", "webm", "flv", "mp3", "m4a"].map(String::from).to_vec()
 }
 
 /// How UIDM tells you a download finished or failed.
@@ -196,6 +225,17 @@ pub struct SiteLogin {
     /// only over https, or as Digest, which never sends the password.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub plain: bool,
+}
+
+/// A browser the user added in Options by its program file, beyond the
+/// ones UIDM knows: shown in the list, registered where its family reads
+/// registrations, and restarted by starting its program again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddedBrowser {
+    /// The name the list shows, made from the program's name.
+    pub name: String,
+    /// The browser's program file.
+    pub program: String,
 }
 
 /// The most connections UIDM opens to the hosts matching `site` (such as
@@ -341,6 +381,8 @@ pub struct Folders {
     default: PathBuf,
     /// Each category's rules and folder, in order.
     categories: Vec<(Category, PathBuf)>,
+    /// Types that go to `default` whatever category lists them.
+    general: Vec<String>,
     /// The download's host, for categories limited to some sites.
     host: String,
 }
@@ -351,13 +393,14 @@ impl Folders {
         Folders {
             default: dir,
             categories: Vec::new(),
+            general: Vec::new(),
             host: String::new(),
         }
     }
 
     /// The folder for a file named `filename`.
     pub fn for_name(&self, filename: &str) -> PathBuf {
-        let ext = extension_of(filename);
+        let ext = extension_of(filename).filter(|e| !self.general.contains(e));
         self.categories
             .iter()
             .find(|(c, _)| ext.as_ref().is_some_and(|e| c.takes(e, &self.host)))
@@ -416,6 +459,14 @@ pub struct Settings {
     pub speed_limit_enabled: bool,
     /// Total speed across every download, in KB/s (1 KB = 1024 bytes).
     pub speed_limit_kbps: u64,
+    /// Turn the speed limit on whenever the daemon starts, whatever it was
+    /// when UIDM last ran, for users who only want it off for a while.
+    #[serde(default)]
+    pub speed_limit_on_startup: bool,
+    /// While the speed limit is on, the most each download may take, in
+    /// KB/s, unless it has a limit of its own. `None` caps only the total.
+    #[serde(default)]
+    pub speed_limit_per_file_kbps: Option<u64>,
     /// Queue interrupted downloads again when the daemon starts.
     pub resume_at_startup: bool,
     pub file_exists: FileExists,
@@ -442,6 +493,11 @@ pub struct Settings {
     pub later_queue: Option<u64>,
     /// File types and their folders. Files of no listed type are `General`.
     pub categories: Vec<Category>,
+    /// File types that are `General` even when a category lists them, as
+    /// IDM's General category has a type list of its own. Empty by default:
+    /// General then takes only what no category claims.
+    #[serde(default)]
+    pub general_extensions: Vec<String>,
     /// Extensions the browser extension takes from the browser. Empty means
     /// every type.
     pub capture_types: Vec<String>,
@@ -489,6 +545,13 @@ pub struct Settings {
     /// have no proxy of their own. (The name is from when only SOCKS5 was
     /// offered.)
     pub proxy_socks5: String,
+    /// https URLs use the SOCKS proxy even when an HTTP or HTTPS proxy is
+    /// set, so http can go through a web proxy and https through SOCKS.
+    #[serde(default)]
+    pub proxy_socks_https: bool,
+    /// ftp:// downloads use the SOCKS proxy when no FTP proxy is set.
+    #[serde(default = "yes")]
+    pub proxy_socks_ftp: bool,
     pub proxy_socks_version: SocksVersion,
     /// Let the SOCKS proxy look up host names (SOCKS4a, and always for
     /// SOCKS5) instead of looking them up here (SOCKS4).
@@ -551,9 +614,27 @@ pub struct Settings {
     /// The video button says when a video is protected (DRM). Off, it does
     /// not show on such videos at all.
     pub video_protected_note: bool,
-    /// The context menu items the extension leaves out, by the names in
-    /// `BROWSER_MENU_ITEMS`.
-    pub browser_menu_hidden: Vec<String>,
+    /// Automatically take media a web player loads, of the types in
+    /// `video_auto_types`, as a download, without the video button (IDM's
+    /// "automatically start downloading of the following file types from
+    /// web players"). Only whole files, not HLS or DASH streams; each
+    /// address once per tab.
+    #[serde(default)]
+    pub video_auto_capture: bool,
+    #[serde(default = "default_video_auto_types")]
+    pub video_auto_types: Vec<String>,
+    /// The context menu items the extension leaves out in Chrome, Edge and
+    /// the other Chromium browsers, by the names in `BROWSER_MENU_ITEMS`.
+    /// A file from when one list served every browser gives both lists its
+    /// items (see `split_browser_menu`).
+    #[serde(default)]
+    pub browser_menu_hidden_chromium: Vec<String>,
+    /// The same, for Firefox.
+    #[serde(default)]
+    pub browser_menu_hidden_firefox: Vec<String>,
+    /// Browsers added in Options by their program file.
+    #[serde(default)]
+    pub added_browsers: Vec<AddedBrowser>,
     /// ffmpeg.exe, to join streams into .mp4 files. Empty looks on `PATH`.
     pub ffmpeg_path: String,
     /// Ask before removing downloads from the list.
@@ -565,6 +646,10 @@ pub struct Settings {
     /// Give a finished file the modified date the server reports for it
     /// (`Last-Modified`) instead of the time it was written.
     pub server_file_date: bool,
+    /// Make the server's date the file's creation time too, where the
+    /// system lets it be set (Windows and macOS; not Linux).
+    #[serde(default)]
+    pub server_file_date_created: bool,
     /// Resume a partial download even when the server reports a new
     /// modification date for the file; its size must still match.
     pub resume_ignores_date: bool,
@@ -585,6 +670,12 @@ pub struct Settings {
     /// The force key leaves links to web pages, pictures and scripts alone,
     /// so they open as usual.
     pub capture_force_skips_pages: bool,
+    /// Downloads, links and videos in the browser's private windows go to
+    /// UIDM too. Off by default: a private window keeps its downloads out of
+    /// UIDM's list. Only the window changes it, never the browser itself.
+    /// Chrome also needs "Allow in Incognito" turned on for the extension.
+    #[serde(default)]
+    pub capture_private: bool,
     /// Addresses whose downloads stay in the browser, with `*` matching any
     /// run of characters, such as `https://example.com/files/*.zip`.
     pub capture_excluded_urls: Vec<String>,
@@ -617,8 +708,30 @@ pub struct Settings {
     pub progress_speed_tab: bool,
     /// The download window has a When done tab.
     pub progress_done_tab: bool,
+    /// The Speed limit and When done tabs have a Hide tab button.
+    #[serde(default = "yes")]
+    pub progress_hide_buttons: bool,
+    /// The tab the download window opens on; a hidden one opens Download
+    /// status instead.
+    #[serde(default)]
+    pub progress_start_tab: ProgressTab,
+    /// The download window opens with its details (the connections' bar
+    /// and table) shown.
+    #[serde(default)]
+    pub progress_start_details: bool,
+    /// The Add batch download and link picker dialogs show the panel that
+    /// picks the queue and whether to start; off, they add to the main
+    /// queue and start as Options say, as IDM can hide it.
+    #[serde(default = "yes")]
+    pub list_queue_panel: bool,
     /// The note that a queue's schedule needs UIDM running was dismissed.
     pub schedule_note_hidden: bool,
+    /// Closing the site grabber adds the files ticked in its results to the
+    /// list and queue, as its Add button does.
+    pub grab_add_on_close: bool,
+    /// Closing a grabber project, or starting its crawl, saves it without
+    /// asking when no other saved project has its name.
+    pub grab_save_unique_silently: bool,
     /// Show a tip when the window opens.
     pub tips_on_startup: bool,
     /// The tip to show next.
@@ -638,6 +751,8 @@ impl Default for Settings {
             max_concurrent: DEFAULT_MAX_CONCURRENT,
             speed_limit_enabled: false,
             speed_limit_kbps: DEFAULT_SPEED_LIMIT_KBPS,
+            speed_limit_on_startup: false,
+            speed_limit_per_file_kbps: None,
             resume_at_startup: false,
             file_exists: FileExists::Rename,
             if_duplicate: Duplicate::Ask,
@@ -649,6 +764,7 @@ impl Default for Settings {
             general_last_folder: None,
             later_queue: None,
             categories: default_categories(),
+            general_extensions: Vec::new(),
             capture_types: default_capture_types(),
             capture_min_size_kb: 0,
             capture_excluded_sites: Vec::new(),
@@ -672,6 +788,8 @@ impl Default for Settings {
             proxy_https: String::new(),
             proxy_ftp: String::new(),
             proxy_socks5: String::new(),
+            proxy_socks_https: false,
+            proxy_socks_ftp: true,
             proxy_socks_version: SocksVersion::V5,
             proxy_remote_dns: true,
             proxy_bypass: "<local>".into(),
@@ -697,11 +815,16 @@ impl Default for Settings {
             video_min_size_kb: 128,
             video_view: PanelView::Full,
             video_protected_note: true,
-            browser_menu_hidden: Vec::new(),
+            video_auto_capture: false,
+            video_auto_types: default_video_auto_types(),
+            browser_menu_hidden_chromium: Vec::new(),
+            browser_menu_hidden_firefox: Vec::new(),
+            added_browsers: Vec::new(),
             ffmpeg_path: String::new(),
             confirm_remove: true,
             remove_deletes_files: false,
             server_file_date: true,
+            server_file_date_created: false,
             resume_ignores_date: false,
             manual_user_agent: String::new(),
             temp_dir: None,
@@ -709,6 +832,7 @@ impl Default for Settings {
             capture_force_key: CaptureKey::CTRL,
             capture_keys_left_click: false,
             capture_force_skips_pages: true,
+            capture_private: false,
             capture_excluded_urls: Vec::new(),
             offer_exceptions: true,
             selection_button: SelectionButton::Everywhere,
@@ -724,7 +848,13 @@ impl Default for Settings {
             progress_on_start: false,
             progress_speed_tab: true,
             progress_done_tab: true,
+            progress_hide_buttons: true,
+            progress_start_tab: ProgressTab::Status,
+            progress_start_details: false,
+            list_queue_panel: true,
             schedule_note_hidden: false,
+            grab_add_on_close: false,
+            grab_save_unique_silently: false,
             tips_on_startup: true,
             next_tip: 0,
             theme: Theme::System,
@@ -793,8 +923,8 @@ impl Settings {
         if self.capture_skip_key == self.capture_force_key && !self.capture_skip_key.is_none() {
             return Err("The keys that skip and force capture must differ.".into());
         }
-        if self.capture_skip_key.insert {
-            return Err("Insert can only force capture, not skip it.".into());
+        if self.capture_skip_key.insert || self.capture_skip_key.delete {
+            return Err("Insert and Del can only force capture, not skip it.".into());
         }
         if let Some(dir) = self.temp_dir.as_deref().filter(|d| !Path::new(d).is_absolute()) {
             return Err(format!("The temporary folder must be a full path: {dir}"));
@@ -813,6 +943,9 @@ impl Settings {
         let (lo, hi) = SPEED_LIMIT_RANGE_KBPS;
         if !(lo..=hi).contains(&self.speed_limit_kbps) {
             return Err(format!("The speed limit must be between {lo} and {hi} KB/s."));
+        }
+        if self.speed_limit_per_file_kbps.is_some_and(|k| !(lo..=hi).contains(&k)) {
+            return Err(format!("The speed limit per file must be between {lo} and {hi} KB/s."));
         }
         if let Some(dir) = &self.download_dir {
             check_folder("The download folder", dir)?;
@@ -840,12 +973,22 @@ impl Settings {
             }
         }
 
+        check_extensions(&format!("The category \"{GENERAL}\""), &self.general_extensions)?;
         check_extensions("The captured file types", &self.capture_types)?;
         check_extensions("The video types", &self.video_types)?;
         if self.video_min_size_kb > CAPTURE_MIN_SIZE_MAX_KB {
             return Err("The minimum video size is too large.".to_string());
         }
-        if let Some(item) = self.browser_menu_hidden.iter().find(|i| !BROWSER_MENU_ITEMS.iter().any(|(id, _)| id == i)) {
+        check_extensions("The types taken from web players", &self.video_auto_types)?;
+        if self.video_auto_capture && self.video_auto_types.is_empty() {
+            return Err("List the types to take from web players, such as mp4.".to_string());
+        }
+        if let Some(item) = self
+            .browser_menu_hidden_chromium
+            .iter()
+            .chain(&self.browser_menu_hidden_firefox)
+            .find(|i| !BROWSER_MENU_ITEMS.iter().any(|(id, _)| id == i))
+        {
             return Err(format!("\"{item}\" is not a context menu item."));
         }
 
@@ -931,6 +1074,9 @@ impl Settings {
     /// them.
     pub fn category_of(&self, filename: &str, url: &str) -> Option<&Category> {
         let ext = extension_of(filename)?;
+        if self.general_extensions.contains(&ext) {
+            return None;
+        }
         let host = host_of(url);
         self.categories.iter().find(|c| c.takes(&ext, &host))
     }
@@ -981,6 +1127,7 @@ impl Settings {
     pub fn folders_for(&self, url: &str) -> Folders {
         Folders {
             categories: self.categories.iter().map(|c| (c.clone(), self.folder_of(c))).collect(),
+            general: self.general_extensions.clone(),
             default: self.general_folder(),
             host: host_of(url),
         }
@@ -1076,6 +1223,14 @@ impl Settings {
             .then(|| self.speed_limit_kbps.saturating_mul(1024))
     }
 
+    /// The limit for each download without one of its own, in bytes per
+    /// second, or `None` when the speed limit is off or has no such limit.
+    pub fn per_file_limit_bytes(&self) -> Option<u64> {
+        self.speed_limit_per_file_kbps
+            .filter(|_| self.speed_limit_enabled)
+            .map(|k| k.saturating_mul(1024))
+    }
+
     /// Read settings from `path`. A missing file gives the defaults; an
     /// unreadable or invalid one is an error, so the caller can say so instead
     /// of silently dropping the user's choices.
@@ -1088,6 +1243,7 @@ impl Settings {
         let invalid = |e| io::Error::new(io::ErrorKind::InvalidData, e);
         let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
         let split = split_proxy_login(&mut value);
+        split_browser_menu(&mut value);
         let mut settings: Settings = serde_json::from_value(value).map_err(invalid)?;
         settings.proxy_logins_split = split;
         settings
@@ -1122,6 +1278,24 @@ fn split_proxy_login(value: &mut serde_json::Value) -> bool {
     for key in ["proxy_https_username", "proxy_socks_username"] {
         map.insert(key.into(), user.clone().into());
     }
+    true
+}
+
+/// Give a settings file from before Chromium browsers and Firefox had their
+/// own context menu lists both lists, filled from its one list.
+fn split_browser_menu(value: &mut serde_json::Value) {
+    let Some(map) = value.as_object_mut() else {
+        return;
+    };
+    let Some(old) = map.remove("browser_menu_hidden") else {
+        return;
+    };
+    for key in ["browser_menu_hidden_chromium", "browser_menu_hidden_firefox"] {
+        map.entry(key).or_insert_with(|| old.clone());
+    }
+}
+
+fn yes() -> bool {
     true
 }
 
@@ -1242,6 +1416,15 @@ mod tests {
     }
 
     #[test]
+    fn private_windows_are_not_captured_by_default() {
+        assert!(!Settings::default().capture_private);
+        let old: Settings = serde_json::from_str(r#"{"connections":4}"#).unwrap();
+        assert!(!old.capture_private, "a settings file from before the option");
+        let on: Settings = serde_json::from_str(r#"{"capture_private":true}"#).unwrap();
+        assert!(on.capture_private);
+    }
+
+    #[test]
     fn save_load_roundtrip() {
         let path = temp_path("roundtrip.json");
         let s = Settings {
@@ -1250,6 +1433,8 @@ mod tests {
             max_concurrent: 5,
             speed_limit_enabled: true,
             speed_limit_kbps: 500,
+            speed_limit_on_startup: true,
+            speed_limit_per_file_kbps: Some(200),
             resume_at_startup: true,
             file_exists: FileExists::Overwrite,
             if_duplicate: Duplicate::Existing,
@@ -1261,6 +1446,7 @@ mod tests {
             general_last_folder: Some(full("D:\\Misc")),
             later_queue: Some(4),
             categories: vec![Category::new("Books", &["epub"])],
+            general_extensions: vec!["pdf".into()],
             capture_types: vec!["zip".into()],
             capture_min_size_kb: 100,
             capture_excluded_sites: vec!["*.example.com".into()],
@@ -1283,6 +1469,8 @@ mod tests {
             proxy_https: String::new(),
             proxy_ftp: "ftpproxy:21".into(),
             proxy_socks5: String::new(),
+            proxy_socks_https: true,
+            proxy_socks_ftp: false,
             proxy_socks_version: SocksVersion::V4,
             proxy_remote_dns: false,
             proxy_bypass: "<local> *.corp.net".into(),
@@ -1313,11 +1501,16 @@ mod tests {
             video_min_size_kb: 512,
             video_view: PanelView::Mini,
             video_protected_note: false,
-            browser_menu_hidden: vec!["all_links".into()],
+            video_auto_capture: true,
+            video_auto_types: vec!["mp4".into(), "flv".into()],
+            browser_menu_hidden_chromium: vec!["all_links".into()],
+            browser_menu_hidden_firefox: vec!["recent_videos".into()],
+            added_browsers: vec![AddedBrowser { name: "Thorium".into(), program: full("C:\\Thorium\\thorium.exe") }],
             ffmpeg_path: full("C:\\ffmpeg\\bin\\ffmpeg.exe"),
             confirm_remove: false,
             remove_deletes_files: true,
             server_file_date: false,
+            server_file_date_created: true,
             resume_ignores_date: true,
             manual_user_agent: USER_AGENT_PRESETS[0].1.into(),
             temp_dir: Some(full("D:\\UIDM temp")),
@@ -1325,6 +1518,7 @@ mod tests {
             capture_force_key: CaptureKey { insert: true, ..CaptureKey::CTRL },
             capture_keys_left_click: true,
             capture_force_skips_pages: false,
+            capture_private: true,
             capture_excluded_urls: vec!["https://example.com/files/*".into()],
             offer_exceptions: false,
             selection_button: SelectionButton::Sites,
@@ -1343,7 +1537,13 @@ mod tests {
             progress_on_start: true,
             progress_speed_tab: false,
             progress_done_tab: false,
+            progress_hide_buttons: false,
+            progress_start_tab: ProgressTab::WhenDone,
+            progress_start_details: true,
+            list_queue_panel: false,
             schedule_note_hidden: true,
+            grab_add_on_close: true,
+            grab_save_unique_silently: true,
             tips_on_startup: false,
             next_tip: 3,
             theme: Theme::Dark,
@@ -1354,6 +1554,20 @@ mod tests {
         assert_eq!(Settings::load(&path).unwrap(), s);
         assert_eq!(s.speed_limit_bytes(), Some(500 * 1024));
         fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn the_limit_per_file_applies_only_while_the_speed_limit_is_on() {
+        let mut s = Settings { speed_limit_per_file_kbps: Some(200), ..Settings::default() };
+        assert_eq!(s.per_file_limit_bytes(), None);
+        s.speed_limit_enabled = true;
+        assert_eq!(s.per_file_limit_bytes(), Some(200 * 1024));
+        s.speed_limit_per_file_kbps = None;
+        assert_eq!(s.per_file_limit_bytes(), None);
+        // Settings saved before these options load with them off.
+        let old: Settings = serde_json::from_str(r#"{"speed_limit_enabled":false}"#).unwrap();
+        assert!(!old.speed_limit_on_startup);
+        assert_eq!(old.speed_limit_per_file_kbps, None);
     }
 
     #[test]
@@ -1381,6 +1595,10 @@ mod tests {
         }
         let s = Settings { speed_limit_kbps: 0, ..Settings::default() };
         assert!(s.validate().is_err());
+        for (per_file, valid) in [(None, true), (Some(0), false), (Some(1), true), (Some(10_000_001), false)] {
+            let s = Settings { speed_limit_per_file_kbps: per_file, ..Settings::default() };
+            assert_eq!(s.validate().is_ok(), valid, "per file {per_file:?}");
+        }
         for (text_size, valid) in [(79, false), (80, true), (150, true), (151, false)] {
             let s = Settings { text_size, ..Settings::default() };
             assert_eq!(s.validate().is_ok(), valid, "text_size {text_size}");
@@ -1634,13 +1852,80 @@ mod tests {
     }
 
     #[test]
+    fn one_context_menu_list_becomes_one_per_browser_family() {
+        let path = std::env::temp_dir().join(format!("uidm-menu-{}.json", std::process::id()));
+        fs::write(&path, br#"{"browser_menu_hidden":["all_links","last_video"]}"#).unwrap();
+        let s = Settings::load(&path).unwrap();
+        assert_eq!(s.browser_menu_hidden_chromium, ["all_links", "last_video"]);
+        assert_eq!(s.browser_menu_hidden_firefox, ["all_links", "last_video"]);
+        // A newer file keeps its own lists.
+        fs::write(&path, br#"{"browser_menu_hidden_firefox":["download"]}"#).unwrap();
+        let s = Settings::load(&path).unwrap();
+        assert!(s.browser_menu_hidden_chromium.is_empty());
+        assert_eq!(s.browser_menu_hidden_firefox, ["download"]);
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(!json.contains(r#""browser_menu_hidden""#), "{json}");
+        fs::remove_file(&path).ok();
+        let bad = Settings { browser_menu_hidden_firefox: vec!["nope".into()], ..Settings::default() };
+        assert!(bad.validate().is_err());
+    }
+
+    /// Options lists exactly the items the extension's menu has, so each can
+    /// be left out (the page item came later, in #150).
+    #[test]
+    fn the_menu_items_are_the_extensions() {
+        let worker = include_str!("../extension/background.js");
+        let start = worker.find("const MENU_ITEMS = {").unwrap();
+        let end = start + worker[start..].find("\n};").unwrap();
+        let in_extension: Vec<&str> = worker[start..end]
+            .lines()
+            .skip(1)
+            .filter_map(|l| l.strip_prefix("  ")?.split_once(':').map(|(name, _)| name))
+            .filter(|name| !name.starts_with(' '))
+            .collect();
+        let in_options: Vec<&str> = BROWSER_MENU_ITEMS.iter().map(|(id, _)| *id).collect();
+        assert_eq!(in_extension, in_options);
+        let page = Settings { browser_menu_hidden_chromium: vec!["page".into()], ..Settings::default() };
+        assert!(page.validate().is_ok());
+    }
+
+    #[test]
+    fn general_has_types_of_its_own() {
+        let mut s = Settings { download_dir: Some(full("D:\\dl")), ..Settings::default() };
+        assert_eq!(s.category_name("a.pdf", ""), "Documents");
+        s.general_extensions = vec!["pdf".into(), "iso".into()];
+        assert_eq!(s.category_name("a.pdf", ""), GENERAL, "General's list wins over a category's");
+        assert_eq!(s.category_name("a.iso", ""), GENERAL);
+        assert_eq!(s.category_name("a.zip", ""), "Compressed");
+        let folders = s.folders();
+        assert_eq!(folders.for_name("a.pdf"), PathBuf::from(full("D:\\dl")));
+        assert_eq!(folders.for_name("a.zip"), PathBuf::from(full("D:\\dl")).join("Compressed"));
+        assert!(s.validate().is_ok());
+        s.general_extensions = vec![".bad".into()];
+        assert!(s.validate().is_err());
+    }
+
+    #[test]
+    fn new_options_have_idms_defaults_and_old_files_load() {
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(s.progress_hide_buttons && s.list_queue_panel && s.proxy_socks_ftp);
+        assert!(!s.progress_start_details && !s.proxy_socks_https && !s.server_file_date_created && !s.video_auto_capture);
+        assert_eq!(s.progress_start_tab, ProgressTab::Status);
+        assert_eq!(s.video_auto_types, default_video_auto_types());
+        let tab: Settings = serde_json::from_str(r#"{"progress_start_tab":"speed_limit"}"#).unwrap();
+        assert_eq!(tab.progress_start_tab, ProgressTab::SpeedLimit);
+        let none = Settings { video_auto_capture: true, video_auto_types: Vec::new(), ..Settings::default() };
+        assert!(none.validate().is_err(), "auto capture needs types");
+    }
+
+    #[test]
     fn capture_keys_are_combinations() {
         let read = |json: &str| serde_json::from_str::<Settings>(json).unwrap();
         // Files from when one key was allowed.
         assert_eq!(read(r#"{"capture_skip_key":"shift"}"#).capture_skip_key, CaptureKey::SHIFT);
         assert_eq!(read(r#"{"capture_force_key":"none"}"#).capture_force_key, CaptureKey::NONE);
         let both = read(r#"{"capture_force_key":"Shift+ctrl+insert"}"#).capture_force_key;
-        assert_eq!(both, CaptureKey { ctrl: true, shift: true, insert: true, alt: false });
+        assert_eq!(both, CaptureKey { ctrl: true, shift: true, insert: true, ..CaptureKey::NONE });
         assert_eq!(String::from(both), "ctrl+shift+insert");
         assert_eq!(both.label(), "Ctrl+Shift+Insert");
         assert!(serde_json::from_str::<Settings>(r#"{"capture_skip_key":"win"}"#).is_err());
@@ -1652,6 +1937,14 @@ mod tests {
         assert!(with(CaptureKey::CTRL, CaptureKey::CTRL).is_err());
         assert!(with(CaptureKey::NONE, CaptureKey::NONE).is_ok());
         assert!(with(CaptureKey { insert: true, ..CaptureKey::NONE }, CaptureKey::CTRL).is_err());
+
+        // Del forces capture, alone or with modifiers, as IDM's can.
+        let del = read(r#"{"capture_force_key":"del"}"#).capture_force_key;
+        assert_eq!(del, CaptureKey { delete: true, ..CaptureKey::NONE });
+        assert_eq!(read(r#"{"capture_force_key":"ctrl+Delete"}"#).capture_force_key.label(), "Ctrl+Del");
+        assert_eq!(String::from(del), "del");
+        assert!(with(CaptureKey::ALT, del).is_ok());
+        assert!(with(del, CaptureKey::CTRL).is_err(), "Del cannot skip");
     }
 
     #[test]

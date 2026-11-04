@@ -30,12 +30,17 @@ pub enum Column {
     Status,
     LastTry,
     SaveTo,
-    Referrer,
+    /// The web page a download came from. Saved as `referrer`: that is
+    /// what layouts called it when the referrer stood for the page too.
+    #[serde(rename = "referrer")]
+    Page,
+    /// The Referer its request sends.
+    Referer,
     Description,
 }
 
 impl Column {
-    pub const ALL: [Column; 11] = [
+    pub const ALL: [Column; 12] = [
         Column::Name,
         Column::Queue,
         Column::Size,
@@ -45,7 +50,8 @@ impl Column {
         Column::Status,
         Column::LastTry,
         Column::SaveTo,
-        Column::Referrer,
+        Column::Page,
+        Column::Referer,
         Column::Description,
     ];
 
@@ -84,7 +90,8 @@ impl Column {
             Column::Status => tr("Status"),
             Column::LastTry => tr("Last Try Date"),
             Column::SaveTo => tr("Save to"),
-            Column::Referrer => tr("Parent web page"),
+            Column::Page => tr("Parent web page"),
+            Column::Referer => tr("Referrer"),
             Column::Description => tr("Description"),
         }
     }
@@ -100,7 +107,7 @@ impl Column {
             Column::TimeLeft => 80.0,
             Column::Status => 95.0,
             Column::LastTry => 110.0,
-            Column::SaveTo | Column::Referrer | Column::Description => TEXT_WIDTH,
+            Column::SaveTo | Column::Page | Column::Referer | Column::Description => TEXT_WIDTH,
         }
     }
 
@@ -111,7 +118,10 @@ impl Column {
 
     /// Whether the column holds long text, cut to a fixed width.
     pub fn is_text(self) -> bool {
-        matches!(self, Column::Name | Column::SaveTo | Column::Referrer | Column::Description)
+        matches!(
+            self,
+            Column::Name | Column::SaveTo | Column::Page | Column::Referer | Column::Description
+        )
     }
 }
 
@@ -145,6 +155,73 @@ pub struct Layout {
     /// The categories panel's width, once it was dragged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub categories_width: Option<f32>,
+    /// The list's text, from View > Font; `None` is the window's own font.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_font: Option<ListFont>,
+    /// How the tray icon looks, from View > Tray icon.
+    #[serde(default)]
+    pub tray_style: crate::tray::Style,
+    /// The release whose "is available" strip was closed. It stays closed
+    /// for that version; a newer one shows the strip again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismissed_release: Option<String>,
+}
+
+impl Layout {
+    /// Put back what the Columns dialog changes, from `before`. The font
+    /// and tray icon have menus of their own, so they stay as they are now.
+    pub fn restore_columns(&mut self, before: &Layout) {
+        *self = Layout {
+            list_font: self.list_font,
+            tray_style: self.tray_style,
+            dismissed_release: self.dismissed_release.take(),
+            ..before.clone()
+        };
+    }
+
+    /// Whether the strip offering release `version` shows: not once it was
+    /// closed for that version.
+    pub fn shows_release(&self, version: &str) -> bool {
+        self.dismissed_release.as_deref() != Some(version)
+    }
+}
+
+/// The kinds of font egui has: the window's text font and its code font.
+/// On Windows these are Segoe UI and Consolas (see `theme`), elsewhere
+/// egui's own; there is no font picker to offer the system's others.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FontKind {
+    #[default]
+    Proportional,
+    Monospace,
+}
+
+/// A font chosen for the download list.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ListFont {
+    #[serde(default)]
+    pub kind: FontKind,
+    /// In points, within `ListFont::SIZES`.
+    pub size: f32,
+}
+
+impl ListFont {
+    /// The sizes offered, like a font dialog's 8 to 24 points.
+    pub const SIZES: (f32, f32) = (8.0, 24.0);
+    /// The window's own list text: 12 point Segoe UI (see `theme`).
+    pub const DEFAULT: ListFont = ListFont {
+        kind: FontKind::Proportional,
+        size: 12.0,
+    };
+
+    pub fn id(&self) -> egui::FontId {
+        let size = self.size.clamp(Self::SIZES.0, Self::SIZES.1);
+        match self.kind {
+            FontKind::Proportional => egui::FontId::proportional(size),
+            FontKind::Monospace => egui::FontId::monospace(size),
+        }
+    }
 }
 
 impl Default for Layout {
@@ -155,6 +232,9 @@ impl Default for Layout {
             widths: BTreeMap::new(),
             toolbar_small: false,
             categories_width: None,
+            list_font: None,
+            tray_style: crate::tray::Style::Color,
+            dismissed_release: None,
         }
     }
 }
@@ -262,7 +342,8 @@ fn compare(sort: Sort, a: &DownloadEntry, b: &DownloadEntry, speed: &impl Fn(u64
         Column::Status => known(Some(status_rank(a.status)), Some(status_rank(b.status)), down),
         Column::LastTry => known(a.last_try, b.last_try, down),
         Column::SaveTo => known(lower(a.path.as_deref()), lower(b.path.as_deref()), down),
-        Column::Referrer => known(lower(a.referrer.as_deref()), lower(b.referrer.as_deref()), down),
+        Column::Page => known(lower(a.page.as_deref()), lower(b.page.as_deref()), down),
+        Column::Referer => known(lower(a.referrer.as_deref()), lower(b.referrer.as_deref()), down),
         Column::Description => known(lower(a.description.as_deref()), lower(b.description.as_deref()), down),
     }
 }
@@ -334,8 +415,62 @@ pub fn local_date(unix: u64) -> String {
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02}", minute / 60, minute % 60)
 }
 
-/// The Columns dialog, editing `layout` in place. Returns false once closed.
-pub fn dialog(ctx: &egui::Context, layout: &mut Layout) -> bool {
+/// What the font dialog ended with.
+pub enum FontChoice {
+    Open,
+    Cancel,
+    Apply(ListFont),
+}
+
+/// View > Font > Choose Font: a kind and a size for the list's text, with
+/// a sample in them. egui has no system font dialog, so it offers the two
+/// fonts the window has loaded.
+pub fn font_dialog(ctx: &egui::Context, draft: &mut ListFont) -> FontChoice {
+    let mut open = true;
+    let mut choice = FontChoice::Open;
+    crate::dialog::Window::new(tr("Font"))
+        .id(egui::Id::new("list_font"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            egui::Grid::new("list_font_grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+                ui.label(tr("Font:"));
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut draft.kind, FontKind::Proportional, tr("Text font"));
+                    ui.radio_value(&mut draft.kind, FontKind::Monospace, tr("Fixed-width font"));
+                });
+                ui.end_row();
+                ui.label(tr("Size:"));
+                ui.add(egui::Slider::new(&mut draft.size, ListFont::SIZES.0..=ListFont::SIZES.1).step_by(1.0).suffix(" pt"));
+                ui.end_row();
+            });
+            ui.add_space(6.0);
+            ui.group(|ui| {
+                ui.set_min_width(300.0);
+                ui.label(egui::RichText::new(tr("The quick brown fox jumps over the lazy dog")).font(draft.id()));
+            });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button(tr("OK")).clicked() {
+                    choice = FontChoice::Apply(*draft);
+                }
+                if ui.button(tr("Cancel")).clicked() {
+                    choice = FontChoice::Cancel;
+                }
+            });
+        });
+    if !open {
+        choice = FontChoice::Cancel;
+    }
+    choice
+}
+
+/// The Columns dialog, editing `layout` in place so the list shows each
+/// change at once. `before` is the layout it opened with: Cancel (or the
+/// window's X) puts that back. Returns false once closed.
+pub fn dialog(ctx: &egui::Context, layout: &mut Layout, before: &Layout) -> bool {
     let mut open = true;
     let mut close = false;
     crate::dialog::Window::new(tr("Columns"))
@@ -394,13 +529,26 @@ pub fn dialog(ctx: &egui::Context, layout: &mut Layout) -> bool {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button(tr("Reset")).on_hover_text(tr("The default columns, in the order added")).clicked() {
-                    *layout = Layout::default();
+                    // The columns only: the font and tray icon have menus of their own.
+                    *layout = Layout {
+                        list_font: layout.list_font,
+                        tray_style: layout.tray_style,
+                        dismissed_release: layout.dismissed_release.take(),
+                        ..Layout::default()
+                    };
                 }
-                if ui.button(tr("Close")).clicked() {
+                if ui.button(tr("OK")).clicked() {
+                    close = true;
+                }
+                if ui.button(tr("Cancel")).on_hover_text(tr("Undo the changes made here")).clicked() {
+                    layout.restore_columns(before);
                     close = true;
                 }
             });
         });
+    if !open {
+        layout.restore_columns(before);
+    }
     open && !close
 }
 
@@ -424,19 +572,37 @@ mod tests {
             note: None,
             duplicate_of: None,
             referrer: None,
+            page: None,
             last_try: None,
             description: None,
             category: None,
             login_user: None,
             speed_limit: None,
+            limit_remember: true,
             partial: None,
             from_browser: false,
             on_done: None,
+            validator: None,
         }
     }
 
     fn ids(rows: &[&DownloadEntry]) -> Vec<u64> {
         rows.iter().map(|e| e.id).collect()
+    }
+
+    #[test]
+    fn cancel_puts_the_columns_back_but_not_the_font() {
+        let before = Layout::default();
+        let mut now = before.clone();
+        now.columns.retain(|c| *c != Column::Size);
+        now.set_width(Column::Status, 140.0);
+        now.list_font = Some(ListFont::DEFAULT);
+        now.tray_style = crate::tray::Style::Mono;
+        now.restore_columns(&before);
+        assert_eq!(now.columns, before.columns);
+        assert_eq!(now.widths, before.widths);
+        assert_eq!(now.list_font, Some(ListFont::DEFAULT), "the font has a menu of its own");
+        assert_eq!(now.tray_style, crate::tray::Style::Mono);
     }
 
     #[test]
@@ -497,9 +663,9 @@ mod tests {
         assert_eq!(l.width(Column::Name), Some(TEXT_WIDTH));
         assert_eq!(l.width(Column::Size), None, "fits its content");
         l.set_width(Column::Size, 5.0);
-        l.set_width(Column::Referrer, 333.4);
+        l.set_width(Column::Page, 333.4);
         assert_eq!(l.width(Column::Size), Some(WIDTH_RANGE.0));
-        assert_eq!(l.width(Column::Referrer), Some(333.0));
+        assert_eq!(l.width(Column::Page), Some(333.0));
         let json = serde_json::to_string(&l).unwrap();
         let back: Layout = serde_json::from_str(&json).unwrap();
         assert_eq!(back, l);
@@ -511,15 +677,48 @@ mod tests {
     #[test]
     fn sorts_by_parent_page_without_case() {
         let mut a = entry(1, "a", None, Status::Done);
-        a.referrer = Some("https://B.example/page".into());
+        a.page = Some("https://B.example/page".into());
         let mut b = entry(2, "b", None, Status::Done);
-        b.referrer = Some("https://a.example/page".into());
+        b.page = Some("https://a.example/page".into());
         let c = entry(3, "c", None, Status::Done);
         let mut l = Layout::default();
-        l.click(Column::Referrer);
+        l.click(Column::Page);
         let mut rows = vec![&a, &b, &c];
         l.sort(&mut rows, |_| None);
         assert_eq!(ids(&rows), [2, 1, 3], "no page last");
+    }
+
+    #[test]
+    fn sorts_by_referrer_apart_from_the_page() {
+        // Same page, different frames: only the referrer tells them apart.
+        let mut a = entry(1, "a", None, Status::Done);
+        a.page = Some("https://a.example/".into());
+        a.referrer = Some("https://ads.example/frame".into());
+        let mut b = entry(2, "b", None, Status::Done);
+        b.page = Some("https://b.example/".into());
+        b.referrer = Some("https://Cdn.example/frame".into());
+        let mut c = entry(3, "c", None, Status::Done);
+        c.page = Some("https://c.example/".into());
+        let mut l = Layout::default();
+        l.click(Column::Referer);
+        let mut rows = vec![&c, &b, &a];
+        l.sort(&mut rows, |_| None);
+        assert_eq!(ids(&rows), [1, 2, 3], "by referrer, none last");
+        l.click(Column::Page);
+        l.sort(&mut rows, |_| None);
+        assert_eq!(ids(&rows), [1, 2, 3]);
+        l.click(Column::Page);
+        l.sort(&mut rows, |_| None);
+        assert_eq!(ids(&rows), [3, 2, 1], "by page, descending");
+    }
+
+    #[test]
+    fn a_saved_referrer_column_is_still_the_parent_page() {
+        let l: Layout =
+            serde_json::from_str(r#"{"columns":["name","referrer","referer"],"sort":{"column":"referrer","descending":false}}"#)
+                .unwrap();
+        assert_eq!(l.columns, [Column::Name, Column::Page, Column::Referer]);
+        assert_eq!(l.sort.map(|s| s.column), Some(Column::Page));
     }
 
     #[test]
@@ -530,5 +729,57 @@ mod tests {
         assert_eq!(time_left(&e, None), None);
         e.total = None;
         assert_eq!(time_left(&e, Some(100.0)), None);
+    }
+
+    #[test]
+    fn an_old_layout_has_the_default_font_and_tray_icon() {
+        let l: Layout = serde_json::from_str(r#"{"columns":["name","size"]}"#).unwrap();
+        assert_eq!(l.list_font, None);
+        assert_eq!(l.tray_style, crate::tray::Style::Color);
+        // And the default writes neither the font nor anything new to read.
+        let back: Layout = serde_json::from_str(&serde_json::to_string(&Layout::default()).unwrap()).unwrap();
+        assert_eq!(back, Layout::default());
+    }
+
+    #[test]
+    fn a_closed_release_strip_stays_closed_until_a_newer_one() {
+        let mut l = Layout::default();
+        assert!(l.shows_release("1.4.0"));
+        l.dismissed_release = Some("1.4.0".into());
+        let back: Layout = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+        assert!(!back.shows_release("1.4.0"), "remembered across a restart");
+        assert!(back.shows_release("1.5.0"));
+    }
+
+    #[test]
+    fn a_chosen_font_and_tray_style_survive_a_save() {
+        let l = Layout {
+            list_font: Some(ListFont {
+                kind: FontKind::Monospace,
+                size: 16.0,
+            }),
+            tray_style: crate::tray::Style::Mono,
+            ..Layout::default()
+        };
+        let json = serde_json::to_string(&l).unwrap();
+        assert!(json.contains(r#""kind":"monospace""#) && json.contains(r#""tray_style":"mono""#));
+        assert_eq!(serde_json::from_str::<Layout>(&json).unwrap(), l);
+        // A font saved without its kind is the text font.
+        let f: ListFont = serde_json::from_str(r#"{"size":10.0}"#).unwrap();
+        assert_eq!(f.kind, FontKind::Proportional);
+    }
+
+    #[test]
+    fn a_font_size_stays_in_range() {
+        let big = ListFont {
+            kind: FontKind::Proportional,
+            size: 300.0,
+        };
+        assert_eq!(big.id(), egui::FontId::proportional(ListFont::SIZES.1));
+        let small = ListFont {
+            kind: FontKind::Monospace,
+            size: 1.0,
+        };
+        assert_eq!(small.id(), egui::FontId::monospace(ListFont::SIZES.0));
     }
 }

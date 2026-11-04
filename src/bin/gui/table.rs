@@ -61,9 +61,18 @@ pub fn show(ui: &mut egui::Ui, list: &List, layout: &mut Layout, state: &mut Tab
     let places: HashMap<u64, usize> =
         list.queues.iter().flat_map(|q| q.order.iter().enumerate().map(|(i, id)| (*id, i + 1))).collect();
 
+    // View > Font: the list's text, and rows tall enough for it.
+    let font = layout.list_font.map(|f| f.id());
+    let row_height = font.as_ref().map_or(ROW_HEIGHT, |f| ROW_HEIGHT.max(f.size + 6.0));
+    let header_height = font.as_ref().map_or(HEADER_HEIGHT, |f| HEADER_HEIGHT.max(f.size + 8.0));
+
     ui.scope(|ui| {
         let style = ui.style_mut();
         style.spacing.item_spacing = egui::vec2(8.0, 0.0);
+        if let Some(font) = &font {
+            style.text_styles.insert(egui::TextStyle::Body, font.clone());
+            style.text_styles.insert(egui::TextStyle::Button, font.clone());
+        }
         let grid = ui.visuals().widgets.noninteractive.bg_stroke.color.gamma_multiply(0.6);
         let line = Stroke::new(1.0_f32, grid);
         let outer = ui.clip_rect();
@@ -91,7 +100,7 @@ pub fn show(ui: &mut egui::Ui, list: &List, layout: &mut Layout, state: &mut Tab
 
         let mut measured = BTreeMap::new();
         table
-            .header(HEADER_HEIGHT, |mut header| {
+            .header(header_height, |mut header| {
                 for &column in &columns {
                     header.col(|ui| {
                         let rect = ui.max_rect();
@@ -121,7 +130,7 @@ pub fn show(ui: &mut egui::Ui, list: &List, layout: &mut Layout, state: &mut Tab
                 }
             })
             .body(|body| {
-                body.rows(ROW_HEIGHT, list.shown.len(), |mut row| {
+                body.rows(row_height, list.shown.len(), |mut row| {
                     let i = row.index();
                     let e = list.shown[i];
                     row.set_selected(list.selected.contains(&e.id) || list.found == Some(e.id));
@@ -246,7 +255,8 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
             let folder = e.path.as_deref().and_then(|p| Path::new(p).parent()).map(|d| d.display().to_string());
             text(ui, folder.as_deref().unwrap_or(""));
         }
-        Column::Referrer => text(ui, e.referrer.as_deref().unwrap_or("")),
+        Column::Page => text(ui, e.page.as_deref().unwrap_or("")),
+        Column::Referer => text(ui, e.referrer.as_deref().unwrap_or("")),
         Column::Description => text(ui, e.description.as_deref().unwrap_or("")),
     }
 }
@@ -339,6 +349,10 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
         vec![e.id]
     };
     item(ui, on && e.status.is_terminal(), tr("Remove"), Action::Remove(ids));
+    // Leaves the download in the list, outside every queue, so no queue
+    // starts it; Move to queue puts it back.
+    let queued = list.queues.iter().any(|q| q.order.contains(&e.id));
+    item(ui, on && queued, tr("Remove from queue"), Action::RemoveFromQueue(e.id));
     ui.add_enabled_ui(on && e.status.is_terminal() && !done, |ui| {
         ui.menu_button(tr("Move to queue"), |ui| {
             for q in list.queues {

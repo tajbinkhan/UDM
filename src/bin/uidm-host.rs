@@ -163,6 +163,7 @@ fn run_cli(args: &[String]) -> i32 {
             ffmpeg: None,
             speed_limit: None,
             server_date: true,
+            server_date_created: false,
             ignore_date: false,
             temp_dir: None,
             reuse_partial: None,
@@ -217,6 +218,9 @@ mod tests {
     #[test]
     fn only_the_extensions_requests_pass() {
         assert!(op(br#"{"op":"add","url":"https://a/b.zip"}"#).is_some());
+        // An add's fields pass unchanged, the parent page beside the referrer.
+        let add = op(br#"{"op":"add","url":"https://a/b.zip","referrer":"https://a/f","page":"https://a/p"}"#).unwrap();
+        assert_eq!((add["referrer"].as_str(), add["page"].as_str()), (Some("https://a/f"), Some("https://a/p")));
         assert!(op(br#"{"op":"set_settings","settings":{}}"#).is_some());
         // Requests only the window sends stay out.
         assert!(op(br#"{"op":"save_queue","queue":{}}"#).is_none());

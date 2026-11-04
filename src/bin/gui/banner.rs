@@ -56,6 +56,8 @@ impl Notes<'_> {
 pub struct Dismissed {
     pub error: bool,
     pub notice: bool,
+    /// The newer release's strip, for that version.
+    pub release: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -126,6 +128,9 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
             // About checks again and offers Update now.
             if r.installable && ui.add_enabled(connected, egui::Button::new(tr("Update now"))).clicked() {
                 actions.push(Action::CheckUpdate);
+            }
+            if close(ui) {
+                dismissed.release = true;
             }
         });
     }

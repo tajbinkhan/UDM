@@ -1,8 +1,10 @@
-//! Videos on pages that name no video file: YouTube. Its player streams over
-//! SABR, POST requests whose bodies the browser never shows as a video, a
-//! playlist or a manifest, so there is nothing to catch. yt-dlp reads the
-//! page instead: it lists the qualities (`yt-dlp -J`) and downloads the one
-//! chosen, with ffmpeg joining the video and its sound.
+//! Videos on pages that name no video file: YouTube, Facebook, Instagram
+//! and Vimeo. YouTube's player streams over SABR, POST requests whose bodies
+//! the browser never shows as a video, a playlist or a manifest, so there is
+//! nothing to catch; the others fetch signed pieces, or read their streams
+//! from a player configuration, that only the page leads to. yt-dlp reads
+//! the page instead: it lists the qualities (`yt-dlp -J`) and downloads the
+//! one chosen, with ffmpeg joining the video and its sound.
 //!
 //! yt-dlp is found on `PATH`, next to UIDM's programs, or next to ffmpeg.
 
@@ -15,25 +17,76 @@ use super::{estimate_size, quality_label, MediaChoice, MediaInfo, MediaKind, Med
 
 /// Why a page cannot be read without yt-dlp, in words for the user.
 pub const MISSING: &str =
-    "YouTube videos need yt-dlp. Install it (winget install yt-dlp.yt-dlp) or put yt-dlp.exe next to UIDM, then restart UIDM.";
+    "Videos on YouTube, Facebook, Instagram and Vimeo need yt-dlp. Install it (winget install yt-dlp.yt-dlp) or put yt-dlp.exe next to UIDM, then restart UIDM.";
+
+/// Whether an address on a site's host is one video.
+type VideoPage = fn(&url::Url) -> bool;
+
+/// The sites whose video pages go to yt-dlp, by host; each takes the
+/// address's path and query and says whether it is one video. The
+/// extension's `VIDEO_SITES` (media.js) records the same pages.
+const SITES: &[(&[&str], VideoPage)] = &[
+    (&["youtu.be"], |u| u.path().len() > 1),
+    (&["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"], youtube),
+    (&["facebook.com", "www.facebook.com", "m.facebook.com", "web.facebook.com"], facebook),
+    (&["fb.watch"], |u| segments(u).first().is_some_and(|c| !c.is_empty())),
+    (&["instagram.com", "www.instagram.com"], instagram),
+    (&["vimeo.com", "www.vimeo.com"], vimeo),
+    (&["player.vimeo.com"], |u| matches!(segments(u).as_slice(), ["video", id] if digits(id))),
+];
+
+/// The path's parts, without empty ones from a trailing slash.
+fn segments(u: &url::Url) -> Vec<&str> {
+    u.path().split('/').filter(|s| !s.is_empty()).collect()
+}
+
+fn digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// A watch page, a Short, a live video or an embedded player.
+fn youtube(u: &url::Url) -> bool {
+    let path = u.path();
+    (path == "/watch" && u.query_pairs().any(|(k, v)| k == "v" && !v.is_empty()))
+        || ["/shorts/", "/live/", "/embed/"].iter().any(|p| path.starts_with(p) && path.len() > p.len())
+}
+
+/// `/<page>/videos/<id>`, `/watch?v=<id>` and `/reel/<id>`.
+fn facebook(u: &url::Url) -> bool {
+    match segments(u).as_slice() {
+        ["watch"] => u.query_pairs().any(|(k, v)| k == "v" && digits(&v)),
+        ["reel", id, ..] => digits(id),
+        [_, "videos", rest @ ..] => rest.iter().any(|s| digits(s)),
+        _ => false,
+    }
+}
+
+/// A post, reel or IGTV video: `/p/<code>`, `/reel/<code>`, `/reels/<code>`,
+/// `/tv/<code>`.
+fn instagram(u: &url::Url) -> bool {
+    matches!(segments(u).as_slice(), ["p" | "reel" | "reels" | "tv", code, ..] if !code.is_empty())
+}
+
+/// `/<id>` (maybe with an unlisted video's hash after it) and
+/// `/channels/<name>/<id>`.
+fn vimeo(u: &url::Url) -> bool {
+    match segments(u).as_slice() {
+        [id] | [id, _] => digits(id),
+        ["channels", _, id] => digits(id),
+        _ => false,
+    }
+}
 
 /// Whether `url` is a video page yt-dlp downloads for UIDM: a YouTube
-/// watch page, a Short or a youtu.be link.
+/// watch page, Short or youtu.be link, or a Facebook, Instagram or Vimeo
+/// video.
 pub fn supports(url: &str) -> bool {
     let Ok(u) = url::Url::parse(url) else { return false };
     if !matches!(u.scheme(), "http" | "https") {
         return false;
     }
     let host = u.host_str().unwrap_or("").to_ascii_lowercase();
-    let path = u.path();
-    match host.as_str() {
-        "youtu.be" => path.len() > 1,
-        "youtube.com" | "www.youtube.com" | "m.youtube.com" | "music.youtube.com" => {
-            (path == "/watch" && u.query_pairs().any(|(k, v)| k == "v" && !v.is_empty()))
-                || ["/shorts/", "/live/", "/embed/"].iter().any(|p| path.starts_with(p) && path.len() > p.len())
-        }
-        _ => false,
-    }
+    SITES.iter().any(|(hosts, matches)| hosts.contains(&host.as_str()) && matches(&u))
 }
 
 /// yt-dlp: the first on `PATH`, else next to UIDM's programs, else next to
@@ -320,6 +373,46 @@ mod tests {
             "https://notyoutube.com/watch?v=x",
             "https://rr1---sn-x.googlevideo.com/videoplayback?mime=video%2Fmp4",
             "file:///C:/watch?v=x",
+        ] {
+            assert!(!supports(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn facebook_instagram_and_vimeo_video_pages() {
+        for url in [
+            "https://www.facebook.com/NASA/videos/1234567890/",
+            "https://m.facebook.com/NASA/videos/vb.11/1234567890/?type=3",
+            "https://www.facebook.com/watch/?v=1234567890",
+            "https://www.facebook.com/watch?v=1234567890",
+            "https://www.facebook.com/reel/987654321",
+            "https://fb.watch/aBc-12/",
+            "https://www.instagram.com/p/CxYz_12-a/",
+            "https://instagram.com/reel/CxYz12/",
+            "https://www.instagram.com/reels/CxYz12/",
+            "https://www.instagram.com/tv/CxYz12",
+            "https://vimeo.com/76979871",
+            "https://vimeo.com/76979871/a1b2c3d4e5",
+            "https://vimeo.com/channels/staffpicks/76979871",
+            "https://player.vimeo.com/video/76979871?h=abc123",
+        ] {
+            assert!(supports(url), "{url}");
+        }
+        for url in [
+            "https://www.facebook.com/",
+            "https://www.facebook.com/NASA",
+            "https://www.facebook.com/NASA/videos/",
+            "https://www.facebook.com/watch/?v=abc",
+            "https://fb.watch/",
+            "https://www.instagram.com/nasa/",
+            "https://www.instagram.com/explore/",
+            "https://vimeo.com/",
+            "https://vimeo.com/staff",
+            "https://vimeo.com/channels/staffpicks",
+            "https://player.vimeo.com/video/abc",
+            "https://notvimeo.com/76979871",
+            "https://evil.net/www.facebook.com/x/videos/1",
+            "ftp://vimeo.com/76979871",
         ] {
             assert!(!supports(url), "{url}");
         }

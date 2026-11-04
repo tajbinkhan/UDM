@@ -45,7 +45,11 @@ pub enum Command {
     Arrange(Option<Sort>),
     /// View > Toolbar: small buttons (true) or large ones.
     ToolbarSmall(bool),
-    ToggleTrayIcon,
+    /// View > Font.
+    ChooseFont,
+    ResetFont,
+    /// View > Tray icon: show it in a style, or `None` to hide it.
+    TrayIcon(Option<crate::tray::Style>),
     Columns,
     ToggleDarkMode,
     Language(&'static str),
@@ -84,6 +88,9 @@ pub struct State {
     pub queues: Vec<(u64, String, bool)>,
     pub sort: Option<Sort>,
     pub toolbar_small: bool,
+    /// The list has a font of its own (View > Font).
+    pub list_font: bool,
+    pub tray_style: crate::tray::Style,
     pub dark: bool,
 }
 
@@ -214,6 +221,10 @@ pub fn model(s: &State) -> Vec<Node> {
         let current = s.sort.map(|x| x.column) == column;
         check(text, Command::Arrange(sort), true, current)
     };
+    let tray_style = |text: &str, style: crate::tray::Style| {
+        let current = set.is_some_and(|c| c.tray_icon) && s.tray_style == style;
+        check(text, Command::TrayIcon(Some(style)), set.is_some(), current)
+    };
     let languages = i18n::LANGUAGES
         .iter()
         .map(|l| {
@@ -235,7 +246,8 @@ pub fn model(s: &State) -> Vec<Node> {
                 arrange(tr("By &Last Try Date"), Some(Column::LastTry)),
                 arrange(tr("By &Description"), Some(Column::Description)),
                 arrange(tr("By Save &Path"), Some(Column::SaveTo)),
-                arrange(tr("By Parent &Web Page"), Some(Column::Referrer)),
+                arrange(tr("By R&eferrer"), Some(Column::Referer)),
+                arrange(tr("By Parent &Web Page"), Some(Column::Page)),
             ],
         ),
         menu(
@@ -245,7 +257,22 @@ pub fn model(s: &State) -> Vec<Node> {
                 check(tr("&Small Buttons"), Command::ToolbarSmall(true), true, s.toolbar_small),
             ],
         ),
-        check(tr("Do&n't show the tray icon"), Command::ToggleTrayIcon, set.is_some(), set.is_some_and(|c| !c.tray_icon)),
+        menu(
+            tr("&Font"),
+            vec![
+                item(tr("&Choose Font..."), Command::ChooseFont, true),
+                item(tr("&Reset to default"), Command::ResetFont, s.list_font),
+            ],
+        ),
+        menu(
+            tr("Tray &icon"),
+            vec![
+                tray_style(tr("&Colored icon"), crate::tray::Style::Color),
+                tray_style(tr("&White icon"), crate::tray::Style::Mono),
+                Node::Separator,
+                check(tr("Do&n't show"), Command::TrayIcon(None), set.is_some(), set.is_some_and(|c| !c.tray_icon)),
+            ],
+        ),
         item(tr("C&ustomize URL List..."), Command::Columns, true),
         check(tr("Dark Mode support"), Command::ToggleDarkMode, set.is_some(), checked(|c| c.dark_mode)),
         Node::Separator,
@@ -256,6 +283,7 @@ pub fn model(s: &State) -> Vec<Node> {
         item(tr("H&elp contents"), Command::Help(crate::help::MANUAL), true),
         item(tr("&Scheduler and queues"), Command::Help(crate::help::SCHEDULER), true),
         item(tr("&Grabber Help"), Command::Help(crate::help::GRABBER), true),
+        item(tr("&Tutorials"), Command::Help(crate::help::TUTORIALS), true),
         item(tr("Tip of the &Day..."), Command::Tip, true),
         Node::Separator,
         item(tr("UIDM &Home Page"), Command::Help(crate::help::HOME), true),

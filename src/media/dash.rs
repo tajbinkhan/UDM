@@ -315,6 +315,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
                     segments,
                     ext,
                     duration,
+                    hds_header: None,
                 }),
                 id,
             };

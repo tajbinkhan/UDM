@@ -32,6 +32,8 @@ pub fn to_request(d: Download, settings: &Settings) -> DownloadRequest {
     if let Some(referrer) = d.referrer {
         headers.push(("Referer".to_string(), referrer));
     }
+    let extra = browser_request_headers(&d.request_headers, &headers);
+    headers.extend(extra);
     let folders = settings.folders_for(&d.url);
     let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase));
     let host_limit = host.and_then(|h| settings.server_limit(&h));
@@ -49,11 +51,60 @@ pub fn to_request(d: Download, settings: &Settings) -> DownloadRequest {
         ffmpeg: settings.ffmpeg(),
         speed_limit: d.speed_limit,
         server_date: settings.server_file_date,
+        server_date_created: settings.server_file_date_created,
         ignore_date: settings.resume_ignores_date,
         temp_dir: settings.temp_dir.as_deref().map(PathBuf::from).filter(|d| d.is_absolute()),
         reuse_partial: None,
         host_limit,
     }
+}
+
+/// Headers the browser sent that a download never repeats: the ones about
+/// the connection (hop-by-hop), the ones the engine sets itself or that
+/// would change what the server answers with (a range, a conditional
+/// request, a compressed body the engine could not resume), and the ones
+/// that travel in their own fields (cookies, referrer, user agent).
+const UNREPEATED_HEADERS: &[&str] = &[
+    "accept-encoding",
+    "authorization",
+    "connection",
+    "content-length",
+    "content-type",
+    "cookie",
+    "expect",
+    "host",
+    "if-match",
+    "if-modified-since",
+    "if-none-match",
+    "if-range",
+    "if-unmodified-since",
+    "keep-alive",
+    "proxy-authorization",
+    "proxy-connection",
+    "range",
+    "referer",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "user-agent",
+];
+
+/// The headers of the browser's request (`request_headers`) a download
+/// sends along with `already`, the ones it has: the browser's order, none
+/// listed in `UNREPEATED_HEADERS`, none `already` names, no pseudo-header
+/// (`:authority`) and each name once.
+pub fn browser_request_headers(sent: &[(String, String)], already: &[(String, String)]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (name, value) in sent {
+        let lower = name.to_ascii_lowercase();
+        let taken = |list: &[(String, String)]| list.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));
+        if name.is_empty() || name.starts_with(':') || UNREPEATED_HEADERS.contains(&lower.as_str()) || taken(already) || taken(&out) {
+            continue;
+        }
+        out.push((name.clone(), value.clone()));
+    }
+    out
 }
 
 /// Whether two download addresses name the same file: equal once parsed (so
@@ -92,6 +143,7 @@ pub fn progress_to_outgoing(p: Progress) -> Outgoing {
             resumable,
             connections,
             partial,
+            validator,
         } => Outgoing::Started {
             id,
             url,
@@ -100,6 +152,7 @@ pub fn progress_to_outgoing(p: Progress) -> Outgoing {
             resumable,
             connections,
             partial: partial.map(|p| p.display().to_string()),
+            validator,
         },
         Progress::Advanced {
             id,
@@ -144,6 +197,44 @@ mod tests {
         assert!(!same_address("https://example.com/a.zip", "https://example.com/a.zip?v=2"));
         assert!(!same_address("https://example.com/a.zip", "http://example.com/a.zip"));
         assert!(!same_address("https://example.com/A.zip", "https://example.com/a.zip"));
+    }
+
+    #[test]
+    fn only_safe_browser_headers_go_along() {
+        let h = |list: &[(&str, &str)]| list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        let sent = h(&[
+            ("Accept", "text/html,*/*"),
+            ("Accept-Language", "de-DE"),
+            ("Accept-Encoding", "gzip, br"),
+            ("Cookie", "a=1"),
+            ("Range", "bytes=0-"),
+            ("If-None-Match", "\"x\""),
+            ("Connection", "keep-alive"),
+            ("Host", "x"),
+            ("User-Agent", "B/1"),
+            (":authority", "x"),
+            ("Sec-Fetch-Mode", "navigate"),
+            ("Content-Type", "text/plain"),
+            ("accept-language", "fr"),
+            ("X-Requested-With", "t"),
+        ]);
+        let already = h(&[("X-Requested-With", "mine")]);
+        assert_eq!(
+            browser_request_headers(&sent, &already),
+            h(&[("Accept", "text/html,*/*"), ("Accept-Language", "de-DE"), ("Sec-Fetch-Mode", "navigate")])
+        );
+
+        // In the engine request, after the browser context it carries anyway.
+        let d = Download {
+            url: "https://x/a".into(),
+            cookies: Some("a=1".into()),
+            request_headers: sent,
+            ..Download::default()
+        };
+        let headers = to_request(d, &Settings::default()).headers;
+        assert_eq!(headers.iter().filter(|(k, _)| k.eq_ignore_ascii_case("cookie")).count(), 1);
+        assert!(headers.iter().any(|(k, v)| k == "Accept-Language" && v == "de-DE"));
+        assert!(!headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("range")));
     }
 
     #[test]

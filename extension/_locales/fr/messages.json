@@ -23,6 +23,15 @@
   "captureDownloadsTitle": {
     "message": "Envoyer à UIDM les téléchargements lancés par le navigateur"
   },
+  "captureInTab": {
+    "message": "Intercepter dans cet onglet"
+  },
+  "captureInTabTitle": {
+    "message": "Désactivez pour laisser au navigateur les téléchargements de cet onglet"
+  },
+  "captureOffInTab": {
+    "message": "Désactivé dans cet onglet"
+  },
   "statusConnected": {
     "message": "Connecté. Les téléchargements que vous lancez dans le navigateur vont à UIDM."
   },
@@ -192,8 +201,20 @@
   "dashStream": {
     "message": "Flux DASH"
   },
+  "hdsStream": {
+    "message": "Flux HDS"
+  },
   "youtubeVideo": {
     "message": "Vidéo YouTube"
+  },
+  "facebookVideo": {
+    "message": "Vidéo Facebook"
+  },
+  "instagramVideo": {
+    "message": "Vidéo Instagram"
+  },
+  "vimeoVideo": {
+    "message": "Vidéo Vimeo"
   },
   "mediaNoAnswer": {
     "message": "UIDM n’a pas répondu."
@@ -258,5 +279,38 @@
   },
   "recentVideos": {
     "message": "Vidéos récentes (UIDM)"
+  },
+  "downloadPageWithUidm": {
+    "message": "Télécharger la page avec UIDM"
+  },
+  "noLinksFound": {
+    "message": "Aucun lien trouvé sur cette page."
+  },
+  "noSelectedLinksFound": {
+    "message": "Aucun lien trouvé dans la sélection."
+  },
+  "linksUnreadable": {
+    "message": "Le navigateur ne permet pas à UIDM de lire les liens de cette page."
+  },
+  "cannotReachUidm": {
+    "message": "Impossible de joindre UIDM. UIDM est-il lancé ?"
+  },
+  "cannotReachUidmReason": {
+    "message": "Impossible de joindre UIDM ($REASON$).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Native host has exited."
+      }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "Le navigateur le télécharge à la place."
+  },
+  "browserDownloadsHeading": {
+    "message": "Téléchargements dans le navigateur"
+  },
+  "sendToUidm": {
+    "message": "Envoyer à UIDM"
   }
 }

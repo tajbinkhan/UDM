@@ -122,6 +122,49 @@ pub struct GrabRequest {
     /// login; the password is in Credential Manager (`project_login_target`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login_user: Option<String>,
+    /// The site's sign-in page. UIDM has no browser of its own, so the
+    /// user opens this in their browser and signs in there; when the crawl
+    /// starts, the browser extension hands over that site's cookies, which
+    /// go to that site's pages only (`on_login_site`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_url: Option<String>,
+    /// Cookies for the sign-in page's site, pasted by the user, used when
+    /// the browser has none to give (no extension, or another browser).
+    /// Kept sealed in project files, as saved requests are.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "sealed")]
+    pub login_cookies: Option<String>,
+    /// Without a mirror, save each file under subfolders that follow its
+    /// address below the start page's folder (`relative_subfolder`).
+    #[serde(default)]
+    pub subfolders: bool,
+    /// Replace files already there, in a mirror or not; otherwise the
+    /// mirror skips them and other saves follow Options.
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+/// Pasted cookies are a sign-in, so project files keep them encrypted for
+/// this user (see `dpapi`) and a copied project file does not carry one.
+/// Cookies that cannot be read back, such as from another computer, are
+/// dropped.
+mod sealed {
+    use base64::Engine;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &Option<String>, s: S) -> Result<S::Ok, S::Error> {
+        match value.as_deref().map(|v| crate::dpapi::protect(v.as_bytes())) {
+            Some(Ok(sealed)) => s.serialize_some(&base64::engine::general_purpose::STANDARD.encode(sealed)),
+            _ => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+        let text: Option<String> = Option::deserialize(d)?;
+        Ok(text
+            .and_then(|t| base64::engine::general_purpose::STANDARD.decode(t).ok())
+            .and_then(|b| crate::dpapi::unprotect(&b).ok())
+            .and_then(|b| String::from_utf8(b).ok()))
+    }
 }
 
 fn yes() -> bool {
@@ -231,6 +274,10 @@ impl Default for GrabRequest {
             whole_site: false,
             other_depth: None,
             login_user: None,
+            login_url: None,
+            login_cookies: None,
+            subfolders: false,
+            overwrite: false,
         }
     }
 }
@@ -272,6 +319,12 @@ impl GrabRequest {
         }
         if self.types.is_empty() {
             return Err("Choose at least one file type to keep.".into());
+        }
+        if let Some(login) = &self.login_url {
+            let page = Url::parse(login.trim()).map_err(|_| "The login page must be a full web address.".to_string())?;
+            if !matches!(page.scheme(), "http" | "https") {
+                return Err("The login page must start with http:// or https://.".into());
+            }
         }
         if let Some(m) = self.mirror.as_ref().filter(|m| !Path::new(m.folder.trim()).is_absolute()) {
             return Err(format!("The folder to keep the site in must be a full path: {}", m.folder));
@@ -409,53 +462,147 @@ pub fn rewrite_links(html: &str, page: &Url, here: &Path, root: &Path, local: im
     out
 }
 
-/// The file types a request keeps and skips, as typed: lower case, without
-/// dots or a leading `*.`; `*` keeps every type that is not a page.
+/// One entry of a type list or filter mask, as `GrabRequest::types` keeps
+/// it: lower case; `*` or `*.*` for every type; a bare extension (`jpg`
+/// from `jpg`, `.jpg` or `*.jpg`), which is how older projects saved
+/// their lists; or else a mask on the whole file name, such as
+/// `photo_*.jpg` or `*.tar.gz`. Empty for an empty entry.
+pub fn mask_entry(part: &str) -> String {
+    let t = part.trim().to_lowercase();
+    if t == "*" || t == "*.*" {
+        return "*".to_string();
+    }
+    let rest = t.strip_prefix("*.").or_else(|| t.strip_prefix('.')).unwrap_or(&t);
+    if !rest.is_empty() && !rest.contains(['*', '?', '.']) {
+        return rest.to_string();
+    }
+    t
+}
+
+/// `field` (a type list as typed) with `masks` added after what it holds,
+/// leaving out those it already has, so picking a filter adds to the list
+/// as IDM's does rather than replacing it.
+pub fn add_masks(field: &str, masks: &[String]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for part in field.split([',', ';']).flat_map(str::split_whitespace).chain(masks.iter().map(String::as_str)) {
+        let m = mask_entry(part);
+        if !m.is_empty() && !out.contains(&m) {
+            out.push(m);
+        }
+    }
+    out.join(", ")
+}
+
+/// Whether file name `name` matches `mask`, ignoring case: `*` matches any
+/// run of characters and `?` any one; the rest must match exactly.
+pub fn name_matches(mask: &str, name: &str) -> bool {
+    let p: Vec<char> = mask.to_lowercase().chars().collect();
+    let t: Vec<char> = name.to_lowercase().chars().collect();
+    // Classic backtracking: on a mismatch, let the last `*` take one more
+    // character.
+    let (mut i, mut j) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while j < t.len() {
+        if i < p.len() && (p[i] == '?' || p[i] == t[j]) {
+            i += 1;
+            j += 1;
+        } else if i < p.len() && p[i] == '*' {
+            star = Some((i, j));
+            i += 1;
+        } else if let Some((si, sj)) = star {
+            i = si + 1;
+            j = sj + 1;
+            star = Some((si, sj + 1));
+        } else {
+            return false;
+        }
+    }
+    p[i..].iter().all(|c| *c == '*')
+}
+
+/// The file types a request keeps and skips (see `mask_entry`): bare
+/// extensions, where `*` keeps every type that is not a page, and masks on
+/// the whole file name.
 struct Types {
     keep: HashSet<String>,
     skip: HashSet<String>,
+    keep_names: Vec<String>,
+    skip_names: Vec<String>,
 }
 
 impl Types {
     fn of(req: &GrabRequest) -> Types {
-        let clean = |list: &[String]| -> HashSet<String> {
-            list.iter()
-                .map(|t| t.trim().trim_start_matches("*.").trim_start_matches('.').to_ascii_lowercase())
-                .filter(|t| !t.is_empty())
-                .collect()
+        let split = |list: &[String]| -> (HashSet<String>, Vec<String>) {
+            let mut exts = HashSet::new();
+            let mut names = Vec::new();
+            for m in list.iter().map(|t| mask_entry(t)).filter(|t| !t.is_empty()) {
+                if m == "*" || !m.contains(['*', '?', '.']) {
+                    exts.insert(m);
+                } else {
+                    names.push(m);
+                }
+            }
+            (exts, names)
         };
-        Types {
-            keep: clean(&req.types),
-            skip: clean(&req.skip_types),
-        }
+        let (keep, keep_names) = split(&req.types);
+        let (skip, skip_names) = split(&req.skip_types);
+        Types { keep, skip, keep_names, skip_names }
     }
 
-    fn keeps(&self, ext: &str) -> bool {
-        !self.skip.contains(ext) && (self.keep.contains(ext) || (self.keep.contains("*") && !PAGE_EXTENSIONS.contains(&ext)))
+    /// Whether a file named `name` with extension `ext` is kept.
+    fn keeps(&self, name: &str, ext: &str) -> bool {
+        !self.skip.contains(ext)
+            && !self.skip_names.iter().any(|m| name_matches(m, name))
+            && (self.named(name, ext) || (self.keep.contains("*") && !PAGE_EXTENSIONS.contains(&ext)))
     }
+
+    /// Whether the keep list names this file itself, by its extension or a
+    /// mask on its name (not just through `*`), as a page must be to be
+    /// kept as a file.
+    fn named(&self, name: &str, ext: &str) -> bool {
+        self.keep.contains(ext) || self.keep_names.iter().any(|m| name_matches(m, name))
+    }
+}
+
+/// The last part of `url`'s path, decoded: the file's name.
+fn url_file_name(url: &Url) -> String {
+    url.path_segments()
+        .and_then(|mut s| s.next_back())
+        .map(|n| percent_encoding::percent_decode_str(n).decode_utf8_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// Whether a crawl that saves pages keeps `url` locally, and if so whether
 /// as a page: pages on the start site, and files of the kept types.
 pub fn kept_locally(req: &GrabRequest, url: &Url) -> Option<bool> {
     let ext = url_extension(url);
-    if ext.as_ref().is_some_and(|e| Types::of(req).keeps(e)) {
+    if ext.as_ref().is_some_and(|e| Types::of(req).keeps(&url_file_name(url), e)) {
         return Some(false);
     }
     let page_like = ext.is_none_or(|e| PAGE_EXTENSIONS.contains(&e.as_str()));
     (page_like && on_start_site(req, url.as_str())).then_some(true)
 }
 
-/// The download for found file `f`: waiting, with the page as referrer,
-/// its link text as description when the crawl keeps those, and in the
-/// folder the request saves to: under the mirror folder when the crawl
-/// keeps one, else one category's folder (from `settings`) or one folder
-/// for every file. `None` when the mirror skips existing files and this
-/// one is there.
-pub fn download_for(req: &GrabRequest, f: &GrabFile, settings: &crate::settings::Settings) -> Option<crate::protocol::Download> {
+/// The download for found file `f`: waiting, with the page it was found on
+/// as both its referrer and its parent web page, its link text as
+/// description when the crawl keeps those, and in the folder the request
+/// saves to: under the mirror folder when the crawl keeps one, else one
+/// category's folder (from `settings`) or one folder for every file.
+/// `login_cookies`, the login page site's cookies, go with a file on that
+/// site only (`crawl_cookies`), as a captured download carries the
+/// browser's. `None` when the mirror skips existing files and this one
+/// is there.
+pub fn download_for(
+    req: &GrabRequest,
+    f: &GrabFile,
+    settings: &crate::settings::Settings,
+    login_cookies: Option<&str>,
+) -> Option<crate::protocol::Download> {
     let mut d = crate::protocol::Download {
         url: f.url.clone(),
         referrer: Some(f.page.clone()),
+        page: Some(f.page.clone()),
+        cookies: crawl_cookies(req, &f.url, None, login_cookies),
         start: Some(false),
         description: f.text.clone().filter(|t| req.link_text && !t.is_empty()),
         ..crate::protocol::Download::default()
@@ -481,6 +628,20 @@ pub fn download_for(req: &GrabRequest, f: &GrabFile, settings: &crate::settings:
         } else {
             crate::settings::FileExists::Rename
         });
+    } else if let Ok(url) = Url::parse(&f.url) {
+        // The site's folders under the chosen folder, or under the
+        // category's folder the file would go to by itself.
+        let sub = if req.subfolders { relative_subfolder(&req.start, &url) } else { PathBuf::new() };
+        if !sub.as_os_str().is_empty() {
+            let base = match &d.folder {
+                Some(folder) => PathBuf::from(folder),
+                None => settings.folders_for(&f.url).for_name(&url_file_name(&url)),
+            };
+            d.folder = Some(base.join(sub).display().to_string());
+        }
+        if req.overwrite {
+            d.file_exists = Some(crate::settings::FileExists::Overwrite);
+        }
     }
     // The project's own login goes to the start site's files.
     if let Some(user) = req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
@@ -498,12 +659,83 @@ pub fn download_for(req: &GrabRequest, f: &GrabFile, settings: &crate::settings:
 /// what browser cookies are sent to: the start host, and with `subdomains`
 /// the start domain's other hosts.
 pub fn on_start_site(req: &GrabRequest, url: &str) -> bool {
-    let host = |u: &str| Url::parse(u).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase));
-    let (Some(start), Some(here)) = (host(&req.start), host(url)) else {
+    on_site(&req.start, req.subdomains, url)
+}
+
+/// Whether a page at `url` belongs to the site of `req`'s login page, which
+/// is what that page's cookies are sent to: its host, and with `subdomains`
+/// its domain's other hosts. False without a login page.
+pub fn on_login_site(req: &GrabRequest, url: &str) -> bool {
+    req.login_url.as_deref().is_some_and(|login| on_site(login, req.subdomains, url))
+}
+
+/// Whether `url` is on the host of `site`, or with `subdomains` on its
+/// domain (without `www.`) or one of the domain's subdomains.
+fn on_site(site: &str, subdomains: bool, url: &str) -> bool {
+    let host = |u: &str| Url::parse(u.trim()).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase));
+    let (Some(start), Some(here)) = (host(site), host(url)) else {
         return false;
     };
     let domain = start.strip_prefix("www.").unwrap_or(&start);
-    here == start || (req.subdomains && (here == domain || here.ends_with(&format!(".{domain}"))))
+    here == start || (subdomains && (here == domain || here.ends_with(&format!(".{domain}"))))
+}
+
+/// The `Cookie` header a crawl for `req` sends with a request to `url`:
+/// `start` (the browser's cookies for the start site) on the start site,
+/// and `login` (the login page site's cookies) on that site, joined when
+/// both apply. `None` when neither does, so no other host gets them.
+pub fn crawl_cookies(req: &GrabRequest, url: &str, start: Option<&str>, login: Option<&str>) -> Option<String> {
+    let parts: Vec<&str> = [
+        start.filter(|_| on_start_site(req, url)),
+        login.filter(|_| on_login_site(req, url)),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .filter(|c| !c.is_empty())
+    .collect();
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+/// Pasted cookies as a `Cookie` header: a leading `Cookie:` and line
+/// breaks (as copied from a browser's developer tools) are dropped.
+pub fn clean_cookies(text: &str) -> Option<String> {
+    let text = text.trim();
+    let text = match text.get(..7) {
+        Some(head) if head.eq_ignore_ascii_case("cookie:") => &text[7..],
+        _ => text,
+    };
+    let parts: Vec<&str> = text.split([';', '\n', '\r']).map(str::trim).filter(|p| !p.is_empty()).collect();
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+/// The folders, under where it is saved, that keep a file at `url` in
+/// the place it has on its site: the folders below the start page's
+/// folder when it is under it on the same host, otherwise its host then
+/// every folder of its address. Empty for a file in the start folder.
+pub fn relative_subfolder(start: &str, url: &Url) -> PathBuf {
+    let dirs = |u: &Url| -> Vec<String> {
+        let mut parts: Vec<String> = u.path_segments().map(|s| s.map(str::to_string).collect()).unwrap_or_default();
+        parts.pop();
+        parts.retain(|p| !p.is_empty());
+        parts
+    };
+    let mut path = PathBuf::new();
+    let start = Url::parse(start.trim()).ok();
+    match start.filter(|s| s.host_str() == url.host_str()) {
+        Some(start) if dirs(url).starts_with(&dirs(&start)) => {
+            for d in &dirs(url)[dirs(&start).len()..] {
+                path.push(safe_part(d));
+            }
+        }
+        _ => {
+            path.push(safe_part(url.host_str().unwrap_or("site")));
+            for d in dirs(url) {
+                path.push(safe_part(&d));
+            }
+        }
+    }
+    path
 }
 
 /// Whether `url` is on this computer or the local network: `localhost`, or
@@ -745,6 +977,10 @@ pub struct Project {
     /// A file to open once a scheduled run is done.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_when_done: Option<String>,
+    /// Shutting down when done closes programs that would hold it up, as a
+    /// queue's `force_close` does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force_close: bool,
     /// Every file address earlier runs found, so a run adds only new ones.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub seen: Vec<String>,
@@ -755,6 +991,11 @@ pub struct Project {
     /// for starting it again every so often.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_scheduled_start: Option<i64>,
+    /// One-time downloading adds only what no earlier run found; periodic
+    /// synchronization also checks the files earlier runs downloaded and
+    /// downloads again the ones whose server copy changed.
+    #[serde(default, skip_serializing_if = "crate::queue::QueueKind::is_one_time")]
+    pub kind: crate::queue::QueueKind,
 }
 
 fn main_queue() -> u64 {
@@ -829,8 +1070,32 @@ impl Project {
         new
     }
 
+    /// The addresses a scheduled run checks for changes when the project
+    /// synchronizes: those of `found` an earlier run found too (call it
+    /// before `record_run`), or for a run that does not crawl, the ticked
+    /// files. A one-time project checks none.
+    pub fn to_resync(&self, found: &[GrabFile]) -> Vec<String> {
+        if !self.kind.is_sync() {
+            return Vec::new();
+        }
+        match self.run {
+            RunAction::Explore => Vec::new(),
+            RunAction::DownloadChecked => self.checked_files().into_iter().map(|f| f.url).collect(),
+            RunAction::ExploreAndDownload => {
+                let seen: HashSet<&str> = self.seen.iter().map(String::as_str).collect();
+                found.iter().filter(|f| seen.contains(f.url.as_str())).map(|f| f.url.clone()).collect()
+            }
+        }
+    }
+
     pub fn load(dir: &Path, name: &str) -> io::Result<Project> {
-        let bytes = fs::read(project_file(dir, name))?;
+        Project::load_file(&project_file(dir, name))
+    }
+
+    /// A project file from anywhere, such as one copied from another
+    /// computer; read and checked as one from the projects folder is.
+    pub fn load_file(path: &Path) -> io::Result<Project> {
+        let bytes = fs::read(path)?;
         let mut p: Project = serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         if std::mem::take(&mut p.download_new) && p.run == RunAction::Explore {
             p.run = RunAction::ExploreAndDownload;
@@ -841,6 +1106,36 @@ impl Project {
     /// The files ticked in the project.
     pub fn checked_files(&self) -> Vec<GrabFile> {
         self.files.iter().zip(&self.checked).filter(|(_, c)| **c).map(|(f, _)| f.clone()).collect()
+    }
+}
+
+/// Whether `current` holds changes its saved copy does not: it differs
+/// from `saved`, the project as last saved or opened. A project never saved
+/// counts once it has a start page; until then there is nothing to keep.
+pub fn unsaved(current: &Project, saved: Option<&Project>) -> bool {
+    match saved {
+        Some(saved) => current != saved,
+        None => !current.request.start.trim().is_empty(),
+    }
+}
+
+/// Whether saving a project named `name` in `dir` keeps every other saved
+/// project: no file there has that name, or it is the project's own copy,
+/// saved under `own`. Names are compared as their files are, and ignoring
+/// case as Windows does, so "a:b" and "a_b", or "Docs" and "docs", are the
+/// same name.
+pub fn name_is_unique(dir: &Path, name: &str, own: Option<&str>) -> bool {
+    if name.trim().is_empty() {
+        return false;
+    }
+    let file = project_file(dir, name);
+    let same = |a: &Path, b: &Path| a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase();
+    if own.is_some_and(|own| same(&project_file(dir, own), &file)) {
+        return true;
+    }
+    match fs::read_dir(dir) {
+        Ok(entries) => !entries.flatten().any(|e| same(&e.path(), &file)),
+        Err(_) => true,
     }
 }
 
@@ -875,6 +1170,7 @@ pub fn template(dir: &Path) -> GrabRequest {
 pub fn save_template(dir: &Path, req: &GrabRequest) -> io::Result<()> {
     let req = GrabRequest {
         start: String::new(),
+        login_cookies: None,
         ..req.clone()
     };
     let bytes = serde_json::to_vec_pretty(&req).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -926,13 +1222,12 @@ pub struct Filter {
 }
 
 impl Filter {
-    /// The file types the mask names, as `GrabRequest::types` takes them;
-    /// `*` or `*.*` keeps every type.
+    /// The masks the filter names, as `GrabRequest::types` takes them (see
+    /// `mask_entry`): `*.jpg` becomes `jpg`, `*` or `*.*` keeps every type,
+    /// and a mask with a name part such as `photo_*.jpg` stays whole.
     pub fn types(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        for part in self.mask.split([';', ',', ' ']).map(str::trim).filter(|p| !p.is_empty()) {
-            let t = part.trim_start_matches('*').trim_start_matches('.').to_ascii_lowercase();
-            let t = if t.is_empty() || t == "*" { "*".to_string() } else { t };
+        for t in self.mask.split([';', ',', ' ']).map(mask_entry).filter(|p| !p.is_empty()) {
             if !out.contains(&t) {
                 out.push(t);
             }
@@ -1015,6 +1310,7 @@ pub fn save_named_template(dir: &Path, name: &str, req: &GrabRequest) -> io::Res
         request: GrabRequest {
             start: String::new(),
             login_user: None,
+            login_cookies: None,
             ..req.clone()
         },
         built_in: false,
@@ -1186,25 +1482,21 @@ pub fn crawl(
                 let (pages, files) = links(&text, &here);
                 for (file, link_text) in files {
                     let Some(ext) = url_extension(&file) else { continue };
-                    if PAGE_EXTENSIONS.contains(&ext.as_str()) && !types.keep.contains(&ext) {
+                    let name = url_file_name(&file);
+                    if PAGE_EXTENSIONS.contains(&ext.as_str()) && !types.named(&name, &ext) {
                         continue;
                     }
                     if !seen_files.insert(file.to_string()) {
                         continue;
                     }
                     out.explored += 1;
-                    if !types.keeps(&ext)
+                    if !types.keeps(&name, &ext)
                         || !passes(file.as_str(), &req.files_only, &req.files_skip)
                         || (req.files_this_site && !on_site(&file))
                         || !reachable(&file)
                     {
                         continue;
                     }
-                    let name = file
-                        .path_segments()
-                        .and_then(|mut s| s.next_back())
-                        .map(|n| percent_encoding::percent_decode_str(n).decode_utf8_lossy().into_owned())
-                        .unwrap_or_default();
                     // Ask the size only when a filter needs it, or to compare
                     // with files of the same name kept earlier (whose sizes
                     // are asked then too).
@@ -1530,15 +1822,16 @@ Crawl-delay: 2.5
             download_dir: Some(std::env::temp_dir().join("uidm-grab-dl").display().to_string()),
             ..crate::settings::Settings::default()
         };
-        let d = download_for(&request(1), &file, &settings).unwrap();
+        let d = download_for(&request(1), &file, &settings, None).unwrap();
+        assert_eq!((d.referrer.as_deref(), d.page.as_deref()), (Some("https://s/a/"), Some("https://s/a/")));
         assert_eq!((d.category, d.folder, d.description), (None, None, None));
         let req = GrabRequest { save_to: SaveTo::Category("Music".into()), link_text: true, ..request(1) };
-        let d = download_for(&req, &file, &settings).unwrap();
+        let d = download_for(&req, &file, &settings, None).unwrap();
         assert_eq!((d.category.as_deref(), d.description.as_deref()), (Some("Music"), Some("The manual")));
         let music = settings.category_folder("Music").display().to_string();
         assert_eq!(d.folder.as_deref(), Some(music.as_str()), "a pdf saved to Music goes to Music's folder");
         let req = GrabRequest { save_to: SaveTo::Folder(r"D:\grabbed".into()), ..request(1) };
-        assert_eq!(download_for(&req, &file, &settings).unwrap().folder.as_deref(), Some(r"D:\grabbed"));
+        assert_eq!(download_for(&req, &file, &settings, None).unwrap().folder.as_deref(), Some(r"D:\grabbed"));
         assert!(GrabRequest { save_to: SaveTo::Folder("rel".into()), ..request(1) }.validate().is_err());
         assert!(GrabRequest { save_to: SaveTo::Category(" ".into()), ..request(1) }.validate().is_err());
         assert!(GrabRequest { explore_at_once: 11, ..request(1) }.validate().is_err());
@@ -1557,6 +1850,37 @@ Crawl-delay: 2.5
         assert!(pattern_matches("https://s/*", "https://s/a"));
         assert!(!pattern_matches("http://s/*", "https://s/a"));
         assert!(!pattern_matches("", "https://s/a"));
+    }
+
+    #[test]
+    fn masks_match_whole_names_and_filters_add_to_lists() {
+        assert!(name_matches("photo_*.jpg", "Photo_12.JPG"));
+        assert!(!name_matches("photo_*.jpg", "cover.jpg"), "the name part counts");
+        assert!(!name_matches("photo_*.jpg", "photo_1.jpg.html"));
+        assert!(name_matches("img??.png", "img01.png") && !name_matches("img??.png", "img1.png"));
+        assert!(name_matches("*.tar.gz", "src.tar.gz") && name_matches("a*b*c", "aXbYbZc"));
+        assert_eq!(mask_entry(" *.JPG "), "jpg");
+        assert_eq!(mask_entry(".pdf"), "pdf");
+        assert_eq!(mask_entry("*.*"), "*");
+        assert_eq!(mask_entry("Photo_*.jpg"), "photo_*.jpg");
+        let masks = |m: &str| Filter { name: "x".into(), mask: m.into() }.types();
+        assert_eq!(add_masks("pdf, zip", &masks("*.jpg;*.PDF;photo_*.png")), "pdf, zip, jpg, photo_*.png", "added, without repeats");
+        assert_eq!(add_masks("", &masks("*.gif")), "gif");
+        assert_eq!(add_masks("*.pdf; pdf", &[]), "pdf");
+        let none = AtomicBool::new(false);
+        let names = |req: &GrabRequest| -> Vec<String> { crawl(req, site, |_| None, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect() };
+        // Only the name mask keeps a file: `one.zip` is not a pdf.
+        assert_eq!(names(&GrabRequest { types: vec!["ONE.*".into()], ..request(1) }), ["one.pdf", "one.zip"]);
+        // Bare extensions and `*.` masks still keep by type, as old projects saved them.
+        let old = names(&request(1));
+        assert_eq!(names(&GrabRequest { types: vec!["*.pdf".into()], ..request(1) }), old);
+        assert_eq!(old, ["top.pdf", "one.pdf", "two.pdf", "three x.pdf"]);
+        // A name mask leaves files out too, on the decoded name.
+        let skip = GrabRequest { skip_types: vec!["t*.pdf".into(), "three ?.pdf".into()], ..request(1) };
+        assert_eq!(names(&skip), ["one.pdf"]);
+        let req = GrabRequest { types: vec!["one.*".into()], ..request(1) };
+        assert_eq!(kept_locally(&req, &Url::parse("https://s/a/one.zip").unwrap()), Some(false));
+        assert_eq!(kept_locally(&req, &Url::parse("https://cdn.x/two.zip").unwrap()), None);
     }
 
     #[test]
@@ -1638,10 +1962,12 @@ Crawl-delay: 2.5
             download_new: false,
             when_done: crate::queue::WhenDone::Nothing,
             open_when_done: None,
+            force_close: true,
             queue: crate::queue::MAIN_QUEUE,
             seen: Vec::new(),
             last_scheduled_day: None,
             last_scheduled_start: None,
+            kind: crate::queue::QueueKind::Synchronize,
         };
         p.save(&dir).unwrap();
         assert_eq!(Project::load(&dir, "Docs: manuals").unwrap(), p);
@@ -1653,6 +1979,83 @@ Crawl-delay: 2.5
         assert_eq!((t.max_pages, t.start.as_str()), (7, ""), "a template has no start page");
         assert!(Project { name: " ".into(), ..p }.save(&dir).is_err());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_files_load_from_anywhere_and_names_are_checked() {
+        let dir = std::env::temp_dir().join(format!("uidm_grab_elsewhere_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let p = Project {
+            name: "Docs".into(),
+            request: request(1),
+            files: Vec::new(),
+            checked: Vec::new(),
+            schedule: None,
+            run: RunAction::Explore,
+            download_new: false,
+            when_done: crate::queue::WhenDone::Nothing,
+            open_when_done: None,
+            force_close: false,
+            queue: crate::queue::MAIN_QUEUE,
+            seen: Vec::new(),
+            last_scheduled_day: None,
+            last_scheduled_start: None,
+            kind: crate::queue::QueueKind::OneTime,
+        };
+        assert!(name_is_unique(&dir, "Docs", None), "nothing saved yet");
+        p.save(&dir).unwrap();
+        // A copy kept elsewhere, from an older version that said
+        // download_new, loads and moves it into `run` as the folder's do.
+        let elsewhere = dir.join("copied from work.json");
+        let mut old = serde_json::to_value(&p).unwrap();
+        old["download_new"] = true.into();
+        fs::write(&elsewhere, serde_json::to_vec(&old).unwrap()).unwrap();
+        let loaded = Project::load_file(&elsewhere).unwrap();
+        assert_eq!(loaded, Project { run: RunAction::ExploreAndDownload, ..p.clone() });
+        fs::write(&elsewhere, b"{\"not\": \"a project\"}").unwrap();
+        assert_eq!(Project::load_file(&elsewhere).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(Project::load_file(&dir.join("missing.json")).is_err());
+
+        assert!(!name_is_unique(&dir, "Docs", None), "another project has it");
+        assert!(!name_is_unique(&dir, "docs", None), "names are compared as files are");
+        assert!(name_is_unique(&dir, "Docs", Some("Docs")), "its own saved copy");
+        assert!(!name_is_unique(&dir, "Docs", Some("Other")));
+        assert!(name_is_unique(&dir, "Manuals", Some("Docs")));
+        assert!(!name_is_unique(&dir, " ", None), "a project needs a name");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_project_is_unsaved_once_it_differs_from_its_copy() {
+        let p = Project {
+            name: String::new(),
+            request: GrabRequest::default(),
+            files: Vec::new(),
+            checked: Vec::new(),
+            schedule: None,
+            run: RunAction::Explore,
+            download_new: false,
+            when_done: crate::queue::WhenDone::Nothing,
+            open_when_done: None,
+            force_close: false,
+            queue: crate::queue::MAIN_QUEUE,
+            seen: Vec::new(),
+            last_scheduled_day: None,
+            last_scheduled_start: None,
+            kind: crate::queue::QueueKind::OneTime,
+        };
+        assert!(!unsaved(&p, None), "a new, empty project has nothing to keep");
+        let started = Project { request: request(1), ..p.clone() };
+        assert!(unsaved(&started, None), "never saved");
+        assert!(!unsaved(&started, Some(&started)));
+        let crawled = Project {
+            files: vec![GrabFile { url: "https://s/a.pdf".into(), name: "a.pdf".into(), page: "https://s/".into(), size: None, text: None }],
+            checked: vec![true],
+            ..started.clone()
+        };
+        assert!(unsaved(&crawled, Some(&started)), "a crawl found new files");
+        assert!(unsaved(&Project { name: "Renamed".into(), ..started.clone() }, Some(&started)));
     }
 
     #[test]
@@ -1682,6 +2085,7 @@ Crawl-delay: 2.5
         assert_eq!(f("*.*"), ["*"]);
         assert_eq!(f("*"), ["*"]);
         assert!(f(" ; ").is_empty());
+        assert_eq!(f("Photo_*.JPG;*.tar.gz;*.jp?"), ["photo_*.jpg", "*.tar.gz", "*.jp?"], "name masks stay whole");
         let dir = std::env::temp_dir().join(format!("uidm_grab_filters_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         assert_eq!(load_filters(&dir), default_filters());
@@ -1719,6 +2123,25 @@ Crawl-delay: 2.5
     }
 
     #[test]
+    fn a_synchronizing_project_checks_what_earlier_runs_found() {
+        let file = |u: &str| GrabFile { url: u.into(), name: u.rsplit('/').next().unwrap().into(), page: "https://s/".into(), size: None, text: None };
+        let mut p: Project = serde_json::from_str(r#"{"name":"p","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000},"run":"explore_and_download"}"#).unwrap();
+        assert_eq!(p.kind, crate::queue::QueueKind::OneTime, "an older project file is one-time");
+        p.record_run(vec![file("https://s/a.pdf"), file("https://s/b.pdf")]);
+        let now = [file("https://s/b.pdf"), file("https://s/c.pdf")];
+        assert!(p.to_resync(&now).is_empty(), "a one-time project checks nothing");
+        p.kind = crate::queue::QueueKind::Synchronize;
+        assert_eq!(p.to_resync(&now), ["https://s/b.pdf"], "only what an earlier run found");
+        p.record_run(now.to_vec());
+        p.run = RunAction::DownloadChecked;
+        assert_eq!(p.to_resync(&[]), ["https://s/c.pdf"], "the ticked files");
+        p.run = RunAction::Explore;
+        assert!(p.to_resync(&now).is_empty(), "exploring downloads nothing");
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"kind\":\"synchronize\""), "the type is saved: {json}");
+    }
+
+    #[test]
     fn mirror_paths_follow_addresses() {
         let root = Path::new(r"C:\site");
         let at = |u: &str, page: bool| mirror_path(root, &Url::parse(u).unwrap(), page);
@@ -1748,15 +2171,15 @@ Crawl-delay: 2.5
         let settings = crate::settings::Settings::default();
         let dir = std::env::temp_dir().join(format!("uidm_mirror_{}", std::process::id()));
         let mirrored = GrabRequest { mirror: Some(Mirror { folder: dir.display().to_string(), pages: true, overwrite: false }), ..req.clone() };
-        let d = download_for(&mirrored, &file, &settings).unwrap();
+        let d = download_for(&mirrored, &file, &settings, None).unwrap();
         assert_eq!(d.folder.as_deref(), Some(dir.join("s").join("docs").display().to_string().as_str()));
         assert_eq!(d.filename.as_deref(), Some("guide.pdf"));
         std::fs::create_dir_all(dir.join("s").join("docs")).unwrap();
         std::fs::write(dir.join("s").join("docs").join("guide.pdf"), b"x").unwrap();
-        assert!(download_for(&mirrored, &file, &settings).is_none(), "an existing file is skipped");
+        assert!(download_for(&mirrored, &file, &settings, None).is_none(), "an existing file is skipped");
         let replace = GrabRequest { mirror: Some(Mirror { overwrite: true, ..mirrored.mirror.clone().unwrap() }), ..req.clone() };
-        assert!(download_for(&replace, &file, &settings).is_some());
-        assert_eq!(download_for(&req, &file, &settings).unwrap().folder, None, "no mirror: the category decides");
+        assert!(download_for(&replace, &file, &settings, None).is_some());
+        assert_eq!(download_for(&req, &file, &settings, None).unwrap().folder, None, "no mirror: the category decides");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1769,5 +2192,116 @@ Crawl-delay: 2.5
         assert!(GrabRequest { max_pages: 0, ..request(1) }.validate().is_err());
         assert!(GrabRequest { delay_ms: 0, ..request(1) }.validate().is_err());
         assert!(GrabRequest { types: vec![], ..request(1) }.validate().is_err());
+    }
+
+    #[test]
+    fn login_page_cookies_go_to_its_site_only() {
+        let req = GrabRequest {
+            start: "https://docs.example.com/guide/".into(),
+            login_url: Some("https://example.com/login".into()),
+            ..GrabRequest::default()
+        };
+        assert!(req.validate().is_ok());
+        let both = |url: &str| crawl_cookies(&req, url, Some("a=1"), Some("s=2"));
+        assert_eq!(both("https://example.com/files/"), Some("s=2".into()), "the login site gets its cookies");
+        assert_eq!(both("https://docs.example.com/guide/x"), Some("a=1".into()), "the start site gets its own");
+        assert_eq!(both("https://cdn.other.net/x"), None, "another host gets none");
+        assert_eq!(both("https://evil.example.com.other.net/"), None);
+        assert_eq!(crawl_cookies(&req, "https://shop.example.com/", None, Some("s=2")), None, "not a subdomain without the option");
+        let wide = GrabRequest { subdomains: true, ..req.clone() };
+        assert_eq!(crawl_cookies(&wide, "https://shop.example.com/", None, Some("s=2")), Some("s=2".into()));
+        // One site for both: the cookies are joined.
+        let same = GrabRequest { start: "https://example.com/".into(), ..req.clone() };
+        assert_eq!(crawl_cookies(&same, "https://example.com/a", Some("a=1"), Some("s=2")), Some("a=1; s=2".into()));
+        let none = GrabRequest { login_url: None, ..req.clone() };
+        assert_eq!(crawl_cookies(&none, "https://example.com/files/", None, Some("s=2")), None);
+        assert!(GrabRequest { login_url: Some("example.com/login".into()), ..req.clone() }.validate().is_err());
+        assert!(GrabRequest { login_url: Some("ftp://example.com/".into()), ..req }.validate().is_err());
+    }
+
+    #[test]
+    fn pasted_cookies_are_cleaned_and_kept_sealed() {
+        assert_eq!(clean_cookies("Cookie: a=1;\n b=2 ;"), Some("a=1; b=2".into()));
+        assert_eq!(clean_cookies("  \n"), None);
+        let req = GrabRequest {
+            start: "https://s/".into(),
+            login_url: Some("https://s/login".into()),
+            login_cookies: Some("session=topsecret".into()),
+            ..GrabRequest::default()
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("topsecret"), "the cookies are not kept readable");
+        let back: GrabRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, req);
+        // Sealed elsewhere: dropped, not an error.
+        let foreign = json.replace(&json[json.find("\"login_cookies\":\"").unwrap() + 17..].split('"').next().unwrap().to_string(), "AAAA");
+        let back: GrabRequest = serde_json::from_str(&foreign).unwrap();
+        assert_eq!(back.login_cookies, None);
+        // Templates never keep them.
+        let dir = std::env::temp_dir().join(format!("uidm-grab-cookie-template-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        save_template(&dir, &req).unwrap();
+        assert_eq!(template(&dir).login_cookies, None);
+        assert_eq!(template(&dir).login_url.as_deref(), Some("https://s/login"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn normal_saves_keep_relative_subfolders_and_can_overwrite() {
+        let start = "https://s/docs/";
+        let at = |u: &str| relative_subfolder(start, &Url::parse(u).unwrap());
+        assert_eq!(at("https://s/docs/a.pdf"), PathBuf::new());
+        assert_eq!(at("https://s/docs/v1/en/a.pdf"), Path::new("v1").join("en"));
+        assert_eq!(at("https://s/other/a.pdf"), Path::new("s").join("other"), "outside the start folder: host and path");
+        assert_eq!(at("https://cdn.net/x/a.pdf"), Path::new("cdn.net").join("x"));
+        let root = std::env::temp_dir().join("uidm-grab-sub");
+        let settings = crate::settings::Settings {
+            download_dir: Some(root.display().to_string()),
+            ..crate::settings::Settings::default()
+        };
+        let file = GrabFile {
+            url: "https://s/docs/v1/a.pdf".into(),
+            name: "a.pdf".into(),
+            page: start.into(),
+            size: None,
+            text: None,
+        };
+        let folder = root.join("grabbed");
+        let req = GrabRequest {
+            start: start.into(),
+            save_to: SaveTo::Folder(folder.display().to_string()),
+            ..GrabRequest::default()
+        };
+        let d = download_for(&req, &file, &settings, None).unwrap();
+        assert_eq!((d.folder.clone(), d.file_exists), (Some(folder.display().to_string()), None), "off by default");
+        let req = GrabRequest { subfolders: true, overwrite: true, ..req };
+        let d = download_for(&req, &file, &settings, None).unwrap();
+        assert_eq!(d.folder, Some(folder.join("v1").display().to_string()));
+        assert_eq!(d.file_exists, Some(crate::settings::FileExists::Overwrite));
+        // By category: under the folder the file's category has.
+        let req = GrabRequest { save_to: SaveTo::Categories, ..req };
+        let d = download_for(&req, &file, &settings, None).unwrap();
+        let category = settings.folders_for(&file.url).for_name("a.pdf");
+        assert_eq!(d.folder, Some(category.join("v1").display().to_string()));
+        // A file in the start folder keeps the category's own choice.
+        let top = GrabFile { url: "https://s/docs/b.pdf".into(), ..file };
+        assert_eq!(download_for(&req, &top, &settings, None).unwrap().folder, None);
+    }
+
+    #[test]
+    fn found_files_on_the_login_site_carry_its_cookies() {
+        let settings = crate::settings::Settings::default();
+        let req = GrabRequest {
+            start: "https://docs.example.com/".into(),
+            login_url: Some("https://example.com/login".into()),
+            ..GrabRequest::default()
+        };
+        let file = |url: &str| GrabFile { url: url.into(), name: "a.pdf".into(), page: req.start.clone(), size: None, text: None };
+        let cookies = |url: &str| download_for(&req, &file(url), &settings, Some("s=2")).unwrap().cookies;
+        assert_eq!(cookies("https://example.com/files/a.pdf"), Some("s=2".into()));
+        assert_eq!(cookies("https://docs.example.com/a.pdf"), None, "the start site is another host");
+        assert_eq!(cookies("https://cdn.other.net/a.pdf"), None);
+        assert_eq!(download_for(&req, &file("https://example.com/a.pdf"), &settings, None).unwrap().cookies, None);
     }
 }

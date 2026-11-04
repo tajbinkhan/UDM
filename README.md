@@ -3,8 +3,8 @@
 A download manager for Windows, macOS and Linux, rebuilt from scratch in
 Rust. It catches downloads in Chrome, Edge, Firefox and other browsers, fetches each file over parallel connections,
 resumes after interruptions, keeps downloading after the browser closes, and
-shows everything in a desktop window. It also downloads streamed videos (HLS
-and DASH) from a button over the video, adds many files at once from a
+shows everything in a desktop window. It also downloads streamed videos (HLS,
+DASH and HDS) from a button over the video, adds many files at once from a
 pattern, a list or a site crawl, and watches the clipboard for links.
 
 ## Install
@@ -59,10 +59,13 @@ Either way, load the extension once:
    carries a fixed public key, so the ID is the same on every machine.
 
 After updating, reload the extension on the extensions page. It asks for
-`webRequest` (to send downloads started by a form as the same POST, and to
-notice the videos a page loads) and `proxy` (to read the browser's proxy
-setting, which it never changes), in addition to native messaging,
-downloads, cookies, context menus, storage and notifications. A small
+`webRequest` (to send downloads started by a form as the same POST, to send
+UIDM the browser's whole request, and to notice the videos a page loads),
+`webNavigation` (to find the frame a link in an `about:blank` frame belongs
+to), `downloads.ui` (to keep the download bubble hidden for a download UIDM
+takes) and `proxy` (to read the browser's proxy setting, which it never
+changes), in addition to native messaging, downloads, cookies, context
+menus, storage, scripting and notifications. A small
 content script runs on every page for the video button; it does nothing
 until a video plays.
 
@@ -71,7 +74,8 @@ For streamed videos to end up as one `.mp4`, install
 **Options > General**. Without it UIDM still downloads streams, as `.ts`
 files or as separate video and audio files.
 
-YouTube videos need [yt-dlp](https://github.com/yt-dlp/yt-dlp) as well:
+Videos on YouTube, Facebook, Instagram and Vimeo pages need
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) as well:
 `winget install yt-dlp.yt-dlp` installs it with ffmpeg and Deno, which
 yt-dlp uses to read YouTube's player. UIDM finds `yt-dlp.exe` on `PATH`, next
 to UIDM's programs or next to ffmpeg. Restart UIDM after installing it, so
@@ -86,7 +90,8 @@ script, `.\install-host.ps1 -Uninstall` removes what it added. Downloaded
 files are left alone either way.
 
 **Updates.** UIDM looks for a newer release on GitHub once a week (Options >
-General can turn that off), and **About** checks on demand. When a newer
+General can turn that off), and **About** (which also shows the version,
+the copyright, and a support link to the issue tracker) checks on demand. When a newer
 release has a Setup attached, **Update now** (in About, and next to the
 notice in the status bar) has the daemon download `UIDM-Setup-<version>.exe`
 through your proxy settings, only from this repository's release downloads.
@@ -94,7 +99,9 @@ It checks the file's size, that it is a Windows program, and its SHA-256
 when GitHub lists one, saves it to the temp folder and runs it with
 `/fromuidm=yes`. UIDM then stops its downloads, saves its list and quits;
 Setup closes whatever is left without asking again and replaces the files.
-Stopped downloads resume from the list as usual.
+Stopped downloads resume from the list as usual. The notice's **×** hides it
+for that version (remembered in `window.json`); a newer release shows it
+again.
 
 ### macOS
 
@@ -138,10 +145,19 @@ your system.
 Firefox 128 or later loads the `firefox` folder, a copy of the extension with
 its own manifest and the ID `uidm@uidm.local`. Firefox runs background scripts
 where Chrome runs a service worker, and Chrome warns about Firefox's keys, so
-the two cannot share one `manifest.json`. Setup installs the `firefox` folder
-next to `extension`; with a checkout, `install-host.ps1` makes it, and
-`.\installer\make-firefox.ps1 -Out firefox` remakes it after you change the
-extension. Both register UIDM with Firefox (under
+the two cannot share one `manifest.json`. Setup and the macOS and Linux
+packages install the `firefox` folder next to `extension`. In a checkout it
+is made from `extension`, not kept in git, so a `firefox` folder made before
+you updated or changed the extension lacks those changes: `install-host.ps1`
+makes it again each time it runs, and so does
+`.\installer\make-firefox.ps1 -Out firefox` (or
+`node installer/make-firefox.js firefox`). Run one of them after every
+update, then reload the add-on. To tell whether a copy is out of date,
+`node installer/make-firefox.js --check firefox` (or
+`.\installer\make-firefox.ps1 -Check firefox`) lists each file that differs,
+is missing or is extra, and fails if there is any; CI checks that both
+makers produce the same copy. Setup and `install-host.ps1` register UIDM with
+Firefox (under
 `HKCU\Software\Mozilla\NativeMessagingHosts`, with a host manifest that names
 that ID). Until the extension is signed by Mozilla, load it for each Firefox
 session:
@@ -156,9 +172,11 @@ session:
 Known gaps in Firefox:
 
 - A temporary add-on is removed when Firefox closes.
-- **Use the browser's proxy** finds Firefox's manual proxy only; with
-  **Use system proxy settings** or a configuration script it finds nothing,
-  as in Chrome.
+- Firefox has no way to hide its download panel, as Chrome's `downloads.ui`
+  does. It needs it less: it lets the extension cancel a download at its
+  headers (`webRequestBlocking`, which only the Firefox copy asks for), so
+  a download UIDM takes there never starts in Firefox. One it only takes
+  later (a link with a `download` attribute, say) may show the panel.
 
 These were checked against a stand-in for the browser API in the extension's
 tests, not in a running Firefox.
@@ -178,7 +196,18 @@ tests, not in a running Firefox.
 - **The toolbar popup** shows whether UIDM is connected, lists recent
   downloads, takes a pasted URL, and has a **Capture downloads** switch. With
   capture off, or while UIDM is not running, the browser keeps its own
-  downloads.
+  downloads. At its top, **Capture in this tab** turns capture off for the
+  tab it was opened over only, as IDM's toolbar button does: that tab's
+  downloads, forced links and web players' files stay with the browser, and
+  its toolbar icon turns grey with an "X" badge until it is turned on again
+  or the tab closes. (IDM's button toggles on a click; UIDM's button keeps
+  opening the popup, which holds the rest of these features, so the switch
+  is its first row.) Under **Downloading in the browser** it lists the browser's own
+  downloads in progress (ones it kept, or started before UIDM ran): **Send to
+  UIDM** cancels and erases the browser's copy and starts it in UIDM, with its
+  referrer, name and cookies, as a captured download. This stands in for
+  IDM's menu on a started download, which Chrome does not let extensions
+  add; it works the same in Firefox.
 
 - **A save-as dialog** opens for each new download, with its real name and
   size, its category, and the folder that category picks. Picking another
@@ -203,11 +232,13 @@ tests, not in a running Firefox.
   dialog, until the queue or the download is started. **Remember this path for <category>**
   sends the category's new files to the folder last chosen for it, General
   included (the categories' **Last folder** box in Options, and the box under
-  them for General). With more than one queue, the dialog asks which one
-  **Download later** uses; **Don't ask me again** makes that queue the
+  them for General). The dialog asks which queue **Download later** uses,
+  even when only the main queue exists; its **+** adds a queue by name and
+  chooses it. **Don't ask me again** makes that queue the
   answer for the dialog, **Later** and the browser's **Download later with
   UIDM** alike, until **Download later puts files in** in Options changes
-  it.
+  it. **Start the queue now** starts that queue as soon as **Download
+  later** has put the download in it.
 - **When a file name is taken**, UIDM saves the new file as `name (1).ext`
   by default. Options (**If the file exists**) can make it overwrite the old
   file instead, or ask. With **Ask me**, the save-as dialog says the name is
@@ -239,30 +270,47 @@ tests, not in a running Firefox.
   skipped unless the setting adds them with a new name or replaces stopped
   ones, and taken names follow the setting. A scheduled grabber run never
   asks. The name checked is the one the address gives; a server that names
-  the file otherwise is still asked about in the save-as dialog.
+  the file otherwise is still asked about in the save-as dialog. **Options >
+  General > Adding many** can hide the queue panel of **Add many** and the
+  link picker; their downloads then go to the main queue without starting
+  it.
 - **Categories** sort downloads by file type into their own folders:
   Compressed, Documents, Music, Programs and Video go into folders of those
   names inside the download folder, and everything else (**General**) goes
   into the download folder itself. The window's sidebar filters the list by
   category. Options edits the categories, their file types and folders.
+  General has a type list of its own too, empty at first: a type listed
+  there is General's even when a category lists it.
 - **Queues** hold downloads to run later. **Later** (next to Download), the
   save-as dialog's **Download later**, and the browser's **Download later
   with UIDM** menu item add a download to a queue without opening a
   connection. Pick a queue in the sidebar to see its downloads in order, with
   **Up** and **Down** to reorder them, **Start**/**Stop** for the queue, and
-  what happens when this run ends. A download's **Queue** menu moves it to
-  another queue. A started queue runs its waiting downloads in order, as many
+  what happens when this run ends. A download's **Move to queue** menu moves
+  it to another queue, and **Remove from queue** takes it out of its queue
+  but keeps it in the list: it waits outside every queue, also after a
+  restart, until you start it by hand or move it to a queue again. A started queue runs its waiting downloads in order, as many
   at once as it allows. **Stop** pauses its running downloads back into it,
-  progress kept. When nothing is left the queue stops by itself. Finished
-  downloads leave their queue. **Manage queues...** creates, renames and
-  deletes queues (the main queue stays) and sets each one's downloads at
-  once, retries for failed downloads, and what to do when it is done.
+  progress kept. When nothing is left the queue stops by itself. A queue is
+  **One-time downloading** (finished downloads leave it) or **Periodic
+  synchronization**: finished downloads stay in it, and each run asks the
+  server about them and downloads again, over the same file in the same row,
+  those whose size, ETag or Last-Modified date changed (or whose file is
+  gone). The new copy is written beside the old file and replaces it only
+  once complete; a check that fails leaves the file alone and notes why.
+  Streams and form answers are not checked. **Manage queues...** creates,
+  renames and deletes queues (the main queue stays) and sets each one's
+  type, downloads at once, retries for failed downloads, and what to do when
+  it is done, including a file or program to open (**Browse...** picks it).
+  Its **Start now** and **Stop** buttons start or stop the selected queue
+  as saved, and **Help** opens the scheduler's help.
 - **Scheduler**: a queue can start at a set time on chosen days of the week,
   or once on a date, and optionally stop at a set time (the next morning if
   earlier than the start). **Start again every** N hours M minutes starts
   it again that long after each start, until the stop time (or midnight
   without one); the last start is saved, so a restart keeps the rhythm.
-  Grabber projects have the same choice. The queue's header shows its next
+  Grabber projects have the same choice, and the same **Browse...** for the
+  file to open when a run is done. The queue's header shows its next
   run. If UIDM was not running at the start time, the queue starts as soon
   as it is, while the time window is still open. The Queues dialog says so
   next to a schedule until **Don't show this again** hides the note.
@@ -280,6 +328,9 @@ tests, not in a running Firefox.
   window; downloads keep going and the daemon stops on its own once idle.
   **Pause all** stops every queued and running download, keeping its partial
   file; **Resume all** starts them again, along with any interrupted ones.
+  **View > Tray icon** picks the **Colored icon** or a **White icon** (a
+  white silhouette of it, for a dark taskbar), or **Don't show**; the style
+  changes at once and is kept with the window's layout.
 - **Start with Windows** (in Options) starts UIDM hidden in the tray when you
   sign in, ready for the browser.
 - **The download window** (double-click a download's name, or **More >
@@ -288,14 +339,18 @@ tests, not in a running Firefox.
   **Pause** or **Resume** and **Cancel** (which stops it and closes the
   window; the download stays in the list). **Show details** adds the
   connection bars and table from **More > Connections...**, and the **Speed
-  limit** tab sets the download's own limit. The **When done** tab (also in
+  limit** tab sets the download's own limit, with **Remember on stop and
+  resume** (on by default; untick it to have the limit dropped when the
+  download is stopped and resumed). The **When done** tab (also in
   **Properties**) sets what happens once this download finishes: show the
   completion dialog whatever Options says, then exit UIDM, sleep, hibernate
   or shut down (after the same 60-second countdown a queue uses). It runs
   once, after the virus scan, and not for a download that fails.
   **Options > General** can open the window whenever a download starts and
-  hide either tab (as can its **Hide tab** button). The window closes when
-  the download finishes.
+  hide either tab (as can its **Hide tab** button), hide the **Hide tab**
+  buttons themselves, and choose the tab the window opens on and whether it
+  opens with its details shown. The window closes when the download
+  finishes.
 - **When a download ends**, UIDM shows a Windows notification: **Open** and
   **Show in folder** for a finished file, **Retry** for a failed one. Options
   can show an IDM-style dialog in the window instead (a notification still
@@ -322,7 +377,9 @@ tests, not in a running Firefox.
 - **Proxies and site logins** (Options, **Connection**): no proxy, the
   Windows proxy setting, or HTTP, HTTPS, FTP and SOCKS proxies, each with
   its own optional user name and password; **Get System** fills them in from
-  the Windows setting. The SOCKS proxy carries what has no proxy of its own.
+  the Windows setting. The SOCKS proxy carries what has no proxy of its own,
+  `ftp://` downloads too when no FTP proxy is set, and can carry every
+  `https://` address while plain `http://` goes through the HTTP proxy.
   Downloads from the browser can use the browser's proxy, always or only to
   retry one that failed. Site logins pair a site with a user name and
   password; a site can name one of its folders, such as
@@ -342,11 +399,19 @@ tests, not in a running Firefox.
   login can also go with an address from the start: **Login** next to the
   URL bar shows user name and password fields for the addresses added
   there, and **Add many** has **Use a login** for every address in it.
-- **Download video**: a button appears over a video playing in the browser.
-  It lists what the page loaded: direct video and audio files with their
-  sizes, and streams (HLS `.m3u8`, DASH `.mpd`) with each quality UIDM read
-  from the playlist and its estimated size. Pick one and UIDM downloads it,
-  named after the page's title. A stream's segments are fetched in parallel
+- **Download video**: a button appears over a video playing in the browser,
+  and over `<audio>` players and `<object>`/`<embed>` media players (an
+  audio player gets it just above). It lists what that player loaded:
+  direct video and audio files with their sizes, and streams (HLS `.m3u8`,
+  DASH `.mpd`, HDS `.f4m`) with each quality UIDM read from the playlist and its
+  estimated size; on a feed with many players each button lists its own
+  player's streams, and the page's whole list when it cannot tell. The
+  button hides while its player is covered by something else on the page,
+  while the tab is in the background or its window minimized, and in full
+  screen. Pick one and UIDM downloads it, named after the page (its
+  `og:title`, else the tab's title, also for a player in a frame) without the
+  site's name after it ("Cute cat - YouTube" becomes "Cute cat.mp4", on any
+  site). A stream's segments are fetched in parallel
   and joined into one video (see [Streams](#streams-batches-and-the-site-grabber)).
   Videos protected by DRM say so and offer nothing: UIDM does not get around
   DRM. The popup turns the button off everywhere or on the current site;
@@ -355,16 +420,39 @@ tests, not in a running Firefox.
   and **Add**; M3U8 and MPD stand for streams), the smallest file it lists
   (128 KB by default), a full or mini look for it and for the button by
   selected links, and whether it shows on protected videos to say so.
+  **Web players** (off by default) hands a web player's media of the listed
+  types (MP4, M4V, WebM, FLV, MP3 and M4A at first) to UIDM as soon as the
+  page's `<video>` or `<audio>` loads it, without the button, as IDM's
+  "automatically start downloading from web players" does: only whole
+  files, not HLS or DASH streams, and each address once per tab.
 - **Context menu**: the extension adds **Download with UIDM**, **Download
-  later with UIDM**, **Download all links**, **Download selected links**,
-  **Download the last video with UIDM** (the video or audio the browser
-  loaded last, in any tab, in its best quality) and **Recent videos**, a
-  submenu of the last 10. **Options > Videos and menus** chooses which of
-  them show.
+  later with UIDM**, **Download page with UIDM** (on a page or a frame: that
+  page's own address, or the frame's), **Download all links**, **Download
+  selected links**, **Download the last video with UIDM** (the video or audio
+  the browser loaded last, in any tab, in its best quality) and **Recent
+  videos**, a submenu of the last 10. **Options > Videos and menus** chooses
+  which of them show, apart for Chromium browsers (Chrome, Edge and the like)
+  and Firefox; the extension knows Firefox by its `moz-extension://` pages.
+  A link sent from the menu takes its `download` attribute as the file name
+  (only its last part, made safe) and its title, else its text, as the
+  download's description, as IDM does. Firefox shows **Download selected
+  links** only when the selection holds links (Chrome cannot hide a menu item
+  as it opens, so there it shows for every selection). When an item cannot
+  do its job, a browser notice says so: no links found on the page or in the
+  selection, a page the browser does not let extensions read, or **Cannot
+  reach UIDM** (with the browser's reason when it gave one; a link then
+  downloads in the browser instead).
 - **More > Add many...** adds downloads from a pattern such as
   `https://example.com/photo[001-120].jpg` (with steps like `[0-100:5]` and
   letter ranges like `[a-z]`), or from a pasted list or a text file with one
-  address per line. It previews the addresses, skips blank lines, repeats and
+  address per line. IDM's form works too: type one `*` in the address, as in
+  `https://example.com/photo*.jpg`, and the dialog shows IDM's settings:
+  replace the `*` with **Numbers** or **Letters (a to z)**, **From** and
+  **To**, and a **Wildcard size** that pads numbers with zeros to that many
+  digits (1, the default, adds none; letters keep the case typed and ignore
+  it). From 1 to 120 with size 3 gives `photo001.jpg` to `photo120.jpg`, the
+  same list as IDM; From after To is refused, as in IDM, and only one `*` is
+  allowed. An address without a `*` uses the bracket ranges. It previews the addresses, skips blank lines, repeats and
   anything that is not a web address, refuses more than 10,000 at once, and
   adds them waiting to the queue you pick, optionally into one folder and
   optionally starting the queue.
@@ -389,24 +477,49 @@ tests, not in a running Firefox.
   - read up to 10 pages at once, and set how many files its queue
     downloads at once;
   - keep each file's link text as its description;
-  - pick the file types from named filters (a name and a mask such as
-    `*.jpg;*.png`; **Filters** adds, edits and deletes them), keep every type
-    with `*`, leave some types out, and keep only files on the start site;
-  - save every file to one category's folder, or to one folder without
-    subfolders;
+  - add the masks of named filters (a name and a mask such as
+    `*.jpg;*.png`) to the types kept or to those left out, as IDM's Add
+    Filter does (**Filters** next to each field; it also adds, edits and
+    deletes them), keep every type with `*`, and keep only files on the
+    start site. A bare type (`jpg` or `*.jpg`) matches the extension; a mask
+    with a name part (`photo_*.jpg`, `img??.png`) matches the whole file
+    name, ignoring case, with `*` for any run of characters and `?` for one;
+  - save every file to one category's folder, or to one folder, with or
+    without the site's subfolders (**Use original relative subfolders**:
+    the folders below the start page's folder, or the host and path for a
+    file elsewhere), and overwrite files already there or not, whether or
+    not it saves for offline browsing;
   - start downloading each match as soon as it is found;
   - log in to the start site with the project's own user name and password;
+  - sign in on a login page: **Open** opens it in your browser (UIDM has no
+    browser of its own) so you sign in there, and when the crawl starts
+    the extension hands over that site's cookies; without the extension,
+    paste them in **Cookies**;
   - when scripts run, ignore the windows they open or explore them too.
 
-  The results show as a list or as a tree by page or by folder, with pages
-  processed and file links looked at, matched and downloaded. **Save as
+  While it runs with downloading as found, it shows how many of the files
+  it added are downloaded so far. The results show as a list or as a tree
+  by page or by folder, with pages processed and file links looked at,
+  matched and downloaded; **Stop** stops the running or waiting downloads
+  of the ticked files. **Save as
   template** keeps the settings under a name, and **New** starts a project
   from a saved template or one that comes with UIDM (pictures, audio,
   video, documents, or archives and programs from a site). A scheduled
   project explores only, explores and downloads the new files (starting the
-  queue), or downloads the ticked files without exploring, then exits UIDM,
-  sleeps, hibernates or shuts down, and can open a file, after the crawl or
-  once the queue is done.
+  queue), or downloads the ticked files without exploring. Like a queue, it
+  is one-time downloading or periodic synchronization, which also checks the
+  files earlier runs found (or the ticked ones) and downloads again those
+  changed on the server. It then exits UIDM,
+  sleeps, hibernates or shuts down (with its own **Force apps to close**),
+  and can open a file, after the crawl or once the queue is done. Its stop
+  time ends the queue's downloads too, as it ends the crawl.
+  **Add the ticked files when the grabber closes** adds them on closing as
+  **Add** does. Closing, starting a crawl or switching to another project
+  asks to save one that changed since it was saved (or was never saved),
+  unless **Don't ask if the name is unique** is ticked and no other saved
+  project has its name; then it is saved without asking. **Open > From
+  another folder...** opens a project file kept anywhere, such as one copied
+  from another computer; saving it keeps it with the other projects.
 - **Clipboard** (off by default; **Options > Browser capture**): copying a
   link whose file type is on the capture list brings up a small **Download
   the copied link?** prompt with **Download** and **Ignore**, and the same
@@ -417,8 +530,21 @@ tests, not in a running Firefox.
   file type, to check and add.
 - **Download all links with UIDM** (the browser's menu on a page or a text
   selection, and the button over a selection) lists the links in the window
-  to tick: filters hide web pages, images, repeated links, or keep some file
-  types, and **Edit...** changes a link's address. The ticked files go to a
+  to tick. As IDM does, it collects more than a page's links: its frames'
+  addresses, addresses in its inline scripts (absolute ones, and quoted
+  relative paths ending in a captured file type; the first 1 MB of script
+  per page), the pictures images' onclick handlers open, its images (with
+  their largest srcset picture), and the links in frames made from nothing
+  (about:blank or srcdoc, up to three deep). **Download selected links**
+  takes the same from what the selection touches, plus the addresses in its
+  text, or in the text selected in a text box. Only http, https and ftp
+  addresses are kept, each once (a `#fragment` makes no other file), at most
+  5000 a page. In the window: filters hide web pages, images, repeated links, or keep some file
+  types, and **Edit...** changes a link's address. Meanwhile the daemon asks
+  each link's server for its type and size, four links at a time and with
+  the link's cookies, referrer and proxy, and the **Type** and **Size**
+  columns fill in as the answers come (`...` while asking); closing the
+  picker stops the asking. The ticked files go to a
   queue, saved to each one's category folder, all to **one category** (listed
   under it and saved to its folder), or to one folder. **Rename** names them
   by a pattern in list order: `photo_*` gives `photo_01.jpg`, `photo_02.jpg`
@@ -426,7 +552,9 @@ tests, not in a running Firefox.
   unless the pattern names one).
 - **Options** (top right of the window) has five tabs. **General**: the
   download folder, connections per file (1 to 16), downloads at once (1 to
-  10), a total speed limit, a download quota (no more than so many MB every
+  10), a total speed limit (with, while it is on, a limit for each file
+  that has no limit of its own, and **Always turn the speed limit on when
+  UIDM starts**), a download quota (no more than so many MB every
   so many hours, with a warning at 90% that can be turned off), what to do when a file name is taken or an
   address is already in the list, the save-as
   dialog, whether to resume unfinished downloads when UIDM starts, Start with
@@ -452,23 +580,51 @@ tests, not in a running Firefox.
   next to the window; unticking removes the key, and the manifest once no
   browser names it. Setup registers Chrome, Edge and Firefox. Vivaldi and
   Opera read Chrome's registration, so the list says so when it finds them
-  instead of listing them. Restart a browser after a change.
+  instead of listing them. Restart a browser after a change: its
+  **Restart** button asks first, then closes it the polite way (as closing
+  its window does, so it keeps its tabs) and starts it again. **Add
+  browser...** adds any other browser by its program file: UIDM tells its
+  family from the program's name and registers it where that browser reads
+  registrations, or, for a Chromium browser it does not know, where Chrome
+  does, which most of them read (a Firefox fork gets Firefox's). Added
+  browsers stay in the list, each with **Remove**. A line above the list
+  says whether the extension is connected, or when it last was.
 
 - **Properties** (a row's **More**) shows a download's status, its file type
   (what Windows calls it, such as "PDF Document (.pdf)"), size and last
-  try, and edits its link, parent page, description, name, folder and
-  login. A finished download has an **Open** button.
+  try, and the web page it came from, and edits its link, referrer,
+  description, name, folder and login. A finished download's file is
+  renamed or moved; a stopped, unfinished one (waiting, failed, canceled or
+  interrupted) can change folder with **Browse...**, and its partial file and
+  resume sidecar move along so it resumes there (one in the temporary
+  folder stays put). A running download must be stopped first. A finished
+  download has an **Open** button.
+- **Find** (Ctrl+F, then F3 and Shift+F3 to step) narrows the list to the
+  matches. **File name**, **Description** and **Links (address/referrer/page)**
+  are each a place to look, at least one ticked. **Whole name only** wants the
+  whole file name, and in descriptions and links whole words: "example"
+  finds `https://www.example.com/x` (a host label; a host or a path segment
+  works too) but not `https://myexample.com`.
 - **The list's columns**: a click on a header sorts by it (again to
   reverse, a third time for the order added), and dragging the thin edge
   after a header sets the column's width. **More > Columns...** shows,
-  hides, orders and sizes them (**Fit** sizes a column to what it holds);
-  the columns include **Parent web page**, the page a download came from,
-  which sorts like the rest. The layout is kept in
-  `%LOCALAPPDATA%\UIDM\window.json`.
+  hides, orders and sizes them (**Fit** sizes a column to what it holds;
+  the list follows each change at once, and **Cancel** puts it back);
+  the columns include **Parent web page**, the page a download came from
+  (the browser tab's address), and **Referrer**, the address sent to the
+  server as its Referer, which can be a frame inside that page. Both sort
+  like the rest, and **View > Arrange files** has **By Referrer** and **By
+  Parent Web Page**. Downloads from before the two were kept apart use
+  their referrer as their page. **View > Font > Choose Font...** sets the
+  list's text: the window's text font or its fixed-width font (Segoe UI and
+  Consolas on Windows; there is no system font picker), at 8 to 24 points,
+  with a sample; **Reset to default** goes back to the window's font. The
+  layout and font are kept in `%LOCALAPPDATA%\UIDM\window.json`.
 - **Help** (next to **More**): **Help contents** opens this README on
   GitHub, two more items open its sections on queues and the scheduler and
-  on the site grabber, **Tip of the day** shows a tip with **Next tip**, and
-  **Contact support** opens the issue tracker. A tip shows when the window
+  on the site grabber, **Tutorials** opens its first steps (this **Use**
+  section), **Tip of the day** shows a tip under a "Do you know..." header
+  with **Next tip**, and **Contact support** opens the issue tracker. A tip shows when the window
   opens unless its **Show tips on startup** box (also in **Options >
   General**) is cleared; the next start shows the next tip. **About** sits
   beside **Help**, and **More > Manage queues...** opens the queues even with
@@ -537,7 +693,14 @@ It takes a download from the browser only when all of these hold:
 - the URL is `http` or `https` (`blob:` and `data:` downloads only exist inside
   the browser);
 - it is not from a private window, so private downloads never enter UIDM's
-  list;
+  list, unless **Capture downloads in private windows too** is on in
+  **Options > Browser capture** (off by default; only the window changes it).
+  Then private windows' downloads, links, page buttons and context menus work
+  as in normal windows, with the private window's own cookies. The browser
+  must let the extension in too: **Allow in Incognito** in the extension's
+  details in Chrome and Edge, **Run in Private Windows** in Firefox;
+- capture is not turned off in the tab it comes from (**Capture in this tab**
+  in the popup);
 - the extension did not start it itself (that is how hand-backs avoid loops);
 - it passes the capture rules from **Options > Browser capture**:
   - its file type is in the list (by default every category's types plus
@@ -552,28 +715,75 @@ It takes a download from the browser only when all of these hold:
     `example.com` and `*.example.com` both cover the site and every subdomain;
 - **Skip next download** in the popup was not pressed; it lets exactly one
   download stay in the browser;
-- the skip keys were not held while clicking its link (Alt by default).
+- the skip keys were not held while clicking its link (Alt by default), nor
+  while its tab started it some other way (a form sent, a page's script).
 
 Holding the force keys (Ctrl by default) while clicking a link sends it to
 UIDM whatever the rules say, instead of opening it. Each is any mix of Ctrl,
-Alt and Shift, plus Insert for forcing, set in **Options > Browser capture**,
+Alt and Shift, plus Insert or Del for forcing, set in **Options > Browser capture**,
 and must be held exactly: Alt+Shift is not Alt. They work with a left or
 middle click and with Enter on a link, or with the option set only with a
 left click. By default the force keys leave links to web pages, pictures and
 scripts (`.html`, `.php`, `.jpg`, `.js`, a path ending in `/` and the like)
 to open as usual.
 
+As in IDM, the keys also count for downloads their tab starts while they
+are held without a click on a link, such as a form sent with Enter or a
+script's download: the page reports the keys going down and up to the
+extension, which applies them to that tab's next downloads. Switching tabs,
+the page losing the focus or being hidden forgets them, and a report not
+refreshed for 30 seconds (the page went away) is dropped.
+
 The extension asks for the rules when it connects and gets every change as it
 is saved, so they are edited only in the window.
 
+**Caught at the headers.** As IDM does, the extension looks at each page
+and frame response when its headers arrive (`webRequest.onHeadersReceived`):
+one marked `Content-Disposition: attachment`, or of a type the browser
+cannot show, is a download, and the capture rules are applied to its name,
+type and size there. Firefox lets the extension cancel it then
+(`webRequestBlocking`), so the browser never starts it and UIDM gets it at
+once. Chrome lets extensions like this one only look, not cancel, so there
+the download still appears in the browser and is taken from it at once
+(`downloads.onCreated`), with the size, type and name the headers gave
+(the download item often has none yet); the download bubble is hidden from
+the moment the headers say UIDM takes it (`downloads.setUiOptions`) until
+the browser's copy is canceled and erased, and comes back after ten seconds
+whatever happens. A tab another tab opened a moment before only for the
+download (it still shows nothing or the download's address, and never
+showed a page) is closed once UIDM takes the download.
+
+**The whole request.** The extension follows the requests of pages and
+frames: the headers the browser sent (`onSendHeaders`, with Chrome's
+`extraHeaders` so nothing is hidden), the redirects it followed, and what
+the response said. A download goes to UIDM with them: `request_headers`
+(without `Cookie`, which goes as `cookies`), `redirects`, `size` and
+`content_type`. The daemon repeats the headers that are safe to: not the
+ones about the connection (`Connection`, `Keep-Alive`, `TE`, `Upgrade`,
+...), not `Host`, `Content-Length`, `Range`, the conditional `If-*` ones or
+`Accept-Encoding` (the engine asks for ranges and decompresses what it asks
+for itself), not `Authorization` (logins are UIDM's), and not `Cookie`,
+`Referer` and `User-Agent`, which come in their own fields. It keeps at most
+64 headers, 20 redirects and values of 8 KB. The size and type are shown
+until the server is asked, and are all a form download has before it
+starts. The referrer is the document that started the download; a frame
+made from nothing (`about:blank`, `about:srcdoc`) is skipped for the
+nearest frame above it with an address (`webNavigation.getAllFrames`), else
+the page.
+
 A download a form started, with a POST, is sent to UIDM as the same POST.
 The extension records the method and body of recent form submissions in
-frames (`webRequest`, `requestBody`) and matches a new download to the latest
-one to the same URL in the last minute. It rebuilds URL-encoded forms and raw
-bodies. A multipart form (which may carry files), or a body the browser did
-not share, cannot be resent, so that download stays in the browser. UIDM sends
-the POST once and saves the response as one stream; it is not resumable, and
-it is not repeated on a failure, since a form may not be safe to send twice.
+frames and of scripts' requests (`webRequest`, `requestBody`) and matches a
+new download to the request it came from, else the latest form to the same
+URL in the last minute (a script's XMLHttpRequest or fetch is matched only
+as itself, as when a web player's file is taken). It rebuilds URL-encoded
+forms, multipart forms (with a boundary of its own) and raw bodies such as
+a script's JSON. The browser does not share a multipart form's files, so
+the page tells the extension which of its fields are files as the form is
+sent: they are left out, and a form that sends a chosen file stays in the
+browser, as does a body the browser did not share. UIDM sends the POST once
+and saves the response as one stream; it is not resumable, and it is not
+repeated on a failure, since a form may not be safe to send twice.
 Downloads without a recorded POST are fetched with GET as before.
 
 If UIDM takes a download but cannot even start it, for example because the
@@ -637,6 +847,11 @@ Given an `add`, the engine:
    request; for them, **Options > General > Ignore file modification time
    changes when resuming** drops the date check, keeping the size and ETag
    checks.
+   **Give finished files the date the server reports** sets a finished
+   file's modified time to the server's Last-Modified date, and **Use the
+   server's date for the file's creation time too** sets its creation time
+   as well. Only Windows and macOS keep a creation time that can be set;
+   on Linux that option is greyed out.
 4. Retries a segment that fails with exponential backoff (400 ms doubling to a
    10 s ceiling, up to 5 times), resuming from that segment's own cursor.
 
@@ -667,7 +882,9 @@ The speed limit is one token bucket shared by every connection of every
 download. Each read takes tokens for the bytes it read and sleeps when the
 bucket runs dry, and reads shrink to about a tenth of a second's worth so
 throttled downloads flow evenly. A new limit, or turning it off, applies to
-running downloads within 100 ms.
+running downloads within 100 ms. Each download also has a bucket of its own,
+at its own limit or, while the speed limit is on, at the limit per file;
+a read waits for both, so the lower limit wins.
 
 The daemon keeps each download's original request, cookies included, while it
 can still be retried, so a retry resends the same headers. It drops the request
@@ -687,9 +904,12 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "hello", "version": "0.2.0", "client": "window" }
 { "op": "ping" }
 { "op": "add", "url": "https://...", "headers": { "X-Example": "1" }, "cookies": "...",
-  "referrer": "https://...", "user_agent": "...", "filename": "f.zip" }
+  "referrer": "https://...", "page": "https://...", "user_agent": "...", "filename": "f.zip" }
 { "op": "add", "url": "https://.../export", "method": "POST", "body": "<base64>",
   "headers": { "Content-Type": "application/x-www-form-urlencoded" } }
+{ "op": "add", "url": "https://cdn.../a.zip", "request_headers": [["Accept", "*/*"]],
+  "redirects": ["https://.../get/a"], "size": 1048576, "content_type": "application/zip",
+  "browser_proxy": { "mode": "fixed", "http": "http://proxy:3128", "bypass": ["<local>"] } }
 { "op": "cancel", "id": 1 }
 { "op": "retry", "id": 1 }
 { "op": "remove", "id": 1 }
@@ -708,6 +928,7 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "stop_queue", "id": 2 }
 { "op": "set_queue_once", "id": 2, "when_done": "sleep" }
 { "op": "move_to_queue", "id": 7, "queue": 2, "position": 0 }
+{ "op": "remove_from_queue", "id": 7 }
 { "op": "cancel_countdown" }
 { "op": "refresh_link", "id": 7, "download": { "url": "https://...", "cookies": "..." }, "restart": false }
 { "op": "refresh_link", "id": 7 }
@@ -716,6 +937,8 @@ Client to daemon (the host relays the browser's unchanged):
   "media": { "kind": "hls", "video": "https://.../720/index.m3u8", "audio": null } }
 { "op": "add_many", "items": [ { "url": "https://...", "start": false, "folder": "D:\\Photos" } ], "queue": 1 }
 { "op": "probe_media", "request": 3, "download": { "url": "https://.../manifest.mpd", "cookies": "..." } }
+{ "op": "probe_links", "request": 5, "links": [ { "url": "https://.../a.zip", "referrer": "https://.../page" } ] }
+{ "op": "stop_probe_links" }
 { "op": "add", "url": "https://www.youtube.com/watch?v=...", "filename": "Talk.mp4",
   "media": { "kind": "page", "video": "137", "audio": "140" } }
 { "op": "grab", "start": "https://example.com/docs/", "depth": 2, "same_site": true, "types": ["pdf"],
@@ -723,7 +946,8 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "cancel_grab" }
 { "op": "get_settings" }
 { "op": "set_settings", "settings": { "download_dir": null, "connections": 8, "max_concurrent": 3,
-  "speed_limit_enabled": false, "speed_limit_kbps": 1024, "resume_at_startup": false,
+  "speed_limit_enabled": false, "speed_limit_kbps": 1024, "speed_limit_on_startup": false,
+  "speed_limit_per_file_kbps": null, "resume_at_startup": false,
   "file_exists": "rename", "if_duplicate": "ask", "ask_where_to_save": true,
   "categories": [ { "name": "Compressed", "extensions": ["zip", "rar"], "folder": null } ],
   "capture_types": ["zip", "pdf"], "capture_min_size_kb": 0,
@@ -769,6 +993,7 @@ Daemon to clients:
 { "op": "media_info", "request": 3, "info": { "kind": "hls", "duration": 1520.0, "drm": false,
   "video": [ { "id": "https://.../1080/index.m3u8", "label": "1080p, 5.0 Mbps", "height": 1080,
   "bandwidth": 5000000, "size": 950000000 } ], "audio": [] } }
+{ "op": "link_info", "request": 5, "index": 0, "total": 1048576, "content_type": "application/zip" }
 { "op": "grab_progress", "pages": 12, "bytes": 380211, "found": 31 }
 { "op": "grab_done", "files": [ { "url": "https://.../a.pdf", "name": "a.pdf", "page": "https://.../docs/" } ],
   "pages": 40, "stopped": "Stopped at the budget of 40 pages." }
@@ -848,7 +1073,13 @@ not web addresses, and items already in the list unless `if_duplicate` is
 `new_name`, or `overwrite` for a stopped download (`skipped` counts those);
 `folder`, a full path, fixes where an item is saved.
 `probe_media` echoes `request` in its `media_info`, whose `error` says why a
-stream cannot be downloaded and `drm` whether that is because of DRM. `grab`
+stream cannot be downloaded and `drm` whether that is because of DRM.
+`probe_links` (the window's link picker) asks each link's server for its size
+and type, four at a time, and answers each with a `link_info` naming its
+`index` in `links` (or an `error`), to that client only; a new `probe_links`
+or `stop_probe_links` stops the client's last, as does disconnecting.
+`set_properties` with a `folder` for a stopped, unfinished download moves its
+partial file and sidecar there. `grab`
 answers with `grab_progress` after each page and one `grab_done`, to the
 client that asked only; a client runs one crawl at a time, and its crawl
 stops if it disconnects. `grab` is refused with an `error` unless `start` is
@@ -902,8 +1133,12 @@ Without `download`, the daemon waits for the browser: it broadcasts
 `refresh_waiting`, and the extension sends its next captured download as that
 `refresh_link`, whatever the capture rules say. `cancel_refresh` stops
 waiting; `refresh_waiting` with `id: null` says nothing waits.
-`add` may carry `proxy`, the browser's proxy, used when the
-`use_browser_proxy` setting is on.
+`add` may carry `browser_proxy`, the browser's proxy setting, used when the
+`use_browser_proxy` setting is on: `mode` (`direct`, `fixed`, `pac`,
+`auto_detect` or `system`), the fixed proxies `http`, `https` and `socks`
+(each `scheme://host:port`), the configuration script's `pac_url` or its
+text `pac_script`, and the `bypass` list. Older extensions send only
+`proxy`, the fixed proxy, which `browser_proxy` replaces when both come.
 
 ## Proxies and logins
 
@@ -934,17 +1169,31 @@ with `ftp=`; Windows' SOCKS proxy speaks SOCKS4. The
 manual HTTPS proxy is the proxy for `https://` URLs (an HTTP proxy reached
 with `CONNECT`; empty means the HTTP one, with its login). A SOCKS4 or
 SOCKS5 proxy carries the `http://` and `https://` URLs that have no proxy of
-their own. `ftp://` downloads go only through the FTP proxy: UIDM logs in to
-it first with its own login, when it has one (`USER`, `PASS`), then as
-`user@host`.
+their own, and with `proxy_socks_https` every `https://` URL even when an
+HTTP or HTTPS proxy is set. `ftp://` downloads go through the FTP proxy:
+UIDM logs in to it first with its own login, when it has one (`USER`,
+`PASS`), then as `user@host`. Without an FTP proxy they go through the SOCKS
+proxy (`proxy_socks_ftp`, on by default): UIDM opens both the control and
+the data connections with a SOCKS CONNECT itself (SOCKS4, SOCKS4a or SOCKS5,
+with the SOCKS login), and always in passive mode, since the server cannot
+connect back through the proxy.
 ureq sends proxy credentials only when it tunnels `https://` requests, so
 for plain `http://` requests through a proxy with a login UIDM adds
 `Proxy-Authorization` itself and follows redirects itself, adding it only on
 `http://` hops and dropping `Cookie` and `Authorization` on every hop, so
 neither the proxy login nor a site's cookies reach another server. With
-`use_browser_proxy`, the extension reports the browser's fixed proxy
-(`chrome.proxy`, plain HTTP or SOCKS only) with each download, and that proxy
-wins for downloads that carry one. With `browser_proxy_after_errors` too, a
+`use_browser_proxy`, the extension reports the browser's whole proxy
+setting (`chrome.proxy`, Firefox's `browser.proxy`) with each download, and
+it wins for downloads that carry one: no proxy, its fixed HTTP and SOCKS
+proxies (an HTTPS or QUIC proxy, which the engine cannot speak, is left
+out), its configuration script (WinHTTP fetches one at an address; one the
+browser was given as text is served to WinHTTP from a loopback-only address
+of the daemon's), automatic detection (WPAD), or the system proxy, as
+**Use system proxy settings** reads it. The bypass list goes along:
+Chrome's `<local>`, `*.corp.net` and `host:port` entries and Firefox's
+`.corp.net`; address ranges have no counterpart and are dropped. Without
+WinHTTP (macOS, Linux) a script or detection cannot run, so those downloads
+connect directly. With `browser_proxy_after_errors` too, a
 download goes through UIDM's own proxy setting first; when it fails, the
 daemon retries it once through the browser's proxy, and that address keeps
 using it until the daemon restarts.
@@ -975,15 +1224,33 @@ retried.
 response a tab gets (`webRequest.onHeadersReceived`) and keeps, per tab, the
 direct video and audio files (a `video/` or `audio/` type, or a media file
 name with a generic type; anything under `video_min_size_kb`, 128 KiB by
-default, is left out) and the HLS and DASH playlists, of the types in
-`video_types` (`m3u8` and `mpd` for the streams; a file whose type neither
-its name nor its MIME type says is kept). Segments (`.ts`, `.m4s`, `video/mp2t`) are left out, and
-the list starts over when the tab loads a new page. A content script
-(`content.js`) shows **Download video** over a playing `<video>` in a closed
+default, is left out) and the HLS, DASH and HDS playlists, of the types in
+`video_types` (`m3u8`, `mpd` and `f4m` for the streams; a file whose type neither
+its name nor its MIME type says is kept). Segments (`.ts`, `.m4s`, `video/mp2t`,
+HDS fragments' `video/f4f`) are left out, and
+the list starts over when the tab loads a new page, or when a single-page
+site moves to another (`webNavigation.onHistoryStateUpdated`; what came in
+the second before stays, and the tab's buttons are reset). A content script
+(`content.js`) shows **Download video** over a playing `<video>` or
+`<audio>`, or a media `<object>`/`<embed>` the pointer is over, in a closed
 shadow root, so the page's scripts and styles cannot reach it, and shows
-page and server text with `textContent` only. When clicked it asks the
-worker for its own tab's list, and the worker asks UIDM (`probe_media`) what
-each stream offers. A content script can only pick from what the worker saw
+page and server text with `textContent` only. It tells the worker when each
+player starts loading or playing (`video:started`, with a number per
+player). When clicked it asks the worker for its tab's list for that player
+(`video:menu` with the player's number and its `currentSrc`, `src` and
+`<source>` addresses): the files and streams at those addresses, and the
+playlists its frame asked for while it was the player that started last
+(or that started within 1.5 s after), which tells players fed through
+`blob:` addresses apart; with nothing of its own, the whole list. The worker
+asks UIDM (`probe_media`) what each stream offers. The button hides when, at
+five points of the player, what is on top lies outside the player's box
+(its furthest ancestor not much bigger than it, so a custom player's
+controls and overlays do not count), when `document.hidden`, and when
+something is full screen; it looks again on scroll, resize and once a
+second. Tabs open before the extension was installed, updated or turned
+back on get the content script injected (`scripting.executeScript`, every
+frame that lacks it) on `runtime.onInstalled` and on the first connection
+to UIDM in a browser session. A content script can only pick from what the worker saw
 in its tab, by number, never pass in an address. A video element that raised
 an `encrypted` event or holds `MediaKeys` is DRM protected: the menu says so
 and offers nothing, or with `video_protected_note` off the button does not
@@ -992,13 +1259,26 @@ selected-links button look; the mini one is a round arrow with its text as
 a tooltip. Playlists that are themselves one quality of a listed
 master playlist are folded into it.
 
-**YouTube.** YouTube's player streams over SABR: POST requests to
-`googlevideo.com/videoplayback` whose bodies hold video and sound in
-YouTube's own framing (`application/vnd.yt-ump`), so no response is a file,
-a playlist or a manifest. The worker keeps the tab's video page instead
-(`kind: "page"`, as `https://www.youtube.com/watch?v=ID` for watch pages,
-Shorts and `youtu.be` links), from the tab's address as YouTube moves between
-videos without loading a page. `probe_media` on such an address runs
+**YouTube, Facebook, Instagram and Vimeo.** YouTube's player streams over
+SABR: POST requests to `googlevideo.com/videoplayback` whose bodies hold
+video and sound in YouTube's own framing (`application/vnd.yt-ump`), so no
+response is a file, a playlist or a manifest; Facebook and Instagram fetch
+signed pieces, and Vimeo reads its streams from its player's configuration.
+For these sites the worker keeps the tab's video page instead
+(`kind: "page"`, one address per video):
+
+| Site | Pages | Kept as |
+|---|---|---|
+| YouTube | `/watch?v=ID`, `/shorts/ID`, `/live/ID`, `youtu.be/ID` | `https://www.youtube.com/watch?v=ID` |
+| Facebook | `facebook.com/<page>/videos/ID`, `facebook.com/watch?v=ID`, `facebook.com/reel/ID`, `fb.watch/CODE` | `https://www.facebook.com/watch/?v=ID`, `.../reel/ID`, `https://fb.watch/CODE/` |
+| Instagram | `instagram.com/p/CODE`, `/reel/CODE`, `/reels/CODE`, `/tv/CODE` | `https://www.instagram.com/p/CODE/` (or `reel/`, `tv/`) |
+| Vimeo | `vimeo.com/ID` (with an unlisted video's hash), `vimeo.com/channels/<name>/ID`, `player.vimeo.com/video/ID` | `https://vimeo.com/ID`, the player's address with its `h=` hash |
+
+The page is taken from the tab's address as these sites move between videos
+without loading a page (`tabs.onUpdated` and
+`webNavigation.onHistoryStateUpdated`). The daemon sends only these
+addresses to yt-dlp (`ytdlp::supports`); any other goes to the stream
+reader. `probe_media` on such an address runs
 `yt-dlp -J` and offers one video per height (H.264 first, then the highest
 bit rate) and the sound per language. The download runs yt-dlp with the
 chosen formats and `--ffmpeg-location`, so ffmpeg joins them into an `.mp4`;
@@ -1006,8 +1286,9 @@ the sound alone is `-x --audio-format mp3|m4a`. UIDM reads yt-dlp's progress
 lines, and canceling ends yt-dlp and its children (`taskkill /T` on
 Windows); its `.part` files let a retry carry on. Without ffmpeg the best
 format with both video and sound in one file is saved, with a note. Live
-streams are refused. UIDM does not send the browser's YouTube cookies, so
-only videos anyone can watch signed out are offered.
+streams are refused. UIDM does not send the browser's cookies to yt-dlp, so
+only videos anyone can watch signed out are offered (on Facebook and
+Instagram that is public posts only).
 
 **HLS.** UIDM reads master playlists (qualities, separate audio tracks) and
 media playlists (segments, `#EXT-X-BYTERANGE`, `#EXT-X-MAP` headers,
@@ -1027,6 +1308,21 @@ It picks the best video and audio, or the ones chosen. `ContentProtection`
 marks DRM, refused; live (`dynamic`) manifests and manifests split into
 several periods are refused too.
 
+**HDS.** Adobe HTTP Dynamic Streaming (`.f4m`, `application/f4m+xml`, or XML
+whose root is `<manifest>` in the `ns.adobe.com/f4m` namespace). UIDM reads
+F4M 1.0 manifests (`<media url bitrate width height bootstrapInfoId>`, each
+offered as a quality, `<bootstrapInfo>` inline in base64 or at a `url`,
+`<baseURL>`, `<metadata>`, `<duration>`) and F4M 2.0 manifests whose
+`<media href>` points at another manifest. The bootstrap's `abst` box gives
+the segment run table (`asrt`) and fragment run table (`afrt`), from which
+every fragment's address is made: `<baseURL>/<media url>Seg<s>-Frag<n>`. The
+manifest's own query string (Akamai's `hdnea`/`pvtoken` signature) and any
+`<pv-2.0>` token go on every fragment, bootstrap and child manifest. Each
+F4F fragment's `mdat` box holds FLV tags; the joined video is an FLV header,
+the media's metadata as an `onMetaData` tag, then every fragment's tags.
+`<drmAdditionalHeader>` marks DRM and is refused, as are live streams
+(`<streamType>live</streamType>` or the bootstrap's live flag).
+
 **Downloading.** Segments go one file each into `<file>.uidmparts` next to
 the output, written as `.tmp` and renamed once complete, up to **Connections
 per file** at once, through the shared speed limit, each retried with the
@@ -1035,7 +1331,8 @@ follows the segments. Canceling keeps the finished segments; a retry fetches
 only the missing ones. Then each track is joined in order. With ffmpeg,
 `ffmpeg -i video [-i audio] -c copy` makes one `.mp4` (or `.webm`) without
 re-encoding; without it, an HLS video is saved as its `.ts` (or `.mp4` for
-fragmented MP4 segments) and a stream with separate audio as two files, and
+fragmented MP4 segments), an HDS video as its `.flv`, and a stream with
+separate audio as two files, and
 the entry carries a note saying so. ffmpeg runs without a console window and
 its error, if any, becomes the download's error. Streams land in the Video
 category's folder whatever their extension.
@@ -1066,14 +1363,25 @@ a page counts as a file. A project's login is stored in Credential Manager
 as `UIDM/grabber/<start host>/<user name>`, so projects on one site can use
 different accounts (a password an older version kept under
 `UIDM/grabber/<start host>` is still read), sent to the start site when it asks, and
-given to the downloads on that site. Named filters are kept in
+given to the downloads on that site. A login page's cookies come from the
+extension's `cookies_wanted` request at crawl start, as the start site's do
+with **Use my browser's sign-in**, or else from the pasted ones, which
+project files keep encrypted for the user (as saved requests are) and
+templates never keep. Each site's cookies go only to pages on that site's
+host (and its subdomains when the crawl explores them), never to other
+hosts the crawl reads; the downloads it adds for files on the login site
+carry that site's cookies too, as captured browser downloads do, and
+files on other hosts get none. Named filters are kept in
 `%APPDATA%\UIDM\grabber\filters.json` and named templates in
 `grabber\templates\`. With scripts run, the extension closes every window
 the page opens and reports its address; the crawl explores those only when
 **Ignore the windows page scripts open** is off. A scheduled run sets the
-project's when-done action and file on its queue for that run only
-(`when_done_once`, `open_when_done_once`), so the queue's own settings come
-back afterwards; a run that adds nothing does them at once.
+project's when-done action, file and force-close choice on its queue for
+that run only (`when_done_once`, `open_when_done_once`, `force_close_once`),
+so the queue's own settings come back afterwards; a run that adds nothing
+does them at once. With a stop time it also sets `stop_at_once`, and the
+scheduler stops that queue run (its downloads wait again, progress kept)
+once the time passes.
 
 ## Notifications and virus scans
 
@@ -1114,7 +1422,7 @@ is a failed scan, as is one that runs over 10 minutes.
 | `src/queue.rs` | Queues, schedules and their calendar arithmetic |
 | `src/power.rs` | Sleep, hibernate and shut down |
 | `src/net.rs` | Proxies, site logins, HTTP authentication, Credential Manager |
-| `src/media/` | HLS playlists and DASH manifests: qualities, segments, keys, DRM |
+| `src/media/` | HLS playlists, DASH and HDS manifests: qualities, segments, keys, DRM; yt-dlp pages |
 | `src/batch.rs` | URL patterns, pasted lists and the clipboard link rule |
 | `src/listfile.rs` | Exporting and importing the download list |
 | `src/grab.rs` | The site grabber's crawler and `robots.txt` |
@@ -1128,7 +1436,9 @@ is a failed scan, as is one that runs over 10 minutes.
 | `extension/_locales/` | The extension's text in each language |
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
 | `extension/rules.js` | Capture rules (file types, minimum size, excluded sites) |
+| `extension/links.js` | The links of a page for "Download all links" and "selected links" |
 | `extension/post.js` | Matching downloads to the form POSTs that started them |
+| `extension/request.js` | The request behind a download: headers, redirects, response, proxy setting |
 | `extension/media.js` | Which responses are videos and streams, per tab, and the video menu |
 | `extension/content.js` | The video button over playing videos |
 | `extension/test/` | Node tests for the rules and the service worker |
@@ -1137,7 +1447,8 @@ is a failed scan, as is one that runs over 10 minutes.
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
 | `installer/uidm.iss` | Inno Setup script for `UIDM-Setup-<version>.exe` |
 | `installer/build.ps1` | Builds the programs and the installer into `dist\` |
-| `installer/make-firefox.ps1` | Makes the Firefox copy of the extension |
+| `installer/make-firefox.ps1` | Makes the Firefox copy of the extension, or with `-Check` tells whether one is out of date |
+| `installer/make-firefox.js` | The same for macOS and Linux, with `--check` |
 | `installer/uidm.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
 
 ## Build
@@ -1272,14 +1583,22 @@ would not display correctly yet.
   the choice. The window's dialog was built but not tried on screen.
 - Streams, batches, lists and the grabber (milestone 6). Unit tests cover URL
   patterns (padding, steps, counting down, letters, several ranges, other
-  brackets kept, the 10,000 cap and overflow), pasted lists, the clipboard
+  brackets kept, the 10,000 cap and overflow), IDM's `*` form (numbers with
+  a wildcard size, letters, From after To and other mistakes refused, the
+  same cap), pasted lists, the clipboard
   link rule, list export and import (round trips in both formats, exports
   with exactly the five list fields, bad folders and repeats dropped, newer
   formats refused), HLS (attribute lists, master playlists with audio groups,
   keys and IVs, byte ranges, `#EXT-X-MAP`, FairPlay, Widevine and session-key
   DRM, live playlists), DASH (ISO durations, template filling, fixed-duration
   and timeline templates including `r="-1"`, segment lists with ranges,
-  single files, DRM, live and multi-period manifests), AES-128 decryption,
+  single files, DRM, live and multi-period manifests), HDS (F4M 1.0 with
+  inline and linked bootstrap info and several bit rates, F4M 2.0 child
+  manifests, the manifest's query and `<pv-2.0>` carried to every fragment,
+  hand-built `abst` boxes with several segment runs, fragment addresses,
+  `mdat` extraction from F4F fragments, FLV headers with `onMetaData`, DRM
+  and live refused), the yt-dlp sites (YouTube, Facebook, Instagram and
+  Vimeo video pages accepted, their other pages refused), AES-128 decryption,
   `robots.txt` (groups, wildcards, `$`, `Crawl-delay` and its cap), link
   extraction (only web links, nothing from script text, `<base href>`), and
   crawls (depth, same site, robots, one wait before every request, budgets,
@@ -1293,7 +1612,10 @@ would not display correctly yet.
   `ffmpeg.bat` the two tracks go to it with `-map 0:v:0? -map 1:a:0? -c
   copy` and come back as one file, and a failing ffmpeg fails the download
   with its message and keeps the segments; a DRM stream is refused, and
-  probing reports DRM, qualities, sizes and the length.
+  probing reports DRM, qualities, sizes and the length; an HDS manifest
+  signed with a query is probed for its two bit rates and downloads its two
+  F4F fragments into one valid `.flv` (directly and through an F4M 2.0
+  manifest), or an `.mp4` with ffmpeg.
 - Under Wine against the real host and daemon: `add_many` adds five pattern
   files waiting in the main queue with paths in the chosen folder (and drops
   a `javascript:` item), starting the queue saves them there; `probe_media`
@@ -1355,13 +1677,20 @@ would not display correctly yet.
   skips exactly one download after **Skip next download**, and starts a
   download waiting for its dialog from the popup; **Download later with
   UIDM** adds with `start: false`. Form downloads: URL-encoded forms rebuild
-  as the browser encodes them and raw bodies byte for byte; multipart forms,
-  forms with files and bodies the browser withheld stay in the browser; a
+  as the browser encodes them, multipart forms with a boundary of their own
+  and without their file fields, and raw bodies byte for byte; forms that
+  send a file and bodies the browser withheld stay in the browser; a
   download matches the latest POST to its URL within a minute; a form's
   download reaches UIDM as the same POST with its content type while a link
   next to it stays a GET; and a POST UIDM cannot start goes back to the
-  browser as a POST with its form. The browser's fixed HTTP or SOCKS proxy
-  goes along with a download, and other proxy settings report none. While a
+  browser as a POST with its form. A web player's file a script asked for
+  with a POST goes as the same POST. The browser's whole proxy setting goes
+  along with a download, read from Chrome's and Firefox's shapes. A
+  download's request headers (without cookies), redirects, size and type go
+  along; Chrome hides the bubble from the headers until the download is
+  taken or left, Firefox cancels at the headers, a tab opened only for the
+  download is closed, and a link in an `about:blank` frame takes the frame
+  above it as referrer. While a
   download waits for a new link, the next browser download (even one the
   capture rules would leave) goes to it as `refresh_link`, once.
 - Proxies, logins and new links. Unit tests cover site matching, proxies by
@@ -1369,7 +1698,11 @@ would not display correctly yet.
   the registry, off and on), Digest against the worked examples of RFC 2617
   (MD5) and RFC 7616 (SHA-256), Basic, the most specific login, Credential
   Manager and DPAPI round trips, passwords never reaching the settings file,
-  proxy and login validation, and whether a new link fits a partial file
+  proxy and login validation, the browser's proxy setting as proxy rules
+  (direct, fixed, script by address or as text, detection, system, and its
+  bypass list), a script given as text served on the loopback address
+  alone, which browser request headers a download repeats, the limits on
+  what a browser request may carry, and whether a new link fits a partial file
   (size, ETag, unknown size, no partial file). Engine tests against local
   servers: a site that needs a login fails at once with "This site needs a
   login", a wrong password is refused, the right one downloads every range;
@@ -1510,8 +1843,12 @@ arguments; no real ffmpeg was run on real video.
 - A queue run started by hand with nothing in it ends at once, and a run that
   is only waiting on failed downloads ends too: failed downloads count as
   finished unless the queue retries them.
-- Form downloads with a multipart body stay in the browser, and a POST
-  download cannot resume: a failure means sending the form again with Retry.
+- A form download that sends a file stays in the browser (the browser does
+  not share the file), and a POST download cannot resume: a failure means
+  sending the form again with Retry.
+- Chrome does not let an extension cancel a download at its headers, so
+  there it is still taken from the browser as it starts; Firefox cancels it
+  at the headers.
 - Streams: live streams, DASH manifests split into several periods (often
   ads), and HLS `SAMPLE-AES` without a key system are refused. Subtitles are
   not downloaded. The size shown for a quality is an estimate from its bit

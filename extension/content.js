@@ -1,4 +1,5 @@
-// UIDM's video button: a small "Download video" button over a playing video.
+// UIDM's video button: a small "Download video" button over a playing video
+// or audio player (or an <object>/<embed> one).
 // Clicking it lists what the page loaded (qualities, sizes) and sends the
 // choice to UIDM through the service worker.
 //
@@ -8,6 +9,24 @@
 // labels from the server) is shown with textContent only. A video playing
 // through Encrypted Media Extensions is DRM protected: the menu says so and
 // offers nothing.
+
+// A tab open when UIDM was installed or connected gets this script from the
+// worker (injectOpenTabs, in background.js), which skips frames that have
+// it; should a frame get it twice anyway, the second copy does nothing, so
+// nothing listens twice.
+var uidmContentAgain = globalThis.uidmContentLoaded === true;
+globalThis.uidmContentLoaded = true;
+
+// What this page calls itself, for naming its videos (videoName, in
+// media.js): its title, og:title and og:site_name. The worker asks the top
+// frame for it when a video in a frame is downloaded.
+function pageNames() {
+  const meta = (p) => {
+    const m = document.querySelector(`meta[property="${p}"], meta[name="${p}"]`);
+    return m ? String(m.getAttribute("content") || "").slice(0, 500) : "";
+  };
+  return { title: document.title, ogTitle: meta("og:title"), siteName: meta("og:site_name") };
+}
 
 // The mini view's button face: a down arrow, drawn without page text.
 function uidmArrow() {
@@ -44,17 +63,54 @@ function makeMini(button) {
 // storage, so a click is handled at once. rules.js (loaded first) matches
 // them.
 (() => {
+  if (uidmContentAgain) return;
   // The capture_* key settings; none until they arrive.
   let keys = {};
   chrome.storage.local.get("captureKeys").then((s) => s.captureKeys && (keys = s.captureKeys)).catch(() => {});
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.captureKeys && changes.captureKeys.newValue) keys = changes.captureKeys.newValue;
   });
-  // Insert is no modifier, so whether it is down is followed by hand.
-  let insert = false;
-  addEventListener("keydown", (ev) => ev.key === "Insert" && (insert = true), true);
-  addEventListener("keyup", (ev) => ev.key === "Insert" && (insert = false), true);
-  addEventListener("blur", () => (insert = false));
+  // Insert and Del are no modifiers, so whether they are down is followed
+  // by hand (trackKey, in rules.js).
+  const held = { insert: false, del: false };
+  // What the held keys ask for goes to the worker too, which applies it to
+  // any download this tab starts while they are down: a form, a script's
+  // download (heldReport, in rules.js, sends only changes and refreshes).
+  // Whether only a left click counts does not matter here: no click.
+  const report = { sent: "", time: 0 };
+  function reportHeld(ev) {
+    const action = ev
+      ? keyAction(
+          { ...keys, capture_keys_left_click: false },
+          { alt: ev.altKey, ctrl: ev.ctrlKey, shift: ev.shiftKey, insert: held.insert, del: held.del },
+        )
+      : "";
+    if (heldReport(report, action, Date.now())) chrome.runtime.sendMessage({ type: "keys:held", action }).catch(() => {});
+  }
+  // A page's script can send key events; only the user's own count.
+  addEventListener(
+    "keydown",
+    (ev) => {
+      trackKey(held, "keydown", ev.key);
+      if (ev.isTrusted) reportHeld(ev);
+    },
+    true,
+  );
+  addEventListener(
+    "keyup",
+    (ev) => {
+      trackKey(held, "keyup", ev.key);
+      if (ev.isTrusted) reportHeld(ev);
+    },
+    true,
+  );
+  // Keys let go while the page has no focus are never seen: forget them.
+  const letGo = () => {
+    trackKey(held, "blur");
+    reportHeld(null);
+  };
+  addEventListener("blur", letGo);
+  document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && letGo());
 
   function onClick(ev) {
     // A page's script can send a click with the force key "held"; only the
@@ -66,7 +122,8 @@ function makeMini(button) {
       alt: ev.altKey,
       ctrl: ev.ctrlKey,
       shift: ev.shiftKey,
-      insert,
+      insert: held.insert,
+      del: held.del,
       button: ev.button,
       // A click made with Enter has a detail of 0.
       mouse: ev.detail > 0,
@@ -89,11 +146,76 @@ function makeMini(button) {
   document.addEventListener("auxclick", onClick, true);
 })();
 
+// A form with file fields tells the service worker which they are as it is
+// sent: the browser shares a multipart form's text fields with extensions
+// but not its files, so a download the form starts is rebuilt without
+// them, or left in the browser when a file goes along (see post.js).
+if (!uidmContentAgain) document.addEventListener(
+  "submit",
+  (ev) => {
+    const form = ev.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const files = formFileFields(form.elements);
+    if (!files) return;
+    const action = (ev.submitter && ev.submitter.formAction) || form.action;
+    chrome.runtime.sendMessage({ type: "form:files", url: action, ...files }).catch(() => {});
+  },
+  true,
+);
+
+// Whether selection `sel` (this document's) holds anything "Download
+// selected links" would collect: the same extraction (collectPageLinks, in
+// links.js), so the menu and the button show just when there is something.
+function selectionHasLinks(sel) {
+  const box = document.activeElement;
+  const inBox = box && /^(TEXTAREA|INPUT)$/.test(box.tagName) && box.selectionEnd > box.selectionStart;
+  if ((!sel || sel.isCollapsed) && !inBox && !document.querySelector("iframe:not([src]), iframe[src^='about:' i], frame:not([src])")) return false;
+  return selectionHasPageLinks(document);
+}
+
+// What the context menu asks this frame: the right-clicked link's
+// `download` attribute and title (the menu only knows its address), and
+// whether the selection holds links (Firefox hides "Download selected
+// links" when not). The link is the last one right-clicked, and is only
+// described when it is the menu's link. The top frame also says what the
+// page calls itself (pageNames).
+(() => {
+  if (uidmContentAgain) return;
+  let menuLink = null;
+  document.addEventListener(
+    "contextmenu",
+    (ev) => {
+      menuLink = ev.composedPath().find((n) => (n instanceof HTMLAnchorElement || n instanceof HTMLAreaElement) && n.href) || null;
+    },
+    true,
+  );
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg && msg.type === "link:details") {
+      const a = menuLink && menuLink.href === msg.url ? menuLink : null;
+      sendResponse(
+        a
+          ? {
+              download: a.getAttribute("download") || "",
+              title: a.getAttribute("title") || "",
+              text: String(a.textContent || a.getAttribute("alt") || "").slice(0, 1000),
+            }
+          : null,
+      );
+    } else if (msg && msg.type === "selection:hasLinks") {
+      sendResponse({ links: selectionHasLinks(getSelection()) });
+    } else if (msg && msg.type === "page:names") {
+      sendResponse(pageNames());
+    }
+    return false;
+  });
+})();
+
 // The selection button: selecting text that holds links (or bare web
 // addresses) shows a small "Download with UIDM" button by the selection.
 // It opens UIDM's link picker with just those links. Whether it shows at
 // all is asked once, on the first such selection.
 (() => {
+  if (uidmContentAgain) return;
   let enabled = null;
   let view = "full";
   let host = null;
@@ -129,21 +251,9 @@ function makeMini(button) {
     if (host) host.style.display = "none";
   }
 
-  function hasLinks(sel) {
-    if (/https?:\/\/\S/.test(String(sel))) return true;
-    for (let i = 0; i < sel.rangeCount; i++) {
-      const range = sel.getRangeAt(i);
-      if (range.cloneContents().querySelector("a[href]")) return true;
-      const a = range.commonAncestorContainer;
-      const el = a.nodeType === 1 ? a : a.parentElement;
-      if (el && el.closest("a[href]")) return true;
-    }
-    return false;
-  }
-
   async function check() {
     const sel = getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount || !hasLinks(sel)) return hide();
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !selectionHasLinks(sel)) return hide();
     if (enabled === null) {
       const answer = await chrome.runtime.sendMessage({ type: "selection:enabled" }).catch(() => null);
       enabled = !!(answer && answer.enabled);
@@ -172,6 +282,7 @@ function makeMini(button) {
 })();
 
 (() => {
+  if (uidmContentAgain) return;
   // Frames too small to hold a video (trackers, widgets) are skipped.
   if (window.top !== window && innerWidth < 200) return;
 
@@ -181,11 +292,19 @@ function makeMini(button) {
   let protectedNote = true;
   let host = null;
   let ui = null;
-  let current = null; // the video the button belongs to
+  let current = null; // the player the button belongs to
   let hideTimer = 0;
   let closeTimer = 0; // closes the menu after "Sent to UIDM"
   let frame = 0;
+  // While the button shows, where it stands is looked at again now and
+  // then: a dialog may open over the player without a scroll or resize.
+  let recheck = 0;
   const encrypted = new WeakSet();
+  // Each player's number, which the worker matches the streams it saw to
+  // (see elementEntries in media.js), and when each last said it started.
+  const ids = new WeakMap();
+  let nextId = 1;
+  const startSent = new WeakMap();
 
   const ask = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);
 
@@ -213,6 +332,41 @@ function makeMini(button) {
     if (cls) node.className = cls;
     if (text != null) node.textContent = text;
     return node;
+  }
+
+  // The players the button goes on: <video> and <audio>, and an <object> or
+  // <embed> that plays media (mediaPlugin, in rules.js).
+  const isMediaElement = (t) => t instanceof HTMLVideoElement || t instanceof HTMLAudioElement;
+  function isPlayer(t) {
+    if (isMediaElement(t)) return true;
+    if (t instanceof HTMLObjectElement) return mediaPlugin(t.type, t.data);
+    if (t instanceof HTMLEmbedElement) return mediaPlugin(t.type, t.src);
+    return false;
+  }
+
+  function idOf(player) {
+    if (!ids.has(player)) ids.set(player, nextId++);
+    return ids.get(player);
+  }
+
+  // The addresses a player loads from itself (a blob: address, which MSE
+  // players use, is left to the worker to ignore).
+  function sources(player) {
+    if (player instanceof HTMLObjectElement) return [player.data];
+    if (player instanceof HTMLEmbedElement) return [player.src];
+    const out = [player.currentSrc, player.src];
+    for (const s of player.querySelectorAll("source")) out.push(s.src);
+    return out.filter(Boolean);
+  }
+
+  // Tell the worker that `player` started loading or playing, so the
+  // playlists this frame asks for from now on are taken as its own. Once a
+  // second per player is plenty.
+  function started(player) {
+    const now = Date.now();
+    if (now - (startSent.get(player) || 0) < 1000) return;
+    startSent.set(player, now);
+    chrome.runtime.sendMessage({ type: "video:started", element: idOf(player) }).catch(() => {});
   }
 
   function build() {
@@ -247,19 +401,40 @@ function makeMini(button) {
     (document.body || document.documentElement).append(host);
   }
 
-  // Keep the button at the video's top right while it is on screen.
+  // Whether the button has no business showing now, though its player is
+  // still there: the tab is in the background or its window minimized
+  // (document.hidden), something is full screen (the button cannot be over
+  // it), or the player is covered by something else on the page.
+  function outOfSight(r) {
+    if (document.hidden || document.fullscreenElement || document.webkitFullscreenElement) return true;
+    // While its menu is open the button stays: the menu itself is on top.
+    if (!ui.menu.hidden) return false;
+    const points = samplePoints(r, innerWidth, innerHeight);
+    return playerCovered(current, playerContainer(current), points, (x, y) => document.elementFromPoint(x, y), host);
+  }
+
+  // Keep the button at the player's top right while it is on screen. An
+  // audio player is short: it gets the button above it (below, at the top
+  // of the window), and needs only some width.
   function place() {
     frame = 0;
     if (!current || !current.isConnected) return hide();
     const r = current.getBoundingClientRect();
-    if (r.width < 160 || r.height < 90 || r.bottom < 0 || r.top > innerHeight) {
+    const short = current instanceof HTMLAudioElement;
+    const tooSmall = short ? r.width < 160 || r.height < 16 : r.width < 160 || r.height < 90;
+    if (tooSmall || r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth || outOfSight(r)) {
       host.style.display = "none";
       return;
     }
     host.style.display = "block";
     // The button's width depends on the language its label is in.
     host.style.left = `${Math.max(0, Math.min(r.right, innerWidth) - ui.button.offsetWidth - 20)}px`;
-    host.style.top = `${Math.max(0, r.top) + 8}px`;
+    if (short) {
+      const height = ui.button.offsetHeight || 28;
+      host.style.top = `${r.top - height - 4 >= 0 ? r.top - height - 4 : Math.max(0, r.bottom + 4)}px`;
+    } else {
+      host.style.top = `${Math.max(0, r.top) + 8}px`;
+    }
   }
 
   function schedule() {
@@ -268,13 +443,15 @@ function makeMini(button) {
 
   function hide() {
     current = null;
+    clearInterval(recheck);
+    recheck = 0;
     if (host) {
       host.style.display = "none";
       ui.menu.hidden = true;
     }
   }
 
-  async function show(video) {
+  async function show(player) {
     if (enabled === null) {
       const answer = await ask({ type: "video:enabled" });
       enabled = !!(answer && answer.enabled);
@@ -282,14 +459,15 @@ function makeMini(button) {
       if (answer && answer.protectedNote === false) protectedNote = false;
     }
     if (!enabled) return;
-    if (!protectedNote && (encrypted.has(video) || video.mediaKeys)) {
-      if (current === video) hide();
+    if (!protectedNote && (encrypted.has(player) || player.mediaKeys)) {
+      if (current === player) hide();
       return;
     }
     if (!host) build();
-    if (current !== video) ui.menu.hidden = true;
-    current = video;
+    if (current !== player) ui.menu.hidden = true;
+    current = player;
     clearTimeout(hideTimer);
+    if (!recheck) recheck = setInterval(schedule, 1000);
     place();
   }
 
@@ -317,7 +495,9 @@ function makeMini(button) {
       return;
     }
     menu.replaceChildren(el("div", "head", chrome.i18n.getMessage("lookingForVideo")));
-    const answer = await ask({ type: "video:menu" });
+    // This player's streams first: the worker lists only them when it can
+    // tell which they are, else everything the page loaded.
+    const answer = await ask({ type: "video:menu", element: idOf(current), srcs: sources(current) });
     menu.replaceChildren();
     if (!answer || !answer.connected) {
       menu.append(el("div", "note", chrome.i18n.getMessage("uidmNotConnected")));
@@ -340,13 +520,14 @@ function makeMini(button) {
       for (const o of item.options) {
         menu.append(
           option(o.label, o.size, async () => {
+            // The worker names it after the tab's top page (pageNames).
             const sent = await ask({
               type: "video:download",
               entry: item.entry,
               video: o.video,
               audio: o.audio,
               audioOnly: o.audioOnly,
-              title: document.title,
+              ...pageNames(),
             });
             const result = sent && sent.ok ? chrome.i18n.getMessage("sentToUidm") : chrome.i18n.getMessage("couldNotReachUidm");
             menu.replaceChildren(el("div", "head", result));
@@ -357,12 +538,12 @@ function makeMini(button) {
     }
   }
 
-  const isVideo = (t) => t instanceof HTMLVideoElement;
-  document.addEventListener("play", (ev) => isVideo(ev.target) && show(ev.target), true);
+  document.addEventListener("play", (ev) => isMediaElement(ev.target) && (started(ev.target), show(ev.target)), true);
+  document.addEventListener("loadstart", (ev) => isMediaElement(ev.target) && started(ev.target), true);
   document.addEventListener(
     "encrypted",
     (ev) => {
-      if (!isVideo(ev.target)) return;
+      if (!isMediaElement(ev.target)) return;
       encrypted.add(ev.target);
       if (!protectedNote && ev.target === current) hide();
     },
@@ -371,14 +552,15 @@ function makeMini(button) {
   document.addEventListener(
     "mouseover",
     (ev) => {
-      if (isVideo(ev.target) && ev.target.readyState > 0) show(ev.target);
+      const t = ev.target;
+      if (isMediaElement(t) ? t.readyState > 0 : isPlayer(t)) show(t);
     },
     true,
   );
   document.addEventListener(
     "mouseout",
     (ev) => {
-      if (ev.target !== current || ev.relatedTarget === host || !current.paused) return;
+      if (ev.target !== current || ev.relatedTarget === host || current.paused === false) return;
       clearTimeout(hideTimer);
       hideTimer = setTimeout(() => ui.menu.hidden && hide(), 2500);
     },
@@ -390,4 +572,12 @@ function makeMini(button) {
   addEventListener("scroll", schedule, true);
   addEventListener("resize", schedule);
   document.addEventListener("fullscreenchange", schedule);
+  document.addEventListener("webkitfullscreenchange", schedule);
+  document.addEventListener("visibilitychange", schedule);
+  // A single-page site moved to another page (the worker saw it): the
+  // players and their streams are the old page's.
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.type === "video:reset") hide();
+    return false;
+  });
 })();

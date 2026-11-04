@@ -1,6 +1,7 @@
 //! Proxy auto-config: which proxy a PAC script picks for a URL. WinHTTP
-//! fetches and runs the script (`WinHttpGetProxyForUrl`), from a URL or,
-//! for WPAD, from wherever the network says. Answers are cached per host
+//! fetches and runs the script (`WinHttpGetProxyForUrl`), from a URL, from
+//! a loopback address the daemon serves a script's text on, or, for WPAD,
+//! from wherever the network says. Answers are cached per host
 //! for a while, so each request does not run the script again.
 //! On macOS and Linux there is no script runner, so a script falls back
 //! to the fixed proxies.
@@ -20,6 +21,10 @@ pub enum PacSource {
     Url(String),
     /// Found by WPAD (DHCP, then DNS).
     AutoDetect,
+    /// This script's text, as a browser can be given one (Chrome's
+    /// `pacScript.data`). WinHTTP only runs scripts it fetches, so it is
+    /// served to it from this machine (see `served_script_url`).
+    Script(String),
 }
 
 /// No script could be found, fetched or run.
@@ -178,6 +183,7 @@ fn ask(source: &PacSource, url: &str) -> Result<Option<String>, NoScript> {
     }
     let script = match source {
         PacSource::Url(u) => Some(wide(u)),
+        PacSource::Script(text) => Some(wide(&served_script_url(text).ok_or(NoScript)?)),
         PacSource::AutoDetect => None,
     };
     let options = AutoProxyOptions {
@@ -207,6 +213,80 @@ fn ask(source: &PacSource, url: &str) -> Result<Option<String>, NoScript> {
         WINHTTP_ACCESS_TYPE_NO_PROXY => None,
         _ => None,
     })
+}
+
+/// The scripts served to WinHTTP, by number, and where they are served.
+struct Served {
+    addr: std::net::SocketAddr,
+    scripts: Vec<String>,
+}
+
+static SERVED: Mutex<Option<Served>> = Mutex::new(None);
+
+/// The most scripts served at once; the oldest gives way.
+const SERVED_SCRIPTS: usize = 16;
+
+/// An address on this machine where `script` can be fetched, as WinHTTP
+/// fetches a script: a small server on the loopback interface, started
+/// the first time, answers `/<n>.pac` with the n-th script it was given
+/// and nothing else. `None` when it cannot listen.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn served_script_url(script: &str) -> Option<String> {
+    let mut served = SERVED.lock().unwrap();
+    if served.is_none() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").ok()?;
+        let addr = listener.local_addr().ok()?;
+        std::thread::Builder::new()
+            .name("pac-script".into())
+            .spawn(move || {
+                for stream in listener.incoming().flatten() {
+                    serve_script(stream);
+                }
+            })
+            .ok()?;
+        *served = Some(Served { addr, scripts: Vec::new() });
+    }
+    let served = served.as_mut()?;
+    let n = match served.scripts.iter().position(|s| s == script) {
+        Some(n) => n,
+        None => {
+            if served.scripts.len() >= SERVED_SCRIPTS {
+                served.scripts.remove(0);
+            }
+            served.scripts.push(script.to_string());
+            served.scripts.len() - 1
+        }
+    };
+    Some(format!("http://{}/{n}.pac", served.addr))
+}
+
+/// Answer one request to the script server.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn serve_script(mut stream: std::net::TcpStream) {
+    use std::io::{Read, Write};
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    // The whole head, so closing does not reset the connection under an
+    // unread rest.
+    let mut head = Vec::new();
+    let mut buf = [0u8; 1024];
+    while head.len() < 8192 && !head.windows(4).any(|w| w == b"\r\n\r\n") {
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => head.extend_from_slice(&buf[..n]),
+        }
+    }
+    let request = String::from_utf8_lossy(&head);
+    let path = request.strip_prefix("GET ").and_then(|r| r.split(' ').next()).unwrap_or("");
+    let n = path.strip_prefix('/').and_then(|p| p.strip_suffix(".pac")).and_then(|n| n.parse::<usize>().ok());
+    let script = n.and_then(|n| SERVED.lock().unwrap().as_ref().and_then(|s| s.scripts.get(n).cloned()));
+    let reply = match script {
+        Some(body) => format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/x-ns-proxy-autoconfig\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        ),
+        None => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
+    };
+    let _ = stream.write_all(reply.as_bytes());
 }
 
 type Cache = HashMap<(PacSource, String), (Result<Option<String>, NoScript>, Instant)>;
@@ -259,6 +339,30 @@ mod tests {
         assert_eq!(to_proxy_url("socks=s:1080").as_deref(), Some("socks4://s:1080"));
         assert_eq!(to_proxy_url("DIRECT"), None);
         assert_eq!(to_proxy_url(""), None);
+    }
+
+    #[test]
+    fn a_script_given_as_text_is_served_on_this_machine_alone() {
+        use std::io::{Read as _, Write as _};
+        let fetch = |url: &str| {
+            let rest = url.strip_prefix("http://").unwrap();
+            let (addr, path) = rest.split_once('/').unwrap();
+            let mut s = std::net::TcpStream::connect(addr).unwrap();
+            write!(s, "GET /{path} HTTP/1.1\r\nHost: {addr}\r\n\r\n").unwrap();
+            let mut out = String::new();
+            s.read_to_string(&mut out).unwrap();
+            out
+        };
+        let a = served_script_url("function FindProxyForURL(u, h) { return \"DIRECT\"; }").unwrap();
+        assert!(a.starts_with("http://127.0.0.1:"), "{a}");
+        let b = served_script_url("function FindProxyForURL(u, h) { return \"PROXY p:1\"; }").unwrap();
+        assert_ne!(a, b);
+        assert_eq!(served_script_url("function FindProxyForURL(u, h) { return \"DIRECT\"; }").unwrap(), a, "the same script, the same address");
+        let got = fetch(&a);
+        assert!(got.starts_with("HTTP/1.1 200") && got.ends_with("return \"DIRECT\"; }"), "{got}");
+        assert!(got.contains("application/x-ns-proxy-autoconfig"));
+        let missing = format!("{}/99.pac", a.rsplit_once('/').unwrap().0);
+        assert!(fetch(&missing).starts_with("HTTP/1.1 404"));
     }
 
     /// WinHTTP runs the script; elsewhere there is nothing to run it.

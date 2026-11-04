@@ -12,6 +12,11 @@
 //! With several ranges every combination is produced, the first range
 //! changing slowest. Brackets that are not a range, such as an IPv6 host, are
 //! kept as they are.
+//!
+//! IDM's own form is also understood (see [`expand_asterisk`]): one `*` in the
+//! address, replaced by numbers or letters from From to To, with numbers
+//! padded with zeros to a chosen wildcard size. People moving from IDM type
+//! addresses this way, so the same list comes out for the same settings.
 
 /// The most URLs one batch may produce, so a mistyped pattern cannot add a
 /// million downloads.
@@ -153,6 +158,82 @@ pub fn expand(pattern: &str) -> Result<Vec<String>, String> {
         urls.push(pieces.concat());
     }
     Ok(urls)
+}
+
+/// What the `*` in an IDM-style address is replaced with, as in IDM's
+/// "Replace asterisk to" choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wildcard {
+    /// Whole numbers from From to To, padded to the wildcard size.
+    Numbers,
+    /// Single letters from From to To, in the case they are typed.
+    Letters,
+}
+
+/// The widest wildcard size accepted: the digits of the biggest number.
+pub const MAX_WILDCARD_SIZE: usize = 20;
+
+/// Every URL an IDM-style batch address makes: the one `*` in `address`
+/// replaced by each number or letter from `from` to `to`. Numbers are
+/// left-padded with zeros to `size` digits (1 means no padding, IDM's
+/// default); letters ignore `size`. As in IDM, From must not be after To.
+/// Anything else in the address, brackets included, is kept as typed.
+/// Fails like [`expand`] when the address is not a web address or the list
+/// would hold more than `MAX_BATCH`.
+pub fn expand_asterisk(address: &str, kind: Wildcard, from: &str, to: &str, size: usize) -> Result<Vec<String>, String> {
+    let address = address.trim();
+    if !is_download_url(address) {
+        return Err("The address must start with http://, https:// or ftp://.".into());
+    }
+    let Some((before, after)) = address.split_once('*') else {
+        return Err("The address must have a * where the numbers or letters go.".into());
+    };
+    if after.contains('*') {
+        return Err("The address may have only one *.".into());
+    }
+    let (from, to) = (from.trim(), to.trim());
+    let part = match kind {
+        Wildcard::Numbers => {
+            let number = |s: &str, name: &str| {
+                if s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()) {
+                    return Err(format!("{name} must be a whole number."));
+                }
+                s.parse::<u64>().map_err(|_| format!("{name} is too big."))
+            };
+            let (a, b) = (number(from, "From")?, number(to, "To")?);
+            if !(1..=MAX_WILDCARD_SIZE).contains(&size) {
+                return Err(format!("The wildcard size must be from 1 to {MAX_WILDCARD_SIZE}."));
+            }
+            if a > b {
+                return Err(format!("From ({a}) must not be greater than To ({b})."));
+            }
+            Part::Numbers { from: a, to: b, step: 1, width: size }
+        }
+        Wildcard::Letters => {
+            let letter = |s: &str, name: &str| {
+                let mut chars = s.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) if c.is_ascii_alphabetic() => Ok(c),
+                    _ => Err(format!("{name} must be one letter, a to z.")),
+                }
+            };
+            let (a, b) = (letter(from, "From")?, letter(to, "To")?);
+            if a.is_ascii_lowercase() != b.is_ascii_lowercase() {
+                return Err("From and To must be letters of the same case.".into());
+            }
+            if a > b {
+                return Err(format!("From ({a}) must not be after To ({b})."));
+            }
+            Part::Letters { from: a, to: b }
+        }
+    };
+    let total = part.count();
+    if total > MAX_BATCH as u64 {
+        return Err(format!(
+            "From {from} to {to} makes {total} addresses; at most {MAX_BATCH} can be added at once."
+        ));
+    }
+    Ok((0..total).map(|i| format!("{before}{}{after}", part.nth(i))).collect())
 }
 
 /// The URLs in a pasted list or text file, one per line: blank lines,
@@ -336,6 +417,63 @@ mod tests {
         assert!(count("http://x/[0-18446744073709551615]/[1-9]").unwrap() == u64::MAX);
         assert_eq!(expand("ftp://x/[1-2]").unwrap(), ["ftp://x/1", "ftp://x/2"]);
         assert!(expand("file://x/[1-2]").is_err());
+    }
+
+    #[test]
+    fn asterisk_numbers_match_idm() {
+        let urls = expand_asterisk("https://x.com/photo*.jpg", Wildcard::Numbers, "1", "120", 3).unwrap();
+        assert_eq!(urls.len(), 120);
+        assert_eq!(urls[0], "https://x.com/photo001.jpg");
+        assert_eq!(urls[119], "https://x.com/photo120.jpg");
+        // The same list as the bracket form.
+        assert_eq!(urls, expand("https://x.com/photo[001-120].jpg").unwrap());
+        // Size 1, IDM's default, pads nothing; a number wider than the size
+        // is kept whole.
+        assert_eq!(
+            expand_asterisk("http://x/*", Wildcard::Numbers, "8", "10", 1).unwrap(),
+            ["http://x/8", "http://x/9", "http://x/10"]
+        );
+        assert_eq!(
+            expand_asterisk("http://x/f*", Wildcard::Numbers, " 99 ", "100", 2).unwrap(),
+            ["http://x/f99", "http://x/f100"]
+        );
+        assert_eq!(expand_asterisk("http://x/*", Wildcard::Numbers, "5", "5", 4).unwrap(), ["http://x/0005"]);
+        // Brackets are kept as typed in this form.
+        assert_eq!(
+            expand_asterisk("http://x/[1-2]/*", Wildcard::Numbers, "0", "1", 1).unwrap(),
+            ["http://x/[1-2]/0", "http://x/[1-2]/1"]
+        );
+    }
+
+    #[test]
+    fn asterisk_letters_keep_case_and_ignore_size() {
+        assert_eq!(
+            expand_asterisk("http://x/*.png", Wildcard::Letters, "a", "c", 5).unwrap(),
+            ["http://x/a.png", "http://x/b.png", "http://x/c.png"]
+        );
+        assert_eq!(expand_asterisk("http://x/*", Wildcard::Letters, "Y", "Z", 1).unwrap(), ["http://x/Y", "http://x/Z"]);
+        assert!(expand_asterisk("http://x/*", Wildcard::Letters, "a", "Z", 1).is_err());
+        assert!(expand_asterisk("http://x/*", Wildcard::Letters, "ab", "c", 1).is_err());
+        assert!(expand_asterisk("http://x/*", Wildcard::Letters, "1", "3", 1).is_err());
+    }
+
+    #[test]
+    fn asterisk_mistakes_are_refused() {
+        let err = expand_asterisk("http://x/*", Wildcard::Numbers, "10", "1", 1).unwrap_err();
+        assert!(err.contains("must not be greater"), "{err}");
+        assert!(expand_asterisk("http://x/*", Wildcard::Letters, "c", "a", 1).unwrap_err().contains("after"));
+        assert!(expand_asterisk("http://x/a", Wildcard::Numbers, "1", "2", 1).is_err());
+        assert!(expand_asterisk("http://x/*/*", Wildcard::Numbers, "1", "2", 1).is_err());
+        assert!(expand_asterisk("file://x/*", Wildcard::Numbers, "1", "2", 1).is_err());
+        assert!(expand_asterisk("http://x/*", Wildcard::Numbers, "", "2", 1).is_err());
+        assert!(expand_asterisk("http://x/*", Wildcard::Numbers, "-1", "2", 1).is_err());
+        assert!(expand_asterisk("http://x/*", Wildcard::Numbers, "1", "99999999999999999999", 1).is_err());
+        assert!(expand_asterisk("http://x/*", Wildcard::Numbers, "1", "2", 0).is_err());
+        assert!(expand_asterisk("http://x/*", Wildcard::Numbers, "1", "2", MAX_WILDCARD_SIZE + 1).is_err());
+        // The batch limit holds here too.
+        assert_eq!(expand_asterisk("http://x/*", Wildcard::Numbers, "1", "10000", 1).unwrap().len(), MAX_BATCH);
+        let err = expand_asterisk("http://x/*", Wildcard::Numbers, "0", "10000", 1).unwrap_err();
+        assert!(err.contains("10001"), "{err}");
     }
 
     #[test]

@@ -51,6 +51,14 @@ pub enum Incoming {
     Grab(GrabRequest),
     /// Stop this client's crawl; `grab_done` follows with what it found.
     CancelGrab,
+    /// Ask each link's server for its type and size, a few links at a time,
+    /// for the window's link picker. Each answer comes as `link_info`, to
+    /// this client only, as it arrives. A new one stops the client's last;
+    /// `stop_probe_links` stops it.
+    ProbeLinks { request: u64, links: Vec<Download> },
+    /// Stop this client's `probe_links`: the links not asked about yet are
+    /// not.
+    StopProbeLinks,
     /// Cancel a queued or running download.
     Cancel { id: u64 },
     /// Start a failed or canceled download again; it resumes from its partial
@@ -100,6 +108,11 @@ pub enum Incoming {
         #[serde(default)]
         position: Option<usize>,
     },
+    /// Take a download out of its queue but keep it in the list. A waiting
+    /// download stays waiting, outside every queue, so no queue starts it;
+    /// it starts by hand or goes back with `move_to_queue`. A running one
+    /// keeps running.
+    RemoveFromQueue { id: u64 },
     /// Stop the countdown before sleeping or shutting down.
     CancelCountdown,
     /// Give a failed, canceled, interrupted or waiting download a new link.
@@ -166,11 +179,15 @@ pub enum Incoming {
     /// login, or (when finished) its file's name and folder.
     SetProperties { id: u64, changes: Properties },
     /// Set or clear one download's own speed limit, in bytes per second. A
-    /// running download changes speed at once.
+    /// running download changes speed at once. `remember` sets whether the
+    /// limit stays when the download is stopped and resumed; missing leaves
+    /// that as it was.
     SetSpeedLimit {
         id: u64,
         #[serde(default)]
         bytes_per_sec: Option<u64>,
+        #[serde(default)]
+        remember: Option<bool>,
     },
     /// Stop the countdown and sleep, hibernate or shut down now.
     CountdownNow,
@@ -189,6 +206,10 @@ pub enum Incoming {
 
 fn yes() -> bool {
     true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 /// The save-as dialog's answer for a `confirming` download, or the start of
@@ -274,8 +295,16 @@ pub struct Download {
     pub headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cookies: Option<String>,
+    /// The address sent as the HTTP `Referer` header: the document that
+    /// held the link, which may be a frame inside the page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub referrer: Option<String>,
+    /// The web page the download came from (the browser tab's address),
+    /// kept apart from the referrer the way IDM keeps both. It is only
+    /// shown and sorted by, never sent to the server. Missing means the
+    /// referrer is the page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
     /// Suggested filename, when the client could derive one.
@@ -327,6 +356,117 @@ pub struct Download {
     /// setting says; missing follows the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ask: Option<bool>,
+    /// The other headers the browser sent with the request, in its order,
+    /// so the server sees the same request (IDM sends them all). The daemon
+    /// keeps only the ones that are safe to repeat; see
+    /// `app::browser_request_headers`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub request_headers: Vec<(String, String)>,
+    /// The addresses the browser was redirected through before `url`,
+    /// first to last.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redirects: Vec<String>,
+    /// The size the browser's response gave (its `Content-Length`), shown
+    /// until the daemon asks the server itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// The `Content-Type` of the browser's response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /// The browser's whole proxy setting, for the "use the browser's
+    /// proxy" option. It wins over `proxy`, which only ever named a fixed
+    /// proxy and is still sent for older daemons.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_proxy: Option<BrowserProxy>,
+}
+
+/// How the browser reaches the web, as its extension reads it
+/// (`chrome.proxy.settings`, or Firefox's `browser.proxy.settings`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserProxyMode {
+    /// No proxy.
+    #[default]
+    Direct,
+    /// The fixed proxies in `http`, `https` and `socks`.
+    Fixed,
+    /// A proxy auto-config script, from `pac_url` or given in `pac_script`.
+    Pac,
+    /// The script WPAD finds on the network.
+    AutoDetect,
+    /// Whatever the system's proxy setting says.
+    System,
+}
+
+/// The browser's proxy setting.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserProxy {
+    #[serde(default)]
+    pub mode: BrowserProxyMode,
+    /// `scheme://host:port` of the proxy for `http://` addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http: Option<String>,
+    /// `scheme://host:port` of the proxy for `https://` addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub https: Option<String>,
+    /// `socks4://` or `socks5://host:port` for what has no proxy of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socks: Option<String>,
+    /// Where the auto-config script is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pac_url: Option<String>,
+    /// The auto-config script itself, when the browser was given its text
+    /// instead of an address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pac_script: Option<String>,
+    /// Hosts reached directly, as the browser lists them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bypass: Vec<String>,
+}
+
+/// The most of each thing a browser request may carry; what is past them
+/// is dropped (see `Download::limit_browser_request`). A page decides much
+/// of what the browser sends, so none of it is trusted to be small.
+pub const MAX_REQUEST_HEADERS: usize = 64;
+pub const MAX_HEADER_NAME: usize = 128;
+pub const MAX_HEADER_VALUE: usize = 8 * 1024;
+pub const MAX_REDIRECTS: usize = 20;
+pub const MAX_URL: usize = 8 * 1024;
+pub const MAX_PAC_SCRIPT: usize = 512 * 1024;
+pub const MAX_BYPASS: usize = 256;
+
+impl Download {
+    /// Drop what is too much or malformed in the request details the
+    /// browser sent: headers whose name is not a header name or whose value
+    /// could start another header, past the limits above; redirects that
+    /// are not web addresses; an overlong content type or proxy setting.
+    pub fn limit_browser_request(&mut self) {
+        let token = |n: &str| {
+            !n.is_empty()
+                && n.len() <= MAX_HEADER_NAME
+                && n.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+        };
+        let value = |v: &str| v.len() <= MAX_HEADER_VALUE && !v.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0);
+        self.request_headers.retain(|(n, v)| token(n) && value(v));
+        self.request_headers.truncate(MAX_REQUEST_HEADERS);
+        self.redirects.retain(|u| u.len() <= MAX_URL && crate::batch::is_web_url(u));
+        self.redirects.truncate(MAX_REDIRECTS);
+        if self.content_type.as_deref().is_some_and(|t| !value(t) || t.len() > 256) {
+            self.content_type = None;
+        }
+        if let Some(p) = &mut self.browser_proxy {
+            for field in [&mut p.http, &mut p.https, &mut p.socks, &mut p.pac_url] {
+                if field.as_deref().is_some_and(|a| a.len() > MAX_URL) {
+                    *field = None;
+                }
+            }
+            if p.pac_script.as_deref().is_some_and(|s| s.len() > MAX_PAC_SCRIPT) {
+                p.pac_script = None;
+            }
+            p.bypass.retain(|b| !b.trim().is_empty() && b.len() <= 256);
+            p.bypass.truncate(MAX_BYPASS);
+        }
+    }
 }
 
 /// A link on a web page, offered in the window's link picker.
@@ -380,8 +520,9 @@ pub struct Properties {
     /// A new name for a finished download's file, which is renamed on disk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
-    /// A new folder (a full path) for a finished download's file, which is
-    /// moved there.
+    /// A new folder (a full path) for the download's file. A finished file
+    /// is moved there; a stopped, unfinished download moves its partial
+    /// file and resume sidecar there and saves there from then on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
 }
@@ -490,9 +631,14 @@ pub struct DownloadEntry {
     /// address, and the save-as dialog asks what to do about it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duplicate_of: Option<u64>,
-    /// The page the download came from, for finding it in the list.
+    /// The Referer its request sends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub referrer: Option<String>,
+    /// The web page it came from, for finding it in the list. Entries saved
+    /// before it was kept apart from the referrer get the referrer here
+    /// when the history is read (see `History::load`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
     /// When it last started, in seconds since 1970.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_try: Option<u64>,
@@ -507,10 +653,15 @@ pub struct DownloadEntry {
     /// password stays in the daemon's encrypted request store.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login_user: Option<String>,
-    /// Its own speed limit in bytes per second, kept across stops, retries
-    /// and restarts.
+    /// Its own speed limit in bytes per second, kept across restarts, and
+    /// across stops and retries while `limit_remember` is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_limit: Option<u64>,
+    /// Keep `speed_limit` when the download is stopped and resumed (IDM's
+    /// "Remember on stop and resume"). On unless the user unticks it, as in
+    /// IDM; when off, resuming starts it without its own limit.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub limit_remember: bool,
     /// Where its unfinished data is, when not at `path`: a temporary folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub partial: Option<String>,
@@ -520,6 +671,43 @@ pub struct DownloadEntry {
     /// What to do once it finishes, if anything.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_done: Option<OnDone>,
+    /// What the server said about the file when it was last downloaded or
+    /// checked, so a synchronizing queue can tell whether it changed since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validator: Option<Validator>,
+}
+
+/// What a server says identifies one version of a file: its size, ETag and
+/// Last-Modified date, whichever it sends.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Validator {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+}
+
+impl Validator {
+    /// Whether the server's copy described by `now` differs from the one
+    /// this describes. Only what both sides know is compared: a different
+    /// size always means a change; an ETag on both sides then decides alone
+    /// (servers can touch a date without changing the file); without one a
+    /// different Last-Modified means a change. When nothing can be compared
+    /// the file counts as unchanged, so a server that says nothing about its
+    /// files is not downloaded again on every run.
+    pub fn changed(&self, now: &Validator) -> bool {
+        if let (Some(a), Some(b)) = (self.size, now.size) {
+            if a != b {
+                return true;
+            }
+        }
+        if let (Some(a), Some(b)) = (&self.etag, &now.etag) {
+            return a != b;
+        }
+        matches!((&self.last_modified, &now.last_modified), (Some(a), Some(b)) if a != b)
+    }
 }
 
 /// What to do once one download finishes, set from its window or
@@ -565,6 +753,9 @@ pub enum Outgoing {
         /// temporary folder).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         partial: Option<String>,
+        /// The server's size, ETag and date for the file, when it said.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        validator: Option<Validator>,
     },
     /// Periodic progress for a running download.
     Progress {
@@ -655,6 +846,19 @@ pub enum Outgoing {
     },
     /// Reply to `probe_media`.
     MediaInfo { request: u64, info: MediaInfo },
+    /// What the server said about link `index` of a `probe_links` request:
+    /// its size and `Content-Type` when it gave them, or why it could not
+    /// be asked.
+    LinkInfo {
+        request: u64,
+        index: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     /// Links from a page for the window's link picker, as `pick_links` sent
     /// them. Sent to windows only.
     PickLinks {
@@ -673,6 +877,15 @@ pub enum Outgoing {
         paused: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resumes_at: Option<u64>,
+    },
+    /// Whether the browser extension is connected now and, when it is not,
+    /// when one last was (seconds since 1970; `None` when none has since
+    /// the daemon started). Sent to windows when a window connects, and
+    /// when the first extension connects or the last one goes.
+    BrowserLink {
+        connected: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        last_seen: Option<u64>,
     },
     /// Asks the browser extension for its cookies for `url` (for a site
     /// crawl that signs in with them); it answers with `cookies`.
@@ -701,13 +914,17 @@ pub enum Outgoing {
     /// its scripts run, and answer with `rendered`.
     RenderPage { request: u64, url: String },
     /// A crawl's progress: pages read, bytes read, files kept and links to
-    /// files looked at so far.
+    /// files looked at so far, and the ids of the downloads it has added to
+    /// a queue so far (with `download_found`), so the grabber can count the
+    /// finished ones while they download.
     GrabProgress {
         pages: u64,
         bytes: u64,
         found: usize,
         #[serde(default)]
         explored: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        added: Vec<u64>,
     },
     /// A crawl ended: what it found, and why it stopped early, if it did.
     GrabDone {
@@ -717,6 +934,11 @@ pub enum Outgoing {
         explored: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stopped: Option<String>,
+        /// The login page site's cookies the crawl used, so the files the
+        /// window adds from that site carry them. Sent only to the window
+        /// that started the crawl.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        login_cookies: Option<String>,
     },
     /// Any failure the client should hear about.
     Error { message: String },
@@ -797,6 +1019,124 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    fn v(size: Option<u64>, etag: Option<&str>, date: Option<&str>) -> Validator {
+        Validator {
+            size,
+            etag: etag.map(str::to_string),
+            last_modified: date.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_browser_download_carries_its_whole_request() {
+        let json = r#"{"op":"add","url":"https://cdn.x/a.zip",
+            "request_headers":[["Accept","*/*"],["Sec-Fetch-Mode","navigate"]],
+            "redirects":["https://x/get/a"],"size":1048576,"content_type":"application/zip",
+            "browser_proxy":{"mode":"pac","pac_url":"http://wpad/proxy.pac","bypass":["<local>"]}}"#;
+        let Incoming::Add(d) = serde_json::from_str::<Incoming>(json).unwrap() else {
+            panic!("not an add");
+        };
+        assert_eq!(d.request_headers, [("Accept".to_string(), "*/*".to_string()), ("Sec-Fetch-Mode".into(), "navigate".into())]);
+        assert_eq!(d.redirects, ["https://x/get/a"]);
+        assert_eq!((d.size, d.content_type.as_deref()), (Some(1048576), Some("application/zip")));
+        let proxy = d.browser_proxy.clone().unwrap();
+        assert_eq!((proxy.mode, proxy.pac_url.as_deref(), proxy.bypass.len()), (BrowserProxyMode::Pac, Some("http://wpad/proxy.pac"), 1));
+        // Round trips, and an older add without any of it still reads.
+        let back: Download = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
+        assert_eq!(back.request_headers, d.request_headers);
+        let old: Download = serde_json::from_str(r#"{"url":"https://x/a"}"#).unwrap();
+        assert!(old.request_headers.is_empty() && old.redirects.is_empty() && old.browser_proxy.is_none());
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("request_headers") && !text.contains("browser_proxy"), "{text}");
+    }
+
+    #[test]
+    fn what_a_browser_request_may_carry_is_limited() {
+        let mut d = Download {
+            url: "https://x/a".into(),
+            request_headers: vec![
+                ("Accept".into(), "*/*".into()),
+                ("Bad Name".into(), "x".into()),
+                ("X-Split".into(), "a\r\nSet-Cookie: b".into()),
+                ("X-Long".into(), "v".repeat(MAX_HEADER_VALUE + 1)),
+            ],
+            redirects: vec!["https://x/1".into(), "javascript:alert(1)".into(), format!("https://x/{}", "a".repeat(MAX_URL))],
+            content_type: Some("a\nb".into()),
+            browser_proxy: Some(BrowserProxy {
+                pac_script: Some("x".repeat(MAX_PAC_SCRIPT + 1)),
+                bypass: vec!["".into(), "*.corp".into(), "h".repeat(300)],
+                ..BrowserProxy::default()
+            }),
+            ..Download::default()
+        };
+        d.request_headers.extend((0..100).map(|i| (format!("X-{i}"), "1".to_string())));
+        d.limit_browser_request();
+        assert_eq!(d.request_headers.len(), MAX_REQUEST_HEADERS);
+        assert_eq!(d.request_headers[0].0, "Accept");
+        assert_eq!(d.request_headers[1].0, "X-0", "the bad ones are gone");
+        assert_eq!(d.redirects, ["https://x/1"]);
+        assert_eq!(d.content_type, None);
+        let proxy = d.browser_proxy.unwrap();
+        assert_eq!((proxy.pac_script, proxy.bypass), (None, vec!["*.corp".to_string()]));
+    }
+
+    #[test]
+    fn a_server_copy_changes_by_size_etag_or_date() {
+        const MON: &str = "Mon, 02 Nov 2026 10:00:00 GMT";
+        const TUE: &str = "Tue, 03 Nov 2026 10:00:00 GMT";
+        let old = v(Some(1000), Some("\"a\""), Some(MON));
+        assert!(!old.changed(&old.clone()), "the same file");
+        assert!(old.changed(&v(Some(1001), Some("\"a\""), Some(MON))), "a new size");
+        assert!(old.changed(&v(Some(1000), Some("\"b\""), Some(MON))), "a new ETag");
+        assert!(!old.changed(&v(Some(1000), Some("\"a\""), Some(TUE))), "the ETag outranks a touched date");
+        // Without ETags the date decides.
+        let dated = v(Some(1000), None, Some(MON));
+        assert!(dated.changed(&v(Some(1000), None, Some(TUE))));
+        assert!(!dated.changed(&v(Some(1000), None, Some(MON))));
+        assert!(!dated.changed(&v(Some(1000), Some("\"a\""), None)), "nothing new to compare");
+        // A size alone (from before validators were kept) still counts.
+        assert!(v(Some(10), None, None).changed(&v(Some(20), Some("\"x\""), Some(TUE))));
+        assert!(!v(Some(10), None, None).changed(&v(Some(10), Some("\"x\""), Some(TUE))));
+        // A server that says nothing is not downloaded again every run.
+        assert!(!v(None, None, None).changed(&v(None, None, None)));
+        assert!(!v(Some(10), None, None).changed(&v(None, None, None)));
+    }
+
+    #[test]
+    fn an_entry_without_a_validator_still_loads() {
+        let e: DownloadEntry = serde_json::from_value(serde_json::json!({
+            "id": 1, "url": "https://x/a", "path": null, "total": 5, "done": 5,
+            "status": "done", "error": null, "resumable": true, "connections": 1,
+        }))
+        .unwrap();
+        assert_eq!(e.validator, None);
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(!json.contains("validator"));
+    }
+
+    #[test]
+    fn an_add_carries_its_page_apart_from_the_referrer() {
+        let raw = br#"{"op":"add","url":"https://x/a.zip","referrer":"https://x/frame","page":"https://x/article"}"#;
+        let Incoming::Add(d) = serde_json::from_slice(raw).unwrap() else {
+            panic!("not an add");
+        };
+        assert_eq!(d.referrer.as_deref(), Some("https://x/frame"));
+        assert_eq!(d.page.as_deref(), Some("https://x/article"));
+        // Older senders leave it out, and it is left out when unknown.
+        let Incoming::Add(d) = serde_json::from_slice(br#"{"op":"add","url":"https://x/a.zip"}"#).unwrap() else {
+            panic!("not an add");
+        };
+        assert_eq!(d.page, None);
+        assert!(!serde_json::to_string(&d).unwrap().contains("page"));
+        let e: DownloadEntry = serde_json::from_value(serde_json::json!({
+            "id": 1, "url": "https://x/a", "path": null, "total": 5, "done": 5,
+            "status": "done", "error": null, "resumable": true, "connections": 1,
+            "referrer": "https://x/list",
+        }))
+        .unwrap();
+        assert_eq!((e.referrer.as_deref(), e.page), (Some("https://x/list"), None));
+    }
+
     /// A frame written by `write_message` reads back with the same length.
     #[test]
     fn roundtrip_frame() {
@@ -839,6 +1179,18 @@ mod tests {
             }
             _ => panic!("expected add"),
         }
+    }
+
+    /// The link picker's probes, and an answer that knows only the size.
+    #[test]
+    fn parse_probe_links_and_link_info() {
+        let raw = br#"{"op":"probe_links","request":3,"links":[{"url":"https://x/a.zip"}]}"#;
+        match serde_json::from_slice(raw).unwrap() {
+            Incoming::ProbeLinks { request: 3, links } => assert_eq!(links[0].url, "https://x/a.zip"),
+            other => panic!("expected probe_links, got {other:?}"),
+        }
+        let info: Outgoing = serde_json::from_str(r#"{"op":"link_info","request":3,"index":0,"total":10}"#).unwrap();
+        assert!(matches!(info, Outgoing::LinkInfo { total: Some(10), content_type: None, error: None, .. }));
     }
 
     /// The save-as dialog's answer to a taken name, and a `confirm` without

@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { extensionOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed } = require("../rules.js");
+const { extensionOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed } = require("../rules.js");
 
 const RULES = {
   capture_types: ["zip", "pdf", "exe", "mp4"],
@@ -173,6 +173,20 @@ test("the force key can leave pages, pictures and scripts alone", () => {
   assert.ok(!forceLeavesLink({ capture_force_skips_pages: false }, "https://a.net/a.html"));
 });
 
+test("Insert and Del are followed while held and forgotten on blur", () => {
+  const held = { insert: false, del: false };
+  trackKey(held, "keydown", "Delete");
+  assert.deepEqual(held, { insert: false, del: true });
+  trackKey(held, "keydown", "Insert");
+  trackKey(held, "keyup", "Delete");
+  assert.deepEqual(held, { insert: true, del: false });
+  trackKey(held, "keydown", "Delete");
+  trackKey(held, "keydown", "a");
+  assert.deepEqual(held, { insert: true, del: true }, "other keys change nothing");
+  trackKey(held, "blur");
+  assert.deepEqual(held, { insert: false, del: false });
+});
+
 test("held keys skip or force capture", () => {
   const keys = { capture_skip_key: "alt", capture_force_key: "ctrl" };
   assert.equal(keyAction(keys, { alt: true }), "skip");
@@ -187,8 +201,16 @@ test("held keys skip or force capture", () => {
   assert.equal(keyAction(combos, { alt: true }), "");
   assert.equal(keyAction(combos, { ctrl: true, insert: true }), "force");
   assert.equal(keyAction(combos, { ctrl: true }), "");
-  assert.deepEqual(parseKeys("Shift+ctrl"), { alt: false, ctrl: true, shift: true, insert: false });
-  assert.deepEqual(parseKeys(undefined), { alt: false, ctrl: false, shift: false, insert: false });
+  assert.deepEqual(parseKeys("Shift+ctrl"), { alt: false, ctrl: true, shift: true, insert: false, del: false });
+  assert.deepEqual(parseKeys(undefined), { alt: false, ctrl: false, shift: false, insert: false, del: false });
+
+  // Del can force capture too, alone or with modifiers.
+  const del = { capture_skip_key: "alt", capture_force_key: "del" };
+  assert.equal(keyAction(del, { del: true }), "force");
+  assert.equal(keyAction(del, { del: true, ctrl: true }), "", "held exactly");
+  assert.equal(keyAction(del, { insert: true }), "");
+  assert.equal(keyAction({ capture_force_key: "ctrl+delete" }, { ctrl: true, del: true }), "force");
+  assert.deepEqual(parseKeys("ctrl+del"), { alt: false, ctrl: true, shift: false, insert: false, del: true });
 
   const left = { ...keys, capture_keys_left_click: true };
   assert.equal(keyAction(left, { alt: true, button: 0, mouse: true }), "skip");
@@ -216,7 +238,7 @@ test("the worker keeps a skip-key download and sends a force-key link", async ()
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/a.zip" }));
   assert.equal(w.browserCalls.length, 0, "the skip click kept it in the browser");
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/b.zip" }));
-  assert.deepEqual(w.browserCalls.map((c) => c[0]), ["cancel"], "only one download is skipped");
+  assert.deepEqual(w.browserCalls.map((c) => c[0]), ["cancel", "erase"], "only one download is skipped");
 
   const answer = await w.content({ type: "link:force", url: "https://dl.net/page.html" }, 3, "https://dl.net/");
   assert.equal(answer.ok, true);
@@ -260,6 +282,30 @@ test("all links on a page go to the window's picker with cookies", async () => {
   assert.equal(JSON.stringify(msg.links.map((l) => [l.url, l.cookies ?? null])), JSON.stringify([["https://dl.net/a.zip", "s=1"], ["https://cdn.org/b.png", null]]));
 });
 
+test("all links runs links.js in every frame first, and lists each link once", async () => {
+  const w = loadWorker();
+  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "settings", settings: { capture_types: ["zip", "abc"], capture_min_size_kb: 0, capture_excluded_sites: [] } });
+  const calls = [];
+  w.chrome.scripting = {
+    executeScript: async (o) => {
+      calls.push(o);
+      if (o.files) return [{ result: null }, { result: null }];
+      // The top frame walked into a frame made from nothing, which the
+      // browser also ran the script in.
+      return [
+        { result: [{ url: "https://dl.net/a.zip", text: "" }, { url: "ftp://files.net/b.iso", text: "B" }] },
+        { result: [{ url: "https://dl.net/a.zip#top", text: "A" }] },
+        { result: "not a list" },
+      ];
+    },
+  };
+  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-all-links", pageUrl: "https://dl.net/list" }, { id: 4 });
+  assert.equal(JSON.stringify(calls.map((o) => [o.target.allFrames, o.files || null, o.args || null])), JSON.stringify([[true, ["links.js"], null], [true, null, [false, ["zip", "abc"]]]]));
+  const msg = w.sent.find((m) => m.op === "pick_links");
+  assert.equal(JSON.stringify(msg.links), JSON.stringify([{ url: "https://dl.net/a.zip", text: "A" }, { url: "ftp://files.net/b.iso", text: "B" }]));
+});
+
 test("where the selection button shows", () => {
   assert.ok(selectionButtonAllowed(null, "https://x.net/"), "on everywhere by default");
   assert.ok(selectionButtonAllowed({ selection_button: "everywhere" }, "https://x.net/"));
@@ -281,7 +327,7 @@ test("the selection button asks for the selection's links only", async () => {
   };
   const answer = await w.content({ type: "selection:links" }, 5, "https://dl.net/list");
   assert.equal(answer.ok, true);
-  assert.equal(JSON.stringify(asked), "[true]");
+  assert.equal(JSON.stringify(asked), "[true,[]]");
   assert.equal(w.sent.at(-1).op, "pick_links");
 });
 
@@ -394,4 +440,12 @@ test("a crawl's page is rendered in a background tab and the tab is closed", asy
   assert.ok(answer.html.includes("added-by-script.pdf"));
   assert.equal(JSON.stringify(answer.popups), JSON.stringify(["https://site.net/popup.html"]));
   assert.equal(JSON.stringify(removed), "[12,11]", "the popup is closed, and the tab; another tab's window is left alone");
+});
+test("a form's file fields are named, and whether one sends a file", () => {
+  const { formFileFields } = require("../rules.js");
+  const input = (type, name, files = [], disabled = false) => ({ type, name, files, disabled });
+  assert.equal(formFileFields([input("text", "q"), input("submit", "go")]), null);
+  assert.equal(JSON.stringify(formFileFields([input("text", "q"), input("file", "doc"), input("FILE", "doc")])), '{"names":["doc"],"chosen":false}');
+  assert.equal(formFileFields([input("file", "doc", [{}])]).chosen, true);
+  assert.equal(formFileFields([input("file", "", [{}]), input("file", "x", [{}], true)]), null, "unnamed and disabled ones are not sent");
 });

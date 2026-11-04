@@ -113,11 +113,15 @@ function row(e, connected) {
 let skipNext = false;
 // The site of the tab the popup opened over, for the per-site video button.
 let tabHost = "";
+// That tab's id, for "Capture in this tab"; null until known (or when the
+// popup is opened as a page of its own).
+let tabId = null;
 if (chrome.tabs) {
   chrome.tabs
     .query({ active: true, currentWindow: true })
     .then(([tab]) => {
       tabHost = /^https?:/i.test(tab?.url || "") ? new URL(tab.url).hostname.toLowerCase() : "";
+      if (tab && Number.isInteger(tab.id) && tab.id >= 0) tabId = tab.id;
     })
     .catch(() => {});
 }
@@ -135,6 +139,11 @@ function render(state) {
     status.textContent = state.lastError ? t("statusNotConnectedReason", state.lastError) : t("statusNotConnected");
   }
   $("capture").checked = state.capture;
+  // The toolbar button's switch for the tab it was clicked over.
+  $("tab-row").hidden = tabId === null;
+  const tabOn = tabId === null || !(state.tabsOff || []).includes(tabId);
+  $("tab-capture").checked = tabOn;
+  $("tab-note").hidden = tabOn;
   const refresh = $("refresh");
   const waitingFor = state.items.find((e) => e.id === state.refreshWaiting);
   refresh.hidden = !waitingFor;
@@ -147,6 +156,7 @@ function render(state) {
   skip.textContent = state.skipNext ? t("dontSkip") : t("skipNextDownload");
   skip.title = state.skipNext ? t("skippingNextDownloadTitle") : t("skipNextDownloadTitle");
   $("add").disabled = !state.connected;
+  browserConnected = state.connected;
 
   const video = $("video");
   video.checked = state.videoButton;
@@ -170,6 +180,7 @@ function render(state) {
 }
 
 $("capture").addEventListener("change", (ev) => ask({ type: "setCapture", value: ev.target.checked }));
+$("tab-capture").addEventListener("change", (ev) => tabId !== null && ask({ type: "setTabCapture", tabId, value: ev.target.checked }));
 $("skip").addEventListener("click", () => ask({ type: "setSkipNext", value: !skipNext }));
 $("all-links").addEventListener("click", () => ask({ type: "allLinks" }).then(() => window.close()));
 $("refresh-cancel").addEventListener("click", () => ask({ type: "cancelRefresh" }));
@@ -177,6 +188,46 @@ $("video").addEventListener("change", (ev) => ask({ type: "setVideoButton", on: 
 $("video-site").addEventListener("change", (ev) =>
   ask({ type: "setVideoButton", site: tabHost, siteOn: ev.target.checked }),
 );
+
+// The browser's own downloads in progress, each with "Send to UIDM", which
+// cancels the browser's copy and starts it in UIDM. Chrome's downloads have
+// no context menu, so this is where a started download is handed over.
+let browserConnected = false;
+// The ones UIDM could not take, which say so while they are listed.
+const notSent = new Set();
+function renderBrowser(answer) {
+  const items = (answer && answer.items) || [];
+  $("browser").hidden = items.length === 0;
+  const list = $("browser-list");
+  list.replaceChildren();
+  for (const d of items) {
+    const li = el("li");
+    li.append(el("div", { className: "name", title: d.url }, d.filename || d.url));
+    const meta = el("div", { className: "meta" });
+    if (notSent.has(d.id)) meta.append(el("span", { className: "failed" }, t("couldNotReachUidm")));
+    meta.append(el("span", { className: "grow" }, d.total ? t("sizeProgress", [human(d.done), human(d.total)]) : human(d.done)));
+    const send = button(
+      t("sendToUidm"),
+      () => {
+        send.disabled = true;
+        chrome.runtime
+          .sendMessage({ type: "sendBrowserDownload", id: d.id })
+          .then((r) => {
+            if (!(r && r.ok)) notSent.add(d.id);
+            listBrowser();
+          })
+          .catch(() => {});
+      },
+      !browserConnected,
+    );
+    meta.append(send);
+    li.append(meta);
+    list.append(li);
+  }
+}
+function listBrowser() {
+  return chrome.runtime.sendMessage({ type: "browserDownloads" }).then(renderBrowser).catch(() => {});
+}
 
 function addFromInput() {
   const url = $("url").value.trim();
@@ -193,3 +244,5 @@ $("url").addEventListener("keydown", (ev) => {
 // fresh attempt instead of waiting out the backoff.
 ask({ type: "reconnect" });
 setInterval(() => ask({ type: "state" }), 500);
+listBrowser();
+setInterval(listBrowser, 1000);

@@ -27,12 +27,19 @@ function getMessage(name, substitutions) {
 function event() {
   const listeners = [];
   return {
-    addListener: (f) => listeners.push(f),
+    // The extra options each listener asked for, as webRequest takes them.
+    options: [],
+    addListener(f, _filter, extra) {
+      listeners.push(f);
+      this.options.push(extra || []);
+    },
     removeListener: (f) => {
       const i = listeners.indexOf(f);
       if (i >= 0) listeners.splice(i, 1);
     },
     fire: (...args) => Promise.all([...listeners].map((f) => f(...args))),
+    // What each listener returned, for a blocking webRequest event.
+    call: (...args) => [...listeners].map((f) => f(...args)),
   };
 }
 
@@ -43,8 +50,11 @@ function setBrowserProxy(value) {
 }
 
 // With `firefox`, load it the way Firefox does: the manifest's helper
-// scripts first, no importScripts, and moz-extension:// pages.
-function loadWorker({ firefox = false } = {}) {
+// scripts first, no importScripts, and moz-extension:// pages. `session` is
+// what chrome.storage.session holds when the worker starts, or false for a
+// browser without it (older Firefox). `globals` adds to the worker's globals
+// (OffscreenCanvas and the like, which Node does not have).
+function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
   const sent = [];
   const browserCalls = [];
   const port = {
@@ -56,7 +66,7 @@ function loadWorker({ firefox = false } = {}) {
     runtime: {
       id: "uidm",
       connectNative: () => port,
-      getManifest: () => ({ version: "test" }),
+      getManifest: () => ({ ...(firefox ? firefoxManifest() : chromeManifest()), version: "test" }),
       getURL: (path) => (firefox ? `moz-extension://0b1c/${path}` : `chrome-extension://uidm/${path}`),
       onMessage: event(),
       onInstalled: event(),
@@ -66,22 +76,86 @@ function loadWorker({ firefox = false } = {}) {
       // What the worker stored, in order.
       written: [],
       local: { get: async (d) => d, set: async (o) => chrome.storage.written.push(o) },
+      ...(session === false
+        ? {}
+        : {
+            session: {
+              data: { ...session },
+              get: async (d) => ({ ...d, ...chrome.storage.session.data }),
+              set: async (o) => Object.assign(chrome.storage.session.data, o),
+            },
+          }),
       onChanged: event(),
     },
     proxy: { settings: { get: async () => ({ value: proxyValue }) } },
     webRequest: {
       onBeforeRequest: event(),
       onBeforeSendHeaders: event(),
+      onSendHeaders: event(),
+      onBeforeRedirect: event(),
       onHeadersReceived: event(),
+      // Chrome's "extraHeaders" option; Firefox has none.
+      ...(firefox
+        ? {}
+        : {
+            OnSendHeadersOptions: { REQUEST_HEADERS: "requestHeaders", EXTRA_HEADERS: "extraHeaders" },
+            OnHeadersReceivedOptions: { RESPONSE_HEADERS: "responseHeaders", EXTRA_HEADERS: "extraHeaders" },
+          }),
     },
-    tabs: { onRemoved: event(), onUpdated: event(), onCreated: event(), query: async () => [] },
+    // The frames of each tab, as tests set them: tab id -> [{ frameId,
+    // parentFrameId, url }].
+    webNavigation: {
+      frames: new Map(),
+      onHistoryStateUpdated: event(),
+      getAllFrames: async ({ tabId }) => chrome.webNavigation.frames.get(tabId) || null,
+    },
+    tabs: {
+      onActivated: event(),
+      onRemoved: event(),
+      onUpdated: event(),
+      onCreated: event(),
+      query: async () => [],
+      // The tabs get() finds, by id, and the ids remove() closed.
+      known: new Map(),
+      removed: [],
+      get: async (id) => {
+        if (!chrome.tabs.known.has(id)) throw new Error("no such tab");
+        return chrome.tabs.known.get(id);
+      },
+      remove: async (id) => {
+        chrome.tabs.removed.push(id);
+      },
+      // Messages to content scripts as [tabId, msg, options]; `reply`, when
+      // a test sets it, answers them as the frame's content script would.
+      messages: [],
+      reply: null,
+      sendMessage: async (tabId, msg, options) => {
+        chrome.tabs.messages.push([tabId, msg, options]);
+        return chrome.tabs.reply ? chrome.tabs.reply(msg, options) : undefined;
+      },
+    },
     downloads: {
       onCreated: event(),
+      // The browser's download list, which search() looks in.
+      items: [],
+      search: async (q) =>
+        chrome.downloads.items.filter((d) => (q.id === undefined || d.id === q.id) && (q.state === undefined || d.state === q.state)),
       cancel: async (id) => browserCalls.push(["cancel", id]),
-      erase: async () => {},
+      erase: async (q) => browserCalls.push(["erase", q.id]),
       download: async (o) => browserCalls.push(["download", o.url, o]),
+      // Chrome's download bubble: each setUiOptions call's `enabled`.
+      ...(firefox ? {} : { ui: [], setUiOptions: async (o) => chrome.downloads.ui.push(o.enabled) }),
     },
-    cookies: { getAll: async () => [] },
+    // The cookie queries made, and the browser's cookie stores.
+    cookies: {
+      queries: [],
+      stores: [{ id: "0", tabIds: [] }],
+      getAll: async (q) => {
+        chrome.cookies.queries.push(q);
+        return [];
+      },
+      getAllCookieStores: async () => chrome.cookies.stores,
+    },
     contextMenus: {
       // The menu as built: id -> its options.
       items: new Map(),
@@ -103,8 +177,16 @@ function loadWorker({ firefox = false } = {}) {
         if (cb) cb();
       },
       onClicked: event(),
+      // Firefox's menus.onShown, onHidden and refresh; Chrome has none.
+      ...(firefox ? { onShown: event(), onHidden: event(), refreshed: 0, refresh: () => chrome.contextMenus.refreshed++ } : {}),
     },
-    action: { setBadgeText: () => {}, setBadgeBackgroundColor: () => {} },
+    // The toolbar button: each setBadgeText and setIcon call, in order.
+    action: {
+      calls: [],
+      setBadgeText: (o) => void chrome.action.calls.push(["badge", o]),
+      setBadgeBackgroundColor: () => {},
+      setIcon: (o) => void chrome.action.calls.push(["icon", o]),
+    },
     notifications: {
       shown: [],
       // Firefox's notices take no buttons.
@@ -128,6 +210,7 @@ function loadWorker({ firefox = false } = {}) {
     URL,
     TextEncoder,
     btoa,
+    ...globals,
   });
   const run = (file) => vm.runInContext(fs.readFileSync(path.join(dir, file), "utf8"), context);
   if (firefox) {
@@ -139,10 +222,18 @@ function loadWorker({ firefox = false } = {}) {
   const popupUrl = chrome.runtime.getURL("popup.html");
   const popup = (msg) =>
     new Promise((resolve) => chrome.runtime.onMessage.fire(msg, { id: "uidm", url: popupUrl }, resolve));
-  // A message from the content script in tab `tabId`, on page `url`.
-  const content = (msg, tabId, url = "https://site.net/watch") =>
-    new Promise((resolve) => chrome.runtime.onMessage.fire(msg, { id: "uidm", tab: { id: tabId, url }, url }, resolve));
+  // A message from the content script in tab `tabId`, on page `url`, from
+  // its frame at `frameUrl` (the page itself unless given).
+  // `incognito` makes the tab a private window's.
+  const content = (msg, tabId, url = "https://site.net/watch", frameUrl = url, incognito = false) =>
+    new Promise((resolve) =>
+      chrome.runtime.onMessage.fire(msg, { id: "uidm", tab: { id: tabId, url, incognito }, url: frameUrl }, resolve),
+    );
   return { port, sent, browserCalls, chrome, popup, content };
+}
+
+function chromeManifest() {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"));
 }
 
 // manifest.json as installer\make-firefox.ps1 changes it for Firefox: each

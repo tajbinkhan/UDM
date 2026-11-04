@@ -5,7 +5,10 @@
 //! so. The size comes from `SIZE`, the date from `MDTM`, and resuming and
 //! parallel connections start each range with `REST`. Through an FTP proxy,
 //! the control connection goes to the proxy, logs in to it first when it has
-//! a login of its own, then logs in as `user@host`.
+//! a login of its own, then logs in as `user@host`. Through a SOCKS proxy,
+//! both the control and the data connections are tunnelled with SOCKS
+//! CONNECT; data then always uses passive mode, since the server could not
+//! reach UIDM behind the proxy.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
@@ -37,6 +40,9 @@ pub struct FtpOptions {
     pub proxy: Option<String>,
     /// The proxy's own login, if it wants one.
     pub proxy_login: net::ProxyLogin,
+    /// A SOCKS proxy to tunnel every connection through, when there is no
+    /// FTP proxy.
+    pub socks: Option<net::SocksProxy>,
 }
 
 /// A logged-in control connection.
@@ -44,6 +50,9 @@ struct Control {
     reader: BufReader<TcpStream>,
     stream: TcpStream,
     host: String,
+    /// The SOCKS proxy the connections go through, with the server's host
+    /// as the URL names it, for the data connections.
+    socks: Option<(net::SocksProxy, String)>,
 }
 
 fn io(e: std::io::Error) -> EngineError {
@@ -67,6 +76,7 @@ impl Control {
         let host = parsed.host_str().ok_or_else(|| EngineError::Protocol(format!("no host in {url}")))?.to_string();
         let port = parsed.port().unwrap_or(21);
         // Through a proxy, the login names the server to reach.
+        let socks = opts.socks.clone().filter(|_| opts.proxy.is_none());
         let (addr, target) = match &opts.proxy {
             Some(proxy) => {
                 let (h, p) = proxy.rsplit_once(':').unwrap_or((proxy.as_str(), "21"));
@@ -75,6 +85,8 @@ impl Control {
                     .ok_or_else(|| EngineError::Io(format!("could not find the FTP proxy {proxy}")))?;
                 (addr, Some(if port == 21 { host.clone() } else { format!("{host}:{port}") }))
             }
+            // The SOCKS proxy finds the server; this address is not used.
+            None if socks.is_some() => (SocketAddr::from(([0, 0, 0, 0], 0)), None),
             None => {
                 let addr = (host.as_str(), port)
                     .to_socket_addrs_first()
@@ -82,13 +94,17 @@ impl Control {
                 (addr, None)
             }
         };
-        let stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(io)?;
+        let stream = match &socks {
+            Some(proxy) => proxy.connect(&host, port, CONNECT_TIMEOUT).map_err(io)?,
+            None => TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(io)?,
+        };
         stream.set_read_timeout(Some(TIMEOUT)).map_err(io)?;
         stream.set_write_timeout(Some(TIMEOUT)).map_err(io)?;
         let mut c = Control {
             reader: BufReader::new(stream.try_clone().map_err(io)?),
             stream,
             host: host.to_ascii_lowercase(),
+            socks: socks.map(|p| (p, host.clone())),
         };
         let (code, text) = c.reply()?;
         if code != 220 {
@@ -180,7 +196,7 @@ impl Control {
     /// asked for.
     fn data(&mut self, active: bool) -> Result<Data, EngineError> {
         let peer = self.stream.peer_addr().map_err(io)?;
-        if active {
+        if active && self.socks.is_none() {
             let local = self.stream.local_addr().map_err(io)?;
             let listener = TcpListener::bind(SocketAddr::new(local.ip(), 0)).map_err(io)?;
             let port = listener.local_addr().map_err(io)?.port();
@@ -207,7 +223,12 @@ impl Control {
             (code == 227).then(|| pasv_port(&text)).flatten()
         };
         let port = port.ok_or_else(|| EngineError::Protocol(format!("the FTP server gave no passive port: {text}")))?;
-        let stream = TcpStream::connect_timeout(&SocketAddr::new(peer.ip(), port), CONNECT_TIMEOUT).map_err(io)?;
+        let stream = match &self.socks {
+            // The control connection's peer is the proxy, so the data
+            // connection names the server again.
+            Some((proxy, host)) => proxy.connect(host, port, CONNECT_TIMEOUT).map_err(io)?,
+            None => TcpStream::connect_timeout(&SocketAddr::new(peer.ip(), port), CONNECT_TIMEOUT).map_err(io)?,
+        };
         Ok(Data::Connected(stream))
     }
 }
@@ -309,6 +330,7 @@ pub fn probe(url: &str, opts: &FtpOptions) -> Result<Probe, EngineError> {
         etag: None,
         last_modified,
         suggested_filename: None,
+        content_type: None,
     })
 }
 
@@ -532,6 +554,25 @@ mod tests {
             Err(EngineError::Protocol(m)) => assert!(m.contains("proxy refused"), "{m}"),
             other => panic!("expected the proxy to refuse, got {:?}", other.map(|p| p.total)),
         }
+    }
+
+    #[test]
+    fn goes_through_a_socks_proxy_for_control_and_data() {
+        let data = body(3000);
+        let s = server::start(data.clone(), None);
+        let proxy = net::socks_server::start(None);
+        let server_addr = s.url.trim_start_matches("ftp://").split('/').next().unwrap().to_string();
+        let opts = FtpOptions {
+            socks: Some(net::SocksProxy::parse(&format!("socks5://{}", proxy.addr), &net::ProxyLogin::default()).unwrap()),
+            // Active mode cannot work behind the proxy; passive is used.
+            active: true,
+            ..FtpOptions::default()
+        };
+        assert_eq!(read_all(fetch(&s.url, &opts, 1000, None).unwrap()), &data[1000..]);
+        let targets = proxy.targets.lock().unwrap().clone();
+        assert_eq!(targets.len(), 2, "control and data: {targets:?}");
+        assert_eq!(targets[0], server_addr);
+        assert!(targets[1].starts_with("127.0.0.1:") && targets[1] != server_addr, "{targets:?}");
     }
 
     #[test]

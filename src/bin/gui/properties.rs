@@ -1,6 +1,9 @@
 //! A download's Properties dialog: what it is and where it stands, and, while
-//! it is stopped, its link, referrer, description and own login. A finished
-//! download's file can be renamed or moved from here.
+//! it is stopped, its link, referrer, description and own login. The web
+//! page it came from is shown beside them; it only says where the download
+//! was found, so it is not edited. A finished download's file can be
+//! renamed or moved from here, and a stopped one's folder changed: its
+//! partial file moves along and it carries on there.
 
 use std::path::Path;
 
@@ -75,9 +78,11 @@ impl PropertiesDialog {
             description: changed(&self.description, 2),
             ..Properties::default()
         };
+        // A stopped download can move to another folder; only a finished
+        // file can be renamed.
+        p.folder = changed(&self.folder, 4);
         if done {
             p.filename = changed(&self.filename, 3);
-            p.folder = changed(&self.folder, 4);
         } else if !self.use_login && self.had_login {
             p.login = Some(DownloadLogin::default());
         } else if self.use_login && (changed(&self.username, 5).is_some() || !self.password.is_empty() || !self.had_login) {
@@ -99,7 +104,9 @@ fn is_empty(p: &Properties) -> bool {
         && p.folder.is_none()
 }
 
-fn status_text(s: Status) -> &'static str {
+/// `queued` tells a waiting download in a queue from one taken out of it,
+/// which only starts by hand.
+fn status_text(s: Status, queued: bool) -> &'static str {
     match s {
         Status::Queued => tr("Queued"),
         Status::Downloading => tr("Downloading"),
@@ -108,7 +115,8 @@ fn status_text(s: Status) -> &'static str {
         Status::Canceled => tr("Canceled"),
         Status::Interrupted => tr("Interrupted"),
         Status::Confirming => tr("Waiting for the save-as dialog"),
-        Status::Waiting => tr("Waiting in a queue"),
+        Status::Waiting if queued => tr("Waiting in a queue"),
+        Status::Waiting => tr("Waiting, in no queue"),
     }
 }
 
@@ -118,6 +126,7 @@ pub fn dialog(
     ctx: &egui::Context,
     d: &mut PropertiesDialog,
     entry: Option<&DownloadEntry>,
+    queued: bool,
     connected: bool,
     actions: &mut Vec<Action>,
 ) -> bool {
@@ -138,7 +147,7 @@ pub fn dialog(
         .show(ctx, |ui| {
             egui::Grid::new("properties_info").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 ui.weak(tr("Status"));
-                ui.label(status_text(e.status));
+                ui.label(status_text(e.status, queued));
                 ui.end_row();
                 ui.weak(tr("Type"));
                 ui.label(type_text(&display_name(e)));
@@ -149,6 +158,12 @@ pub fn dialog(
                     Some(t) => trf!("{done} of {total}", done = human_bytes(e.done), total = human_bytes(t)),
                     None => human_bytes(e.done),
                 });
+                ui.end_row();
+                ui.weak(tr("Parent web page")).on_hover_text(tr("The page the download came from"));
+                match &e.page {
+                    Some(page) => ui.add(egui::Label::new(page.as_str()).truncate()).on_hover_text(page.as_str()),
+                    None => ui.weak(tr("None")),
+                };
                 ui.end_row();
                 ui.weak(tr("Last try"));
                 ui.label(e.last_try.map(super::columns::local_date).unwrap_or_else(|| tr("Not started yet").into()));
@@ -168,7 +183,7 @@ pub fn dialog(
                     ui.label(tr("Link"));
                     ui.add(egui::TextEdit::singleline(&mut d.url).desired_width(420.0));
                     ui.end_row();
-                    ui.label(tr("Referrer")).on_hover_text(tr("The page the download came from"));
+                    ui.label(tr("Referrer")).on_hover_text(tr("The address sent as the Referer header when it downloads"));
                     ui.add(
                         egui::TextEdit::singleline(&mut d.referrer)
                             .hint_text(tr("None"))
@@ -189,9 +204,12 @@ pub fn dialog(
                     ui.end_row();
                     ui.label(tr("Folder"));
                     ui.horizontal(|ui| {
-                        ui.add_enabled(done, egui::TextEdit::singleline(&mut d.folder).desired_width(340.0))
-                            .on_disabled_hover_text(tr("A finished file can be moved"));
-                        ui.add_enabled_ui(done, |ui| browse_button(ui, tr("Move the file to"), &d.folder, &d.picked));
+                        let hint = if done { tr("Move the file to") } else { tr("Save the download in") };
+                        let field = ui.add(egui::TextEdit::singleline(&mut d.folder).desired_width(340.0));
+                        if !done {
+                            field.on_hover_text(tr("Its partial file moves there, and it carries on there"));
+                        }
+                        browse_button(ui, hint, &d.folder, &d.picked);
                     });
                     ui.end_row();
                 });
@@ -295,14 +313,17 @@ mod tests {
             note: None,
             duplicate_of: None,
             referrer: None,
+            page: None,
             last_try: None,
             description: None,
             category: None,
             login_user: Some("me".into()),
             speed_limit: None,
+            limit_remember: true,
             partial: None,
             from_browser: false,
             on_done: None,
+            validator: None,
         }
     }
 
@@ -316,6 +337,13 @@ mod tests {
         assert_eq!(p.description.as_deref(), Some("note"));
         assert_eq!(p.filename, None, "only a finished file is renamed");
         assert!(p.login.is_none(), "the login is unchanged");
+    }
+
+    #[test]
+    fn a_stopped_download_can_change_folder() {
+        let mut d = PropertiesDialog::new(&entry(Status::Interrupted));
+        d.folder = r"D:\later".into();
+        assert_eq!(d.changes(false).folder.as_deref(), Some(r"D:\later"));
     }
 
     #[test]

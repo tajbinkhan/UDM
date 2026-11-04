@@ -137,17 +137,19 @@ function downloadType(item) {
 }
 
 // A key combination as UIDM stores it ("ctrl+shift", "none") made into
-// { alt, ctrl, shift, insert }.
+// { alt, ctrl, shift, insert, del }. Del is stored "del" ("delete" also
+// reads).
+const KEY_NAMES = ["alt", "ctrl", "shift", "insert", "del"];
 function parseKeys(combo) {
-  const parts = String(combo || "none").toLowerCase().split("+").map((p) => p.trim());
+  const parts = String(combo || "none").toLowerCase().split("+").map((p) => p.trim()).map((p) => (p === "delete" ? "del" : p));
   const keys = {};
-  for (const k of ["alt", "ctrl", "shift", "insert"]) keys[k] = parts.includes(k);
+  for (const k of KEY_NAMES) keys[k] = parts.includes(k);
   return keys;
 }
 
 // What the keys held on a link click ask for, by UIDM's `capture_skip_key`
 // and `capture_force_key`: "skip", "force" or "". `keys` is the click's
-// { alt, ctrl, shift, insert, button, mouse }: `mouse` is false for a click
+// { alt, ctrl, shift, insert, del, button, mouse }: `mouse` is false for a click
 // made with Enter. A combination must be held exactly, no more and no less.
 // With `capture_keys_left_click`, only a left mouse click counts.
 function keyAction(rules, keys) {
@@ -155,12 +157,101 @@ function keyAction(rules, keys) {
   if (rules.capture_keys_left_click && !(keys.button === 0 && keys.mouse !== false)) return "";
   const held = (combo) => {
     const want = parseKeys(combo);
-    const any = want.alt || want.ctrl || want.shift || want.insert;
-    return any && ["alt", "ctrl", "shift", "insert"].every((k) => want[k] === !!keys[k]);
+    const any = KEY_NAMES.some((k) => want[k]);
+    return any && KEY_NAMES.every((k) => want[k] === !!keys[k]);
   };
   if (held(rules.capture_skip_key)) return "skip";
   if (held(rules.capture_force_key)) return "force";
   return "";
+}
+
+// Insert and Del are no modifiers, so a click does not say whether they are
+// down: the content script follows them with `trackKey` on every keydown,
+// keyup and blur of the window. `held` is { insert, del }; `type` is the
+// event's type and `key` its `key`. A blur forgets both, since the key may be
+// let go while another window has the focus.
+function trackKey(held, type, key) {
+  if (type === "blur") {
+    held.insert = false;
+    held.del = false;
+  } else if (type === "keydown" || type === "keyup") {
+    const down = type === "keydown";
+    if (key === "Insert") held.insert = down;
+    if (key === "Delete" || key === "Del") held.del = down;
+  }
+  return held;
+}
+
+// As in IDM, the skip or force keys held down count not only for a link
+// clicked meanwhile but for any download their tab starts while they are
+// down: a form sent, a script's download. The content script reports what
+// the held keys ask for ("skip", "force" or "") to the service worker when
+// it changes, and again every HELD_REFRESH_MS while a key stays down (the
+// key's own repeats). The worker forgets a report HELD_EXPIRE_MS old, so a
+// release it never heard of (a frame that went away) cannot keep the keys
+// "held" for good.
+const HELD_REFRESH_MS = 10000;
+const HELD_EXPIRE_MS = 30000;
+
+// Whether the content script sends `action` now: it differs from what it
+// last sent, or it is a held key's that is due to be refreshed. `state` is
+// { sent, time }, what was last sent and when; it is updated on a send.
+function heldReport(state, action, now) {
+  const same = action === state.sent;
+  if (same && !(action && now - state.time >= HELD_REFRESH_MS)) return false;
+  state.sent = action;
+  state.time = now;
+  return true;
+}
+
+// Whether the worker's last report for a tab, { action, time }, still holds.
+function heldApplies(entry, now) {
+  return !!entry && !!entry.action && now - entry.time >= 0 && now - entry.time <= HELD_EXPIRE_MS;
+}
+
+// The toolbar icon of a tab with capture off is UIDM's own icon in grey:
+// `data` is an ImageData's RGBA bytes, turned to their brightness in place,
+// a little lighter so the icon reads as "off".
+function greyPixels(data) {
+  for (let i = 0; i + 3 < data.length; i += 4) {
+    const y = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    data[i] = data[i + 1] = data[i + 2] = Math.min(255, Math.round(y * 0.6 + 90));
+  }
+  return data;
+}
+
+// The context menu items UIDM's settings leave out in this browser: Chrome,
+// Edge and the other Chromium browsers have `browser_menu_hidden_chromium`,
+// Firefox `browser_menu_hidden_firefox`. An older UIDM sends one
+// `browser_menu_hidden` for both.
+function hiddenMenuItems(rules, firefox) {
+  if (!rules) return [];
+  const own = firefox ? rules.browser_menu_hidden_firefox : rules.browser_menu_hidden_chromium;
+  if (Array.isArray(own)) return own;
+  return Array.isArray(rules.browser_menu_hidden) ? rules.browser_menu_hidden : [];
+}
+
+// A link's `download` attribute as a file name for UIDM: the page chose it,
+// so only its last part counts (no folders), without the characters Windows
+// forbids, and none when it is empty (a bare `download` keeps the server's).
+function linkFileName(name) {
+  const base = String(name || "")
+    .split(/[\\/]/)
+    .pop()
+    .replace(/[<>:"|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|[. ]+$/g, "")
+    .slice(0, 200);
+  return base || undefined;
+}
+
+// A link's description for UIDM's list: its title, else its text, on one
+// line and not too long; none when it has neither.
+function linkDescription(title, text) {
+  const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const description = (clean(title) || clean(text)).slice(0, 300);
+  return description || undefined;
 }
 
 // Web pages, pictures and scripts, which the force key leaves alone when
@@ -228,7 +319,83 @@ function captureDecision(rules, item) {
     : { capture: false, reason: "unknown file type" };
 }
 
+// The file fields of a form being sent, from its `elements`: { names,
+// chosen }, the names of its named file inputs and whether any has a file.
+// The service worker rebuilds a multipart form's download without them, or
+// leaves it in the browser when a file goes along (its bytes cannot be
+// read back from the request). Null for a form without file fields.
+function formFileFields(elements) {
+  const files = Array.from(elements || []).filter((e) => e && String(e.type).toLowerCase() === "file" && e.name && !e.disabled);
+  if (!files.length) return null;
+  return { names: [...new Set(files.map((e) => String(e.name)))], chosen: files.some((e) => e.files && e.files.length > 0) };
+}
+
+// The video button's side of a page (content.js), kept here as plain
+// functions the tests can call.
+
+// Media file types and playlists an <object> or <embed> may play.
+const PLUGIN_MEDIA_EXTENSIONS = new Set([
+  "mp4", "m4v", "webm", "mkv", "mov", "ogv", "avi", "wmv", "flv", "3gp",
+  "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "m3u8", "mpd", "f4m",
+]);
+
+// Whether an <object> or <embed> with type `type` at address `url` (its
+// `data` or `src`) is a media player: its type names video, audio or a
+// stream playlist, its address is a media file or playlist, or it is an
+// embedded YouTube or Vimeo player. Other plugins (PDF viewers, widgets)
+// get no video button.
+function mediaPlugin(type, url) {
+  const mime = String(type || "").split(";")[0].trim().toLowerCase();
+  if (/^(video|audio)\//.test(mime) || /mpegurl$|dash\+xml$/.test(mime)) return true;
+  if (!/^https?:\/\//i.test(String(url || ""))) return false;
+  if (PLUGIN_MEDIA_EXTENSIONS.has(extensionOf(urlPath(url)))) return true;
+  return /^https?:\/\/(?:www\.)?(?:youtube(?:-nocookie)?\.com\/(?:v|embed)\/|player\.vimeo\.com\/video\/)/i.test(url);
+}
+
+// The element that holds the player `el` with its controls and overlays:
+// its furthest ancestor (below <body>) not much bigger than it. A custom
+// player draws its controls, poster and click catcher over the video in
+// such a box, and they do not cover it.
+function playerContainer(el) {
+  const r = el.getBoundingClientRect();
+  const area = Math.max(1, r.width * r.height);
+  let box = el;
+  for (let p = el.parentElement; p && p.parentElement && !/^(body|html)$/i.test(p.tagName); p = p.parentElement) {
+    const q = p.getBoundingClientRect();
+    if (q.width * q.height > area * 1.5) break;
+    box = p;
+  }
+  return box;
+}
+
+// Points of rectangle `r` to look at for what covers it: its centre and
+// four more around it, kept inside a `width` x `height` viewport.
+function samplePoints(r, width, height) {
+  const at = (fx, fy) => [
+    Math.min(width - 1, Math.max(0, r.left + r.width * fx)),
+    Math.min(height - 1, Math.max(0, r.top + r.height * fy)),
+  ];
+  return [at(0.5, 0.5), at(0.25, 0.25), at(0.75, 0.25), at(0.25, 0.75), at(0.75, 0.75)];
+}
+
+// Whether the player `el` is covered by something else on the page (a
+// dialog, a sticky banner, another tab's panel): at every point of `points`
+// the topmost element (`hitAt(x, y)`, document.elementFromPoint) is outside
+// the player's `container` and is not one of its ancestors. UIDM's own
+// button (`ignore`) covers nothing; points where nothing is (off screen)
+// say nothing.
+function playerCovered(el, container, points, hitAt, ignore) {
+  let looked = 0;
+  for (const [x, y] of points) {
+    const hit = hitAt(x, y);
+    if (!hit || hit === ignore) continue;
+    looked++;
+    if (container.contains(hit) || hit.contains(el)) return false;
+  }
+  return looked > 0;
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed };
+  module.exports = { mediaPlugin, playerContainer, samplePoints, playerCovered, mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed, formFileFields, heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS };
 
 }

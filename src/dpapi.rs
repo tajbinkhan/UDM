@@ -136,15 +136,44 @@ mod imp {
 
     /// The user's key, made the first time.
     fn master_key() -> io::Result<[u8; 32]> {
-        let path = crate::platform::data_dir()?.join("secret.key");
+        key_at(&crate::platform::data_dir()?.join("secret.key"))
+    }
+
+    /// The key kept at `path`, made there if there is none.
+    pub(super) fn key_at(path: &std::path::Path) -> io::Result<[u8; 32]> {
+        let path = path.to_path_buf();
         if let Ok(bytes) = std::fs::read(&path) {
             return bytes.try_into().map_err(|_| bad("secret.key is damaged"));
         }
         let mut key = [0u8; 32];
         getrandom::fill(&mut key).map_err(|e| io::Error::other(format!("getrandom: {e}")))?;
-        std::fs::create_dir_all(path.parent().unwrap())?;
-        crate::platform::write_private(&path, &key)?;
-        Ok(key)
+        let dir = path.parent().unwrap();
+        std::fs::create_dir_all(dir)?;
+        // Two processes (the daemon and the window) or threads can both find
+        // no key the first time. Each writes its key whole to a file of its
+        // own and links it into place, which fails rather than replaces a
+        // key already there; the loser uses the winner's, so nothing is ever
+        // sealed with a key that is then overwritten.
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).map_err(|e| io::Error::other(format!("getrandom: {e}")))?;
+        let tmp = dir.join(format!(
+            "secret.key.{}.{:016x}",
+            std::process::id(),
+            u64::from_le_bytes(nonce)
+        ));
+        crate::platform::write_private(&tmp, &key)?;
+        let linked = std::fs::hard_link(&tmp, &path);
+        let result = match linked {
+            Ok(()) => Ok(key),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => std::fs::read(&path)
+                .and_then(|bytes| bytes.try_into().map_err(|_| bad("secret.key is damaged"))),
+            // A file system without hard links: put the key in place as
+            // before, unless another caller did meanwhile.
+            Err(_) if !path.exists() => std::fs::rename(&tmp, &path).map(|()| key),
+            Err(_) => std::fs::read(&path).and_then(|bytes| bytes.try_into().map_err(|_| bad("secret.key is damaged"))),
+        };
+        let _ = std::fs::remove_file(&tmp);
+        result
     }
 
     /// One key for encrypting and one for the tag, from the user's key.
@@ -209,6 +238,31 @@ mod tests {
         let sealed = protect(secret).unwrap();
         assert!(!sealed.windows(secret.len()).any(|w| w == secret));
         assert_eq!(unprotect(&sealed).unwrap(), secret);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_key_made_by_many_at_once_is_one_key() {
+        let dir = std::env::temp_dir().join(format!("uidm_key_race_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("secret.key");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let keys: Vec<[u8; 32]> = (0..8)
+            .map(|_| {
+                let (path, barrier) = (path.clone(), std::sync::Arc::clone(&barrier));
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    imp::key_at(&path).unwrap()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|t| t.join().unwrap())
+            .collect();
+        assert!(keys.iter().all(|k| *k == keys[0]), "every caller got the same key");
+        assert_eq!(std::fs::read(&path).unwrap(), keys[0]);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "no temporary files are left");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
