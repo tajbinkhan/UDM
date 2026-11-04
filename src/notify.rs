@@ -197,9 +197,12 @@ pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Res
 pub enum Sound {
     Done,
     Failed,
+    QueueStarted,
     QueueDone,
 }
 
+#[cfg(windows)]
+const MB_OK: u32 = 0;
 #[cfg(windows)]
 const MB_ICONHAND: u32 = 0x10;
 #[cfg(windows)]
@@ -239,6 +242,7 @@ pub fn play(sound: Sound, file: Option<&std::path::Path>) {
     let kind = match sound {
         Sound::Done => MB_ICONASTERISK,
         Sound::Failed => MB_ICONHAND,
+        Sound::QueueStarted => MB_OK,
         Sound::QueueDone => MB_ICONEXCLAMATION,
     };
     // SAFETY: no pointers; plays asynchronously.
@@ -254,12 +258,14 @@ fn system_sound(sound: Sound) -> &'static str {
     return match sound {
         Sound::Done => "/System/Library/Sounds/Glass.aiff",
         Sound::Failed => "/System/Library/Sounds/Basso.aiff",
+        Sound::QueueStarted => "/System/Library/Sounds/Pop.aiff",
         Sound::QueueDone => "/System/Library/Sounds/Hero.aiff",
     };
     #[cfg(not(target_os = "macos"))]
     return match sound {
         Sound::Done => "/usr/share/sounds/freedesktop/stereo/complete.oga",
         Sound::Failed => "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga",
+        Sound::QueueStarted => "/usr/share/sounds/freedesktop/stereo/service-login.oga",
         Sound::QueueDone => "/usr/share/sounds/freedesktop/stereo/message.oga",
     };
 }

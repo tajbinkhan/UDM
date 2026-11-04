@@ -338,26 +338,31 @@ pub enum Launch<'a> {
 }
 
 /// The commands that restart a browser: ask it to close, look whether it
-/// still runs (it does while `check`'s output holds `running`), and start
-/// it again.
+/// still runs (it does while `check`'s output holds `running`), end it with
+/// `force` if it is still there after a while, and start it again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestartPlan {
     pub close: Vec<String>,
+    pub force: Vec<String>,
     pub check: Vec<String>,
     pub running: String,
     pub launch: Vec<String>,
 }
 
 /// The restart commands on `os` for a browser running as `process`,
-/// started again by `launch`. Closing asks politely, as closing its window
-/// does, so the browser saves its tabs: `taskkill` without `/F` on Windows,
-/// AppleScript's quit on macOS, `SIGTERM` on Linux.
+/// started again by `launch`. Closing asks politely first, as closing its
+/// window does, so the browser saves its tabs: `taskkill` without `/F` on
+/// Windows, AppleScript's quit on macOS, `SIGTERM` on Linux. Chromium keeps
+/// windowless helper processes, and with "Continue running background apps"
+/// the browser itself, that a polite close leaves running, so `force` ends
+/// what is left: `taskkill /F /T` on Windows, `SIGKILL` elsewhere.
 pub fn restart_plan(os: Os, process: &str, launch: Launch) -> RestartPlan {
     let v = |args: &[&str]| args.iter().map(|a| a.to_string()).collect::<Vec<_>>();
     let file = |p: &Path| p.display().to_string();
     match os {
         Os::Windows => RestartPlan {
             close: v(&["taskkill", "/IM", process]),
+            force: v(&["taskkill", "/F", "/T", "/IM", process]),
             check: v(&["tasklist", "/FI", &format!("IMAGENAME eq {process}"), "/NH"]),
             running: process.to_lowercase(),
             launch: match launch {
@@ -377,6 +382,7 @@ pub fn restart_plan(os: Os, process: &str, launch: Launch) -> RestartPlan {
             match app {
                 Some((name, open)) => RestartPlan {
                     close: v(&["osascript", "-e", &format!("tell application \"{name}\" to quit")]),
+                    force: unix_plan(process, launch).force,
                     check: v(&["osascript", "-e", &format!("application \"{name}\" is running")]),
                     running: "true".into(),
                     launch: v(&["open", "-a", &open]),
@@ -400,6 +406,7 @@ fn unix_plan(process: &str, launch: Launch) -> RestartPlan {
     }
     RestartPlan {
         close: vec!["pkill".into(), "-TERM".into(), "-x".into(), comm.clone()],
+        force: vec!["pkill".into(), "-KILL".into(), "-x".into(), comm.clone()],
         check: vec!["pgrep".into(), "-l".into(), "-x".into(), comm.clone()],
         running: comm.to_lowercase(),
         launch: match launch {
@@ -415,8 +422,10 @@ pub fn restart_plan_for_program(program: &Path) -> RestartPlan {
     restart_plan(Os::CURRENT, &process, Launch::File(program))
 }
 
-/// How long a browser gets to close before the restart gives up.
-const CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+/// How long a browser gets to close when asked before it is ended, and how
+/// long after that before the restart gives up.
+const CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+const FORCE_WAIT: std::time::Duration = std::time::Duration::from_secs(7);
 
 fn command(argv: &[String]) -> std::process::Command {
     let mut cmd = std::process::Command::new(&argv[0]);
@@ -432,17 +441,31 @@ fn still_running(plan: &RestartPlan) -> bool {
         .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).to_lowercase().contains(&plan.running))
 }
 
-/// Carry out `plan`: close the browser if it runs, wait for it to go, and
-/// start it again. Blocks while the browser closes, so run it on a thread.
+/// Whether `plan`'s browser has gone within `wait`.
+fn closed_within(plan: &RestartPlan, wait: std::time::Duration) -> bool {
+    let until = std::time::Instant::now() + wait;
+    while still_running(plan) {
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    true
+}
+
+/// Carry out `plan`: close the browser if it runs, end what is left of it
+/// if it does not go, and start it again. Blocks while the browser closes,
+/// so run it on a thread.
 pub fn restart(plan: &RestartPlan) -> io::Result<()> {
     if still_running(plan) {
+        // A polite close fails for processes without a window, which the
+        // force step deals with, so its exit code says nothing.
         command(&plan.close).output()?;
-        let until = std::time::Instant::now() + CLOSE_WAIT;
-        while still_running(plan) {
-            if std::time::Instant::now() >= until {
+        if !closed_within(plan, CLOSE_WAIT) {
+            command(&plan.force).output()?;
+            if !closed_within(plan, FORCE_WAIT) {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "it did not close; close it yourself and start it again"));
             }
-            std::thread::sleep(std::time::Duration::from_millis(250));
         }
     }
     let mut launch = command(&plan.launch);
@@ -657,6 +680,7 @@ mod tests {
     fn a_restart_asks_the_browser_to_close_then_starts_it() {
         let win = restart_plan(Os::Windows, "chrome.exe", Launch::Named("chrome.exe"));
         assert_eq!(win.close, ["taskkill", "/IM", "chrome.exe"]);
+        assert_eq!(win.force, ["taskkill", "/F", "/T", "/IM", "chrome.exe"]);
         assert_eq!(win.check, ["tasklist", "/FI", "IMAGENAME eq chrome.exe", "/NH"]);
         assert_eq!(win.launch, ["cmd", "/C", "start", "", "chrome.exe"]);
         let file = Path::new(r"C:\Thorium\thorium.exe");
@@ -673,6 +697,7 @@ mod tests {
 
         let linux = restart_plan(Os::Linux, "chrome", Launch::Named("google-chrome"));
         assert_eq!(linux.close, ["pkill", "-TERM", "-x", "chrome"]);
+        assert_eq!(linux.force, ["pkill", "-KILL", "-x", "chrome"]);
         assert_eq!(linux.check, ["pgrep", "-l", "-x", "chrome"]);
         assert_eq!(linux.launch, ["google-chrome"]);
         // The kernel keeps 15 bytes of a process's name.

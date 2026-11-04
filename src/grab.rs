@@ -466,15 +466,17 @@ pub fn rewrite_links(html: &str, page: &Url, here: &Path, root: &Path, local: im
 /// it: lower case; `*` or `*.*` for every type; a bare extension (`jpg`
 /// from `jpg`, `.jpg` or `*.jpg`), which is how older projects saved
 /// their lists; or else a mask on the whole file name, such as
-/// `photo_*.jpg` or `*.tar.gz`. Empty for an empty entry.
+/// `photo_*.jpg` or `*.tar.gz`. A type of several parts without wildcards
+/// (`tar.gz`, `.tar.gz`) becomes the mask `*.tar.gz`, since no file is
+/// named just that. Empty for an empty entry.
 pub fn mask_entry(part: &str) -> String {
     let t = part.trim().to_lowercase();
     if t == "*" || t == "*.*" {
         return "*".to_string();
     }
     let rest = t.strip_prefix("*.").or_else(|| t.strip_prefix('.')).unwrap_or(&t);
-    if !rest.is_empty() && !rest.contains(['*', '?', '.']) {
-        return rest.to_string();
+    if !rest.is_empty() && !rest.contains(['*', '?']) {
+        return if rest.contains('.') { format!("*.{rest}") } else { rest.to_string() };
     }
     t
 }
@@ -1863,6 +1865,10 @@ Crawl-delay: 2.5
         assert_eq!(mask_entry(".pdf"), "pdf");
         assert_eq!(mask_entry("*.*"), "*");
         assert_eq!(mask_entry("Photo_*.jpg"), "photo_*.jpg");
+        for t in ["tar.gz", ".TAR.GZ", "*.tar.gz"] {
+            assert_eq!(mask_entry(t), "*.tar.gz", "{t}");
+        }
+        assert!(name_matches(&mask_entry(".tar.gz"), "src-1.0.tar.gz"));
         let masks = |m: &str| Filter { name: "x".into(), mask: m.into() }.types();
         assert_eq!(add_masks("pdf, zip", &masks("*.jpg;*.PDF;photo_*.png")), "pdf, zip, jpg, photo_*.png", "added, without repeats");
         assert_eq!(add_masks("", &masks("*.gif")), "gif");

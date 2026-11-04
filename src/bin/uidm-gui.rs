@@ -797,8 +797,8 @@ struct ConfirmDraft {
     /// The name box the queue picker's "+" opened, with its error, if open.
     new_queue: Option<(String, Option<String>)>,
     /// A queue "+" just created, to select once the daemon lists it (the
-    /// daemon picks its id).
-    pending_queue: Option<String>,
+    /// daemon picks its id), and when it was sent.
+    pending_queue: Option<(String, std::time::Instant)>,
 }
 
 /// A category added from the save-as dialog.
@@ -982,8 +982,9 @@ struct OptionsDraft {
     sound_on_failed: bool,
     sound_on_queue_done: bool,
     /// The WAV files, in `SOUND_EVENTS` order; empty for Windows' sound.
-    sound_files: [String; 3],
-    sound_picked: [Picked; 3],
+    sound_on_queue_started: bool,
+    sound_files: [String; 4],
+    sound_picked: [Picked; 4],
     scan_after_download: bool,
     scanner: Scanner,
     scanner_command: String,
@@ -1151,7 +1152,13 @@ impl OptionsDraft {
             sound_on_done: s.sound_on_done,
             sound_on_failed: s.sound_on_failed,
             sound_on_queue_done: s.sound_on_queue_done,
-            sound_files: [s.sound_done_file.clone(), s.sound_failed_file.clone(), s.sound_queue_file.clone()],
+            sound_on_queue_started: s.sound_on_queue_started,
+            sound_files: [
+                s.sound_done_file.clone(),
+                s.sound_failed_file.clone(),
+                s.sound_queue_started_file.clone(),
+                s.sound_queue_file.clone(),
+            ],
             sound_picked: Default::default(),
             scan_after_download: s.scan_after_download,
             scanner: s.scanner,
@@ -1354,10 +1361,12 @@ impl OptionsDraft {
             notify: self.notify,
             sound_on_done: self.sound_on_done,
             sound_on_failed: self.sound_on_failed,
+            sound_on_queue_started: self.sound_on_queue_started,
             sound_on_queue_done: self.sound_on_queue_done,
             sound_done_file: self.sound_files[0].trim().to_string(),
             sound_failed_file: self.sound_files[1].trim().to_string(),
-            sound_queue_file: self.sound_files[2].trim().to_string(),
+            sound_queue_started_file: self.sound_files[2].trim().to_string(),
+            sound_queue_file: self.sound_files[3].trim().to_string(),
             scan_after_download: self.scan_after_download,
             scanner: self.scanner,
             scanner_command: self.scanner_command.trim().to_string(),
@@ -1428,6 +1437,7 @@ impl OptionsDraft {
             clipboard_start: self.clipboard_start,
             video_button: self.video_button,
             video_types: self.video_types.iter().filter(|(_, on)| *on).map(|(t, _)| t.clone()).collect(),
+            video_types_hds: true,
             video_min_size_kb: self.video_min_size_kb,
             video_view: self.video_view,
             video_protected_note: self.video_protected_note,
@@ -2382,9 +2392,19 @@ impl App {
         };
         take_picked(&draft.picked, &mut draft.folder);
         // Select a queue "+" created, once the daemon lists it.
-        if let Some(id) = draft.pending_queue.as_deref().and_then(|name| queues::named(&queue_list, name)) {
-            draft.later_queue = id;
-            draft.pending_queue = None;
+        if let Some((name, sent)) = &draft.pending_queue {
+            if let Some(id) = queues::named(&queue_list, name) {
+                draft.later_queue = id;
+                draft.pending_queue = None;
+            } else if !connected || sent.elapsed() > PENDING_QUEUE_WAIT {
+                // The daemon refused it or the link dropped: open the name
+                // box again with the name, so "+" never stays stuck.
+                let name = name.clone();
+                draft.pending_queue = None;
+                draft.new_queue = Some((name, Some(tr("UIDM did not add the queue. Try again.").to_string())));
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
         }
         let waiting = rows.iter().filter(|e| e.status == Status::Confirming).count();
         // Another download with the same address, which the dialog asks
@@ -2606,7 +2626,7 @@ impl App {
                             if ui.add_enabled(connected, egui::Button::new(tr("Add"))).clicked() || (enter && connected) {
                                 match queues::new_named(name, &queue_list) {
                                     Ok(q) => {
-                                        draft.pending_queue = Some(q.name.clone());
+                                        draft.pending_queue = Some((q.name.clone(), std::time::Instant::now()));
                                         actions.push(Action::SaveQueue(q));
                                         close_new = true;
                                     }
@@ -2624,7 +2644,7 @@ impl App {
                     if close_new {
                         draft.new_queue = None;
                     }
-                    if let Some(name) = &draft.pending_queue {
+                    if let Some((name, _)) = &draft.pending_queue {
                         ui.weak(trf!("Adding the queue {name}...", name = name));
                     }
                 }
@@ -3405,6 +3425,7 @@ fn notifications_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                 let events = [
                     (Sound::Done, tr("When a download finishes"), &mut draft.sound_on_done),
                     (Sound::Failed, tr("When a download fails"), &mut draft.sound_on_failed),
+                    (Sound::QueueStarted, tr("When a queue starts"), &mut draft.sound_on_queue_started),
                     (Sound::QueueDone, tr("When a queue is done"), &mut draft.sound_on_queue_done),
                 ];
                 for (i, (sound, label, on)) in events.into_iter().enumerate() {
@@ -3886,6 +3907,10 @@ fn file_exists_label(f: FileExists) -> &'static str {
 }
 
 /// Send one request. Returns false when not connected or the write failed.
+/// How long the save-as dialog waits for the daemon to list a queue its "+"
+/// added before it gives up on it.
+const PENDING_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 fn send(writer: &Arc<Mutex<Option<TcpStream>>>, msg: &Incoming) -> bool {
     let mut guard = writer.lock().unwrap();
     let Some(stream) = guard.as_mut() else {

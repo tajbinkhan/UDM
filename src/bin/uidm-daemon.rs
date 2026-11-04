@@ -888,16 +888,23 @@ impl Daemon {
 
     /// Start a queue: its waiting downloads run in order.
     fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), String> {
-        self.hub.update_queue(id, |q| {
+        let was_running = self.hub.update_queue(id, |q| {
+            let was = q.running;
             q.running = true;
             q.started_by_schedule = scheduled_day.is_some();
             if scheduled_day.is_some() {
                 q.last_scheduled_day = scheduled_day;
                 q.last_scheduled_start = Some(queue::local_now().total());
             }
-            Ok(())
+            Ok(was)
         })?;
         self.runs.lock().unwrap().insert(id, HashSet::new());
+        if !was_running {
+            let settings = self.settings.lock().unwrap().clone();
+            if settings.sound_on_queue_started {
+                notify::play(Sound::QueueStarted, settings.sound_file(Sound::QueueStarted).as_deref());
+            }
+        }
         Ok(())
     }
 
@@ -2110,8 +2117,15 @@ impl Daemon {
             eprintln!("[uidm-daemon] could not save grabber project {}: {e}", project.name);
         }
         // Set before the queue starts, so a run that ends at once still
-        // does it.
+        // does it. A queue already running is a run someone else started,
+        // such as the user: the project's files join it, but its stop time
+        // and when-done action stay that run's own.
+        let mut owns_run = false;
         let _ = self.hub.update_queue(project.queue, |q| {
+            if q.running {
+                return Ok(());
+            }
+            owns_run = true;
             q.when_done_once = Some(project.when_done);
             q.open_when_done_once = project.open_when_done.clone();
             q.force_close_once = Some(project.force_close);
@@ -2135,13 +2149,15 @@ impl Daemon {
         let added = added + changed;
         if added == 0 {
             // Nothing to wait for: done now.
-            let _ = self.hub.update_queue(project.queue, |q| {
-                q.when_done_once = None;
-                q.open_when_done_once = None;
-                q.force_close_once = None;
-                q.stop_at_once = None;
-                Ok(())
-            });
+            if owns_run {
+                let _ = self.hub.update_queue(project.queue, |q| {
+                    q.when_done_once = None;
+                    q.open_when_done_once = None;
+                    q.force_close_once = None;
+                    q.stop_at_once = None;
+                    Ok(())
+                });
+            }
             if let Some(file) = &project.open_when_done {
                 open_after_run(file);
             }
@@ -2564,8 +2580,8 @@ impl Daemon {
         req.filename = Some(filename.to_string());
         req.file_exists = FileExists::Overwrite;
         req.temp_dir = None;
-        req.server_date = false;
-        req.server_date_created = false;
+        // The server's date stays as the settings say: the engine sets it
+        // only on a finished file, and moving that file into place keeps it.
         let shadow = self.engine.reserve_id();
         self.hub.early.lock().unwrap().insert(
             shadow,
@@ -5812,6 +5828,31 @@ mod tests {
         assert_eq!(main().stop_at_once, None, "the stop time was for that run only");
         t.wait(id, Status::Waiting);
         assert!(t.daemon.countdown.lock().unwrap().is_none(), "a stopped run does not do its when-done action");
+    }
+
+    #[test]
+    fn a_scheduled_project_leaves_a_run_the_user_started_alone() {
+        let t = setup("grab_user_run", Duplicate::NewName);
+        let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
+        let today = queue::local_now().day;
+        let mut project: grab::Project = serde_json::from_value(serde_json::json!({
+            "name": "joins",
+            "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
+            "run": "download_checked",
+            "schedule": { "start": "00:00", "stop": "01:00" },
+            "force_close": true,
+        }))
+        .unwrap();
+        project.files = vec![grab::GrabFile { url, name: "joins.bin".into(), page: String::new(), size: None, text: None }];
+        project.checked = vec![true];
+        t.daemon.start_queue(MAIN_QUEUE, None).unwrap();
+        t.daemon.run_scheduled_grab(&t.dir.join("projects"), project, today + 1);
+        let main = t.daemon.hub.queues.lock().unwrap().iter().find(|q| q.id == MAIN_QUEUE).cloned().unwrap();
+        assert!(main.running);
+        assert_eq!(main.order.len(), 1, "the project's file joined the run");
+        assert_eq!(main.stop_at_once, None, "the user's run keeps going past the project's stop time");
+        assert_eq!(main.force_close_once, None);
+        assert_eq!(main.when_done_once, None);
     }
 
     #[test]

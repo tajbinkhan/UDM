@@ -857,5 +857,9 @@
   "Which browser downloads UIDM takes, and how to keep others in the browser": "Quels téléchargements du navigateur UIDM prend, et comment en laisser d’autres au navigateur",
   "Private windows": "Fenêtres privées",
   "Capture downloads in private windows too": "Capturer aussi les téléchargements des fenêtres privées",
-  "Downloads, links and videos in private (incognito) windows go to UIDM as well. The browser must also let the extension in: in Chrome and Edge turn on \"Allow in Incognito\" in the UIDM extension's details, in Firefox \"Run in Private Windows\".": "Les téléchargements, liens et vidéos des fenêtres privées (navigation privée) vont aussi à UIDM. Le navigateur doit aussi y autoriser l’extension : dans Chrome et Edge, activez « Autoriser en mode navigation privée » dans les détails de l’extension UIDM ; dans Firefox, « Exécuter dans les fenêtres privées »."
+  "Downloads, links and videos in private (incognito) windows go to UIDM as well. The browser must also let the extension in: in Chrome and Edge turn on \"Allow in Incognito\" in the UIDM extension's details, in Firefox \"Run in Private Windows\".": "Les téléchargements, liens et vidéos des fenêtres privées (navigation privée) vont aussi à UIDM. Le navigateur doit aussi y autoriser l’extension : dans Chrome et Edge, activez « Autoriser en mode navigation privée » dans les détails de l’extension UIDM ; dans Firefox, « Exécuter dans les fenêtres privées ».",
+  "UIDM did not add the queue. Try again.": "UIDM n'a pas ajouté la file. Réessayez.",
+  "When a queue starts": "Quand une file démarre",
+  "Update all": "Tout mettre à jour",
+  "Explore the pages again with their scripts run, and add the files that finds to this list": "Explorer à nouveau les pages en exécutant leurs scripts, et ajouter à cette liste les fichiers trouvés"
 }
