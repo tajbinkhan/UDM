@@ -6,10 +6,10 @@
 ;
 ; Build it with installer\build.ps1, which builds the programs and passes the
 ; version from Cargo.toml. To call the compiler yourself:
-;   ISCC.exe /DAppVersion=0.2.0 installer\uidm.iss
+;   ISCC.exe /DAppVersion=0.2.1 installer\uidm.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.2.1"
 #endif
 #define HostName "com.uidm.host"
 ; Fixed by the public key in extension\manifest.json.
