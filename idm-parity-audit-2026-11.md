@@ -136,3 +136,30 @@ REA now decompiles through Ghidra 12.1.4. It decompiled 20,705 of IDMan.exe's 21
 | Video and audio MIME list | 22 `video/` and 9 `audio/` types in IDMan.exe. | UIDM accepts any `video/*` or `audio/*` type, a superset. |
 | 271 Statistics "Simple / Advanced" | Only the resource strings exist. No decompiled code references them. | Still undecided. |
 | Site-rule letters `GPTSDVACRHX` | Not found in IDMan.exe, IDMMsgHost.exe or IDMGCExt.crx. | Dropped. |
+
+## Helper files pass, 2026-11-04
+
+This pass covered what the earlier audits skipped: the help files (`idman.chm`, `grabber.chm`, `scheduler.chm`, decompiled with `hh.exe -decompile`), the COM type library `idmantypeinfo.tlb`, `defexclist.txt`, and the helper DLLs. REA tools used: `inspect_desktop_application` on the install folder (191 files), `inspect_native_exports` on six DLLs, and Ghidra (`open_binary`, `search_strings`, `xrefs`, `procedure_pseudo_code`) on IDMan.exe and IDMShellExt64.dll. All issues #133 to #155 were closed at the time.
+
+Filed on 2026-11-04 as #159 to #163 (milestone 24) under roadmap #164.
+
+Missing
+
+| IDM feature | Evidence | UIDM |
+|---|---|---|
+| Command line `idman /d URL [/p path] [/f name] [/q] [/h] [/n] [/a]` and `idman /s` (start the queue) | `idman.chm` Command_Line.htm | `uidm-gui` reads only `--minimized` (`uidm-gui.rs:118`). `uidm-host download <url> [dir]` runs the engine alone, outside the list and daemon (`uidm-host.rs:138`). |
+| COM API for other programs: `ICIDMLinkTransmitter2.SendLinkToIDM2(url, referer, cookies, postData, user, password, localPath, localFileName, flags)` and `SendLinksArray` | `idmantypeinfo.tlb`; IDMan.exe string "WideCharToMultiByte() has returned with error %ld in SendLinkToIDM()" | No interface a script or another program can use to add a download. The daemon IPC accepts only UIDM's own clients. |
+| Drag a finished file out of the Download complete dialog into another program, such as a media player playlist | `idman.chm` CompleteDlg.htm | No drag source anywhere in the GUI. |
+| Saving to a folder that needs administrator rights: IDM asks, then writes through an elevated COM helper (`idmfsa.dll`, "IDM Elevated FS Assistant", moniker `Elevation:Administrator!new:%s`, dialog class `CContinueElevatedFSADlg`) | `idmfsa.dll` registration script; IDMan.exe strings | `move_into_place` (`engine/mod.rs:1094`) fails with the OS error. |
+| Default list of 88 URL masks never captured (site sounds, game assets, toolbar files) | `defexclist.txt` | `capture_excluded_urls` starts empty (`settings.rs:849`). Many entries are dead sites, so this is low value. |
+
+Checked and covered or out of scope
+- `idmvconv.dll` (TS/FLV to MP4, mux to MKV/MP4): UIDM does this with ffmpeg (`engine/stream.rs`).
+- `idmmkb.dll` (keyboard and mouse hooks for force/prevent keys): UIDM's capture keys.
+- `idmindex.dll` is SQLite, used to read Firefox `cookies.sqlite`. UIDM gets cookies from the extension.
+- `idmnmcl.dll`, `IDMShellExt*.dll` (loader for the network monitor plus an icon overlay), `IEMonitor.exe`, `IDMIECC*.dll`, `downlWithIDM*.dll`, `IDMGetAll*.dll`, `idmBroker.exe`: network driver and IE integration, out of scope.
+- `oldjsproxy.dll` (PAC): `src/pac.rs`.
+- Segmented progress bar, clipboard monitor, import from a text file, quick update: covered by earlier audits.
+
+Undecided
+- `CheckFileType()` (`FUN_005ec070`) parses AVI, MP3, WAV and MPEG headers and returns a text and a flag to `FUN_005ea530`. It looks like media details for one of the dialogs, but the caller chain was not followed.

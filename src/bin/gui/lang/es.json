@@ -861,5 +861,6 @@
   "UIDM did not add the queue. Try again.": "UIDM no añadió la cola. Inténtelo de nuevo.",
   "When a queue starts": "Cuando una cola empieza",
   "Update all": "Actualizar todo",
-  "Explore the pages again with their scripts run, and add the files that finds to this list": "Explorar de nuevo las páginas ejecutando sus scripts y añadir a esta lista los archivos que se encuentren"
+  "Explore the pages again with their scripts run, and add the files that finds to this list": "Explorar de nuevo las páginas ejecutando sus scripts y añadir a esta lista los archivos que se encuentren",
+  "Could not pass the command line to UIDM: {error}": "No se pudo pasar la línea de comandos a UIDM: {error}"
 }

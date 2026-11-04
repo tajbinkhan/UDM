@@ -636,6 +636,29 @@ tests, not in a running Firefox.
   General**) is cleared; the next start shows the next tip. **About** sits
   beside **Help**, and **More > Manage queues...** opens the queues even with
   the categories panel hidden.
+- **Command line**: `uidm-gui` takes IDM's switches, so scripts and other
+  programs can start downloads:
+
+  ```
+  uidm-gui /d URL [/p folder] [/f file_name] [/a] [/n] [/q] [/h]
+  uidm-gui /s
+  ```
+
+  `/d` adds URL to the list (http, https or ftp) and shows the usual
+  download dialog; `/p` and `/f` set its folder and file name, `/a` adds it
+  to the main queue without starting it, and `/n` asks nothing (a taken name
+  gets a numbered one). `/q` exits UIDM once that download finishes, but only
+  when the call started UIDM, as in IDM. `/s` starts the main queue. `/h`
+  (hang up a dial-up connection) is accepted and does nothing. `/p`, `/f`,
+  `/a`, `/n`, `/q` and `/h` need `/d`. Each switch also works as `-d` and as
+  `--download`, `--path`, `--file`, `--add`, `--silent`, `--quit`,
+  `--hang-up` and `--start-queue`. With UIDM already open, the call hands the
+  switches to that window and exits; otherwise it starts UIDM in the tray
+  and runs them there. For example:
+
+  ```
+  uidm-gui.exe /n /d "https://example.com/files/setup.exe" /p D:\Downloads
+  ```
 - **Languages**: the window comes in English, German, Spanish and French.
   It starts in the first Windows display language it has, else English;
   **Options > General > Language** picks another. The extension follows the
@@ -951,6 +974,8 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "grab", "start": "https://example.com/docs/", "depth": 2, "same_site": true, "types": ["pdf"],
   "max_pages": 200, "max_bytes": 52428800, "delay_ms": 1000 }
 { "op": "cancel_grab" }
+{ "op": "command_line", "download": { "url": "https://...", "folder": "D:\\Downloads", "start": false },
+  "start_queue": true, "quit_after": false }
 { "op": "get_settings" }
 { "op": "set_settings", "settings": { "download_dir": null, "connections": 8, "max_concurrent": 3,
   "speed_limit_enabled": false, "speed_limit_kbps": 1024, "speed_limit_on_startup": false,
@@ -1004,8 +1029,14 @@ Daemon to clients:
 { "op": "grab_progress", "pages": 12, "bytes": 380211, "found": 31 }
 { "op": "grab_done", "files": [ { "url": "https://.../a.pdf", "name": "a.pdf", "page": "https://.../docs/" } ],
   "pages": 40, "stopped": "Stopped at the budget of 40 pages." }
+{ "op": "command_line", "window_open": true }
 { "op": "error", "message": "..." }
 ```
+
+`command_line` is what `uidm-gui` sends for its switches. With a window
+open the daemon runs it at once and answers `window_open: true`; otherwise
+it holds it for up to a minute and runs it when the next window says
+`hello`.
 
 `ack`, `downloads` and `error` go only to the client that asked, as does
 `settings` when it answers `get_settings`; everything else goes to every

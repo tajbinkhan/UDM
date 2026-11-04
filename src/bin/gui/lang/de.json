@@ -861,5 +861,6 @@
   "UIDM did not add the queue. Try again.": "UIDM hat die Warteschlange nicht hinzugefügt. Bitte erneut versuchen.",
   "When a queue starts": "Wenn eine Warteschlange startet",
   "Update all": "Alle aktualisieren",
-  "Explore the pages again with their scripts run, and add the files that finds to this list": "Die Seiten mit ausgeführten Skripten erneut durchsuchen und die dabei gefundenen Dateien dieser Liste hinzufügen"
+  "Explore the pages again with their scripts run, and add the files that finds to this list": "Die Seiten mit ausgeführten Skripten erneut durchsuchen und die dabei gefundenen Dateien dieser Liste hinzufügen",
+  "Could not pass the command line to UIDM: {error}": "Die Befehlszeile konnte nicht an UIDM übergeben werden: {error}"
 }

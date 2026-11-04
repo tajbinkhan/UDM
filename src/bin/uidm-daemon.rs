@@ -59,8 +59,8 @@ use uidm::engine::{self, Engine, Progress};
 use uidm::history::{self, History};
 use uidm::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_ADDR, DAEMON_LABEL, HOST_LABEL};
 use uidm::protocol::{
-    read_message, write_frame, Answer, Download, DownloadEntry, DownloadLogin, Incoming, OnDone, Outgoing, Properties,
-    Status, Validator,
+    read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, DownloadLogin, Incoming, OnDone, Outgoing,
+    Properties, Status, Validator,
 };
 use uidm::settings::{self, Duplicate, FileExists, Folders, Settings, SPEED_LIMIT_RANGE_KBPS};
 use uidm::notify::{self, Sound, Toast};
@@ -129,6 +129,10 @@ const KEEP_TOASTS: usize = 32;
 const ICON_PNG: &[u8] = include_bytes!("../../extension/icons/128.png");
 /// The `client` a desktop window names in its `hello`.
 const WINDOW_CLIENT: &str = "window";
+
+/// How long a command line waits for the window its `uidm-gui` opens. One
+/// older than this belonged to a window that never connected.
+const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
 /// How often the scheduler looks at the clock when nothing wakes it.
 const SCHEDULER_POLL: Duration = Duration::from_secs(5);
 /// How the site grabber names itself to servers.
@@ -562,6 +566,9 @@ struct Daemon {
     link_probes: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     /// Links from a page, held for the window that is being opened.
     picked_links: Mutex<Option<Outgoing>>,
+    /// A command line held for the window its `uidm-gui` is opening, and
+    /// when it came.
+    command_line: Mutex<Option<(CommandLine, Instant)>>,
     /// What the quota stopped (queues and downloads), while it holds them.
     quota_paused: Mutex<Option<(Vec<u64>, HashSet<u64>)>>,
     /// The nearly-reached warning was sent for the current window.
@@ -703,6 +710,7 @@ impl Daemon {
             grabs: Mutex::new(HashMap::new()),
             link_probes: Mutex::new(HashMap::new()),
             picked_links: Mutex::new(None),
+            command_line: Mutex::new(None),
             quota_paused: Mutex::new(None),
             quota_warned: AtomicBool::new(false),
             cookie_waits: Mutex::new(HashMap::new()),
@@ -1237,6 +1245,36 @@ impl Daemon {
         if let Ok(e) = cleared {
             let name = e.path.as_deref().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned());
             self.when_done(then.then, "", Some(name.as_deref().unwrap_or(&e.url)), then.force_close);
+        }
+    }
+
+    /// Do what `uidm-gui`'s command line asked. `/q` counts only when that
+    /// call opened the window (`started`), as in IDM, where it works only
+    /// for the first copy. Problems go to the windows, since the caller may
+    /// be gone.
+    fn run_command_line(self: &Arc<Self>, cmd: CommandLine, started: bool) {
+        if let Some(mut download) = cmd.download {
+            download.limit_browser_request();
+            let (id, url) = self.add(download);
+            eprintln!("[uidm-daemon] add #{id} from the command line: {url}");
+            if cmd.quit_after && started {
+                let exit = OnDone {
+                    then: WhenDone::Exit,
+                    ..OnDone::default()
+                };
+                if let Err(e) = self.set_on_done(id, Some(exit)) {
+                    eprintln!("[uidm-daemon] /q for #{id}: {e}");
+                }
+            }
+        }
+        if cmd.start_queue {
+            match self.start_queue(MAIN_QUEUE, None) {
+                Ok(()) => {
+                    eprintln!("[uidm-daemon] start the main queue from the command line");
+                    let _ = self.hub.wake.send(());
+                }
+                Err(message) => self.hub.to_windows(&Outgoing::Error { message }),
+            }
         }
     }
 
@@ -3761,6 +3799,11 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
                 if let Some(links) = daemon.picked_links.lock().unwrap().take() {
                     send(&links);
                 }
+                // The command line of the `uidm-gui` that opened this window.
+                let held = daemon.command_line.lock().unwrap().take();
+                if let Some((cmd, _)) = held.filter(|(_, at)| at.elapsed() < COMMAND_LINE_WAIT) {
+                    daemon.run_command_line(cmd, true);
+                }
             }
             send(&Outgoing::Hello {
                 name: "uidm-daemon".to_string(),
@@ -3768,6 +3811,15 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             })
         }
         Incoming::Ping => send(&Outgoing::Pong),
+        Incoming::CommandLine(cmd) => {
+            let window_open = daemon.hub.window_open();
+            if window_open {
+                daemon.run_command_line(cmd, false);
+            } else {
+                *daemon.command_line.lock().unwrap() = Some((cmd, Instant::now()));
+            }
+            send(&Outgoing::CommandLine { window_open });
+        }
         Incoming::Add(mut download) => {
             download.limit_browser_request();
             if let Err(message) = check_body(&download) {
@@ -4478,6 +4530,46 @@ mod tests {
         // The last one going is, with when.
         t.daemon.hub.client_gone(3);
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: false, last_seen: Some(s) } if *s > 1)));
+    }
+
+    #[test]
+    fn a_command_line_runs_in_the_open_window_or_waits_for_the_new_one() {
+        let t = setup("command_line", Duplicate::NewName);
+        let entry = |url: &str| t.daemon.hub.table.lock().unwrap().entries().find(|e| e.url == url).cloned();
+        let ask = |url: &str| -> (Outgoing, Receiver<Vec<u8>>) {
+            let (tx, rx) = channel();
+            let msg = format!(r#"{{"op":"command_line","download":{{"url":"{url}","start":false}},"quit_after":true}}"#);
+            dispatch(msg.as_bytes(), &t.daemon, 9, &tx);
+            let reply = rx.try_iter().filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok()).last().unwrap();
+            (reply, rx)
+        };
+
+        // A window is open: it is added now, and /q does nothing, as it was
+        // not this call that started UIDM.
+        let (reply, _) = ask("https://example.com/open.bin");
+        assert!(matches!(reply, Outgoing::CommandLine { window_open: true }));
+        let e = entry("https://example.com/open.bin").expect("added now");
+        assert_eq!(e.status, Status::Waiting, "/a only adds it");
+        assert_eq!(e.on_done, None);
+
+        // No window: it waits for the one this call opens, then has /q.
+        t.daemon.hub.windows.lock().unwrap().clear();
+        let (reply, _) = ask("https://example.com/new.bin");
+        assert!(matches!(reply, Outgoing::CommandLine { window_open: false }));
+        assert!(entry("https://example.com/new.bin").is_none(), "held for the window");
+        let (tx, _rx) = channel();
+        dispatch(br#"{"op":"hello","client":"window"}"#, &t.daemon, 1, &tx);
+        let e = entry("https://example.com/new.bin").expect("added once the window says hello");
+        assert_eq!(e.on_done.map(|o| o.then), Some(WhenDone::Exit));
+
+        // One held too long belonged to a window that never came.
+        t.daemon.hub.windows.lock().unwrap().clear();
+        ask("https://example.com/stale.bin");
+        let held = t.daemon.command_line.lock().unwrap().take().unwrap().0;
+        let old = Instant::now().checked_sub(COMMAND_LINE_WAIT + Duration::from_secs(1)).unwrap();
+        *t.daemon.command_line.lock().unwrap() = Some((held, old));
+        dispatch(br#"{"op":"hello","client":"window"}"#, &t.daemon, 1, &tx);
+        assert!(entry("https://example.com/stale.bin").is_none());
     }
 
     #[test]
