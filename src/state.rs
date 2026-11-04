@@ -119,6 +119,7 @@ impl DownloadTable {
             | Outgoing::Pong
             | Outgoing::Ack { .. }
             | Outgoing::Error { .. }
+            | Outgoing::CommandLine { .. }
             | Outgoing::Rejected { .. }
             | Outgoing::Settings { .. }
             | Outgoing::Show

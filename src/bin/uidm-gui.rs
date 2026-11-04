@@ -86,7 +86,7 @@ use uidm::app::MAX_MESSAGE_BYTES;
 use uidm::notify::Sound;
 use uidm::ipc;
 use uidm::protocol::{
-    read_message, write_frame, Answer, Download, DownloadEntry, Incoming, OnDone, Outgoing, Properties, Scan, SegmentInfo,
+    read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, Incoming, OnDone, Outgoing, Properties, Scan, SegmentInfo,
     Status,
 };
 use uidm::grab::{GrabFile, GrabRequest};
@@ -115,7 +115,22 @@ const CLIPBOARD_POLL: Duration = Duration::from_millis(700);
 const FAILED_GRACE: Duration = Duration::from_secs(1);
 
 fn main() -> eframe::Result {
-    let minimized = std::env::args().any(|a| a == "--minimized");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut minimized = args.iter().any(|a| a == "--minimized");
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let mut startup_error = None;
+    match uidm::cli::parse(&args, &cwd) {
+        Ok(None) => {}
+        Ok(Some(cmd)) => match send_command_line(cmd) {
+            // A window was open and took it; this copy has nothing to do.
+            Ok(true) => return Ok(()),
+            // It runs once this window connects; its dialogs bring the
+            // window forward.
+            Ok(false) => minimized = true,
+            Err(e) => startup_error = Some(trf!("Could not pass the command line to UIDM: {error}", error = e)),
+        },
+        Err(e) => startup_error = Some(e),
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("UIDM")
@@ -153,6 +168,9 @@ fn main() -> eframe::Result {
             // Until the settings arrive, follow Windows.
             i18n::set_language("");
             let app = App::new(&cc.egui_ctx);
+            if startup_error.is_some() {
+                app.shared.lock().unwrap().last_error = startup_error;
+            }
             menubar::init(&cc.egui_ctx);
             // Without a tray icon there would be no way back to a hidden
             // window.
@@ -162,6 +180,32 @@ fn main() -> eframe::Result {
             Ok(Box::new(app))
         }),
     )
+}
+
+/// Hand the command line to the daemon, starting it if needed. `Ok(true)`
+/// means an open window ran it; `Ok(false)` that it waits for the window
+/// this process opens.
+fn send_command_line(cmd: CommandLine) -> std::io::Result<bool> {
+    use std::io::{Error, ErrorKind};
+    let mut stream = ipc::connect_or_spawn()?;
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    let hello = Incoming::Hello {
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        client: Some("command-line".to_string()),
+    };
+    for msg in [hello, Incoming::CommandLine(cmd)] {
+        write_frame(&mut stream, &serde_json::to_vec(&msg).map_err(Error::other)?)?;
+    }
+    loop {
+        let raw = read_message(&mut stream, MAX_MESSAGE_BYTES)?
+            .ok_or_else(|| Error::new(ErrorKind::UnexpectedEof, "the daemon closed the connection"))?;
+        match serde_json::from_slice::<Outgoing>(&raw) {
+            Ok(Outgoing::CommandLine { window_open }) => return Ok(window_open),
+            // A daemon older than this window does not know the message.
+            Ok(Outgoing::Error { message }) => return Err(Error::other(message)),
+            _ => {}
+        }
+    }
 }
 
 #[derive(Clone)]

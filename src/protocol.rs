@@ -202,6 +202,26 @@ pub enum Incoming {
     /// Replace the settings. Invalid values are refused with `error`; valid
     /// ones are saved and sent to every client as `settings`.
     SetSettings { settings: Settings },
+    /// What `uidm-gui` was started with on the command line. With a window
+    /// open it runs now; otherwise it waits for the window this process is
+    /// about to open. Answered with `command_line`.
+    CommandLine(CommandLine),
+}
+
+/// IDM's command-line switches, parsed by `uidm::cli`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CommandLine {
+    /// The download `/d` names, with the folder, name and start choices of
+    /// `/p`, `/f`, `/a` and `/n`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<Download>,
+    /// `/s`: start the main queue.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub start_queue: bool,
+    /// `/q`: exit UIDM once the download finishes. Like IDM, only a call
+    /// that starts UIDM does this; one that finds it running does not.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quit_after: bool,
 }
 
 fn yes() -> bool {
@@ -945,6 +965,9 @@ pub enum Outgoing {
     /// Reply to `add` when the download was not taken, so the client can
     /// keep it: `message` says why.
     Rejected { url: String, message: String },
+    /// Reply to `command_line`: whether a window was open to run it. When
+    /// none was, the caller opens one and the command runs once it connects.
+    CommandLine { window_open: bool },
 }
 
 /// Read one framed message from `reader`.

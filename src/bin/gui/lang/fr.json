@@ -861,5 +861,6 @@
   "UIDM did not add the queue. Try again.": "UIDM n'a pas ajouté la file. Réessayez.",
   "When a queue starts": "Quand une file démarre",
   "Update all": "Tout mettre à jour",
-  "Explore the pages again with their scripts run, and add the files that finds to this list": "Explorer à nouveau les pages en exécutant leurs scripts, et ajouter à cette liste les fichiers trouvés"
+  "Explore the pages again with their scripts run, and add the files that finds to this list": "Explorer à nouveau les pages en exécutant leurs scripts, et ajouter à cette liste les fichiers trouvés",
+  "Could not pass the command line to UIDM: {error}": "Impossible de transmettre la ligne de commande à UIDM : {error}"
 }

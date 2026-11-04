@@ -31,6 +31,7 @@ pub mod app;
 pub mod autostart;
 pub mod batch;
 pub mod browsers;
+pub mod cli;
 pub mod dpapi;
 pub mod engine;
 pub mod grab;
