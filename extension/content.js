@@ -28,6 +28,10 @@ function pageNames() {
   return { title: document.title, ogTitle: meta("og:title"), siteName: meta("og:site_name") };
 }
 
+// The video button's "?": the README's part on streams and the video
+// button.
+var VIDEO_HELP = "https://github.com/tajbinkhan/uidm#streams-batches-and-the-site-grabber";
+
 // The mini view's button face: a down arrow, drawn without page text.
 function uidmArrow() {
   const ns = "http://www.w3.org/2000/svg";
@@ -369,6 +373,10 @@ function selectionHasLinks(sel) {
     chrome.runtime.sendMessage({ type: "video:started", element: idOf(player) }).catch(() => {});
   }
 
+  // Players whose button was closed with its "x"; they get none until the
+  // page loads again.
+  const closed = new WeakSet();
+
   function build() {
     host = document.createElement("div");
     host.style.cssText = "position:fixed;z-index:2147483647;top:0;left:0;display:none;";
@@ -377,18 +385,31 @@ function selectionHasLinks(sel) {
     style.textContent = `
       :host { all: initial; }
       * { box-sizing: border-box; font: 13px system-ui, sans-serif; }
-      .btn { padding: 5px 10px; border: 0; border-radius: 6px; background: rgba(37,99,235,.92); color: #fff; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
-      .btn:hover { background: #1d4ed8; }
-      .btn.mini { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 50%; }
-      .menu { position: absolute; right: 0; top: 32px; width: 300px; max-height: 340px; overflow-y: auto; padding: 6px; border-radius: 8px; background: #1f2328; color: #e6edf3; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+      .bar { display: inline-flex; align-items: center; gap: 3px; padding: 2px; border: 1px solid #7f9dc4; border-radius: 3px; background: linear-gradient(#f5f9fe, #d3e2f4); box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+      .btn, .small { border: 1px solid #6f8fba; border-radius: 2px; background: linear-gradient(#ffffff, #cddcf0); color: #0d2a52; cursor: pointer; }
+      .btn:hover, .small:hover { background: linear-gradient(#ffffff, #b4cbec); }
+      .btn { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 6px; font-weight: 600; font-size: 12px; white-space: nowrap; }
+      .play { width: 0; height: 0; border-left: 10px solid #1e9b33; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
+      .small { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; font-size: 12px; font-weight: 700; line-height: 1; }
+      .btn.mini { display: grid; place-items: center; width: 22px; padding: 0; }
+      .menu { position: absolute; right: 0; top: 30px; width: 300px; max-height: 340px; overflow-y: auto; padding: 6px; border-radius: 8px; background: #1f2328; color: #e6edf3; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
       .head { padding: 4px 6px; color: #9198a1; font-size: 12px; }
       .opt { display: flex; width: 100%; gap: 8px; padding: 6px; border: 0; border-radius: 5px; background: none; color: inherit; text-align: left; cursor: pointer; }
       .opt:hover { background: #30363d; }
       .opt .size { margin-left: auto; color: #9198a1; }
       .note { padding: 6px; color: #d29922; }
     `;
+    // IDM's look: a bar with the button, "?" for help and "x" to close it
+    // for this player.
+    const bar = el("div", "bar");
     const button = el("button", "btn", chrome.i18n.getMessage("downloadVideo"));
     if (view === "mini") makeMini(button);
+    else button.prepend(el("span", "play"));
+    const help = el("button", "small", "?");
+    help.title = chrome.i18n.getMessage("videoButtonHelp");
+    const close = el("button", "small", "×");
+    close.title = chrome.i18n.getMessage("videoButtonClose");
+    bar.append(button, help, close);
     const menu = el("div", "menu");
     menu.hidden = true;
     button.addEventListener("click", (ev) => {
@@ -396,8 +417,17 @@ function selectionHasLinks(sel) {
       if (menu.hidden) openMenu();
       else menu.hidden = true;
     });
-    root.append(style, button, menu);
-    ui = { button, menu };
+    help.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      window.open(VIDEO_HELP, "_blank", "noopener");
+    });
+    close.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      if (current) closed.add(current);
+      hide();
+    });
+    root.append(style, bar, menu);
+    ui = { bar, button, menu };
     (document.body || document.documentElement).append(host);
   }
 
@@ -428,9 +458,9 @@ function selectionHasLinks(sel) {
     }
     host.style.display = "block";
     // The button's width depends on the language its label is in.
-    host.style.left = `${Math.max(0, Math.min(r.right, innerWidth) - ui.button.offsetWidth - 20)}px`;
+    host.style.left = `${Math.max(0, Math.min(r.right, innerWidth) - ui.bar.offsetWidth - 20)}px`;
     if (short) {
-      const height = ui.button.offsetHeight || 28;
+      const height = ui.bar.offsetHeight || 28;
       host.style.top = `${r.top - height - 4 >= 0 ? r.top - height - 4 : Math.max(0, r.bottom + 4)}px`;
     } else {
       host.style.top = `${Math.max(0, r.top) + 8}px`;
@@ -458,7 +488,7 @@ function selectionHasLinks(sel) {
       if (answer && answer.view) view = answer.view;
       if (answer && answer.protectedNote === false) protectedNote = false;
     }
-    if (!enabled) return;
+    if (!enabled || closed.has(player)) return;
     if (!protectedNote && (encrypted.has(player) || player.mediaKeys)) {
       if (current === player) hide();
       return;

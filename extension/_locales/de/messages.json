@@ -172,7 +172,13 @@
     }
   },
   "downloadVideo": {
-    "message": "Video herunterladen"
+    "message": "Dieses Video herunterladen"
+  },
+  "videoButtonHelp": {
+    "message": "Hilfe zur Video-Schaltfläche"
+  },
+  "videoButtonClose": {
+    "message": "Für dieses Video schließen"
   },
   "lookingForVideo": {
     "message": "Video wird gesucht..."

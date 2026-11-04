@@ -224,8 +224,16 @@
   },
 
   "downloadVideo": {
-    "message": "Download video",
+    "message": "Download this video",
     "description": "The button the extension shows over a video playing in a web page; it opens a menu of what to download."
+  },
+  "videoButtonHelp": {
+    "message": "Help about the video button",
+    "description": "Tooltip of the video button's \"?\", which opens help about it."
+  },
+  "videoButtonClose": {
+    "message": "Close it for this video",
+    "description": "Tooltip of the video button's \"x\", which hides the button for that video until the page loads again."
   },
   "lookingForVideo": {
     "message": "Looking for the video...",
