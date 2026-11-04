@@ -1600,9 +1600,15 @@ async function injectOpenTabs() {
   for (const tab of tabs || []) {
     if (!tab || tab.id == null || tab.discarded || !isWeb(tab.url)) continue;
     try {
+      // A frame is claimed as it is checked, so two runs at once (install
+      // and first connect) do not both inject into it.
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: true },
-        func: () => globalThis.uidmContentLoaded === true,
+        func: () => {
+          if (globalThis.uidmContentLoaded === true || globalThis.uidmContentInjecting === true) return true;
+          globalThis.uidmContentInjecting = true;
+          return false;
+        },
       });
       const missing = (results || []).filter((r) => r && r.result !== true).map((r) => r.frameId);
       if (missing.length === 0) continue;

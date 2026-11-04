@@ -449,3 +449,29 @@ test("a form's file fields are named, and whether one sends a file", () => {
   assert.equal(formFileFields([input("file", "doc", [{}])]).chosen, true);
   assert.equal(formFileFields([input("file", "", [{}]), input("file", "x", [{}], true)]), null, "unnamed and disabled ones are not sent");
 });
+
+// A frame can get the content scripts twice (the manifest's and the worker's
+// injectOpenTabs), and a second copy of a top-level `const` threw "has
+// already been declared" on Gmail.
+test("the content scripts can run twice in one frame", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vm = require("node:vm");
+  const dir = path.join(__dirname, "..");
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
+  const files = manifest.content_scripts.flatMap((c) => c.js);
+  assert.ok(files.includes("rules.js"));
+  for (const file of files) {
+    const source = fs.readFileSync(path.join(dir, file), "utf8");
+    const top = source.split("\n").filter((line) => /^(const|let|class)\s/.test(line));
+    assert.deepEqual(top, [], `${file} declares names a second copy cannot`);
+  }
+  // The files that need no page run twice for real.
+  const world = vm.createContext({ globalThis: undefined });
+  world.globalThis = world;
+  for (const file of ["rules.js", "links.js"]) {
+    const script = new vm.Script(fs.readFileSync(path.join(dir, file), "utf8"), { filename: file });
+    script.runInContext(world);
+    assert.doesNotThrow(() => script.runInContext(world), `${file} the second time`);
+  }
+});
