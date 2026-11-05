@@ -77,9 +77,10 @@ files or as separate video and audio files.
 Videos on YouTube, Facebook, Instagram and Vimeo pages need
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) as well:
 `winget install yt-dlp.yt-dlp` installs it with ffmpeg and Deno, which
-yt-dlp uses to read YouTube's player. UIDM finds `yt-dlp.exe` on `PATH`, next
-to UIDM's programs or next to ffmpeg. Restart UIDM after installing it, so
-it sees the new `PATH`.
+yt-dlp uses to read YouTube's player. Setup offers to run that command for
+you when winget is there and yt-dlp is not. UIDM finds `yt-dlp.exe` on
+`PATH`, next to UIDM's programs or next to ffmpeg. Restart UIDM after
+installing it yourself, so it sees the new `PATH`.
 
 To remove UIDM, uninstall it from **Installed apps**. That closes UIDM if it
 is running, removes the program, its browser registration, shortcuts, the

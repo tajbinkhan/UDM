@@ -57,6 +57,9 @@ CloseApplications=no
 
 [Tasks]
 Name: desktopicon; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; Shown only when winget is there and yt-dlp is not. winget installs yt-dlp
+; with FFmpeg and Deno, which it depends on.
+Name: videotools; Description: "Install yt-dlp, FFmpeg and Deno with winget, for YouTube and other video sites (downloads them now)"; GroupDescription: "Video tools:"; Check: CanInstallVideoTools
 
 [Files]
 Source: "{#Root}\target\release\uidm-host.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -187,6 +190,91 @@ begin
   Result := ExpandConstant('{param:fromuidm|no}') = 'yes';
 end;
 
+function SetEnvironmentVariable(Name, Value: String): BOOL;
+  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
+function ExpandEnvironmentStrings(Src: String; Dst: String; Size: DWORD): DWORD;
+  external 'ExpandEnvironmentStringsW@kernel32.dll stdcall';
+
+{ winget, through the alias Windows 10 1809 and later put in WindowsApps. }
+function WingetPath(): String;
+begin
+  Result := ExpandConstant('{localappdata}\Microsoft\WindowsApps\winget.exe');
+end;
+
+function YtDlpFound(): Boolean;
+begin
+  Result := FileSearch('yt-dlp.exe', GetEnv('PATH')) <> '';
+end;
+
+{ The video tools task is offered when winget can install yt-dlp and it is
+  not installed yet. }
+function CanInstallVideoTools(): Boolean;
+begin
+  Result := FileExists(WingetPath()) and not YtDlpFound();
+end;
+
+{ %VARS% in S filled in. }
+function Expand(S: String): String;
+var
+  Size: DWORD;
+begin
+  Result := S;
+  if Pos('%', S) = 0 then
+    exit;
+  Size := ExpandEnvironmentStrings(S, '', 0);
+  if Size = 0 then
+    exit;
+  SetLength(Result, Size);
+  if ExpandEnvironmentStrings(S, Result, Size) = 0 then
+    Result := S
+  else
+    SetLength(Result, Size - 1);
+end;
+
+{ winget puts the tools on the user's PATH in the registry. Setup's own PATH
+  is the one it started with, and UIDM started from the last page inherits
+  it, so read the new one in. }
+procedure RefreshPath();
+var
+  Machine, User, Path: String;
+begin
+  RegQueryStringValue(HKLM, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', Machine);
+  RegQueryStringValue(HKCU, 'Environment', 'Path', User);
+  Path := Expand(Machine);
+  if User <> '' then
+  begin
+    if (Path <> '') and (Path[Length(Path)] <> ';') then
+      Path := Path + ';';
+    Path := Path + Expand(User);
+  end;
+  if Path <> '' then
+    SetEnvironmentVariable('PATH', Path);
+end;
+
+procedure InstallVideoTools();
+var
+  Code: Integer;
+  Ok: Boolean;
+begin
+  WizardForm.StatusLabel.Caption := 'Installing yt-dlp, FFmpeg and Deno with winget. This can take a few minutes...';
+  WizardForm.FilenameLabel.Caption := '';
+  WizardForm.ProgressGauge.Style := npbstMarquee;
+  try
+    Ok := Exec(WingetPath(),
+      'install --id yt-dlp.yt-dlp --exact --source winget --silent --disable-interactivity ' +
+      '--accept-package-agreements --accept-source-agreements',
+      '', SW_HIDE, ewWaitUntilTerminated, Code);
+  finally
+    WizardForm.ProgressGauge.Style := npbstNormal;
+  end;
+  RefreshPath();
+  if not (Ok and YtDlpFound()) then
+    SuppressibleMsgBox('winget could not install the video tools (exit code ' + IntToStr(Code) + ').' + #13#10#13#10 +
+      'UIDM still downloads ordinary files. For YouTube and other video sites, run this later:' + #13#10 +
+      '    winget install yt-dlp.yt-dlp',
+      mbError, MB_OK, IDOK);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
@@ -200,22 +288,31 @@ begin
   begin
     WriteHostManifest('{#HostName}.json', '"allowed_origins": ["chrome-extension://{#ExtensionId}/"]');
     WriteHostManifest('{#HostName}.firefox.json', '"allowed_extensions": ["{#FirefoxId}"]');
+    if WizardIsTaskSelected('videotools') then
+      InstallVideoTools();
   end;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
+var
+  Video: String;
 begin
-  if CurPageID = wpFinished then
-    WizardForm.FinishedLabel.Caption :=
+  if CurPageID <> wpFinished then
+    exit;
+  if YtDlpFound() then
+    Video := ''
+  else
+    Video := #13#10#13#10 +
+      'For YouTube and other video sites, install yt-dlp, which brings FFmpeg and Deno with it: ' +
+      'winget install yt-dlp.yt-dlp';
+  WizardForm.FinishedLabel.Caption :=
       'UIDM is installed. To catch downloads in Chrome or Edge, load its extension once:' + #13#10#13#10 +
       '1. Open chrome://extensions (or edge://extensions) and turn on Developer mode.' + #13#10 +
       '2. Click Load unpacked and choose this folder:' + #13#10 +
       '    ' + ExpandConstant('{app}\extension') + #13#10 +
       '3. Check that its ID reads {#ExtensionId}.' + #13#10#13#10 +
       'In Firefox, open about:debugging, choose This Firefox, then Load Temporary Add-on, ' +
-      'and pick manifest.json in ' + ExpandConstant('{app}\firefox') + '.' + #13#10#13#10 +
-      'For streamed videos to be saved as .mp4, install ffmpeg and put it on PATH, or choose it in Options. ' +
-      'For YouTube videos, also install yt-dlp: winget install yt-dlp.yt-dlp';
+      'and pick manifest.json in ' + ExpandConstant('{app}\firefox') + '.' + Video;
 end;
 
 function InitializeUninstall(): Boolean;
