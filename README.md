@@ -77,9 +77,10 @@ files or as separate video and audio files.
 Videos on YouTube, Facebook, Instagram and Vimeo pages need
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) as well:
 `winget install yt-dlp.yt-dlp` installs it with ffmpeg and Deno, which
-yt-dlp uses to read YouTube's player. UIDM finds `yt-dlp.exe` on `PATH`, next
-to UIDM's programs or next to ffmpeg. Restart UIDM after installing it, so
-it sees the new `PATH`.
+yt-dlp uses to read YouTube's player. Setup offers to run that command for
+you when winget is there and yt-dlp is not. UIDM finds `yt-dlp.exe` on
+`PATH`, next to UIDM's programs or next to ffmpeg. Restart UIDM after
+installing it yourself, so it sees the new `PATH`.
 
 To remove UIDM, uninstall it from **Installed apps**. That closes UIDM if it
 is running, removes the program, its browser registration, shortcuts, the
@@ -745,6 +746,12 @@ It takes a download from the browser only when all of these hold:
     the size (often it does not yet, and then only the type and site count);
   - neither its URL nor the page it came from is on an excluded site.
     `example.com` and `*.example.com` both cover the site and every subdomain;
+  - its URL matches none of the excluded addresses, where `*` matches any
+    run of characters and an address without `http://` or `https://`
+    matches both. UIDM starts with a short list of site sounds and browser
+    and Windows update files that sites fetch on their own (taken from IDM's
+    own list). Remove any you want captured; **Restore defaults** adds them
+    back and keeps your own;
 - **Skip next download** in the popup was not pressed; it lets exactly one
   download stay in the browser;
 - the skip keys were not held while clicking its link (Alt by default), nor
