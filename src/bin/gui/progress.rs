@@ -27,6 +27,9 @@ pub struct Tabs {
     pub on_done: bool,
     /// Those tabs have a Hide tab button.
     pub hide_buttons: bool,
+    /// Minimizing puts the window in the tray; without a tray icon it is an
+    /// ordinary minimized window.
+    pub to_tray: bool,
 }
 
 /// The tab a window opens on, by Options' choice. A tab Options hide falls
@@ -51,6 +54,14 @@ pub struct ProgressWindow {
     limit_remember: bool,
     /// The When done tab's choices, sent as they change.
     on_done: OnDone,
+    /// Minimized to the tray, where the download windows' icon lists it
+    /// (see `tray::set_minimized_windows`), as IDM does. Not drawn then.
+    pub minimized: bool,
+    /// Frames left before a minimized window may count as minimized again:
+    /// a window brought back from the tray reports its old state briefly.
+    settle: u8,
+    /// Its title as last drawn, for the tray's menu.
+    pub title: String,
 }
 
 impl ProgressWindow {
@@ -63,7 +74,16 @@ impl ProgressWindow {
             limit_kbps: e.speed_limit.map_or(512, |b| (b / 1024).max(1)),
             limit_remember: e.limit_remember,
             on_done: e.on_done.unwrap_or_default(),
+            minimized: false,
+            settle: 0,
+            title: display_name(e),
         }
+    }
+
+    /// Bring it back from the tray.
+    pub fn restore(&mut self) {
+        self.minimized = false;
+        self.settle = 3;
     }
 }
 
@@ -117,11 +137,17 @@ pub fn window(
         Some(f) => trf!("{percent}% {name}", percent = (f * 100.0).floor() as u32, name = display_name(e)),
         None => display_name(e),
     };
+    w.title = title.clone();
+    if w.minimized {
+        return true;
+    }
     let mut open = true;
     let mut close = false;
+    let mut minimized = false;
     crate::dialog::Window::new(title)
         .id(egui::Id::new(("progress", w.id)))
         .dlu_width(353.0).taskbar(true)
+        .minimizable(&mut minimized)
         .open(&mut open)
         .resizable(false)
         .show(ctx, |ui| {
@@ -185,6 +211,11 @@ pub fn window(
                 connections::details(ui, w.id, e, segments);
             }
         });
+    if w.settle > 0 {
+        w.settle -= 1;
+    } else if minimized && tabs.to_tray {
+        w.minimized = true;
+    }
     open && !close
 }
 

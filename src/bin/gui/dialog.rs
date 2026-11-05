@@ -32,6 +32,8 @@ pub struct Window<'o> {
     resizable: bool,
     width: Option<f32>,
     taskbar: bool,
+    /// Set when the window is minimized; it has a minimize button then.
+    minimized: Option<&'o mut bool>,
 }
 
 /// Where a dialog was put, kept while it stays open.
@@ -56,6 +58,7 @@ impl<'o> Window<'o> {
             resizable: false,
             width: None,
             taskbar: false,
+            minimized: None,
         }
     }
 
@@ -111,6 +114,13 @@ impl<'o> Window<'o> {
         self
     }
 
+    /// Give the window a minimize button, which sets `minimized`. The
+    /// caller decides where it goes: the download window goes to the tray.
+    pub fn minimizable(mut self, minimized: &'o mut bool) -> Self {
+        self.minimized = Some(minimized);
+        self
+    }
+
     pub fn show<R>(self, ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<InnerResponse<Option<R>>> {
         if self.open.as_deref().is_some_and(|open| !*open) {
             return None;
@@ -135,7 +145,7 @@ impl<'o> Window<'o> {
             .with_inner_size(first)
             .with_position(place.center - first / 2.0)
             .with_resizable(self.resizable)
-            .with_minimize_button(false)
+            .with_minimize_button(self.minimized.is_some())
             .with_maximize_button(false)
             .with_taskbar(self.taskbar);
 
@@ -143,6 +153,7 @@ impl<'o> Window<'o> {
         let resizable = self.resizable;
         let mut add = Some(add);
         let mut closed = false;
+        let mut minimized = false;
         let shown = ctx.show_viewport_immediate(ViewportId::from_hash_of(id), builder, |ctx, class| {
             if class == ViewportClass::Embedded {
                 return None;
@@ -153,6 +164,7 @@ impl<'o> Window<'o> {
                 ctx.send_viewport_cmd(ViewportCommand::CancelClose);
             }
             closed = closable && (close || escape);
+            minimized = ctx.input(|i| i.viewport().minimized) == Some(true);
 
             let frame = egui::Frame::central_panel(&ctx.style()).inner_margin(egui::Margin::same(MARGIN));
             let max_height = ctx
@@ -203,6 +215,9 @@ impl<'o> Window<'o> {
             Some(InnerResponse::new(r, panel.response))
         });
         ctx.data_mut(|d| d.insert_temp(key, place));
+        if let Some(m) = self.minimized {
+            *m = minimized;
+        }
         if closed {
             if let Some(open) = self.open {
                 *open = false;

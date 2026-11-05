@@ -9,9 +9,11 @@
 //!
 //! It also puts an icon in the tray. Closing the window hides it there (unless
 //! Options says to quit), and `--minimized` starts it hidden, which is how
-//! "Start with Windows" runs it. A hidden window gets no frames, so anything
-//! that must bring it back (the tray, a save-as or completion dialog, a click
-//! on a notification) shows it through Win32 directly.
+//! "Start with Windows" runs it. Hiding cloaks the window rather than
+//! hiding it, since a hidden window gets no frames and every dialog is drawn
+//! in its frame: a save-as or download window opens on its own while the
+//! main window stays in the tray, as IDM's do. The tray or a click on a
+//! notification shows the window through Win32 directly.
 
 #![windows_subsystem = "windows"]
 
@@ -154,6 +156,11 @@ fn main() -> eframe::Result {
                 if let RawWindowHandle::Win32(h) = handle.as_raw() {
                     win::set_window(h.hwnd.get());
                     menubar::attach(h.hwnd.get());
+                    // Started in the tray: made hidden (cloaked) rather than
+                    // left invisible, so its dialogs can open.
+                    if minimized {
+                        win::hide();
+                    }
                 }
             }
             #[cfg(not(windows))]
@@ -724,6 +731,8 @@ struct App {
     connection_dialogs: Vec<u64>,
     /// Open download windows, one per download.
     progress_windows: Vec<progress::ProgressWindow>,
+    /// The download windows in the tray, as last given to it.
+    progress_in_tray: Vec<(u64, String)>,
     /// The link picker, while it is open.
     links: Option<links::LinksDialog>,
     /// A zip download's preview, asked for or shown.
@@ -1695,6 +1704,7 @@ impl App {
             limit_dialog: None,
             connection_dialogs: Vec::new(),
             progress_windows: Vec::new(),
+            progress_in_tray: Vec::new(),
             links: None,
             zip_preview: None,
             about: None,
@@ -2109,6 +2119,10 @@ impl App {
                 }
             }
             Action::OpenProgress(id) => {
+                // One already open, perhaps in the tray, comes back.
+                if let Some(w) = self.progress_windows.iter_mut().find(|w| w.id == id && w.minimized) {
+                    w.restore();
+                }
                 let entry = self.shared.lock().unwrap().table.get(id).cloned();
                 if let Some(e) = entry.filter(|e| e.status != Status::Done && !self.progress_windows.iter().any(|w| w.id == id)) {
                     let settings = self.shared.lock().unwrap().settings.clone().unwrap_or_default();
@@ -3995,8 +4009,9 @@ fn send(writer: &Arc<Mutex<Option<TcpStream>>>, msg: &Incoming) -> bool {
     }
 }
 
-/// Apply one daemon message, and bring the window forward when it needs the
-/// user: a save-as dialog, a completion dialog, or a notification click.
+/// Apply one daemon message, and wake the window when it needs the user: a
+/// save-as dialog, a completion dialog, or a notification click, which also
+/// brings the main window up.
 fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Outgoing) {
     let show = {
         let mut s = shared.lock().unwrap();
@@ -4009,8 +4024,13 @@ fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Outgoing) 
                 true
             }
             Outgoing::Countdown { .. } => true,
+            // The download's own window opens when it starts.
+            Outgoing::Started { .. } => s.settings.as_ref().is_some_and(|x| x.progress_on_start),
             Outgoing::Quit => std::process::exit(0),
             Outgoing::Updated { item } => item.status == Status::Confirming,
+            // A window that connects late, or started in the tray, still
+            // asks about a download already waiting for its save-as dialog.
+            Outgoing::Downloads { items } => items.iter().any(|e| e.status == Status::Confirming),
             Outgoing::NameTaken { .. } => true,
             // A site that wants a login gets the login prompt.
             Outgoing::Failed { id, error, .. } if uidm::engine::login_wanted(error).is_some() => {
@@ -4032,7 +4052,7 @@ fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Outgoing) 
                     if s.table.get(id).is_some_and(|e| e.status == Status::Failed) {
                         s.completed.push_back((id, true));
                         drop(s);
-                        win::show();
+                        win::wake();
                         ctx.request_repaint();
                     }
                 });
@@ -4041,8 +4061,12 @@ fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Outgoing) 
             _ => false,
         }
     };
-    if show {
+    // A click on a notification brings the window up; a dialog shows on
+    // its own, without it.
+    if matches!(msg, Outgoing::Show) {
         win::show();
+    } else if show {
+        win::wake();
     }
     ctx.request_repaint();
 }
@@ -4561,12 +4585,25 @@ impl eframe::App for App {
             speed_limit: settings.as_ref().is_none_or(|s| s.progress_speed_tab),
             on_done: settings.as_ref().is_none_or(|s| s.progress_done_tab),
             hide_buttons: settings.as_ref().is_none_or(|s| s.progress_hide_buttons),
+            to_tray: tray::installed(),
         };
+        for id in tray::take_restored() {
+            if let Some(w) = self.progress_windows.iter_mut().find(|w| w.id == id) {
+                w.restore();
+            }
+        }
         self.progress_windows.retain_mut(|w| {
             let entry = rows.iter().find(|e| e.id == w.id);
             let segments = segments.get(&w.id).map(Vec::as_slice);
             progress::window(ctx, w, entry, segments, speeds.get(&w.id).copied(), &tabs, connected, &mut actions)
         });
+        // The windows minimized to the tray, for its second icon's menu.
+        let in_tray: Vec<(u64, String)> =
+            self.progress_windows.iter().filter(|w| w.minimized).map(|w| (w.id, w.title.clone())).collect();
+        if in_tray != self.progress_in_tray {
+            tray::set_minimized_windows(in_tray.clone(), ctx);
+            self.progress_in_tray = in_tray;
+        }
         self.refresh_window(ctx, &rows, connected, &mut actions);
         self.tool_windows(ctx, &rows, connected, &mut actions);
         if let Some(d) = self.queues_dialog.as_mut() {

@@ -333,7 +333,8 @@ tests, not in a running Firefox.
   white silhouette of it, for a dark taskbar), or **Don't show**; the style
   changes at once and is kept with the window's layout.
 - **Start with Windows** (in Options) starts UIDM hidden in the tray when you
-  sign in, ready for the browser.
+  sign in, ready for the browser. A download caught while the window is in
+  the tray opens its save-as dialog on its own, as IDM's does.
 - **The download window** (double-click a download's name, or **More >
   Download window**) shows its address, status, size, how much is in, the
   transfer rate, the time left and whether the server lets it resume, with
@@ -347,7 +348,12 @@ tests, not in a running Firefox.
   completion dialog whatever Options says, then exit UIDM, sleep, hibernate
   or shut down (after the same 60-second countdown a queue uses). It runs
   once, after the virus scan, and not for a download that fails.
-  **Options > General** can open the window whenever a download starts and
+  It opens whenever a download starts (**Options > General** can turn that
+  off), and opens even while UIDM is in the tray, as the save-as dialog
+  does, without bringing up the main window. Minimizing it puts it in the
+  tray behind a second icon, green arrows, whose menu lists the download
+  windows there by title; pick one to bring it back. The icon goes when the
+  last of them does. **Options > General** can also
   hide either tab (as can its **Hide tab** button), hide the **Hide tab**
   buttons themselves, and choose the tab the window opens on and whether it
   opens with its details shown. The window closes when the download
