@@ -258,6 +258,11 @@ test("address exceptions with wildcards", () => {
   assert.ok(urlMatches("https://x.net/a(1).zip", "https://x.net/a(1).zip"), "other characters are literal");
   assert.ok(!urlMatches("", "https://x.net/a.zip"));
 
+  // Masks from UIDM's default list, which carry no scheme.
+  assert.ok(urlMatches("*.gstatic.com/*/sounds/*.mp3", "https://ssl.gstatic.com/chat/sounds/ding.mp3"));
+  assert.ok(urlMatches("*.gvt1.com/edgedl/widevine-cdm/*.zip*", "https://redirector.gvt1.com/edgedl/widevine-cdm/4.10/win-x64.zip?cms_redirect=yes"));
+  assert.ok(urlMatches("get*.opera.com/pub/opera/*/autoupdate/*.exe", "http://get.geo.opera.com/pub/opera/desktop/110/autoupdate/setup.exe"));
+
   const rules = { ...RULES, capture_excluded_urls: ["https://dl.net/keep/*"] };
   assert.equal(captureDecision(rules, { url: "https://dl.net/keep/a.zip" }).capture, false);
   assert.equal(captureDecision(rules, { url: "https://dl.net/take/a.zip" }).capture, true);

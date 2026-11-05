@@ -1516,6 +1516,7 @@ impl OptionsDraft {
                 .filter(|l| !l.is_empty())
                 .map(str::to_string)
                 .collect(),
+            capture_excluded_urls_defaults: true,
             offer_exceptions: self.offer_exceptions,
             selection_button: self.selection_button,
             selection_button_sites: sites(&self.selection_button_sites),
@@ -3636,12 +3637,30 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
 
         ui.label(tr("Never these addresses"));
         ui.vertical(|ui| {
-            ui.add(
-                egui::TextEdit::multiline(&mut draft.capture_excluded_urls)
-                    .hint_text(tr("One address per line; * matches anything, as in https://example.com/files/*"))
-                    .desired_rows(3)
-                    .desired_width(360.0),
-            );
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut draft.capture_excluded_urls)
+                        .hint_text(tr("One address per line; * matches anything, as in https://example.com/files/*"))
+                        .desired_rows(3)
+                        .desired_width(360.0),
+                );
+                if ui
+                    .button(tr("Restore defaults"))
+                    .on_hover_text(tr("Add back the site sounds and update files UIDM leaves out as it starts, keeping your own addresses"))
+                    .clicked()
+                {
+                    let mut list: Vec<String> = draft
+                        .capture_excluded_urls
+                        .lines()
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty())
+                        .map(String::from)
+                        .collect();
+                    uidm::settings::add_missing_exclusions(&mut list);
+                    draft.capture_excluded_urls = list.join("
+");
+                }
+            });
             ui.checkbox(
                 &mut draft.offer_exceptions,
                 tr("When I cancel the same download twice, offer to stop taking it"),

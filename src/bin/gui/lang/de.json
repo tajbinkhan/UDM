@@ -171,6 +171,8 @@
   "One site per line, such as *.example.com": "Eine Website pro Zeile, etwa *.example.com",
   "Never these addresses": "Nie diese Adressen",
   "One address per line; * matches anything, as in https://example.com/files/*": "Eine Adresse pro Zeile; * steht für beliebige Zeichen, wie in https://example.com/files/*",
+  "Restore defaults": "Standard wiederherstellen",
+  "Add back the site sounds and update files UIDM leaves out as it starts, keeping your own addresses": "Fügt die Klänge von Websites und Update-Dateien wieder hinzu, die UIDM von Anfang an auslässt; Ihre eigenen Adressen bleiben erhalten",
   "When I cancel the same download twice, offer to stop taking it": "Wenn ich denselben Download zweimal abbreche, anbieten, ihn nicht mehr zu übernehmen",
   "Special keys": "Sondertasten",
   "Hold": "Halten Sie",

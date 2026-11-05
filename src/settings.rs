@@ -692,6 +692,11 @@ pub struct Settings {
     /// Addresses whose downloads stay in the browser, with `*` matching any
     /// run of characters, such as `https://example.com/files/*.zip`.
     pub capture_excluded_urls: Vec<String>,
+    /// Whether `capture_excluded_urls` has been given UIDM's default list
+    /// (see `add_default_exclusions`), so an address the user removes stays
+    /// removed.
+    #[serde(default)]
+    pub capture_excluded_urls_defaults: bool,
     /// After the save-as dialog of the same captured address is canceled
     /// twice, offer to stop capturing it.
     pub offer_exceptions: bool,
@@ -850,7 +855,8 @@ impl Default for Settings {
             capture_keys_left_click: false,
             capture_force_skips_pages: true,
             capture_private: false,
-            capture_excluded_urls: Vec::new(),
+            capture_excluded_urls: default_capture_excluded_urls(),
+            capture_excluded_urls_defaults: true,
             offer_exceptions: true,
             selection_button: SelectionButton::Everywhere,
             selection_button_sites: Vec::new(),
@@ -1263,6 +1269,7 @@ impl Settings {
         let split = split_proxy_login(&mut value);
         split_browser_menu(&mut value);
         add_hds_type(&mut value);
+        add_default_exclusions(&mut value);
         let mut settings: Settings = serde_json::from_value(value).map_err(invalid)?;
         settings.proxy_logins_split = split;
         settings
@@ -1278,6 +1285,67 @@ impl Settings {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         write_atomic(path, &bytes)
     }
+}
+
+/// Addresses no browser download is taken from as UIDM starts: sounds,
+/// game assets and update files that sites and browsers fetch on their own.
+/// Taken from IDM's `defexclist.txt`, keeping the masks whose sites still
+/// answer. With no scheme, a mask matches `http` and `https` alike.
+pub const DEFAULT_CAPTURE_EXCLUDED_URLS: &[&str] = &[
+    "*.gstatic.com/*/sounds/*.mp3",
+    "*.fbcdn.net/rsrc.php/*.mp3",
+    "*.fbcdn.net/rsrc.php/*.ogg",
+    "web.whatsapp.com/res/*.mp3",
+    "www.youtube.com/s/search/audio/*.mp3",
+    "*.gvt1.com/edgedl/widevine-cdm/*.zip*",
+    "ciscobinary.openh264.org/*.zip",
+    "*.download.windowsupdate.com/*",
+    "msedge.b.tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/*",
+    "get*.opera.com/pub/opera/*/autoupdate/*.exe",
+    "get*.opera.com/pub/opera/*/autoupdate/*.msi",
+    "get.geo.opera.com/res/servicefiles/*.zip",
+    "api.browser.ya.ru/configs/all_zip?*",
+    "www.slimjetbrowser.com/release/*_console.exe",
+    "www.bing.com/api/shopping/v1/ux/images/autoApply/*.mp4",
+    "img6.wsimg.com/serpimg/img/solutionsimg/*.mp4",
+];
+
+/// `DEFAULT_CAPTURE_EXCLUDED_URLS` as a list to store.
+pub fn default_capture_excluded_urls() -> Vec<String> {
+    DEFAULT_CAPTURE_EXCLUDED_URLS.iter().map(|&u| u.into()).collect()
+}
+
+/// Add each default address that `list` lacks, after the user's own, and
+/// return whether any was added. Addresses compare without case, as they
+/// match.
+pub fn add_missing_exclusions(list: &mut Vec<String>) -> bool {
+    let before = list.len();
+    for &url in DEFAULT_CAPTURE_EXCLUDED_URLS {
+        if !list.iter().any(|u| u.trim().eq_ignore_ascii_case(url)) {
+            list.push(url.into());
+        }
+    }
+    list.len() > before
+}
+
+/// Give a settings file from before the default exclusion list those
+/// addresses, once, after the ones the user added.
+fn add_default_exclusions(value: &mut serde_json::Value) {
+    let Some(map) = value.as_object_mut() else {
+        return;
+    };
+    if map.contains_key("capture_excluded_urls_defaults") {
+        return;
+    }
+    let mut list: Vec<String> = match map.get("capture_excluded_urls") {
+        Some(serde_json::Value::Array(old)) => {
+            old.iter().filter_map(|u| u.as_str().map(String::from)).collect()
+        }
+        _ => Vec::new(),
+    };
+    add_missing_exclusions(&mut list);
+    map.insert("capture_excluded_urls".into(), list.into());
+    map.insert("capture_excluded_urls_defaults".into(), true.into());
 }
 
 /// Give a settings file from before HDS support `f4m` among its video types,
@@ -1561,6 +1629,7 @@ mod tests {
             capture_force_skips_pages: false,
             capture_private: true,
             capture_excluded_urls: vec!["https://example.com/files/*".into()],
+            capture_excluded_urls_defaults: true,
             offer_exceptions: false,
             selection_button: SelectionButton::Sites,
             selection_button_sites: vec!["*.example.org".into()],
@@ -1623,6 +1692,31 @@ mod tests {
         off.save(&path).unwrap();
         assert_eq!(Settings::load(&path).unwrap().video_types, ["mp4"]);
         fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn files_from_before_default_exclusions_get_them_once() {
+        let path = temp_path("exclusions.json");
+        fs::write(&path, br#"{"capture_excluded_urls":["https://dl.net/keep/*","WEB.WHATSAPP.COM/res/*.mp3"]}"#).unwrap();
+        let s = Settings::load(&path).unwrap();
+        assert!(s.capture_excluded_urls_defaults);
+        assert_eq!(s.capture_excluded_urls[0], "https://dl.net/keep/*");
+        assert_eq!(s.capture_excluded_urls[1], "WEB.WHATSAPP.COM/res/*.mp3");
+        assert_eq!(s.capture_excluded_urls.len(), DEFAULT_CAPTURE_EXCLUDED_URLS.len() + 1);
+        // Removed after that, they stay removed.
+        let cleared = Settings { capture_excluded_urls: vec!["https://dl.net/keep/*".into()], ..s };
+        cleared.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).unwrap().capture_excluded_urls, ["https://dl.net/keep/*"]);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn restoring_exclusions_keeps_the_users_own() {
+        let mut list = vec!["https://dl.net/keep/*".to_string(), DEFAULT_CAPTURE_EXCLUDED_URLS[0].to_string()];
+        assert!(add_missing_exclusions(&mut list));
+        assert_eq!(list[0], "https://dl.net/keep/*");
+        assert_eq!(list.len(), DEFAULT_CAPTURE_EXCLUDED_URLS.len() + 1);
+        assert!(!add_missing_exclusions(&mut list));
     }
 
     #[test]
