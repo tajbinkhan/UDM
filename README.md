@@ -945,6 +945,13 @@ over 1 KiB is dropped, and each step times out after 5 seconds.
 
 ## The download engine
 
+The engine talks HTTP/2 when the server offers it (through TLS ALPN, as IDM
+does) and HTTP/1.1 otherwise. On HTTP/2 the segments of a download are
+streams on one connection, and **Maximum connections per server** counts
+them as it counts connections. The client is reqwest's async one on a small
+shared runtime; the engine's threads block on each step, and a response that
+sends nothing for 60 seconds fails its segment, which is retried.
+
 Given an `add`, the engine:
 
 1. Probes the URL with a one-byte range request. A `206` reply means the server
@@ -1314,11 +1321,10 @@ proxy (`proxy_socks_ftp`, on by default): UIDM opens both the control and
 the data connections with a SOCKS CONNECT itself (SOCKS4, SOCKS4a or SOCKS5,
 with the SOCKS login), and always in passive mode, since the server cannot
 connect back through the proxy.
-ureq sends proxy credentials only when it tunnels `https://` requests, so
-for plain `http://` requests through a proxy with a login UIDM adds
-`Proxy-Authorization` itself and follows redirects itself, adding it only on
-`http://` hops and dropping `Cookie` and `Authorization` on every hop, so
-neither the proxy login nor a site's cookies reach another server. With
+A proxy's login goes to the proxy only (`Proxy-Authorization`, or the
+SOCKS handshake). UIDM follows redirects itself, dropping `Cookie` and
+`Authorization` on every hop, so a site's cookies and logins never reach
+another server. With
 `use_browser_proxy`, the extension reports the browser's whole proxy
 setting (`chrome.proxy`, Firefox's `browser.proxy`) with each download, and
 it wins for downloads that carry one: no proxy, its fixed HTTP and SOCKS
@@ -1356,9 +1362,8 @@ not supported. Basic over
 plain http, and any FTP login, needs a login allowed on plain connections
 (a download's own login always is); otherwise the download asks for one,
 so a server offering only Basic cannot draw out a password saved for
-https. ureq never
-carries `Authorization` across a redirect, so a login never reaches another
-host. No login for the host fails with "This site needs a login: <host>",
+https. `Authorization` is never carried across a redirect, so a login
+never reaches another host. No login for the host fails with "This site needs a login: <host>",
 and a refused login with "The login for <host> was refused"; neither is
 retried.
 

@@ -175,7 +175,7 @@ pub fn parse_bypass(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// The ureq scheme for a SOCKS proxy: SOCKS5 always lets the proxy look up
+/// The URL scheme for a SOCKS proxy: SOCKS5 always lets the proxy look up
 /// names; SOCKS4 does only as SOCKS4a.
 pub fn socks_scheme(v5: bool, remote_dns: bool) -> &'static str {
     match (v5, remote_dns) {
@@ -186,7 +186,7 @@ pub fn socks_scheme(v5: bool, remote_dns: bool) -> &'static str {
 }
 
 impl ProxyRules {
-    /// The proxy for `url`, as a URL ureq understands, or `None` to connect
+    /// The proxy for `url`, as a URL the HTTP client understands, or `None` to connect
     /// directly.
     pub fn proxy_for(&self, url: &str) -> Option<String> {
         let host = host_of(url);
@@ -254,7 +254,7 @@ impl ProxyRules {
     }
 }
 
-/// A SOCKS proxy that UIDM speaks to itself, for the FTP connections ureq
+/// A SOCKS proxy that UIDM speaks to itself, for the FTP connections the HTTP client
 /// does not make.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SocksProxy {

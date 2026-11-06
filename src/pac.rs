@@ -139,7 +139,7 @@ pub fn windows_source() -> Option<PacSource> {
     }
 }
 
-/// The proxy WinHTTP's first answer names, as a URL ureq understands.
+/// The proxy WinHTTP's first answer names, as a URL the HTTP client understands.
 /// `None` connects directly.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn to_proxy_url(list: &str) -> Option<String> {
