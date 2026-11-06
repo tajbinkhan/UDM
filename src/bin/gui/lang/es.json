@@ -870,6 +870,7 @@
   "Hide": "Ocultar",
   "Show all": "Mostrar todas",
   "Put this window in the tray; the green arrows there bring it back": "Llevar esta ventana a la bandeja; las flechas verdes de allí la devuelven",
+  "Drag the file to a folder or another program": "Arrastrar el archivo a una carpeta o a otro programa",
   "UIDM may not save files in this folder. Saving there needs administrator rights.": "UIDM no puede guardar archivos en esta carpeta. Para guardar ahí se necesitan derechos de administrador.",
   "Save there with administrator rights": "Guardar ahí con derechos de administrador",
   "The download runs as you; Windows asks once it is done, before the file is moved there": "La descarga se hace con su cuenta; Windows pregunta al terminar, antes de mover el archivo ahí",

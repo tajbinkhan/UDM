@@ -1,8 +1,9 @@
 //! The download list: a table with resizable columns, grid lines and
 //! whole-row selection. A click selects a row, Ctrl+click adds or removes
 //! one, Shift+click selects a run; a double-click opens a finished file or
-//! shows a download's window; a right-click opens the row's menu. Column
-//! widths dragged here are saved with the layout.
+//! shows a download's window; a right-click opens the row's menu. Dragging a
+//! finished download's row drags its file out to a folder or another
+//! program. Column widths dragged here are saved with the layout.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -19,6 +20,9 @@ use crate::{display_name, human_bytes, human_duration, scan_label, Action};
 /// IDM's rows are 17 px; the row's text sets the floor here.
 const ROW_HEIGHT: f32 = 18.0;
 const HEADER_HEIGHT: f32 = 20.0;
+/// How far the pointer moves with the button down before a file drag
+/// starts, so a click that wobbles still clicks.
+const DRAG_DISTANCE: f32 = 4.0;
 
 /// Everything the list needs for one frame.
 pub struct List<'a> {
@@ -87,7 +91,7 @@ pub fn show(
             .id_salt(("downloads", state.generation, &columns))
             .striped(false)
             .resizable(true)
-            .sense(Sense::click())
+            .sense(Sense::click_and_drag())
             .cell_layout(egui::Layout::left_to_right(Align::Center))
             .auto_shrink([false, false])
             .min_scrolled_height(0.0);
@@ -164,6 +168,9 @@ pub fn show(
                     if response.secondary_clicked() && !list.selected.contains(&e.id) {
                         actions.push(Action::Click { id: e.id, ctrl: false, shift: false });
                     }
+                    if let Some(path) = e.path.as_deref().filter(|_| e.status == Status::Done) {
+                        drag_out(&response, path);
+                    }
                     response.context_menu(|ui| row_menu(ui, e, list, i, actions));
                 });
             });
@@ -175,6 +182,29 @@ pub fn show(
         state.measured = columns.iter().map(|c| (*c, layout.shown_width(*c))).collect();
     });
     outcome
+}
+
+/// Drag the file at `path` out of the window once the pointer has moved a
+/// few points with the button down on `response`, once per press. A file
+/// that is gone drags nothing. The completion dialog's file icon uses this
+/// too.
+pub fn drag_out(response: &egui::Response, path: &str) {
+    let key = response.id.with("drag_out");
+    if !response.dragged_by(egui::PointerButton::Primary) {
+        response.ctx.data_mut(|d| d.remove_temp::<bool>(key));
+        return;
+    }
+    let moved = response.ctx.input(|i| match (i.pointer.press_origin(), i.pointer.interact_pos()) {
+        (Some(from), Some(to)) => from.distance(to) >= DRAG_DISTANCE,
+        _ => false,
+    });
+    if !moved || response.ctx.data(|d| d.get_temp::<bool>(key)).is_some() {
+        return;
+    }
+    response.ctx.data_mut(|d| d.insert_temp(key, true));
+    if Path::new(path).is_file() {
+        crate::win::drag_file(path);
+    }
 }
 
 /// The grid: a line at the cell's right edge and along its bottom, in the

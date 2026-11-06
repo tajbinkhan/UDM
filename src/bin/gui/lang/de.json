@@ -870,6 +870,7 @@
   "Hide": "Ausblenden",
   "Show all": "Alle anzeigen",
   "Put this window in the tray; the green arrows there bring it back": "Dieses Fenster in den Infobereich legen; die grünen Pfeile dort holen es zurück",
+  "Drag the file to a folder or another program": "Die Datei in einen Ordner oder ein anderes Programm ziehen",
   "UIDM may not save files in this folder. Saving there needs administrator rights.": "UIDM darf in diesem Ordner keine Dateien speichern. Dafür sind Administratorrechte nötig.",
   "Save there with administrator rights": "Mit Administratorrechten dort speichern",
   "The download runs as you; Windows asks once it is done, before the file is moved there": "Der Download läuft unter Ihrem Konto; Windows fragt, wenn er fertig ist, bevor die Datei dorthin verschoben wird",
