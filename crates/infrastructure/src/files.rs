@@ -44,6 +44,10 @@ impl DownloadFiles for DiskFiles {
     fn is_file(&self, path: &Path) -> bool {
         path.is_file()
     }
+
+    fn can_write(&self, dir: &Path) -> bool {
+        crate::elevate::can_write(dir)
+    }
 }
 
 /// Move a finished file to `to`, which must not exist yet. Across drives

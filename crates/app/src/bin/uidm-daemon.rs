@@ -53,8 +53,8 @@ use std::time::{Duration, Instant};
 
 use uidm_application::downloads::{
     AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
-    Existing, PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember,
-    SetOnDone, SetProperties, SetSpeedLimit, StartOrWait, UseExisting,
+    Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
+    RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit, StartOrWait, UseExisting,
 };
 use uidm_application::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use uidm_application::queues::{
@@ -67,9 +67,9 @@ use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status, Validator};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    Attention, ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, EarlyStarts, PausedDownloads,
-    PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SettingsError,
-    SettingsStore, SyncChecks, UpdateChecks,
+    Answers, Attention, ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, EarlyStarts,
+    PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource,
+    SettingsError, SettingsStore, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -818,6 +818,10 @@ impl SettingsStore for Daemon {
 struct EarlyHandOver<'a>(&'a Arc<Daemon>);
 
 impl EarlyStarts for EarlyHandOver<'_> {
+    fn start(&self, id: u64, download: Download, filename: &str) {
+        self.0.start_early(id, download, filename);
+    }
+
     fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool {
         let Some(shadow) = self.0.hub.early_of(id) else {
             return false;
@@ -832,6 +836,16 @@ impl EarlyStarts for EarlyHandOver<'_> {
             }
         });
         true
+    }
+}
+
+/// Save-as dialogs waiting for a window, each with a timer of its own that
+/// holds the daemon.
+struct AnswerWait<'a>(&'a Arc<Daemon>);
+
+impl Answers for AnswerWait<'_> {
+    fn await_answer(&self, id: u64) {
+        self.0.await_answer(id, None);
     }
 }
 
@@ -1732,14 +1746,8 @@ impl Daemon {
             if daemon.status(id) == Some(Status::Confirming) && !daemon.hub.window_open() {
                 eprintln!("[uidm-daemon] no window to confirm #{id}; starting it as proposed");
                 // A "download later" asked only about a duplicate keeps waiting.
-                let (start, queue) = daemon
-                    .hub
-                    .requests
-                    .lock()
-                    .unwrap()
-                    .get(&id)
-                    .map_or((true, None), |d| (d.start != Some(false), d.queue));
-                let answer = Answer { start, queue, file_exists: fallback, ..Answer::start(id) };
+                let request = daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap_or_default();
+                let answer = request.fallback_answer(id, fallback);
                 if let Err(e) = daemon.confirm(answer) {
                     eprintln!("[uidm-daemon] could not start #{id}: {e}");
                 }
@@ -2485,49 +2493,12 @@ impl Daemon {
                 }
             };
             let path = req.folders.for_name(&found.filename).join(&found.filename);
-            // The other one may have been removed while this was probed.
-            let duplicate_of = duplicate_of.filter(|o| daemon.status(*o).is_some());
-            let settings = daemon.settings.lock().unwrap().clone();
-            // A type that starts without asking, known only now from the
-            // server's name for the file, skips the dialog after all.
-            let writable = download.elevate || uidm_infrastructure::elevate::can_write(path.parent().unwrap_or(&path));
-            let auto = duplicate_of.is_none()
-                && download.ask != Some(true)
-                && writable
-                && settings.starts_without_asking(&found.filename);
-            let asked = daemon.hub.update(id, |e| {
-                if e.status != Status::Queued {
-                    return Err("no longer queued".into());
-                }
-                e.status = if auto { Status::Waiting } else { Status::Confirming };
-                e.path = Some(path.display().to_string());
-                e.total = found.total;
-                e.resumable = found.resumable;
-                e.duplicate_of = duplicate_of;
-                Ok(())
-            });
-            if asked.is_err() {
-                return; // canceled while being probed
+            let probed = Probed { filename: found.filename, path, total: found.total, resumable: found.resumable };
+            let (early, answers) = (EarlyHandOver(&daemon), AnswerWait(&daemon));
+            let hold = HoldForAnswer::new(&*daemon.hub, &*daemon, &DiskFiles, &*daemon, &early, &answers);
+            if let Held::Started(Err(e)) = hold.run(id, &download, probed, duplicate_of) {
+                eprintln!("[uidm-daemon] could not start #{id}: {e}");
             }
-            if auto {
-                if let Err(e) = daemon.dispatch(id) {
-                    eprintln!("[uidm-daemon] could not start #{id}: {e}");
-                }
-                return;
-            }
-            // Only a file the server sends in ranges can be stopped and
-            // carried on elsewhere once the dialog is answered.
-            let plain = uidm_infrastructure::app::post_body(&download).is_none() && download.media.is_none();
-            if settings.start_while_asking
-                && writable
-                && duplicate_of.is_none()
-                && plain
-                && found.resumable
-                && found.total.is_some()
-            {
-                daemon.start_early(id, download.clone(), &found.filename);
-            }
-            daemon.await_answer(id, None);
         });
         (id, url)
     }

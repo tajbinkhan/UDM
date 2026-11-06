@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::media::MediaChoice;
 use crate::queue::WhenDone;
-use crate::settings::{Duplicate, FileExists, SPEED_LIMIT_RANGE_KBPS};
+use crate::settings::{Duplicate, FileExists, Settings, SPEED_LIMIT_RANGE_KBPS};
 use serde::{Deserialize, Serialize};
 
 fn yes() -> bool {
@@ -664,6 +664,28 @@ impl DownloadEntry {
             .unwrap_or_else(|| self.url.clone())
     }
 
+    /// Hold it, probed, for the save-as dialog's answer (or with
+    /// `start_now`, to start at once) with the file the dialog proposes.
+    /// Returns false when it was canceled while being probed.
+    pub fn hold_for_answer(
+        &mut self,
+        start_now: bool,
+        path: &Path,
+        total: Option<u64>,
+        resumable: bool,
+        duplicate_of: Option<u64>,
+    ) -> bool {
+        if self.status != Status::Queued {
+            return false;
+        }
+        self.status = if start_now { Status::Waiting } else { Status::Confirming };
+        self.path = Some(path.display().to_string());
+        self.total = total;
+        self.resumable = resumable;
+        self.duplicate_of = duplicate_of;
+        true
+    }
+
     /// Take the save-as dialog's answer: the category and description it
     /// gives, and the file name and folder chosen (each keeping the
     /// proposed one when missing). It then waits to be started. Only a
@@ -933,6 +955,16 @@ pub fn same_address(a: &str, b: &str) -> bool {
     key(a) == key(b)
 }
 
+/// What happens to a download the save-as dialog was to ask about, once
+/// the server named its file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterProbe {
+    /// Its type starts without asking: start it now.
+    StartNow,
+    /// Ask in the dialog; with `start_early`, start fetching meanwhile.
+    Ask { start_early: bool },
+}
+
 /// What a duplicate setting does with a new download whose address an
 /// older one has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -959,6 +991,42 @@ impl Duplicate {
 }
 
 impl Download {
+    /// Whether it is a form post, which cannot be probed or sent again
+    /// without the browser's say.
+    pub fn is_post(&self) -> bool {
+        self.method.as_deref().is_some_and(|m| m.eq_ignore_ascii_case("POST"))
+    }
+
+    /// What happens once the server named its file `filename`. A type that
+    /// starts without asking skips the dialog after all, unless it asks
+    /// about a `duplicate`, was asked for explicitly, or its folder is not
+    /// `writable`. Only a plain file the server sends in ranges, of a known
+    /// size, can start early and be carried on elsewhere once answered.
+    pub fn after_probe(
+        &self,
+        settings: &Settings,
+        filename: &str,
+        resumable: bool,
+        size_known: bool,
+        writable: bool,
+        duplicate: bool,
+    ) -> AfterProbe {
+        if !duplicate && self.ask != Some(true) && writable && settings.starts_without_asking(filename) {
+            return AfterProbe::StartNow;
+        }
+        let plain = !self.is_post() && self.media.is_none();
+        AfterProbe::Ask {
+            start_early: settings.start_while_asking && writable && !duplicate && plain && resumable && size_known,
+        }
+    }
+
+    /// The answer given for download `id` when no window answers its
+    /// dialog in time: start as proposed (a "download later" waits instead),
+    /// with `file_exists` deciding a taken name.
+    pub fn fallback_answer(&self, id: u64, file_exists: Option<FileExists>) -> Answer {
+        Answer { start: self.start != Some(false), queue: self.queue, file_exists, ..Answer::start(id) }
+    }
+
     /// Keep the save-as dialog's answer for later starts: what to do with a
     /// taken name, the category, the description (`Some` sets it, to
     /// nothing when it was cleared), and administrator rights
@@ -990,7 +1058,7 @@ impl Download {
     /// streams cannot: one address can stand for different files there
     /// (another form, another quality).
     pub fn may_be_duplicate(&self) -> bool {
-        !self.method.as_deref().is_some_and(|m| m.eq_ignore_ascii_case("POST")) && self.media.is_none()
+        !self.is_post() && self.media.is_none()
     }
 
     /// Prepare it, whose address `old` already has, as `choice` says. A
@@ -1266,5 +1334,45 @@ mod tests {
             Err(DownloadError::AnswerRelativeFolder("rel".into()))
         );
         assert_eq!(entry(Status::Done, 1).apply_answer(None, None, None, None), Err(DownloadError::NotWaiting(1)));
+    }
+    #[test]
+    fn some_types_start_without_asking_and_some_files_start_early() {
+        let mut settings = Settings { start_while_asking: true, ..Settings::default() };
+        settings.auto_start_types = vec!["zip".into()];
+        let plain = Download::default();
+        assert_eq!(plain.after_probe(&settings, "a.zip", true, true, true, false), AfterProbe::StartNow);
+        assert_eq!(
+            plain.after_probe(&settings, "a.zip", true, true, true, true),
+            AfterProbe::Ask { start_early: false }
+        );
+        assert_eq!(
+            plain.after_probe(&settings, "a.zip", true, true, false, false),
+            AfterProbe::Ask { start_early: false }
+        );
+        assert_eq!(
+            plain.after_probe(&settings, "a.iso", true, true, true, false),
+            AfterProbe::Ask { start_early: true }
+        );
+        assert_eq!(
+            plain.after_probe(&settings, "a.iso", false, true, true, false),
+            AfterProbe::Ask { start_early: false }
+        );
+        let post = Download { method: Some("POST".into()), ..Download::default() };
+        assert_eq!(
+            post.after_probe(&settings, "a.iso", true, true, true, false),
+            AfterProbe::Ask { start_early: false }
+        );
+    }
+
+    #[test]
+    fn a_probed_download_is_held_unless_canceled_meanwhile() {
+        let mut e = entry(Status::Queued, 0);
+        assert!(e.hold_for_answer(false, Path::new("/dl/a.zip"), Some(10), true, Some(3)));
+        assert_eq!((e.status, e.total, e.duplicate_of), (Status::Confirming, Some(10), Some(3)));
+        let mut canceled = entry(Status::Canceled, 0);
+        assert!(!canceled.hold_for_answer(true, Path::new("/dl/a.zip"), None, false, None));
+        let later = Download { start: Some(false), queue: Some(4), ..Download::default() };
+        let answer = later.fallback_answer(9, Some(FileExists::Rename));
+        assert_eq!((answer.id, answer.start, answer.queue), (9, false, Some(4)));
     }
 }

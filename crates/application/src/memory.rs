@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
+    Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
     EarlyStarts, FilesError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore,
     QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
 };
@@ -366,6 +366,7 @@ pub struct Files {
     forgot_resume: Mutex<Vec<String>>,
     moved: Mutex<Vec<(PathBuf, PathBuf, bool)>>,
     existing: HashSet<PathBuf>,
+    read_only: HashSet<PathBuf>,
 }
 
 impl Files {
@@ -385,6 +386,11 @@ impl Files {
     /// Files where something already is at each of `paths`.
     pub fn with_existing(paths: &[&str]) -> Self {
         Files { existing: paths.iter().map(PathBuf::from).collect(), ..Files::default() }
+    }
+
+    /// Files where UIDM may not write into `dir`.
+    pub fn read_only(dir: &str) -> Self {
+        Files { read_only: [PathBuf::from(dir)].into(), ..Files::default() }
     }
 
     /// The moves made: from, to, and whether the file was finished.
@@ -425,6 +431,10 @@ impl DownloadFiles for Files {
 
     fn is_file(&self, path: &Path) -> bool {
         self.existing.contains(path)
+    }
+
+    fn can_write(&self, dir: &Path) -> bool {
+        !self.read_only.contains(dir)
     }
 }
 
@@ -818,6 +828,7 @@ impl SettingsStore for Prefs {
 pub struct Early {
     started: HashSet<u64>,
     handed: Mutex<Vec<(u64, bool, Option<u64>)>>,
+    began: Mutex<Vec<(u64, String)>>,
 }
 
 impl Early {
@@ -828,14 +839,39 @@ impl Early {
     pub fn handed(&self) -> Vec<(u64, bool, Option<u64>)> {
         self.handed.lock().unwrap().clone()
     }
+
+    /// The early starts begun, with the file name each was given.
+    pub fn began(&self) -> Vec<(u64, String)> {
+        self.began.lock().unwrap().clone()
+    }
 }
 
 impl EarlyStarts for Early {
+    fn start(&self, id: u64, _download: Download, filename: &str) {
+        self.began.lock().unwrap().push((id, filename.to_string()));
+    }
+
     fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool {
         if !self.started.contains(&id) {
             return false;
         }
         self.handed.lock().unwrap().push((id, start, queue));
         true
+    }
+}
+
+/// Records the dialogs waited for.
+#[derive(Default)]
+pub struct Waiting(Mutex<Vec<u64>>);
+
+impl Waiting {
+    pub fn awaited(&self) -> Vec<u64> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+impl Answers for Waiting {
+    fn await_answer(&self, id: u64) {
+        self.0.lock().unwrap().push(id);
     }
 }

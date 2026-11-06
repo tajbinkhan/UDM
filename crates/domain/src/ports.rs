@@ -169,6 +169,9 @@ pub trait DownloadFiles: Send + Sync {
 
     /// Whether a file (not a folder) is at `path`.
     fn is_file(&self, path: &Path) -> bool;
+
+    /// Whether UIDM may write files into `dir` without administrator rights.
+    fn can_write(&self, dir: &Path) -> bool;
 }
 
 /// What "pause all" stopped, for "resume all" to start again.
@@ -335,11 +338,23 @@ pub trait SettingsStore: Send + Sync {
 /// Downloads started while their save-as dialog is open, so no time is lost
 /// while the user decides.
 pub trait EarlyStarts: Send + Sync {
+    /// Start download `id` from `download` while its dialog is open, into a
+    /// folder of its own and as `filename`, where the clients do not see it.
+    fn start(&self, id: u64, download: Download, filename: &str);
+
     /// If download `id` started early, stop that copy and move what it
     /// fetched to the file chosen, then start the download (`start`) or put
     /// it in `queue`. Returns false when it did not start early, leaving
     /// that to the caller.
     fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool;
+}
+
+/// Waiting for a window to answer a save-as dialog.
+pub trait Answers: Send + Sync {
+    /// Wait for a window to answer download `id`'s dialog, opening one if
+    /// none is open. If none answers in time, the download starts as
+    /// proposed.
+    fn await_answer(&self, id: u64);
 }
 
 /// Bringing things in front of the user.
