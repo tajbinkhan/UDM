@@ -9,11 +9,12 @@ use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
     Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
-    FilesError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
-    ReleaseSource, SyncChecks, UpdateChecks,
+    EarlyStarts, FilesError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore,
+    QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use uidm_domain::quota::QuotaNotice;
+use uidm_domain::settings::Settings;
 use uidm_domain::update::{Release, SetupAsset, UpdateError};
 
 pub struct Queues {
@@ -776,5 +777,65 @@ impl Attention for Shown {
 
     fn show_window(&self) {
         self.window.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Settings kept in memory; `refuse` makes every save fail.
+#[derive(Default)]
+pub struct Prefs {
+    settings: Mutex<Settings>,
+    saves: AtomicUsize,
+    refuse: bool,
+}
+
+impl Prefs {
+    pub fn with(settings: Settings) -> Self {
+        Prefs { settings: Mutex::new(settings), ..Prefs::default() }
+    }
+
+    pub fn saves(&self) -> usize {
+        self.saves.load(Ordering::SeqCst)
+    }
+}
+
+impl SettingsStore for Prefs {
+    fn settings(&self) -> Settings {
+        self.settings.lock().unwrap().clone()
+    }
+
+    fn save_settings(&self, settings: Settings) -> Result<(), SettingsError> {
+        if self.refuse {
+            return Err(SettingsError("the settings file is read-only".into()));
+        }
+        *self.settings.lock().unwrap() = settings;
+        self.saves.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// Early starts: downloads in `started` started early and are handed over.
+#[derive(Default)]
+pub struct Early {
+    started: HashSet<u64>,
+    handed: Mutex<Vec<(u64, bool, Option<u64>)>>,
+}
+
+impl Early {
+    pub fn started(ids: &[u64]) -> Self {
+        Early { started: ids.iter().copied().collect(), ..Early::default() }
+    }
+
+    pub fn handed(&self) -> Vec<(u64, bool, Option<u64>)> {
+        self.handed.lock().unwrap().clone()
+    }
+}
+
+impl EarlyStarts for Early {
+    fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool {
+        if !self.started.contains(&id) {
+            return false;
+        }
+        self.handed.lock().unwrap().push((id, start, queue));
+        true
     }
 }

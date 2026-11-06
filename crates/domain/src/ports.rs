@@ -9,6 +9,7 @@ use crate::download::{Download, DownloadEntry, Status};
 use crate::media::Conversion;
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
+use crate::settings::Settings;
 use crate::update::{Release, SetupAsset, UpdateError};
 
 /// The download queues, the main queue first.
@@ -315,6 +316,30 @@ pub trait Converter: Send + Sync {
     /// Stop the conversion running as row `id`. Returns false when no
     /// conversion runs as that row.
     fn stop(&self, id: u64) -> bool;
+}
+
+/// Why the settings could not be saved. The message is shown to the user
+/// or logged.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct SettingsError(pub String);
+
+/// The user's settings, as the daemon keeps them.
+pub trait SettingsStore: Send + Sync {
+    fn settings(&self) -> Settings;
+
+    /// Check `settings`, keep them, save them and tell every client.
+    fn save_settings(&self, settings: Settings) -> Result<(), SettingsError>;
+}
+
+/// Downloads started while their save-as dialog is open, so no time is lost
+/// while the user decides.
+pub trait EarlyStarts: Send + Sync {
+    /// If download `id` started early, stop that copy and move what it
+    /// fetched to the file chosen, then start the download (`start`) or put
+    /// it in `queue`. Returns false when it did not start early, leaving
+    /// that to the caller.
+    fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool;
 }
 
 /// Bringing things in front of the user.

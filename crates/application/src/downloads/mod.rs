@@ -1,4 +1,5 @@
-//! Acting on downloads: add them to wait in a queue, start or cancel one,
+//! Acting on downloads: add them to wait in a queue, take the save-as
+//! dialog's answer, start or cancel one,
 //! point at an older one instead of adding it again, remove one, retry one, download one again, give it a
 //! new link, change its properties, speed limit or what happens when it
 //! finishes, convert its file, stop everything that runs, pause all and
@@ -8,6 +9,7 @@ mod add_later;
 mod add_many;
 mod after_download;
 mod cancel_download;
+mod confirm_answer;
 mod convert_download;
 mod pause_all;
 mod redownload;
@@ -26,6 +28,7 @@ pub use add_later::AddLater;
 pub use add_many::{AddMany, AddedMany};
 pub use after_download::AfterDownload;
 pub use cancel_download::{CancelDownload, Canceled};
+pub use confirm_answer::{ConfirmAnswer, ConfirmError, ConfirmWarning, Confirmed};
 pub use convert_download::ConvertDownload;
 pub use pause_all::PauseAll;
 pub use redownload::Redownload;

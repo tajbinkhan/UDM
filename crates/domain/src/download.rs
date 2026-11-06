@@ -594,6 +594,14 @@ pub enum DownloadError {
     NotConvertible,
     #[error("Converting needs ffmpeg. Install it, or choose it in Options > General.")]
     NoFfmpeg,
+    #[error("download {0} is not waiting to be started")]
+    NotWaiting(u64),
+    #[error("the download has no file name")]
+    AnswerNoFileName,
+    #[error("the download has no folder")]
+    AnswerNoFolder,
+    #[error("the folder must be a full path: {0}")]
+    AnswerRelativeFolder(String),
     #[error("This download has already finished.")]
     AlreadyFinished,
     #[error("could not reach the new link: {0}")]
@@ -654,6 +662,54 @@ impl DownloadEntry {
             .and_then(|p| Path::new(p).file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.url.clone())
+    }
+
+    /// Take the save-as dialog's answer: the category and description it
+    /// gives, and the file name and folder chosen (each keeping the
+    /// proposed one when missing). It then waits to be started. Only a
+    /// download waiting for its dialog or in a queue takes an answer.
+    pub fn apply_answer(
+        &mut self,
+        filename: Option<&str>,
+        folder: Option<&str>,
+        category: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<(), DownloadError> {
+        if !self.status.waits() {
+            return Err(DownloadError::NotWaiting(self.id));
+        }
+        let path = if filename.is_none() && folder.is_none() {
+            // Keep whatever it already has: a chosen file, a partial file,
+            // or nothing yet.
+            None
+        } else {
+            let proposed = self.path.as_deref().map(Path::new);
+            let name = filename
+                .map(crate::filename::sanitize_filename)
+                .filter(|n| !n.is_empty())
+                .or_else(|| proposed.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()))
+                .ok_or(DownloadError::AnswerNoFileName)?;
+            let dir = match folder.map(str::trim) {
+                Some(f) if !f.is_empty() => PathBuf::from(f),
+                _ => proposed.and_then(Path::parent).map(Path::to_path_buf).ok_or(DownloadError::AnswerNoFolder)?,
+            };
+            if !dir.is_absolute() {
+                return Err(DownloadError::AnswerRelativeFolder(dir.display().to_string()));
+            }
+            Some(dir.join(&name).display().to_string())
+        };
+        self.duplicate_of = None;
+        if let Some(c) = category {
+            self.category = Some(c.to_string());
+        }
+        if let Some(d) = description {
+            self.description = Some(d.to_string()).filter(|d| !d.is_empty());
+        }
+        if path.is_some() {
+            self.path = path;
+        }
+        self.status = Status::Waiting;
+        Ok(())
     }
 
     /// Whether its properties may change: it is finished or stopped.
@@ -903,6 +959,33 @@ impl Duplicate {
 }
 
 impl Download {
+    /// Keep the save-as dialog's answer for later starts: what to do with a
+    /// taken name, the category, the description (`Some` sets it, to
+    /// nothing when it was cleared), and administrator rights
+    /// for `folder` (where the file goes), which a retry needs because it
+    /// resumes a staged file kept elsewhere.
+    pub fn apply_answer(
+        &mut self,
+        file_exists: Option<FileExists>,
+        category: Option<&str>,
+        description: Option<Option<&str>>,
+        elevate_into: Option<&Path>,
+    ) {
+        if file_exists.is_some() {
+            self.file_exists = file_exists;
+        }
+        if let Some(c) = category {
+            self.category = Some(c.to_string());
+        }
+        if let Some(d) = description {
+            self.description = d.map(str::to_string);
+        }
+        if let Some(dir) = elevate_into {
+            self.elevate = true;
+            self.folder = Some(dir.display().to_string());
+        }
+    }
+
     /// Whether it can be a duplicate of another download. Form posts and
     /// streams cannot: one address can stand for different files there
     /// (another form, another quality).
@@ -1165,5 +1248,23 @@ mod tests {
         let post = Download { method: Some("post".into()), ..Download::default() };
         assert!(!post.may_be_duplicate());
         assert!(Download::default().may_be_duplicate());
+    }
+    #[test]
+    fn an_answer_moves_the_file_and_keeps_what_it_leaves_out() {
+        let dl = if cfg!(windows) { r"C:\dl" } else { "/dl" };
+        let mut e = entry(Status::Confirming, 0);
+        e.path = Some(Path::new(dl).join("a.zip").display().to_string());
+        e.duplicate_of = Some(7);
+        e.apply_answer(Some("b?.zip"), None, Some("Music"), Some("")).unwrap();
+        assert_eq!(e.path, Some(Path::new(dl).join("b_.zip").display().to_string()));
+        assert_eq!((e.status, e.duplicate_of, e.category.as_deref()), (Status::Waiting, None, Some("Music")));
+        assert_eq!(e.description, None, "an empty description clears it");
+        let mut e = entry(Status::Confirming, 0);
+        e.path = Some("/dl/a.zip".into());
+        assert_eq!(
+            e.apply_answer(None, Some("rel"), None, None),
+            Err(DownloadError::AnswerRelativeFolder("rel".into()))
+        );
+        assert_eq!(entry(Status::Done, 1).apply_answer(None, None, None, None), Err(DownloadError::NotWaiting(1)));
     }
 }

@@ -1217,6 +1217,39 @@ impl Settings {
 
     /// Turn remembering the last folder on or off for the category named
     /// `category` (or General). Returns whether anything changed.
+    /// Remember what the save-as dialog's boxes asked, for a download saved
+    /// at `path` from `url` in `category` (or the one its type gives):
+    /// whether its category keeps the folder chosen (`remember_folder`),
+    /// that folder when it was `picked`, and with `later_queue` the queue
+    /// "Download later" uses. Returns whether anything changed.
+    pub fn remember_answer(
+        &mut self,
+        path: Option<&Path>,
+        url: &str,
+        category: Option<&str>,
+        remember_folder: Option<bool>,
+        picked: bool,
+        later_queue: Option<u64>,
+    ) -> bool {
+        let mut changed = false;
+        if let Some(path) = path {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let chosen = category.map(str::to_string).unwrap_or_else(|| self.category_name(&name, url).to_string());
+            if let Some(on) = remember_folder {
+                changed |= self.set_remember_folder(&chosen, on);
+            }
+            // A category that remembers its folder keeps the one chosen.
+            if let (true, Some(dir)) = (picked || remember_folder == Some(true), path.parent()) {
+                changed |= self.remember_folder(&chosen, dir);
+            }
+        }
+        if let Some(q) = later_queue {
+            changed |= self.later_queue != Some(q);
+            self.later_queue = Some(q);
+        }
+        changed
+    }
+
     pub fn set_remember_folder(&mut self, category: &str, on: bool) -> bool {
         let flag = match self.categories.iter_mut().find(|c| c.name.trim().eq_ignore_ascii_case(category.trim())) {
             Some(c) => &mut c.remember_folder,

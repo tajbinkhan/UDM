@@ -52,9 +52,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use uidm_application::downloads::{
-    AddLater, AddMany, AfterDownload, CancelDownload, ConvertDownload, Existing, PauseAll, Redownload, RefreshLink,
-    Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit,
-    StartOrWait, UseExisting,
+    AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
+    Existing, PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember,
+    SetOnDone, SetProperties, SetSpeedLimit, StartOrWait, UseExisting,
 };
 use uidm_application::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use uidm_application::queues::{
@@ -67,8 +67,9 @@ use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status, Validator};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    Attention, ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, PausedDownloads, PowerControl,
-    QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
+    Attention, ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, EarlyStarts, PausedDownloads,
+    PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SettingsError,
+    SettingsStore, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -799,6 +800,38 @@ impl DownloadIntake for Daemon {
 
     fn stage(&self, download: Download) -> (u64, String) {
         Daemon::stage(self, download)
+    }
+}
+
+impl SettingsStore for Daemon {
+    fn settings(&self) -> Settings {
+        self.settings.lock().unwrap().clone()
+    }
+
+    fn save_settings(&self, settings: Settings) -> Result<(), SettingsError> {
+        self.set_settings(settings).map_err(SettingsError)
+    }
+}
+
+/// Early starts, each handed over on a thread of its own that holds the
+/// daemon: stopping the early copy and moving its bytes takes a moment.
+struct EarlyHandOver<'a>(&'a Arc<Daemon>);
+
+impl EarlyStarts for EarlyHandOver<'_> {
+    fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool {
+        let Some(shadow) = self.0.hub.early_of(id) else {
+            return false;
+        };
+        let daemon = Arc::clone(self.0);
+        thread::spawn(move || {
+            if daemon.settle_early(id, shadow) {
+                return;
+            }
+            if let Err(e) = daemon.start_or_wait(id, start, queue) {
+                eprintln!("[uidm-daemon] could not go on with #{id}: {e}");
+            }
+        });
+        true
     }
 }
 
@@ -1862,16 +1895,6 @@ impl Daemon {
         }
     }
 
-    /// Take download `id` off the list though it never ran: a duplicate the
-    /// user chose not to add.
-    fn drop_entry(&self, id: u64) {
-        self.hub.requests.lock().unwrap().remove(&id);
-        if self.hub.leave_queues(id) {
-            self.hub.publish_queues();
-        }
-        self.hub.publish(&Outgoing::Removed { id });
-    }
-
     /// Add `download` to a queue (the one it names, else the one Download
     /// later goes to, else the main one) without starting it or opening a
     /// connection.
@@ -2662,144 +2685,26 @@ impl Daemon {
     /// name when missing). A category and description, when given, are kept
     /// with it. The dialog's "remember" boxes change the settings.
     fn confirm(self: &Arc<Self>, answer: Answer) -> Result<(), String> {
-        let Answer {
-            id,
-            mut filename,
-            mut folder,
-            start,
-            queue,
-            mut file_exists,
-            duplicate,
-            category,
-            description,
-            remember_folder,
-            remember_duplicate,
-            remember_queue,
-            elevate,
-        } = answer;
-        let category = category.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
-        let description = description.map(|d| d.trim().to_string());
-        let other = self.entry(id).and_then(|e| e.duplicate_of).and_then(|o| self.entry(o));
-        if let Some(old) = other {
-            let choice = duplicate.unwrap_or(Duplicate::NewName);
-            if remember_duplicate {
-                let mut settings = self.settings.lock().unwrap().clone();
-                if settings.if_duplicate != choice {
-                    settings.if_duplicate = choice;
-                    if let Err(e) = self.set_settings(settings) {
-                        eprintln!("[uidm-daemon] could not remember the duplicate choice: {e}");
-                    }
+        let id = answer.id;
+        let (front, early) = (Front(self), EarlyHandOver(self));
+        let confirm = ConfirmAnswer::new(&*self.hub, &*self.hub, &**self, &DiskFiles, &front, &**self, &early);
+        let (done, warnings) = confirm.run(answer).map_err(|e| e.to_string())?;
+        for w in warnings {
+            match w {
+                ConfirmWarning::DuplicateNotRemembered(e) => {
+                    eprintln!("[uidm-daemon] could not remember the duplicate choice: {e}")
                 }
-            }
-            let mut download = self.hub.requests.lock().unwrap().get(&id).cloned().unwrap_or_default();
-            if let Some((kept, _)) = self.settle_duplicate(&mut download, &old, choice) {
-                eprintln!("[uidm-daemon] #{id} duplicates #{}; using #{kept} instead", old.id);
-                self.drop_entry(id);
-                return Ok(());
-            }
-            // Replacing the other download means writing over its file.
-            if choice == Duplicate::Overwrite && old.path.is_some() {
-                filename = download.filename.clone();
-                folder = download.folder.clone();
-            }
-            file_exists = file_exists.or(download.file_exists);
-        }
-        let item = self.hub.update(id, |e| {
-            if !matches!(e.status, Status::Confirming | Status::Waiting) {
-                return Err(format!("download {id} is not waiting to be started"));
-            }
-            e.duplicate_of = None;
-            if let Some(c) = &category {
-                e.category = Some(c.clone());
-            }
-            if let Some(d) = &description {
-                e.description = Some(d.clone()).filter(|d| !d.is_empty());
-            }
-            if filename.is_none() && folder.is_none() {
-                // Keep whatever the download already has: a chosen file, a
-                // partial file, or nothing yet.
-                e.status = Status::Waiting;
-                return Ok(());
-            }
-            let proposed = e.path.as_deref().map(Path::new);
-            let name = filename
-                .as_deref()
-                .map(uidm_domain::filename::sanitize_filename)
-                .filter(|n| !n.is_empty())
-                .or_else(|| proposed.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()))
-                .ok_or("the download has no file name")?;
-            let dir = match folder.as_deref().map(str::trim) {
-                Some(f) if !f.is_empty() => PathBuf::from(f),
-                _ => proposed.and_then(Path::parent).map(Path::to_path_buf).ok_or("the download has no folder")?,
-            };
-            if !dir.is_absolute() {
-                return Err(format!("the folder must be a full path: {}", dir.display()));
-            }
-            e.path = Some(dir.join(&name).display().to_string());
-            e.status = Status::Waiting;
-            Ok(())
-        })?;
-        let mut settings = self.settings.lock().unwrap().clone();
-        let mut changed = false;
-        if let Some(path) = item.path.as_deref().map(Path::new) {
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let chosen = item.category.clone().unwrap_or_else(|| settings.category_name(&name, &item.url).to_string());
-            if let Some(on) = remember_folder {
-                changed |= settings.set_remember_folder(&chosen, on);
-            }
-            // A category that remembers its folder keeps the one chosen here.
-            let picked = remember_folder == Some(true) || folder.as_deref().is_some_and(|f| !f.trim().is_empty());
-            if let (true, Some(dir)) = (picked, path.parent()) {
-                changed |= settings.remember_folder(&chosen, dir);
-            }
-        }
-        if remember_queue && !start {
-            let later = Some(queue.unwrap_or(MAIN_QUEUE));
-            changed |= settings.later_queue != later;
-            settings.later_queue = later;
-        }
-        if changed {
-            if let Err(e) = self.set_settings(settings) {
-                eprintln!("[uidm-daemon] could not remember the dialog's choices: {e}");
-            }
-        }
-        if file_exists.is_some() || category.is_some() || description.is_some() || elevate {
-            let mut requests = self.hub.requests.lock().unwrap();
-            let request =
-                requests.entry(id).or_insert_with(|| Download { url: item.url.clone(), ..Download::default() });
-            if file_exists.is_some() {
-                request.file_exists = file_exists;
-            }
-            if category.is_some() {
-                request.category = category;
-            }
-            if description.is_some() {
-                request.description = item.description.clone();
-            }
-            // The folder goes with it too: a retry resumes the staged file,
-            // which is not in that folder, so only this says where it goes.
-            if elevate {
-                request.elevate = true;
-                if let Some(dir) = item.path.as_deref().map(Path::new).and_then(Path::parent) {
-                    request.folder = Some(dir.display().to_string());
+                ConfirmWarning::ChoicesNotRemembered(e) => {
+                    eprintln!("[uidm-daemon] could not remember the dialog's choices: {e}")
                 }
+                ConfirmWarning::OldNotRemoved(old, e) => eprintln!("[uidm-daemon] could not remove #{old}: {e}"),
+                ConfirmWarning::OldNotResumed(old, e) => eprintln!("[uidm-daemon] could not resume #{old}: {e}"),
             }
         }
-        // A download started early stops first, so its bytes can move to
-        // the file chosen, which takes a moment.
-        if let Some(shadow) = self.hub.early_of(id) {
-            let daemon = Arc::clone(self);
-            thread::spawn(move || {
-                if daemon.settle_early(id, shadow) {
-                    return;
-                }
-                if let Err(e) = daemon.start_or_wait(id, start, queue) {
-                    eprintln!("[uidm-daemon] could not go on with #{id}: {e}");
-                }
-            });
-            return Ok(());
+        if let Confirmed::UsedExisting { old, kept } = done {
+            eprintln!("[uidm-daemon] #{id} duplicates #{old}; using #{kept} instead");
         }
-        self.start_or_wait(id, start, queue)
+        Ok(())
     }
 
     /// Start a `waiting` download now, or (with `start` false) have it wait
