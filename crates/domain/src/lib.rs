@@ -11,3 +11,4 @@ pub mod queue;
 pub mod quota;
 pub mod settings;
 pub mod site;
+pub mod update;

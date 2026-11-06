@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::download::{Download, DownloadEntry, Status};
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
+use crate::update::{Release, SetupAsset, UpdateError};
 
 /// The download queues, the main queue first.
 pub trait QueueStore: Send + Sync {
@@ -252,6 +253,31 @@ pub trait PowerControl: Send + Sync {
 
     /// Sleep, hibernate or shut down now.
     fn power_off(&self, action: WhenDone, force_close: bool);
+}
+
+/// Where newer UIDM releases come from.
+pub trait ReleaseSource: Send + Sync {
+    /// The latest release, with its Setup program only where one can run.
+    fn latest(&self) -> Result<Release, UpdateError>;
+
+    /// Download `setup`, check it against what the release says about it,
+    /// and save it. Returns where.
+    fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError>;
+
+    /// Start the Setup program saved at `path`, telling it to close UIDM
+    /// without asking.
+    fn run_setup(&self, path: &Path) -> Result<(), UpdateError>;
+}
+
+/// When UIDM last looked for a newer release.
+pub trait UpdateChecks: Send + Sync {
+    /// Whether the weekly check is on, and when the last check was (seconds
+    /// since 1970).
+    fn weekly(&self) -> (bool, u64);
+
+    /// A check happened at `at`; with `save`, keep that in the settings
+    /// file too.
+    fn note_checked(&self, at: u64, save: bool);
 }
 
 /// The computer's local date and time.

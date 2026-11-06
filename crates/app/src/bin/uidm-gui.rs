@@ -284,9 +284,9 @@ struct Shared {
     quota: Option<String>,
     /// The last update check's answer, for the About box: a newer release,
     /// none, or why it could not look.
-    update: Option<Result<Option<uidm_infrastructure::update::Release>, String>>,
+    update: Option<Result<Option<uidm_domain::update::Release>, String>>,
     /// A newer release, for the status bar.
-    newer_release: Option<uidm_infrastructure::update::Release>,
+    newer_release: Option<uidm_domain::update::Release>,
     /// Update now is under way: `None` while the daemon downloads the
     /// update, or why it failed.
     installing: Option<Option<String>>,

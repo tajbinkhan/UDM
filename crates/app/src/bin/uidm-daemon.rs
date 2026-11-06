@@ -61,16 +61,18 @@ use uidm_application::queues::{
     StopQueue,
 };
 use uidm_application::quota::{CheckQuota, QuotaEvent, QuotaStatus};
+use uidm_application::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Status, Validator};
 use uidm_domain::ports::{
     ControlError, DownloadControl, DownloadList, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds,
-    QueueStore, QuotaState, SyncChecks,
+    QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
 };
 use uidm_domain::quota::{QuotaLimit, QuotaNotice};
+use uidm_domain::update::{Release, SetupAsset, UpdateError};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::clock::LocalClock;
 use uidm_infrastructure::engine::DownloadRequest;
@@ -723,6 +725,69 @@ impl PowerControl for Daemon {
 
     fn power_off(&self, action: WhenDone, force_close: bool) {
         power_off(action, force_close);
+    }
+}
+
+impl UpdateChecks for Daemon {
+    fn weekly(&self) -> (bool, u64) {
+        let s = self.settings.lock().unwrap();
+        (s.check_updates, s.last_update_check)
+    }
+
+    fn note_checked(&self, at: u64, save: bool) {
+        let mut s = self.settings.lock().unwrap();
+        s.last_update_check = at;
+        if let Some(path) = self.paths.settings.as_ref().filter(|_| save) {
+            let _ = settings::save(&s, path);
+        }
+    }
+}
+
+/// This copy's version.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// GitHub's releases at `url`, reached through the settings' proxy.
+struct GitHub<'a> {
+    daemon: &'a Daemon,
+    url: &'a str,
+}
+
+impl ReleaseSource for GitHub<'_> {
+    fn latest(&self) -> Result<Release, UpdateError> {
+        let settings = self.daemon.settings.lock().unwrap().clone();
+        let net = self.daemon.net_for(&Download { url: self.url.to_string(), ..Download::default() }, &settings);
+        let headers = [
+            ("User-Agent".to_string(), format!("UIDM/{VERSION}")),
+            ("Accept".to_string(), "application/vnd.github+json".to_string()),
+        ];
+        let page = engine::fetch(self.url, &headers, &net, 1024 * 1024)
+            .map_err(|e| UpdateError::Unreachable(e.to_string()))?;
+        let release = uidm_infrastructure::update::parse_release(&page.body).map_err(UpdateError::Answer)?;
+        // Only Windows has a Setup to run; elsewhere the page is shown.
+        Ok(Release { setup: release.setup.filter(|_| cfg!(windows)), ..release })
+    }
+
+    fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError> {
+        let settings = self.daemon.settings.lock().unwrap().clone();
+        let net = self.daemon.net_for(&Download { url: setup.url.clone(), ..Download::default() }, &settings);
+        let headers = [("User-Agent".to_string(), format!("UIDM/{VERSION}"))];
+        eprintln!("[uidm-daemon] downloading {}", setup.url);
+        let fetched = engine::fetch(&setup.url, &headers, &net, uidm_infrastructure::update::MAX_SETUP_BYTES)
+            .map_err(|e| UpdateError::Download(e.to_string()))?;
+        uidm_infrastructure::update::check_setup(setup, &fetched.body).map_err(UpdateError::BadSetup)?;
+        let path = std::env::temp_dir().join(&setup.name);
+        std::fs::write(&path, &fetched.body)
+            .map_err(|e| UpdateError::Save { path: path.display().to_string(), reason: e.to_string() })?;
+        Ok(path)
+    }
+
+    fn run_setup(&self, path: &Path) -> Result<(), UpdateError> {
+        // /fromuidm closes UIDM without asking: the user asked for this.
+        Command::new(path)
+            .arg("/fromuidm=yes")
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| UpdateError::Start { path: path.display().to_string(), reason: e.to_string() })
     }
 }
 
@@ -2205,64 +2270,21 @@ impl Daemon {
     /// Ask GitHub (at `url`) for the latest release, through the settings'
     /// proxy, and note when that happened.
     fn check_update(&self, url: &str) -> Outgoing {
-        let settings = self.settings.lock().unwrap().clone();
-        let start = Download { url: url.to_string(), ..Download::default() };
-        let net = self.net_for(&start, &settings);
-        let headers = [
-            ("User-Agent".to_string(), format!("UIDM/{}", env!("CARGO_PKG_VERSION"))),
-            ("Accept".to_string(), "application/vnd.github+json".to_string()),
-        ];
-        let found = engine::fetch(url, &headers, &net, 1024 * 1024)
-            .map_err(|e| format!("Could not reach GitHub: {e}"))
-            .and_then(|page| uidm_infrastructure::update::parse_release(&page.body))
-            // Only Windows has a Setup to run; elsewhere the page is shown.
-            .map(|release| uidm_infrastructure::update::Release {
-                setup: release.setup.filter(|_| cfg!(windows)),
-                ..release
-            });
-        {
-            let mut s = self.settings.lock().unwrap();
-            s.last_update_check = uidm_infrastructure::state::unix_now();
-            if let Some(path) = &self.paths.settings {
-                let _ = settings::save(&s, path);
-            }
-        }
-        match found {
-            Ok(release) => Outgoing::Update {
-                newer: uidm_infrastructure::update::is_newer(&release.version, env!("CARGO_PKG_VERSION"))
-                    .then_some(release),
-                error: None,
-            },
-            Err(e) => Outgoing::Update { newer: None, error: Some(e) },
+        let github = GitHub { daemon: self, url };
+        match CheckForUpdate::new(&github, self, VERSION).run(uidm_infrastructure::state::unix_now()) {
+            Ok(newer) => Outgoing::Update { newer, error: None },
+            Err(e) => Outgoing::Update { newer: None, error: Some(e.to_string()) },
         }
     }
 
-    /// Update now: download the newest release's Setup through the
-    /// settings' proxy, check it, save it to the temp folder and run it,
-    /// then stop the downloads, save the list and quit with the windows,
-    /// so Setup can replace the files. Setup closes whatever is left.
+    /// Update now (see `InstallUpdate`), then stop the downloads, save the
+    /// list and quit with the windows, so Setup can replace the files.
+    /// Setup closes whatever is left.
     fn install_update(&self) -> Result<(), String> {
-        let release = match self.check_update(uidm_infrastructure::update::LATEST_RELEASE) {
-            Outgoing::Update { newer: Some(r), .. } => r,
-            Outgoing::Update { error: Some(e), .. } => return Err(e),
-            _ => return Err("This is the newest version.".into()),
-        };
-        let setup = release.setup.ok_or("This release has no Setup program; download it from its page.")?;
-        let settings = self.settings.lock().unwrap().clone();
-        let net = self.net_for(&Download { url: setup.url.clone(), ..Download::default() }, &settings);
-        let headers = [("User-Agent".to_string(), format!("UIDM/{}", env!("CARGO_PKG_VERSION")))];
-        eprintln!("[uidm-daemon] downloading {}", setup.url);
-        let fetched = engine::fetch(&setup.url, &headers, &net, uidm_infrastructure::update::MAX_SETUP_BYTES)
-            .map_err(|e| format!("Could not download the update: {e}"))?;
-        uidm_infrastructure::update::check_setup(&setup, &fetched.body)?;
-        let path = std::env::temp_dir().join(&setup.name);
-        std::fs::write(&path, &fetched.body)
-            .map_err(|e| format!("Could not save the update to {}: {e}", path.display()))?;
-        // /fromuidm closes UIDM without asking: the user asked for this.
-        Command::new(&path)
-            .arg("/fromuidm=yes")
-            .spawn()
-            .map_err(|e| format!("Could not start {}: {e}", path.display()))?;
+        let github = GitHub { daemon: self, url: uidm_infrastructure::update::LATEST_RELEASE };
+        let path = InstallUpdate::new(&github, self, VERSION)
+            .run(uidm_infrastructure::state::unix_now())
+            .map_err(|e| e.to_string())?;
         eprintln!("[uidm-daemon] started {}; quitting for it", path.display());
         self.pause_all();
         self.save_history();
@@ -2273,18 +2295,9 @@ impl Daemon {
     /// Once a week, when a window connects, look for a newer release on
     /// another thread and tell the windows if there is one.
     fn weekly_update_check(self: &Arc<Self>) {
-        let (on, last) = {
-            let s = self.settings.lock().unwrap();
-            (s.check_updates, s.last_update_check)
-        };
-        if !on
-            || uidm_infrastructure::state::unix_now().saturating_sub(last)
-                < uidm_infrastructure::update::CHECK_EVERY_SECS
-        {
+        if !ClaimWeeklyCheck::new(&**self).run(uidm_infrastructure::state::unix_now()) {
             return;
         }
-        // Noted at once, so two windows do not both check.
-        self.settings.lock().unwrap().last_update_check = uidm_infrastructure::state::unix_now();
         let daemon = Arc::clone(self);
         thread::spawn(move || {
             if let msg @ Outgoing::Update { newer: Some(_), .. } =

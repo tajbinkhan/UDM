@@ -5,6 +5,7 @@ pub mod downloads;
 pub mod power;
 pub mod queues;
 pub mod quota;
+pub mod update;
 
 #[cfg(test)]
 mod memory;

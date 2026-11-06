@@ -8,10 +8,11 @@ use std::sync::Mutex;
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::ports::{
     Clock, ControlError, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads, PowerControl,
-    QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, SyncChecks,
+    QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use uidm_domain::quota::QuotaNotice;
+use uidm_domain::update::{Release, SetupAsset, UpdateError};
 
 pub struct Queues {
     list: Mutex<Vec<Queue>>,
@@ -585,5 +586,71 @@ impl PowerControl for Power {
 
     fn power_off(&self, action: WhenDone, force_close: bool) {
         self.powered_off.lock().unwrap().push((action, force_close));
+    }
+}
+
+/// A release source that offers `latest` and records what it was asked.
+pub struct Releases {
+    latest: Result<Release, UpdateError>,
+    fetched: Mutex<Vec<SetupAsset>>,
+    started: Mutex<Vec<PathBuf>>,
+}
+
+impl Releases {
+    pub fn offering(latest: Result<Release, UpdateError>) -> Self {
+        Releases { latest, fetched: Mutex::default(), started: Mutex::default() }
+    }
+
+    pub fn fetched(&self) -> Vec<SetupAsset> {
+        self.fetched.lock().unwrap().clone()
+    }
+
+    pub fn started(&self) -> Vec<PathBuf> {
+        self.started.lock().unwrap().clone()
+    }
+}
+
+impl ReleaseSource for Releases {
+    fn latest(&self) -> Result<Release, UpdateError> {
+        self.latest.clone()
+    }
+
+    fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError> {
+        self.fetched.lock().unwrap().push(setup.clone());
+        Ok(PathBuf::from("/tmp").join(&setup.name))
+    }
+
+    fn run_setup(&self, path: &Path) -> Result<(), UpdateError> {
+        self.started.lock().unwrap().push(path.to_path_buf());
+        Ok(())
+    }
+}
+
+/// The weekly check's setting and the checks noted.
+#[derive(Default)]
+pub struct Checked {
+    on: bool,
+    last: Mutex<u64>,
+    noted: Mutex<Vec<(u64, bool)>>,
+}
+
+impl Checked {
+    pub fn weekly(on: bool, last: u64) -> Self {
+        Checked { on, last: Mutex::new(last), ..Checked::default() }
+    }
+
+    pub fn noted(&self) -> Vec<(u64, bool)> {
+        self.noted.lock().unwrap().clone()
+    }
+}
+
+impl UpdateChecks for Checked {
+    fn weekly(&self) -> (bool, u64) {
+        (self.on, *self.last.lock().unwrap())
+    }
+
+    fn note_checked(&self, at: u64, save: bool) {
+        *self.last.lock().unwrap() = at;
+        self.noted.lock().unwrap().push((at, save));
     }
 }

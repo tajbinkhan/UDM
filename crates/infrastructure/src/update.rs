@@ -3,37 +3,10 @@
 //! now has the daemon download that Setup, check it against what GitHub
 //! says about it, and run it.
 
-use serde::{Deserialize, Serialize};
+pub use uidm_domain::update::{is_newer, Release, SetupAsset, CHECK_EVERY_SECS};
 
 /// The releases of UIDM's repository, newest first by GitHub's reckoning.
 pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/uidm/releases/latest";
-
-/// How often the window's check runs on its own: once a week.
-pub const CHECK_EVERY_SECS: u64 = 7 * 24 * 60 * 60;
-
-/// A release on GitHub.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Release {
-    /// The version, without a leading `v`.
-    pub version: String,
-    /// Its page on GitHub.
-    pub url: String,
-    /// Its Setup program, when one is attached.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub setup: Option<SetupAsset>,
-}
-
-/// A release's `UIDM-Setup-<version>.exe`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SetupAsset {
-    pub name: String,
-    /// Where GitHub serves it, under this repository's release downloads.
-    pub url: String,
-    pub size: u64,
-    /// Its SHA-256 in hex, when GitHub reports one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sha256: Option<String>,
-}
 
 /// Where release files are served from; a Setup anywhere else is not used.
 const DOWNLOADS: &str = "https://github.com/tajbinkhan/uidm/releases/download/";
@@ -82,26 +55,6 @@ pub fn check_setup(asset: &SetupAsset, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// `1.2.3` (or `v1.2.3`, `1.2.3-beta`) as numbers to compare; missing parts
-/// count as 0.
-fn numbers(version: &str) -> Vec<u64> {
-    version
-        .trim()
-        .trim_start_matches(['v', 'V'])
-        .split(['.', '-', '+'])
-        .take(3)
-        .map(|p| p.chars().take_while(char::is_ascii_digit).collect::<String>().parse().unwrap_or(0))
-        .collect()
-}
-
-/// Whether `candidate` is a later version than `current`.
-pub fn is_newer(candidate: &str, current: &str) -> bool {
-    let (mut a, mut b) = (numbers(candidate), numbers(current));
-    a.resize(3, 0);
-    b.resize(3, 0);
-    a > b
-}
-
 /// The release in GitHub's answer for the latest release.
 pub fn parse_release(json: &[u8]) -> Result<Release, String> {
     let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| format!("GitHub's answer is not JSON: {e}"))?;
@@ -119,16 +72,6 @@ pub fn parse_release(json: &[u8]) -> Result<Release, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn versions_compare_by_number() {
-        assert!(is_newer("v0.2.0", "0.1.0"));
-        assert!(is_newer("0.10.0", "0.9.5"));
-        assert!(is_newer("1.0", "0.99.99"));
-        assert!(!is_newer("0.1.0", "0.1.0"));
-        assert!(!is_newer("v0.1.0-beta", "0.1.0"));
-        assert!(!is_newer("0.0.9", "0.1.0"));
-    }
 
     #[test]
     fn releases_are_read_from_githubs_answer() {
