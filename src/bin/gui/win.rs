@@ -60,7 +60,40 @@ extern "system" {
     fn GetCapture() -> isize;
     fn PostMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> i32;
     fn SetWindowLongPtrW(hwnd: isize, index: i32, value: isize) -> isize;
+    fn GetCursorPos(point: *mut Point) -> i32;
+    fn MonitorFromPoint(point: Point, flags: u32) -> isize;
+    fn GetMonitorInfoW(monitor: isize, info: *mut MonitorInfo) -> i32;
 }
+
+/// `POINT`.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+/// `RECT`.
+#[repr(C)]
+#[derive(Default)]
+struct WinRect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+/// `MONITORINFO`.
+#[repr(C)]
+#[derive(Default)]
+struct MonitorInfo {
+    size: u32,
+    monitor: WinRect,
+    work: WinRect,
+    flags: u32,
+}
+
+const MONITOR_DEFAULTTOPRIMARY: u32 = 1;
 
 /// `OPENASINFO`.
 #[repr(C)]
@@ -160,6 +193,29 @@ pub fn in_front() -> bool {
         let front = GetForegroundWindow();
         let mut pid = 0;
         front != 0 && GetWindowThreadProcessId(front, &mut pid) != 0 && pid == GetCurrentProcessId()
+    }
+}
+
+/// The middle of the work area (the screen less the taskbar) of the monitor
+/// under the mouse, in pixels, while the main window is in the tray or
+/// minimized. A dialog then opens there, as IDM's do, instead of centered
+/// on a window the user cannot see. None while the main window shows.
+pub fn screen_center() -> Option<(f32, f32)> {
+    let hwnd = WINDOW.load(Ordering::Relaxed);
+    // SAFETY: plain calls; the structs are sized for them.
+    unsafe {
+        if hwnd != 0 && !HIDDEN.load(Ordering::Relaxed) && IsIconic(hwnd) == 0 {
+            return None;
+        }
+        let mut cursor = Point::default();
+        GetCursorPos(&mut cursor);
+        let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY);
+        let mut info = MonitorInfo { size: std::mem::size_of::<MonitorInfo>() as u32, ..Default::default() };
+        if monitor == 0 || GetMonitorInfoW(monitor, &mut info) == 0 {
+            return None;
+        }
+        let w = &info.work;
+        Some(((w.left + w.right) as f32 / 2.0, (w.top + w.bottom) as f32 / 2.0))
     }
 }
 

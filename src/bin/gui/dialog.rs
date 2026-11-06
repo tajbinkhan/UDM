@@ -72,6 +72,27 @@ struct Placement {
     active: bool,
 }
 
+/// Where a dialog's middle goes when it opens: the middle of the main
+/// window, or of the screen while the main window is in the tray or
+/// minimized. A caught download's save-as dialog usually opens then, and
+/// centered on a window nobody sees it landed near the screen's corner.
+fn opening_center(ctx: &egui::Context) -> Pos2 {
+    let (outer, minimized, monitor, scale) = ctx.input(|i| {
+        let v = i.viewport();
+        (v.outer_rect, v.minimized.unwrap_or(false), v.monitor_size, v.native_pixels_per_point.unwrap_or(1.0))
+    });
+    if let Some((x, y)) = crate::win::screen_center() {
+        // Pixels to points, which window positions are given in.
+        return Pos2::new(x, y) / scale;
+    }
+    match (outer, monitor) {
+        (Some(main), _) if !minimized => main.center(),
+        (_, Some(monitor)) => (monitor / 2.0).to_pos2(),
+        (Some(main), None) => main.center(),
+        (None, None) => Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)).center(),
+    }
+}
+
 impl<'o> Window<'o> {
     pub fn new(title: impl Into<String>) -> Self {
         Window {
@@ -166,12 +187,10 @@ impl<'o> Window<'o> {
 
         let pass = ctx.cumulative_pass_nr();
         let key = id.with("dialog_placement");
-        let main =
-            ctx.input(|i| i.viewport().outer_rect).unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
         let mut place =
             ctx.data(|d| d.get_temp::<Placement>(key)).filter(|p| p.pass + 1 >= pass).unwrap_or_else(|| Placement {
                 pass,
-                center: main.center(),
+                center: opening_center(ctx),
                 fitted: false,
                 raised: false,
                 owned: false,
