@@ -187,8 +187,9 @@ pub struct Client {
     /// A new client like `http` with a connection pool of its own, on
     /// HTTP/1.1, for an NTLM handshake: its steps must share one connection,
     /// which another segment's request could take from a shared pool, and
-    /// NTLM does not work over HTTP/2.
-    fresh_http1: Arc<dyn Fn() -> Result<reqwest::Client, EngineError> + Send + Sync>,
+    /// NTLM does not work over HTTP/2. `OneConnection` holds back any
+    /// connection after its first.
+    fresh_http1: Arc<dyn Fn(OneConnection) -> Result<reqwest::Client, EngineError> + Send + Sync>,
     logins: Arc<Vec<net::Login>>,
     /// How to reach an `ftp://` address, which goes to the FTP module.
     ftp: super::ftp::FtpOptions,
@@ -217,7 +218,7 @@ impl Client {
             Some(p) => Some(reqwest_proxy(&p)?),
             None => None,
         };
-        let make = move |http1: bool| -> Result<reqwest::Client, EngineError> {
+        let make = move |ntlm: Option<OneConnection>| -> Result<reqwest::Client, EngineError> {
             let mut builder = reqwest::Client::builder()
                 .use_native_tls()
                 .connect_timeout(CONNECT_TIMEOUT)
@@ -229,15 +230,15 @@ impl Client {
                 Some(p) => builder.proxy(p.clone()),
                 None => builder.no_proxy(),
             };
-            if http1 {
-                builder = builder.http1_only();
+            if let Some(one) = ntlm {
+                builder = builder.http1_only().connector_layer(one);
             }
             let _guard = runtime().enter();
             builder.build().map_err(|e| EngineError::Tls(error_text(&e)))
         };
         Ok(Client {
-            http: make(false)?,
-            fresh_http1: Arc::new(move || make(true)),
+            http: make(None)?,
+            fresh_http1: Arc::new(move |one| make(Some(one))),
             logins: Arc::new(net.logins.clone()),
             ftp: super::ftp::FtpOptions {
                 active: net.ftp_active,
@@ -330,9 +331,12 @@ impl Client {
                 let needs = || EngineError::NeedsLogin(host.clone(), realm.clone());
                 let login = net::find_login(&self.logins, &asked).ok_or_else(needs)?;
                 if let Some(scheme) = net::ntlm_scheme(&challenges) {
-                    let http = (self.fresh_http1)()?;
+                    let one = OneConnection::new(LATER_CONNECT_WAIT);
+                    let http = (self.fresh_http1)(one.clone())?;
                     let build = |auth: Option<&str>| build_on(&http, auth);
-                    return ntlm(scheme, login, &build).map_err(|e| match e {
+                    let result = ntlm(scheme, login, &build);
+                    one.finish();
+                    return result.map_err(|e| match e {
                         NtlmError::Rejected => EngineError::LoginRejected(host, realm),
                         NtlmError::Other(e) => e,
                     });
@@ -447,6 +451,92 @@ fn ntlm(scheme: &str, login: &net::Login, build: SendWith) -> Result<Response, N
     match build(Some(&format!("{scheme} {}", b64(answer)))) {
         Err(Failed::Status(401, _)) => Err(NtlmError::Rejected),
         other => other.map_err(|e| NtlmError::Other(failed(e))),
+    }
+}
+
+/// How long a connection after the first waits on an NTLM client. The
+/// handshake's first connection goes back to the pool microseconds after its
+/// challenge is read, so this only matters when the server closed it.
+const LATER_CONNECT_WAIT: Duration = Duration::from_secs(3);
+
+/// A connector layer for an NTLM client that keeps the handshake on one
+/// connection. The pool picks whichever comes first, a connection put back
+/// in it or a new one, so on a busy machine a new connection could win, and
+/// the answer would reach the server on a connection that never got the
+/// challenge, which the server refuses. Here only the first connection opens
+/// at once. Any later one waits `wait` and opens only if the handshake is
+/// still going by then, so the pooled connection wins.
+#[derive(Clone)]
+struct OneConnection {
+    state: Arc<OneConnectionState>,
+    wait: Duration,
+}
+
+#[derive(Default)]
+struct OneConnectionState {
+    started: std::sync::atomic::AtomicBool,
+    finished: std::sync::atomic::AtomicBool,
+}
+
+impl OneConnection {
+    fn new(wait: Duration) -> Self {
+        OneConnection { state: Arc::default(), wait }
+    }
+
+    /// The handshake is over: a connection still waiting fails instead of
+    /// opening.
+    fn finish(&self) {
+        self.state.finished.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl<S> tower_layer::Layer<S> for OneConnection {
+    type Service = OneConnectionService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        OneConnectionService { inner, one: self.clone() }
+    }
+}
+
+#[derive(Clone)]
+struct OneConnectionService<S> {
+    inner: S,
+    one: OneConnection,
+}
+
+type BoxFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send>>;
+
+impl<S, R> tower_service::Service<R> for OneConnectionService<S>
+where
+    S: tower_service::Service<R> + Clone + Send + 'static,
+    S::Future: Send + 'static,
+    S::Error: From<&'static str>,
+    R: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = BoxFuture<Result<S::Response, S::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), S::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: R) -> Self::Future {
+        use std::sync::atomic::Ordering::SeqCst;
+        // The service that was made ready is the one called, as tower asks.
+        let clone = self.inner.clone();
+        let mut inner = std::mem::replace(&mut self.inner, clone);
+        let state = self.one.state.clone();
+        let wait = self.one.wait;
+        Box::pin(async move {
+            if state.started.swap(true, SeqCst) {
+                tokio::time::sleep(wait).await;
+                if state.finished.load(SeqCst) {
+                    return Err(S::Error::from("the NTLM handshake already has its connection"));
+                }
+            }
+            inner.call(req).await
+        })
     }
 }
 
@@ -695,6 +785,57 @@ mod tests {
         // Two requests on one client share the connection as streams.
         let again = client.send("GET", "https://www.cloudflare.com/", &[], Some("bytes=0-0"), None).unwrap();
         assert_eq!(again.inner.as_ref().unwrap().version(), reqwest::Version::HTTP_2);
+    }
+
+    /// A connector that counts how many connections it opens.
+    #[derive(Clone, Default)]
+    struct CountingConnector(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+    impl tower_service::Service<()> for CountingConnector {
+        type Response = ();
+        type Error = Box<dyn std::error::Error + Send + Sync>;
+        type Future = std::future::Ready<Result<(), Self::Error>>;
+
+        fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _: ()) -> Self::Future {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::future::ready(Ok(()))
+        }
+    }
+
+    #[test]
+    fn an_ntlm_client_opens_a_second_connection_only_after_a_wait() {
+        use std::sync::atomic::Ordering::SeqCst;
+        use std::time::{Duration, Instant};
+        use tower_layer::Layer;
+        use tower_service::Service;
+
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+        let wait = Duration::from_millis(300);
+
+        // The first connection opens at once, a later one after the wait.
+        let opened = CountingConnector::default();
+        let mut svc = super::OneConnection::new(wait).layer(opened.clone());
+        let start = Instant::now();
+        rt.block_on(svc.call(())).unwrap();
+        assert!(start.elapsed() < wait);
+        assert_eq!(opened.0.load(SeqCst), 1);
+        rt.block_on(svc.call(())).unwrap();
+        assert!(start.elapsed() >= wait);
+        assert_eq!(opened.0.load(SeqCst), 2);
+
+        // Once the handshake is over, a waiting connection never opens.
+        let opened = CountingConnector::default();
+        let one = super::OneConnection::new(wait);
+        let mut svc = one.clone().layer(opened.clone());
+        rt.block_on(svc.call(())).unwrap();
+        let later = svc.call(());
+        one.finish();
+        assert!(rt.block_on(later).is_err());
+        assert_eq!(opened.0.load(SeqCst), 1);
     }
 
     #[test]

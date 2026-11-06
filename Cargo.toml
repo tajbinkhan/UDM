@@ -72,6 +72,10 @@ percent-encoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["native-tls-alpn", "http2", "socks"] }
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 bytes = "1"
+# The traits for the connector layer that keeps an NTLM handshake on one
+# connection. reqwest already depends on both.
+tower-layer = "0.3"
+tower-service = "0.3"
 
 # WinRT toast notifications from the daemon.
 [target.'cfg(windows)'.dependencies]
