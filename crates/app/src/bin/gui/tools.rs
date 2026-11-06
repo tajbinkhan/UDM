@@ -7,11 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use eframe::egui;
-use uidm_infrastructure::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
+use uidm_domain::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
+use uidm_domain::queue::{Queue, MAIN_QUEUE};
 use uidm_infrastructure::grab::{self, GrabFile, GrabRequest, SaveTo};
 use uidm_infrastructure::listfile;
 use uidm_infrastructure::protocol::{Download, DownloadEntry, DownloadLogin, Status};
-use uidm_infrastructure::queue::{Queue, MAIN_QUEUE};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::i18n::{tr, trf};
@@ -671,9 +671,9 @@ pub struct GrabDialog {
     run: grab::RunAction,
     /// One-time downloading, or periodic synchronization of what earlier
     /// runs downloaded.
-    sync: uidm_infrastructure::queue::QueueKind,
+    sync: uidm_domain::queue::QueueKind,
     sched_queue: u64,
-    when_done: uidm_infrastructure::queue::WhenDone,
+    when_done: uidm_domain::queue::WhenDone,
     /// Shutting down when done closes programs that would hold it up; only
     /// kept with shutting down, as the Queues dialog does.
     force_close: bool,
@@ -737,7 +737,7 @@ impl GrabDialog {
             GrabPhase::Review { files, checked, .. } => (files.clone(), checked.clone()),
             _ => (Vec::new(), Vec::new()),
         };
-        let schedule = self.sched.then(|| uidm_infrastructure::queue::Schedule {
+        let schedule = self.sched.then(|| uidm_domain::queue::Schedule {
             start: self.sched_start.trim().to_string(),
             stop: self.sched_has_stop.then(|| self.sched_stop.trim().to_string()),
             days: if self.sched_by_date {
@@ -767,7 +767,7 @@ impl GrabDialog {
             download_new: false,
             queue: self.sched_queue,
             when_done: self.when_done,
-            force_close: self.force_close && self.when_done == uidm_infrastructure::queue::WhenDone::ShutDown,
+            force_close: self.force_close && self.when_done == uidm_domain::queue::WhenDone::ShutDown,
             open_when_done: Some(self.open_when_done.trim().to_string()).filter(|f| !f.is_empty()),
             seen: self.kept.0.clone(),
             last_scheduled_day: self.kept.1,
@@ -1013,9 +1013,9 @@ impl GrabDialog {
             sched_repeat_minutes: 0,
             sched_wake: true,
             run: grab::RunAction::Explore,
-            sync: uidm_infrastructure::queue::QueueKind::OneTime,
+            sync: uidm_domain::queue::QueueKind::OneTime,
             sched_queue: MAIN_QUEUE,
-            when_done: uidm_infrastructure::queue::WhenDone::Nothing,
+            when_done: uidm_domain::queue::WhenDone::Nothing,
             force_close: false,
             open_when_done: String::new(),
             open_picked: Picked::default(),
@@ -1775,7 +1775,7 @@ fn grab_body(
                     });
                     ui.add_enabled_ui(d.run != grab::RunAction::Explore, |ui| {
                         ui.horizontal(|ui| {
-                            for k in uidm_infrastructure::queue::QueueKind::ALL {
+                            for k in uidm_domain::queue::QueueKind::ALL {
                                 ui.radio_value(&mut d.sync, k, tr(k.label()));
                             }
                         })
@@ -1788,7 +1788,7 @@ fn grab_body(
                     ui.horizontal(|ui| {
                         ui.label(tr("When done"));
                         egui::ComboBox::from_id_salt("grab_when_done").selected_text(tr(d.when_done.label())).show_ui(ui, |ui| {
-                            for w in uidm_infrastructure::queue::WhenDone::ALL {
+                            for w in uidm_domain::queue::WhenDone::ALL {
                                 ui.selectable_value(&mut d.when_done, w, tr(w.label()));
                             }
                         });
@@ -1799,7 +1799,7 @@ fn grab_body(
                     .response
                     .on_hover_text(tr("After the crawl, or once the queue has downloaded what the run added"));
                     ui.add_enabled(
-                        d.when_done == uidm_infrastructure::queue::WhenDone::ShutDown,
+                        d.when_done == uidm_domain::queue::WhenDone::ShutDown,
                         egui::Checkbox::new(&mut d.force_close, tr("Force apps to close")),
                     )
                     .on_hover_text(tr("Shut down even if a program asks to save its work first; unsaved work is lost"));

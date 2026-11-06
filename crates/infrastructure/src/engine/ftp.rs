@@ -307,8 +307,8 @@ fn mdtm_to_http_date(text: &str) -> Option<String> {
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
         return None;
     }
-    let day = crate::queue::days_from_civil(y as i64, mo, d);
-    let weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][crate::queue::weekday(day) as usize];
+    let day = uidm_domain::queue::days_from_civil(y as i64, mo, d);
+    let weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][uidm_domain::queue::weekday(day) as usize];
     let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][mo as usize - 1];
     Some(format!("{weekday}, {d:02} {month} {y:04} {h:02}:{mi:02}:{s:02} GMT"))
 }

@@ -4790,6 +4790,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tray-icon",
+ "uidm-domain",
  "uidm-infrastructure",
  "url",
  "windows 0.61.3",
@@ -4805,6 +4806,11 @@ dependencies = [
 [[package]]
 name = "uidm-domain"
 version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "url",
+]
 
 [[package]]
 name = "uidm-infrastructure"
@@ -4830,6 +4836,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "trash",
+ "uidm-domain",
  "url",
  "windows 0.61.3",
 ]

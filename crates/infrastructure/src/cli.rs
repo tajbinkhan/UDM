@@ -256,14 +256,14 @@ fn many(list: LinkList) -> Result<Sent, String> {
                 ListedLink::Link(o) => PageLink { url: o.url, text: o.text, cookies: given(o.cookies), image: false },
             };
             let url = link.url.trim().to_string();
-            if !crate::batch::is_web_url(&url) || url::Url::parse(&url).is_err() {
+            if !uidm_domain::batch::is_web_url(&url) || url::Url::parse(&url).is_err() {
                 return Err(format!("{url} is not an http or https address"));
             }
             Ok(PageLink { url, ..link })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    if links.len() > crate::batch::MAX_BATCH {
-        return Err(format!("too many links: {}, at most {}", links.len(), crate::batch::MAX_BATCH));
+    if links.len() > uidm_domain::batch::MAX_BATCH {
+        return Err(format!("too many links: {}, at most {}", links.len(), uidm_domain::batch::MAX_BATCH));
     }
     Ok(Sent::Many { referer: given(list.referer).unwrap_or_default(), links })
 }

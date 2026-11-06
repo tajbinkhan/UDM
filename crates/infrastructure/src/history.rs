@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::dpapi;
 use crate::protocol::{Download, DownloadEntry, Status};
-use crate::queue::{Queue, MAIN_QUEUE};
 use crate::settings::write_atomic;
+use uidm_domain::queue::{Queue, MAIN_QUEUE};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct History {
@@ -268,7 +268,7 @@ mod tests {
     fn a_synchronizing_queue_keeps_its_finished_downloads() {
         let path = temp_path("sync_queue.json");
         let mut sync = Queue::new(2, "Mirror");
-        sync.kind = crate::queue::QueueKind::Synchronize;
+        sync.kind = uidm_domain::queue::QueueKind::Synchronize;
         sync.order = vec![1, 2];
         let mut once = Queue::new(3, "Once");
         once.order = vec![3, 4];
@@ -285,7 +285,7 @@ mod tests {
         .save(&path)
         .unwrap();
         let h = History::load(&path).unwrap();
-        assert_eq!(h.queues[1].kind, crate::queue::QueueKind::Synchronize, "the type is saved");
+        assert_eq!(h.queues[1].kind, uidm_domain::queue::QueueKind::Synchronize, "the type is saved");
         assert_eq!(h.queues[1].order, [1, 2], "a finished download stays to be checked");
         assert_eq!(h.queues[2].order, [4], "a one-time queue lets it go");
         fs::remove_file(&path).ok();

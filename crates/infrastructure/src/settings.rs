@@ -908,7 +908,7 @@ impl Settings {
 
     /// Check every value, returning a message fit to show the user.
     pub fn validate(&self) -> Result<(), String> {
-        if self.proxy_mode == ProxyMode::Script && !crate::batch::is_web_url(self.proxy_pac_url.trim()) {
+        if self.proxy_mode == ProxyMode::Script && !uidm_domain::batch::is_web_url(self.proxy_pac_url.trim()) {
             return Err("The configuration script must be an http or https address.".into());
         }
         if self.language.len() > 16 || !self.language.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {

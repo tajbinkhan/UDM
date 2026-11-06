@@ -29,9 +29,9 @@
 
 pub mod app;
 pub mod autostart;
-pub mod batch;
 pub mod browsers;
 pub mod cli;
+pub mod clock;
 pub mod dpapi;
 pub mod elevate;
 pub mod engine;
@@ -49,7 +49,6 @@ pub mod package;
 pub mod platform;
 pub mod power;
 pub mod protocol;
-pub mod queue;
 pub mod quota;
 pub mod recycle;
 #[cfg(windows)]

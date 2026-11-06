@@ -902,7 +902,7 @@ pub fn http_date(s: &str) -> Option<std::time::SystemTime> {
     if !(1..=31).contains(&day) || h > 23 || mi > 59 || sec > 60 {
         return None;
     }
-    let days = crate::queue::days_from_civil(year, mon, day);
+    let days = uidm_domain::queue::days_from_civil(year, mon, day);
     let secs = u64::try_from(days).ok()? * 86_400 + h * 3600 + mi * 60 + sec;
     Some(std::time::UNIX_EPOCH + Duration::from_secs(secs))
 }

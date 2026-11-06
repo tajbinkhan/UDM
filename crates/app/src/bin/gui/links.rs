@@ -12,8 +12,8 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
+use uidm_domain::queue::{Queue, MAIN_QUEUE};
 use uidm_infrastructure::protocol::{Download, PageLink};
-use uidm_infrastructure::queue::{Queue, MAIN_QUEUE};
 use uidm_infrastructure::settings::{Settings, GENERAL};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};

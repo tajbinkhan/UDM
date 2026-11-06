@@ -20,8 +20,8 @@ use std::path::Path;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
-use crate::batch;
 use crate::protocol::{Download, DownloadEntry, DownloadLogin, Status};
+use uidm_domain::batch;
 
 /// The version written in a JSON export.
 pub const FORMAT_VERSION: u32 = 1;

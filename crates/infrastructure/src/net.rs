@@ -532,7 +532,7 @@ pub fn browser_proxy_rules(p: &crate::protocol::BrowserProxy) -> Option<ProxyRul
         }
         BrowserProxyMode::Pac => {
             let source = match (p.pac_url.as_deref().map(str::trim), p.pac_script.as_deref()) {
-                (Some(url), _) if crate::batch::is_web_url(url) => PacSource::Url(url.to_string()),
+                (Some(url), _) if uidm_domain::batch::is_web_url(url) => PacSource::Url(url.to_string()),
                 (_, Some(script)) if !script.trim().is_empty() => PacSource::Script(script.to_string()),
                 // A script nothing here can fetch (a file:// one): direct,
                 // as the browser goes when its script cannot be read.

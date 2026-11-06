@@ -6,8 +6,8 @@
 //! the tab and whether the details show when the window opens.
 
 use eframe::egui;
+use uidm_domain::queue::{Queue, WhenDone};
 use uidm_infrastructure::protocol::{DownloadEntry, OnDone, SegmentInfo, Status};
-use uidm_infrastructure::queue::{Queue, WhenDone};
 use uidm_infrastructure::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 
 use crate::dialog::Opening;

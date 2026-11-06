@@ -246,7 +246,7 @@ pub fn links_in(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for word in text.split_whitespace() {
         let word = word.trim_matches(['"', '\'', '<', '>']);
-        if uidm_infrastructure::batch::is_download_url(word) && !out.iter().any(|w: &String| w == word) {
+        if uidm_domain::batch::is_download_url(word) && !out.iter().any(|w: &String| w == word) {
             out.push(word.to_string());
         }
     }

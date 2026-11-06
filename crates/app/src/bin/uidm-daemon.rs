@@ -51,6 +51,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use uidm_domain::queue::{self, Queue, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::engine::DownloadRequest;
 use uidm_infrastructure::engine::{self, Engine, Progress};
@@ -65,7 +66,6 @@ use uidm_infrastructure::protocol::{
     read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, DownloadLogin, Incoming, OnDone, Outgoing,
     Properties, Status, Validator,
 };
-use uidm_infrastructure::queue::{self, Queue, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
 use uidm_infrastructure::quota::Usage;
 #[cfg(windows)]
 use uidm_infrastructure::registry;
@@ -871,7 +871,7 @@ impl Daemon {
             q.started_by_schedule = scheduled_day.is_some();
             if scheduled_day.is_some() {
                 q.last_scheduled_day = scheduled_day;
-                q.last_scheduled_start = Some(queue::local_now().total());
+                q.last_scheduled_start = Some(uidm_infrastructure::clock::local_now().total());
             }
             Ok(was)
         })?;
@@ -918,7 +918,7 @@ impl Daemon {
     fn tick(self: &Arc<Self>) {
         let _guard = self.tick_lock.lock().unwrap();
         self.check_quota();
-        let now = queue::local_now();
+        let now = uidm_infrastructure::clock::local_now();
 
         let queues = self.hub.queues.lock().unwrap().clone();
         for q in &queues {
@@ -1342,7 +1342,7 @@ impl Daemon {
     /// Whether the daemon must stay up for a queue: one is started, one has a
     /// schedule ahead, or a countdown runs.
     fn queues_need_daemon(&self) -> bool {
-        let now = queue::local_now();
+        let now = uidm_infrastructure::clock::local_now();
         let projects = || {
             let Ok(dir) = grab::projects_dir() else {
                 return false;
@@ -1827,7 +1827,7 @@ impl Daemon {
         let mut ids = Vec::new();
         let mut skipped = 0;
         for mut d in items {
-            if !uidm_infrastructure::batch::is_download_url(&d.url) || check_body(&d).is_err() {
+            if !uidm_domain::batch::is_download_url(&d.url) || check_body(&d).is_err() {
                 continue;
             }
             if let Some(old) = self.duplicate_of(&d) {
@@ -2042,7 +2042,7 @@ impl Daemon {
             }
             *last = Some(Instant::now());
         }
-        self.run_grab_schedules(queue::local_now());
+        self.run_grab_schedules(uidm_infrastructure::clock::local_now());
     }
 
     /// Start the saved grabber projects whose scheduled run is due, each on
@@ -2099,7 +2099,7 @@ impl Daemon {
             run => {
                 let stop = AtomicBool::new(false);
                 let out = self.run_crawl(&project.request, login.as_deref(), &stop, |_| {
-                    if end.is_some_and(|end| queue::local_now() >= end) {
+                    if end.is_some_and(|end| uidm_infrastructure::clock::local_now() >= end) {
                         stop.store(true, Ordering::Relaxed);
                     }
                 });
@@ -3065,7 +3065,7 @@ impl Daemon {
             self.set_refresh_waiting(Some(id));
             return Ok(None);
         };
-        if !uidm_infrastructure::batch::is_download_url(&download.url) {
+        if !uidm_domain::batch::is_download_url(&download.url) {
             return Err(format!("{} is not an http, https or ftp link", download.url));
         }
         if self.refresh_waiting.lock().unwrap().is_some_and(|w| w == id) {
@@ -3109,11 +3109,11 @@ impl Daemon {
         }
         let trimmed = |s: Option<String>| s.map(|s| s.trim().to_string());
         let url = trimmed(p.url).filter(|u| *u != entry.url);
-        if let Some(u) = url.as_deref().filter(|u| !uidm_infrastructure::batch::is_download_url(u)) {
+        if let Some(u) = url.as_deref().filter(|u| !uidm_domain::batch::is_download_url(u)) {
             return Err(format!("{u} is not an http, https or ftp link"));
         }
         let referrer = trimmed(p.referrer);
-        if let Some(r) = referrer.as_deref().filter(|r| !r.is_empty() && !uidm_infrastructure::batch::is_web_url(r)) {
+        if let Some(r) = referrer.as_deref().filter(|r| !r.is_empty() && !uidm_domain::batch::is_web_url(r)) {
             return Err(format!("{r} is not an http or https address"));
         }
         let description = trimmed(p.description);
@@ -3887,8 +3887,8 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::CancelRefresh => daemon.set_refresh_waiting(None),
         Incoming::PickLinks { page, mut links, user_agent } => {
-            links.retain(|l| uidm_infrastructure::batch::is_web_url(&l.url));
-            links.truncate(uidm_infrastructure::batch::MAX_BATCH);
+            links.retain(|l| uidm_domain::batch::is_web_url(&l.url));
+            links.truncate(uidm_domain::batch::MAX_BATCH);
             eprintln!("[uidm-daemon] {} links from {page} to pick from", links.len());
             let msg = Outgoing::PickLinks { page, links, user_agent };
             if daemon.hub.window_open() {
@@ -3992,7 +3992,7 @@ fn spawn_scheduler(daemon: Arc<Daemon>, wake: Receiver<()>) {
                     while wake.try_recv().is_ok() {}
                     daemon.tick();
                     daemon.check_grab_schedules();
-                    let next = daemon.next_wake(queue::local_now());
+                    let next = daemon.next_wake(uidm_infrastructure::clock::local_now());
                     if next != timer.at() {
                         match timer.set(next) {
                             Ok(()) => match next {
@@ -5723,7 +5723,7 @@ mod tests {
     fn a_scheduled_project_stops_its_downloads_at_its_stop_time() {
         let t = setup("grab_stop_time", Duplicate::NewName);
         let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
-        let today = queue::local_now().day;
+        let today = uidm_infrastructure::clock::local_now().day;
         let mut project: grab::Project = serde_json::from_value(serde_json::json!({
             "name": "slow",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
@@ -5752,7 +5752,7 @@ mod tests {
         t.daemon
             .hub
             .update_queue(MAIN_QUEUE, |q| {
-                q.stop_at_once = Some(queue::local_now().total());
+                q.stop_at_once = Some(uidm_infrastructure::clock::local_now().total());
                 Ok(())
             })
             .unwrap();
@@ -5767,7 +5767,7 @@ mod tests {
     fn a_scheduled_project_leaves_a_run_the_user_started_alone() {
         let t = setup("grab_user_run", Duplicate::NewName);
         let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
-        let today = queue::local_now().day;
+        let today = uidm_infrastructure::clock::local_now().day;
         let mut project: grab::Project = serde_json::from_value(serde_json::json!({
             "name": "joins",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },

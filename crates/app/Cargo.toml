@@ -22,6 +22,7 @@ name = "uidm-gui"
 path = "src/bin/uidm-gui.rs"
 
 [dependencies]
+uidm-domain.workspace = true
 uidm-infrastructure.workspace = true
 serde.workspace = true
 serde_json.workspace = true

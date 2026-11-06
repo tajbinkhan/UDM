@@ -972,7 +972,7 @@ pub struct Project {
     /// When the daemon runs it by itself: once, or on chosen days, with an
     /// optional stop time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub schedule: Option<crate::queue::Schedule>,
+    pub schedule: Option<uidm_domain::queue::Schedule>,
     /// What a scheduled run does.
     #[serde(default)]
     pub run: RunAction,
@@ -986,7 +986,7 @@ pub struct Project {
     /// What happens once a scheduled run is done: after the crawl, or once
     /// the queue has downloaded what the run added.
     #[serde(default, skip_serializing_if = "is_nothing")]
-    pub when_done: crate::queue::WhenDone,
+    pub when_done: uidm_domain::queue::WhenDone,
     /// A file to open once a scheduled run is done.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_when_done: Option<String>,
@@ -1007,16 +1007,16 @@ pub struct Project {
     /// One-time downloading adds only what no earlier run found; periodic
     /// synchronization also checks the files earlier runs downloaded and
     /// downloads again the ones whose server copy changed.
-    #[serde(default, skip_serializing_if = "crate::queue::QueueKind::is_one_time")]
-    pub kind: crate::queue::QueueKind,
+    #[serde(default, skip_serializing_if = "uidm_domain::queue::QueueKind::is_one_time")]
+    pub kind: uidm_domain::queue::QueueKind,
 }
 
 fn main_queue() -> u64 {
-    crate::queue::MAIN_QUEUE
+    uidm_domain::queue::MAIN_QUEUE
 }
 
-fn is_nothing(w: &crate::queue::WhenDone) -> bool {
-    *w == crate::queue::WhenDone::Nothing
+fn is_nothing(w: &uidm_domain::queue::WhenDone) -> bool {
+    *w == uidm_domain::queue::WhenDone::Nothing
 }
 
 /// What a project's scheduled run does.
@@ -1996,14 +1996,14 @@ Crawl-delay: 2.5
             schedule: None,
             run: RunAction::Explore,
             download_new: false,
-            when_done: crate::queue::WhenDone::Nothing,
+            when_done: uidm_domain::queue::WhenDone::Nothing,
             open_when_done: None,
             force_close: true,
-            queue: crate::queue::MAIN_QUEUE,
+            queue: uidm_domain::queue::MAIN_QUEUE,
             seen: Vec::new(),
             last_scheduled_day: None,
             last_scheduled_start: None,
-            kind: crate::queue::QueueKind::Synchronize,
+            kind: uidm_domain::queue::QueueKind::Synchronize,
         };
         p.save(&dir).unwrap();
         assert_eq!(Project::load(&dir, "Docs: manuals").unwrap(), p);
@@ -2030,14 +2030,14 @@ Crawl-delay: 2.5
             schedule: None,
             run: RunAction::Explore,
             download_new: false,
-            when_done: crate::queue::WhenDone::Nothing,
+            when_done: uidm_domain::queue::WhenDone::Nothing,
             open_when_done: None,
             force_close: false,
-            queue: crate::queue::MAIN_QUEUE,
+            queue: uidm_domain::queue::MAIN_QUEUE,
             seen: Vec::new(),
             last_scheduled_day: None,
             last_scheduled_start: None,
-            kind: crate::queue::QueueKind::OneTime,
+            kind: uidm_domain::queue::QueueKind::OneTime,
         };
         assert!(name_is_unique(&dir, "Docs", None), "nothing saved yet");
         p.save(&dir).unwrap();
@@ -2072,14 +2072,14 @@ Crawl-delay: 2.5
             schedule: None,
             run: RunAction::Explore,
             download_new: false,
-            when_done: crate::queue::WhenDone::Nothing,
+            when_done: uidm_domain::queue::WhenDone::Nothing,
             open_when_done: None,
             force_close: false,
-            queue: crate::queue::MAIN_QUEUE,
+            queue: uidm_domain::queue::MAIN_QUEUE,
             seen: Vec::new(),
             last_scheduled_day: None,
             last_scheduled_start: None,
-            kind: crate::queue::QueueKind::OneTime,
+            kind: uidm_domain::queue::QueueKind::OneTime,
         };
         assert!(!unsaved(&p, None), "a new, empty project has nothing to keep");
         let started = Project { request: request(1), ..p.clone() };
@@ -2161,7 +2161,7 @@ Crawl-delay: 2.5
             text: None,
         };
         let mut p: Project = serde_json::from_str(r#"{"name":"p","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000}}"#).unwrap();
-        assert_eq!(p.queue, crate::queue::MAIN_QUEUE, "an older project file loads");
+        assert_eq!(p.queue, uidm_domain::queue::MAIN_QUEUE, "an older project file loads");
         let first = p.record_run(vec![file("https://s/a.pdf"), file("https://s/b.pdf")]);
         assert_eq!(first.len(), 2);
         let second = p.record_run(vec![file("https://s/b.pdf"), file("https://s/c.pdf")]);
@@ -2180,11 +2180,11 @@ Crawl-delay: 2.5
             text: None,
         };
         let mut p: Project = serde_json::from_str(r#"{"name":"p","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000},"run":"explore_and_download"}"#).unwrap();
-        assert_eq!(p.kind, crate::queue::QueueKind::OneTime, "an older project file is one-time");
+        assert_eq!(p.kind, uidm_domain::queue::QueueKind::OneTime, "an older project file is one-time");
         p.record_run(vec![file("https://s/a.pdf"), file("https://s/b.pdf")]);
         let now = [file("https://s/b.pdf"), file("https://s/c.pdf")];
         assert!(p.to_resync(&now).is_empty(), "a one-time project checks nothing");
-        p.kind = crate::queue::QueueKind::Synchronize;
+        p.kind = uidm_domain::queue::QueueKind::Synchronize;
         assert_eq!(p.to_resync(&now), ["https://s/b.pdf"], "only what an earlier run found");
         p.record_run(now.to_vec());
         p.run = RunAction::DownloadChecked;

@@ -84,6 +84,7 @@ use eframe::egui;
 use i18n::{tr, trf};
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
 use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
 use uidm_infrastructure::grab::{GrabFile, GrabRequest};
 use uidm_infrastructure::ipc;
@@ -92,7 +93,6 @@ use uidm_infrastructure::protocol::{
     read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, Incoming, OnDone, Outgoing, Properties,
     Scan, SegmentInfo, Status,
 };
-use uidm_infrastructure::queue::{Queue, WhenDone, MAIN_QUEUE};
 use uidm_infrastructure::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
     SelectionButton, ServerLimit, Settings, SiteLogin, SocksVersion, BROWSER_MENU_ITEMS, CAPTURE_MIN_SIZE_MAX_KB,
@@ -1727,7 +1727,7 @@ impl App {
                     _ => continue,
                 };
                 let Some(text) = win::clipboard_text() else { continue };
-                let Some(url) = uidm_infrastructure::batch::clipboard_link(&text, &types) else { continue };
+                let Some(url) = uidm_domain::batch::clipboard_link(&text, &types) else { continue };
                 if last_offered.as_deref() == Some(url.as_str()) {
                     continue;
                 }
@@ -2159,7 +2159,7 @@ impl App {
             }
             Action::OpenBatch => self.batch = Some(tools::BatchDialog::new()),
             Action::BatchFromClipboard => {
-                let links = uidm_infrastructure::batch::links_in(&win::clipboard_text().unwrap_or_default());
+                let links = uidm_domain::batch::links_in(&win::clipboard_text().unwrap_or_default());
                 if links.is_empty() {
                     self.shared.lock().unwrap().last_error =
                         Some(tr("The clipboard holds no http, https or ftp links.").into());
@@ -4098,7 +4098,7 @@ fn is_finished(s: Status) -> bool {
 }
 
 fn is_download_url(url: &str) -> bool {
-    uidm_infrastructure::batch::is_download_url(url) && !url.contains(char::is_whitespace)
+    uidm_domain::batch::is_download_url(url) && !url.contains(char::is_whitespace)
 }
 
 impl App {

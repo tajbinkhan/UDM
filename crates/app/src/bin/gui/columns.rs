@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use serde::{Deserialize, Serialize};
+use uidm_domain::queue;
 use uidm_infrastructure::protocol::{DownloadEntry, Status};
-use uidm_infrastructure::queue;
 
 use super::display_name;
 use crate::i18n::tr;
@@ -382,7 +382,7 @@ pub fn time_left(e: &DownloadEntry, bytes_per_sec: Option<f64>) -> Option<f64> {
 
 /// `2026-10-27 14:05` in local time.
 pub fn local_date(unix: u64) -> String {
-    let now = queue::local_now();
+    let now = uidm_infrastructure::clock::local_now();
     let local_now = now.day * 1440 + now.minute as i64;
     let utc_now = uidm_infrastructure::state::unix_now() as i64 / 60;
     // Round the offset to the quarter hour the clock reading straddles.

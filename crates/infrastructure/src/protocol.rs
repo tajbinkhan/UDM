@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::grab::{GrabFile, GrabRequest};
 use crate::media::{MediaChoice, MediaInfo};
-use crate::queue::{Queue, WhenDone};
 use crate::settings::{Duplicate, FileExists, Settings};
+use uidm_domain::queue::{Queue, WhenDone};
 
 /// A request from a client (the browser via the host, or the desktop window)
 /// to the daemon.
@@ -509,7 +509,7 @@ impl Download {
         let value = |v: &str| v.len() <= MAX_HEADER_VALUE && !v.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0);
         self.request_headers.retain(|(n, v)| token(n) && value(v));
         self.request_headers.truncate(MAX_REQUEST_HEADERS);
-        self.redirects.retain(|u| u.len() <= MAX_URL && crate::batch::is_web_url(u));
+        self.redirects.retain(|u| u.len() <= MAX_URL && uidm_domain::batch::is_web_url(u));
         self.redirects.truncate(MAX_REDIRECTS);
         if self.content_type.as_deref().is_some_and(|t| !value(t) || t.len() > 256) {
             self.content_type = None;

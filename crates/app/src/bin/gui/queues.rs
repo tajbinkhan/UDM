@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use eframe::egui;
-use uidm_infrastructure::queue::{
-    self, Queue, QueueKind, Schedule, WhenDone, MAIN_QUEUE, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX,
+use uidm_domain::queue::{
+    Queue, QueueKind, Schedule, WhenDone, MAIN_QUEUE, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX,
 };
 
 use super::{take_picked, Action, Picked};
@@ -19,7 +19,7 @@ const DAY_NAMES: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /// When `q` next starts on its own, for display.
 pub fn next_run(q: &Queue) -> Option<String> {
     let s = q.schedule.as_ref()?;
-    let now = queue::local_now();
+    let now = uidm_infrastructure::clock::local_now();
     if q.running && q.started_by_schedule {
         let end = q.last_scheduled_day.and_then(|d| s.end_of_run(d));
         return Some(match (&s.stop, end) {
@@ -488,7 +488,7 @@ fn form(
             ui.end_row();
 
             if let Ok(q) = draft.to_queue() {
-                if let Some(next) = q.schedule.as_ref().and_then(|s| s.next_start(queue::local_now())) {
+                if let Some(next) = q.schedule.as_ref().and_then(|s| s.next_start(uidm_infrastructure::clock::local_now())) {
                     ui.label(tr("Next run"));
                     ui.label(next.display());
                     ui.end_row();
@@ -633,7 +633,7 @@ pub fn countdown(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_infrastructure::queue::{parse_date, parse_time};
+    use uidm_domain::queue::{parse_date, parse_time};
 
     #[test]
     fn new_named_checks_the_name() {

@@ -5,7 +5,7 @@
 use std::io;
 use std::process::Command;
 
-use crate::queue::WhenDone;
+use uidm_domain::queue::WhenDone;
 
 #[cfg(windows)]
 #[link(name = "powrprof")]
@@ -123,7 +123,7 @@ pub const WAKE_EARLY_SECS: i64 = 30;
 pub struct WakeTimer {
     #[cfg(windows)]
     handle: isize,
-    at: Option<crate::queue::Moment>,
+    at: Option<uidm_domain::queue::Moment>,
 }
 
 #[cfg(windows)]
@@ -160,8 +160,8 @@ extern "system" {
 
 /// A local date and time as a UTC FILETIME (100 ns units since 1601).
 #[cfg(windows)]
-fn local_to_file_time(at: crate::queue::Moment) -> Option<i64> {
-    let (y, m, d) = crate::queue::civil_from_days(at.day);
+fn local_to_file_time(at: uidm_domain::queue::Moment) -> Option<i64> {
+    let (y, m, d) = uidm_domain::queue::civil_from_days(at.day);
     let local = SystemTime {
         year: u16::try_from(y).ok()?,
         month: m as u16,
@@ -192,14 +192,14 @@ impl WakeTimer {
     }
 
     /// When the timer wakes the computer, if it is set.
-    pub fn at(&self) -> Option<crate::queue::Moment> {
+    pub fn at(&self) -> Option<uidm_domain::queue::Moment> {
         self.at
     }
 
     /// Wake the computer `WAKE_EARLY_SECS` before `at` (local time), or
     /// cancel the wake with `None`. Setting the time it already has does
     /// nothing.
-    pub fn set(&mut self, at: Option<crate::queue::Moment>) -> io::Result<()> {
+    pub fn set(&mut self, at: Option<uidm_domain::queue::Moment>) -> io::Result<()> {
         if at == self.at {
             return Ok(());
         }
@@ -312,12 +312,12 @@ mod wake_tests {
 
     #[test]
     fn a_wake_timer_can_be_set_moved_and_cleared() {
-        let now = crate::queue::local_now();
-        let soon = crate::queue::Moment::from_total(now.total() + 24 * 60);
+        let now = crate::clock::local_now();
+        let soon = uidm_domain::queue::Moment::from_total(now.total() + 24 * 60);
         let mut timer = WakeTimer::new();
         timer.set(Some(soon)).unwrap();
         assert_eq!(timer.at(), Some(soon));
-        let later = crate::queue::Moment::from_total(soon.total() + 60);
+        let later = uidm_domain::queue::Moment::from_total(soon.total() + 60);
         timer.set(Some(later)).unwrap();
         assert_eq!(timer.at(), Some(later));
         timer.set(None).unwrap();
@@ -326,8 +326,8 @@ mod wake_tests {
 
     #[test]
     fn local_time_converts_to_a_file_time_a_day_apart() {
-        let a = crate::queue::Moment { day: 20_000, minute: 600 };
-        let b = crate::queue::Moment { day: 20_001, minute: 600 };
+        let a = uidm_domain::queue::Moment { day: 20_000, minute: 600 };
+        let b = uidm_domain::queue::Moment { day: 20_001, minute: 600 };
         let (fa, fb) = (local_to_file_time(a).unwrap(), local_to_file_time(b).unwrap());
         // A day, give or take a daylight-saving hour.
         assert!((fb - fa - 864_000_000_000).abs() <= 36_000_000_000);
