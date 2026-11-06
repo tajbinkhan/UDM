@@ -8,9 +8,9 @@ use std::sync::Mutex;
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList, FilesError,
-    PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource,
-    SyncChecks, UpdateChecks,
+    Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
+    FilesError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
+    ReleaseSource, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use uidm_domain::quota::QuotaNotice;
@@ -223,6 +223,7 @@ pub struct Control {
     limits: Mutex<Vec<(u64, Option<u64>)>>,
     started_again: Mutex<Vec<(u64, Download)>>,
     dispatched: Mutex<Vec<u64>>,
+    canceled_waiting: Mutex<Vec<u64>>,
     waiting_for_link: Mutex<Option<u64>>,
     refuse: HashSet<u64>,
     /// What [`DownloadControl::check_partial`] answers.
@@ -279,6 +280,10 @@ impl Control {
         self.dispatched.lock().unwrap().clone()
     }
 
+    pub fn canceled_waiting(&self) -> Vec<u64> {
+        self.canceled_waiting.lock().unwrap().clone()
+    }
+
     /// A control whose partial-file checks answer `answer`.
     pub fn checking(answer: Result<Option<String>, ControlError>) -> Self {
         Control { partial_check: Some(answer), ..Control::default() }
@@ -314,12 +319,16 @@ impl DownloadControl for Control {
         self.started_again.lock().unwrap().push((id, download));
     }
 
-    fn dispatch(&self, id: u64) -> bool {
+    fn dispatch(&self, id: u64) -> Result<(), ControlError> {
         if self.refuse.contains(&id) {
-            return false;
+            return Err(ControlError(format!("download {id} cannot start")));
         }
         self.dispatched.lock().unwrap().push(id);
-        true
+        Ok(())
+    }
+
+    fn cancel_waiting(&self, id: u64) {
+        self.canceled_waiting.lock().unwrap().push(id);
     }
 
     fn wait_for_link(&self, id: Option<u64>) {
@@ -673,6 +682,8 @@ impl UpdateChecks for Checked {
 pub struct Convert {
     ffmpeg: bool,
     started: Mutex<Vec<Conversion>>,
+    running: HashSet<u64>,
+    stopped: Mutex<Vec<u64>>,
 }
 
 impl Convert {
@@ -684,6 +695,15 @@ impl Convert {
     pub fn started(&self) -> Vec<Conversion> {
         self.started.lock().unwrap().clone()
     }
+
+    /// A converter running a conversion as each of the rows `running`.
+    pub fn running(running: &[u64]) -> Self {
+        Convert { running: running.iter().copied().collect(), ..Convert::default() }
+    }
+
+    pub fn stopped(&self) -> Vec<u64> {
+        self.stopped.lock().unwrap().clone()
+    }
 }
 
 impl Converter for Convert {
@@ -693,6 +713,14 @@ impl Converter for Convert {
 
     fn start(&self, conversion: Conversion) {
         self.started.lock().unwrap().push(conversion);
+    }
+
+    fn stop(&self, id: u64) -> bool {
+        if !self.running.contains(&id) {
+            return false;
+        }
+        self.stopped.lock().unwrap().push(id);
+        true
     }
 }
 
@@ -721,5 +749,32 @@ impl DownloadIntake for Intake<'_> {
         self.list.rows.lock().unwrap().insert(id, e);
         self.list.keep_request(id, download.clone());
         (id, download.url)
+    }
+}
+
+/// Records what was brought in front of the user.
+#[derive(Default)]
+pub struct Shown {
+    done: Mutex<Vec<u64>>,
+    window: AtomicUsize,
+}
+
+impl Shown {
+    pub fn done(&self) -> Vec<u64> {
+        self.done.lock().unwrap().clone()
+    }
+
+    pub fn windows(&self) -> usize {
+        self.window.load(Ordering::SeqCst)
+    }
+}
+
+impl Attention for Shown {
+    fn show_done(&self, id: u64) {
+        self.done.lock().unwrap().push(id);
+    }
+
+    fn show_window(&self) {
+        self.window.fetch_add(1, Ordering::SeqCst);
     }
 }

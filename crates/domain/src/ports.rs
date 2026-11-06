@@ -105,8 +105,13 @@ pub trait DownloadControl: Send + Sync {
     /// Start download `id` again under its own id from `download`.
     fn start_again(&self, id: u64, download: Download);
 
-    /// Hand waiting download `id` to the engine. Returns whether it started.
-    fn dispatch(&self, id: u64) -> bool;
+    /// Hand waiting download `id` to the engine.
+    fn dispatch(&self, id: u64) -> Result<(), ControlError>;
+
+    /// Cancel download `id`, which waits for its save-as dialog or in a
+    /// queue: anything it started early is thrown away, and every client
+    /// hears it was canceled.
+    fn cancel_waiting(&self, id: u64);
 
     /// Make download `id` the one waiting for the next link the browser
     /// hands over, or none, and tell every client.
@@ -306,6 +311,20 @@ pub trait Converter: Send + Sync {
     /// Add the conversion's row and run it in the background, reporting
     /// its progress, its end and ffmpeg's complaint if it fails.
     fn start(&self, conversion: Conversion);
+
+    /// Stop the conversion running as row `id`. Returns false when no
+    /// conversion runs as that row.
+    fn stop(&self, id: u64) -> bool;
+}
+
+/// Bringing things in front of the user.
+pub trait Attention: Send + Sync {
+    /// Show finished download `id`'s completion dialog again, or without a
+    /// window, a notification standing in for it.
+    fn show_done(&self, id: u64);
+
+    /// Bring the main window up.
+    fn show_window(&self);
 }
 
 /// The computer's local date and time.

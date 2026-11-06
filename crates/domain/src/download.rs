@@ -368,6 +368,12 @@ impl Status {
         matches!(self, Status::Done | Status::Failed | Status::Canceled | Status::Interrupted | Status::Waiting)
     }
 
+    /// Waiting for its save-as dialog or in a queue: the engine does not
+    /// have it.
+    pub fn waits(self) -> bool {
+        matches!(self, Status::Confirming | Status::Waiting)
+    }
+
     /// Running: queued in the engine or downloading.
     pub fn is_active(self) -> bool {
         matches!(self, Status::Queued | Status::Downloading)

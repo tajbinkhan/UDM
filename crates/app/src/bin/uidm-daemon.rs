@@ -52,8 +52,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use uidm_application::downloads::{
-    AddLater, AddMany, AfterDownload, ConvertDownload, PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload,
-    ResumeAll, RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit,
+    AddLater, AddMany, AfterDownload, CancelDownload, ConvertDownload, Existing, PauseAll, Redownload, RefreshLink,
+    Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit,
+    StartOrWait, UseExisting,
 };
 use uidm_application::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use uidm_application::queues::{
@@ -66,8 +67,8 @@ use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status, Validator};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, PausedDownloads, PowerControl, QueueFinish,
-    QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
+    Attention, ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, PausedDownloads, PowerControl,
+    QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -502,11 +503,6 @@ impl Hub {
         changed
     }
 
-    /// The queue holding download `id`.
-    fn queue_of(&self, id: u64) -> Option<u64> {
-        self.queues.lock().unwrap().iter().find(|q| q.order.contains(&id)).map(|q| q.id)
-    }
-
     /// Send `msg` to every client.
     fn broadcast(&self, msg: &Outgoing) {
         let Ok(frame) = serde_json::to_vec(msg) else {
@@ -806,6 +802,28 @@ impl DownloadIntake for Daemon {
     }
 }
 
+/// The windows and notifications, through the daemon.
+struct Front<'a>(&'a Arc<Daemon>);
+
+impl Attention for Front<'_> {
+    fn show_done(&self, id: u64) {
+        if self.0.hub.window_open() {
+            self.0.hub.broadcast(&Outgoing::ShowDone { id });
+        } else {
+            // Without a window, a notification stands in for the dialog,
+            // whatever the notification setting.
+            let mut settings = self.0.settings.lock().unwrap().clone();
+            settings.notify = Notify::Toast;
+            settings.sound_on_done = false;
+            self.0.notify(id, false, &settings);
+        }
+    }
+
+    fn show_window(&self) {
+        self.0.show_window();
+    }
+}
+
 /// Conversions with ffmpeg, each on a thread of its own that holds the
 /// daemon.
 struct Conversions<'a>(&'a Arc<Daemon>);
@@ -813,6 +831,16 @@ struct Conversions<'a>(&'a Arc<Daemon>);
 impl Converter for Conversions<'_> {
     fn available(&self) -> bool {
         settings::ffmpeg(&self.0.settings.lock().unwrap()).is_some()
+    }
+
+    fn stop(&self, id: u64) -> bool {
+        match self.0.conversions.lock().unwrap().get(&id) {
+            Some(stop) => {
+                stop.store(true, Ordering::Relaxed);
+                true
+            }
+            None => false,
+        }
     }
 
     fn start(&self, c: Conversion) {
@@ -933,8 +961,16 @@ impl DownloadControl for Daemon {
         self.engine.enqueue_as(id, req);
     }
 
-    fn dispatch(&self, id: u64) -> bool {
-        Daemon::dispatch(self, id).is_ok()
+    fn dispatch(&self, id: u64) -> Result<(), ControlError> {
+        Daemon::dispatch(self, id).map_err(ControlError)
+    }
+
+    fn cancel_waiting(&self, id: u64) {
+        self.discard_early(id);
+        let url = self.hub.table.lock().unwrap().get(id).map(|e| e.url.clone());
+        if let Some(url) = url {
+            self.hub.publish(&Outgoing::Canceled { id, url });
+        }
     }
 
     fn wait_for_link(&self, id: Option<u64>) {
@@ -1812,37 +1848,16 @@ impl Daemon {
         }
     }
 
-    /// Point the user at download `old` instead of adding its address again:
-    /// show a finished one's completion dialog again, resume a stopped one,
-    /// and bring the window up for a running one. `None` when the finished
-    /// file is gone, so the new download should be added after all.
+    /// Point the user at download `old` instead of adding its address again
+    /// (see `UseExisting`). `None` when the finished file is gone, so the new
+    /// download should be added after all.
     fn use_existing(self: &Arc<Self>, old: &DownloadEntry) -> Option<(u64, String)> {
-        let kept = Some((old.id, old.url.clone()));
-        match old.status {
-            Status::Done if !old.path.as_deref().is_some_and(|p| Path::new(p).is_file()) => None,
-            Status::Done => {
-                if self.hub.window_open() {
-                    self.hub.broadcast(&Outgoing::ShowDone { id: old.id });
-                } else {
-                    // Without a window, a notification stands in for the
-                    // dialog, whatever the notification setting.
-                    let mut settings = self.settings.lock().unwrap().clone();
-                    settings.notify = Notify::Toast;
-                    settings.sound_on_done = false;
-                    self.notify(old.id, false, &settings);
-                }
-                kept
-            }
-            s if s.is_retryable() => match self.retry(old.id) {
-                Ok(resumed) => Some(resumed),
-                Err(e) => {
-                    eprintln!("[uidm-daemon] could not resume #{}: {e}", old.id);
-                    kept
-                }
-            },
-            _ => {
-                self.show_window();
-                kept
+        match UseExisting::new(&*self.hub, &*self.hub, &**self, &DiskFiles, &Front(self)).run(old) {
+            Existing::Gone => None,
+            Existing::Shown { id, url } | Existing::Resumed { id, url } => Some((id, url)),
+            Existing::NotResumed { id, url, error } => {
+                eprintln!("[uidm-daemon] could not resume #{id}: {error}");
+                Some((id, url))
             }
         }
     }
@@ -1863,11 +1878,6 @@ impl Daemon {
     fn add_later(&self, download: Download) -> (u64, String) {
         let later = self.settings.lock().unwrap().later_queue;
         AddLater::new(&*self.hub, self).run(download, later)
-    }
-
-    /// `queue` if it exists, else the main queue.
-    fn queue_or_main(&self, queue: Option<u64>) -> u64 {
-        queue::existing_or_main(&self.hub.queues.lock().unwrap(), queue)
     }
 
     /// Announce `download` as waiting, not yet in any queue. A full-path
@@ -2795,31 +2805,13 @@ impl Daemon {
     /// Start a `waiting` download now, or (with `start` false) have it wait
     /// in `queue`, the Download later queue, or the main one.
     fn start_or_wait(&self, id: u64, start: bool, queue: Option<u64>) -> Result<(), String> {
-        if start {
-            return self.dispatch(id);
-        }
-        if self.hub.queue_of(id).is_none() {
-            let later = self.settings.lock().unwrap().later_queue;
-            self.move_to_queue(id, self.queue_or_main(queue.or(later)), None)?;
-        }
-        Ok(())
+        let later = self.settings.lock().unwrap().later_queue;
+        StartOrWait::new(&*self.hub, &*self.hub, self).run(id, start, queue, later).map_err(|e| e.to_string())
     }
 
     /// Cancel a download, whether it waits for its dialog or is in the engine.
-    fn cancel(&self, id: u64) {
-        if let Some(stop) = self.conversions.lock().unwrap().get(&id) {
-            stop.store(true, Ordering::Relaxed);
-            return;
-        }
-        if matches!(self.status(id), Some(Status::Confirming | Status::Waiting)) {
-            self.discard_early(id);
-            let url = self.hub.table.lock().unwrap().get(id).map(|e| e.url.clone());
-            if let Some(url) = url {
-                self.hub.publish(&Outgoing::Canceled { id, url });
-            }
-            return;
-        }
-        self.engine.cancel(id);
+    fn cancel(self: &Arc<Self>, id: u64) {
+        CancelDownload::new(&*self.hub, &**self, &Conversions(self)).run(id);
     }
 
     /// Queue `download`, remember it for retries, and announce it.
@@ -4911,7 +4903,7 @@ mod tests {
         assert_eq!(s.later_queue, Some(queue));
         // Download later now goes to that queue without being told.
         let (later, _) = t.daemon.add_later(Download { url: "https://x/more.xyz".into(), ..Download::default() });
-        assert_eq!(t.daemon.hub.queue_of(later), Some(queue));
+        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), later), Some(queue));
 
         // "Remember my selection" for an address already in the list.
         let url = serve();
@@ -5145,7 +5137,7 @@ mod tests {
         t.daemon.settings.lock().unwrap().add_only = true;
         let id = t.add(&serve());
         assert_eq!(t.daemon.status(id), Some(Status::Waiting));
-        assert_eq!(t.daemon.hub.queue_of(id), Some(MAIN_QUEUE));
+        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), Some(MAIN_QUEUE));
     }
 
     #[test]
@@ -5153,10 +5145,10 @@ mod tests {
         let t = setup("remove_from_queue", Duplicate::NewName);
         let (id, _) = t.daemon.add_later(Download { url: serve(), ..Download::default() });
         let (kept, _) = t.daemon.add_later(Download { url: format!("{}#kept", serve()), ..Download::default() });
-        assert_eq!(t.daemon.hub.queue_of(id), Some(MAIN_QUEUE));
+        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), Some(MAIN_QUEUE));
 
         t.daemon.remove_from_queue(id).unwrap();
-        assert_eq!(t.daemon.hub.queue_of(id), None, "it left the queue");
+        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), None, "it left the queue");
         assert_eq!(t.daemon.status(id), Some(Status::Waiting), "and still waits in the list");
         assert!(t.daemon.remove_from_queue(id).is_err(), "it is in no queue now");
 
@@ -5169,7 +5161,7 @@ mod tests {
 
         // Move to queue puts it back.
         t.daemon.move_to_queue(id, MAIN_QUEUE, None).unwrap();
-        assert_eq!(t.daemon.hub.queue_of(id), Some(MAIN_QUEUE));
+        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), Some(MAIN_QUEUE));
         t.daemon.remove_from_queue(id).unwrap();
 
         // Starting it by hand still works.
@@ -5249,7 +5241,11 @@ mod tests {
         t.run_queue(q);
         assert_eq!(t.daemon.status(id), Some(Status::Done));
         assert_eq!(std::fs::read(&path).unwrap(), b"version 1");
-        assert_eq!(t.daemon.hub.queue_of(id), Some(q), "a finished download stays in its queue");
+        assert_eq!(
+            queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id),
+            Some(q),
+            "a finished download stays in its queue"
+        );
 
         // Same size, new ETag: downloaded again over the same file, in the
         // same row.
@@ -5260,7 +5256,7 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"version 2");
         assert_eq!(again.validator.as_ref().and_then(|v| v.etag.as_deref()), Some("\"v2\""));
         assert_eq!(std::fs::read_dir(&t.dir).unwrap().count(), 1, "no second copy or leftover");
-        assert_eq!(t.daemon.hub.queue_of(id), Some(q), "and it stays in the queue");
+        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), Some(q), "and it stays in the queue");
 
         // A check that fails keeps the file.
         file.lock().unwrap().1 = None;
@@ -5280,7 +5276,7 @@ mod tests {
         mirror.id = q;
         mirror.kind = queue::QueueKind::OneTime;
         t.daemon.save_queue(mirror).unwrap();
-        assert_eq!(t.daemon.hub.queue_of(id), None);
+        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), None);
     }
 
     #[test]

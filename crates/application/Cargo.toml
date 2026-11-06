@@ -7,6 +7,8 @@ license.workspace = true
 
 [dependencies]
 uidm-domain.workspace = true
+# Error enums for use cases that combine several ports (AGENTS.md section 9).
+thiserror.workspace = true
 
 # Building download rows in tests.
 [dev-dependencies]

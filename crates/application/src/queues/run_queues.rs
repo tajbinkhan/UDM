@@ -64,7 +64,7 @@ where
                 if active >= q.max_concurrent {
                     break;
                 }
-                if *status == Status::Waiting && self.control.dispatch(*id) {
+                if *status == Status::Waiting && self.control.dispatch(*id).is_ok() {
                     self.runs.note_started(q.id, *id);
                     active += 1;
                 }

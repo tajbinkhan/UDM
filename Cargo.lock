@@ -4802,6 +4802,7 @@ name = "uidm-application"
 version = "0.3.0"
 dependencies = [
  "serde_json",
+ "thiserror 2.0.21",
  "uidm-domain",
 ]
 

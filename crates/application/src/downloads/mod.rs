@@ -1,4 +1,5 @@
-//! Acting on downloads: add them to wait in a queue, remove one, retry one, download one again, give it a
+//! Acting on downloads: add them to wait in a queue, start or cancel one,
+//! point at an older one instead of adding it again, remove one, retry one, download one again, give it a
 //! new link, change its properties, speed limit or what happens when it
 //! finishes, convert its file, stop everything that runs, pause all and
 //! resume all.
@@ -6,6 +7,7 @@
 mod add_later;
 mod add_many;
 mod after_download;
+mod cancel_download;
 mod convert_download;
 mod pause_all;
 mod redownload;
@@ -16,11 +18,14 @@ mod retry_download;
 mod set_on_done;
 mod set_properties;
 mod set_speed_limit;
+mod start_or_wait;
 mod stop_running;
+mod use_existing;
 
 pub use add_later::AddLater;
 pub use add_many::{AddMany, AddedMany};
 pub use after_download::AfterDownload;
+pub use cancel_download::{CancelDownload, Canceled};
 pub use convert_download::ConvertDownload;
 pub use pause_all::PauseAll;
 pub use redownload::Redownload;
@@ -31,4 +36,6 @@ pub use retry_download::RetryDownload;
 pub use set_on_done::SetOnDone;
 pub use set_properties::SetProperties;
 pub use set_speed_limit::{SetLimitRemember, SetSpeedLimit};
+pub use start_or_wait::{StartOrWait, StartOrWaitError};
 pub use stop_running::{StopRunning, Stopped};
+pub use use_existing::{Existing, UseExisting};
