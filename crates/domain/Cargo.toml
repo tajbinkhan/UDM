@@ -12,6 +12,9 @@ serde = { workspace = true }
 thiserror.workspace = true
 # Parsing addresses only (batch patterns); no requests.
 url.workspace = true
+# Decoding %-escapes in the file names the site grabber finds; pure, from
+# the same family as url.
+percent-encoding.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

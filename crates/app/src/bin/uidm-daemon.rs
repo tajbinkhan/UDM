@@ -56,6 +56,7 @@ use uidm_application::downloads::{
     Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
     RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit, StartOrWait, UseExisting,
 };
+use uidm_application::grab::RunGrabSchedules;
 use uidm_application::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use uidm_application::queues::{
     DeleteQueue, MoveToQueue, QueueEvent, RemoveFromQueue, RunQueues, RunSchedules, SaveQueue, Scheduled, StartQueue,
@@ -67,9 +68,9 @@ use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status, Validator};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    Answers, Attention, ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, EarlyStarts,
-    PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource,
-    SettingsError, SettingsStore, SyncChecks, UpdateChecks,
+    Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, EarlyStarts,
+    GrabRuns, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
+    ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -849,6 +850,37 @@ impl Answers for AnswerWait<'_> {
     }
 }
 
+/// The grabber's scheduled runs, each on a thread of its own that holds the
+/// daemon.
+struct ScheduledGrabs<'a> {
+    daemon: &'a Arc<Daemon>,
+    dir: PathBuf,
+}
+
+impl GrabRuns for ScheduledGrabs<'_> {
+    fn claim(&self, name: &str) -> bool {
+        self.daemon.grab_runs.lock().unwrap().insert(name.to_string())
+    }
+
+    fn run(&self, project: grab::Project, day: i64) {
+        let (daemon, dir) = (Arc::clone(self.daemon), self.dir.clone());
+        thread::spawn(move || {
+            let name = project.name.clone();
+            daemon.run_scheduled_grab(&dir, project, day);
+            daemon.grab_runs.lock().unwrap().remove(&name);
+        });
+    }
+}
+
+/// A clock stopped at one moment, for a pass that was given its time.
+struct At(queue::Moment);
+
+impl Clock for At {
+    fn now(&self) -> queue::Moment {
+        self.0
+    }
+}
+
 /// The windows and notifications, through the daemon.
 struct Front<'a>(&'a Arc<Daemon>);
 
@@ -1582,7 +1614,7 @@ impl Daemon {
             .map(|dir| {
                 grab::recent_projects(&dir)
                     .iter()
-                    .filter_map(|name| grab::Project::load(&dir, name).ok())
+                    .filter_map(|name| grab::load_project(&dir, name).ok())
                     .filter_map(|p| {
                         p.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, p.last_scheduled_start))
                     })
@@ -1611,7 +1643,7 @@ impl Daemon {
             };
             !self.grab_runs.lock().unwrap().is_empty()
                 || grab::recent_projects(&dir).iter().any(|name| {
-                    grab::Project::load(&dir, name)
+                    grab::load_project(&dir, name)
                         .ok()
                         .and_then(|p| p.schedule)
                         .is_some_and(|s| s.next_start(now).is_some() || s.open_run(now).is_some())
@@ -2155,32 +2187,11 @@ impl Daemon {
         let Ok(dir) = grab::projects_dir() else {
             return;
         };
-        for name in grab::recent_projects(&dir) {
-            let Ok(mut project) = grab::Project::load(&dir, &name) else {
-                continue;
-            };
-            let due = project
-                .schedule
-                .as_ref()
-                .and_then(|s| s.due(now, project.last_scheduled_day, project.last_scheduled_start));
-            let Some(day) = due else {
-                continue;
-            };
-            if !self.grab_runs.lock().unwrap().insert(name.clone()) {
-                continue;
+        let runs = ScheduledGrabs { daemon: self, dir: dir.clone() };
+        for started in RunGrabSchedules::new(&grab::ProjectFiles(dir), &runs, &At(now)).run() {
+            if let Some(e) = started.not_saved {
+                eprintln!("[uidm-daemon] could not save grabber project {}: {e}", started.project);
             }
-            // Saved first, so a restart does not start the same run again.
-            project.last_scheduled_day = Some(day);
-            project.last_scheduled_start = Some(now.total());
-            if let Err(e) = project.save(&dir) {
-                eprintln!("[uidm-daemon] could not save grabber project {name}: {e}");
-            }
-            let daemon = Arc::clone(self);
-            let dir = dir.clone();
-            thread::spawn(move || {
-                daemon.run_scheduled_grab(&dir, project, day);
-                daemon.grab_runs.lock().unwrap().remove(&name);
-            });
         }
     }
 
@@ -2217,7 +2228,7 @@ impl Daemon {
                 }
             }
         };
-        if let Err(e) = project.save(dir) {
+        if let Err(e) = grab::save_project(&project, dir) {
             eprintln!("[uidm-daemon] could not save grabber project {}: {e}", project.name);
         }
         // Set before the queue starts, so a run that ends at once still
@@ -4877,7 +4888,7 @@ mod tests {
         .unwrap();
         let dir = t.dir.join("projects");
         t.daemon.run_scheduled_grab(&dir, project, 1);
-        let saved = grab::Project::load(&dir, "nightly").unwrap();
+        let saved = grab::load_project(&dir, "nightly").unwrap();
         assert_eq!(saved.seen, [format!("http://{addr}/report.pdf")]);
         assert_eq!(t.len(), 1, "the new find was added");
         assert!(
@@ -5195,7 +5206,7 @@ mod tests {
         }
         t.wait(id, Status::Done);
         assert_eq!(
-            grab::Project::load(&dir, "manuals").unwrap().kind,
+            grab::load_project(&dir, "manuals").unwrap().kind,
             queue::QueueKind::Synchronize,
             "the type is saved"
         );

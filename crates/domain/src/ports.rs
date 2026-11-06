@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::download::{Download, DownloadEntry, Status};
+use crate::grab::Project;
 use crate::media::Conversion;
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
@@ -365,6 +366,29 @@ pub trait Attention: Send + Sync {
 
     /// Bring the main window up.
     fn show_window(&self);
+}
+
+/// The site grabber's saved projects.
+pub trait GrabProjects: Send + Sync {
+    /// The projects' names, the most recently used first.
+    fn names(&self) -> Vec<String>;
+
+    /// The project named `name`, or `None` when it cannot be read.
+    fn load(&self, name: &str) -> Option<Project>;
+
+    fn save(&self, project: &Project) -> Result<(), FilesError>;
+}
+
+/// The site grabber's scheduled runs.
+pub trait GrabRuns: Send + Sync {
+    /// Claim the run of the project named `name`. Returns false when one is
+    /// going on already.
+    fn claim(&self, name: &str) -> bool;
+
+    /// Run `project`'s scheduled run of `day` in the background: crawl,
+    /// keep what it found, and add and start downloads as it asks. The claim
+    /// is released when it ends.
+    fn run(&self, project: Project, day: i64);
 }
 
 /// The computer's local date and time.

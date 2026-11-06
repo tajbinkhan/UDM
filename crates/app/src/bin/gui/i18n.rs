@@ -121,6 +121,7 @@ mod tests {
         include_str!("../../../../domain/src/queue.rs"),
         include_str!("../../../../domain/src/settings.rs"),
         include_str!("../../../../infrastructure/src/settings.rs"),
+        include_str!("../../../../domain/src/grab.rs"),
         include_str!("../../../../infrastructure/src/grab.rs"),
     ];
 

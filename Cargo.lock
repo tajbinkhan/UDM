@@ -4810,6 +4810,7 @@ dependencies = [
 name = "uidm-domain"
 version = "0.3.0"
 dependencies = [
+ "percent-encoding",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

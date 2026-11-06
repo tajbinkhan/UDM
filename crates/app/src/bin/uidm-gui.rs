@@ -85,6 +85,7 @@ use i18n::{tr, trf};
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, SegmentInfo, Status};
+use uidm_domain::grab::{GrabFile, GrabRequest};
 use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
 use uidm_domain::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
@@ -93,7 +94,6 @@ use uidm_domain::settings::{
     SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
 };
 use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
-use uidm_infrastructure::grab::{GrabFile, GrabRequest};
 use uidm_infrastructure::ipc;
 use uidm_infrastructure::notify::Sound;
 use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
@@ -2180,7 +2180,7 @@ impl App {
             }
             Action::OpenGrabProject(name) => {
                 let project = uidm_infrastructure::grab::projects_dir()
-                    .and_then(|d| uidm_infrastructure::grab::Project::load(&d, &name));
+                    .and_then(|d| uidm_infrastructure::grab::load_project(&d, &name));
                 match project {
                     // An open grabber asks to save its project first.
                     Ok(p) => match self.grabber.as_mut() {
