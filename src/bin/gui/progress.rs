@@ -7,9 +7,10 @@
 
 use eframe::egui;
 use uidm::protocol::{DownloadEntry, OnDone, SegmentInfo, Status};
-use uidm::queue::WhenDone;
+use uidm::queue::{Queue, WhenDone};
 use uidm::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 
+use crate::dialog::Opening;
 use crate::i18n::{tr, trf};
 
 use super::{columns, connections, display_name, human_bytes, human_duration, theme, Action};
@@ -27,9 +28,9 @@ pub struct Tabs {
     pub on_done: bool,
     /// Those tabs have a Hide tab button.
     pub hide_buttons: bool,
-    /// Minimizing puts the window in the tray; without a tray icon it is an
-    /// ordinary minimized window.
-    pub to_tray: bool,
+    /// The window has a Hide button, which puts it in the tray. Only while
+    /// the tray icon is on, so a hidden window can always be brought back.
+    pub can_hide: bool,
 }
 
 /// The tab a window opens on, by Options' choice. A tab Options hide falls
@@ -54,18 +55,21 @@ pub struct ProgressWindow {
     limit_remember: bool,
     /// The When done tab's choices, sent as they change.
     on_done: OnDone,
-    /// Minimized to the tray, where the download windows' icon lists it
-    /// (see `tray::set_minimized_windows`), as IDM does. Not drawn then.
-    pub minimized: bool,
-    /// Frames left before a minimized window may count as minimized again:
-    /// a window brought back from the tray reports its old state briefly.
-    settle: u8,
+    /// Hidden in the tray, where the downloads tray icon lists it (see
+    /// `tray::set_hidden_windows`), as IDM does. Not drawn then.
+    pub hidden: bool,
+    /// It comes to the front with the focus when it opens, because the user
+    /// asked for it. One that opens on its own, as a download starts, stays
+    /// behind the program in front.
+    focus: bool,
     /// Its title as last drawn, for the tray's menu.
     pub title: String,
 }
 
 impl ProgressWindow {
-    pub fn new(e: &DownloadEntry, s: &Settings) -> Self {
+    /// A window for download `e`. `focus` when the user asked for it;
+    /// `hidden` to open it in the tray, as for a download a queue started.
+    pub fn new(e: &DownloadEntry, s: &Settings, focus: bool, hidden: bool) -> Self {
         ProgressWindow {
             id: e.id,
             tab: start_tab(s.progress_start_tab),
@@ -74,17 +78,23 @@ impl ProgressWindow {
             limit_kbps: e.speed_limit.map_or(512, |b| (b / 1024).max(1)),
             limit_remember: e.limit_remember,
             on_done: e.on_done.unwrap_or_default(),
-            minimized: false,
-            settle: 0,
+            hidden,
+            focus,
             title: display_name(e),
         }
     }
 
-    /// Bring it back from the tray.
+    /// Bring it back from the tray, to the front with the focus.
     pub fn restore(&mut self) {
-        self.minimized = false;
-        self.settle = 3;
+        self.hidden = false;
+        self.focus = true;
     }
+}
+
+/// Whether a queue started download `id`, which then is in a running
+/// queue. A queue keeps its downloads until they finish.
+pub fn started_by_queue(queues: &[Queue], id: u64) -> bool {
+    queues.iter().any(|q| q.running && q.order.contains(&id))
 }
 
 fn status_text(e: &DownloadEntry) -> &'static str {
@@ -128,6 +138,11 @@ pub fn window(
     let Some(e) = entry.filter(|e| e.status != Status::Done) else {
         return false;
     };
+    // A hidden window whose download failed closes too: the completion
+    // dialog or notification reports it, with Retry.
+    if w.hidden && e.status == Status::Failed {
+        return false;
+    }
     if (w.tab == Tab::SpeedLimit && !tabs.speed_limit) || (w.tab == Tab::OnDone && !tabs.on_done) {
         w.tab = Tab::Status;
     }
@@ -138,16 +153,17 @@ pub fn window(
         None => display_name(e),
     };
     w.title = title.clone();
-    if w.minimized {
+    if w.hidden {
         return true;
     }
     let mut open = true;
     let mut close = false;
-    let mut minimized = false;
+    let opening = if w.focus { Opening::Focus } else { Opening::Quiet };
     crate::dialog::Window::new(title)
         .id(egui::Id::new(("progress", w.id)))
         .dlu_width(353.0).taskbar(true)
-        .minimizable(&mut minimized)
+        .minimizable(true)
+        .opening(opening)
         .open(&mut open)
         .resizable(false)
         .show(ctx, |ui| {
@@ -181,6 +197,14 @@ pub fn window(
                 if ui.button(details).clicked() {
                     w.details = !w.details;
                 }
+                if tabs.can_hide
+                    && ui
+                        .button(tr("Hide"))
+                        .on_hover_text(tr("Put this window in the tray; the green arrows there bring it back"))
+                        .clicked()
+                {
+                    w.hidden = true;
+                }
                 ui.add_enabled_ui(connected, |ui| match e.status {
                     Status::Queued | Status::Downloading => {
                         let hint = if e.resumable || e.last_try.is_none() {
@@ -211,11 +235,6 @@ pub fn window(
                 connections::details(ui, w.id, e, segments);
             }
         });
-    if w.settle > 0 {
-        w.settle -= 1;
-    } else if minimized && tabs.to_tray {
-        w.minimized = true;
-    }
     open && !close
 }
 
@@ -341,5 +360,26 @@ pub fn on_done_fields(ui: &mut egui::Ui, on_done: &mut OnDone) {
     }
     if on_done.then.needs_countdown() {
         ui.weak(tr("A 60-second countdown comes first, which Cancel stops."));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn queue(id: u64, running: bool, order: &[u64]) -> Queue {
+        Queue {
+            running,
+            order: order.to_vec(),
+            ..Queue::new(id, "q")
+        }
+    }
+
+    #[test]
+    fn only_a_running_queue_starts_a_download() {
+        let queues = [queue(1, true, &[7, 8]), queue(2, false, &[9])];
+        assert!(started_by_queue(&queues, 8));
+        assert!(!started_by_queue(&queues, 9), "its queue is stopped, so the user started it");
+        assert!(!started_by_queue(&queues, 5), "in no queue");
     }
 }

@@ -334,7 +334,10 @@ tests, not in a running Firefox.
   changes at once and is kept with the window's layout.
 - **Start with Windows** (in Options) starts UIDM hidden in the tray when you
   sign in, ready for the browser. A download caught while the window is in
-  the tray opens its save-as dialog on its own, as IDM's does.
+  the tray opens its save-as dialog on its own, as IDM's does. The save-as
+  and completion dialogs have a taskbar button and stay on top of other
+  windows until closed, but leave the keyboard with the program you are in,
+  so nothing you type goes into them by accident.
 - **The download window** (double-click a download's name, or **More >
   Download window**) shows its address, status, size, how much is in, the
   transfer rate, the time left and whether the server lets it resume, with
@@ -349,11 +352,15 @@ tests, not in a running Firefox.
   or shut down (after the same 60-second countdown a queue uses). It runs
   once, after the virus scan, and not for a download that fails.
   It opens whenever a download starts (**Options > General** can turn that
-  off), and opens even while UIDM is in the tray, as the save-as dialog
-  does, without bringing up the main window. Minimizing it puts it in the
-  tray behind a second icon, green arrows, whose menu lists the download
-  windows there by title; pick one to bring it back. The icon goes when the
-  last of them does. **Options > General** can also
+  off), behind the program you are in, and opens even while UIDM is in the
+  tray, without bringing up the main window. A download a queue starts opens
+  its window hidden in the tray, as IDM's do. **Minimize** sends the window
+  to the taskbar; **Hide** (shown while the tray icon is on) puts it in the
+  tray behind a second icon, green arrows, whose menu lists the hidden
+  windows by title, with **Show all** once there are two. Pick one to bring
+  it back. A hidden window closes when its download finishes or fails. The
+  icon goes when the last of them does, and turning the tray icon off brings
+  them all back. **Options > General** can also
   hide either tab (as can its **Hide tab** button), hide the **Hide tab**
   buttons themselves, and choose the tab the window opens on and whether it
   opens with its details shown. The window closes when the download

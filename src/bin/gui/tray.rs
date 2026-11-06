@@ -76,27 +76,33 @@ const EXIT: &str = "Exit";
 const MAIN_ID: &str = "uidm";
 const PROGRESS_ID: &str = "uidm-progress";
 
-/// A second icon, after IDM's, holding the download windows minimized to
-/// the tray: green arrows whose menu lists them by title. It is there only
-/// while one is.
-struct ProgressTray {
+/// The downloads tray icon, after IDM's: green arrows whose menu lists the
+/// hidden download windows by title. It is there only while one is.
+struct DownloadsTray {
     icon: TrayIcon,
     menu: Menu,
     /// Each window's item, by download ID, in the order they went.
     items: Vec<(u64, MenuItem)>,
+    /// "Show all" and the line under it, at the top while two or more
+    /// windows are hidden, as in IDM.
+    show_all: MenuItem,
+    separator: PredefinedMenuItem,
+    show_all_on: bool,
 }
 
 thread_local! {
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
-    static PROGRESS: RefCell<Option<ProgressTray>> = const { RefCell::new(None) };
+    static PROGRESS: RefCell<Option<DownloadsTray>> = const { RefCell::new(None) };
 }
 
 /// The download windows' menu items and their downloads, for the menu
 /// handler, which runs on another thread on Linux.
-static PROGRESS_IDS: Mutex<Vec<(MenuId, u64)>> = Mutex::new(Vec::new());
+static HIDDEN_IDS: Mutex<Vec<(MenuId, u64)>> = Mutex::new(Vec::new());
 /// Downloads whose window was picked from that menu, until the window's
 /// next frame shows them.
 static RESTORE: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+/// The "Show all" item's ID, while the icon is there.
+static SHOW_ALL_ID: Mutex<Option<MenuId>> = Mutex::new(None);
 
 /// Whether the icon exists (it may fail to install).
 static INSTALLED: AtomicBool = AtomicBool::new(false);
@@ -297,11 +303,11 @@ fn on_tray_thread(f: impl FnOnce() + Send + 'static) {
     f();
 }
 
-/// Show the download windows minimized to the tray, as `(download, title)`,
-/// in the second icon's menu, adding the icon for the first and taking it
-/// away after the last. `ctx` is woken when one is picked; see
-/// `take_restored`.
-pub fn set_minimized_windows(windows: Vec<(u64, String)>, ctx: &eframe::egui::Context) {
+/// List the download windows hidden in the tray, as `(download, title)`, in
+/// the downloads tray icon's menu, adding the icon for the first and taking
+/// it away after the last. `ctx` is woken when one (or Show all) is picked;
+/// see `take_restored`.
+pub fn set_hidden_windows(windows: Vec<(u64, String)>, ctx: &eframe::egui::Context) {
     if !installed() {
         return;
     }
@@ -309,21 +315,30 @@ pub fn set_minimized_windows(windows: Vec<(u64, String)>, ctx: &eframe::egui::Co
     let wake = ctx.clone();
     HANDLER.call_once(move || {
         crate::menubar::on_menu_event(move |id| {
-            let found = PROGRESS_IDS.lock().unwrap().iter().find(|(i, _)| i == id).map(|(_, d)| *d);
-            let Some(download) = found else { return false };
-            RESTORE.lock().unwrap().push(download);
+            let ids = HIDDEN_IDS.lock().unwrap();
+            let picked: Vec<u64> = if SHOW_ALL_ID.lock().unwrap().as_ref() == Some(id) {
+                ids.iter().map(|(_, d)| *d).collect()
+            } else {
+                ids.iter().filter(|(i, _)| i == id).map(|(_, d)| *d).collect()
+            };
+            drop(ids);
+            if picked.is_empty() {
+                return false;
+            }
+            RESTORE.lock().unwrap().extend(picked);
             wake.request_repaint();
             true
         });
     });
-    on_tray_thread(move || PROGRESS.with(|p| update_progress(&mut p.borrow_mut(), windows)));
+    on_tray_thread(move || PROGRESS.with(|p| update_downloads_tray(&mut p.borrow_mut(), windows)));
 }
 
-fn update_progress(tray: &mut Option<ProgressTray>, windows: Vec<(u64, String)>) {
+fn update_downloads_tray(tray: &mut Option<DownloadsTray>, windows: Vec<(u64, String)>) {
     if windows.is_empty() {
         // Dropping the icon takes it out of the tray.
         *tray = None;
-        PROGRESS_IDS.lock().unwrap().clear();
+        HIDDEN_IDS.lock().unwrap().clear();
+        *SHOW_ALL_ID.lock().unwrap() = None;
         return;
     }
     if tray.is_none() {
@@ -338,7 +353,16 @@ fn update_progress(tray: &mut Option<ProgressTray>, windows: Vec<(u64, String)>)
             .with_icon(picture)
             .build();
         let Ok(icon) = built else { return };
-        *tray = Some(ProgressTray { icon, menu, items: Vec::new() });
+        let show_all = MenuItem::new(tr("Show all"), true, None);
+        *SHOW_ALL_ID.lock().unwrap() = Some(show_all.id().clone());
+        *tray = Some(DownloadsTray {
+            icon,
+            menu,
+            items: Vec::new(),
+            show_all,
+            separator: PredefinedMenuItem::separator(),
+            show_all_on: false,
+        });
     }
     let Some(t) = tray.as_mut() else { return };
     // Items for windows no longer there go; the others keep their place.
@@ -365,12 +389,27 @@ fn update_progress(tray: &mut Option<ProgressTray>, windows: Vec<(u64, String)>)
             }
         }
     }
-    *PROGRESS_IDS.lock().unwrap() = t.items.iter().map(|(d, item)| (item.id().clone(), *d)).collect();
+    let want_show_all = show_all_wanted(windows.len());
+    if want_show_all && !t.show_all_on {
+        t.show_all.set_text(tr("Show all"));
+        t.show_all_on = t.menu.insert(&t.show_all, 0).is_ok() && t.menu.insert(&t.separator, 1).is_ok();
+    } else if !want_show_all && t.show_all_on {
+        let _ = t.menu.remove(&t.show_all);
+        let _ = t.menu.remove(&t.separator);
+        t.show_all_on = false;
+    }
+    *HIDDEN_IDS.lock().unwrap() = t.items.iter().map(|(d, item)| (item.id().clone(), *d)).collect();
     let tip = match windows.as_slice() {
         [(_, title)] => title.clone(),
         _ => crate::i18n::trf!("{count} download windows", count = windows.len()),
     };
     let _ = t.icon.set_tooltip(Some(tip));
+}
+
+/// Whether the menu offers "Show all" for `hidden` windows: from two on, as
+/// IDM's does.
+fn show_all_wanted(hidden: usize) -> bool {
+    hidden >= 2
 }
 
 /// The downloads whose window was picked from the tray since the last call.
@@ -437,6 +476,13 @@ pub fn relabel() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn show_all_comes_with_the_second_hidden_window() {
+        assert!(!show_all_wanted(1));
+        assert!(show_all_wanted(2));
+        assert!(show_all_wanted(5));
+    }
 
     #[test]
     fn the_arrows_icon_is_square_and_partly_clear() {

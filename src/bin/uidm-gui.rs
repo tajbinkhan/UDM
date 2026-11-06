@@ -272,8 +272,9 @@ struct Shared {
     login_wanted: VecDeque<u64>,
     /// Each download's connections, from its latest progress.
     segments: HashMap<u64, Vec<SegmentInfo>>,
-    /// Downloads that just started, for opening their window.
-    started: Vec<u64>,
+    /// Downloads that started since the last frame, and whether a queue
+    /// started each.
+    started: Vec<(u64, bool)>,
     /// Links from a page for the link picker, until the window opens it.
     picked_links: Option<links::LinksDialog>,
     /// The daemon's answers about the link picker's links, until the
@@ -380,7 +381,7 @@ impl Shared {
             Outgoing::BrowserLink { connected, last_seen } => self.browser_link = Some((*connected, *last_seen)),
             Outgoing::Started { id, .. } => {
                 self.segments.remove(id);
-                self.started.push(*id);
+                self.started.push((*id, progress::started_by_queue(&self.queues, *id)));
             }
             Outgoing::Quota {
                 used,
@@ -732,7 +733,7 @@ struct App {
     /// Open download windows, one per download.
     progress_windows: Vec<progress::ProgressWindow>,
     /// The download windows in the tray, as last given to it.
-    progress_in_tray: Vec<(u64, String)>,
+    hidden_windows: Vec<(u64, String)>,
     /// The link picker, while it is open.
     links: Option<links::LinksDialog>,
     /// A zip download's preview, asked for or shown.
@@ -1704,7 +1705,7 @@ impl App {
             limit_dialog: None,
             connection_dialogs: Vec::new(),
             progress_windows: Vec::new(),
-            progress_in_tray: Vec::new(),
+            hidden_windows: Vec::new(),
             links: None,
             zip_preview: None,
             about: None,
@@ -2119,14 +2120,13 @@ impl App {
                 }
             }
             Action::OpenProgress(id) => {
-                // One already open, perhaps in the tray, comes back.
-                if let Some(w) = self.progress_windows.iter_mut().find(|w| w.id == id && w.minimized) {
-                    w.restore();
-                }
-                let entry = self.shared.lock().unwrap().table.get(id).cloned();
-                if let Some(e) = entry.filter(|e| e.status != Status::Done && !self.progress_windows.iter().any(|w| w.id == id)) {
-                    let settings = self.shared.lock().unwrap().settings.clone().unwrap_or_default();
-                    self.progress_windows.push(progress::ProgressWindow::new(&e, &settings));
+                // One already open comes back from the tray, or to the front.
+                match self.progress_windows.iter_mut().find(|w| w.id == id) {
+                    Some(w) if w.hidden => w.restore(),
+                    Some(w) => {
+                        win::raise_window(&w.title);
+                    }
+                    None => self.open_download_window(id, true, false),
                 }
             }
             Action::HideProgressTab(tab) => {
@@ -2492,6 +2492,8 @@ impl App {
 
         crate::dialog::Window::new(tr("Save download"))
             .id(egui::Id::new("confirm"))
+            .opening(crate::dialog::Opening::OnTop)
+            .taskbar(true)
             .dlu_width(380.0)
             .collapsible(false)
             .resizable(false)
@@ -4118,6 +4120,8 @@ impl App {
         let title = if failed { tr("Download failed") } else { tr("Download complete") };
         crate::dialog::Window::new(title)
             .id(egui::Id::new("completed"))
+            .opening(crate::dialog::Opening::OnTop)
+            .taskbar(true)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -4578,15 +4582,25 @@ impl eframe::App for App {
             connections::dialog(ctx, *id, entry, segments.get(id).map(Vec::as_slice))
         });
         let started = std::mem::take(&mut self.shared.lock().unwrap().started);
+        let can_hide = tray::shown();
         if settings.as_ref().is_some_and(|s| s.progress_on_start) {
-            actions.extend(started.into_iter().map(Action::OpenProgress));
+            // A window that opens as its download starts stays behind the
+            // program in front; one a queue started opens in the tray, as
+            // IDM's do.
+            for (id, by_queue) in started {
+                self.open_download_window(id, false, by_queue && can_hide);
+            }
         }
         let tabs = progress::Tabs {
             speed_limit: settings.as_ref().is_none_or(|s| s.progress_speed_tab),
             on_done: settings.as_ref().is_none_or(|s| s.progress_done_tab),
             hide_buttons: settings.as_ref().is_none_or(|s| s.progress_hide_buttons),
-            to_tray: tray::installed(),
+            can_hide,
         };
+        // Without the tray, a hidden window could not be found again.
+        if !can_hide {
+            self.progress_windows.iter_mut().filter(|w| w.hidden).for_each(progress::ProgressWindow::restore);
+        }
         for id in tray::take_restored() {
             if let Some(w) = self.progress_windows.iter_mut().find(|w| w.id == id) {
                 w.restore();
@@ -4597,12 +4611,12 @@ impl eframe::App for App {
             let segments = segments.get(&w.id).map(Vec::as_slice);
             progress::window(ctx, w, entry, segments, speeds.get(&w.id).copied(), &tabs, connected, &mut actions)
         });
-        // The windows minimized to the tray, for its second icon's menu.
+        // The windows hidden in the tray, for the downloads tray icon.
         let in_tray: Vec<(u64, String)> =
-            self.progress_windows.iter().filter(|w| w.minimized).map(|w| (w.id, w.title.clone())).collect();
-        if in_tray != self.progress_in_tray {
-            tray::set_minimized_windows(in_tray.clone(), ctx);
-            self.progress_in_tray = in_tray;
+            self.progress_windows.iter().filter(|w| w.hidden).map(|w| (w.id, w.title.clone())).collect();
+        if in_tray != self.hidden_windows {
+            tray::set_hidden_windows(in_tray.clone(), ctx);
+            self.hidden_windows = in_tray;
         }
         self.refresh_window(ctx, &rows, connected, &mut actions);
         self.tool_windows(ctx, &rows, connected, &mut actions);
@@ -4853,6 +4867,20 @@ impl App {
             }
             C::CheckUpdate => actions.push(Action::CheckUpdate),
             C::About => actions.push(Action::OpenAbout),
+        }
+    }
+
+    /// Open download `id`'s window unless it has one or is done. It takes
+    /// the focus when the user asked for it, and opens hidden in the tray
+    /// for one a queue started.
+    fn open_download_window(&mut self, id: u64, focus: bool, hidden: bool) {
+        if self.progress_windows.iter().any(|w| w.id == id) {
+            return;
+        }
+        let entry = self.shared.lock().unwrap().table.get(id).cloned();
+        if let Some(e) = entry.filter(|e| e.status != Status::Done) {
+            let settings = self.shared.lock().unwrap().settings.clone().unwrap_or_default();
+            self.progress_windows.push(progress::ProgressWindow::new(&e, &settings, focus, hidden));
         }
     }
 

@@ -866,5 +866,8 @@
   "Explore the pages again with their scripts run, and add the files that finds to this list": "Die Seiten mit ausgeführten Skripten erneut durchsuchen und die dabei gefundenen Dateien dieser Liste hinzufügen",
   "Could not pass the command line to UIDM: {error}": "Die Befehlszeile konnte nicht an UIDM übergeben werden: {error}",
   "Minimizing the window hides it in the tray": "Minimieren legt das Fenster in den Infobereich",
-  "{count} download windows": "{count} Downloadfenster"
+  "{count} download windows": "{count} Downloadfenster",
+  "Hide": "Ausblenden",
+  "Show all": "Alle anzeigen",
+  "Put this window in the tray; the green arrows there bring it back": "Dieses Fenster in den Infobereich legen; die grünen Pfeile dort holen es zurück"
 }

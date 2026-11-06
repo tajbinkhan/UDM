@@ -146,6 +146,16 @@ pub fn show() {
     raise(hwnd);
 }
 
+/// Whether one of UIDM's own windows is in front, holding the focus.
+pub fn in_front() -> bool {
+    // SAFETY: plain calls; a null window has no process.
+    unsafe {
+        let front = GetForegroundWindow();
+        let mut pid = 0;
+        front != 0 && GetWindowThreadProcessId(front, &mut pid) != 0 && pid == GetCurrentProcessId()
+    }
+}
+
 /// A dialog that opens on its own (save-as, download complete) needs the
 /// window's frames. Here a hidden window still gets them (see `hide`), so
 /// the dialog shows without the main window, as IDM's do.
