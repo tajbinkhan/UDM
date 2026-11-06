@@ -13,8 +13,14 @@
 //!
 //! A CLI test mode runs a download in-process, without a browser or daemon:
 //!   uidm-host download <url> [output_dir]
+//!
+//! Other programs send links to UIDM with
+//!   uidm-host send <file.json | ->
+//! which reads one link, or a list of links for the link picker, as JSON
+//! (see `uidm::cli::parse_sent`) and hands it to the daemon, starting it if
+//! needed. It goes through the same authenticated connection as the relay.
 
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,9 +33,10 @@ use uidm::app::MAX_MESSAGE_BYTES;
 /// After the browser closes, how long to wait for the daemon to deliver
 /// replies already in flight before giving up on them.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+use uidm::cli::Sent;
 use uidm::engine::{self, DownloadRequest, Progress};
 use uidm::ipc;
-use uidm::protocol::{read_message, write_frame};
+use uidm::protocol::{read_message, write_frame, Incoming, Outgoing};
 use uidm::settings::{default_downloads_dir, FileExists, Folders, DEFAULT_CONNECTIONS};
 
 /// The requests UIDM's browser extension sends. The host passes only these
@@ -70,8 +77,10 @@ fn from_browser(frame: &[u8]) -> Option<Vec<u8>> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some("download") {
-        std::process::exit(run_cli(&args));
+    match args.get(1).map(String::as_str) {
+        Some("download") => std::process::exit(run_cli(&args)),
+        Some("send") => std::process::exit(run_send(&args)),
+        _ => {}
     }
     if let Err(e) = run_relay() {
         eprintln!("[uidm-host] fatal: {e}");
@@ -131,6 +140,103 @@ fn run_relay() -> io::Result<()> {
     let _ = to_daemon.shutdown(Shutdown::Both);
     let _ = downstream.join();
     Ok(())
+}
+
+/// How long `send` waits for the daemon's answer once connected.
+const SEND_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// `uidm-host send <file | ->`: hand the JSON in the file (or on stdin) to
+/// the daemon. One link is added as the extension adds one, and its id goes
+/// to stdout; a list opens the link picker. Returns a process exit code: 0
+/// when the daemon took it, 1 when it refused or could not be reached, 2 for
+/// bad input.
+fn run_send(args: &[String]) -> i32 {
+    let source = match args.get(2) {
+        Some(s) if args.len() == 3 => s,
+        _ => {
+            eprintln!("usage: uidm-host send <file.json | ->");
+            return 2;
+        }
+    };
+    let json = match read_input(source) {
+        Ok(json) => json,
+        Err(e) => {
+            eprintln!("[uidm-host] could not read {source}: {e}");
+            return 2;
+        }
+    };
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let sent = match uidm::cli::parse_sent(&json, &cwd) {
+        Ok(sent) => sent,
+        Err(e) => {
+            eprintln!("[uidm-host] {e}");
+            return 2;
+        }
+    };
+    match send(sent) {
+        Ok(Some(id)) => {
+            println!("{id}");
+            0
+        }
+        Ok(None) => 0,
+        Err(e) => {
+            eprintln!("[uidm-host] {e}");
+            1
+        }
+    }
+}
+
+/// The text of `source`, a file or `-` for stdin, up to the size of one
+/// message.
+fn read_input(source: &str) -> io::Result<String> {
+    let limit = u64::from(MAX_MESSAGE_BYTES);
+    let mut text = String::new();
+    if source == "-" {
+        io::stdin().lock().take(limit + 1).read_to_string(&mut text)?;
+    } else {
+        std::fs::File::open(source)?.take(limit + 1).read_to_string(&mut text)?;
+    }
+    if text.len() as u64 > limit {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, format!("larger than {limit} bytes")));
+    }
+    // A file saved by Windows PowerShell 5 or Notepad may start with a BOM.
+    Ok(text.trim_start_matches('\u{feff}').to_string())
+}
+
+/// Give `sent` to the daemon and wait for its answer: the new download's id
+/// for one link, `None` once a list has reached the picker.
+fn send(sent: Sent) -> io::Result<Option<u64>> {
+    let mut daemon = ipc::connect_or_spawn()?;
+    daemon.set_read_timeout(Some(SEND_TIMEOUT))?;
+    let hello =
+        Incoming::Hello { version: Some(env!("CARGO_PKG_VERSION").to_string()), client: Some("program".into()) };
+    let one = matches!(sent, Sent::One(_));
+    let request = match sent {
+        Sent::One(download) => Incoming::Add(download),
+        Sent::Many { referer, links } => Incoming::PickLinks { page: referer, links, user_agent: None },
+    };
+    // `pick_links` has no answer, so a ping after it shows the daemon has
+    // handled it: it reads a client's requests in order.
+    let mut messages = vec![hello, request];
+    if !one {
+        messages.push(Incoming::Ping);
+    }
+    for msg in &messages {
+        write_frame(&mut daemon, &serde_json::to_vec(msg)?)?;
+    }
+    loop {
+        let raw = read_message(&mut daemon, MAX_MESSAGE_BYTES)?
+            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "the daemon closed the connection"))?;
+        // Other clients' news comes too; only the answers matter here.
+        match serde_json::from_slice::<Outgoing>(&raw) {
+            Ok(Outgoing::Ack { id, .. }) if one => return Ok(Some(id)),
+            Ok(Outgoing::Pong) if !one => return Ok(None),
+            Ok(Outgoing::Rejected { message, .. } | Outgoing::Error { message }) => {
+                return Err(io::Error::other(message))
+            }
+            _ => {}
+        }
+    }
 }
 
 /// CLI test mode: download a URL in-process and print progress to stderr.

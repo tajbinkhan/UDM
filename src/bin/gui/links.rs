@@ -167,6 +167,13 @@ impl LinksDialog {
         }
     }
 
+    /// The page the links came from, sent as their referrer and kept as
+    /// their page. A program that sends links (`uidm-host send`) may give
+    /// none.
+    fn referrer(&self) -> Option<String> {
+        (!self.page.is_empty()).then(|| self.page.clone())
+    }
+
     /// The links to ask their servers about now, as a request for the
     /// daemon: those not answered yet. `None` when nothing is due.
     pub fn take_probe(&mut self) -> Option<(u64, Vec<Download>)> {
@@ -187,8 +194,8 @@ impl LinksDialog {
             .iter()
             .map(|&i| Download {
                 url: self.links[i].url.clone(),
-                referrer: Some(self.page.clone()),
-                page: Some(self.page.clone()),
+                referrer: self.referrer(),
+                page: self.referrer(),
                 cookies: self.links[i].cookies.clone(),
                 user_agent: self.user_agent.clone(),
                 ..Download::default()
@@ -268,8 +275,8 @@ impl LinksDialog {
                 Download {
                     url: l.url.clone(),
                     // The page the links were picked from is both.
-                    referrer: Some(self.page.clone()),
-                    page: Some(self.page.clone()),
+                    referrer: self.referrer(),
+                    page: self.referrer(),
                     cookies: l.cookies.clone(),
                     user_agent: self.user_agent.clone(),
                     folder: folder.clone(),
