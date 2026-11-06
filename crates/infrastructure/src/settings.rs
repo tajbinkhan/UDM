@@ -318,7 +318,7 @@ impl Category {
     /// Whether a file with extension `ext` from `host` belongs here.
     fn takes(&self, ext: &str, host: &str) -> bool {
         self.extensions.iter().any(|e| e == ext)
-            && (self.sites.is_empty() || self.sites.iter().any(|s| crate::net::site_matches(s, host)))
+            && (self.sites.is_empty() || self.sites.iter().any(|s| uidm_domain::site::site_matches(s, host)))
     }
 }
 
@@ -1043,7 +1043,7 @@ impl Settings {
         let mut sites: Vec<String> = Vec::new();
         for l in &self.site_logins {
             let site = l.site.trim().to_ascii_lowercase();
-            let (host, path) = crate::net::split_login_pattern(&site);
+            let (host, path) = uidm_domain::site::split_login_pattern(&site);
             if !is_site(host) || host.ends_with(':') || path.contains(char::is_whitespace) {
                 return Err(format!(
                     "\"{}\" is not a site. Use a host name such as example.com, or one with a folder such as example.com/private/*.",
@@ -1067,7 +1067,7 @@ impl Settings {
             }
         }
         if self.scan_after_download && self.scanner == Scanner::Custom {
-            crate::scan::parse_command(&self.scanner_command)?;
+            uidm_domain::command::parse_command(&self.scanner_command)?;
         }
         if self.scan_after_download && self.scanner == Scanner::Defender && !cfg!(windows) {
             return Err("Microsoft Defender is only on Windows. Choose a scanner program such as clamscan.".into());
@@ -1122,7 +1122,7 @@ impl Settings {
     pub fn server_limit(&self, host: &str) -> Option<usize> {
         self.server_limits
             .iter()
-            .filter(|l| crate::net::site_matches(&l.site, host))
+            .filter(|l| uidm_domain::site::site_matches(&l.site, host))
             .max_by_key(|l| l.site.trim_start_matches("*.").len())
             .map(|l| l.max)
     }

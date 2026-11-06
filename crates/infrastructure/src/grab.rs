@@ -391,7 +391,7 @@ fn safe_part(part: &str) -> String {
     if clean.is_empty() || clean == "." || clean == ".." {
         "_".to_string()
     } else {
-        crate::engine::not_a_device(clean)
+        uidm_domain::filename::not_a_device(clean)
     }
 }
 

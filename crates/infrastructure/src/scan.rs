@@ -18,8 +18,7 @@ use std::time::{Duration, Instant};
 use crate::protocol::Scan;
 use crate::settings::Scanner;
 
-/// The placeholder replaced by the file to scan.
-pub const PATH_TOKEN: &str = "{path}";
+pub use uidm_domain::command::{parse_command, PATH_TOKEN};
 /// A scan that runs longer than this is stopped and counts as failed.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const POLL: Duration = Duration::from_millis(200);
@@ -37,48 +36,6 @@ pub fn with_program(program: &str, command: &str) -> String {
     .trim();
     let rest = if rest.is_empty() { "{path}" } else { rest };
     format!("\"{program}\" {rest}")
-}
-
-/// Split a command line into the program and its arguments. Whitespace
-/// separates arguments; double quotes group, so `"C:\Program Files\x.exe"` is
-/// one. Backslashes are literal, as in Windows paths. The command must name a
-/// program and contain `{path}`.
-pub fn parse_command(line: &str) -> Result<(String, Vec<String>), String> {
-    let mut parts: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut quoted = false;
-    let mut in_token = false;
-    for c in line.chars() {
-        match c {
-            '"' => {
-                quoted = !quoted;
-                in_token = true;
-            }
-            c if c.is_whitespace() && !quoted => {
-                if in_token {
-                    parts.push(std::mem::take(&mut current));
-                    in_token = false;
-                }
-            }
-            c => {
-                current.push(c);
-                in_token = true;
-            }
-        }
-    }
-    if quoted {
-        return Err("The scanner command has an unclosed quote.".to_string());
-    }
-    if in_token {
-        parts.push(current);
-    }
-    let mut parts = parts.into_iter();
-    let program = parts.next().filter(|p| !p.is_empty()).ok_or("The scanner command is empty.")?;
-    let args: Vec<String> = parts.collect();
-    if !args.iter().any(|a| a.contains(PATH_TOKEN)) {
-        return Err(format!("The scanner command must contain {PATH_TOKEN} where the file goes."));
-    }
-    Ok((program, args))
 }
 
 /// The program and arguments that scan `file`.
@@ -191,21 +148,6 @@ mod tests {
         assert_eq!(with_program(clam, r#""C:\Old\scan.exe" --quiet {path}"#), format!("\"{clam}\" --quiet {{path}}"));
         assert_eq!(with_program(clam, "scan.exe /f {path}"), format!("\"{clam}\" /f {{path}}"));
         assert!(parse_command(&with_program(clam, "")).is_ok());
-    }
-
-    #[test]
-    fn splits_quoted_programs_and_arguments() {
-        let (prog, args) = parse_command(r#""C:\Program Files\AV\scan.exe"  /scan  "{path}" --log=C:\x"#).unwrap();
-        assert_eq!(prog, r"C:\Program Files\AV\scan.exe");
-        assert_eq!(args, ["/scan", "{path}", r"--log=C:\x"]);
-    }
-
-    #[test]
-    fn rejects_bad_commands() {
-        assert!(parse_command("").is_err());
-        assert!(parse_command("   ").is_err());
-        assert!(parse_command("scan.exe /all").is_err(), "no {{path}}");
-        assert!(parse_command(r#""scan.exe {path}"#).is_err(), "unclosed quote");
     }
 
     #[test]

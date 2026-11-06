@@ -2439,7 +2439,7 @@ impl App {
         let replaced = other.filter(|_| draft.duplicate == Duplicate::Overwrite).and_then(|o| o.path.as_deref());
         // Under Ask, a name taken by a file in the folder needs an answer,
         // unless the duplicate question already covers it.
-        let name = uidm_infrastructure::engine::clean_filename(draft.filename.trim());
+        let name = uidm_domain::filename::sanitize_filename(draft.filename.trim());
         let taken = ask && other.is_none() && !name.is_empty() && Path::new(draft.folder.trim()).join(&name).is_file();
         // A folder UIDM may not write to needs administrator rights, or
         // another folder.

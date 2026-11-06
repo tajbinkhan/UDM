@@ -2,4 +2,7 @@
 //! layers implement. Nothing here performs I/O, reads the clock or logs.
 
 pub mod batch;
+pub mod command;
+pub mod filename;
 pub mod queue;
+pub mod site;

@@ -166,11 +166,11 @@ CI runs them on Windows, macOS and Linux (`.github/workflows/`). Code under `cfg
 
 Where the code on `main` deviates from the rules above. These are notes, not tasks.
 
-- **Workspace in place, layers mostly empty.** The five crates exist. `domain`, `application` and `ui` hold no code yet. `infrastructure` is the old `uidm` library, moved unchanged. `app` holds the three binaries, and the GUI's views still live there in `src/bin/gui/` and call `uidm_infrastructure` directly. Paths below are relative to `crates/infrastructure/` or `crates/app/`.
+- **Workspace in place, layers mostly empty.** The five crates exist. `application` and `ui` hold no code yet. `domain` holds the pure rules moved so far: `queue` (queues, schedules, calendar arithmetic), `batch` (URL patterns), `site` (site and login patterns), `filename` (file-name cleaning and numbered names) and `command` (the scanner command line). The domain still uses raw primitives and `Result<_, String>`. `infrastructure` is the rest of the old `uidm` library and re-exports some moved functions (`net::site_matches`, `scan::parse_command`) so its callers did not change. `uidm_infrastructure::clock` reads the local time that `queue` takes as a parameter. `app` holds the three binaries, and the GUI's views still live there in `src/bin/gui/` and call `uidm_infrastructure` directly. Paths below are relative to `crates/infrastructure/` or `crates/app/`.
 - **No layer boundaries.** `infrastructure/src/lib.rs` exposes about 30 flat modules. Domain rules and I/O sit in the same modules. Examples:
-  - `queue.rs` mixes queue rules and calendar arithmetic with `libc::localtime_r`.
-  - `settings.rs` holds both the settings model and its file paths and atomic writes.
-  - `engine/mod.rs` holds file-name rules (`sanitize_filename`) next to the transfer code.
+  - `settings.rs` holds the settings model, its validation and migrations, and its file paths and atomic writes. Its model is the GUI's main dependency, so it moves to `domain` before the GUI can move to `ui`. The default download folder (`default_downloads_dir`) and `Settings::ffmpeg` read the environment and must stay behind.
+  - `protocol.rs` holds the wire messages, and its `Download` type doubles as the model the daemon and GUI keep.
+  - `engine/mod.rs` holds transfer code; its file-name rules are in `domain::filename` now.
 - **No port traits.** The only trait in `src` is a private helper in `engine/ftp.rs`. Modules call each other's concrete functions, so use cases cannot be tested with in-memory adapters.
 - **Logic in the binaries.** `src/bin/uidm-daemon.rs` (about 6,000 lines) and `src/bin/uidm-gui.rs` (about 5,400 lines) hold most of the orchestration. The GUI also reads and writes its own files (`gui/columns.rs` writes `window.json`, `gui/droptarget.rs` writes `droptarget.txt`).
 - **GUI threads.** The GUI already sends daemon work to `thread::spawn` workers. It does not yet route state changes through a single message type and `apply` function.
@@ -180,4 +180,4 @@ Where the code on `main` deviates from the rules above. These are notes, not tas
 - **Paths.** `directories` is not used. `platform::data_dir`, `settings::settings_path`, `history::history_path` and the GUI read `APPDATA`, `LOCALAPPDATA` and `XDG_CONFIG_HOME` by hand. `browsers.rs` reads them to find browser profiles, which is a legitimate adapter concern but should go through the path module.
 - **Raw primitives.** Download ids, byte counts, URLs and file names travel as `u64` and `String`.
 - **Storage.** State is JSON files, not SQLite. Section 6 is written for files. Nothing needs to change unless a database is added.
-- **Module cycles.** Some infrastructure modules depend on each other in a cycle, for example `protocol` and `grab`, and `settings` and `net`. Cycles must be cut before those modules can split across crates.
+- **Module cycles.** Some infrastructure modules depend on each other in a cycle, for example `protocol` and `grab`. (`settings` no longer depends on `net` or `scan`.) Cycles must be cut before those modules can split across crates.

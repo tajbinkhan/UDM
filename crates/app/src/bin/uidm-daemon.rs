@@ -2188,8 +2188,10 @@ impl Daemon {
         let same = input.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext));
         let name = if same { format!("{stem} (converted).{ext}") } else { format!("{stem}.{ext}") };
         let dir = input.parent().map(Path::to_path_buf).unwrap_or_default();
-        let output =
-            (0..).map(|n| dir.join(engine::numbered_name(&name, n))).find(|p| !p.exists()).expect("some name is free");
+        let output = (0..)
+            .map(|n| dir.join(uidm_domain::filename::numbered_name(&name, n)))
+            .find(|p| !p.exists())
+            .expect("some name is free");
         let size = std::fs::metadata(&input).map(|m| m.len()).unwrap_or(0);
         let new_id = self.engine.reserve_id();
         self.hub.uncounted.lock().unwrap().insert(new_id);
@@ -2772,7 +2774,7 @@ impl Daemon {
             let proposed = e.path.as_deref().map(Path::new);
             let name = filename
                 .as_deref()
-                .map(engine::clean_filename)
+                .map(uidm_domain::filename::sanitize_filename)
                 .filter(|n| !n.is_empty())
                 .or_else(|| proposed.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()))
                 .ok_or("the download has no file name")?;
@@ -3147,7 +3149,7 @@ impl Daemon {
                 let from = entry.path.as_deref().map(PathBuf::from).ok_or("The download has no file.")?;
                 let name = filename
                     .as_deref()
-                    .map(engine::clean_filename)
+                    .map(uidm_domain::filename::sanitize_filename)
                     .filter(|n| !n.is_empty())
                     .or_else(|| from.file_name().map(|n| n.to_string_lossy().into_owned()))
                     .ok_or("The download has no file name.")?;
@@ -4107,7 +4109,10 @@ fn free_path(path: &Path, overwrite: bool) -> PathBuf {
         return path.to_path_buf();
     };
     let name = name.to_string_lossy();
-    (1..).map(|n| dir.join(engine::numbered_name(&name, n))).find(|p| !p.exists()).unwrap_or_else(|| path.to_path_buf())
+    (1..)
+        .map(|n| dir.join(uidm_domain::filename::numbered_name(&name, n)))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| path.to_path_buf())
 }
 
 /// Delete the folders of early downloads a previous run left behind, except

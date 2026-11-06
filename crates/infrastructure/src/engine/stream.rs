@@ -26,10 +26,11 @@ use std::time::{Duration, Instant};
 use url::Url;
 
 use super::limit::Throttle;
+use uidm_domain::filename::{numbered_name, sanitize_filename};
 
 use super::{
-    backoff, choose_output, derive_filename, fetch_with, http, numbered_name, sanitize_filename, CancelToken,
-    DownloadRequest, EngineError, Progress, Reporter, Saved, Shared, BUF_SIZE, MAX_CONNECTIONS, MAX_RETRIES,
+    backoff, choose_output, derive_filename, fetch_with, http, CancelToken, DownloadRequest, EngineError, Progress,
+    Reporter, Saved, Shared, BUF_SIZE, MAX_CONNECTIONS, MAX_RETRIES,
 };
 use crate::media::{
     dash, hds, hls, sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track,
