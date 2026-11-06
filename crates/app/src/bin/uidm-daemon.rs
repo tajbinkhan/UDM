@@ -51,11 +51,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use uidm_application::queues::{DeleteQueue, MoveToQueue, RemoveFromQueue, SaveQueue, StartQueue, StopQueue};
+use uidm_application::queues::{
+    DeleteQueue, MoveToQueue, RemoveFromQueue, RunSchedules, SaveQueue, Scheduled, StartQueue, StopQueue,
+};
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DownloadLogin, OnDone, Properties, Status, Validator};
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore};
-use uidm_domain::queue::{self, Queue, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
+use uidm_domain::queue::{self, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::clock::LocalClock;
 use uidm_infrastructure::engine::DownloadRequest;
@@ -541,6 +543,10 @@ impl QueueRuns for Daemon {
     fn end(&self, queue: u64) {
         self.runs.lock().unwrap().remove(&queue);
     }
+
+    fn started_any(&self, queue: u64) -> bool {
+        self.runs.lock().unwrap().get(&queue).is_some_and(|r| !r.is_empty())
+    }
 }
 
 impl QueueSounds for Daemon {
@@ -858,36 +864,14 @@ impl Daemon {
     fn tick(self: &Arc<Self>) {
         let _guard = self.tick_lock.lock().unwrap();
         self.check_quota();
-        let now = uidm_infrastructure::clock::local_now();
-
-        let queues = self.hub.queues.lock().unwrap().clone();
-        for q in &queues {
-            // A run a grabber project started ends at the project's stop time.
-            if q.running && q.stop_at_once.is_some_and(|end| now.total() >= end) {
-                eprintln!("[uidm-daemon] the grabber project's stop time stops queue {}", q.name);
-                let _ = self.stop_queue(q.id);
-                continue;
-            }
-            let Some(schedule) = &q.schedule else {
-                continue;
+        let scheduled = RunSchedules::new(&*self.hub, &*self.hub, &**self, &**self, &LocalClock, &**self).run();
+        for Scheduled { queue, step } in scheduled {
+            let why = match step {
+                ScheduleStep::Start { .. } => "schedule starts",
+                ScheduleStep::Stop(StopReason::ScheduleEnded) => "schedule stops",
+                ScheduleStep::Stop(StopReason::GrabberStopTime) => "the grabber project's stop time stops",
             };
-            if let Some(day) = schedule.due(now, q.last_scheduled_day, q.last_scheduled_start) {
-                if !q.running {
-                    eprintln!("[uidm-daemon] schedule starts queue {}", q.name);
-                    let _ = self.start_queue(q.id, Some(day));
-                }
-            }
-            // At the end of its time a scheduled run stops: always when it
-            // has a stop time, and without one only if it never started
-            // anything (otherwise it runs until it is done).
-            let started_any = !self.runs.lock().unwrap().get(&q.id).is_none_or(|r| r.is_empty());
-            if q.running && q.started_by_schedule && (schedule.stop.is_some() || !started_any) {
-                let ended = q.last_scheduled_day.and_then(|day| schedule.end_of_run(day)).is_some_and(|end| now >= end);
-                if ended {
-                    eprintln!("[uidm-daemon] schedule stops queue {}", q.name);
-                    let _ = self.stop_queue(q.id);
-                }
-            }
+            eprintln!("[uidm-daemon] {why} queue {queue}");
         }
 
         let queues = self.hub.queues.lock().unwrap().clone();

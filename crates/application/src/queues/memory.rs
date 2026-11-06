@@ -62,23 +62,32 @@ impl DownloadList for Downloads {
     }
 }
 
-/// The queues that have a run going.
+/// The queues that have a run going, with what each run started.
 #[derive(Default)]
-pub struct Runs(Mutex<HashSet<u64>>);
+pub struct Runs(Mutex<HashMap<u64, HashSet<u64>>>);
 
 impl Runs {
     pub fn running(&self, queue: u64) -> bool {
-        self.0.lock().unwrap().contains(&queue)
+        self.0.lock().unwrap().contains_key(&queue)
+    }
+
+    /// Queue `queue`'s run started download `id`.
+    pub fn started(&self, queue: u64, id: u64) {
+        self.0.lock().unwrap().entry(queue).or_default().insert(id);
     }
 }
 
 impl QueueRuns for Runs {
     fn begin(&self, queue: u64) {
-        self.0.lock().unwrap().insert(queue);
+        self.0.lock().unwrap().insert(queue, HashSet::new());
     }
 
     fn end(&self, queue: u64) {
         self.0.lock().unwrap().remove(&queue);
+    }
+
+    fn started_any(&self, queue: u64) -> bool {
+        self.0.lock().unwrap().get(&queue).is_some_and(|r| !r.is_empty())
     }
 }
 

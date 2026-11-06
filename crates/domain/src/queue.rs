@@ -215,6 +215,31 @@ impl Queue {
         Queue::new(MAIN_QUEUE, MAIN_QUEUE_NAME)
     }
 
+    /// What the queue's schedule asks of it at `now`, if anything.
+    /// `started_any` says whether its current run started any download.
+    pub fn schedule_step(&self, now: Moment, started_any: bool) -> Option<ScheduleStep> {
+        // A run a grabber project started ends at the project's stop time.
+        if self.running && self.stop_at_once.is_some_and(|end| now.total() >= end) {
+            return Some(ScheduleStep::Stop(StopReason::GrabberStopTime));
+        }
+        let schedule = self.schedule.as_ref()?;
+        if !self.running {
+            return schedule
+                .due(now, self.last_scheduled_day, self.last_scheduled_start)
+                .map(|day| ScheduleStep::Start { day });
+        }
+        // At the end of its time a scheduled run stops: always when it has a
+        // stop time, and without one only if it never started anything
+        // (otherwise it runs until it is done).
+        if self.started_by_schedule && (schedule.stop.is_some() || !started_any) {
+            let ended = self.last_scheduled_day.and_then(|day| schedule.end_of_run(day)).is_some_and(|end| now >= end);
+            if ended {
+                return Some(ScheduleStep::Stop(StopReason::ScheduleEnded));
+            }
+        }
+        None
+    }
+
     /// Start the queue: its waiting downloads run in order. `scheduled_day`
     /// is the day whose scheduled run this is, or `None` when started by
     /// hand; `now` is when. Returns whether it was running already.
@@ -259,6 +284,24 @@ impl Queue {
         }
         Ok(())
     }
+}
+
+/// What a queue's schedule asks of it at a given moment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleStep {
+    /// Start the scheduled run of `day`.
+    Start { day: i64 },
+    /// Stop the queue.
+    Stop(StopReason),
+}
+
+/// Why a schedule stops a queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopReason {
+    /// The grabber project that started this run reached its stop time.
+    GrabberStopTime,
+    /// The scheduled run's time is over.
+    ScheduleEnded,
 }
 
 /// A local date and time, to the minute.
@@ -751,5 +794,54 @@ mod tests {
         q.name = "Night".into();
         q.retries = 11;
         assert!(q.validate().is_err());
+    }
+
+    #[test]
+    fn a_schedule_starts_a_stopped_queue_once_a_day() {
+        let mut q = Queue { schedule: Some(nightly(&[2])), ..Queue::new(2, "Night") };
+        // 2026-10-28 is a Wednesday.
+        assert_eq!(q.schedule_step(at("2026-10-28", "22:59"), false), None);
+        let step = q.schedule_step(at("2026-10-28", "23:00"), false);
+        let day = parse_date("2026-10-28").unwrap();
+        assert_eq!(step, Some(ScheduleStep::Start { day }));
+        q.start(Some(day), at("2026-10-28", "23:00"));
+        assert_eq!(q.schedule_step(at("2026-10-28", "23:30"), true), None, "it is running");
+        q.stop();
+        assert_eq!(q.schedule_step(at("2026-10-28", "23:40"), false), None, "today's run happened");
+    }
+
+    #[test]
+    fn a_scheduled_run_stops_at_its_stop_time() {
+        let day = parse_date("2026-10-28").unwrap();
+        let mut q = Queue { schedule: Some(nightly(&[2])), ..Queue::new(2, "Night") };
+        q.start(Some(day), at("2026-10-28", "23:00"));
+        assert_eq!(q.schedule_step(at("2026-10-29", "06:59"), true), None);
+        assert_eq!(
+            q.schedule_step(at("2026-10-29", "07:00"), true),
+            Some(ScheduleStep::Stop(StopReason::ScheduleEnded))
+        );
+        // Started by hand, the schedule leaves it alone.
+        q.start(None, at("2026-10-29", "07:00"));
+        assert_eq!(q.schedule_step(at("2026-10-29", "08:00"), true), None);
+    }
+
+    #[test]
+    fn without_a_stop_time_only_an_idle_run_ends() {
+        let day = parse_date("2026-10-28").unwrap();
+        let schedule = Schedule { stop: None, ..nightly(&[2]) };
+        let mut q = Queue { schedule: Some(schedule), ..Queue::new(2, "Night") };
+        q.start(Some(day), at("2026-10-28", "23:00"));
+        let midnight = at("2026-10-29", "00:00");
+        assert_eq!(q.schedule_step(midnight, true), None, "it runs until it is done");
+        assert_eq!(q.schedule_step(midnight, false), Some(ScheduleStep::Stop(StopReason::ScheduleEnded)));
+    }
+
+    #[test]
+    fn a_grabber_stop_time_stops_any_running_queue() {
+        let now = at("2026-10-28", "12:00");
+        let mut q = Queue { stop_at_once: Some(now.total()), ..Queue::main() };
+        assert_eq!(q.schedule_step(now, true), None, "it is not running");
+        q.start(None, now);
+        assert_eq!(q.schedule_step(now, true), Some(ScheduleStep::Stop(StopReason::GrabberStopTime)));
     }
 }

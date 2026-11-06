@@ -49,6 +49,9 @@ pub trait QueueRuns: Send + Sync {
 
     /// Queue `queue`'s run ended (or the queue is gone).
     fn end(&self, queue: u64);
+
+    /// Whether queue `queue`'s current run started any download.
+    fn started_any(&self, queue: u64) -> bool;
 }
 
 /// The sounds the user may have chosen to hear.
