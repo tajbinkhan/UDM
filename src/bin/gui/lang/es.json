@@ -869,5 +869,9 @@
   "{count} download windows": "{count} ventanas de descarga",
   "Hide": "Ocultar",
   "Show all": "Mostrar todas",
-  "Put this window in the tray; the green arrows there bring it back": "Llevar esta ventana a la bandeja; las flechas verdes de allí la devuelven"
+  "Put this window in the tray; the green arrows there bring it back": "Llevar esta ventana a la bandeja; las flechas verdes de allí la devuelven",
+  "UIDM may not save files in this folder. Saving there needs administrator rights.": "UIDM no puede guardar archivos en esta carpeta. Para guardar ahí se necesitan derechos de administrador.",
+  "Save there with administrator rights": "Guardar ahí con derechos de administrador",
+  "The download runs as you; Windows asks once it is done, before the file is moved there": "La descarga se hace con su cuenta; Windows pregunta al terminar, antes de mover el archivo ahí",
+  "Choose another folder, or save there with administrator rights": "Elija otra carpeta o guarde ahí con derechos de administrador"
 }

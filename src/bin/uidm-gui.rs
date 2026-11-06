@@ -836,6 +836,11 @@ struct ConfirmDraft {
     start_queue: bool,
     /// The name box the queue picker's "+" opened, with its error, if open.
     new_queue: Option<(String, Option<String>)>,
+    /// The folder last checked for whether UIDM may write there, and the
+    /// answer, so the check runs once per folder typed or picked.
+    write_check: Option<(String, bool)>,
+    /// Save into a folder UIDM may not write to, with administrator rights.
+    elevate: bool,
     /// A queue "+" just created, to select once the daemon lists it (the
     /// daemon picks its id), and when it was sent.
     pending_queue: Option<(String, std::time::Instant)>,
@@ -2379,6 +2384,8 @@ impl App {
                 start_queue: false,
                 new_queue: None,
                 pending_queue: None,
+                write_check: None,
+                elevate: false,
                 category,
                 filename,
                 folder: path.and_then(|p| p.parent()).map(|p| p.display().to_string()).unwrap_or_default(),
@@ -2423,6 +2430,18 @@ impl App {
         // unless the duplicate question already covers it.
         let name = uidm::engine::clean_filename(draft.filename.trim());
         let taken = ask && other.is_none() && !name.is_empty() && Path::new(draft.folder.trim()).join(&name).is_file();
+        // A folder UIDM may not write to needs administrator rights, or
+        // another folder.
+        let folder = draft.folder.trim().to_string();
+        let denied = match &draft.write_check {
+            Some((checked, denied)) if *checked == folder => *denied,
+            _ => {
+                let denied = Path::new(&folder).is_absolute() && !uidm::elevate::can_write(Path::new(&folder));
+                draft.write_check = Some((folder, denied));
+                denied
+            }
+        };
+        let blocked = denied && !draft.elevate;
 
         crate::dialog::Window::new(tr("Save download"))
             .id(egui::Id::new("confirm"))
@@ -2594,6 +2613,22 @@ impl App {
                         }
                     });
                 }
+                if denied {
+                    ui.add_space(4.0);
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        tr("UIDM may not save files in this folder. Saving there needs administrator rights."),
+                    );
+                    ui.horizontal(|ui| {
+                        if uidm::elevate::supported() {
+                            ui.checkbox(&mut draft.elevate, tr("Save there with administrator rights"))
+                                .on_hover_text(tr(
+                                    "The download runs as you; Windows asks once it is done, before the file is moved there",
+                                ));
+                        }
+                        browse_button(ui, tr("Save to"), &draft.folder, &draft.picked);
+                    });
+                }
                 if waiting > 1 {
                     ui.weak(trf!("{count} more downloads are waiting after this one.", count = waiting - 1));
                 }
@@ -2685,6 +2720,7 @@ impl App {
                                 remember_folder,
                                 remember_duplicate: other.is_some() && draft.remember_duplicate,
                                 remember_queue: !start && !later_set && draft.remember_queue,
+                                elevate: denied && draft.elevate,
                             })
                         };
                         if other.is_some() && draft.duplicate == Duplicate::Existing {
@@ -2692,10 +2728,11 @@ impl App {
                                 actions.push(answer(true));
                             }
                         } else {
-                            if ui.button(tr("Start download")).clicked() {
+                            let hint = tr("Choose another folder, or save there with administrator rights");
+                            if ui.add_enabled(!blocked, egui::Button::new(tr("Start download"))).on_disabled_hover_text(hint).clicked() {
                                 actions.push(answer(true));
                             }
-                            if ui.button(tr("Download later")).clicked() {
+                            if ui.add_enabled(!blocked, egui::Button::new(tr("Download later"))).on_disabled_hover_text(hint).clicked() {
                                 actions.push(answer(false));
                                 // Sent after the answer, so the download is
                                 // already waiting in the queue it starts.
