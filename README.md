@@ -1556,6 +1556,18 @@ GitHub Actions builds and tests UIDM on Windows, macOS and Linux on every
 push and pull request (`.github/workflows/build.yml`), and the extension's
 tests with Node. Those runs keep no files.
 
+Each run also fails on a clippy warning or on code that rustfmt would
+change. Run both before pushing:
+
+```bash
+cargo fmt
+cargo clippy --all-targets -- -D warnings
+```
+
+`rustfmt.toml` sets the line width to 120. Clippy checks only the code for
+the platform it runs on, so a warning in a macOS-only or Linux-only block
+shows up on that runner.
+
 The installers come from `.github/workflows/release.yml`. Set the version in
 `Cargo.toml`, commit, and push a tag that matches it:
 
