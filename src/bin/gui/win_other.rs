@@ -32,6 +32,19 @@ pub fn show() {
     }
 }
 
+/// A dialog that opens on its own (save-as, download complete) needs the
+/// window's frames, which a minimized window may not get here, so the window
+/// comes up with it.
+pub fn wake() {
+    show();
+}
+
+/// Whether one of UIDM's own windows is in front. Not known here, so a
+/// dialog that opens on its own takes the focus, as before.
+pub fn in_front() -> bool {
+    true
+}
+
 /// Bring a dialog that opened on its own to the front. Here its viewport's
 /// own focus request does that, so there is nothing more to do.
 pub fn raise_window(_title: &str) -> bool {

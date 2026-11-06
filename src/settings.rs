@@ -868,7 +868,8 @@ impl Default for Settings {
             check_updates: true,
             last_update_check: 0,
             drop_target: false,
-            progress_on_start: false,
+            // On, as IDM's "Show download progress dialog" is.
+            progress_on_start: true,
             progress_speed_tab: true,
             progress_done_tab: true,
             progress_hide_buttons: true,

@@ -1,16 +1,19 @@
 //! Win32 calls the window needs outside egui: showing and hiding it while egui
-//! is idle (a hidden window gets no frames, so viewport commands would wait),
+//! is idle (viewport commands wait for a frame),
 //! reading the clipboard for the tray menu and the clipboard offer, the
 //! Windows `Open with` picker, and the display languages.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 /// The main window's HWND, once eframe has created it.
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
+/// The window is cloaked in the tray (see `hide`).
+static HIDDEN: AtomicBool = AtomicBool::new(false);
 
-const SW_HIDE: i32 = 0;
 const SW_SHOW: i32 = 5;
+const SW_MINIMIZE: i32 = 6;
+const SW_SHOWMINNOACTIVE: i32 = 7;
 const SW_RESTORE: i32 = 9;
 const CF_UNICODETEXT: u32 = 13;
 
@@ -19,6 +22,13 @@ const HWND_NOTOPMOST: isize = -2;
 const SWP_NOSIZE: u32 = 0x1;
 const SWP_NOMOVE: u32 = 0x2;
 const SWP_SHOWWINDOW: u32 = 0x40;
+
+const DWMWA_CLOAK: u32 = 13;
+
+#[link(name = "dwmapi")]
+extern "system" {
+    fn DwmSetWindowAttribute(hwnd: isize, attr: u32, value: *const c_void, size: u32) -> i32;
+}
 
 #[link(name = "kernel32")]
 extern "system" {
@@ -124,6 +134,10 @@ pub fn show() {
     }
     // SAFETY: plain calls on our own window handle.
     unsafe {
+        if HIDDEN.swap(false, Ordering::Relaxed) {
+            cloak(hwnd, false);
+            taskbar_button(hwnd, true);
+        }
         ShowWindow(hwnd, SW_SHOW);
         if IsIconic(hwnd) != 0 {
             ShowWindow(hwnd, SW_RESTORE);
@@ -131,6 +145,21 @@ pub fn show() {
     }
     raise(hwnd);
 }
+
+/// Whether one of UIDM's own windows is in front, holding the focus.
+pub fn in_front() -> bool {
+    // SAFETY: plain calls; a null window has no process.
+    unsafe {
+        let front = GetForegroundWindow();
+        let mut pid = 0;
+        front != 0 && GetWindowThreadProcessId(front, &mut pid) != 0 && pid == GetCurrentProcessId()
+    }
+}
+
+/// A dialog that opens on its own (save-as, download complete) needs the
+/// window's frames. Here a hidden window still gets them (see `hide`), so
+/// the dialog shows without the main window, as IDM's do.
+pub fn wake() {}
 
 /// Bring `hwnd` in front of the other programs' windows and give it the
 /// focus. Windows lets only the program the user is in take the foreground,
@@ -209,13 +238,54 @@ pub fn raise_window(title: &str) -> bool {
 }
 
 /// Hide the window; it lives on in the tray.
+///
+/// A window hidden with `SW_HIDE` gets no frames, and every dialog is drawn
+/// in the main window's frame, so a save-as or download window could not
+/// open while UIDM sat in the tray. Instead the window is cloaked: DWM stops
+/// drawing it and it takes no clicks, but Windows still counts it visible
+/// and keeps painting it. Minimizing it hands the keyboard to the next
+/// window, and its taskbar button goes.
 pub fn hide() {
     let hwnd = WINDOW.load(Ordering::Relaxed);
-    if hwnd != 0 {
-        // SAFETY: plain call on our own window handle.
-        unsafe {
-            ShowWindow(hwnd, SW_HIDE);
+    if hwnd == 0 {
+        return;
+    }
+    // SAFETY: plain calls on our own window handle.
+    unsafe {
+        cloak(hwnd, true);
+        HIDDEN.store(true, Ordering::Relaxed);
+        if IsIconic(hwnd) == 0 {
+            let front = GetForegroundWindow() == hwnd;
+            ShowWindow(hwnd, if front { SW_MINIMIZE } else { SW_SHOWMINNOACTIVE });
         }
+        taskbar_button(hwnd, false);
+    }
+}
+
+/// Cloak or uncloak `hwnd` (`DWMWA_CLOAK`).
+unsafe fn cloak(hwnd: isize, on: bool) {
+    let value: i32 = on.into();
+    DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, (&value as *const i32).cast(), 4);
+}
+
+/// Add or take away `hwnd`'s taskbar button, which a cloaked window may
+/// keep.
+fn taskbar_button(hwnd: isize, on: bool) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Shell::{ITaskbarList, TaskbarList};
+    // SAFETY: COM calls on an object made here; a thread already in COM
+    // keeps its own apartment.
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let Ok(list) = CoCreateInstance::<_, ITaskbarList>(&TaskbarList, None, CLSCTX_INPROC_SERVER) else {
+            return;
+        };
+        if list.HrInit().is_err() {
+            return;
+        }
+        let hwnd = HWND(hwnd as *mut c_void);
+        let _ = if on { list.AddTab(hwnd) } else { list.DeleteTab(hwnd) };
     }
 }
 

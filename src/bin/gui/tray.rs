@@ -9,7 +9,7 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Once};
 
 use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 use serde::{Deserialize, Serialize};
@@ -72,9 +72,37 @@ const SPEED_LIMIT: &str = "Speed limit";
 const DROP_TARGET: &str = "Drop target";
 const EXIT: &str = "Exit";
 
+/// The main icon's ID; the download windows' icon has `PROGRESS_ID`.
+const MAIN_ID: &str = "uidm";
+const PROGRESS_ID: &str = "uidm-progress";
+
+/// The downloads tray icon, after IDM's: green arrows whose menu lists the
+/// hidden download windows by title. It is there only while one is.
+struct DownloadsTray {
+    icon: TrayIcon,
+    menu: Menu,
+    /// Each window's item, by download ID, in the order they went.
+    items: Vec<(u64, MenuItem)>,
+    /// "Show all" and the line under it, at the top while two or more
+    /// windows are hidden, as in IDM.
+    show_all: MenuItem,
+    separator: PredefinedMenuItem,
+    show_all_on: bool,
+}
+
 thread_local! {
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
+    static PROGRESS: RefCell<Option<DownloadsTray>> = const { RefCell::new(None) };
 }
+
+/// The download windows' menu items and their downloads, for the menu
+/// handler, which runs on another thread on Linux.
+static HIDDEN_IDS: Mutex<Vec<(MenuId, u64)>> = Mutex::new(Vec::new());
+/// Downloads whose window was picked from that menu, until the window's
+/// next frame shows them.
+static RESTORE: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+/// The "Show all" item's ID, while the icon is there.
+static SHOW_ALL_ID: Mutex<Option<MenuId>> = Mutex::new(None);
 
 /// Whether the icon exists (it may fail to install).
 static INSTALLED: AtomicBool = AtomicBool::new(false);
@@ -179,6 +207,8 @@ fn build(
         found.is_some()
     });
     TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| match event {
+        // The download windows' icon opens its menu on either button.
+        _ if event.id() != MAIN_ID => {}
         TrayIconEvent::Click {
             button: MouseButton::Left,
             button_state: MouseButtonState::Up,
@@ -190,6 +220,7 @@ fn build(
     }));
 
     let icon = TrayIconBuilder::new()
+        .with_id(MAIN_ID)
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
         .with_tooltip("UIDM")
@@ -264,6 +295,170 @@ pub fn set_speed_limit_checked(on: bool) {
     });
 }
 
+/// Run `f` on the tray's thread (see `with_tray`).
+fn on_tray_thread(f: impl FnOnce() + Send + 'static) {
+    #[cfg(target_os = "linux")]
+    gtk::glib::MainContext::default().invoke(f);
+    #[cfg(not(target_os = "linux"))]
+    f();
+}
+
+/// List the download windows hidden in the tray, as `(download, title)`, in
+/// the downloads tray icon's menu, adding the icon for the first and taking
+/// it away after the last. `ctx` is woken when one (or Show all) is picked;
+/// see `take_restored`.
+pub fn set_hidden_windows(windows: Vec<(u64, String)>, ctx: &eframe::egui::Context) {
+    if !installed() {
+        return;
+    }
+    static HANDLER: Once = Once::new();
+    let wake = ctx.clone();
+    HANDLER.call_once(move || {
+        crate::menubar::on_menu_event(move |id| {
+            let ids = HIDDEN_IDS.lock().unwrap();
+            let picked: Vec<u64> = if SHOW_ALL_ID.lock().unwrap().as_ref() == Some(id) {
+                ids.iter().map(|(_, d)| *d).collect()
+            } else {
+                ids.iter().filter(|(i, _)| i == id).map(|(_, d)| *d).collect()
+            };
+            drop(ids);
+            if picked.is_empty() {
+                return false;
+            }
+            RESTORE.lock().unwrap().extend(picked);
+            wake.request_repaint();
+            true
+        });
+    });
+    on_tray_thread(move || PROGRESS.with(|p| update_downloads_tray(&mut p.borrow_mut(), windows)));
+}
+
+fn update_downloads_tray(tray: &mut Option<DownloadsTray>, windows: Vec<(u64, String)>) {
+    if windows.is_empty() {
+        // Dropping the icon takes it out of the tray.
+        *tray = None;
+        HIDDEN_IDS.lock().unwrap().clear();
+        *SHOW_ALL_ID.lock().unwrap() = None;
+        return;
+    }
+    if tray.is_none() {
+        let Ok(picture) = Icon::from_rgba(arrows_icon(PROGRESS_ICON_SIZE), PROGRESS_ICON_SIZE, PROGRESS_ICON_SIZE) else {
+            return;
+        };
+        let menu = Menu::new();
+        let built = TrayIconBuilder::new()
+            .with_id(PROGRESS_ID)
+            .with_menu(Box::new(menu.clone()))
+            .with_menu_on_left_click(true)
+            .with_icon(picture)
+            .build();
+        let Ok(icon) = built else { return };
+        let show_all = MenuItem::new(tr("Show all"), true, None);
+        *SHOW_ALL_ID.lock().unwrap() = Some(show_all.id().clone());
+        *tray = Some(DownloadsTray {
+            icon,
+            menu,
+            items: Vec::new(),
+            show_all,
+            separator: PredefinedMenuItem::separator(),
+            show_all_on: false,
+        });
+    }
+    let Some(t) = tray.as_mut() else { return };
+    // Items for windows no longer there go; the others keep their place.
+    let menu = &t.menu;
+    t.items.retain(|(download, item)| {
+        let keep = windows.iter().any(|(d, _)| d == download);
+        if !keep {
+            let _ = menu.remove(item);
+        }
+        keep
+    });
+    for (download, title) in &windows {
+        match t.items.iter().find(|(d, _)| d == download) {
+            Some((_, item)) => {
+                if item.text() != *title {
+                    item.set_text(title);
+                }
+            }
+            None => {
+                let item = MenuItem::new(title, true, None);
+                if t.menu.append(&item).is_ok() {
+                    t.items.push((*download, item));
+                }
+            }
+        }
+    }
+    let want_show_all = show_all_wanted(windows.len());
+    if want_show_all && !t.show_all_on {
+        t.show_all.set_text(tr("Show all"));
+        t.show_all_on = t.menu.insert(&t.show_all, 0).is_ok() && t.menu.insert(&t.separator, 1).is_ok();
+    } else if !want_show_all && t.show_all_on {
+        let _ = t.menu.remove(&t.show_all);
+        let _ = t.menu.remove(&t.separator);
+        t.show_all_on = false;
+    }
+    *HIDDEN_IDS.lock().unwrap() = t.items.iter().map(|(d, item)| (item.id().clone(), *d)).collect();
+    let tip = match windows.as_slice() {
+        [(_, title)] => title.clone(),
+        _ => crate::i18n::trf!("{count} download windows", count = windows.len()),
+    };
+    let _ = t.icon.set_tooltip(Some(tip));
+}
+
+/// Whether the menu offers "Show all" for `hidden` windows: from two on, as
+/// IDM's does.
+fn show_all_wanted(hidden: usize) -> bool {
+    hidden >= 2
+}
+
+/// The downloads whose window was picked from the tray since the last call.
+pub fn take_restored() -> Vec<u64> {
+    std::mem::take(&mut *RESTORE.lock().unwrap())
+}
+
+const PROGRESS_ICON_SIZE: u32 = 32;
+
+/// UIDM's own picture for the download windows' icon: two green arrows
+/// pointing down, side by side, the right one lower. RGBA, `size` square.
+fn arrows_icon(size: u32) -> Vec<u8> {
+    // One arrow in a unit square: a shaft and a head, pointing down.
+    fn arrow(x: f32, y: f32) -> bool {
+        let shaft = (0.32..=0.68).contains(&x) && (0.0..=0.55).contains(&y);
+        let head = (0.45..=1.0).contains(&y) && (x - 0.5).abs() <= (1.0 - y) * 0.9;
+        shaft || head
+    }
+    // Where each arrow sits: left, top, and its side, in icon units.
+    let arrows = [(0.02, 0.02, 0.62), (0.36, 0.36, 0.62)];
+    let n = size as f32;
+    let samples = 4;
+    let total = samples * samples;
+    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
+    for py in 0..size {
+        for px in 0..size {
+            let (mut hit, mut upper) = (0, 0);
+            for sy in 0..samples {
+                for sx in 0..samples {
+                    let x = (px as f32 + (sx as f32 + 0.5) / samples as f32) / n;
+                    let y = (py as f32 + (sy as f32 + 0.5) / samples as f32) / n;
+                    // The lower arrow is drawn over the upper one.
+                    let found = arrows.iter().enumerate().rev().find(|(_, (ax, ay, side))| arrow((x - ax) / side, (y - ay) / side));
+                    if let Some((i, _)) = found {
+                        hit += 1;
+                        if i == 0 {
+                            upper += 1;
+                        }
+                    }
+                }
+            }
+            // The upper arrow is a shade darker, so the two read apart.
+            let (r, g, b) = if upper * 2 > hit { (22, 140, 44) } else { (46, 190, 70) };
+            rgba.extend_from_slice(&[r, g, b, (hit * 255 / total) as u8]);
+        }
+    }
+    rgba
+}
+
 /// Put the menu in the window's current language.
 pub fn relabel() {
     // The texts are looked up here: the language is the window's.
@@ -281,6 +476,22 @@ pub fn relabel() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn show_all_comes_with_the_second_hidden_window() {
+        assert!(!show_all_wanted(1));
+        assert!(show_all_wanted(2));
+        assert!(show_all_wanted(5));
+    }
+
+    #[test]
+    fn the_arrows_icon_is_square_and_partly_clear() {
+        let rgba = arrows_icon(PROGRESS_ICON_SIZE);
+        assert_eq!(rgba.len(), (PROGRESS_ICON_SIZE * PROGRESS_ICON_SIZE * 4) as usize);
+        let alpha: Vec<u8> = rgba.chunks_exact(4).map(|p| p[3]).collect();
+        assert!(alpha.iter().any(|a| *a == 0), "the corners are clear");
+        assert!(alpha.iter().any(|a| *a == 255), "the arrows are solid");
+    }
 
     #[test]
     fn mono_keeps_the_size_and_coverage() {

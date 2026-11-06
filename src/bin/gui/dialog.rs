@@ -32,6 +32,26 @@ pub struct Window<'o> {
     resizable: bool,
     width: Option<f32>,
     taskbar: bool,
+    /// It has a minimize button.
+    minimize: bool,
+    /// Whether it takes the focus or stays on top without it when it opens.
+    opening: Opening,
+}
+
+/// How a dialog behaves when it opens.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Opening {
+    /// Comes to the front with the keyboard focus, as a dialog the user
+    /// opened does.
+    Focus,
+    /// Stays on top of other windows until closed but leaves the focus with
+    /// another program in front, as IDM's save-as and completion dialogs
+    /// do. A dialog that opens on its own then takes no typing meant for
+    /// that program. With UIDM itself in front (a link added in the main
+    /// window) it takes the focus.
+    OnTop,
+    /// Opens behind the program in front, without the focus.
+    Quiet,
 }
 
 /// Where a dialog was put, kept while it stays open.
@@ -45,6 +65,9 @@ struct Placement {
     fitted: bool,
     /// It has been brought in front of other programs' windows.
     raised: bool,
+    /// It took the focus when it opened. Decided once, since egui makes a
+    /// new window whenever this changes.
+    active: bool,
 }
 
 impl<'o> Window<'o> {
@@ -56,6 +79,8 @@ impl<'o> Window<'o> {
             resizable: false,
             width: None,
             taskbar: false,
+            minimize: false,
+            opening: Opening::Focus,
         }
     }
 
@@ -111,6 +136,18 @@ impl<'o> Window<'o> {
         self
     }
 
+    /// Give the window a minimize button, which sends it to the taskbar.
+    pub fn minimizable(mut self, minimize: bool) -> Self {
+        self.minimize = minimize;
+        self
+    }
+
+    /// How it behaves when it opens; `Opening::Focus` when not set.
+    pub fn opening(mut self, opening: Opening) -> Self {
+        self.opening = opening;
+        self
+    }
+
     pub fn show<R>(self, ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<InnerResponse<Option<R>>> {
         if self.open.as_deref().is_some_and(|open| !*open) {
             return None;
@@ -127,7 +164,17 @@ impl<'o> Window<'o> {
         let mut place = ctx
             .data(|d| d.get_temp::<Placement>(key))
             .filter(|p| p.pass + 1 >= pass)
-            .unwrap_or(Placement { pass, center: main.center(), fitted: false, raised: false });
+            .unwrap_or_else(|| Placement {
+                pass,
+                center: main.center(),
+                fitted: false,
+                raised: false,
+                active: match self.opening {
+                    Opening::Focus => true,
+                    Opening::OnTop => crate::win::in_front(),
+                    Opening::Quiet => false,
+                },
+            });
         place.pass = pass;
         let first = Vec2::new(width, FIRST_HEIGHT);
         let builder = ViewportBuilder::default()
@@ -135,9 +182,15 @@ impl<'o> Window<'o> {
             .with_inner_size(first)
             .with_position(place.center - first / 2.0)
             .with_resizable(self.resizable)
-            .with_minimize_button(false)
+            .with_minimize_button(self.minimize)
             .with_maximize_button(false)
             .with_taskbar(self.taskbar);
+        let builder = match self.opening {
+            Opening::Focus => builder,
+            Opening::OnTop => builder.with_window_level(egui::WindowLevel::AlwaysOnTop).with_active(place.active),
+            Opening::Quiet => builder.with_active(false),
+        };
+        let opening = self.opening;
 
         let closable = self.open.is_some();
         let resizable = self.resizable;
@@ -193,10 +246,10 @@ impl<'o> Window<'o> {
                 }
                 place.fitted = true;
             }
-            // A dialog that opens while UIDM is in the background, such as
-            // the save-as dialog of a download caught from the browser,
-            // comes to the front, as IDM's do.
-            if !place.raised {
+            // A dialog the user opens comes to the front with the focus,
+            // even while another program had it. One that opens on its own
+            // is made to stay on top (or not) by its builder instead.
+            if !place.raised && opening == Opening::Focus {
                 ctx.send_viewport_cmd(ViewportCommand::Focus);
                 place.raised = crate::win::raise_window(&self.title);
             }

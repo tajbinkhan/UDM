@@ -74,7 +74,10 @@ windows = { version = "0.61", features = [
     "Data_Xml_Dom",
     "Foundation",
     "UI_Notifications",
+    "Win32_System_Com",
     "Win32_System_WinRT",
+    # ITaskbarList: the window's taskbar button while it is in the tray.
+    "Win32_UI_Shell",
 ] }
 
 # The Trash on macOS and Linux (the Recycle Bin is called directly).
