@@ -8,5 +8,6 @@ pub mod filename;
 pub mod media;
 pub mod ports;
 pub mod queue;
+pub mod quota;
 pub mod settings;
 pub mod site;

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::download::{Download, DownloadEntry, Status};
 use crate::queue::{Moment, Queue, RunEnd};
+use crate::quota::QuotaNotice;
 
 /// The download queues, the main queue first.
 pub trait QueueStore: Send + Sync {
@@ -203,6 +204,34 @@ pub trait QueueFinish: Send + Sync {
 pub trait QueueSounds: Send + Sync {
     /// A queue that was not running started.
     fn queue_started(&self);
+}
+
+/// The download quota's count and what it has stopped.
+pub trait QuotaState: Send + Sync {
+    /// Bytes received in the `window` minutes up to minute `now`.
+    fn used(&self, now: u64, window: u64) -> u64;
+
+    /// The first minute after `now` at which the window holds less than
+    /// `limit` bytes again, if no more arrive.
+    fn frees_at(&self, now: u64, window: u64, limit: u64) -> u64;
+
+    /// Whether downloads are paused for the quota.
+    fn paused(&self) -> bool;
+
+    /// Downloads are paused for the quota: add `queues` and `downloads` to
+    /// what it stopped.
+    fn hold(&self, queues: &[u64], downloads: &[u64]);
+
+    /// The quota allows downloads again: what it stopped, forgetting it.
+    fn release(&self) -> (Vec<u64>, HashSet<u64>);
+
+    /// Whether the nearly-reached warning was given in this window.
+    fn warned(&self) -> bool;
+
+    fn set_warned(&self, warned: bool);
+
+    /// Tell every client the quota's state.
+    fn announce(&self, notice: QuotaNotice);
 }
 
 /// The computer's local date and time.

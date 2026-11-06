@@ -8,9 +8,10 @@ use std::sync::Mutex;
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::ports::{
     Clock, ControlError, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads, QueueFinish,
-    QueueRuns, QueueSounds, QueueStore, SyncChecks,
+    QueueRuns, QueueSounds, QueueStore, QuotaState, SyncChecks,
 };
 use uidm_domain::queue::{Moment, Queue, RunEnd, MAIN_QUEUE, MAIN_QUEUE_NAME};
+use uidm_domain::quota::QuotaNotice;
 
 pub struct Queues {
     list: Mutex<Vec<Queue>>,
@@ -471,5 +472,67 @@ impl Finish {
 impl QueueFinish for Finish {
     fn run_ended(&self, queue: &str, end: &RunEnd) {
         self.0.lock().unwrap().push((queue.to_string(), end.clone()));
+    }
+}
+
+/// A quota count fixed at `used` bytes, wherever the window lies.
+#[derive(Default)]
+pub struct Quota {
+    used: Mutex<u64>,
+    frees_at: u64,
+    held: Mutex<Option<(Vec<u64>, HashSet<u64>)>>,
+    warned: Mutex<bool>,
+    announced: Mutex<Vec<QuotaNotice>>,
+}
+
+impl Quota {
+    /// `used` bytes in the window, which frees up at minute `frees_at`.
+    pub fn at(used: u64, frees_at: u64) -> Self {
+        Quota { used: Mutex::new(used), frees_at, ..Quota::default() }
+    }
+
+    pub fn set_used(&self, used: u64) {
+        *self.used.lock().unwrap() = used;
+    }
+
+    pub fn announced(&self) -> Vec<QuotaNotice> {
+        self.announced.lock().unwrap().clone()
+    }
+}
+
+impl QuotaState for Quota {
+    fn used(&self, _now: u64, _window: u64) -> u64 {
+        *self.used.lock().unwrap()
+    }
+
+    fn frees_at(&self, _now: u64, _window: u64, _limit: u64) -> u64 {
+        self.frees_at
+    }
+
+    fn paused(&self) -> bool {
+        self.held.lock().unwrap().is_some()
+    }
+
+    fn hold(&self, queues: &[u64], downloads: &[u64]) {
+        let mut held = self.held.lock().unwrap();
+        let (q, d) = held.get_or_insert_with(Default::default);
+        q.extend(queues);
+        d.extend(downloads);
+    }
+
+    fn release(&self) -> (Vec<u64>, HashSet<u64>) {
+        self.held.lock().unwrap().take().unwrap_or_default()
+    }
+
+    fn warned(&self) -> bool {
+        *self.warned.lock().unwrap()
+    }
+
+    fn set_warned(&self, warned: bool) {
+        *self.warned.lock().unwrap() = warned;
+    }
+
+    fn announce(&self, notice: QuotaNotice) {
+        self.announced.lock().unwrap().push(notice);
     }
 }
