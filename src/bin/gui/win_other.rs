@@ -56,6 +56,12 @@ pub fn own_window(_title: &str) -> bool {
     true
 }
 
+/// The middle of the screen while the main window is put away. The monitor's
+/// position is not known here, so dialogs work it out from egui instead.
+pub fn screen_center() -> Option<(f32, f32)> {
+    None
+}
+
 /// Put the window away; it lives on in the tray (and the Dock or taskbar).
 pub fn hide() {
     if let Some(ctx) = CTX.get() {
