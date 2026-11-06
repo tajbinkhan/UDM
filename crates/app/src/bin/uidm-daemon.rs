@@ -589,7 +589,7 @@ impl Daemon {
     /// thread wait on.
     fn new(paths: Paths) -> (Self, Receiver<()>, Receiver<Note>, Receiver<()>) {
         let mut settings = match &paths.settings {
-            Some(path) => Settings::load(path).unwrap_or_else(|e| {
+            Some(path) => settings::load(path).unwrap_or_else(|e| {
                 eprintln!("[uidm-daemon] ignoring {}: {e}", path.display());
                 Settings::default()
             }),
@@ -598,9 +598,9 @@ impl Daemon {
         // Settings from before each proxy had its own login: the HTTPS and
         // SOCKS proxies keep the shared password they used.
         if std::mem::take(&mut settings.proxy_logins_split) {
-            let saved = net::split_proxy_password()
-                .map_err(|e| e.to_string())
-                .and_then(|()| paths.settings.as_ref().map_or(Ok(()), |p| settings.save(p).map_err(|e| e.to_string())));
+            let saved = net::split_proxy_password().map_err(|e| e.to_string()).and_then(|()| {
+                paths.settings.as_ref().map_or(Ok(()), |p| settings::save(&settings, p).map_err(|e| e.to_string()))
+            });
             if let Err(e) = saved {
                 eprintln!("[uidm-daemon] could not give each proxy its own login: {e}");
             }
@@ -1665,7 +1665,9 @@ impl Daemon {
         // administrator rights or another folder.
         let folder = match download.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
             Some(f) => f.to_path_buf(),
-            None => settings.folders_for(&download.url).for_name(&name),
+            None => settings
+                .folders_for(&download.url, &uidm_infrastructure::settings::default_downloads_dir())
+                .for_name(&name),
         };
         let denied = !download.elevate && !uidm_infrastructure::elevate::can_write(&folder);
         if denied || download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(&name)) {
@@ -2177,11 +2179,7 @@ impl Daemon {
             .map(PathBuf::from)
             .filter(|p| entry.status == Status::Done && p.is_file())
             .ok_or("Only a finished download whose file is still there can be converted.")?;
-        let ffmpeg = self
-            .settings
-            .lock()
-            .unwrap()
-            .ffmpeg()
+        let ffmpeg = settings::ffmpeg(&self.settings.lock().unwrap())
             .ok_or("Converting needs ffmpeg. Install it, or choose it in Options > General.")?;
         let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "converted".into());
         let ext = to.extension();
@@ -2271,7 +2269,7 @@ impl Daemon {
             let mut s = self.settings.lock().unwrap();
             s.last_update_check = uidm_infrastructure::state::unix_now();
             if let Some(path) = &self.paths.settings {
-                let _ = s.save(path);
+                let _ = settings::save(&s, path);
             }
         }
         match found {
@@ -3425,7 +3423,7 @@ impl Daemon {
     }
 
     fn set_settings(&self, mut new: Settings) -> Result<(), String> {
-        new.validate()?;
+        settings::validate(&new)?;
         // Only the daemon notes update checks; a window's copy may be older.
         new.last_update_check = new.last_update_check.max(self.settings.lock().unwrap().last_update_check);
         let new = self.store_secrets(new)?;
@@ -3435,7 +3433,7 @@ impl Daemon {
                 .map_err(|e| format!("could not change starting at sign-in: {e}"))?;
         }
         if let Some(path) = &self.paths.settings {
-            new.save(path).map_err(|e| format!("could not save settings to {}: {e}", path.display()))?;
+            settings::save(&new, path).map_err(|e| format!("could not save settings to {}: {e}", path.display()))?;
         }
         self.engine.set_concurrency(new.max_concurrent);
         self.engine.set_speed_limit(new.speed_limit_bytes());
@@ -5109,7 +5107,7 @@ mod tests {
                 speed_limit_per_file_kbps: Some(100),
                 ..Settings::default()
             };
-            s.save(&path).unwrap();
+            settings::save(&s, &path).unwrap();
             let (daemon, ..) =
                 Daemon::new(Paths { settings: Some(path.clone()), history: None, requests: None, quota: None });
             let s = daemon.settings.lock().unwrap().clone();
@@ -5195,7 +5193,7 @@ mod tests {
             .unwrap();
         let s = t.daemon.settings.lock().unwrap().clone();
         assert_eq!(s.categories[0].last_folder.as_deref(), Some(chosen.display().to_string().as_str()));
-        assert_eq!(s.folders().for_name("b.zip"), chosen);
+        assert_eq!(s.folders(&uidm_infrastructure::settings::default_downloads_dir()).for_name("b.zip"), chosen);
     }
 
     #[test]
@@ -5302,7 +5300,7 @@ mod tests {
             .unwrap();
         let s = t.daemon.settings.lock().unwrap().clone();
         assert!(s.general_remember_folder);
-        assert_eq!(s.folders().for_name("other.xyz"), chosen);
+        assert_eq!(s.folders(&uidm_infrastructure::settings::default_downloads_dir()).for_name("other.xyz"), chosen);
         assert_eq!(s.later_queue, Some(queue));
         // Download later now goes to that queue without being told.
         let (later, _) = t.daemon.add_later(Download { url: "https://x/more.xyz".into(), ..Download::default() });
@@ -5950,7 +5948,7 @@ mod tests {
 
     #[test]
     fn a_finished_video_converts_into_a_row_of_its_own() {
-        let Some(ffmpeg) = Settings::default().ffmpeg() else {
+        let Some(ffmpeg) = settings::ffmpeg(&Settings::default()) else {
             eprintln!("no ffmpeg; skipped");
             return;
         };

@@ -119,11 +119,11 @@ pub fn apply(ctx: &egui::Context) {
 
 /// Follows the Theme and Text size options. Changing the zoom factor scales
 /// every size above, the drop target's window included.
-pub fn set_appearance(ctx: &egui::Context, theme: uidm_infrastructure::settings::Theme, text_size: u32) {
+pub fn set_appearance(ctx: &egui::Context, theme: uidm_domain::settings::Theme, text_size: u32) {
     ctx.set_theme(match theme {
-        uidm_infrastructure::settings::Theme::System => egui::ThemePreference::System,
-        uidm_infrastructure::settings::Theme::Light => egui::ThemePreference::Light,
-        uidm_infrastructure::settings::Theme::Dark => egui::ThemePreference::Dark,
+        uidm_domain::settings::Theme::System => egui::ThemePreference::System,
+        uidm_domain::settings::Theme::Light => egui::ThemePreference::Light,
+        uidm_domain::settings::Theme::Dark => egui::ThemePreference::Dark,
     });
     ctx.set_zoom_factor(text_size as f32 / 100.0);
 }

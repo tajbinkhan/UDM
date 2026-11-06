@@ -34,7 +34,7 @@ pub fn to_request(d: Download, settings: &Settings) -> DownloadRequest {
     }
     let extra = browser_request_headers(&d.request_headers, &headers);
     headers.extend(extra);
-    let folders = settings.folders_for(&d.url);
+    let folders = settings.folders_for(&d.url, &crate::settings::default_downloads_dir());
     let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase));
     let host_limit = host.and_then(|h| settings.server_limit(&h));
     DownloadRequest {
@@ -48,7 +48,7 @@ pub fn to_request(d: Download, settings: &Settings) -> DownloadRequest {
         post_body,
         net: Default::default(),
         media: d.media,
-        ffmpeg: settings.ffmpeg(),
+        ffmpeg: crate::settings::ffmpeg(settings),
         speed_limit: d.speed_limit,
         server_date: settings.server_file_date,
         server_date_created: settings.server_file_date_created,

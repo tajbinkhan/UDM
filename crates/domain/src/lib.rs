@@ -5,4 +5,5 @@ pub mod batch;
 pub mod command;
 pub mod filename;
 pub mod queue;
+pub mod settings;
 pub mod site;

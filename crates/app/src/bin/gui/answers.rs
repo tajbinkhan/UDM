@@ -7,8 +7,8 @@
 use std::path::Path;
 
 use eframe::egui;
+use uidm_domain::settings::{Duplicate, FileExists, Settings};
 use uidm_infrastructure::protocol::{Download, DownloadEntry};
-use uidm_infrastructure::settings::{Duplicate, FileExists, Settings};
 
 use crate::i18n::{tr, trf};
 
@@ -50,7 +50,9 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
             let name = uidm_infrastructure::engine::Inspection::unprobed(&d.url, d.filename.as_deref()).filename;
             let folder = match d.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
                 Some(f) => f.to_path_buf(),
-                None => settings.folders_for(&d.url).for_name(&name),
+                None => settings
+                    .folders_for(&d.url, &uidm_infrastructure::settings::default_downloads_dir())
+                    .for_name(&name),
             };
             let path = folder.join(&name);
             if path.is_file() {

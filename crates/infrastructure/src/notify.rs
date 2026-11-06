@@ -195,14 +195,7 @@ pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Res
     Ok(Shown)
 }
 
-/// Which sound to play.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sound {
-    Done,
-    Failed,
-    QueueStarted,
-    QueueDone,
-}
+pub use uidm_domain::settings::Sound;
 
 #[cfg(windows)]
 const MB_OK: u32 = 0;

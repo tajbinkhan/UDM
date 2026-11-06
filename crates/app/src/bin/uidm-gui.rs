@@ -85,6 +85,12 @@ use i18n::{tr, trf};
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
+use uidm_domain::settings::{
+    parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
+    SelectionButton, ServerLimit, Settings, SiteLogin, SocksVersion, BROWSER_MENU_ITEMS, CAPTURE_MIN_SIZE_MAX_KB,
+    CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE,
+    SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
+};
 use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
 use uidm_infrastructure::grab::{GrabFile, GrabRequest};
 use uidm_infrastructure::ipc;
@@ -92,12 +98,6 @@ use uidm_infrastructure::notify::Sound;
 use uidm_infrastructure::protocol::{
     read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, Incoming, OnDone, Outgoing, Properties,
     Scan, SegmentInfo, Status,
-};
-use uidm_infrastructure::settings::{
-    parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
-    SelectionButton, ServerLimit, Settings, SiteLogin, SocksVersion, BROWSER_MENU_ITEMS, CAPTURE_MIN_SIZE_MAX_KB,
-    CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE,
-    SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
 };
 use uidm_infrastructure::state::DownloadTable;
 
@@ -668,7 +668,7 @@ struct App {
     was_minimized: bool,
     /// The theme and text size last applied, so they are only set when the
     /// settings change them (Ctrl+Plus and Ctrl+Minus zoom in between).
-    appearance: Option<(uidm_infrastructure::settings::Theme, u32)>,
+    appearance: Option<(uidm_domain::settings::Theme, u32)>,
     /// The language setting last applied.
     language: Option<String>,
     /// Which downloads the list shows.
@@ -932,7 +932,7 @@ struct BrowserDraft {
     browser: uidm_infrastructure::browsers::Browser,
     name: String,
     /// The browser the user added by its program, if it is one.
-    added: Option<uidm_infrastructure::settings::AddedBrowser>,
+    added: Option<uidm_domain::settings::AddedBrowser>,
     /// For an added browser, whether its place is known rather than the
     /// place most of its family reads.
     known: bool,
@@ -946,7 +946,7 @@ impl BrowserDraft {
     /// The row for a browser added by its program, or `None` when UIDM
     /// cannot tell what browser it is.
     fn added(
-        added: uidm_infrastructure::settings::AddedBrowser,
+        added: uidm_domain::settings::AddedBrowser,
         registrar: Option<&uidm_infrastructure::browsers::Registrar>,
     ) -> Option<Self> {
         let target = uidm_infrastructure::browsers::target_of(Path::new(&added.program))?;
@@ -1165,7 +1165,7 @@ struct OptionsDraft {
     tips_on_startup: bool,
     /// Kept as it is; only the tip window changes it.
     next_tip: usize,
-    theme: uidm_infrastructure::settings::Theme,
+    theme: uidm_domain::settings::Theme,
     text_size: u32,
     /// Empty follows Windows.
     language: String,
@@ -1276,7 +1276,7 @@ impl OptionsDraft {
             clipboard_start: s.clipboard_start,
             video_button: s.video_button,
             video_types: {
-                let mut all: Vec<(String, bool)> = uidm_infrastructure::settings::default_video_types()
+                let mut all: Vec<(String, bool)> = uidm_domain::settings::default_video_types()
                     .into_iter()
                     .map(|t| {
                         let on = s.video_types.contains(&t);
@@ -1544,7 +1544,7 @@ impl OptionsDraft {
             // The daemon keeps its own.
             last_update_check: 0,
         };
-        settings.validate()?;
+        uidm_infrastructure::settings::validate(&settings)?;
         if let Some(l) = self.logins.iter().find(|l| l.new && l.password.is_empty()) {
             return Err(trf!("The new login for {site} needs a password.", site = l.site.trim()));
         }
@@ -1591,7 +1591,7 @@ impl OptionsDraft {
         let Some(program) = self.browser_picked.lock().unwrap().take() else {
             return;
         };
-        let added = uidm_infrastructure::settings::AddedBrowser {
+        let added = uidm_domain::settings::AddedBrowser {
             name: uidm_infrastructure::browsers::display_name(&program),
             program: program.display().to_string(),
         };
@@ -2520,7 +2520,7 @@ impl App {
                                 });
                             // Picking a category moves the file to its folder.
                             if draft.category != before {
-                                draft.folder = settings.category_folder(&draft.category).display().to_string();
+                                draft.folder = settings.category_folder(&draft.category, &uidm_infrastructure::settings::default_downloads_dir()).display().to_string();
                                 draft.remember_folder = settings.remembers_folder(&draft.category);
                             }
                             let add = ui
@@ -2531,7 +2531,7 @@ impl App {
                                 .on_hover_text(tr("Add a category"));
                             if add.clicked() {
                                 draft.new_category = Some(NewCategory {
-                                    extensions: uidm_infrastructure::settings::extension_of(draft.filename.trim()).unwrap_or_default(),
+                                    extensions: uidm_domain::settings::extension_of(draft.filename.trim()).unwrap_or_default(),
                                     ..NewCategory::default()
                                 });
                             }
@@ -2817,7 +2817,10 @@ impl App {
             });
         if let Some(s) = added {
             draft.category = new.name.trim().to_string();
-            draft.folder = s.category_folder(&draft.category).display().to_string();
+            draft.folder = s
+                .category_folder(&draft.category, &uidm_infrastructure::settings::default_downloads_dir())
+                .display()
+                .to_string();
             draft.remember_folder = false;
             actions.push(Action::QuickSettings(s));
             close = true;
@@ -2935,11 +2938,11 @@ impl App {
 /// The height of an Options page, which scrolls past it.
 const OPTIONS_PAGE_HEIGHT: f32 = 420.0;
 
-fn theme_label(t: uidm_infrastructure::settings::Theme) -> &'static str {
+fn theme_label(t: uidm_domain::settings::Theme) -> &'static str {
     match t {
-        uidm_infrastructure::settings::Theme::System => tr("Follow Windows"),
-        uidm_infrastructure::settings::Theme::Light => tr("Light"),
-        uidm_infrastructure::settings::Theme::Dark => tr("Dark"),
+        uidm_domain::settings::Theme::System => tr("Follow Windows"),
+        uidm_domain::settings::Theme::Light => tr("Light"),
+        uidm_domain::settings::Theme::Dark => tr("Dark"),
     }
 }
 
@@ -3199,7 +3202,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         egui::ComboBox::from_id_salt("theme")
             .selected_text(theme_label(draft.theme))
             .show_ui(ui, |ui| {
-                for t in uidm_infrastructure::settings::Theme::ALL {
+                for t in uidm_domain::settings::Theme::ALL {
                     ui.selectable_value(&mut draft.theme, t, theme_label(t));
                 }
             });
@@ -3273,11 +3276,10 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
                 );
                 browse_file_button(ui, tr("Where is ffmpeg.exe?"), "exe", &draft.ffmpeg_picked);
             });
-            let found = Settings {
+            let found = uidm_infrastructure::settings::ffmpeg(&Settings {
                 ffmpeg_path: draft.ffmpeg_path.trim().to_string(),
                 ..Settings::default()
-            }
-            .ffmpeg();
+            });
             match found {
                 Some(path) => ui.weak(trf!("Using {path}", path = path.display())),
                 None => ui.colored_label(ui.visuals().warn_fg_color, tr("Not found.")),
@@ -3623,7 +3625,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                     .desired_width(360.0),
             );
             if ui.button(tr("Default")).on_hover_text(tr("The types UIDM starts with")).clicked() {
-                draft.capture_types = uidm_infrastructure::settings::default_capture_types().join(", ");
+                draft.capture_types = uidm_domain::settings::default_capture_types().join(", ");
             }
         });
         ui.end_row();
@@ -3670,7 +3672,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                         .filter(|l| !l.is_empty())
                         .map(String::from)
                         .collect();
-                    uidm_infrastructure::settings::add_missing_exclusions(&mut list);
+                    uidm_domain::settings::add_missing_exclusions(&mut list);
                     draft.capture_excluded_urls = list.join("
 ");
                 }
@@ -4780,7 +4782,7 @@ impl App {
                 speed_limit: s.speed_limit_enabled,
                 categories: s.categories_panel,
                 tray_icon: s.tray_icon,
-                dark_mode: s.theme != uidm_infrastructure::settings::Theme::Light,
+                dark_mode: s.theme != uidm_domain::settings::Theme::Light,
                 language: s.language.clone(),
             }),
             ticked: menubar::Ticked {
@@ -4907,8 +4909,8 @@ impl App {
             }
             C::ToggleDarkMode => actions.extend(changed(&|s| {
                 s.theme = match s.theme {
-                    uidm_infrastructure::settings::Theme::Light => uidm_infrastructure::settings::Theme::System,
-                    _ => uidm_infrastructure::settings::Theme::Light,
+                    uidm_domain::settings::Theme::Light => uidm_domain::settings::Theme::System,
+                    _ => uidm_domain::settings::Theme::Light,
                 }
             })),
             C::Language(code) => actions.extend(changed(&|s| s.language = code.to_string())),

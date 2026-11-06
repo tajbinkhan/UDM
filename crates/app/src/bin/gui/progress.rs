@@ -7,8 +7,8 @@
 
 use eframe::egui;
 use uidm_domain::queue::{Queue, WhenDone};
+use uidm_domain::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 use uidm_infrastructure::protocol::{DownloadEntry, OnDone, SegmentInfo, Status};
-use uidm_infrastructure::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 
 use crate::dialog::Opening;
 use crate::i18n::{tr, trf};

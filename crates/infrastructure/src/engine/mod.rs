@@ -2710,12 +2710,12 @@ mod tests {
                 ..crate::settings::Settings::default()
             };
             let mut req = request(&server.url, &dir, FileExists::Rename);
-            req.folders = settings.folders();
+            req.folders = settings.folders(&crate::settings::default_downloads_dir());
             req.filename = Some("Report.PDF".into());
             assert_eq!(download(|_| {}, req), dir.join("Documents").join("Report.PDF"));
 
             let mut req = request(&server.url, &dir, FileExists::Rename);
-            req.folders = settings.folders();
+            req.folders = settings.folders(&crate::settings::default_downloads_dir());
             req.filename = Some("photo.jpg".into());
             assert_eq!(download(|_| {}, req), dir.join("photo.jpg"));
             fs::remove_dir_all(&dir).ok();

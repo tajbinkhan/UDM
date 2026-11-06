@@ -291,7 +291,7 @@ mod tests {
         use std::sync::mpsc;
 
         let url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
-        let ffmpeg = Settings::default().ffmpeg();
+        let ffmpeg = crate::settings::ffmpeg(&Settings::default());
         let yt_dlp = ytdlp::find(ffmpeg.as_deref()).expect("yt-dlp");
         let info = ytdlp::probe(&yt_dlp, url, None);
         assert!(info.error.is_none(), "{:?}", info.error);

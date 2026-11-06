@@ -218,7 +218,7 @@ mod tests {
     /// where ffmpeg is not installed.
     #[test]
     fn converts_a_real_clip_when_ffmpeg_is_there() {
-        let Some(ffmpeg) = crate::settings::Settings::default().ffmpeg() else {
+        let Some(ffmpeg) = crate::settings::ffmpeg(&crate::settings::Settings::default()) else {
             eprintln!("no ffmpeg; skipped");
             return;
         };

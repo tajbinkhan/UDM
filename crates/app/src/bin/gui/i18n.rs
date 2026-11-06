@@ -119,6 +119,7 @@ mod tests {
         include_str!("tray.rs"),
         // Labels the window passes through `tr`.
         include_str!("../../../../domain/src/queue.rs"),
+        include_str!("../../../../domain/src/settings.rs"),
         include_str!("../../../../infrastructure/src/settings.rs"),
         include_str!("../../../../infrastructure/src/grab.rs"),
     ];

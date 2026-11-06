@@ -627,7 +627,8 @@ pub fn download_for(
         SaveTo::Categories => {}
         SaveTo::Category(name) => {
             let name = name.trim();
-            d.folder = Some(settings.category_folder(name).display().to_string());
+            d.folder =
+                Some(settings.category_folder(name, &crate::settings::default_downloads_dir()).display().to_string());
             d.category = Some(name.to_string());
         }
         SaveTo::Folder(folder) => d.folder = Some(folder.trim().to_string()),
@@ -651,7 +652,9 @@ pub fn download_for(
         if !sub.as_os_str().is_empty() {
             let base = match &d.folder {
                 Some(folder) => PathBuf::from(folder),
-                None => settings.folders_for(&f.url).for_name(&url_file_name(&url)),
+                None => settings
+                    .folders_for(&f.url, &crate::settings::default_downloads_dir())
+                    .for_name(&url_file_name(&url)),
             };
             d.folder = Some(base.join(sub).display().to_string());
         }
@@ -1826,7 +1829,7 @@ Crawl-delay: 2.5
         let req = GrabRequest { save_to: SaveTo::Category("Music".into()), link_text: true, ..request(1) };
         let d = download_for(&req, &file, &settings, None).unwrap();
         assert_eq!((d.category.as_deref(), d.description.as_deref()), (Some("Music"), Some("The manual")));
-        let music = settings.category_folder("Music").display().to_string();
+        let music = settings.category_folder("Music", &crate::settings::default_downloads_dir()).display().to_string();
         assert_eq!(d.folder.as_deref(), Some(music.as_str()), "a pdf saved to Music goes to Music's folder");
         let req = GrabRequest { save_to: SaveTo::Folder(r"D:\grabbed".into()), ..request(1) };
         assert_eq!(download_for(&req, &file, &settings, None).unwrap().folder.as_deref(), Some(r"D:\grabbed"));
@@ -2357,7 +2360,7 @@ Crawl-delay: 2.5
         // By category: under the folder the file's category has.
         let req = GrabRequest { save_to: SaveTo::Categories, ..req };
         let d = download_for(&req, &file, &settings, None).unwrap();
-        let category = settings.folders_for(&file.url).for_name("a.pdf");
+        let category = settings.folders_for(&file.url, &crate::settings::default_downloads_dir()).for_name("a.pdf");
         assert_eq!(d.folder, Some(category.join("v1").display().to_string()));
         // A file in the start folder keeps the category's own choice.
         let top = GrabFile { url: "https://s/docs/b.pdf".into(), ..file };

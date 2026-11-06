@@ -903,7 +903,7 @@ impl GrabDialog {
     fn add_checked(
         &self,
         queues: &[Queue],
-        settings: &uidm_infrastructure::settings::Settings,
+        settings: &uidm_domain::settings::Settings,
         actions: &mut Vec<Action>,
     ) -> bool {
         let GrabPhase::Review { files, checked, .. } = &self.phase else {
@@ -1036,7 +1036,7 @@ impl GrabDialog {
             start: self.start.trim().to_string(),
             depth: self.depth,
             same_site: self.same_site,
-            types: uidm_infrastructure::settings::parse_extensions(&self.types),
+            types: uidm_domain::settings::parse_extensions(&self.types),
             max_pages: self.max_pages,
             max_bytes: self.max_mb * 1024 * 1024,
             delay_ms: (self.delay_secs * 1000.0).round() as u64,
@@ -1060,7 +1060,7 @@ impl GrabDialog {
             explore_at_once: self.explore_at_once,
             download_at_once: self.download_at_once,
             link_text: self.link_text,
-            skip_types: uidm_infrastructure::settings::parse_extensions(&self.skip_types),
+            skip_types: uidm_domain::settings::parse_extensions(&self.skip_types),
             files_this_site: self.files_this_site,
             save_to: match self.save_choice {
                 SaveChoice::Categories => SaveTo::Categories,
@@ -1148,7 +1148,7 @@ pub fn grab_dialog(
     ctx: &egui::Context,
     d: &mut GrabDialog,
     queues: &[Queue],
-    settings: &uidm_infrastructure::settings::Settings,
+    settings: &uidm_domain::settings::Settings,
     rows: &[DownloadEntry],
     connected: bool,
     actions: &mut Vec<Action>,
@@ -1255,7 +1255,7 @@ pub fn grab_dialog(
 fn go_on(
     d: &mut GrabDialog,
     queues: &[Queue],
-    settings: &uidm_infrastructure::settings::Settings,
+    settings: &uidm_domain::settings::Settings,
     connected: bool,
     actions: &mut Vec<Action>,
 ) -> bool {
@@ -1286,7 +1286,7 @@ fn save_question(
     ctx: &egui::Context,
     d: &mut GrabDialog,
     dir: Option<&std::path::Path>,
-    settings: &uidm_infrastructure::settings::Settings,
+    settings: &uidm_domain::settings::Settings,
     connected: bool,
     actions: &mut Vec<Action>,
 ) -> Option<bool> {
@@ -1478,7 +1478,7 @@ fn grab_body(
     ui: &mut egui::Ui,
     d: &mut GrabDialog,
     queues: &[Queue],
-    settings: &uidm_infrastructure::settings::Settings,
+    settings: &uidm_domain::settings::Settings,
     rows: &[DownloadEntry],
     connected: bool,
     actions: &mut Vec<Action>,
@@ -1686,10 +1686,10 @@ fn grab_body(
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut d.save_choice, SaveChoice::Category, tr("All files to the folder of this category:"));
                         if d.save_category.is_empty() {
-                            d.save_category = settings.categories.first().map_or(uidm_infrastructure::settings::GENERAL, |c| c.name.as_str()).to_string();
+                            d.save_category = settings.categories.first().map_or(uidm_domain::settings::GENERAL, |c| c.name.as_str()).to_string();
                         }
                         egui::ComboBox::from_id_salt("grab_save_category").selected_text(d.save_category.as_str()).show_ui(ui, |ui| {
-                            for c in settings.categories.iter().map(|c| c.name.as_str()).chain([uidm_infrastructure::settings::GENERAL]) {
+                            for c in settings.categories.iter().map(|c| c.name.as_str()).chain([uidm_domain::settings::GENERAL]) {
                                 ui.selectable_value(&mut d.save_category, c.to_string(), c);
                             }
                         });

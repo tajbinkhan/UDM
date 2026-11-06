@@ -13,8 +13,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
+use uidm_domain::settings::{Settings, GENERAL};
 use uidm_infrastructure::protocol::{Download, PageLink};
-use uidm_infrastructure::settings::{Settings, GENERAL};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::i18n::{tr, trf};
@@ -222,7 +222,7 @@ impl LinksDialog {
 
     /// Indexes of the links the filters leave in view.
     fn visible(&self) -> Vec<usize> {
-        let types = uidm_infrastructure::settings::parse_extensions(&self.types);
+        let types = uidm_domain::settings::parse_extensions(&self.types);
         let mut seen = HashSet::new();
         (0..self.links.len())
             .filter(|&i| {
@@ -253,7 +253,15 @@ impl LinksDialog {
         let folder = self.folder.trim().to_string();
         let (folder, category) = match &self.target {
             Target::ByType => (None, None),
-            Target::Category(name) => (Some(settings.category_folder(name).display().to_string()), Some(name.clone())),
+            Target::Category(name) => (
+                Some(
+                    settings
+                        .category_folder(name, &uidm_infrastructure::settings::default_downloads_dir())
+                        .display()
+                        .to_string(),
+                ),
+                Some(name.clone()),
+            ),
             Target::Folder if folder.is_empty() => return Err(tr("Choose the folder to save the files to.").into()),
             Target::Folder if !std::path::Path::new(&folder).is_absolute() => {
                 return Err(trf!("The folder must be a full path: {folder}", folder = folder));
@@ -444,7 +452,12 @@ pub fn dialog(
                                     ui.selectable_value(name, GENERAL.to_string(), GENERAL);
                                 },
                             );
-                            ui.weak(settings.category_folder(name).display().to_string());
+                            ui.weak(
+                                settings
+                                    .category_folder(name, &uidm_infrastructure::settings::default_downloads_dir())
+                                    .display()
+                                    .to_string(),
+                            );
                         }
                     });
                     ui.horizontal(|ui| {
