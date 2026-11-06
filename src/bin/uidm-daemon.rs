@@ -57,7 +57,7 @@ use uidm::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
 use uidm::settings::{ProxyMode, SocksVersion};
 use uidm::engine::{self, Engine, Progress};
 use uidm::history::{self, History};
-use uidm::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_ADDR, DAEMON_LABEL, HOST_LABEL};
+use uidm::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST_LABEL};
 use uidm::protocol::{
     read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, DownloadLogin, Incoming, OnDone, Outgoing,
     Properties, Status, Validator,
@@ -3611,16 +3611,15 @@ fn main() {
 
 fn run() -> io::Result<()> {
     // Binding is the single-instance lock.
-    let listener = match TcpListener::bind(DAEMON_ADDR) {
+    let addr = ipc::daemon_addr();
+    let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!(
-                "[uidm-daemon] {DAEMON_ADDR} unavailable ({e}); another daemon is likely running"
-            );
+            eprintln!("[uidm-daemon] {addr} unavailable ({e}); another daemon is likely running");
             return Ok(());
         }
     };
-    eprintln!("[uidm-daemon] listening on {DAEMON_ADDR}");
+    eprintln!("[uidm-daemon] listening on {addr}");
 
     // Publish the token only after winning the bind. A daemon that lost the
     // bind must not overwrite the running daemon's token.

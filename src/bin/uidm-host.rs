@@ -82,7 +82,7 @@ fn main() {
 /// Relay frames between the browser (stdio) and the daemon (loopback TCP).
 fn run_relay() -> io::Result<()> {
     let daemon = ipc::connect_or_spawn()?;
-    eprintln!("[uidm-host] connected to daemon at {}", ipc::DAEMON_ADDR);
+    eprintln!("[uidm-host] connected to daemon at {}", ipc::daemon_addr());
     let mut to_daemon = daemon.try_clone()?;
     let mut from_daemon = daemon;
 
