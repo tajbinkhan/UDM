@@ -113,27 +113,6 @@ fn command(action: WhenDone, force_close: bool) -> Option<(&'static str, Vec<&'s
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn forcing_skips_waiting_for_programs() {
-        assert_eq!(command(WhenDone::Nothing, true), None);
-        assert_eq!(command(WhenDone::Exit, false), None);
-        let (_, gentle) = command(WhenDone::ShutDown, false).unwrap();
-        let (_, forced) = command(WhenDone::ShutDown, true).unwrap();
-        if cfg!(windows) {
-            assert_eq!(gentle, ["/s", "/t", "0"]);
-            assert_eq!(forced, ["/s", "/t", "0", "/f"]);
-        } else if cfg!(target_os = "linux") {
-            assert_eq!(gentle, ["poweroff"]);
-            assert_eq!(forced, ["poweroff", "--ignore-inhibitors"]);
-            assert_eq!(command(WhenDone::Hibernate, false).unwrap(), ("systemctl", vec!["hibernate"]));
-        }
-    }
-}
-
 /// How long before a scheduled start the computer wakes, so the queue starts
 /// on time after Windows has resumed.
 pub const WAKE_EARLY_SECS: i64 = 30;
@@ -357,5 +336,26 @@ mod wake_tests {
     #[test]
     fn the_power_plan_wake_setting_can_be_read() {
         assert!(wake_timers_allowed().is_some());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forcing_skips_waiting_for_programs() {
+        assert_eq!(command(WhenDone::Nothing, true), None);
+        assert_eq!(command(WhenDone::Exit, false), None);
+        let (_, gentle) = command(WhenDone::ShutDown, false).unwrap();
+        let (_, forced) = command(WhenDone::ShutDown, true).unwrap();
+        if cfg!(windows) {
+            assert_eq!(gentle, ["/s", "/t", "0"]);
+            assert_eq!(forced, ["/s", "/t", "0", "/f"]);
+        } else if cfg!(target_os = "linux") {
+            assert_eq!(gentle, ["poweroff"]);
+            assert_eq!(forced, ["poweroff", "--ignore-inhibitors"]);
+            assert_eq!(command(WhenDone::Hibernate, false).unwrap(), ("systemctl", vec!["hibernate"]));
+        }
     }
 }
