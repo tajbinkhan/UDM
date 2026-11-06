@@ -116,16 +116,19 @@ impl Control {
                 return Err(EngineError::Protocol("the FTP proxy's login has control characters in it".into()));
             }
             let (code, _) = c.command(&format!("USER {}", proxy_login.username))?;
-            let (code, text) = if code == 331 { c.command(&format!("PASS {}", proxy_login.password))? } else { (code, String::new()) };
+            let (code, text) =
+                if code == 331 { c.command(&format!("PASS {}", proxy_login.password))? } else { (code, String::new()) };
             if !matches!(code, 230 | 202) {
                 return Err(EngineError::Protocol(format!("the FTP proxy refused its login: {code} {text}")));
             }
         }
 
-        let from_url = (!parsed.username().is_empty()).then(|| (decode(parsed.username()), decode(parsed.password().unwrap_or(""))));
+        let from_url = (!parsed.username().is_empty())
+            .then(|| (decode(parsed.username()), decode(parsed.password().unwrap_or(""))));
         // FTP sends the password as it is, so a saved login goes only if
         // allowed on plain connections.
-        let saved = net::find_login(&opts.logins, url).filter(|l| l.plain).map(|l| (l.username.clone(), l.password.clone()));
+        let saved =
+            net::find_login(&opts.logins, url).filter(|l| l.plain).map(|l| (l.username.clone(), l.password.clone()));
         let given = from_url.is_some() || saved.is_some();
         let (user, pass) = from_url.or(saved).unwrap_or_else(|| ("anonymous".into(), "uidm@".into()));
         if has_control(&user) || has_control(&pass) {
@@ -350,10 +353,7 @@ pub fn fetch(url: &str, opts: &FtpOptions, start: u64, end: Option<u64>) -> Resu
         550 => return Err(EngineError::Status(404)),
         _ => return Err(EngineError::Protocol(format!("the FTP server would not send the file: {code} {text}"))),
     }
-    let transfer = Transfer {
-        data: data.stream()?,
-        _control: c,
-    };
+    let transfer = Transfer { data: data.stream()?, _control: c };
     Ok(match end {
         Some(end) => Box::new(transfer.take(end + 1 - start)),
         None => Box::new(transfer),
@@ -390,10 +390,7 @@ pub(crate) mod server {
                 });
             }
         });
-        FtpServer {
-            url: format!("ftp://{addr}/pub/file.bin"),
-            transfers,
-        }
+        FtpServer { url: format!("ftp://{addr}/pub/file.bin"), transfers }
     }
 
     fn session(stream: TcpStream, body: &[u8], login: Option<(&str, &str)>, count: &AtomicU64) -> std::io::Result<()> {
@@ -402,7 +399,8 @@ pub(crate) mod server {
         let mut say = |s: &str| out.write_all(format!("{s}\r\n").as_bytes());
         say("220-Welcome")?;
         say("220 test server")?;
-        let (mut user, mut rest, mut passive, mut active) = (String::new(), 0u64, None::<TcpListener>, None::<SocketAddr>);
+        let (mut user, mut rest, mut passive, mut active) =
+            (String::new(), 0u64, None::<TcpListener>, None::<SocketAddr>);
         loop {
             let mut line = String::new();
             if reader.read_line(&mut line)? == 0 {
@@ -434,7 +432,8 @@ pub(crate) mod server {
                 }
                 "PORT" => {
                     let n: Vec<u16> = arg.split(',').filter_map(|s| s.parse().ok()).collect();
-                    active = Some(SocketAddr::from(([n[0] as u8, n[1] as u8, n[2] as u8, n[3] as u8], n[4] * 256 + n[5])));
+                    active =
+                        Some(SocketAddr::from(([n[0] as u8, n[1] as u8, n[2] as u8, n[3] as u8], n[4] * 256 + n[5])));
                     say("200 ok")?;
                 }
                 "RETR" if arg != "/pub/file.bin" => say("550 no such file")?,
@@ -501,10 +500,7 @@ mod tests {
         let s = server::start(data.clone(), None);
         assert_eq!(read_all(fetch(&s.url, &FtpOptions::default(), 0, None).unwrap()), data);
         assert_eq!(read_all(fetch(&s.url, &FtpOptions::default(), 1000, Some(1999)).unwrap()), &data[1000..2000]);
-        let active = FtpOptions {
-            active: true,
-            ..FtpOptions::default()
-        };
+        let active = FtpOptions { active: true, ..FtpOptions::default() };
         assert_eq!(read_all(fetch(&s.url, &active, 4000, None).unwrap()), &data[4000..]);
     }
 
@@ -517,12 +513,7 @@ mod tests {
         let wrong = s.url.replace("ftp://", "ftp://ann:nope@");
         assert!(matches!(probe(&wrong, &FtpOptions::default()), Err(EngineError::LoginRejected(..))));
         let saved = |plain| FtpOptions {
-            logins: vec![Login {
-                site: "127.0.0.1".into(),
-                username: "ann".into(),
-                password: "p@ss".into(),
-                plain,
-            }],
+            logins: vec![Login { site: "127.0.0.1".into(), username: "ann".into(), password: "p@ss".into(), plain }],
             ..FtpOptions::default()
         };
         // A saved login goes to FTP only when allowed on plain connections.
@@ -545,11 +536,8 @@ mod tests {
 
         let strict = server::start(body(10), Some(("px", "pp")));
         let addr = strict.url.trim_start_matches("ftp://").split('/').next().unwrap().to_string();
-        let opts = FtpOptions {
-            proxy: Some(addr),
-            proxy_login: net::ProxyLogin::new("px", "wrong"),
-            ..FtpOptions::default()
-        };
+        let opts =
+            FtpOptions { proxy: Some(addr), proxy_login: net::ProxyLogin::new("px", "wrong"), ..FtpOptions::default() };
         match probe(&strict.url, &opts) {
             Err(EngineError::Protocol(m)) => assert!(m.contains("proxy refused"), "{m}"),
             other => panic!("expected the proxy to refuse, got {:?}", other.map(|p| p.total)),
@@ -563,7 +551,9 @@ mod tests {
         let proxy = net::socks_server::start(None);
         let server_addr = s.url.trim_start_matches("ftp://").split('/').next().unwrap().to_string();
         let opts = FtpOptions {
-            socks: Some(net::SocksProxy::parse(&format!("socks5://{}", proxy.addr), &net::ProxyLogin::default()).unwrap()),
+            socks: Some(
+                net::SocksProxy::parse(&format!("socks5://{}", proxy.addr), &net::ProxyLogin::default()).unwrap(),
+            ),
             // Active mode cannot work behind the proxy; passive is used.
             active: true,
             ..FtpOptions::default()
@@ -577,7 +567,6 @@ mod tests {
 
     #[test]
     fn encoded_line_breaks_cannot_add_commands() {
-
         let s = server::start(body(10), None);
         let path = s.url.replace("file.bin", "file.bin%0D%0ADELE%20file.bin");
         assert!(matches!(probe(&path, &FtpOptions::default()), Err(EngineError::Protocol(_))));

@@ -127,9 +127,7 @@ fn parse(pattern: &str) -> Result<Vec<Part>, String> {
 
 /// How many URLs `pattern` produces, without producing them.
 pub fn count(pattern: &str) -> Result<u64, String> {
-    Ok(parse(pattern.trim())?
-        .iter()
-        .fold(1u64, |n, p| n.saturating_mul(p.count())))
+    Ok(parse(pattern.trim())?.iter().fold(1u64, |n, p| n.saturating_mul(p.count())))
 }
 
 /// Every URL `pattern` produces, in order. Fails when the pattern is not a
@@ -142,9 +140,7 @@ pub fn expand(pattern: &str) -> Result<Vec<String>, String> {
     let parts = parse(pattern)?;
     let total = parts.iter().fold(1u64, |n, p| n.saturating_mul(p.count()));
     if total > MAX_BATCH as u64 {
-        return Err(format!(
-            "The pattern makes {total} addresses; at most {MAX_BATCH} can be added at once."
-        ));
+        return Err(format!("The pattern makes {total} addresses; at most {MAX_BATCH} can be added at once."));
     }
     let mut urls = Vec::with_capacity(total as usize);
     for mut i in 0..total {
@@ -180,7 +176,13 @@ pub const MAX_WILDCARD_SIZE: usize = 20;
 /// Anything else in the address, brackets included, is kept as typed.
 /// Fails like [`expand`] when the address is not a web address or the list
 /// would hold more than `MAX_BATCH`.
-pub fn expand_asterisk(address: &str, kind: Wildcard, from: &str, to: &str, size: usize) -> Result<Vec<String>, String> {
+pub fn expand_asterisk(
+    address: &str,
+    kind: Wildcard,
+    from: &str,
+    to: &str,
+    size: usize,
+) -> Result<Vec<String>, String> {
     let address = address.trim();
     if !is_download_url(address) {
         return Err("The address must start with http://, https:// or ftp://.".into());
@@ -229,9 +231,7 @@ pub fn expand_asterisk(address: &str, kind: Wildcard, from: &str, to: &str, size
     };
     let total = part.count();
     if total > MAX_BATCH as u64 {
-        return Err(format!(
-            "From {from} to {to} makes {total} addresses; at most {MAX_BATCH} can be added at once."
-        ));
+        return Err(format!("From {from} to {to} makes {total} addresses; at most {MAX_BATCH} can be added at once."));
     }
     Ok((0..total).map(|i| format!("{before}{}{after}", part.nth(i))).collect())
 }
@@ -257,10 +257,7 @@ pub fn parse_list(text: &str) -> Result<(Vec<String>, usize), String> {
         }
     }
     if urls.len() > MAX_BATCH {
-        return Err(format!(
-            "The list has {} addresses; at most {MAX_BATCH} can be added at once.",
-            urls.len()
-        ));
+        return Err(format!("The list has {} addresses; at most {MAX_BATCH} can be added at once.", urls.len()));
     }
     Ok((urls, rejected))
 }
@@ -451,7 +448,10 @@ mod tests {
             expand_asterisk("http://x/*.png", Wildcard::Letters, "a", "c", 5).unwrap(),
             ["http://x/a.png", "http://x/b.png", "http://x/c.png"]
         );
-        assert_eq!(expand_asterisk("http://x/*", Wildcard::Letters, "Y", "Z", 1).unwrap(), ["http://x/Y", "http://x/Z"]);
+        assert_eq!(
+            expand_asterisk("http://x/*", Wildcard::Letters, "Y", "Z", 1).unwrap(),
+            ["http://x/Y", "http://x/Z"]
+        );
         assert!(expand_asterisk("http://x/*", Wildcard::Letters, "a", "Z", 1).is_err());
         assert!(expand_asterisk("http://x/*", Wildcard::Letters, "ab", "c", 1).is_err());
         assert!(expand_asterisk("http://x/*", Wildcard::Letters, "1", "3", 1).is_err());

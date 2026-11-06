@@ -272,7 +272,9 @@ unsafe fn cloak(hwnd: isize, on: bool) {
 /// keep.
 fn taskbar_button(hwnd: isize, on: bool) {
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    };
     use windows::Win32::UI::Shell::{ITaskbarList, TaskbarList};
     // SAFETY: COM calls on an object made here; a thread already in COM
     // keeps its own apartment.
@@ -349,17 +351,14 @@ pub fn display_languages() -> Vec<String> {
     // SAFETY: the first call only reports the size; the second fills a
     // buffer of that size with NUL-separated strings, ending in two NULs.
     unsafe {
-        if GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, std::ptr::null_mut(), &mut size) == 0 || size == 0 {
+        if GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, std::ptr::null_mut(), &mut size) == 0 || size == 0
+        {
             return Vec::new();
         }
         let mut buffer = vec![0u16; size as usize];
         if GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, buffer.as_mut_ptr(), &mut size) == 0 {
             return Vec::new();
         }
-        buffer
-            .split(|&c| c == 0)
-            .filter(|tag| !tag.is_empty())
-            .map(String::from_utf16_lossy)
-            .collect()
+        buffer.split(|&c| c == 0).filter(|tag| !tag.is_empty()).map(String::from_utf16_lossy).collect()
     }
 }

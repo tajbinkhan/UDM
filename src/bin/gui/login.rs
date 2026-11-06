@@ -30,15 +30,7 @@ pub struct LoginPrompt {
 
 impl LoginPrompt {
     pub fn new(ids: Vec<u64>, wanted: LoginWanted, own_site: bool, username: String) -> Self {
-        LoginPrompt {
-            ids,
-            wanted,
-            own_site,
-            username,
-            password: String::new(),
-            save: !own_site,
-            plain: false,
-        }
+        LoginPrompt { ids, wanted, own_site, username, password: String::new(), save: !own_site, plain: false }
     }
 
     /// What OK does: save the login to the site logins, or give it to each
@@ -84,7 +76,13 @@ impl LoginPrompt {
 }
 
 /// Draw the prompt. Returns false once it is answered or closed.
-pub fn window(ctx: &egui::Context, p: &mut LoginPrompt, settings: Option<&Settings>, connected: bool, actions: &mut Vec<Action>) -> bool {
+pub fn window(
+    ctx: &egui::Context,
+    p: &mut LoginPrompt,
+    settings: Option<&Settings>,
+    connected: bool,
+    actions: &mut Vec<Action>,
+) -> bool {
     let mut open = true;
     let mut done = false;
     crate::dialog::Window::new(tr("Log in to the site"))
@@ -126,7 +124,9 @@ pub fn window(ctx: &egui::Context, p: &mut LoginPrompt, settings: Option<&Settin
             });
             ui.add_enabled(p.own_site, egui::Checkbox::new(&mut p.save, tr("Save this password")))
                 .on_hover_text(tr("Keep it with the site logins in Options, for every download from this site"))
-                .on_disabled_hover_text(tr("The file is on another site than its link, so the login is kept with the site logins."));
+                .on_disabled_hover_text(tr(
+                    "The file is on another site than its link, so the login is kept with the site logins.",
+                ));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let ready = connected && !p.username.trim().is_empty();
@@ -147,11 +147,7 @@ mod tests {
     use super::*;
 
     fn wanted(host: &str) -> LoginWanted {
-        LoginWanted {
-            host: host.into(),
-            realm: Some("Members".into()),
-            refused: false,
-        }
+        LoginWanted { host: host.into(), realm: Some("Members".into()), refused: false }
     }
 
     #[test]

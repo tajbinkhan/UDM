@@ -79,10 +79,7 @@ fn is_drm_key(attrs: &[(String, String)]) -> bool {
     let method = attr(attrs, "METHOD").unwrap_or("NONE");
     let format = attr(attrs, "KEYFORMAT").unwrap_or("identity");
     let uri = attr(attrs, "URI").unwrap_or("");
-    method != "NONE"
-        && (method != "AES-128"
-            || !format.eq_ignore_ascii_case("identity")
-            || uri.starts_with("skd:"))
+    method != "NONE" && (method != "AES-128" || !format.eq_ignore_ascii_case("identity") || uri.starts_with("skd:"))
 }
 
 fn parse_iv(hex: &str) -> Result<[u8; 16], String> {
@@ -109,9 +106,7 @@ fn byte_range(spec: &str, next: u64) -> Result<(u64, u64), String> {
 
 /// The extension a joined track gets, from how its segments are named.
 fn track_ext(init: bool, first: Option<&str>, audio: bool) -> &'static str {
-    let path = first
-        .map(|u| u.split(['?', '#']).next().unwrap_or(u).to_ascii_lowercase())
-        .unwrap_or_default();
+    let path = first.map(|u| u.split(['?', '#']).next().unwrap_or(u).to_ascii_lowercase()).unwrap_or_default();
     if init || path.ends_with(".m4s") || path.ends_with(".mp4") || path.ends_with(".m4a") {
         if audio {
             "m4a"
@@ -152,10 +147,7 @@ fn parse_master(text: &str, base: &str) -> Result<Master, String> {
             }
             master.audio.push(Rendition {
                 group: attr(&a, "GROUP-ID").unwrap_or_default().to_string(),
-                name: attr(&a, "NAME")
-                    .or(attr(&a, "LANGUAGE"))
-                    .unwrap_or("Audio")
-                    .to_string(),
+                name: attr(&a, "NAME").or(attr(&a, "LANGUAGE")).unwrap_or("Audio").to_string(),
                 url: attr(&a, "URI").map(|u| resolve(base, u)).transpose()?,
                 default: attr(&a, "DEFAULT") == Some("YES"),
             });
@@ -165,9 +157,8 @@ fn parse_master(text: &str, base: &str) -> Result<Master, String> {
             }
         } else if !line.is_empty() && !line.starts_with('#') {
             if let Some(a) = pending.take() {
-                let height = attr(&a, "RESOLUTION")
-                    .and_then(|r| r.split_once(['x', 'X']))
-                    .and_then(|(_, h)| h.parse().ok());
+                let height =
+                    attr(&a, "RESOLUTION").and_then(|r| r.split_once(['x', 'X'])).and_then(|(_, h)| h.parse().ok());
                 master.variants.push(Variant {
                     url: resolve(base, line)?,
                     bandwidth: attr(&a, "BANDWIDTH").and_then(|b| b.parse().ok()),
@@ -180,9 +171,7 @@ fn parse_master(text: &str, base: &str) -> Result<Master, String> {
     if master.variants.is_empty() {
         return Err("The playlist lists no videos.".into());
     }
-    master
-        .variants
-        .sort_by_key(|v| std::cmp::Reverse((v.height.unwrap_or(0), v.bandwidth.unwrap_or(0))));
+    master.variants.sort_by_key(|v| std::cmp::Reverse((v.height.unwrap_or(0), v.bandwidth.unwrap_or(0))));
     Ok(master)
 }
 
@@ -219,11 +208,7 @@ fn parse_media(text: &str, base: &str, audio: bool) -> Result<Track, String> {
             let a = attributes(rest);
             let uri = attr(&a, "URI").ok_or("a header segment has no address")?;
             let range = attr(&a, "BYTERANGE").map(|r| byte_range(r, 0)).transpose()?;
-            init = Some(Segment {
-                url: resolve(base, uri)?,
-                range,
-                key: None,
-            });
+            init = Some(Segment { url: resolve(base, uri)?, range, key: None });
         } else if let Some(rest) = line.strip_prefix("#EXT-X-BYTERANGE:") {
             range = Some(rest.trim().to_string());
         } else if line == "#EXT-X-ENDLIST" {
@@ -262,13 +247,7 @@ fn parse_media(text: &str, base: &str, audio: bool) -> Result<Track, String> {
         return Err("The playlist has no segments.".into());
     }
     let ext = track_ext(init.is_some(), segments.first().map(|s| s.url.as_str()), audio);
-    Ok(Track {
-        init,
-        segments,
-        ext,
-        duration: Some(duration),
-        hds_header: None,
-    })
+    Ok(Track { init, segments, ext, duration: Some(duration), hds_header: None })
 }
 
 /// The qualities a master playlist offers, best first, and its audio tracks.
@@ -291,11 +270,7 @@ pub fn describe(master: &Master, duration: Option<f64>) -> MediaInfo {
         .iter()
         .filter_map(|r| r.url.clone().map(|u| (u, r)))
         .filter(|(u, _)| seen.insert(u.clone()))
-        .map(|(url, r)| MediaOption {
-            id: url,
-            label: r.name.clone(),
-            ..MediaOption::default()
-        })
+        .map(|(url, r)| MediaOption { id: url, label: r.name.clone(), ..MediaOption::default() })
         .collect();
     MediaInfo {
         kind: Some(MediaKind::Hls),
@@ -311,9 +286,7 @@ pub fn describe(master: &Master, duration: Option<f64>) -> MediaInfo {
 
 /// The variant `choice` names, or the best.
 pub fn pick_variant<'a>(master: &'a Master, choice: Option<&str>) -> &'a Variant {
-    choice
-        .and_then(|id| master.variants.iter().find(|v| v.url == id))
-        .unwrap_or(&master.variants[0])
+    choice.and_then(|id| master.variants.iter().find(|v| v.url == id)).unwrap_or(&master.variants[0])
 }
 
 /// The separate audio track to fetch with `variant`: the chosen one if it is
@@ -321,16 +294,9 @@ pub fn pick_variant<'a>(master: &'a Master, choice: Option<&str>) -> &'a Variant
 /// when the variant carries its own audio.
 pub fn pick_audio<'a>(master: &'a Master, variant: &Variant, choice: Option<&str>) -> Option<&'a str> {
     let group = variant.audio.as_deref()?;
-    let in_group: Vec<&Rendition> = master
-        .audio
-        .iter()
-        .filter(|r| r.group == group && r.url.is_some())
-        .collect();
+    let in_group: Vec<&Rendition> = master.audio.iter().filter(|r| r.group == group && r.url.is_some()).collect();
     let chosen = choice.and_then(|id| in_group.iter().find(|r| r.url.as_deref() == Some(id)));
-    chosen
-        .or_else(|| in_group.iter().find(|r| r.default))
-        .or_else(|| in_group.first())
-        .and_then(|r| r.url.as_deref())
+    chosen.or_else(|| in_group.iter().find(|r| r.default)).or_else(|| in_group.first()).and_then(|r| r.url.as_deref())
 }
 
 #[cfg(test)]
@@ -366,10 +332,7 @@ mod tests {
         assert_eq!(m.audio.len(), 2);
         let best = pick_variant(&m, None);
         assert_eq!(pick_audio(&m, best, None), Some("https://cdn.x/v/audio/en.m3u8"));
-        assert_eq!(
-            pick_audio(&m, best, Some("https://cdn.x/v/audio/de.m3u8")),
-            Some("https://cdn.x/v/audio/de.m3u8")
-        );
+        assert_eq!(pick_audio(&m, best, Some("https://cdn.x/v/audio/de.m3u8")), Some("https://cdn.x/v/audio/de.m3u8"));
         assert_eq!(pick_variant(&m, Some("https://cdn.x/v/360/index.m3u8")).height, Some(360));
         assert_eq!(pick_variant(&m, Some("nope")).height, Some(1080));
 

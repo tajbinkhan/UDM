@@ -83,7 +83,9 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
             }
             if ui
                 .button(tr("Restart daemon"))
-                .on_hover_text(tr("Stop the daemon if it is running, then start it again. Downloads it was running resume."))
+                .on_hover_text(tr(
+                    "Stop the daemon if it is running, then start it again. Downloads it was running resume.",
+                ))
                 .clicked()
             {
                 actions.push(Action::RestartDaemon);

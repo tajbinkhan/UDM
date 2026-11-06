@@ -181,12 +181,7 @@ fn run_cli(args: &[String]) -> i32 {
 
 fn print_progress(p: Progress, ok: &AtomicBool) {
     match p {
-        Progress::Started {
-            total,
-            resumable,
-            connections,
-            ..
-        } => {
+        Progress::Started { total, resumable, connections, .. } => {
             let size = total.map(|t| format!("{t} bytes")).unwrap_or_else(|| "unknown size".into());
             eprintln!("[started] {size}, resumable={resumable}, connections={connections}");
         }

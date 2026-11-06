@@ -119,16 +119,8 @@ pub fn set_string(subkey: &str, name: &str, value: &str) -> io::Result<()> {
     let name = wide(name);
     let data = wide(value);
     // SAFETY: `data` is a NUL-terminated UTF-16 buffer of the given byte size.
-    let code = unsafe {
-        RegSetValueExW(
-            key.0,
-            name.as_ptr(),
-            0,
-            REG_SZ,
-            data.as_ptr() as *const u8,
-            (data.len() * 2) as u32,
-        )
-    };
+    let code =
+        unsafe { RegSetValueExW(key.0, name.as_ptr(), 0, REG_SZ, data.as_ptr() as *const u8, (data.len() * 2) as u32) };
     check(code, "set registry value")
 }
 
@@ -141,9 +133,7 @@ pub fn get_string(subkey: &str, name: &str) -> io::Result<Option<String>> {
     let mut kind = 0u32;
     let mut len = 0u32;
     // SAFETY: a size query with a null buffer.
-    let code = unsafe {
-        RegQueryValueExW(key.0, name.as_ptr(), ptr::null_mut(), &mut kind, ptr::null_mut(), &mut len)
-    };
+    let code = unsafe { RegQueryValueExW(key.0, name.as_ptr(), ptr::null_mut(), &mut kind, ptr::null_mut(), &mut len) };
     if code == ERROR_FILE_NOT_FOUND {
         return Ok(None);
     }
@@ -151,14 +141,7 @@ pub fn get_string(subkey: &str, name: &str) -> io::Result<Option<String>> {
     let mut buf = vec![0u16; (len as usize).div_ceil(2)];
     // SAFETY: `buf` holds at least `len` bytes.
     let code = unsafe {
-        RegQueryValueExW(
-            key.0,
-            name.as_ptr(),
-            ptr::null_mut(),
-            &mut kind,
-            buf.as_mut_ptr() as *mut u8,
-            &mut len,
-        )
+        RegQueryValueExW(key.0, name.as_ptr(), ptr::null_mut(), &mut kind, buf.as_mut_ptr() as *mut u8, &mut len)
     };
     check(code, "read registry value")?;
     if kind != REG_SZ {
@@ -181,14 +164,7 @@ pub fn get_dword(subkey: &str, name: &str) -> io::Result<Option<u32>> {
     let mut len = 4u32;
     // SAFETY: a 4-byte buffer for a DWORD.
     let code = unsafe {
-        RegQueryValueExW(
-            key.0,
-            name.as_ptr(),
-            ptr::null_mut(),
-            &mut kind,
-            &mut value as *mut u32 as *mut u8,
-            &mut len,
-        )
+        RegQueryValueExW(key.0, name.as_ptr(), ptr::null_mut(), &mut kind, &mut value as *mut u32 as *mut u8, &mut len)
     };
     if code == ERROR_FILE_NOT_FOUND {
         return Ok(None);
@@ -202,9 +178,7 @@ pub fn set_dword(subkey: &str, name: &str, value: u32) -> io::Result<()> {
     let key = create(subkey)?;
     let name = wide(name);
     // SAFETY: points at 4 bytes for a DWORD.
-    let code = unsafe {
-        RegSetValueExW(key.0, name.as_ptr(), 0, REG_DWORD, &value as *const u32 as *const u8, 4)
-    };
+    let code = unsafe { RegSetValueExW(key.0, name.as_ptr(), 0, REG_DWORD, &value as *const u32 as *const u8, 4) };
     check(code, "set registry value")
 }
 

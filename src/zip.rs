@@ -42,10 +42,8 @@ pub fn list(total: u64, mut read: impl FnMut(u64, u64) -> Result<Vec<u8>, String
     let tail_start = total.saturating_sub(TAIL);
     let tail = read(tail_start, total - 1)?;
     // The end record is the last "PK\5\6" with room for its 22 bytes.
-    let eocd = (0..tail.len().saturating_sub(21))
-        .rev()
-        .find(|&i| tail[i..].starts_with(b"PK\x05\x06"))
-        .ok_or_else(not_zip)?;
+    let eocd =
+        (0..tail.len().saturating_sub(21)).rev().find(|&i| tail[i..].starts_with(b"PK\x05\x06")).ok_or_else(not_zip)?;
     let mut count = u16_at(&tail, eocd + 10).ok_or_else(not_zip)? as u64;
     let mut size = u32_at(&tail, eocd + 12).ok_or_else(not_zip)? as u64;
     let mut offset = u32_at(&tail, eocd + 16).ok_or_else(not_zip)? as u64;
@@ -78,11 +76,7 @@ pub fn list(total: u64, mut read: impl FnMut(u64, u64) -> Result<Vec<u8>, String
     let in_tail = (offset >= tail_start)
         .then(|| (offset - tail_start) as usize)
         .and_then(|from| tail.get(from..from + size as usize));
-    let dir = if let Some(dir) = in_tail {
-        dir.to_vec()
-    } else {
-        read(offset, offset + size - 1)?
-    };
+    let dir = if let Some(dir) = in_tail { dir.to_vec() } else { read(offset, offset + size - 1)? };
     parse_directory(&dir, count)
 }
 
@@ -144,7 +138,9 @@ mod tests {
         e.extend(if zip64.is_some() { 0xffff_ffff } else { size }.to_le_bytes());
         e.extend((name.len() as u16).to_le_bytes());
         let extra: Vec<u8> = match zip64 {
-            Some(real) => [1u16.to_le_bytes().to_vec(), 8u16.to_le_bytes().to_vec(), real.to_le_bytes().to_vec()].concat(),
+            Some(real) => {
+                [1u16.to_le_bytes().to_vec(), 8u16.to_le_bytes().to_vec(), real.to_le_bytes().to_vec()].concat()
+            }
             None => Vec::new(),
         };
         e.extend((extra.len() as u16).to_le_bytes());
@@ -183,10 +179,7 @@ mod tests {
         let list = list(z.len() as u64, reader(&z)).unwrap();
         assert_eq!(
             list,
-            [
-                ZipEntry { name: "readme.txt".into(), size: 120 },
-                ZipEntry { name: "Fotos/été.jpg".into(), size: 5000 }
-            ]
+            [ZipEntry { name: "readme.txt".into(), size: 120 }, ZipEntry { name: "Fotos/été.jpg".into(), size: 5000 }]
         );
     }
 

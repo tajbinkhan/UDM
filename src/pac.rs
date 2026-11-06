@@ -188,18 +188,18 @@ fn ask(source: &PacSource, url: &str) -> Result<Option<String>, NoScript> {
     };
     let options = AutoProxyOptions {
         flags: if script.is_some() { WINHTTP_AUTOPROXY_CONFIG_URL } else { WINHTTP_AUTOPROXY_AUTO_DETECT },
-        auto_detect_flags: if script.is_some() { 0 } else { WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A },
+        auto_detect_flags: if script.is_some() {
+            0
+        } else {
+            WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A
+        },
         auto_config_url: script.as_ref().map_or(ptr::null(), |s| s.as_ptr()),
         reserved: ptr::null_mut(),
         reserved2: 0,
         auto_logon_if_challenged: 1,
     };
     let target = wide(url);
-    let mut info = ProxyInfo {
-        access_type: 0,
-        proxy: ptr::null_mut(),
-        proxy_bypass: ptr::null_mut(),
-    };
+    let mut info = ProxyInfo { access_type: 0, proxy: ptr::null_mut(), proxy_bypass: ptr::null_mut() };
     // SAFETY: every pointer is valid for the call; strings in `info` are
     // freed by `take`.
     let ok = unsafe { WinHttpGetProxyForUrl(session, target.as_ptr(), &options, &mut info) };
@@ -357,7 +357,11 @@ mod tests {
         assert!(a.starts_with("http://127.0.0.1:"), "{a}");
         let b = served_script_url("function FindProxyForURL(u, h) { return \"PROXY p:1\"; }").unwrap();
         assert_ne!(a, b);
-        assert_eq!(served_script_url("function FindProxyForURL(u, h) { return \"DIRECT\"; }").unwrap(), a, "the same script, the same address");
+        assert_eq!(
+            served_script_url("function FindProxyForURL(u, h) { return \"DIRECT\"; }").unwrap(),
+            a,
+            "the same script, the same address"
+        );
         let got = fetch(&a);
         assert!(got.starts_with("HTTP/1.1 200") && got.ends_with("return \"DIRECT\"; }"), "{got}");
         assert!(got.contains("application/x-ns-proxy-autoconfig"));

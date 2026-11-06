@@ -202,10 +202,7 @@ mod tests {
         }
         let secs = start.elapsed().as_secs_f64();
         let expected = total as f64 / rate as f64;
-        assert!(
-            (secs - expected).abs() / expected < 0.10,
-            "took {secs:.2}s, expected about {expected:.2}s"
-        );
+        assert!((secs - expected).abs() / expected < 0.10, "took {secs:.2}s, expected about {expected:.2}s");
     }
 
     #[test]

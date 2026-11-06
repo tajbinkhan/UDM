@@ -41,9 +41,9 @@ pub mod listfile;
 pub mod media;
 pub mod net;
 pub mod notify;
+pub mod pac;
 #[cfg(windows)]
 pub mod package;
-pub mod pac;
 pub mod platform;
 pub mod power;
 pub mod protocol;

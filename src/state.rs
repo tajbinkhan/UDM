@@ -25,20 +25,9 @@ impl DownloadTable {
     pub fn apply(&mut self, msg: &Outgoing) {
         match msg {
             Outgoing::Added { id, url } => {
-                self.entries
-                    .entry(*id)
-                    .or_insert_with(|| blank(*id, url, Status::Queued));
+                self.entries.entry(*id).or_insert_with(|| blank(*id, url, Status::Queued));
             }
-            Outgoing::Started {
-                id,
-                url,
-                path,
-                total,
-                resumable,
-                connections,
-                partial,
-                validator,
-            } => {
+            Outgoing::Started { id, url, path, total, resumable, connections, partial, validator } => {
                 let e = self.entry(*id, url);
                 e.status = Status::Downloading;
                 e.path = Some(path.clone());
@@ -56,14 +45,7 @@ impl DownloadTable {
                 e.note = None;
                 e.last_try = Some(unix_now());
             }
-            Outgoing::Progress {
-                id,
-                url,
-                done,
-                total,
-                parts,
-                ..
-            } => {
+            Outgoing::Progress { id, url, done, total, parts, .. } => {
                 let e = self.entry(*id, url);
                 // A late progress event must not revive a finished download.
                 if !e.status.is_terminal() {
@@ -174,9 +156,7 @@ impl DownloadTable {
     }
 
     fn entry(&mut self, id: u64, url: &str) -> &mut DownloadEntry {
-        self.entries
-            .entry(id)
-            .or_insert_with(|| blank(id, url, Status::Queued))
+        self.entries.entry(id).or_insert_with(|| blank(id, url, Status::Queued))
     }
 }
 
@@ -212,9 +192,7 @@ fn blank(id: u64, url: &str, status: Status) -> DownloadEntry {
 
 /// Seconds since 1970, by this computer's clock.
 pub fn unix_now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 #[cfg(test)]
@@ -235,14 +213,7 @@ mod tests {
     }
 
     fn progress(id: u64, done: u64) -> Outgoing {
-        Outgoing::Progress {
-            id,
-            url: "https://x/f.zip".into(),
-            done,
-            total: Some(1000),
-            parts: None,
-            segments: None,
-        }
+        Outgoing::Progress { id, url: "https://x/f.zip".into(), done, total: Some(1000), parts: None, segments: None }
     }
 
     #[test]
@@ -260,12 +231,7 @@ mod tests {
         t.apply(&progress(1, 400));
         assert_eq!(t.get(1).unwrap().done, 400);
 
-        t.apply(&Outgoing::Done {
-            id: 1,
-            url: "https://x/f.zip".into(),
-            path: "C:\\dl\\f.zip".into(),
-            note: None,
-        });
+        t.apply(&Outgoing::Done { id: 1, url: "https://x/f.zip".into(), path: "C:\\dl\\f.zip".into(), note: None });
         let e = t.get(1).unwrap();
         assert_eq!(e.status, Status::Done);
         assert_eq!(e.done, 1000, "done fills to the total");
@@ -295,11 +261,7 @@ mod tests {
     fn failure_records_error_and_removal_forgets() {
         let mut t = DownloadTable::new();
         t.apply(&started(3));
-        t.apply(&Outgoing::Failed {
-            id: 3,
-            url: "u".into(),
-            error: "http error: timed out".into(),
-        });
+        t.apply(&Outgoing::Failed { id: 3, url: "u".into(), error: "http error: timed out".into() });
         assert_eq!(t.get(3).unwrap().error.as_deref(), Some("http error: timed out"));
         t.apply(&Outgoing::Removed { id: 3 });
         assert!(t.get(3).is_none());
@@ -309,16 +271,8 @@ mod tests {
     #[test]
     fn a_taken_name_waits_for_the_save_as_dialog() {
         let mut t = DownloadTable::new();
-        t.apply(&Outgoing::Added {
-            id: 6,
-            url: "u".into(),
-        });
-        t.apply(&Outgoing::NameTaken {
-            id: 6,
-            url: "u".into(),
-            path: r"C:\dl\report.pdf".into(),
-            total: Some(42),
-        });
+        t.apply(&Outgoing::Added { id: 6, url: "u".into() });
+        t.apply(&Outgoing::NameTaken { id: 6, url: "u".into(), path: r"C:\dl\report.pdf".into(), total: Some(42) });
         let e = t.get(6).unwrap();
         assert_eq!(e.status, Status::Confirming);
         assert_eq!(e.path.as_deref(), Some(r"C:\dl\report.pdf"));

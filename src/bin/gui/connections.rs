@@ -62,29 +62,25 @@ pub fn details(ui: &mut egui::Ui, id: u64, e: &DownloadEntry, segments: Option<&
         .count();
     ui.weak(trf!("{ranges} ranges, {active} connections working", ranges = sorted.len(), active = active));
     ui.add_space(4.0);
-    egui::Grid::new(("connections_table", id))
-        .striped(true)
-        .num_columns(4)
-        .spacing([16.0, 4.0])
-        .show(ui, |ui| {
-            for title in [tr("Range"), tr("Downloaded"), "", tr("State")] {
-                ui.strong(title);
-            }
+    egui::Grid::new(("connections_table", id)).striped(true).num_columns(4).spacing([16.0, 4.0]).show(ui, |ui| {
+        for title in [tr("Range"), tr("Downloaded"), "", tr("State")] {
+            ui.strong(title);
+        }
+        ui.end_row();
+        for s in &sorted {
+            let len = s.end + 1 - s.start;
+            ui.label(format!("{} - {}", human_bytes(s.start), human_bytes(s.end + 1)));
+            ui.label(trf!("{done} of {total}", done = human_bytes(s.done), total = human_bytes(len)));
+            ui.add(egui::ProgressBar::new(s.done as f32 / len.max(1) as f32).desired_width(100.0));
+            let text = state_text(s.state);
+            match s.state {
+                SegmentState::Retrying => ui.colored_label(ui.visuals().warn_fg_color, text),
+                SegmentState::Waiting | SegmentState::Done => ui.weak(text),
+                _ => ui.label(text),
+            };
             ui.end_row();
-            for s in &sorted {
-                let len = s.end + 1 - s.start;
-                ui.label(format!("{} - {}", human_bytes(s.start), human_bytes(s.end + 1)));
-                ui.label(trf!("{done} of {total}", done = human_bytes(s.done), total = human_bytes(len)));
-                ui.add(egui::ProgressBar::new(s.done as f32 / len.max(1) as f32).desired_width(100.0));
-                let text = state_text(s.state);
-                match s.state {
-                    SegmentState::Retrying => ui.colored_label(ui.visuals().warn_fg_color, text),
-                    SegmentState::Waiting | SegmentState::Done => ui.weak(text),
-                    _ => ui.label(text),
-                };
-                ui.end_row();
-            }
-        });
+        }
+    });
 }
 
 /// One bar for the whole file: each range drawn where it sits, its fetched
@@ -108,10 +104,7 @@ fn bar(ui: &mut egui::Ui, segments: &[SegmentInfo], total: u64) {
         // A separator at the start of each range.
         painter.line_segment(
             [egui::pos2(left, rect.top()), egui::pos2(left, rect.bottom())],
-            egui::Stroke {
-                width: 1.0,
-                color: visuals.panel_fill,
-            },
+            egui::Stroke { width: 1.0, color: visuals.panel_fill },
         );
     }
     painter.rect_stroke(rect, 3.0, visuals.widgets.noninteractive.bg_stroke, egui::StrokeKind::Inside);

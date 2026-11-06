@@ -61,14 +61,7 @@ impl Manifest {
             total,
             etag,
             last_modified,
-            segments: segments
-                .iter()
-                .map(|s| SegmentProgress {
-                    start: s.start,
-                    end: s.end,
-                    done: 0,
-                })
-                .collect(),
+            segments: segments.iter().map(|s| SegmentProgress { start: s.start, end: s.end, done: 0 }).collect(),
         }
     }
 
@@ -115,8 +108,7 @@ impl Manifest {
 
     pub fn load(path: &Path) -> io::Result<Self> {
         let bytes = fs::read(path)?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// Write the sidecar atomically: serialize to a temp file in the same
@@ -124,8 +116,7 @@ impl Manifest {
     /// half-written manifest.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         let tmp = path.with_extension("uidmpart.tmp");
-        let bytes = serde_json::to_vec(self)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let bytes = serde_json::to_vec(self).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         fs::write(&tmp, &bytes)?;
         // rename is atomic on the same volume; fall back to remove+rename on
         // Windows where rename onto an existing file can fail.
@@ -201,9 +192,6 @@ mod tests {
     #[test]
     fn sidecar_naming() {
         let p = Path::new("dl").join("movie.mp4");
-        assert_eq!(
-            Manifest::sidecar_path(&p).file_name().unwrap(),
-            "movie.mp4.uidmpart"
-        );
+        assert_eq!(Manifest::sidecar_path(&p).file_name().unwrap(), "movie.mp4.uidmpart");
     }
 }

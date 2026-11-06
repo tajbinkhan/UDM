@@ -117,7 +117,8 @@ pub fn sniff(text: &str) -> bool {
 
 /// Read a manifest fetched from `url`.
 pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
-    let doc = Document::parse(text.trim_start_matches('\u{feff}')).map_err(|e| format!("The manifest is not valid XML: {e}"))?;
+    let doc = Document::parse(text.trim_start_matches('\u{feff}'))
+        .map_err(|e| format!("The manifest is not valid XML: {e}"))?;
     let root = doc.root_element();
     if root.tag_name().name() != "manifest" {
         return Err("This is not an HDS manifest.".into());
@@ -127,7 +128,8 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
     }
     // The manifest's own query is Akamai's signature, which every address
     // in the stream needs.
-    let manifest_query = url::Url::parse(url).ok().and_then(|u| u.query().map(str::to_string)).filter(|q| !q.is_empty());
+    let manifest_query =
+        url::Url::parse(url).ok().and_then(|u| u.query().map(str::to_string)).filter(|q| !q.is_empty());
     let pv = text_in(child(root, "pv-2.0")).map(|t| t.trim_matches(';').to_string());
     let base = match text_in(child(root, "baseURL")) {
         Some(b) if b.ends_with('/') => resolve(url, b)?,
@@ -191,13 +193,9 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
             };
             (name, source)
         };
-        let id = if manifest.media.iter().any(|x: &Media| x.id == name) { format!("{name}#{i}") } else { name.to_string() };
-        manifest.media.push(Media {
-            id,
-            bitrate,
-            height,
-            source,
-        });
+        let id =
+            if manifest.media.iter().any(|x: &Media| x.id == name) { format!("{name}#{i}") } else { name.to_string() };
+        manifest.media.push(Media { id, bitrate, height, source });
     }
     if manifest.media.is_empty() {
         return Err(if drm { DRM_REFUSED.into() } else { "The manifest has no video.".into() });
@@ -223,12 +221,7 @@ pub fn describe(m: &Manifest) -> MediaInfo {
             size: super::estimate_size(media.bitrate, m.duration),
         })
         .collect();
-    MediaInfo {
-        kind: Some(MediaKind::Hds),
-        video,
-        duration: m.duration,
-        ..MediaInfo::default()
-    }
+    MediaInfo { kind: Some(MediaKind::Hds), video, duration: m.duration, ..MediaInfo::default() }
 }
 
 /// The media `id` names, or the best.
@@ -331,8 +324,8 @@ pub fn parse_bootstrap(data: &[u8]) -> Result<BootstrapInfo, String> {
     }
     r.string()?; // DRM data
     r.string()?; // metadata
-    // Only the first segment and fragment run tables are read; any others
-    // are other qualities'.
+                 // Only the first segment and fragment run tables are read; any others
+                 // are other qualities'.
     for _ in 0..r.u8()? {
         let (kind, body) = r.boxed()?;
         if &kind != b"asrt" || !info.segments.is_empty() {
@@ -370,12 +363,7 @@ pub fn parse_bootstrap(data: &[u8]) -> Result<BootstrapInfo, String> {
             if info.fragments.len() >= MAX_FRAGMENTS {
                 return Err("The stream lists too many fragments.".into());
             }
-            info.fragments.push(FragmentRun {
-                first,
-                timestamp,
-                duration,
-                discontinuity,
-            });
+            info.fragments.push(FragmentRun { first, timestamp, duration, discontinuity });
         }
     }
     Ok(info)
@@ -491,10 +479,8 @@ pub fn track(media: &Media, bootstrap: &[u8], duration: Option<f64>) -> Result<T
     if info.live {
         return Err(LIVE_REFUSED.into());
     }
-    let segments = fragments(&info)?
-        .into_iter()
-        .map(|(s, f)| Segment::whole(fragment_url(url, query.as_deref(), s, f)))
-        .collect();
+    let segments =
+        fragments(&info)?.into_iter().map(|(s, f)| Segment::whole(fragment_url(url, query.as_deref(), s, f))).collect();
     let from_bootstrap = (info.timescale > 0 && info.current_media_time > 0)
         .then(|| info.current_media_time as f64 / info.timescale as f64);
     Ok(Track {
@@ -597,7 +583,10 @@ pub(crate) mod tests {
     #[test]
     fn fragment_addresses() {
         assert_eq!(fragment_url("https://x/z/video_1000", None, 1, 7), "https://x/z/video_1000Seg1-Frag7");
-        assert_eq!(fragment_url("https://x/z/v", Some("hdnea=a&pvtoken=b"), 2, 3), "https://x/z/vSeg2-Frag3?hdnea=a&pvtoken=b");
+        assert_eq!(
+            fragment_url("https://x/z/v", Some("hdnea=a&pvtoken=b"), 2, 3),
+            "https://x/z/vSeg2-Frag3?hdnea=a&pvtoken=b"
+        );
     }
 
     fn v1() -> String {

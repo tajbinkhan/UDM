@@ -30,8 +30,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::media::MediaChoice;
-use crate::protocol::{SegmentInfo, SegmentState, Validator};
 use crate::net::NetConfig;
+use crate::protocol::{SegmentInfo, SegmentState, Validator};
 use crate::settings::{FileExists, Folders};
 use limit::{RateLimiter, Throttle};
 use resume::Manifest;
@@ -180,7 +180,10 @@ pub enum EngineError {
     /// why, for the user.
     Refused(String),
     /// The file name is taken and the request says to ask first.
-    NameTaken { path: PathBuf, total: Option<u64> },
+    NameTaken {
+        path: PathBuf,
+        total: Option<u64>,
+    },
 }
 
 impl fmt::Display for EngineError {
@@ -343,15 +346,9 @@ struct Gate<'a> {
 
 impl<'a> Gate<'a> {
     fn new(shared: &'a Shared, req: &DownloadRequest) -> Self {
-        let host = url::Url::parse(&req.url)
-            .ok()
-            .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
-            .unwrap_or_default();
-        Gate {
-            slots: &shared.host_slots,
-            host,
-            max: req.host_limit.filter(|m| *m > 0),
-        }
+        let host =
+            url::Url::parse(&req.url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_default();
+        Gate { slots: &shared.host_slots, host, max: req.host_limit.filter(|m| *m > 0) }
     }
 
     /// A connection, if the host has room for one.
@@ -409,11 +406,7 @@ impl Engine {
     pub fn new(cb: Arc<dyn Fn(Progress) + Send + Sync>, concurrency: usize) -> Self {
         Engine {
             inner: Arc::new(Inner {
-                sched: Mutex::new(Sched {
-                    queue: VecDeque::new(),
-                    running: 0,
-                    limit: concurrency.max(1),
-                }),
+                sched: Mutex::new(Sched { queue: VecDeque::new(), running: 0, limit: concurrency.max(1) }),
                 registry: Mutex::new(HashMap::new()),
                 shared: Arc::new(Shared {
                     limiter: RateLimiter::default(),
@@ -678,11 +671,7 @@ fn run_inner(
     }
 
     let segmented = probe.resumable && probe.total.is_some_and(|t| t > 0);
-    let connections = if segmented {
-        effective_connections(probe.total.unwrap(), req.connections)
-    } else {
-        1
-    };
+    let connections = if segmented { effective_connections(probe.total.unwrap(), req.connections) } else { 1 };
 
     reporter.send(Progress::Started {
         id,
@@ -700,17 +689,16 @@ fn run_inner(
     let resplit = shared.resplit.load(Ordering::Relaxed);
     let gate = Gate::new(shared, req);
     let result = if segmented {
-        let plan = Plan {
-            connections,
-            resplit,
-        };
+        let plan = Plan { connections, resplit };
         run_segmented(id, token, &agent, req, work.clone(), &probe, plan, reporter, limiter, &gate)
     } else {
         run_single(id, token, &agent, req, work.clone(), &probe, reporter, limiter, &gate)
     };
     // A finished file written in the temporary folder moves into place.
     let result = match result {
-        Ok(_) if work != output && !token.load(Ordering::Relaxed) => move_into_place(&work, &output).map(|()| output.clone()),
+        Ok(_) if work != output && !token.load(Ordering::Relaxed) => {
+            move_into_place(&work, &output).map(|()| output.clone())
+        }
         other => other,
     };
     drop(claim);
@@ -768,7 +756,18 @@ pub fn http_date(s: &str) -> Option<std::time::SystemTime> {
             let d = parts.next()?.parse::<u32>().ok()?;
             let m = month(parts.next()?)?;
             let y = parts.next()?.parse::<i64>().ok()?;
-            (d, m, if y < 70 { 2000 + y } else if y < 100 { 1900 + y } else { y }, *t)
+            (
+                d,
+                m,
+                if y < 70 {
+                    2000 + y
+                } else if y < 100 {
+                    1900 + y
+                } else {
+                    y
+                },
+                *t,
+            )
         }
         // asctime: Sun Nov  6 08:49:37 1994.
         [_, m, d, t, y] => (d.parse::<u32>().ok()?, month(m)?, y.parse::<i64>().ok()?, *t),
@@ -841,9 +840,7 @@ fn run_post(
     }
     if let Some(total) = probe.total {
         if done < total {
-            return Err(EngineError::Http(format!(
-                "the response ended after {done} of {total} bytes"
-            )));
+            return Err(EngineError::Http(format!("the response ended after {done} of {total} bytes")));
         }
     }
     drop(claim);
@@ -856,13 +853,7 @@ fn pick_filename(requested: Option<&str>, probe: &http::Probe) -> String {
     requested
         .map(sanitize_filename)
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            probe
-                .suggested_filename
-                .as_deref()
-                .map(sanitize_filename)
-                .filter(|s| !s.is_empty())
-        })
+        .or_else(|| probe.suggested_filename.as_deref().map(sanitize_filename).filter(|s| !s.is_empty()))
         .unwrap_or_else(|| derive_filename(&probe.final_url))
 }
 
@@ -892,21 +883,20 @@ pub fn fetch_range_bytes(
 ) -> Result<Vec<u8>, EngineError> {
     let agent = http::Client::new(net, url)?;
     let mut body = Vec::new();
-    http::fetch_range(&agent, url, headers, start, end)?
-        .take(end + 1 - start)
-        .read_to_end(&mut body)?;
+    http::fetch_range(&agent, url, headers, start, end)?.take(end + 1 - start).read_to_end(&mut body)?;
     Ok(body)
 }
 
-fn fetch_with(agent: &http::Client, url: &str, headers: &[(String, String)], limit: u64) -> Result<Fetched, EngineError> {
+fn fetch_with(
+    agent: &http::Client,
+    url: &str,
+    headers: &[(String, String)],
+    limit: u64,
+) -> Result<Fetched, EngineError> {
     let (url, content_type, reader) = http::get(agent, url, headers)?;
     let mut body = Vec::new();
     reader.take(limit).read_to_end(&mut body)?;
-    Ok(Fetched {
-        url,
-        content_type,
-        body,
-    })
+    Ok(Fetched { url, content_type, body })
 }
 
 /// What a stream (an HLS playlist or DASH manifest at `url`) or a video page
@@ -946,10 +936,7 @@ impl Inspection {
     /// or the URL, and no size.
     pub fn unprobed(url: &str, filename: Option<&str>) -> Self {
         Inspection {
-            filename: filename
-                .map(sanitize_filename)
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| derive_filename(url)),
+            filename: filename.map(sanitize_filename).filter(|s| !s.is_empty()).unwrap_or_else(|| derive_filename(url)),
             total: None,
             resumable: false,
             etag: None,
@@ -1012,15 +999,16 @@ pub fn partial_matches(output: &Path, found: &Inspection, ignore_date: bool) -> 
     }
     let mb = |n: u64| format!("{:.1} MB", n as f64 / (1024.0 * 1024.0));
     match found.total {
-        None => Err("The new link does not say how big its file is, so it cannot be matched to the partial download.".into()),
-        Some(total) if total != m.total => Err(format!(
-            "The new link is for a {} file; the partial download is of a {} file.",
-            mb(total),
-            mb(m.total)
-        )),
-        Some(total) if !m.matches(total, found.etag.as_deref(), found.last_modified.as_deref(), ignore_date) => Err(
-            "The file at the new link has changed since the download started (its ETag or date differs).".into(),
-        ),
+        None => {
+            Err("The new link does not say how big its file is, so it cannot be matched to the partial download."
+                .into())
+        }
+        Some(total) if total != m.total => {
+            Err(format!("The new link is for a {} file; the partial download is of a {} file.", mb(total), mb(m.total)))
+        }
+        Some(total) if !m.matches(total, found.etag.as_deref(), found.last_modified.as_deref(), ignore_date) => {
+            Err("The file at the new link has changed since the download started (its ETag or date differs).".into())
+        }
         Some(_) if !found.resumable => {
             Err("The new link's server cannot resume downloads, so it must start over.".into())
         }
@@ -1137,7 +1125,9 @@ fn pick_free_path(
             // A partial copy in the temporary folder resumes; a stale one
             // starts over.
             let work = work_file(req, &path);
-            if work != path && !(work.is_file() && sidecar_matches(&Manifest::sidecar_path(&work), probe, req.ignore_date)) {
+            if work != path
+                && !(work.is_file() && sidecar_matches(&Manifest::sidecar_path(&work), probe, req.ignore_date))
+            {
                 let _ = fs::remove_file(Manifest::sidecar_path(&work));
             }
             let _ = fs::remove_file(&sidecar);
@@ -1151,16 +1141,10 @@ fn pick_free_path(
             return Ok(path);
         }
         if ask && path.is_file() {
-            return Err(EngineError::NameTaken {
-                path,
-                total: probe.total,
-            });
+            return Err(EngineError::NameTaken { path, total: probe.total });
         }
     }
-    Err(EngineError::Io(format!(
-        "no free file name for {filename} in {}",
-        dir.display()
-    )))
+    Err(EngineError::Io(format!("no free file name for {filename} in {}", dir.display())))
 }
 
 /// `report.pdf` for 0, then `report (1).pdf`, `report (2).pdf`, ...
@@ -1237,11 +1221,7 @@ impl Work {
         }
         let seg = &mut self.manifest.segments[i];
         let mid = seg.cursor() + left / 2;
-        let new = resume::SegmentProgress {
-            start: mid,
-            end: seg.end,
-            done: 0,
-        };
+        let new = resume::SegmentProgress { start: mid, end: seg.end, done: 0 };
         seg.end = mid - 1;
         self.manifest.segments.push(new);
         self.busy.push(true);
@@ -1308,12 +1288,7 @@ fn run_segmented(
     let resumed = manifest.bytes_done();
     let busy = vec![false; manifest.segments.len()];
     let states = vec![SegmentState::Waiting; manifest.segments.len()];
-    let shared = Arc::new(Mutex::new(Work {
-        manifest,
-        busy,
-        states,
-        segments_at: None,
-    }));
+    let shared = Arc::new(Mutex::new(Work { manifest, busy, states, segments_at: None }));
     let global_done = Arc::new(AtomicU64::new(resumed));
     let last_report = Arc::new(AtomicU64::new(resumed));
     let first_error: Arc<Mutex<Option<EngineError>>> = Arc::new(Mutex::new(None));
@@ -1545,11 +1520,7 @@ fn maybe_report(ctx: &SegmentCtx, global: u64) {
     if global.saturating_sub(last) < REPORT_EVERY {
         return;
     }
-    if ctx
-        .last_report
-        .compare_exchange(last, global, Ordering::Relaxed, Ordering::Relaxed)
-        .is_err()
-    {
+    if ctx.last_report.compare_exchange(last, global, Ordering::Relaxed, Ordering::Relaxed).is_err() {
         return; // another thread reported; skip to avoid a duplicate.
     }
     let segments = match ctx.shared.lock() {
@@ -1663,10 +1634,7 @@ fn write_at(file: &File, mut buf: &[u8], mut offset: u64) -> std::io::Result<()>
     while !buf.is_empty() {
         let n = crate::platform::write_at(file, buf, offset)?;
         if n == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::WriteZero,
-                "seek_write wrote nothing",
-            ));
+            return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "seek_write wrote nothing"));
         }
         buf = &buf[n..];
         offset += n as u64;
@@ -1733,8 +1701,9 @@ pub(crate) fn not_a_device(name: String) -> String {
     const DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
     let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
     let numbered = |prefix: &str| {
-        stem.strip_prefix(prefix)
-            .is_some_and(|n| matches!(n, "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "\u{b9}" | "\u{b2}" | "\u{b3}"))
+        stem.strip_prefix(prefix).is_some_and(|n| {
+            matches!(n, "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "\u{b9}" | "\u{b2}" | "\u{b3}")
+        })
     };
     if DEVICES.contains(&stem.as_str()) || numbered("COM") || numbered("LPT") {
         format!("_{name}")
@@ -1911,13 +1880,8 @@ mod tests {
             let mut on_disk = data[..half].to_vec();
             on_disk.resize(LEN, 0);
             fs::write(&partial, &on_disk).unwrap();
-            let mut m = Manifest::new(
-                server.url.clone(),
-                LEN as u64,
-                Some("\"v1\"".into()),
-                None,
-                &split(LEN as u64, 2),
-            );
+            let mut m =
+                Manifest::new(server.url.clone(), LEN as u64, Some("\"v1\"".into()), None, &split(LEN as u64, 2));
             m.segments[0].done = m.segments[0].len();
             m.save(&Manifest::sidecar_path(&partial)).unwrap();
 
@@ -1937,10 +1901,7 @@ mod tests {
             for ignore_date in [false, true] {
                 let server = TestServer::start_with(
                     data.clone(),
-                    Behavior {
-                        last_modified: Some("Tue, 02 Jan 2024 00:00:00 GMT".into()),
-                        ..Behavior::default()
-                    },
+                    Behavior { last_modified: Some("Tue, 02 Jan 2024 00:00:00 GMT".into()), ..Behavior::default() },
                 );
                 let dir = temp_dir(if ignore_date { "date_ignored" } else { "date_checked" });
                 let partial = dir.join("report.pdf");
@@ -2051,7 +2012,8 @@ mod tests {
             let mut on_disk = data[..half].to_vec();
             on_disk.resize(LEN, 0);
             fs::write(&partial, &on_disk).unwrap();
-            let mut m = Manifest::new(server.url.clone(), LEN as u64, Some("\"v1\"".into()), None, &split(LEN as u64, 2));
+            let mut m =
+                Manifest::new(server.url.clone(), LEN as u64, Some("\"v1\"".into()), None, &split(LEN as u64, 2));
             m.segments[0].done = m.segments[0].len();
             m.save(&Manifest::sidecar_path(&partial)).unwrap();
             let mut req = request(&server.url, &dir, FileExists::Ask);
@@ -2066,10 +2028,7 @@ mod tests {
         fn a_post_under_ask_gets_a_new_name() {
             let data = body(LEN);
             let form = b"file=report".to_vec();
-            let behavior = Behavior {
-                post_only_body: Some(form.clone()),
-                ..Behavior::default()
-            };
+            let behavior = Behavior { post_only_body: Some(form.clone()), ..Behavior::default() };
             let server = TestServer::start_with(data.clone(), behavior);
             let dir = temp_dir("ask_post");
             fs::write(dir.join("report.pdf"), b"old").unwrap();
@@ -2184,11 +2143,8 @@ mod tests {
         fn a_temporary_folder_holds_the_partial_file_until_it_is_done() {
             const LEN: usize = 2 * 1024 * 1024;
             let data = body(LEN);
-            let behavior = Behavior {
-                slow_range_start: Some(0),
-                slow_bytes_per_sec: 512 * 1024,
-                ..Behavior::default()
-            };
+            let behavior =
+                Behavior { slow_range_start: Some(0), slow_bytes_per_sec: 512 * 1024, ..Behavior::default() };
             let server = TestServer::start_with(data.clone(), behavior);
             let dir = temp_dir("temp_folder");
             let temp = dir.join("temp");
@@ -2215,11 +2171,8 @@ mod tests {
         fn a_partial_file_resumes_after_the_temporary_folder_changes() {
             const LEN: usize = 2 * 1024 * 1024;
             let data = body(LEN);
-            let behavior = Behavior {
-                slow_range_start: Some(0),
-                slow_bytes_per_sec: 512 * 1024,
-                ..Behavior::default()
-            };
+            let behavior =
+                Behavior { slow_range_start: Some(0), slow_bytes_per_sec: 512 * 1024, ..Behavior::default() };
             let server = TestServer::start_with(data.clone(), behavior);
             let dir = temp_dir("temp_moved");
             let mut req = request(&server.url, &dir.join("out"), FileExists::Rename);
@@ -2245,17 +2198,15 @@ mod tests {
         fn a_preview_reads_just_the_range_it_asks_for() {
             let data = body(LEN);
             let server = TestServer::start(data.clone());
-            let tail = fetch_range_bytes(&server.url, &[], &NetConfig::default(), LEN as u64 - 100, LEN as u64 - 1).unwrap();
+            let tail =
+                fetch_range_bytes(&server.url, &[], &NetConfig::default(), LEN as u64 - 100, LEN as u64 - 1).unwrap();
             assert_eq!(tail, &data[LEN - 100..]);
             assert!(server.served.load(Ordering::Relaxed) <= 100, "only the range was sent");
         }
 
         #[test]
         fn pages_for_the_grabber_answer_a_login_request() {
-            let behavior = Behavior {
-                basic_auth: Some("ann:secret".into()),
-                ..Behavior::default()
-            };
+            let behavior = Behavior { basic_auth: Some("ann:secret".into()), ..Behavior::default() };
             let server = TestServer::start_with(b"<a href=x.pdf>".to_vec(), behavior);
             assert!(fetch(&server.url, &[], &NetConfig::default(), 1024).is_err());
             let net = |plain| NetConfig {
@@ -2269,10 +2220,7 @@ mod tests {
             };
             // Basic over plain http: a saved login goes only when allowed
             // there; otherwise the user is asked.
-            assert!(matches!(
-                fetch(&server.url, &[], &net(false), 1024),
-                Err(EngineError::NeedsLogin(..))
-            ));
+            assert!(matches!(fetch(&server.url, &[], &net(false), 1024), Err(EngineError::NeedsLogin(..))));
             assert_eq!(fetch(&server.url, &[], &net(true), 1024).unwrap().body, b"<a href=x.pdf>");
         }
 
@@ -2326,11 +2274,8 @@ mod tests {
         fn downloads_to_one_host_share_its_connection_limit() {
             const LEN: usize = 2 * 1024 * 1024;
             let data = body(LEN);
-            let behavior = Behavior {
-                slow_range_start: Some(0),
-                slow_bytes_per_sec: 1024 * 1024,
-                ..Behavior::default()
-            };
+            let behavior =
+                Behavior { slow_range_start: Some(0), slow_bytes_per_sec: 1024 * 1024, ..Behavior::default() };
             let server = TestServer::start_with(data.clone(), behavior);
             let dir = temp_dir("host_limit");
             let (tx, rx) = mpsc::channel();
@@ -2432,10 +2377,7 @@ mod tests {
         #[test]
         fn the_file_gets_the_servers_date() {
             let date = "Wed, 21 Oct 2015 07:28:00 GMT";
-            let behavior = Behavior {
-                last_modified: Some(date.into()),
-                ..Behavior::default()
-            };
+            let behavior = Behavior { last_modified: Some(date.into()), ..Behavior::default() };
             let server = TestServer::start_with(body(LEN), behavior);
             let dir = temp_dir("server_date");
             let mut req = request(&server.url, &dir, FileExists::Rename);
@@ -2456,7 +2398,8 @@ mod tests {
             // The creation time alone: the modified time stays the time it
             // was written, and where the system allows it the file was
             // "created" on the server's date.
-            let server = TestServer::start_with(body(LEN), Behavior { last_modified: Some(date.into()), ..Behavior::default() });
+            let server =
+                TestServer::start_with(body(LEN), Behavior { last_modified: Some(date.into()), ..Behavior::default() });
             let mut req = request(&server.url, &dir, FileExists::Rename);
             req.server_date_created = true;
             let path = download(|_| {}, req);
@@ -2474,10 +2417,7 @@ mod tests {
         fn a_form_post_is_sent_once_and_saved() {
             let data = body(LEN);
             let form = b"session=abc&file=report".to_vec();
-            let behavior = Behavior {
-                post_only_body: Some(form.clone()),
-                ..Behavior::default()
-            };
+            let behavior = Behavior { post_only_body: Some(form.clone()), ..Behavior::default() };
             let server = TestServer::start_with(data.clone(), behavior);
             let dir = temp_dir("post");
             let mut req = request(&server.url, &dir, FileExists::Rename);
@@ -2497,12 +2437,7 @@ mod tests {
         }
 
         fn login(site: &str, username: &str, password: &str) -> crate::net::Login {
-            crate::net::Login {
-                site: site.into(),
-                username: username.into(),
-                password: password.into(),
-                plain: true,
-            }
+            crate::net::Login { site: site.into(), username: username.into(), password: password.into(), plain: true }
         }
 
         /// Run one download and return its error.
@@ -2528,10 +2463,7 @@ mod tests {
         #[test]
         fn a_site_login_answers_a_401() {
             let data = body(LEN);
-            let behavior = Behavior {
-                basic_auth: Some("ann:pa ss".into()),
-                ..Behavior::default()
-            };
+            let behavior = Behavior { basic_auth: Some("ann:pa ss".into()), ..Behavior::default() };
             let server = TestServer::start_with(data.clone(), behavior);
             let dir = temp_dir("login");
 
@@ -2541,11 +2473,7 @@ mod tests {
             assert_eq!(err, "This site needs a login: 127.0.0.1 (realm: files)");
             assert_eq!(
                 login_wanted(&err),
-                Some(LoginWanted {
-                    host: "127.0.0.1".into(),
-                    realm: Some("files".into()),
-                    refused: false
-                })
+                Some(LoginWanted { host: "127.0.0.1".into(), realm: Some("files".into()), refused: false })
             );
             assert!(start.elapsed() < Duration::from_secs(3), "not retried");
 
@@ -2586,11 +2514,7 @@ mod tests {
             let b_url = b.url.replace("127.0.0.1", "localhost");
             let a = TestServer::start_with(
                 data.clone(),
-                Behavior {
-                    basic_auth: Some("ann:pw".into()),
-                    redirect_to: Some(b_url),
-                    ..Behavior::default()
-                },
+                Behavior { basic_auth: Some("ann:pw".into()), redirect_to: Some(b_url), ..Behavior::default() },
             );
             let dir = temp_dir("redirect");
             let mut req = request(&a.url, &dir, FileExists::Rename);
@@ -2703,7 +2627,13 @@ mod tests {
             let dir = temp_dir("refresh");
             let partial = dir.join("file.bin");
             fs::write(&partial, vec![0u8; LEN]).unwrap();
-            let mut m = Manifest::new("https://old/link".into(), LEN as u64, Some("\"v1\"".into()), None, &split(LEN as u64, 2));
+            let mut m = Manifest::new(
+                "https://old/link".into(),
+                LEN as u64,
+                Some("\"v1\"".into()),
+                None,
+                &split(LEN as u64, 2),
+            );
             m.segments[0].done = 1000;
             m.save(&Manifest::sidecar_path(&partial)).unwrap();
 
@@ -2743,10 +2673,8 @@ mod tests {
             let server = TestServer::start(body(LEN));
             let dir = temp_dir("limit");
             let start = Instant::now();
-            let path = download(
-                |e| e.set_speed_limit(Some(1024 * 1024)),
-                request(&server.url, &dir, FileExists::Rename),
-            );
+            let path =
+                download(|e| e.set_speed_limit(Some(1024 * 1024)), request(&server.url, &dir, FileExists::Rename));
             let secs = start.elapsed().as_secs_f64();
             assert_eq!(fs::read(&path).unwrap(), body(LEN));
             assert!((1.8..3.0).contains(&secs), "took {secs:.2}s, expected about 2s");

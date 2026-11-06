@@ -145,10 +145,9 @@ pub fn progress_bar(ui: &mut egui::Ui, bar: egui::ProgressBar) -> egui::Response
 fn fonts() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     let dir = std::env::var_os("WINDIR").map(|w| std::path::Path::new(&w).join("Fonts"));
-    for (name, file, family) in [
-        ("segoe-ui", "segoeui.ttf", FontFamily::Proportional),
-        ("consolas", "consola.ttf", FontFamily::Monospace),
-    ] {
+    for (name, file, family) in
+        [("segoe-ui", "segoeui.ttf", FontFamily::Proportional), ("consolas", "consola.ttf", FontFamily::Monospace)]
+    {
         let Some(bytes) = dir.as_ref().and_then(|d| std::fs::read(d.join(file)).ok()) else {
             continue;
         };

@@ -63,10 +63,7 @@ impl TestServer {
     pub fn start_files(files: HashMap<String, Vec<u8>>) -> TestServer {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let behavior = Behavior {
-            files: Some(Arc::new(files)),
-            ..Behavior::default()
-        };
+        let behavior = Behavior { files: Some(Arc::new(files)), ..Behavior::default() };
         Self::serve_on(listener, url, Vec::new(), behavior)
     }
 
@@ -90,12 +87,7 @@ impl TestServer {
                 });
             }
         });
-        TestServer {
-            url,
-            served,
-            auth_seen,
-            cookies_seen,
-        }
+        TestServer { url, served, auth_seen, cookies_seen }
     }
 }
 
@@ -146,12 +138,7 @@ fn serve(
         None => body,
         Some(files) => match files.get(path) {
             Some(b) => b,
-            None => {
-                return write!(
-                    stream,
-                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                )
-            }
+            None => return write!(stream, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
         },
     };
     let range = range.map(|(a, b)| (a, b.min((body.len() as u64).saturating_sub(1))));

@@ -200,14 +200,16 @@ pub fn project_login_target(start: &str, user: &str) -> String {
 
 /// The entry older versions kept one grabber password per site under.
 fn host_login_target(start: &str) -> String {
-    let host = Url::parse(start.trim()).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_default();
+    let host =
+        Url::parse(start.trim()).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_default();
     format!("UIDM/grabber/{host}")
 }
 
 /// The saved password of the grabber login `user` on the site of `start`,
 /// or the site's one saved by an older version.
 pub fn project_password(start: &str, user: &str) -> Option<String> {
-    crate::net::load_credential(&project_login_target(start, user)).or_else(|| crate::net::load_credential(&host_login_target(start)))
+    crate::net::load_credential(&project_login_target(start, user))
+        .or_else(|| crate::net::load_credential(&host_login_target(start)))
 }
 
 /// Where and how a crawl is saved for offline browsing.
@@ -284,13 +286,16 @@ impl Default for GrabRequest {
 
 impl GrabRequest {
     pub fn validate(&self) -> Result<(), String> {
-        let start = Url::parse(self.start.trim()).map_err(|_| "The start page must be a full web address.".to_string())?;
+        let start =
+            Url::parse(self.start.trim()).map_err(|_| "The start page must be a full web address.".to_string())?;
         if !matches!(start.scheme(), "http" | "https") {
             return Err("The start page must start with http:// or https://.".into());
         }
         let in_range = |v: u64, (lo, hi): (u64, u64)| (lo..=hi).contains(&v);
         let depth_range = (DEPTH_RANGE.0 as u64, DEPTH_RANGE.1 as u64);
-        if !in_range(self.depth as u64, depth_range) || self.other_depth.is_some_and(|d| !in_range(d as u64, depth_range)) {
+        if !in_range(self.depth as u64, depth_range)
+            || self.other_depth.is_some_and(|d| !in_range(d as u64, depth_range))
+        {
             return Err(format!("The depth must be between {} and {}.", DEPTH_RANGE.0, DEPTH_RANGE.1));
         }
         let at_once = (AT_ONCE_RANGE.0 as u64, AT_ONCE_RANGE.1 as u64);
@@ -298,7 +303,9 @@ impl GrabRequest {
             return Err(format!("Files at once must be between {} and {}.", AT_ONCE_RANGE.0, AT_ONCE_RANGE.1));
         }
         match &self.save_to {
-            SaveTo::Category(name) if name.trim().is_empty() => return Err("Choose the category to save the files in.".into()),
+            SaveTo::Category(name) if name.trim().is_empty() => {
+                return Err("Choose the category to save the files in.".into())
+            }
             SaveTo::Folder(folder) if !Path::new(folder.trim()).is_absolute() => {
                 return Err(format!("The folder to save the files in must be a full path: {folder}"));
             }
@@ -321,7 +328,8 @@ impl GrabRequest {
             return Err("Choose at least one file type to keep.".into());
         }
         if let Some(login) = &self.login_url {
-            let page = Url::parse(login.trim()).map_err(|_| "The login page must be a full web address.".to_string())?;
+            let page =
+                Url::parse(login.trim()).map_err(|_| "The login page must be a full web address.".to_string())?;
             if !matches!(page.scheme(), "http" | "https") {
                 return Err("The login page must start with http:// or https://.".into());
             }
@@ -377,10 +385,8 @@ fn glob(pattern: &str, text: &str) -> bool {
 /// One path part made safe for a Windows file name.
 fn safe_part(part: &str) -> String {
     let decoded = percent_encoding::percent_decode_str(part).decode_utf8_lossy();
-    let clean: String = decoded
-        .chars()
-        .map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c })
-        .collect();
+    let clean: String =
+        decoded.chars().map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c }).collect();
     let clean = clean.trim_end_matches(['.', ' ']).to_string();
     if clean.is_empty() || clean == "." || clean == ".." {
         "_".to_string()
@@ -440,7 +446,15 @@ fn relative_link(from: &Path, to: &Path) -> String {
 pub fn rewrite_links(html: &str, page: &Url, here: &Path, root: &Path, local: impl Fn(&Url) -> Option<bool>) -> String {
     let doc = Html::parse_document(html);
     let mut replacements: Vec<(String, String)> = Vec::new();
-    for (sel, attr) in [("a[href]", "href"), ("area[href]", "href"), ("img[src]", "src"), ("source[src]", "src"), ("iframe[src]", "src"), ("frame[src]", "src"), ("link[href]", "href")] {
+    for (sel, attr) in [
+        ("a[href]", "href"),
+        ("area[href]", "href"),
+        ("img[src]", "src"),
+        ("source[src]", "src"),
+        ("iframe[src]", "src"),
+        ("frame[src]", "src"),
+        ("link[href]", "href"),
+    ] {
         let Ok(s) = Selector::parse(sel) else { continue };
         for e in doc.select(&s) {
             let Some(value) = e.value().attr(attr) else { continue };
@@ -687,15 +701,12 @@ fn on_site(site: &str, subdomains: bool, url: &str) -> bool {
 /// and `login` (the login page site's cookies) on that site, joined when
 /// both apply. `None` when neither does, so no other host gets them.
 pub fn crawl_cookies(req: &GrabRequest, url: &str, start: Option<&str>, login: Option<&str>) -> Option<String> {
-    let parts: Vec<&str> = [
-        start.filter(|_| on_start_site(req, url)),
-        login.filter(|_| on_login_site(req, url)),
-    ]
-    .into_iter()
-    .flatten()
-    .map(str::trim)
-    .filter(|c| !c.is_empty())
-    .collect();
+    let parts: Vec<&str> = [start.filter(|_| on_start_site(req, url)), login.filter(|_| on_login_site(req, url))]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .collect();
     (!parts.is_empty()).then(|| parts.join("; "))
 }
 
@@ -1044,11 +1055,8 @@ const TEMPLATE_FILE: &str = "template.json";
 
 /// The file a project named `name` is kept in.
 fn project_file(dir: &Path, name: &str) -> PathBuf {
-    let safe: String = name
-        .trim()
-        .chars()
-        .map(|c| if c.is_alphanumeric() || " -_.()".contains(c) { c } else { '_' })
-        .collect();
+    let safe: String =
+        name.trim().chars().map(|c| if c.is_alphanumeric() || " -_.()".contains(c) { c } else { '_' }).collect();
     dir.join(format!("{}.project.json", safe.trim_matches('.')))
 }
 
@@ -1098,7 +1106,8 @@ impl Project {
     /// computer; read and checked as one from the projects folder is.
     pub fn load_file(path: &Path) -> io::Result<Project> {
         let bytes = fs::read(path)?;
-        let mut p: Project = serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut p: Project =
+            serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         if std::mem::take(&mut p.download_new) && p.run == RunAction::Explore {
             p.run = RunAction::ExploreAndDownload;
         }
@@ -1170,11 +1179,7 @@ pub fn template(dir: &Path) -> GrabRequest {
 }
 
 pub fn save_template(dir: &Path, req: &GrabRequest) -> io::Result<()> {
-    let req = GrabRequest {
-        start: String::new(),
-        login_cookies: None,
-        ..req.clone()
-    };
+    let req = GrabRequest { start: String::new(), login_cookies: None, ..req.clone() };
     let bytes = serde_json::to_vec_pretty(&req).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     crate::settings::write_atomic(&dir.join(TEMPLATE_FILE), &bytes)
 }
@@ -1240,10 +1245,7 @@ impl Filter {
 
 /// The filters a new installation starts with.
 pub fn default_filters() -> Vec<Filter> {
-    let f = |name: &str, mask: &str| Filter {
-        name: name.to_string(),
-        mask: mask.to_string(),
-    };
+    let f = |name: &str, mask: &str| Filter { name: name.to_string(), mask: mask.to_string() };
     vec![
         f("All files", "*.*"),
         f("Documents", "*.pdf;*.doc;*.docx;*.xls;*.xlsx;*.ppt;*.pptx;*.odt;*.txt"),
@@ -1259,10 +1261,7 @@ const FILTERS_FILE: &str = "filters.json";
 
 /// The saved filters, or the defaults before any were saved.
 pub fn load_filters(dir: &Path) -> Vec<Filter> {
-    fs::read(dir.join(FILTERS_FILE))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_else(default_filters)
+    fs::read(dir.join(FILTERS_FILE)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(default_filters)
 }
 
 pub fn save_filters(dir: &Path, filters: &[Filter]) -> io::Result<()> {
@@ -1309,12 +1308,7 @@ pub fn save_named_template(dir: &Path, name: &str, req: &GrabRequest) -> io::Res
     }
     let t = Template {
         name: name.to_string(),
-        request: GrabRequest {
-            start: String::new(),
-            login_user: None,
-            login_cookies: None,
-            ..req.clone()
-        },
+        request: GrabRequest { start: String::new(), login_user: None, login_cookies: None, ..req.clone() },
         built_in: false,
     };
     let bytes = serde_json::to_vec_pretty(&t).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -1392,11 +1386,7 @@ pub fn crawl(
     let at_once = req.explore_at_once.clamp(AT_ONCE_RANGE.0, AT_ONCE_RANGE.1) as usize;
 
     let mut robots: HashMap<String, Robots> = HashMap::new();
-    let mut queue: VecDeque<Queued> = VecDeque::from([Queued {
-        url: start.clone(),
-        depth: 0,
-        off_site: 0,
-    }]);
+    let mut queue: VecDeque<Queued> = VecDeque::from([Queued { url: start.clone(), depth: 0, off_site: 0 }]);
     let mut seen_pages: HashSet<String> = HashSet::from([start.to_string()]);
     let mut seen_files: HashSet<String> = HashSet::new();
     let mut first = true;
@@ -1474,10 +1464,7 @@ pub fn crawl(
             let Ok(page) = page else { continue };
             out.pages += 1;
             out.bytes += page.body.len() as u64;
-            let html = page
-                .content_type
-                .as_deref()
-                .is_none_or(|t| t.to_ascii_lowercase().contains("html"));
+            let html = page.content_type.as_deref().is_none_or(|t| t.to_ascii_lowercase().contains("html"));
             if html {
                 let here = Url::parse(&page.url).unwrap_or(url.clone());
                 let text = String::from_utf8_lossy(&page.body);
@@ -1673,8 +1660,12 @@ Crawl-delay: 2.5
                 content_type: Some("text/plain".into()),
                 body: b"User-agent: *\nDisallow: /secret/\n".to_vec(),
             }),
-            "https://s/" => html(r#"<a href="/a/">A</a><a href="/b/">B</a><a href="/secret/">S</a><a href="https://elsewhere/">E</a><a href="/top.pdf">t</a>"#),
-            "https://s/a/" => html(r#"<a href="one.pdf">1</a><a href="one.zip">z</a><a href="deep/">d</a><a href="/">home</a>"#),
+            "https://s/" => html(
+                r#"<a href="/a/">A</a><a href="/b/">B</a><a href="/secret/">S</a><a href="https://elsewhere/">E</a><a href="/top.pdf">t</a>"#,
+            ),
+            "https://s/a/" => {
+                html(r#"<a href="one.pdf">1</a><a href="one.zip">z</a><a href="deep/">d</a><a href="/">home</a>"#)
+            }
             "https://s/b/" => html(r#"<a href="two.pdf">2</a><a href="https://cdn.s/three%20x.pdf">3</a>"#),
             "https://s/a/deep/" => html(r#"<a href="four.pdf">4</a>"#),
             "https://s/secret/" => html(r#"<a href="hidden.pdf">h</a>"#),
@@ -1684,11 +1675,7 @@ Crawl-delay: 2.5
     }
 
     fn request(depth: u32) -> GrabRequest {
-        GrabRequest {
-            start: "https://s/".into(),
-            depth,
-            ..GrabRequest::default()
-        }
+        GrabRequest { start: "https://s/".into(), depth, ..GrabRequest::default() }
     }
 
     #[test]
@@ -1734,23 +1721,24 @@ Crawl-delay: 2.5
 
     #[test]
     fn budgets_and_cancel_stop_a_crawl() {
-        let out = crawl(
-            &GrabRequest { max_pages: 2, ..request(3) },
-            site,
-            |_| None,
-            |_| {},
-            &AtomicBool::new(false),
-            |_| {},
-        );
+        let out =
+            crawl(&GrabRequest { max_pages: 2, ..request(3) }, site, |_| None, |_| {}, &AtomicBool::new(false), |_| {});
         assert_eq!(out.pages, 2);
         assert!(out.stopped.unwrap().contains("2 pages"));
 
         let cancel = AtomicBool::new(false);
-        let out = crawl(&request(3), site, |_| None, |_| {}, &cancel, |o| {
-            if o.pages == 1 {
-                cancel.store(true, Ordering::Relaxed);
-            }
-        });
+        let out = crawl(
+            &request(3),
+            site,
+            |_| None,
+            |_| {},
+            &cancel,
+            |o| {
+                if o.pages == 1 {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+            },
+        );
         assert_eq!(out.pages, 1);
         assert_eq!(out.stopped.as_deref(), Some("Stopped."));
     }
@@ -1777,14 +1765,22 @@ Crawl-delay: 2.5
         assert_eq!(one.pages, many.pages);
         // robots.txt, then /, then /a/ and /b/ together, then /a/deep/.
         assert_eq!(*waits.borrow(), 3, "one wait per batch of pages");
-        let budget = crawl(&GrabRequest { explore_at_once: 5, max_pages: 2, ..request(2) }, site, |_| None, |_| {}, &none, |_| {});
+        let budget = crawl(
+            &GrabRequest { explore_at_once: 5, max_pages: 2, ..request(2) },
+            site,
+            |_| None,
+            |_| {},
+            &none,
+            |_| {},
+        );
         assert_eq!(budget.pages, 2, "a batch stays within the page budget");
     }
 
     #[test]
     fn types_skipped_types_link_texts_and_this_site_only() {
         let none = AtomicBool::new(false);
-        let every = GrabRequest { types: vec!["*".into()], skip_types: vec!["zip".into()], link_text: true, ..request(1) };
+        let every =
+            GrabRequest { types: vec!["*".into()], skip_types: vec!["zip".into()], link_text: true, ..request(1) };
         let out = crawl(&every, site, |_| None, |_| {}, &none, |_| {});
         let names: Vec<&str> = out.files.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names, ["top.pdf", "one.pdf", "two.pdf", "three x.pdf"], "every type but zip, and no pages");
@@ -1840,7 +1836,10 @@ Crawl-delay: 2.5
         let json = serde_json::to_string(&SaveTo::Folder("D:\\x".into())).unwrap();
         assert_eq!(json, r#"{"to":"folder","name":"D:\\x"}"#);
         let old: GrabRequest = serde_json::from_str(r#"{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000}"#).unwrap();
-        assert_eq!((old.explore_at_once, old.download_at_once, old.ignore_popups, old.save_to), (1, 3, true, SaveTo::Categories));
+        assert_eq!(
+            (old.explore_at_once, old.download_at_once, old.ignore_popups, old.save_to),
+            (1, 3, true, SaveTo::Categories)
+        );
     }
 
     #[test]
@@ -1870,11 +1869,17 @@ Crawl-delay: 2.5
         }
         assert!(name_matches(&mask_entry(".tar.gz"), "src-1.0.tar.gz"));
         let masks = |m: &str| Filter { name: "x".into(), mask: m.into() }.types();
-        assert_eq!(add_masks("pdf, zip", &masks("*.jpg;*.PDF;photo_*.png")), "pdf, zip, jpg, photo_*.png", "added, without repeats");
+        assert_eq!(
+            add_masks("pdf, zip", &masks("*.jpg;*.PDF;photo_*.png")),
+            "pdf, zip, jpg, photo_*.png",
+            "added, without repeats"
+        );
         assert_eq!(add_masks("", &masks("*.gif")), "gif");
         assert_eq!(add_masks("*.pdf; pdf", &[]), "pdf");
         let none = AtomicBool::new(false);
-        let names = |req: &GrabRequest| -> Vec<String> { crawl(req, site, |_| None, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect() };
+        let names = |req: &GrabRequest| -> Vec<String> {
+            crawl(req, site, |_| None, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect()
+        };
         // Only the name mask keeps a file: `one.zip` is not a pdf.
         assert_eq!(names(&GrabRequest { types: vec!["ONE.*".into()], ..request(1) }), ["one.pdf", "one.zip"]);
         // Bare extensions and `*.` masks still keep by type, as old projects saved them.
@@ -1896,10 +1901,21 @@ Crawl-delay: 2.5
         let out = crawl(&skip_b, site, |_| None, |_| {}, &none, |_| {});
         assert!(!out.files.iter().any(|f| f.name == "two.pdf"), "/b/ was not explored");
         let only_one = GrabRequest { files_only: vec!["one".into()], ..request(1) };
-        let names: Vec<String> = crawl(&only_one, site, |_| None, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect();
+        let names: Vec<String> =
+            crawl(&only_one, site, |_| None, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect();
         assert_eq!(names, ["one.pdf"]);
-        let out = crawl(&GrabRequest { start: "https://s/a/".into(), no_parent: true, ..request(2) }, site, |_| None, |_| {}, &none, |_| {});
-        assert!(out.files.iter().any(|f| f.name == "four.pdf") && !out.files.iter().any(|f| f.name == "two.pdf"), "stays below /a/");
+        let out = crawl(
+            &GrabRequest { start: "https://s/a/".into(), no_parent: true, ..request(2) },
+            site,
+            |_| None,
+            |_| {},
+            &none,
+            |_| {},
+        );
+        assert!(
+            out.files.iter().any(|f| f.name == "four.pdf") && !out.files.iter().any(|f| f.name == "two.pdf"),
+            "stays below /a/"
+        );
     }
 
     #[test]
@@ -1914,7 +1930,8 @@ Crawl-delay: 2.5
             }
         };
         let req = GrabRequest { min_size: Some(100), max_size: Some(1000), ..request(1) };
-        let names: Vec<String> = crawl(&req, site, sizes, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect();
+        let names: Vec<String> =
+            crawl(&req, site, sizes, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect();
         assert_eq!(names, ["one.pdf", "three x.pdf"], "unknown sizes stay");
 
         // The same name and size at two addresses shows once.
@@ -1933,19 +1950,26 @@ Crawl-delay: 2.5
 
     #[test]
     fn logout_pages_are_skipped_by_default() {
-        let out = crawl(&request(1), |u| {
-            if u == "https://s/" {
-                Ok(Page {
-                    url: u.into(),
-                    content_type: Some("text/html".into()),
-                    body: br#"<a href="/account/logout">out</a><a href="/a/">a</a>"#.to_vec(),
-                })
-            } else if u.contains("logout") {
-                panic!("opened the logout page");
-            } else {
-                site(u)
-            }
-        }, |_| None, |_| {}, &AtomicBool::new(false), |_| {});
+        let out = crawl(
+            &request(1),
+            |u| {
+                if u == "https://s/" {
+                    Ok(Page {
+                        url: u.into(),
+                        content_type: Some("text/html".into()),
+                        body: br#"<a href="/account/logout">out</a><a href="/a/">a</a>"#.to_vec(),
+                    })
+                } else if u.contains("logout") {
+                    panic!("opened the logout page");
+                } else {
+                    site(u)
+                }
+            },
+            |_| None,
+            |_| {},
+            &AtomicBool::new(false),
+            |_| {},
+        );
         assert!(out.pages >= 2);
         assert!(on_start_site(&request(1), "https://s/a/"));
         assert!(!on_start_site(&request(1), "https://cdn.s/a"));
@@ -1961,7 +1985,13 @@ Crawl-delay: 2.5
         let p = Project {
             name: "Docs: manuals".into(),
             request: GrabRequest { depth: 3, ..request(1) },
-            files: vec![GrabFile { url: "https://s/a.pdf".into(), name: "a.pdf".into(), page: "https://s/".into(), size: None, text: None }],
+            files: vec![GrabFile {
+                url: "https://s/a.pdf".into(),
+                name: "a.pdf".into(),
+                page: "https://s/".into(),
+                size: None,
+                text: None,
+            }],
             checked: vec![false],
             schedule: None,
             run: RunAction::Explore,
@@ -2056,7 +2086,13 @@ Crawl-delay: 2.5
         assert!(unsaved(&started, None), "never saved");
         assert!(!unsaved(&started, Some(&started)));
         let crawled = Project {
-            files: vec![GrabFile { url: "https://s/a.pdf".into(), name: "a.pdf".into(), page: "https://s/".into(), size: None, text: None }],
+            files: vec![GrabFile {
+                url: "https://s/a.pdf".into(),
+                name: "a.pdf".into(),
+                page: "https://s/".into(),
+                size: None,
+                text: None,
+            }],
             checked: vec![true],
             ..started.clone()
         };
@@ -2117,7 +2153,13 @@ Crawl-delay: 2.5
 
     #[test]
     fn a_run_adds_only_what_earlier_runs_did_not_find() {
-        let file = |u: &str| GrabFile { url: u.into(), name: u.rsplit('/').next().unwrap().into(), page: "https://s/".into(), size: None, text: None };
+        let file = |u: &str| GrabFile {
+            url: u.into(),
+            name: u.rsplit('/').next().unwrap().into(),
+            page: "https://s/".into(),
+            size: None,
+            text: None,
+        };
         let mut p: Project = serde_json::from_str(r#"{"name":"p","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000}}"#).unwrap();
         assert_eq!(p.queue, crate::queue::MAIN_QUEUE, "an older project file loads");
         let first = p.record_run(vec![file("https://s/a.pdf"), file("https://s/b.pdf")]);
@@ -2130,7 +2172,13 @@ Crawl-delay: 2.5
 
     #[test]
     fn a_synchronizing_project_checks_what_earlier_runs_found() {
-        let file = |u: &str| GrabFile { url: u.into(), name: u.rsplit('/').next().unwrap().into(), page: "https://s/".into(), size: None, text: None };
+        let file = |u: &str| GrabFile {
+            url: u.into(),
+            name: u.rsplit('/').next().unwrap().into(),
+            page: "https://s/".into(),
+            size: None,
+            text: None,
+        };
         let mut p: Project = serde_json::from_str(r#"{"name":"p","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000},"run":"explore_and_download"}"#).unwrap();
         assert_eq!(p.kind, crate::queue::QueueKind::OneTime, "an older project file is one-time");
         p.record_run(vec![file("https://s/a.pdf"), file("https://s/b.pdf")]);
@@ -2173,17 +2221,27 @@ Crawl-delay: 2.5
         assert!(out.contains(r#"src="pic.png""#), "not a kept type: untouched");
         assert!(out.contains(r##"href="index.html#part""##));
 
-        let file = GrabFile { url: "https://s/docs/guide.pdf".into(), name: "guide.pdf".into(), page: page.to_string(), size: None, text: None };
+        let file = GrabFile {
+            url: "https://s/docs/guide.pdf".into(),
+            name: "guide.pdf".into(),
+            page: page.to_string(),
+            size: None,
+            text: None,
+        };
         let settings = crate::settings::Settings::default();
         let dir = std::env::temp_dir().join(format!("uidm_mirror_{}", std::process::id()));
-        let mirrored = GrabRequest { mirror: Some(Mirror { folder: dir.display().to_string(), pages: true, overwrite: false }), ..req.clone() };
+        let mirrored = GrabRequest {
+            mirror: Some(Mirror { folder: dir.display().to_string(), pages: true, overwrite: false }),
+            ..req.clone()
+        };
         let d = download_for(&mirrored, &file, &settings, None).unwrap();
         assert_eq!(d.folder.as_deref(), Some(dir.join("s").join("docs").display().to_string().as_str()));
         assert_eq!(d.filename.as_deref(), Some("guide.pdf"));
         std::fs::create_dir_all(dir.join("s").join("docs")).unwrap();
         std::fs::write(dir.join("s").join("docs").join("guide.pdf"), b"x").unwrap();
         assert!(download_for(&mirrored, &file, &settings, None).is_none(), "an existing file is skipped");
-        let replace = GrabRequest { mirror: Some(Mirror { overwrite: true, ..mirrored.mirror.clone().unwrap() }), ..req.clone() };
+        let replace =
+            GrabRequest { mirror: Some(Mirror { overwrite: true, ..mirrored.mirror.clone().unwrap() }), ..req.clone() };
         assert!(download_for(&replace, &file, &settings, None).is_some());
         assert_eq!(download_for(&req, &file, &settings, None).unwrap().folder, None, "no mirror: the category decides");
         let _ = std::fs::remove_dir_all(&dir);
@@ -2213,7 +2271,11 @@ Crawl-delay: 2.5
         assert_eq!(both("https://docs.example.com/guide/x"), Some("a=1".into()), "the start site gets its own");
         assert_eq!(both("https://cdn.other.net/x"), None, "another host gets none");
         assert_eq!(both("https://evil.example.com.other.net/"), None);
-        assert_eq!(crawl_cookies(&req, "https://shop.example.com/", None, Some("s=2")), None, "not a subdomain without the option");
+        assert_eq!(
+            crawl_cookies(&req, "https://shop.example.com/", None, Some("s=2")),
+            None,
+            "not a subdomain without the option"
+        );
         let wide = GrabRequest { subdomains: true, ..req.clone() };
         assert_eq!(crawl_cookies(&wide, "https://shop.example.com/", None, Some("s=2")), Some("s=2".into()));
         // One site for both: the cookies are joined.
@@ -2240,7 +2302,10 @@ Crawl-delay: 2.5
         let back: GrabRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back, req);
         // Sealed elsewhere: dropped, not an error.
-        let foreign = json.replace(&json[json.find("\"login_cookies\":\"").unwrap() + 17..].split('"').next().unwrap().to_string(), "AAAA");
+        let foreign = json.replace(
+            &json[json.find("\"login_cookies\":\"").unwrap() + 17..].split('"').next().unwrap().to_string(),
+            "AAAA",
+        );
         let back: GrabRequest = serde_json::from_str(&foreign).unwrap();
         assert_eq!(back.login_cookies, None);
         // Templates never keep them.
@@ -2259,7 +2324,11 @@ Crawl-delay: 2.5
         let at = |u: &str| relative_subfolder(start, &Url::parse(u).unwrap());
         assert_eq!(at("https://s/docs/a.pdf"), PathBuf::new());
         assert_eq!(at("https://s/docs/v1/en/a.pdf"), Path::new("v1").join("en"));
-        assert_eq!(at("https://s/other/a.pdf"), Path::new("s").join("other"), "outside the start folder: host and path");
+        assert_eq!(
+            at("https://s/other/a.pdf"),
+            Path::new("s").join("other"),
+            "outside the start folder: host and path"
+        );
         assert_eq!(at("https://cdn.net/x/a.pdf"), Path::new("cdn.net").join("x"));
         let root = std::env::temp_dir().join("uidm-grab-sub");
         let settings = crate::settings::Settings {
@@ -2303,7 +2372,13 @@ Crawl-delay: 2.5
             login_url: Some("https://example.com/login".into()),
             ..GrabRequest::default()
         };
-        let file = |url: &str| GrabFile { url: url.into(), name: "a.pdf".into(), page: req.start.clone(), size: None, text: None };
+        let file = |url: &str| GrabFile {
+            url: url.into(),
+            name: "a.pdf".into(),
+            page: req.start.clone(),
+            size: None,
+            text: None,
+        };
         let cookies = |url: &str| download_for(&req, &file(url), &settings, Some("s=2")).unwrap().cookies;
         assert_eq!(cookies("https://example.com/files/a.pdf"), Some("s=2".into()));
         assert_eq!(cookies("https://docs.example.com/a.pdf"), None, "the start site is another host");

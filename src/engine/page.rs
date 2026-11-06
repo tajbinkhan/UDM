@@ -14,7 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use super::{choose_output, http, stream, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved, Shared};
+use super::{
+    choose_output, http, stream, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved, Shared,
+};
 use crate::media::ytdlp::{self, DONE_TAG, PROGRESS_TEMPLATE};
 use crate::media::MediaChoice;
 
@@ -300,9 +302,12 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let (tx, rx) = mpsc::channel();
         let tx = Mutex::new(tx);
-        let engine = Engine::new(Arc::new(move |p: Progress| {
-            let _ = tx.lock().unwrap().send(p);
-        }), 1);
+        let engine = Engine::new(
+            Arc::new(move |p: Progress| {
+                let _ = tx.lock().unwrap().send(p);
+            }),
+            1,
+        );
         engine.enqueue(DownloadRequest {
             url: url.into(),
             folders: Folders::fixed(dir.clone()),

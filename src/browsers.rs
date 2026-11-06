@@ -88,10 +88,8 @@ pub const BROWSERS: [Browser; 5] = [
 /// Chromium browsers that read Chrome's registration instead of keeping
 /// their own, with their profile folders.
 #[cfg(windows)]
-pub const READ_CHROMES: [(&str, (&str, &str)); 2] = [
-    ("Vivaldi", ("LOCALAPPDATA", r"Vivaldi\User Data")),
-    ("Opera", ("APPDATA", r"Opera Software\Opera Stable")),
-];
+pub const READ_CHROMES: [(&str, (&str, &str)); 2] =
+    [("Vivaldi", ("LOCALAPPDATA", r"Vivaldi\User Data")), ("Opera", ("APPDATA", r"Opera Software\Opera Stable"))];
 
 #[cfg(all(unix, not(target_os = "macos")))]
 pub const BROWSERS: [Browser; 6] = [
@@ -190,7 +188,8 @@ pub const BROWSERS: [Browser; 6] = [
 #[cfg(all(unix, not(target_os = "macos")))]
 pub const READ_CHROMES: [(&str, (&str, &str)); 1] = [("Opera", ("HOME", ".config/opera"))];
 #[cfg(target_os = "macos")]
-pub const READ_CHROMES: [(&str, (&str, &str)); 1] = [("Opera", ("HOME", "Library/Application Support/com.operasoftware.Opera"))];
+pub const READ_CHROMES: [(&str, (&str, &str)); 1] =
+    [("Opera", ("HOME", "Library/Application Support/com.operasoftware.Opera"))];
 
 fn profile_exists((var, path): (&str, &str)) -> bool {
     std::env::var_os(var).is_some_and(|base| Path::new(&base).join(path).is_dir())
@@ -245,7 +244,8 @@ const FIREFOX_NAMES: [&str; 9] =
     ["firefox", "librewolf", "waterfox", "floorp", "zen", "mullvad", "palemoon", "seamonkey", "tor browser"];
 /// The words in program names of the Chromium family.
 const CHROMIUM_NAMES: [&str; 12] = [
-    "chrome", "msedge", "edge", "brave", "vivaldi", "opera", "chromium", "yandex", "browser", "thorium", "cromite", "iron",
+    "chrome", "msedge", "edge", "brave", "vivaldi", "opera", "chromium", "yandex", "browser", "thorium", "cromite",
+    "iron",
 ];
 
 /// The family of the browser at `program`, told from its program's name,
@@ -464,7 +464,10 @@ pub fn restart(plan: &RestartPlan) -> io::Result<()> {
         if !closed_within(plan, CLOSE_WAIT) {
             command(&plan.force).output()?;
             if !closed_within(plan, FORCE_WAIT) {
-                return Err(io::Error::new(io::ErrorKind::TimedOut, "it did not close; close it yourself and start it again"));
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "it did not close; close it yourself and start it again",
+                ));
             }
         }
     }
@@ -536,10 +539,7 @@ impl Registrar {
     /// `b`'s manifest, pointing at the host.
     fn manifest(&self, b: &Browser) -> io::Result<Vec<u8>> {
         if !self.host.is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("{} is missing", self.host.display()),
-            ));
+            return Err(io::Error::new(io::ErrorKind::NotFound, format!("{} is missing", self.host.display())));
         }
         let allowed = if b.firefox {
             serde_json::json!({ "allowed_extensions": [FIREFOX_EXTENSION_ID] })
@@ -563,7 +563,8 @@ impl Registrar {
         let path = registry::get_string(&self.key(b), "").ok().flatten().map(PathBuf::from);
         #[cfg(not(windows))]
         let path = Some(self.manifest_path(b));
-        let manifest = path.and_then(|p| std::fs::read(p).ok()).and_then(|m| serde_json::from_slice::<serde_json::Value>(&m).ok());
+        let manifest =
+            path.and_then(|p| std::fs::read(p).ok()).and_then(|m| serde_json::from_slice::<serde_json::Value>(&m).ok());
         manifest.is_some_and(|m| m["path"] == self.host.display().to_string())
     }
 
@@ -673,7 +674,10 @@ mod tests {
         assert_eq!(target("/usr/bin/thorium-browser"), Some(("Google Chrome", false)));
         assert_eq!(target("/usr/bin/gimp"), None);
         assert_eq!(display_name(Path::new("/usr/bin/thorium-browser")), "Thorium Browser");
-        assert_eq!(display_name(Path::new("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")), "Google Chrome");
+        assert_eq!(
+            display_name(Path::new("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")),
+            "Google Chrome"
+        );
     }
 
     #[test]
@@ -691,7 +695,11 @@ mod tests {
         assert_eq!(mac.check, ["osascript", "-e", "application \"Google Chrome\" is running"]);
         assert_eq!(mac.running, "true");
         assert_eq!(mac.launch, ["open", "-a", "Google Chrome"]);
-        let bundled = restart_plan(Os::MacOs, "floorp", Launch::File(Path::new("/Applications/Floorp.app/Contents/MacOS/floorp")));
+        let bundled = restart_plan(
+            Os::MacOs,
+            "floorp",
+            Launch::File(Path::new("/Applications/Floorp.app/Contents/MacOS/floorp")),
+        );
         assert_eq!(bundled.close[2], "tell application \"Floorp\" to quit");
         assert_eq!(bundled.launch, ["open", "-a", "/Applications/Floorp.app"]);
 
@@ -701,7 +709,8 @@ mod tests {
         assert_eq!(linux.check, ["pgrep", "-l", "-x", "chrome"]);
         assert_eq!(linux.launch, ["google-chrome"]);
         // The kernel keeps 15 bytes of a process's name.
-        let long = restart_plan(Os::Linux, "thorium-browser-avx2", Launch::File(Path::new("/opt/thorium-browser-avx2")));
+        let long =
+            restart_plan(Os::Linux, "thorium-browser-avx2", Launch::File(Path::new("/opt/thorium-browser-avx2")));
         assert_eq!(long.close[3], "thorium-browser");
         assert_eq!(long.launch, ["/opt/thorium-browser-avx2"]);
     }
@@ -720,11 +729,13 @@ mod tests {
         r.register(&firefox).unwrap();
         assert!(r.registered(&chrome) && r.registered(&firefox));
         let manifest: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(dir.join(chrome.hosts_key).join("com.uidm.host.json")).unwrap()).unwrap();
+            serde_json::from_slice(&std::fs::read(dir.join(chrome.hosts_key).join("com.uidm.host.json")).unwrap())
+                .unwrap();
         assert_eq!(manifest["path"], host.display().to_string());
         assert_eq!(manifest["allowed_origins"][0], format!("chrome-extension://{CHROMIUM_EXTENSION_ID}/"));
         let fx: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(dir.join(firefox.hosts_key).join("com.uidm.host.json")).unwrap()).unwrap();
+            serde_json::from_slice(&std::fs::read(dir.join(firefox.hosts_key).join("com.uidm.host.json")).unwrap())
+                .unwrap();
         assert_eq!(fx["allowed_extensions"][0], FIREFOX_EXTENSION_ID);
         assert!(r.points_here(&chrome));
         let moved = Registrar::new(&dir.display().to_string(), dir.clone(), dir.join("elsewhere"));

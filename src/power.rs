@@ -32,7 +32,9 @@ pub fn perform(action: WhenDone, force_close: bool) -> io::Result<()> {
     };
     // System32's own copy, not one found on the PATH.
     #[cfg(windows)]
-    let path = std::path::PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into())).join("System32").join(program);
+    let path = std::path::PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()))
+        .join("System32")
+        .join(program);
     #[cfg(not(windows))]
     let path = program;
     let status = Command::new(path).args(&args).status()?;

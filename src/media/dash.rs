@@ -143,7 +143,10 @@ struct Context<'a> {
     duration: Option<f64>,
 }
 
-fn template_track<'a>(levels: &[Option<Node<'a, '_>>], cx: &Context) -> Result<(Option<Segment>, Vec<Segment>), String> {
+fn template_track<'a>(
+    levels: &[Option<Node<'a, '_>>],
+    cx: &Context,
+) -> Result<(Option<Segment>, Vec<Segment>), String> {
     let media = inherited(levels, "media").ok_or("a segment template has no media pattern")?;
     let timescale: u64 = inherited(levels, "timescale").and_then(|t| t.parse().ok()).unwrap_or(1).max(1);
     let start_number: u64 = inherited(levels, "startNumber").and_then(|n| n.parse().ok()).unwrap_or(1);
@@ -236,7 +239,8 @@ fn base_of(node: Node, base: &str) -> Result<String, String> {
 
 /// Read a manifest fetched from `url`.
 pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
-    let doc = Document::parse(text.trim_start_matches('\u{feff}')).map_err(|e| format!("The manifest is not valid XML: {e}"))?;
+    let doc = Document::parse(text.trim_start_matches('\u{feff}'))
+        .map_err(|e| format!("The manifest is not valid XML: {e}"))?;
     let mpd = doc.root_element();
     if mpd.tag_name().name() != "MPD" {
         return Err("This is not a DASH manifest.".into());
@@ -263,10 +267,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
 
     let mpd_base = base_of(mpd, url)?;
     let period_base = base_of(period, &mpd_base)?;
-    let mut manifest = Manifest {
-        duration,
-        ..Manifest::default()
-    };
+    let mut manifest = Manifest { duration, ..Manifest::default() };
     for set in children(period, "AdaptationSet") {
         let set_mime = set.attribute("mimeType").unwrap_or("");
         let set_base = base_of(set, &period_base)?;
@@ -281,12 +282,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
             };
             let id = rep.attribute("id").unwrap_or("").to_string();
             let bandwidth = rep.attribute("bandwidth").and_then(|b| b.parse().ok());
-            let cx = Context {
-                base: base_of(rep, &set_base)?,
-                id: &id,
-                bandwidth: bandwidth.unwrap_or(0),
-                duration,
-            };
+            let cx = Context { base: base_of(rep, &set_base)?, id: &id, bandwidth: bandwidth.unwrap_or(0), duration };
             let level = |name: &str| [child(period, name), child(set, name), child(rep, name)];
             let templates = level("SegmentTemplate");
             let list = child(rep, "SegmentList").or_else(|| child(set, "SegmentList"));
@@ -310,13 +306,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
                 height: rep.attribute("height").or(set.attribute("height")).and_then(|h| h.parse().ok()),
                 language: set.attribute("lang").map(str::to_string),
                 drm: set_drm || child(rep, "ContentProtection").is_some(),
-                track: parts.map(|(init, segments)| Track {
-                    init,
-                    segments,
-                    ext,
-                    duration,
-                    hds_header: None,
-                }),
+                track: parts.map(|(init, segments)| Track { init, segments, ext, duration, hds_header: None }),
                 id,
             };
             match content {
@@ -359,7 +349,10 @@ pub fn describe(m: &Manifest) -> MediaInfo {
     let error = if drm {
         Some(DRM_REFUSED.to_string())
     } else if video.is_empty() && audio.is_empty() {
-        all.filter_map(|r| r.track.as_ref().err()).next().cloned().or(Some("Nothing in this manifest can be downloaded.".into()))
+        all.filter_map(|r| r.track.as_ref().err())
+            .next()
+            .cloned()
+            .or(Some("Nothing in this manifest can be downloaded.".into()))
     } else {
         None
     };

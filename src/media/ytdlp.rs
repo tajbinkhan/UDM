@@ -107,7 +107,8 @@ pub fn find(ffmpeg: Option<&Path>) -> Option<PathBuf> {
 fn common_args(cmd: &mut Command, proxy: Option<&str>) {
     cmd.args(["--no-playlist", "--no-warnings", "--no-color", "--ignore-config"]);
     let on_path = |name: &str| {
-        std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(crate::platform::exe_name(name)).is_file()))
+        std::env::var_os("PATH")
+            .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(crate::platform::exe_name(name)).is_file()))
     };
     if !on_path("deno") && on_path("node") {
         cmd.args(["--js-runtimes", "node"]);
@@ -144,7 +145,12 @@ pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>) -> MediaInfo {
     let out = command(yt_dlp, proxy).args(["-J", "--"]).arg(url).stdout(Stdio::piped()).stderr(Stdio::piped()).output();
     let out = match out {
         Ok(o) => o,
-        Err(e) => return MediaInfo::failed(Some(MediaKind::Page), format!("could not run yt-dlp ({}): {e}", yt_dlp.display())),
+        Err(e) => {
+            return MediaInfo::failed(
+                Some(MediaKind::Page),
+                format!("could not run yt-dlp ({}): {e}", yt_dlp.display()),
+            )
+        }
     };
     if !out.status.success() {
         return MediaInfo::failed(Some(MediaKind::Page), complaint(&String::from_utf8_lossy(&out.stderr)));
@@ -224,18 +230,18 @@ impl<'a> Format<'a> {
 /// and the sound per language, best first.
 pub fn describe(v: &Value) -> MediaInfo {
     let page = Some(MediaKind::Page);
-    if v.get("is_live").and_then(Value::as_bool) == Some(true) || v.get("live_status").and_then(Value::as_str) == Some("is_upcoming") {
+    if v.get("is_live").and_then(Value::as_bool) == Some(true)
+        || v.get("live_status").and_then(Value::as_str) == Some("is_upcoming")
+    {
         return MediaInfo::failed(page, LIVE_REFUSED.into());
     }
     let duration = v.get("duration").and_then(Value::as_f64);
-    let all: Vec<Format> = v.get("formats").and_then(Value::as_array).into_iter().flatten().filter_map(Format::read).collect();
+    let all: Vec<Format> =
+        v.get("formats").and_then(Value::as_array).into_iter().flatten().filter_map(Format::read).collect();
     if all.is_empty() {
         let drm = v.get("formats").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
         let error = if drm { super::DRM_REFUSED } else { "yt-dlp found no video on this page." };
-        return MediaInfo {
-            drm,
-            ..MediaInfo::failed(page, error.into())
-        };
+        return MediaInfo { drm, ..MediaInfo::failed(page, error.into()) };
     }
 
     // The sound: the best of each language, the original language first.
@@ -456,7 +462,9 @@ mod tests {
     fn live_and_empty_pages_are_refused() {
         let live = describe(&serde_json::json!({"is_live": true, "formats": []}));
         assert_eq!(live.error.as_deref(), Some(LIVE_REFUSED));
-        let drm = describe(&serde_json::json!({"formats": [{"format_id": "1", "vcodec": "avc1", "acodec": "none", "has_drm": true}]}));
+        let drm = describe(
+            &serde_json::json!({"formats": [{"format_id": "1", "vcodec": "avc1", "acodec": "none", "has_drm": true}]}),
+        );
         assert!(drm.drm);
     }
 
@@ -468,13 +476,16 @@ mod tests {
             audio: audio.map(String::from),
             audio_only: None,
         };
-        assert_eq!(format_spec(&pick(Some("137"), None), true), "137+bestaudio[ext=m4a]/137+bestaudio/137/bestvideo*+bestaudio/best");
-        assert_eq!(format_spec(&pick(Some("137"), Some("140-1")), true), "137+140-1/137+bestaudio/137/bestvideo*+bestaudio/best");
+        assert_eq!(
+            format_spec(&pick(Some("137"), None), true),
+            "137+bestaudio[ext=m4a]/137+bestaudio/137/bestvideo*+bestaudio/best"
+        );
+        assert_eq!(
+            format_spec(&pick(Some("137"), Some("140-1")), true),
+            "137+140-1/137+bestaudio/137/bestvideo*+bestaudio/best"
+        );
         assert_eq!(format_spec(&pick(Some("137"), None), false), "best[ext=mp4]/best");
-        let sound = MediaChoice {
-            audio_only: Some(super::super::convert::Target::Mp3),
-            ..pick(None, Some("140"))
-        };
+        let sound = MediaChoice { audio_only: Some(super::super::convert::Target::Mp3), ..pick(None, Some("140")) };
         assert_eq!(format_spec(&sound, true), "140/bestaudio[ext=m4a]/bestaudio/best");
     }
 

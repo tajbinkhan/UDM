@@ -117,28 +117,15 @@ pub struct Ticked {
 }
 
 fn item(text: &str, command: Command, enabled: bool) -> Node {
-    Node::Item {
-        text: text.to_string(),
-        command,
-        enabled,
-        checked: None,
-    }
+    Node::Item { text: text.to_string(), command, enabled, checked: None }
 }
 
 fn check(text: &str, command: Command, enabled: bool, checked: bool) -> Node {
-    Node::Item {
-        text: text.to_string(),
-        command,
-        enabled,
-        checked: Some(checked),
-    }
+    Node::Item { text: text.to_string(), command, enabled, checked: Some(checked) }
 }
 
 fn menu(text: &str, children: Vec<Node>) -> Node {
-    Node::Menu {
-        text: text.to_string(),
-        children,
-    }
+    Node::Menu { text: text.to_string(), children }
 }
 
 /// The menus for `s`. `&` marks the Alt key letter.
@@ -156,7 +143,12 @@ pub fn model(s: &State) -> Vec<Node> {
     // The drop target is only on Windows (see `droptarget`).
     if cfg!(windows) {
         tasks.push(Node::Separator);
-        tasks.push(check(tr("Show &drop target"), Command::ToggleDropTarget, set.is_some(), checked(|c| c.drop_target)));
+        tasks.push(check(
+            tr("Show &drop target"),
+            Command::ToggleDropTarget,
+            set.is_some(),
+            checked(|c| c.drop_target),
+        ));
     }
     tasks.extend([
         Node::Separator,
@@ -214,10 +206,7 @@ pub fn model(s: &State) -> Vec<Node> {
     ];
 
     let arrange = |text: &str, column: Option<Column>| {
-        let sort = column.map(|column| Sort {
-            column,
-            descending: false,
-        });
+        let sort = column.map(|column| Sort { column, descending: false });
         let current = s.sort.map(|x| x.column) == column;
         check(text, Command::Arrange(sort), true, current)
     };
@@ -377,14 +366,7 @@ mod native_bar {
     }
 
     pub fn attach(hwnd: isize) {
-        BAR.with(|b| {
-            *b.borrow_mut() = Some(Bar {
-                hwnd,
-                model: Vec::new(),
-                dark: false,
-                menu: None,
-            })
-        });
+        BAR.with(|b| *b.borrow_mut() = Some(Bar { hwnd, model: Vec::new(), dark: false, menu: None }));
     }
 
     fn build(nodes: &[Node], ids: &mut Vec<(tray_icon::menu::MenuId, Command)>) -> Vec<Box<dyn IsMenuItem>> {
@@ -392,16 +374,13 @@ mod native_bar {
             .iter()
             .map(|node| match node {
                 Node::Separator => Box::new(PredefinedMenuItem::separator()) as Box<dyn IsMenuItem>,
-                Node::Item {
-                    text,
-                    command,
-                    enabled,
-                    checked,
-                } => {
+                Node::Item { text, command, enabled, checked } => {
                     let id = format!("bar.{}", ids.len());
                     ids.push((id.as_str().into(), command.clone()));
                     match checked {
-                        Some(on) => Box::new(CheckMenuItem::with_id(id, text, *enabled, *on, None)) as Box<dyn IsMenuItem>,
+                        Some(on) => {
+                            Box::new(CheckMenuItem::with_id(id, text, *enabled, *on, None)) as Box<dyn IsMenuItem>
+                        }
                         None => Box::new(MenuItem::with_id(id, text, *enabled, None)),
                     }
                 }
@@ -431,11 +410,7 @@ mod native_bar {
             // has to happen before the new one goes on, or it would take
             // the new one off too.
             drop(bar.menu.take());
-            let theme = if dark {
-                tray_icon::menu::MenuTheme::Dark
-            } else {
-                tray_icon::menu::MenuTheme::Light
-            };
+            let theme = if dark { tray_icon::menu::MenuTheme::Dark } else { tray_icon::menu::MenuTheme::Light };
             // SAFETY: `hwnd` is the main window's, which outlives the menu.
             if unsafe { menu.init_for_hwnd_with_theme(bar.hwnd, theme) }.is_ok() {
                 *IDS.lock().unwrap() = ids;
@@ -474,12 +449,7 @@ pub fn show(ui: &mut egui::Ui, state: &State) -> Option<Command> {
                 Node::Separator => {
                     ui.separator();
                 }
-                Node::Item {
-                    text,
-                    command,
-                    enabled,
-                    checked,
-                } => {
+                Node::Item { text, command, enabled, checked } => {
                     let text = plain(text);
                     let clicked = match checked {
                         Some(on) => {

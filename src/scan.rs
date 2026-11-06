@@ -73,15 +73,10 @@ pub fn parse_command(line: &str) -> Result<(String, Vec<String>), String> {
         parts.push(current);
     }
     let mut parts = parts.into_iter();
-    let program = parts
-        .next()
-        .filter(|p| !p.is_empty())
-        .ok_or("The scanner command is empty.")?;
+    let program = parts.next().filter(|p| !p.is_empty()).ok_or("The scanner command is empty.")?;
     let args: Vec<String> = parts.collect();
     if !args.iter().any(|a| a.contains(PATH_TOKEN)) {
-        return Err(format!(
-            "The scanner command must contain {PATH_TOKEN} where the file goes."
-        ));
+        return Err(format!("The scanner command must contain {PATH_TOKEN} where the file goes."));
     }
     Ok((program, args))
 }
@@ -116,12 +111,8 @@ fn outcome(scanner: Scanner, code: Option<i32>, output: String) -> Scan {
     match code {
         Some(0) => Scan::Clean,
         Some(c) if c == threat_code => Scan::Threat { detail: output },
-        Some(c) => Scan::Failed {
-            detail: join_detail(&format!("the scanner exited with code {c}"), &output),
-        },
-        None => Scan::Failed {
-            detail: "the scanner was stopped".to_string(),
-        },
+        Some(c) => Scan::Failed { detail: join_detail(&format!("the scanner exited with code {c}"), &output) },
+        None => Scan::Failed { detail: "the scanner was stopped".to_string() },
     }
 }
 
@@ -146,11 +137,7 @@ pub fn scan(scanner: Scanner, custom: &str, file: &Path) -> Scan {
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => {
-            return Scan::Failed {
-                detail: format!("could not run {}: {e}", program.display()),
-            }
-        }
+        Err(e) => return Scan::Failed { detail: format!("could not run {}: {e}", program.display()) },
     };
 
     // Drain both pipes on their own threads so a chatty scanner never blocks.
@@ -178,11 +165,7 @@ pub fn scan(scanner: Scanner, custom: &str, file: &Path) -> Scan {
                     detail: format!("the scan took longer than {} minutes", SCAN_TIMEOUT.as_secs() / 60),
                 };
             }
-            Err(e) => {
-                return Scan::Failed {
-                    detail: format!("could not wait for the scanner: {e}"),
-                }
-            }
+            Err(e) => return Scan::Failed { detail: format!("could not wait for the scanner: {e}") },
         }
     };
     let mut output = stdout.join().unwrap_or_default();
@@ -212,8 +195,7 @@ mod tests {
 
     #[test]
     fn splits_quoted_programs_and_arguments() {
-        let (prog, args) =
-            parse_command(r#""C:\Program Files\AV\scan.exe"  /scan  "{path}" --log=C:\x"#).unwrap();
+        let (prog, args) = parse_command(r#""C:\Program Files\AV\scan.exe"  /scan  "{path}" --log=C:\x"#).unwrap();
         assert_eq!(prog, r"C:\Program Files\AV\scan.exe");
         assert_eq!(args, ["/scan", "{path}", r"--log=C:\x"]);
     }

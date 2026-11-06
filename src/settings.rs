@@ -324,20 +324,14 @@ impl Category {
 
 /// The host of `url`, in lower case, or "" if it has none.
 fn host_of(url: &str) -> String {
-    url::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
-        .unwrap_or_default()
+    url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_default()
 }
 
 /// The categories a new settings file starts with.
 pub fn default_categories() -> Vec<Category> {
     vec![
         Category::new("Compressed", &["zip", "rar", "7z", "tar", "gz", "bz2", "xz"]),
-        Category::new(
-            "Documents",
-            &["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt"],
-        ),
+        Category::new("Documents", &["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt"]),
         Category::new("Music", &["mp3", "flac", "wav", "m4a", "aac", "ogg"]),
         Category::new("Programs", &["exe", "msi", "apk", "msix"]),
         Category::new("Video", &["mp4", "mkv", "avi", "mov", "webm", "wmv"]),
@@ -347,10 +341,7 @@ pub fn default_categories() -> Vec<Category> {
 /// File types the extension captures by default: every category's, plus disk
 /// images and packages.
 pub fn default_capture_types() -> Vec<String> {
-    let mut types: Vec<String> = default_categories()
-        .into_iter()
-        .flat_map(|c| c.extensions)
-        .collect();
+    let mut types: Vec<String> = default_categories().into_iter().flat_map(|c| c.extensions).collect();
     types.extend(["iso", "img", "dmg", "deb", "rpm", "bin"].map(String::from));
     types
 }
@@ -390,12 +381,7 @@ pub struct Folders {
 impl Folders {
     /// Every file goes to `dir`.
     pub fn fixed(dir: PathBuf) -> Self {
-        Folders {
-            default: dir,
-            categories: Vec::new(),
-            general: Vec::new(),
-            host: String::new(),
-        }
+        Folders { default: dir, categories: Vec::new(), general: Vec::new(), host: String::new() }
     }
 
     /// The folder for a file named `filename`.
@@ -1023,9 +1009,7 @@ impl Settings {
         }
         for site in self.capture_excluded_sites.iter().chain(&self.video_button_excluded_sites) {
             if !is_site(site) {
-                return Err(format!(
-                    "\"{site}\" is not a site. Use a host name such as example.com or *.example.com."
-                ));
+                return Err(format!("\"{site}\" is not a site. Use a host name such as example.com or *.example.com."));
             }
         }
         let ffmpeg = self.ffmpeg_path.trim();
@@ -1071,7 +1055,9 @@ impl Settings {
             }
             sites.push(site);
         }
-        for file in [&self.sound_done_file, &self.sound_failed_file, &self.sound_queue_started_file, &self.sound_queue_file] {
+        for file in
+            [&self.sound_done_file, &self.sound_failed_file, &self.sound_queue_started_file, &self.sound_queue_file]
+        {
             let f = file.trim();
             if !f.is_empty() && (!Path::new(f).is_absolute() || extension_of(f).as_deref() != Some("wav")) {
                 return Err(format!("A sound must be the full path of a .wav file: {f}"));
@@ -1206,10 +1192,11 @@ impl Settings {
     /// it remembers its folder. Returns whether anything changed.
     pub fn remember_folder(&mut self, category: &str, folder: &Path) -> bool {
         let folder = folder.display().to_string();
-        let (remember, last) = match self.categories.iter_mut().find(|c| c.name.trim().eq_ignore_ascii_case(category.trim())) {
-            Some(c) => (c.remember_folder, &mut c.last_folder),
-            None => (self.general_remember_folder, &mut self.general_last_folder),
-        };
+        let (remember, last) =
+            match self.categories.iter_mut().find(|c| c.name.trim().eq_ignore_ascii_case(category.trim())) {
+                Some(c) => (c.remember_folder, &mut c.last_folder),
+                None => (self.general_remember_folder, &mut self.general_last_folder),
+            };
         if !remember || last.as_deref() == Some(folder.as_str()) {
             return false;
         }
@@ -1237,23 +1224,18 @@ impl Settings {
             return Some(PathBuf::from(set)).filter(|p| p.is_file());
         }
         let path = std::env::var_os("PATH")?;
-        std::env::split_paths(&path)
-            .map(|dir| dir.join(crate::platform::exe_name("ffmpeg")))
-            .find(|p| p.is_file())
+        std::env::split_paths(&path).map(|dir| dir.join(crate::platform::exe_name("ffmpeg"))).find(|p| p.is_file())
     }
 
     /// The speed limit in bytes per second, or `None` when it is off.
     pub fn speed_limit_bytes(&self) -> Option<u64> {
-        self.speed_limit_enabled
-            .then(|| self.speed_limit_kbps.saturating_mul(1024))
+        self.speed_limit_enabled.then(|| self.speed_limit_kbps.saturating_mul(1024))
     }
 
     /// The limit for each download without one of its own, in bytes per
     /// second, or `None` when the speed limit is off or has no such limit.
     pub fn per_file_limit_bytes(&self) -> Option<u64> {
-        self.speed_limit_per_file_kbps
-            .filter(|_| self.speed_limit_enabled)
-            .map(|k| k.saturating_mul(1024))
+        self.speed_limit_per_file_kbps.filter(|_| self.speed_limit_enabled).map(|k| k.saturating_mul(1024))
     }
 
     /// Read settings from `path`. A missing file gives the defaults; an
@@ -1273,17 +1255,14 @@ impl Settings {
         add_default_exclusions(&mut value);
         let mut settings: Settings = serde_json::from_value(value).map_err(invalid)?;
         settings.proxy_logins_split = split;
-        settings
-            .validate()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        settings.validate().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         Ok(settings)
     }
 
     /// Write settings to `path` through a temp file and a rename, so a crash
     /// never leaves a half-written file.
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        let bytes = serde_json::to_vec_pretty(self)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let bytes = serde_json::to_vec_pretty(self).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         write_atomic(path, &bytes)
     }
 }
@@ -1339,9 +1318,7 @@ fn add_default_exclusions(value: &mut serde_json::Value) {
         return;
     }
     let mut list: Vec<String> = match map.get("capture_excluded_urls") {
-        Some(serde_json::Value::Array(old)) => {
-            old.iter().filter_map(|u| u.as_str().map(String::from)).collect()
-        }
+        Some(serde_json::Value::Array(old)) => old.iter().filter_map(|u| u.as_str().map(String::from)).collect(),
         _ => Vec::new(),
     };
     add_missing_exclusions(&mut list);
@@ -1407,10 +1384,7 @@ fn yes() -> bool {
 
 /// A host name, optionally with a `*.` wildcard or a port.
 fn is_site(site: &str) -> bool {
-    !site.is_empty()
-        && site
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '*' | ':'))
+    !site.is_empty() && site.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '*' | ':'))
 }
 
 fn check_folder(what: &str, dir: &str) -> Result<(), String> {
@@ -1634,10 +1608,7 @@ mod tests {
             offer_exceptions: false,
             selection_button: SelectionButton::Sites,
             selection_button_sites: vec!["*.example.org".into()],
-            server_limits: vec![ServerLimit {
-                site: "*.mirror.net".into(),
-                max: 2,
-            }],
+            server_limits: vec![ServerLimit { site: "*.mirror.net".into(), max: 2 }],
             quota_enabled: true,
             quota_mb: 500,
             quota_hours: 6,
@@ -1698,7 +1669,8 @@ mod tests {
     #[test]
     fn files_from_before_default_exclusions_get_them_once() {
         let path = temp_path("exclusions.json");
-        fs::write(&path, br#"{"capture_excluded_urls":["https://dl.net/keep/*","WEB.WHATSAPP.COM/res/*.mp3"]}"#).unwrap();
+        fs::write(&path, br#"{"capture_excluded_urls":["https://dl.net/keep/*","WEB.WHATSAPP.COM/res/*.mp3"]}"#)
+            .unwrap();
         let s = Settings::load(&path).unwrap();
         assert!(s.capture_excluded_urls_defaults);
         assert_eq!(s.capture_excluded_urls[0], "https://dl.net/keep/*");
@@ -1757,31 +1729,19 @@ mod tests {
 
     #[test]
     fn validation_of_folder() {
-        let relative = Settings {
-            download_dir: Some("Downloads".into()),
-            ..Settings::default()
-        };
+        let relative = Settings { download_dir: Some("Downloads".into()), ..Settings::default() };
         assert!(relative.validate().is_err());
 
-        let empty = Settings {
-            download_dir: Some("  ".into()),
-            ..Settings::default()
-        };
+        let empty = Settings { download_dir: Some("  ".into()), ..Settings::default() };
         assert!(empty.validate().is_err());
 
         let file = temp_path("not-a-dir.txt");
         fs::write(&file, b"x").unwrap();
-        let s = Settings {
-            download_dir: Some(file.display().to_string()),
-            ..Settings::default()
-        };
+        let s = Settings { download_dir: Some(file.display().to_string()), ..Settings::default() };
         assert!(s.validate().is_err());
         fs::remove_file(&file).ok();
 
-        let dir = Settings {
-            download_dir: Some(std::env::temp_dir().display().to_string()),
-            ..Settings::default()
-        };
+        let dir = Settings { download_dir: Some(std::env::temp_dir().display().to_string()), ..Settings::default() };
         assert!(dir.validate().is_ok());
     }
 
@@ -1801,10 +1761,7 @@ mod tests {
     #[test]
     fn category_folders() {
         let base = std::env::temp_dir().join("uidm-dl");
-        let mut s = Settings {
-            download_dir: Some(base.display().to_string()),
-            ..Settings::default()
-        };
+        let mut s = Settings { download_dir: Some(base.display().to_string()), ..Settings::default() };
         let custom = std::env::temp_dir().join("uidm-music");
         s.categories[2].folder = Some(custom.display().to_string());
         let f = s.folders();
@@ -1830,20 +1787,15 @@ mod tests {
         assert_eq!(s.server_limit("slow.mirror.net"), Some(1));
         assert_eq!(s.server_limit("example.com"), None);
         assert!(s.validate().is_ok());
-        let bad = Settings {
-            server_limits: vec![ServerLimit { site: "x.net".into(), max: 40 }],
-            ..Settings::default()
-        };
+        let bad =
+            Settings { server_limits: vec![ServerLimit { site: "x.net".into(), max: 40 }], ..Settings::default() };
         assert!(bad.validate().is_err());
     }
 
     #[test]
     fn a_category_can_be_limited_to_some_sites() {
         let base = std::env::temp_dir().join("uidm-dl");
-        let mut s = Settings {
-            download_dir: Some(base.display().to_string()),
-            ..Settings::default()
-        };
+        let mut s = Settings { download_dir: Some(base.display().to_string()), ..Settings::default() };
         let mut work = Category::new("Work", &["pdf"]);
         work.sites = vec!["*.corp.example".into()];
         s.categories.insert(0, work);
@@ -2059,7 +2011,9 @@ mod tests {
     fn new_options_have_idms_defaults_and_old_files_load() {
         let s: Settings = serde_json::from_str("{}").unwrap();
         assert!(s.progress_hide_buttons && s.list_queue_panel && s.proxy_socks_ftp);
-        assert!(!s.progress_start_details && !s.proxy_socks_https && !s.server_file_date_created && !s.video_auto_capture);
+        assert!(
+            !s.progress_start_details && !s.proxy_socks_https && !s.server_file_date_created && !s.video_auto_capture
+        );
         assert_eq!(s.progress_start_tab, ProgressTab::Status);
         assert_eq!(s.video_auto_types, default_video_auto_types());
         let tab: Settings = serde_json::from_str(r#"{"progress_start_tab":"speed_limit"}"#).unwrap();
@@ -2082,7 +2036,9 @@ mod tests {
         let json = serde_json::to_string(&Settings::default()).unwrap();
         assert!(json.contains(r#""capture_skip_key":"alt""#), "{json}");
 
-        let with = |skip: CaptureKey, force: CaptureKey| Settings { capture_skip_key: skip, capture_force_key: force, ..Settings::default() }.validate();
+        let with = |skip: CaptureKey, force: CaptureKey| {
+            Settings { capture_skip_key: skip, capture_force_key: force, ..Settings::default() }.validate()
+        };
         assert!(with(CaptureKey::ALT, CaptureKey { alt: true, shift: true, ..CaptureKey::NONE }).is_ok());
         assert!(with(CaptureKey::CTRL, CaptureKey::CTRL).is_err());
         assert!(with(CaptureKey::NONE, CaptureKey::NONE).is_ok());
@@ -2122,10 +2078,7 @@ mod tests {
         assert!(custom("scan.exe").validate().is_err());
         assert!(custom("\"C:\\Program Files\\AV\\scan.exe\" /file {path}").validate().is_ok());
         // Not checked while scanning is off or Defender is used.
-        let off = Settings {
-            scan_after_download: false,
-            ..custom("")
-        };
+        let off = Settings { scan_after_download: false, ..custom("") };
         assert!(off.validate().is_ok());
     }
 }

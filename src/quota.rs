@@ -75,10 +75,7 @@ impl Usage {
     }
 
     pub fn load(path: &Path) -> Usage {
-        fs::read(path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+        fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
     }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {

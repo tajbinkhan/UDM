@@ -114,11 +114,7 @@ pub struct MediaFile {
 
 impl MediaInfo {
     pub fn failed(kind: Option<MediaKind>, error: String) -> Self {
-        MediaInfo {
-            kind,
-            error: Some(error),
-            ..MediaInfo::default()
-        }
+        MediaInfo { kind, error: Some(error), ..MediaInfo::default() }
     }
 }
 
@@ -141,11 +137,7 @@ pub struct Segment {
 
 impl Segment {
     pub fn whole(url: impl Into<String>) -> Self {
-        Segment {
-            url: url.into(),
-            range: None,
-            key: None,
-        }
+        Segment { url: url.into(), range: None, key: None }
     }
 }
 
@@ -166,10 +158,8 @@ pub struct Track {
 }
 
 /// Why a stream is refused, in words for the user.
-pub const DRM_REFUSED: &str =
-    "This video is protected by DRM (copy protection), so UIDM will not download it.";
-pub const LIVE_REFUSED: &str =
-    "This is a live stream. UIDM downloads recorded videos, which have an end.";
+pub const DRM_REFUSED: &str = "This video is protected by DRM (copy protection), so UIDM will not download it.";
+pub const LIVE_REFUSED: &str = "This is a live stream. UIDM downloads recorded videos, which have an end.";
 
 /// `url` resolved against `base`, as a browser would.
 pub fn resolve(base: &str, url: &str) -> Result<String, String> {
@@ -214,9 +204,7 @@ pub fn sniff(text: &str) -> Option<MediaKind> {
     let head = text.trim_start_matches('\u{feff}').trim_start();
     if head.starts_with("#EXTM3U") {
         Some(MediaKind::Hls)
-    } else if head.starts_with('<')
-        && head.as_bytes()[..head.len().min(4096)].windows(4).any(|w| w == b"<MPD")
-    {
+    } else if head.starts_with('<') && head.as_bytes()[..head.len().min(4096)].windows(4).any(|w| w == b"<MPD") {
         Some(MediaKind::Dash)
     } else if hds::sniff(head) {
         Some(MediaKind::Hds)
@@ -284,7 +272,10 @@ mod tests {
     #[test]
     fn sniffing() {
         assert_eq!(sniff("\u{feff}#EXTM3U\n"), Some(MediaKind::Hls));
-        assert_eq!(sniff("<?xml version=\"1.0\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\">"), Some(MediaKind::Dash));
+        assert_eq!(
+            sniff("<?xml version=\"1.0\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\">"),
+            Some(MediaKind::Dash)
+        );
         assert_eq!(
             sniff("<?xml version=\"1.0\"?>\n<manifest xmlns=\"http://ns.adobe.com/f4m/1.0\">"),
             Some(MediaKind::Hds)

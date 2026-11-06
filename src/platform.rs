@@ -38,7 +38,8 @@ pub fn instance() -> Option<String> {
 
 fn instance_name(value: Option<String>) -> Option<String> {
     let name = value?.trim().to_string();
-    let ok = !name.is_empty() && name.len() <= 32 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    let ok =
+        !name.is_empty() && name.len() <= 32 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     ok.then_some(name)
 }
 
@@ -78,7 +79,9 @@ pub fn config_dir() -> io::Result<PathBuf> {
 /// state live in.
 pub fn data_dir() -> io::Result<PathBuf> {
     #[cfg(windows)]
-    return Ok(PathBuf::from(std::env::var_os("LOCALAPPDATA").ok_or_else(|| not_found("LOCALAPPDATA"))?).join(folder("UIDM")));
+    return Ok(
+        PathBuf::from(std::env::var_os("LOCALAPPDATA").ok_or_else(|| not_found("LOCALAPPDATA"))?).join(folder("UIDM"))
+    );
     #[cfg(target_os = "macos")]
     return config_dir();
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -206,7 +209,8 @@ pub fn reveal(path: &std::path::Path) -> io::Result<()> {
     return Command::new("open").arg("-R").arg(path).spawn().map(|_| ());
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        let uri = url::Url::from_file_path(path).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "not a full path"))?;
+        let uri = url::Url::from_file_path(path)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "not a full path"))?;
         let shown = Command::new("dbus-send")
             .args([
                 "--session",

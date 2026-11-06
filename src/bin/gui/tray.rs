@@ -11,8 +11,8 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
 
-use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 use serde::{Deserialize, Serialize};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use crate::i18n::tr;
@@ -185,7 +185,18 @@ fn build(
     let separator2 = PredefinedMenuItem::separator();
     // The drop target is only on Windows (see `droptarget`).
     if cfg!(windows) {
-        menu.append_items(&[&open, &add, &add_batch, &drop_target, &separator, &pause, &resume, &speed_limit, &separator2, &exit])
+        menu.append_items(&[
+            &open,
+            &add,
+            &add_batch,
+            &drop_target,
+            &separator,
+            &pause,
+            &resume,
+            &speed_limit,
+            &separator2,
+            &exit,
+        ])
     } else {
         menu.append_items(&[&open, &add, &add_batch, &separator, &pause, &resume, &speed_limit, &separator2, &exit])
     }
@@ -212,11 +223,9 @@ fn build(
     TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| match event {
         // The download windows' icon opens its menu on either button.
         _ if event.id() != MAIN_ID => {}
-        TrayIconEvent::Click {
-            button: MouseButton::Left,
-            button_state: MouseButtonState::Up,
-            ..
-        } => on_command(Command::Open),
+        TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => {
+            on_command(Command::Open)
+        }
         // Refresh the tooltip just before it shows.
         TrayIconEvent::Enter { .. } | TrayIconEvent::Move { .. } => set_tooltip(tooltip()),
         _ => {}
@@ -235,7 +244,14 @@ fn build(
             icon,
             speed_limit,
             drop_target,
-            items: vec![(open, OPEN), (add, ADD), (add_batch, ADD_BATCH), (pause, PAUSE), (resume, RESUME), (exit, EXIT)],
+            items: vec![
+                (open, OPEN),
+                (add, ADD),
+                (add_batch, ADD_BATCH),
+                (pause, PAUSE),
+                (resume, RESUME),
+                (exit, EXIT),
+            ],
         })
     });
     INSTALLED.store(true, Ordering::Relaxed);
@@ -345,7 +361,8 @@ fn update_downloads_tray(tray: &mut Option<DownloadsTray>, windows: Vec<(u64, St
         return;
     }
     if tray.is_none() {
-        let Ok(picture) = Icon::from_rgba(arrows_icon(PROGRESS_ICON_SIZE), PROGRESS_ICON_SIZE, PROGRESS_ICON_SIZE) else {
+        let Ok(picture) = Icon::from_rgba(arrows_icon(PROGRESS_ICON_SIZE), PROGRESS_ICON_SIZE, PROGRESS_ICON_SIZE)
+        else {
             return;
         };
         let menu = Menu::new();
@@ -445,7 +462,11 @@ fn arrows_icon(size: u32) -> Vec<u8> {
                     let x = (px as f32 + (sx as f32 + 0.5) / samples as f32) / n;
                     let y = (py as f32 + (sy as f32 + 0.5) / samples as f32) / n;
                     // The lower arrow is drawn over the upper one.
-                    let found = arrows.iter().enumerate().rev().find(|(_, (ax, ay, side))| arrow((x - ax) / side, (y - ay) / side));
+                    let found = arrows
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, (ax, ay, side))| arrow((x - ax) / side, (y - ay) / side));
                     if let Some((i, _)) = found {
                         hit += 1;
                         if i == 0 {

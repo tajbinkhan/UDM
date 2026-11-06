@@ -350,7 +350,10 @@ pub fn dialog(
                         };
                         match d.editing.as_mut().filter(|(at, _)| *at == i) {
                             Some((_, url)) => {
-                                let field = ui.add_sized([320.0, 18.0], egui::TextEdit::singleline(url).font(egui::TextStyle::Monospace));
+                                let field = ui.add_sized(
+                                    [320.0, 18.0],
+                                    egui::TextEdit::singleline(url).font(egui::TextStyle::Monospace),
+                                );
                                 let entered = field.lost_focus() && ui.input(|k| k.key_pressed(egui::Key::Enter));
                                 ui.horizontal(|ui| {
                                     if ui.small_button(tr("OK")).clicked() || entered {
@@ -366,7 +369,11 @@ pub fn dialog(
                                     [320.0, 18.0],
                                     egui::Label::new(egui::RichText::new(&l.url).monospace().small()).truncate(),
                                 );
-                                if ui.small_button(tr("Edit...")).on_hover_text(tr("Change this link's address")).clicked() {
+                                if ui
+                                    .small_button(tr("Edit..."))
+                                    .on_hover_text(tr("Change this link's address"))
+                                    .clicked()
+                                {
                                     d.editing = Some((i, l.url.clone()));
                                 }
                             }
@@ -421,12 +428,15 @@ pub fn dialog(
                             d.target = Target::Category(first);
                         }
                         if let Target::Category(name) = &mut d.target {
-                            egui::ComboBox::from_id_salt("links_category").selected_text(name.as_str()).show_ui(ui, |ui| {
-                                for c in &settings.categories {
-                                    ui.selectable_value(name, c.name.clone(), &c.name);
-                                }
-                                ui.selectable_value(name, GENERAL.to_string(), GENERAL);
-                            });
+                            egui::ComboBox::from_id_salt("links_category").selected_text(name.as_str()).show_ui(
+                                ui,
+                                |ui| {
+                                    for c in &settings.categories {
+                                        ui.selectable_value(name, c.name.clone(), &c.name);
+                                    }
+                                    ui.selectable_value(name, GENERAL.to_string(), GENERAL);
+                                },
+                            );
                             ui.weak(settings.category_folder(name).display().to_string());
                         }
                     });
@@ -472,11 +482,7 @@ pub fn dialog(
                 if ui.add_enabled(connected && n > 0, egui::Button::new(trf!("Add {count}", count = n))).clicked() {
                     match d.downloads(settings) {
                         Ok(items) => {
-                            actions.push(Action::AddMany {
-                                items,
-                                queue: d.queue,
-                                start_queue: d.start_queue,
-                            });
+                            actions.push(Action::AddMany { items, queue: d.queue, start_queue: d.start_queue });
                             close = true;
                         }
                         Err(e) => d.error = Some(e),
@@ -536,12 +542,7 @@ mod tests {
     const DL: &str = if cfg!(windows) { r"D:\dl" } else { "/dl" };
 
     fn link(url: &str, image: bool) -> PageLink {
-        PageLink {
-            url: url.into(),
-            text: "Get it".into(),
-            image,
-            cookies: Some("s=1".into()),
-        }
+        PageLink { url: url.into(), text: "Get it".into(), image, cookies: Some("s=1".into()) }
     }
 
     #[test]
@@ -568,7 +569,8 @@ mod tests {
 
     #[test]
     fn ticked_links_carry_the_page_and_cookies() {
-        let mut d = LinksDialog::new("https://x.net/list".into(), vec![link("https://x.net/a.zip", false)], Some("UA".into()));
+        let mut d =
+            LinksDialog::new("https://x.net/list".into(), vec![link("https://x.net/a.zip", false)], Some("UA".into()));
         d.text_as_description = true;
         d.target = Target::Folder;
         d.folder = DL.into();
@@ -591,10 +593,7 @@ mod tests {
         let links = vec![link("https://x.net/a.zip", false), link("https://x.net/b.pdf", false)];
         let mut d = LinksDialog::new("https://x.net/".into(), links, None);
         d.target = Target::Category("Music".into());
-        let settings = Settings {
-            download_dir: Some(DL.into()),
-            ..Settings::default()
-        };
+        let settings = Settings { download_dir: Some(DL.into()), ..Settings::default() };
         let items = d.downloads(&settings).unwrap();
         let music = std::path::Path::new(DL).join("Music").display().to_string();
         for item in &items {
@@ -614,16 +613,17 @@ mod tests {
         let mut d = LinksDialog::new("https://x.net/list".into(), links, Some("UA".into()));
         let (first, asked) = d.take_probe().unwrap();
         let urls: Vec<_> = asked.iter().map(|a| a.url.as_str()).collect();
-        assert_eq!(urls, ["https://x.net/a.zip", "https://x.net/get?id=4", "https://x.net/b.pdf"], "only links it could download");
+        assert_eq!(
+            urls,
+            ["https://x.net/a.zip", "https://x.net/get?id=4", "https://x.net/b.pdf"],
+            "only links it could download"
+        );
         assert_eq!(asked[0].cookies.as_deref(), Some("s=1"));
         assert_eq!(asked[0].referrer.as_deref(), Some("https://x.net/list"));
         assert!(d.take_probe().is_none(), "asked once");
 
         // Answers map back to their links; the third asked is link 3.
-        let zip = Probed::Found {
-            total: Some(2048),
-            content_type: Some("application/x-zip-compressed".into()),
-        };
+        let zip = Probed::Found { total: Some(2048), content_type: Some("application/x-zip-compressed".into()) };
         d.heard(first, 0, zip.clone());
         d.heard(first, 1, Probed::Found { total: None, content_type: Some("application/pdf; q=1".into()) });
         d.heard(first + 100, 2, zip.clone());
@@ -669,7 +669,8 @@ mod tests {
         let mut d = LinksDialog::new("https://x.net/".into(), links, None);
         d.checked[1] = false;
         d.rename = "photo_*".into();
-        let names: Vec<_> = d.downloads(&Settings::default()).unwrap().into_iter().map(|i| i.filename.unwrap()).collect();
+        let names: Vec<_> =
+            d.downloads(&Settings::default()).unwrap().into_iter().map(|i| i.filename.unwrap()).collect();
         assert_eq!(names, ["photo_1.jpg", "photo_2.gif"]);
         d.rename = "a/b*".into();
         assert!(d.downloads(&Settings::default()).is_err());

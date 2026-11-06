@@ -70,14 +70,8 @@ impl Column {
 
     /// The default before the list followed that order. A layout still on
     /// it moves to the new one.
-    const OLD_DEFAULT: [Column; 6] = [
-        Column::Name,
-        Column::Size,
-        Column::Progress,
-        Column::Speed,
-        Column::TimeLeft,
-        Column::Status,
-    ];
+    const OLD_DEFAULT: [Column; 6] =
+        [Column::Name, Column::Size, Column::Progress, Column::Speed, Column::TimeLeft, Column::Status];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -118,10 +112,7 @@ impl Column {
 
     /// Whether the column holds long text, cut to a fixed width.
     pub fn is_text(self) -> bool {
-        matches!(
-            self,
-            Column::Name | Column::SaveTo | Column::Page | Column::Referer | Column::Description
-        )
+        matches!(self, Column::Name | Column::SaveTo | Column::Page | Column::Referer | Column::Description)
     }
 }
 
@@ -208,10 +199,7 @@ impl ListFont {
     /// The sizes offered, like a font dialog's 8 to 24 points.
     pub const SIZES: (f32, f32) = (8.0, 24.0);
     /// The window's own list text: 12 point Segoe UI (see `theme`).
-    pub const DEFAULT: ListFont = ListFont {
-        kind: FontKind::Proportional,
-        size: 12.0,
-    };
+    pub const DEFAULT: ListFont = ListFont { kind: FontKind::Proportional, size: 12.0 };
 
     pub fn id(&self) -> egui::FontId {
         let size = self.size.clamp(Self::SIZES.0, Self::SIZES.1);
@@ -241,9 +229,7 @@ impl Layout {
     /// The saved layout, or the default one.
     pub fn load() -> Layout {
         let saved = path().and_then(|p| std::fs::read(p).ok());
-        let mut layout: Layout = saved
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let mut layout: Layout = saved.and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         if layout.columns == Column::OLD_DEFAULT {
             layout.columns = Column::DEFAULT.to_vec();
         }
@@ -297,15 +283,9 @@ impl Layout {
     /// order added.
     pub fn click(&mut self, column: Column) {
         self.sort = match self.sort {
-            Some(s) if s.column == column && !s.descending => Some(Sort {
-                column,
-                descending: true,
-            }),
+            Some(s) if s.column == column && !s.descending => Some(Sort { column, descending: true }),
             Some(s) if s.column == column => None,
-            _ => Some(Sort {
-                column,
-                descending: false,
-            }),
+            _ => Some(Sort { column, descending: false }),
         };
     }
 
@@ -441,7 +421,11 @@ pub fn font_dialog(ctx: &egui::Context, draft: &mut ListFont) -> FontChoice {
                 });
                 ui.end_row();
                 ui.label(tr("Size:"));
-                ui.add(egui::Slider::new(&mut draft.size, ListFont::SIZES.0..=ListFont::SIZES.1).step_by(1.0).suffix(" pt"));
+                ui.add(
+                    egui::Slider::new(&mut draft.size, ListFont::SIZES.0..=ListFont::SIZES.1)
+                        .step_by(1.0)
+                        .suffix(" pt"),
+                );
                 ui.end_row();
             });
             ui.add_space(6.0);
@@ -711,9 +695,10 @@ mod tests {
 
     #[test]
     fn a_saved_referrer_column_is_still_the_parent_page() {
-        let l: Layout =
-            serde_json::from_str(r#"{"columns":["name","referrer","referer"],"sort":{"column":"referrer","descending":false}}"#)
-                .unwrap();
+        let l: Layout = serde_json::from_str(
+            r#"{"columns":["name","referrer","referer"],"sort":{"column":"referrer","descending":false}}"#,
+        )
+        .unwrap();
         assert_eq!(l.columns, [Column::Name, Column::Page, Column::Referer]);
         assert_eq!(l.sort.map(|s| s.column), Some(Column::Page));
     }
@@ -751,10 +736,7 @@ mod tests {
     #[test]
     fn a_chosen_font_and_tray_style_survive_a_save() {
         let l = Layout {
-            list_font: Some(ListFont {
-                kind: FontKind::Monospace,
-                size: 16.0,
-            }),
+            list_font: Some(ListFont { kind: FontKind::Monospace, size: 16.0 }),
             tray_style: crate::tray::Style::Mono,
             ..Layout::default()
         };
@@ -768,15 +750,9 @@ mod tests {
 
     #[test]
     fn a_font_size_stays_in_range() {
-        let big = ListFont {
-            kind: FontKind::Proportional,
-            size: 300.0,
-        };
+        let big = ListFont { kind: FontKind::Proportional, size: 300.0 };
         assert_eq!(big.id(), egui::FontId::proportional(ListFont::SIZES.1));
-        let small = ListFont {
-            kind: FontKind::Monospace,
-            size: 1.0,
-        };
+        let small = ListFont { kind: FontKind::Monospace, size: 1.0 };
         assert_eq!(small.id(), egui::FontId::monospace(ListFont::SIZES.0));
     }
 }
