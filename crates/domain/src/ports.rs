@@ -3,8 +3,9 @@
 //! (see AGENTS.md section 16).
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
-use crate::download::Status;
+use crate::download::{Download, DownloadEntry, Status};
 use crate::queue::{Moment, Queue};
 
 /// The download queues, the main queue first.
@@ -21,6 +22,16 @@ pub trait QueueStore: Send + Sync {
 pub trait DownloadList: Send + Sync {
     /// The state of download `id`, or `None` when there is no such download.
     fn status(&self, id: u64) -> Option<Status>;
+
+    /// Download `id` as the list shows it.
+    fn entry(&self, id: u64) -> Option<DownloadEntry>;
+
+    /// The request download `id` was made with, if it was kept, forgetting
+    /// it. It may hold the browser's cookies.
+    fn take_request(&self, id: u64) -> Option<Download>;
+
+    /// Take download `id`'s row out of the list and tell every client.
+    fn drop_row(&self, id: u64);
 
     /// The ids of the finished downloads.
     fn finished(&self) -> HashSet<u64>;
@@ -55,6 +66,33 @@ pub trait DownloadControl: Send + Sync {
 
     /// Start stopped download `id` again where it left off.
     fn resume(&self, id: u64) -> Result<(), ControlError>;
+
+    /// Remove download `id` from the list for good: its row, its kept
+    /// request, and any wait for a new address for it.
+    fn forget(&self, id: u64);
+
+    /// Start `download` as a new row, resuming into `path` and `partial`
+    /// when given. Without `remember_limit` its speed limit lasts only until
+    /// it stops. Returns the new row's id and its address.
+    fn restart(
+        &self,
+        download: Download,
+        path: Option<PathBuf>,
+        partial: Option<PathBuf>,
+        remember_limit: bool,
+    ) -> (u64, String);
+}
+
+/// Why a download's files could not be removed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct FilesError(pub String);
+
+/// The files a download leaves on disk.
+pub trait DownloadFiles: Send + Sync {
+    /// Send the file at `path` and the partial copy at `partial` (each with
+    /// the files the engine keeps beside it) to the Recycle Bin or Trash.
+    fn recycle(&self, path: Option<&str>, partial: Option<&str>) -> Result<(), FilesError>;
 }
 
 /// What "pause all" stopped, for "resume all" to start again.

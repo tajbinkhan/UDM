@@ -7,3 +7,7 @@ license.workspace = true
 
 [dependencies]
 uidm-domain.workspace = true
+
+# Building download rows in tests.
+[dev-dependencies]
+serde_json.workspace = true

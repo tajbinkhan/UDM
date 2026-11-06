@@ -536,6 +536,54 @@ pub struct OnDone {
     pub force_close: bool,
 }
 
+/// Why a change to a download was refused. The messages are shown to the
+/// user.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DownloadError {
+    #[error("no download with id {0}")]
+    NoDownload(u64),
+    #[error("download {0} is still running; cancel it first")]
+    StillRunning(u64),
+    #[error("download {0} is not failed, canceled or interrupted")]
+    NotRetryable(u64),
+    /// It left the list, but its files could not go to the Recycle Bin.
+    #[error("Removed {url} from the list, but its files stay: {reason}")]
+    FilesStay { url: String, reason: String },
+}
+
+impl DownloadEntry {
+    /// Whether it ever opened a connection. Only such a download has a file
+    /// of its own: one that never got past its save-as dialog only has a
+    /// proposed path, which may be somebody else's file.
+    pub fn started(&self) -> bool {
+        self.connections > 0
+    }
+
+    /// Whether it wrote files to disk that removing it may delete.
+    pub fn wrote_files(&self) -> bool {
+        self.status == Status::Done || self.started()
+    }
+
+    /// The request to retry it with: the `stored` one when it was kept,
+    /// otherwise one made from its address. It keeps its description and
+    /// category, and its speed limit unless the user chose not to remember
+    /// it on stop and resume.
+    pub fn retry_request(&self, stored: Option<Download>) -> Download {
+        let download = stored.unwrap_or_else(|| Download {
+            url: self.url.clone(),
+            referrer: self.referrer.clone(),
+            page: self.page.clone(),
+            ..Download::default()
+        });
+        Download {
+            description: self.description.clone(),
+            category: self.category.clone(),
+            speed_limit: self.speed_limit.filter(|_| self.limit_remember),
+            ..download
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -598,5 +646,32 @@ mod tests {
         // A server that says nothing is not downloaded again every run.
         assert!(!v(None, None, None).changed(&v(None, None, None)));
         assert!(!v(Some(10), None, None).changed(&v(None, None, None)));
+    }
+
+    fn entry(status: Status, connections: usize) -> DownloadEntry {
+        let json = serde_json::json!({
+            "id": 1, "url": "https://dl.example/a.zip", "status": status, "connections": connections, "done": 0,
+            "resumable": false,
+            "description": "note", "speed_limit": 1000,
+        });
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn only_a_started_or_finished_download_wrote_files() {
+        assert!(!entry(Status::Canceled, 0).wrote_files(), "it never left its save-as dialog");
+        assert!(entry(Status::Canceled, 2).wrote_files());
+        assert!(entry(Status::Done, 0).wrote_files());
+    }
+
+    #[test]
+    fn a_retry_keeps_the_note_and_the_remembered_limit() {
+        let e = DownloadEntry { limit_remember: true, ..entry(Status::Failed, 1) };
+        let d = e.retry_request(None);
+        assert_eq!(d.url, "https://dl.example/a.zip");
+        assert_eq!((d.description.as_deref(), d.speed_limit), (Some("note"), Some(1000)));
+        let stored = Download { url: "https://dl.example/b.zip".into(), ..Download::default() };
+        let d = DownloadEntry { limit_remember: false, ..e }.retry_request(Some(stored));
+        assert_eq!((d.url.as_str(), d.speed_limit), ("https://dl.example/b.zip", None));
     }
 }

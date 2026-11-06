@@ -51,7 +51,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use uidm_application::downloads::{PauseAll, ResumeAll, StopRunning, Stopped};
+use uidm_application::downloads::{PauseAll, RemoveDownload, ResumeAll, RetryDownload, StopRunning, Stopped};
 use uidm_application::queues::{
     DeleteQueue, MoveToQueue, RemoveFromQueue, RunSchedules, SaveQueue, Scheduled, StartQueue, StopQueue,
 };
@@ -73,6 +73,7 @@ use uidm_infrastructure::notify::{self, Sound, Toast};
 use uidm_infrastructure::power;
 use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
 use uidm_infrastructure::quota::Usage;
+use uidm_infrastructure::recycle::RecycleBin;
 #[cfg(windows)]
 use uidm_infrastructure::registry;
 use uidm_infrastructure::scan;
@@ -538,6 +539,18 @@ impl DownloadList for Hub {
     fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64> {
         self.table.lock().unwrap().entries().filter(|e| keep(e.id, e.status)).map(|e| e.id).collect()
     }
+
+    fn entry(&self, id: u64) -> Option<DownloadEntry> {
+        self.table.lock().unwrap().get(id).cloned()
+    }
+
+    fn take_request(&self, id: u64) -> Option<Download> {
+        self.requests.lock().unwrap().remove(&id)
+    }
+
+    fn drop_row(&self, id: u64) {
+        self.publish(&Outgoing::Removed { id });
+    }
 }
 
 // The daemon owns the engine, the scheduler's runs and the settings, so it
@@ -577,6 +590,28 @@ impl DownloadControl for Daemon {
 
     fn resume(&self, id: u64) -> Result<(), ControlError> {
         self.retry(id).map(|_| ()).map_err(ControlError)
+    }
+
+    fn forget(&self, id: u64) {
+        self.hub.requests.lock().unwrap().remove(&id);
+        if self.refresh_waiting.lock().unwrap().is_some_and(|w| w == id) {
+            self.set_refresh_waiting(None);
+        }
+        self.hub.drop_row(id);
+    }
+
+    fn restart(
+        &self,
+        download: Download,
+        path: Option<PathBuf>,
+        partial: Option<PathBuf>,
+        remember_limit: bool,
+    ) -> (u64, String) {
+        let (id, url) = self.start_resuming(download, path, partial);
+        if !remember_limit {
+            let _ = self.set_limit_remember(id, false);
+        }
+        (id, url)
     }
 }
 
@@ -2826,48 +2861,10 @@ impl Daemon {
     }
 
     /// Re-queue a failed, canceled or interrupted download from its stored
-    /// request, or from its URL alone when the request was not kept. The
-    /// engine resumes the partial file when the server still reports the same
-    /// file.
+    /// request, or from its URL alone when the request was not kept (see
+    /// `RetryDownload`).
     fn retry(&self, id: u64) -> Result<(u64, String), String> {
-        let entry =
-            self.hub.table.lock().unwrap().get(id).cloned().ok_or_else(|| format!("no download with id {id}"))?;
-        if !entry.status.is_retryable() {
-            return Err(format!("download {id} is not failed, canceled or interrupted"));
-        }
-        let download = self.hub.requests.lock().unwrap().remove(&id).unwrap_or_else(|| Download {
-            url: entry.url.clone(),
-            referrer: entry.referrer.clone(),
-            page: entry.page.clone(),
-            ..Download::default()
-        });
-        // The new entry keeps the old one's description and category, and
-        // its speed limit unless the user chose not to remember it on stop
-        // and resume.
-        let download = Download {
-            description: entry.description.clone(),
-            category: entry.category.clone(),
-            speed_limit: entry.speed_limit.filter(|_| entry.limit_remember),
-            ..download
-        };
-        // A retried download keeps its place in its queue.
-        let queue = self.hub.queue_of(id);
-        self.hub.leave_queues(id);
-        self.hub.publish(&Outgoing::Removed { id });
-        // Only a download that started has a file of its own to resume. One
-        // that never got past its save-as dialog only has a proposed path,
-        // which may be somebody else's file.
-        let started = entry.connections > 0;
-        let reuse_path = entry.path.filter(|_| started).map(PathBuf::from);
-        let reuse_partial = entry.partial.filter(|_| started).map(PathBuf::from);
-        let (new_id, url) = self.start_resuming(download, reuse_path, reuse_partial);
-        if !entry.limit_remember {
-            let _ = self.set_limit_remember(new_id, false);
-        }
-        if let Some(q) = queue {
-            let _ = self.move_to_queue(new_id, q, None);
-        }
-        Ok((new_id, url))
+        RetryDownload::new(&*self.hub, &*self.hub, self).run(id).map_err(|e| e.to_string())
     }
 
     /// Set or clear download `id`'s own speed limit. It is kept on the
@@ -3404,39 +3401,10 @@ impl Daemon {
     /// Forget a download that is no longer running. Its files stay on disk
     /// unless `delete_files`, which sends them to the Recycle Bin.
     fn remove(&self, id: u64, delete_files: bool) -> Result<(), String> {
-        let entry = match self.entry(id) {
-            None => return Err(format!("no download with id {id}")),
-            Some(e) if !e.status.is_terminal() => {
-                return Err(format!("download {id} is still running; cancel it first"))
-            }
-            Some(e) => e,
-        };
-        // Only a download that started wrote anything. One that never got
-        // past its save-as dialog only has a proposed path, which may be
-        // somebody else's file.
-        let wrote = entry.status == Status::Done || entry.connections > 0;
-        let mut files = match entry.path.as_deref() {
-            Some(p) if delete_files && wrote => engine::files_of(Path::new(p)),
-            _ => Vec::new(),
-        };
-        if let Some(p) = entry.partial.as_deref().filter(|_| delete_files && wrote) {
-            files.extend(engine::partial_files(Path::new(p)));
+        if delete_files {
+            eprintln!("[uidm-daemon] removing #{id} with its files");
         }
-        self.hub.requests.lock().unwrap().remove(&id);
-        if self.refresh_waiting.lock().unwrap().is_some_and(|w| w == id) {
-            self.set_refresh_waiting(None);
-        }
-        let in_queue = self.hub.leave_queues(id);
-        self.hub.publish(&Outgoing::Removed { id });
-        if in_queue {
-            self.hub.publish_queues();
-        }
-        if !files.is_empty() {
-            eprintln!("[uidm-daemon] recycling the files of #{id}");
-            uidm_infrastructure::recycle::recycle(&files)
-                .map_err(|e| format!("Removed {} from the list, but its files stay: {e}", entry.url))?;
-        }
-        Ok(())
+        RemoveDownload::new(&*self.hub, &*self.hub, self, &RecycleBin).run(id, delete_files).map_err(|e| e.to_string())
     }
 
     /// Send the whole list to one client, under the table lock so no event can

@@ -4801,6 +4801,7 @@ dependencies = [
 name = "uidm-application"
 version = "0.3.0"
 dependencies = [
+ "serde_json",
  "uidm-domain",
 ]
 

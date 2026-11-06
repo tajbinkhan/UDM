@@ -2,7 +2,27 @@
 //! undo on Windows, the Trash on macOS and Linux), so a download removed
 //! with its files can still be brought back.
 
+use std::path::Path;
+
+use uidm_domain::ports::{DownloadFiles, FilesError};
+
+use crate::engine::{files_of, partial_files};
+
 pub use imp::recycle;
+
+/// The [`DownloadFiles`] port over the Recycle Bin (or Trash).
+pub struct RecycleBin;
+
+impl DownloadFiles for RecycleBin {
+    fn recycle(&self, path: Option<&str>, partial: Option<&str>) -> Result<(), FilesError> {
+        let mut files = path.map(|p| files_of(Path::new(p))).unwrap_or_default();
+        files.extend(partial.map(|p| partial_files(Path::new(p))).unwrap_or_default());
+        if files.is_empty() {
+            return Ok(());
+        }
+        recycle(&files).map_err(|e| FilesError(e.to_string()))
+    }
+}
 
 #[cfg(windows)]
 mod imp {
