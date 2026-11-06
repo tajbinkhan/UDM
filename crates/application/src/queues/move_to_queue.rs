@@ -37,7 +37,7 @@ impl<'a, Q: QueueStore, D: DownloadList> MoveToQueue<'a, Q, D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queues::memory::{Downloads, Queues};
+    use crate::memory::{Downloads, Queues};
     use uidm_domain::queue::{Queue, QueueKind, MAIN_QUEUE};
 
     #[test]

@@ -24,7 +24,7 @@ impl<'a, Q: QueueStore, D: DownloadList> SaveQueue<'a, Q, D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queues::memory::{Downloads, Queues};
+    use crate::memory::{Downloads, Queues};
     use uidm_domain::download::Status;
     use uidm_domain::queue::{QueueKind, MAIN_QUEUE};
 

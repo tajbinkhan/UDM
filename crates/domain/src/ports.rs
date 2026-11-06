@@ -29,17 +29,41 @@ pub trait DownloadList: Send + Sync {
     /// such download.
     fn set_waiting(&self, id: u64) -> bool;
 
+    /// The ids of the downloads for which `keep(id, status)` holds.
+    fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64>;
+
     /// Whether download `id` is running: queued in the engine or downloading.
     fn is_running(&self, id: u64) -> bool {
         matches!(self.status(id), Some(Status::Queued | Status::Downloading))
     }
 }
 
-/// Stops downloads that are running.
+/// Why a download could not be started again. The message is shown to
+/// the user or logged.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct ControlError(pub String);
+
+/// Stops and restarts downloads.
 pub trait DownloadControl: Send + Sync {
     /// Stop download `id` so that it waits in its queue again, with its
     /// progress kept.
     fn hold(&self, id: u64);
+
+    /// Stop download `id`, keeping its progress. It shows as canceled.
+    fn stop(&self, id: u64);
+
+    /// Start stopped download `id` again where it left off.
+    fn resume(&self, id: u64) -> Result<(), ControlError>;
+}
+
+/// What "pause all" stopped, for "resume all" to start again.
+pub trait PausedDownloads: Send + Sync {
+    /// Add `queues` and `downloads` to what was paused.
+    fn remember(&self, queues: &[u64], downloads: &[u64]);
+
+    /// What was paused, forgetting it.
+    fn take(&self) -> (HashSet<u64>, HashSet<u64>);
 }
 
 /// What the scheduler remembers about each queue's current run.

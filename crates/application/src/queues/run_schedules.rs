@@ -61,7 +61,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queues::memory::{Control, Downloads, FixedClock, Queues, Runs, Sounds, FIXED_NOW};
+    use crate::memory::{Control, Downloads, FixedClock, Queues, Runs, Sounds, FIXED_NOW};
     use uidm_domain::download::Status;
     use uidm_domain::queue::{Moment, Queue, Schedule, StopReason};
 

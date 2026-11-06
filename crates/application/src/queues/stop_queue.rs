@@ -33,7 +33,7 @@ impl<'a, Q: QueueStore, D: DownloadList, R: QueueRuns, X: DownloadControl> StopQ
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queues::memory::{Control, Downloads, Queues, Runs};
+    use crate::memory::{Control, Downloads, Queues, Runs};
     use uidm_domain::download::Status;
     use uidm_domain::queue::{WhenDone, MAIN_QUEUE};
 

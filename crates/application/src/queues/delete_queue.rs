@@ -26,7 +26,7 @@ impl<'a, Q: QueueStore, D: DownloadList, R: QueueRuns> DeleteQueue<'a, Q, D, R> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queues::memory::{Downloads, Queues, Runs};
+    use crate::memory::{Downloads, Queues, Runs};
     use uidm_domain::download::Status;
     use uidm_domain::queue::{Queue, MAIN_QUEUE};
 

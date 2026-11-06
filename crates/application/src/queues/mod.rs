@@ -17,6 +17,3 @@ pub use run_schedules::{RunSchedules, Scheduled};
 pub use save_queue::SaveQueue;
 pub use start_queue::StartQueue;
 pub use stop_queue::StopQueue;
-
-#[cfg(test)]
-pub(crate) mod memory;

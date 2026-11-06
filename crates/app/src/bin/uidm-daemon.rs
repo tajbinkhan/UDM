@@ -51,12 +51,15 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use uidm_application::downloads::{PauseAll, ResumeAll, StopRunning, Stopped};
 use uidm_application::queues::{
     DeleteQueue, MoveToQueue, RemoveFromQueue, RunSchedules, SaveQueue, Scheduled, StartQueue, StopQueue,
 };
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DownloadLogin, OnDone, Properties, Status, Validator};
-use uidm_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore};
+use uidm_domain::ports::{
+    ControlError, DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueSounds, QueueStore,
+};
 use uidm_domain::queue::{self, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::clock::LocalClock;
@@ -531,6 +534,10 @@ impl DownloadList for Hub {
         })
         .is_ok()
     }
+
+    fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64> {
+        self.table.lock().unwrap().entries().filter(|e| keep(e.id, e.status)).map(|e| e.id).collect()
+    }
 }
 
 // The daemon owns the engine, the scheduler's runs and the settings, so it
@@ -562,6 +569,25 @@ impl DownloadControl for Daemon {
     fn hold(&self, id: u64) {
         self.hub.held.lock().unwrap().insert(id);
         self.engine.cancel(id);
+    }
+
+    fn stop(&self, id: u64) {
+        self.engine.cancel(id);
+    }
+
+    fn resume(&self, id: u64) -> Result<(), ControlError> {
+        self.retry(id).map(|_| ()).map_err(ControlError)
+    }
+}
+
+impl PausedDownloads for Daemon {
+    fn remember(&self, queues: &[u64], downloads: &[u64]) {
+        self.paused_queues.lock().unwrap().extend(queues);
+        self.paused.lock().unwrap().extend(downloads);
+    }
+
+    fn take(&self) -> (HashSet<u64>, HashSet<u64>) {
+        (std::mem::take(&mut *self.paused_queues.lock().unwrap()), std::mem::take(&mut *self.paused.lock().unwrap()))
     }
 }
 
@@ -1297,31 +1323,14 @@ impl Daemon {
     /// Stop every queued or running download, remembering them for
     /// `resume_all`.
     fn pause_all(&self) {
-        let (queues, ids) = self.stop_running();
-        self.paused_queues.lock().unwrap().extend(queues);
-        self.paused.lock().unwrap().extend(ids);
+        PauseAll::new(&*self.hub, &*self.hub, self, self, self).run();
     }
 
     /// Stop every started queue and every queued or running download,
     /// keeping their progress. Returns what was stopped.
     fn stop_running(&self) -> (Vec<u64>, Vec<u64>) {
-        let running: Vec<u64> = self.hub.queues.lock().unwrap().iter().filter(|q| q.running).map(|q| q.id).collect();
-        for q in &running {
-            let _ = self.stop_queue(*q);
-        }
-        let ids: Vec<u64> = self
-            .hub
-            .table
-            .lock()
-            .unwrap()
-            .entries()
-            .filter(|e| matches!(e.status, Status::Queued | Status::Downloading))
-            .map(|e| e.id)
-            .collect();
-        for id in &ids {
-            self.engine.cancel(*id);
-        }
-        (running, ids)
+        let Stopped { queues, downloads } = StopRunning::new(&*self.hub, &*self.hub, self, self).run();
+        (queues, downloads)
     }
 
     /// The quota's state for a window that just connected, if downloads are
@@ -1394,24 +1403,9 @@ impl Daemon {
 
     /// Start again what `pause_all` stopped, and every interrupted download.
     fn resume_all(&self) {
-        let queues: HashSet<u64> = std::mem::take(&mut *self.paused_queues.lock().unwrap());
-        for q in queues {
-            let _ = self.start_queue(q, None);
-        }
-        let paused: HashSet<u64> = std::mem::take(&mut *self.paused.lock().unwrap());
-        let ids: Vec<u64> = self
-            .hub
-            .table
-            .lock()
-            .unwrap()
-            .entries()
-            .filter(|e| e.status == Status::Interrupted || (e.status == Status::Canceled && paused.contains(&e.id)))
-            .map(|e| e.id)
-            .collect();
-        for id in ids {
-            if let Err(e) = self.retry(id) {
-                eprintln!("[uidm-daemon] could not resume #{id}: {e}");
-            }
+        let resumed = ResumeAll::new(&*self.hub, &*self.hub, self, self, self, &LocalClock, self).run();
+        for (id, e) in resumed.failed {
+            eprintln!("[uidm-daemon] could not resume #{id}: {e}");
         }
     }
 

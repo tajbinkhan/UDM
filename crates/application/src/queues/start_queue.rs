@@ -35,7 +35,7 @@ impl<'a, Q: QueueStore, R: QueueRuns, C: Clock, S: QueueSounds> StartQueue<'a, Q
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queues::memory::{Queues, Runs, Sounds, FIXED_NOW};
+    use crate::memory::{Queues, Runs, Sounds, FIXED_NOW};
     use uidm_domain::queue::MAIN_QUEUE;
 
     #[test]

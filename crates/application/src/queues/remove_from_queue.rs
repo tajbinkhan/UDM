@@ -27,7 +27,7 @@ impl<'a, Q: QueueStore, D: DownloadList> RemoveFromQueue<'a, Q, D> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queues::memory::{Downloads, Queues};
+    use crate::memory::{Downloads, Queues};
     use uidm_domain::download::Status;
     use uidm_domain::queue::MAIN_QUEUE;
 
