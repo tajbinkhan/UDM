@@ -2,6 +2,7 @@
 //! domain through its ports, one per file.
 
 pub mod downloads;
+pub mod power;
 pub mod queues;
 pub mod quota;
 

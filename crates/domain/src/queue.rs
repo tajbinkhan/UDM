@@ -311,6 +311,46 @@ impl Queue {
     }
 }
 
+/// A "when done" action to carry out: what, and for which queue or file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PowerRequest {
+    pub action: WhenDone,
+    /// The queue that asked, or empty when one download did.
+    pub queue: String,
+    /// The download's file name, when one download asked.
+    pub file: Option<String>,
+    /// Close programs that would stop a shutdown.
+    pub force_close: bool,
+}
+
+impl PowerRequest {
+    /// The queue or file it is for, as the log and the countdown name it.
+    pub fn subject(&self) -> &str {
+        self.file.as_deref().unwrap_or(&self.queue)
+    }
+}
+
+/// How a "when done" action is carried out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerStep {
+    /// Nothing to do.
+    None,
+    /// Close UIDM at once.
+    Exit,
+    /// Sleep, hibernate or shut down after a countdown the user can stop.
+    Countdown,
+}
+
+impl WhenDone {
+    pub fn step(self) -> PowerStep {
+        match self {
+            WhenDone::Nothing => PowerStep::None,
+            WhenDone::Exit => PowerStep::Exit,
+            WhenDone::Sleep | WhenDone::Hibernate | WhenDone::ShutDown => PowerStep::Countdown,
+        }
+    }
+}
+
 /// What a queue does when a run ends, after its downloads are done.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunEnd {

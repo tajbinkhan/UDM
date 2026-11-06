@@ -7,10 +7,10 @@ use std::sync::Mutex;
 
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::ports::{
-    Clock, ControlError, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads, QueueFinish,
-    QueueRuns, QueueSounds, QueueStore, QuotaState, SyncChecks,
+    Clock, ControlError, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads, PowerControl,
+    QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, SyncChecks,
 };
-use uidm_domain::queue::{Moment, Queue, RunEnd, MAIN_QUEUE, MAIN_QUEUE_NAME};
+use uidm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use uidm_domain::quota::QuotaNotice;
 
 pub struct Queues {
@@ -534,5 +534,56 @@ impl QuotaState for Quota {
 
     fn announce(&self, notice: QuotaNotice) {
         self.announced.lock().unwrap().push(notice);
+    }
+}
+
+/// Records what it was asked to do; never powers anything off.
+#[derive(Default)]
+pub struct Power {
+    exits: AtomicUsize,
+    countdown: Mutex<Option<PowerRequest>>,
+    started: Mutex<Vec<(PowerRequest, u32)>>,
+    canceled: AtomicUsize,
+    powered_off: Mutex<Vec<(WhenDone, bool)>>,
+}
+
+impl Power {
+    pub fn exits(&self) -> usize {
+        self.exits.load(Ordering::SeqCst)
+    }
+
+    pub fn started(&self) -> Vec<(PowerRequest, u32)> {
+        self.started.lock().unwrap().clone()
+    }
+
+    pub fn canceled(&self) -> usize {
+        self.canceled.load(Ordering::SeqCst)
+    }
+
+    pub fn powered_off(&self) -> Vec<(WhenDone, bool)> {
+        self.powered_off.lock().unwrap().clone()
+    }
+}
+
+impl PowerControl for Power {
+    fn exit(&self) {
+        self.exits.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn start_countdown(&self, request: &PowerRequest, seconds: u32) {
+        *self.countdown.lock().unwrap() = Some(request.clone());
+        self.started.lock().unwrap().push((request.clone(), seconds));
+    }
+
+    fn take_countdown(&self) -> Option<PowerRequest> {
+        self.countdown.lock().unwrap().take()
+    }
+
+    fn countdown_canceled(&self) {
+        self.canceled.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn power_off(&self, action: WhenDone, force_close: bool) {
+        self.powered_off.lock().unwrap().push((action, force_close));
     }
 }

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::download::{Download, DownloadEntry, Status};
-use crate::queue::{Moment, Queue, RunEnd};
+use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
 
 /// The download queues, the main queue first.
@@ -232,6 +232,26 @@ pub trait QuotaState: Send + Sync {
 
     /// Tell every client the quota's state.
     fn announce(&self, notice: QuotaNotice);
+}
+
+/// Closing UIDM, and sleeping, hibernating or shutting down the computer.
+pub trait PowerControl: Send + Sync {
+    /// Close UIDM: every window quits, and the daemon ends once its other
+    /// downloads are done.
+    fn exit(&self);
+
+    /// Count down `seconds` before carrying out `request`, replacing any
+    /// countdown running. The windows show it and may stop it.
+    fn start_countdown(&self, request: &PowerRequest, seconds: u32);
+
+    /// Stop the countdown running, if any, and return what it was for.
+    fn take_countdown(&self) -> Option<PowerRequest>;
+
+    /// Tell the windows the countdown stopped.
+    fn countdown_canceled(&self);
+
+    /// Sleep, hibernate or shut down now.
+    fn power_off(&self, action: WhenDone, force_close: bool);
 }
 
 /// The computer's local date and time.

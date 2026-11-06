@@ -584,6 +584,8 @@ pub enum DownloadError {
     Exists(String),
     #[error("The download started while its properties were being saved.")]
     StartedWhileSaving,
+    #[error("This download has already finished.")]
+    AlreadyFinished,
     #[error("could not reach the new link: {0}")]
     Unreachable(String),
     /// Moving its file failed; the message says how.
@@ -616,6 +618,34 @@ impl Status {
 }
 
 impl DownloadEntry {
+    /// Set what it does once it finishes; `None`, or nothing chosen, clears
+    /// it. A finished download has done it already.
+    pub fn set_on_done(&mut self, on_done: Option<OnDone>) -> Result<(), DownloadError> {
+        if self.status == Status::Done {
+            return Err(DownloadError::AlreadyFinished);
+        }
+        self.on_done = on_done.filter(|o| *o != OnDone::default());
+        Ok(())
+    }
+
+    /// What it asked to happen once it finished, cleared so downloading it
+    /// again does not repeat it. `None` unless it finished and asked.
+    pub fn take_on_done(&mut self) -> Option<OnDone> {
+        if self.status != Status::Done {
+            return None;
+        }
+        self.on_done.take()
+    }
+
+    /// Its file's name, or its address when it has no file.
+    pub fn display_name(&self) -> String {
+        self.path
+            .as_deref()
+            .and_then(|p| Path::new(p).file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.url.clone())
+    }
+
     /// Whether its properties may change: it is finished or stopped.
     pub fn properties_editable(&self) -> bool {
         self.status == Status::Done || self.status.is_retryable()
@@ -1006,5 +1036,20 @@ mod tests {
         plan.apply_to_request(&mut req);
         let login = req.login.unwrap();
         assert_eq!((login.username.as_str(), login.password.as_deref()), ("me", Some("secret")));
+    }
+
+    #[test]
+    fn a_download_does_its_on_done_once_after_finishing() {
+        let then = OnDone { then: WhenDone::ShutDown, ..OnDone::default() };
+        let mut e = entry(Status::Downloading, 1);
+        e.set_on_done(Some(then)).unwrap();
+        assert_eq!(e.take_on_done(), None, "not finished yet");
+        e.status = Status::Done;
+        assert_eq!(e.set_on_done(None), Err(DownloadError::AlreadyFinished));
+        assert_eq!(e.take_on_done(), Some(then));
+        assert_eq!(e.take_on_done(), None, "it is cleared");
+        let mut e = entry(Status::Waiting, 0);
+        e.set_on_done(Some(OnDone::default())).unwrap();
+        assert_eq!(e.on_done, None, "choosing nothing clears it");
     }
 }

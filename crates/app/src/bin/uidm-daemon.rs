@@ -52,9 +52,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use uidm_application::downloads::{
-    PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember,
-    SetProperties, SetSpeedLimit,
+    AfterDownload, PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload,
+    SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit,
 };
+use uidm_application::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use uidm_application::queues::{
     DeleteQueue, MoveToQueue, QueueEvent, RemoveFromQueue, RunQueues, RunSchedules, SaveQueue, Scheduled, StartQueue,
     StopQueue,
@@ -63,10 +64,12 @@ use uidm_application::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Status, Validator};
 use uidm_domain::ports::{
-    ControlError, DownloadControl, DownloadList, PausedDownloads, QueueFinish, QueueRuns, QueueSounds, QueueStore,
-    QuotaState, SyncChecks,
+    ControlError, DownloadControl, DownloadList, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds,
+    QueueStore, QuotaState, SyncChecks,
 };
-use uidm_domain::queue::{self, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
+use uidm_domain::queue::{
+    self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
+};
 use uidm_domain::quota::{QuotaLimit, QuotaNotice};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::clock::LocalClock;
@@ -669,6 +672,60 @@ impl QuotaState for Daemon {
     }
 }
 
+impl PowerControl for Daemon {
+    fn exit(&self) {
+        self.hub.broadcast(&Outgoing::Quit);
+        self.save_history();
+        // Other downloads may still run; the idle monitor ends the daemon
+        // once they are done and every window has closed.
+    }
+
+    fn start_countdown(&self, request: &PowerRequest, seconds: u32) {
+        let canceled = Arc::new(AtomicBool::new(false));
+        let deadline = Instant::now() + Duration::from_secs(seconds as u64);
+        let countdown = Countdown { request: request.clone(), deadline, canceled: Arc::clone(&canceled) };
+        if let Some(old) = self.countdown.lock().unwrap().replace(countdown) {
+            old.canceled.store(true, Ordering::Relaxed);
+        }
+        self.hub.broadcast(&Outgoing::Countdown {
+            action: request.action,
+            seconds,
+            queue: request.queue.clone(),
+            file: request.file.clone(),
+        });
+        self.show_window();
+        // Save now: the machine may go away when the countdown ends.
+        self.save_history();
+        let (action, force_close) = (request.action, request.force_close);
+        thread::spawn(move || {
+            while Instant::now() < deadline {
+                if canceled.load(Ordering::Relaxed) {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(250));
+            }
+            if canceled.load(Ordering::Relaxed) {
+                return;
+            }
+            power_off(action, force_close);
+        });
+    }
+
+    fn take_countdown(&self) -> Option<PowerRequest> {
+        let c = self.countdown.lock().unwrap().take()?;
+        c.canceled.store(true, Ordering::Relaxed);
+        Some(c.request)
+    }
+
+    fn countdown_canceled(&self) {
+        self.hub.broadcast(&Outgoing::CountdownCanceled);
+    }
+
+    fn power_off(&self, action: WhenDone, force_close: bool) {
+        power_off(action, force_close);
+    }
+}
+
 /// The `quota` message that tells the clients `notice`.
 fn quota_outgoing(n: QuotaNotice) -> Outgoing {
     Outgoing::Quota { used: n.used, limit: n.limit, paused: n.paused, resumes_at: n.resumes_at }
@@ -857,11 +914,7 @@ struct Daemon {
 
 /// A countdown before sleeping, hibernating or shutting down.
 struct Countdown {
-    action: WhenDone,
-    queue: String,
-    /// The download's file name, when one download asked for it.
-    file: Option<String>,
-    force_close: bool,
+    request: PowerRequest,
     deadline: Instant,
     canceled: Arc<AtomicBool>,
 }
@@ -1207,37 +1260,23 @@ impl Daemon {
         (changed, listed)
     }
 
-    /// Do what a finished queue, or with `file` one finished download, asks.
+    /// Do what a finished queue, or with `file` one finished download, asks
+    /// (see `RunWhenDone`).
     fn when_done(&self, action: WhenDone, queue: &str, file: Option<&str>, force_close: bool) {
-        match action {
-            WhenDone::Nothing => {}
-            WhenDone::Exit => {
-                eprintln!("[uidm-daemon] {} done: exiting", file.unwrap_or(queue));
-                self.hub.broadcast(&Outgoing::Quit);
-                self.save_history();
-                // Other downloads may still run; the idle monitor ends the
-                // daemon once they are done and every window has closed.
+        let request = PowerRequest { action, queue: queue.to_string(), file: file.map(str::to_string), force_close };
+        match RunWhenDone::new(self).run(&request) {
+            PowerStep::None => {}
+            PowerStep::Exit => eprintln!("[uidm-daemon] {} done: exiting", request.subject()),
+            PowerStep::Countdown => {
+                eprintln!("[uidm-daemon] {} done: {} in {COUNTDOWN_SECS}s", request.subject(), action.label())
             }
-            _ => self.start_countdown(action, queue, file, force_close),
         }
     }
 
     /// Run what download `id` asked to happen once it finished, then clear
     /// it so downloading it again does not repeat it.
     fn after_download(&self, id: u64) {
-        let mut then = OnDone::default();
-        let cleared = self.hub.update(id, |e| {
-            if e.status != Status::Done {
-                return Err("not finished".into());
-            }
-            then = e.on_done.take().ok_or_else(|| "nothing to do".to_string())?;
-            Ok(())
-        });
-        if let Ok(e) = cleared {
-            let name =
-                e.path.as_deref().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned());
-            self.when_done(then.then, "", Some(name.as_deref().unwrap_or(&e.url)), then.force_close);
-        }
+        AfterDownload::new(&*self.hub, self).run(id);
     }
 
     /// Do what `uidm-gui`'s command line asked. `/q` counts only when that
@@ -1269,68 +1308,17 @@ impl Daemon {
 
     /// Set or clear what download `id` does once it finishes.
     fn set_on_done(&self, id: u64, on_done: Option<OnDone>) -> Result<(), String> {
-        self.hub.update(id, |e| {
-            if e.status == Status::Done {
-                return Err("This download has already finished.".into());
-            }
-            e.on_done = on_done.filter(|o| *o != OnDone::default());
-            Ok(())
-        })?;
-        Ok(())
-    }
-
-    fn start_countdown(&self, action: WhenDone, queue: &str, file: Option<&str>, force_close: bool) {
-        let canceled = Arc::new(AtomicBool::new(false));
-        let deadline = Instant::now() + Duration::from_secs(COUNTDOWN_SECS as u64);
-        if let Some(old) = self.countdown.lock().unwrap().replace(Countdown {
-            action,
-            queue: queue.to_string(),
-            file: file.map(str::to_string),
-            force_close,
-            deadline,
-            canceled: Arc::clone(&canceled),
-        }) {
-            old.canceled.store(true, Ordering::Relaxed);
-        }
-        eprintln!("[uidm-daemon] {} done: {} in {COUNTDOWN_SECS}s", file.unwrap_or(queue), action.label());
-        self.hub.broadcast(&Outgoing::Countdown {
-            action,
-            seconds: COUNTDOWN_SECS,
-            queue: queue.to_string(),
-            file: file.map(str::to_string),
-        });
-        self.show_window();
-        // Save now: the machine may go away when the countdown ends.
-        self.save_history();
-        thread::spawn(move || {
-            while Instant::now() < deadline {
-                if canceled.load(Ordering::Relaxed) {
-                    return;
-                }
-                thread::sleep(Duration::from_millis(250));
-            }
-            if canceled.load(Ordering::Relaxed) {
-                return;
-            }
-            power_off(action, force_close);
-        });
+        SetOnDone::new(&*self.hub).run(id, on_done).map_err(|e| e.to_string())
     }
 
     /// End the countdown early and carry out its action now.
     fn countdown_now(&self) {
-        let Some(c) = self.countdown.lock().unwrap().take() else {
-            return;
-        };
-        c.canceled.store(true, Ordering::Relaxed);
-        self.hub.broadcast(&Outgoing::CountdownCanceled);
-        power_off(c.action, c.force_close);
+        CountdownNow::new(self).run();
     }
 
     fn cancel_countdown(&self) {
-        if let Some(c) = self.countdown.lock().unwrap().take() {
-            c.canceled.store(true, Ordering::Relaxed);
+        if CancelCountdown::new(self).run() {
             eprintln!("[uidm-daemon] countdown canceled");
-            self.hub.broadcast(&Outgoing::CountdownCanceled);
         }
     }
 
@@ -1343,10 +1331,10 @@ impl Daemon {
             return None;
         }
         Some(Outgoing::Countdown {
-            action: c.action,
+            action: c.request.action,
             seconds: c.deadline.saturating_duration_since(Instant::now()).as_secs() as u32,
-            queue: c.queue.clone(),
-            file: c.file.clone(),
+            queue: c.request.queue.clone(),
+            file: c.request.file.clone(),
         })
     }
 
@@ -5440,7 +5428,7 @@ mod tests {
         .unwrap();
         assert!(project.force_close, "saved with the project");
         let countdown_forces = |t: &Setup| {
-            let forced = t.daemon.countdown.lock().unwrap().as_ref().map(|c| (c.action, c.force_close));
+            let forced = t.daemon.countdown.lock().unwrap().as_ref().map(|c| (c.request.action, c.request.force_close));
             t.daemon.cancel_countdown();
             forced
         };
