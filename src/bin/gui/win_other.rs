@@ -51,6 +51,11 @@ pub fn raise_window(_title: &str) -> bool {
     true
 }
 
+/// Keep a dialog in front of the main window. Not done here.
+pub fn own_window(_title: &str) -> bool {
+    true
+}
+
 /// Put the window away; it lives on in the tray (and the Dock or taskbar).
 pub fn hide() {
     if let Some(ctx) = CTX.get() {

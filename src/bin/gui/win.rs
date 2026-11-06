@@ -26,6 +26,8 @@ const SWP_NOMOVE: u32 = 0x2;
 const SWP_SHOWWINDOW: u32 = 0x40;
 
 const DWMWA_CLOAK: u32 = 13;
+/// `SetWindowLongPtrW` index of a top-level window's owner.
+const GWLP_HWNDPARENT: i32 = -8;
 
 #[link(name = "dwmapi")]
 extern "system" {
@@ -57,6 +59,7 @@ extern "system" {
     fn GetClipboardSequenceNumber() -> u32;
     fn GetCapture() -> isize;
     fn PostMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> i32;
+    fn SetWindowLongPtrW(hwnd: isize, index: i32, value: isize) -> isize;
 }
 
 /// `OPENASINFO`.
@@ -200,6 +203,41 @@ fn raise(hwnd: isize) {
 /// caught download, a completion dialog). False when there is no such
 /// window yet.
 pub fn raise_window(title: &str) -> bool {
+    let found = find_window(title);
+    if found == 0 {
+        return false;
+    }
+    raise(found);
+    true
+}
+
+/// Make the main window the owner of this program's dialog titled `title`,
+/// as a Win32 dialog's parent is. Windows then keeps the dialog in front of
+/// the main window, so a click on the main window no longer covers it.
+///
+/// Waits while the main window sits in the tray: Windows hides owned
+/// windows with their minimized owner, and a save-as dialog for a caught
+/// download must show there. False until the dialog is owned, so the
+/// caller tries again on a later frame.
+pub fn own_window(title: &str) -> bool {
+    let main = WINDOW.load(Ordering::Relaxed);
+    // SAFETY: a plain call on our own window handle.
+    if main == 0 || HIDDEN.load(Ordering::Relaxed) || unsafe { IsIconic(main) } != 0 {
+        return false;
+    }
+    let found = find_window(title);
+    if found == 0 || found == main {
+        return false;
+    }
+    // SAFETY: both handles are this program's own top-level windows.
+    unsafe {
+        SetWindowLongPtrW(found, GWLP_HWNDPARENT, main);
+    }
+    true
+}
+
+/// This program's visible window titled `title`, or 0.
+fn find_window(title: &str) -> isize {
     struct Search {
         pid: u32,
         title: Vec<u16>,
@@ -234,11 +272,7 @@ pub fn raise_window(title: &str) -> bool {
     unsafe {
         EnumWindows(visit, &mut search as *mut Search as isize);
     }
-    if search.found == 0 {
-        return false;
-    }
-    raise(search.found);
-    true
+    search.found
 }
 
 /// Hide the window; it lives on in the tray.
