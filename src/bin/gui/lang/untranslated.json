@@ -35,6 +35,7 @@
   "Add a download by its address",
   "Add batch download from &clipboard",
   "All Downloads",
+  "Also send it over plain http and to FTP servers, where it can be read on the way. Off, it goes only over https.",
   "Browser capture, file types, connection, proxy, logins and more",
   "By &Description",
   "By &File Name",

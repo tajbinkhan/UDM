@@ -75,7 +75,6 @@ const NONCE_BYTES: usize = 32;
 pub const DAEMON_LABEL: &str = "uidm-daemon";
 pub const HOST_LABEL: &str = "uidm-host";
 
-
 /// How long the host waits for a daemon it just started. A first launch of a
 /// freshly built exe can be slow while antivirus scans it.
 const STARTUP_WAIT: Duration = Duration::from_secs(10);
@@ -147,10 +146,7 @@ pub fn connect_or_spawn() -> io::Result<TcpStream> {
         }
     }
     let detail = last_err.map(|e| e.to_string()).unwrap_or_default();
-    Err(io::Error::new(
-        io::ErrorKind::TimedOut,
-        format!("could not connect to daemon on {}: {detail}", daemon_addr()),
-    ))
+    Err(io::Error::new(io::ErrorKind::TimedOut, format!("could not connect to daemon on {}: {detail}", daemon_addr())))
 }
 
 /// Stop the running daemon, if any, then start a new one and connect to
@@ -226,20 +222,10 @@ fn connect_authenticated() -> io::Result<TcpStream> {
     let client_nonce = new_nonce()?;
     stream.set_read_timeout(Some(AUTH_TIMEOUT))?;
 
-    send_handshake(
-        &mut stream,
-        &Handshake::AuthHello {
-            client_nonce: client_nonce.clone(),
-        },
-    )?;
+    send_handshake(&mut stream, &Handshake::AuthHello { client_nonce: client_nonce.clone() })?;
     let server_nonce = match recv_handshake(&mut stream)? {
-        Handshake::AuthChallenge {
-            server_nonce,
-            proof: given,
-        } if ct_eq(
-            given.as_bytes(),
-            proof(&token, DAEMON_LABEL, &client_nonce, &server_nonce).as_bytes(),
-        ) =>
+        Handshake::AuthChallenge { server_nonce, proof: given }
+            if ct_eq(given.as_bytes(), proof(&token, DAEMON_LABEL, &client_nonce, &server_nonce).as_bytes()) =>
         {
             server_nonce
         }
@@ -255,12 +241,7 @@ fn connect_authenticated() -> io::Result<TcpStream> {
     send_handshake(&mut stream, &Handshake::Auth { proof: host_proof })?;
     match recv_handshake(&mut stream)? {
         Handshake::AuthOk => {}
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "daemon rejected the host's proof",
-            ))
-        }
+        _ => return Err(io::Error::new(io::ErrorKind::PermissionDenied, "daemon rejected the host's proof")),
     }
 
     stream.set_read_timeout(None)?;
@@ -275,26 +256,17 @@ pub fn send_handshake(stream: &mut TcpStream, msg: &Handshake) -> io::Result<()>
 /// Read one handshake frame, capped at `AUTH_MAX_BYTES`. A close or anything
 /// that is not a handshake message is an error.
 pub fn recv_handshake(stream: &mut impl Read) -> io::Result<Handshake> {
-    let raw = read_message(stream, AUTH_MAX_BYTES)?.ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "connection closed during auth",
-        )
-    })?;
-    serde_json::from_slice(&raw).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("bad handshake frame: {e}"),
-        )
-    })
+    let raw = read_message(stream, AUTH_MAX_BYTES)?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "connection closed during auth"))?;
+    serde_json::from_slice(&raw)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad handshake frame: {e}")))
 }
 
 /// `HMAC-SHA256(token, label, client_nonce, server_nonce)`, hex-encoded. Each
 /// field is length-prefixed so no two different inputs feed the MAC the same
 /// bytes.
 pub fn proof(token: &str, label: &str, client_nonce: &str, server_nonce: &str) -> String {
-    let mut mac =
-        Hmac::<Sha256>::new_from_slice(token.as_bytes()).expect("HMAC accepts keys of any length");
+    let mut mac = Hmac::<Sha256>::new_from_slice(token.as_bytes()).expect("HMAC accepts keys of any length");
     for field in [label, client_nonce, server_nonce] {
         mac.update(&(field.len() as u32).to_le_bytes());
         mac.update(field.as_bytes());
@@ -495,10 +467,7 @@ mod tests {
 
         let mut mac = Hmac::<Sha256>::new_from_slice(b"k").unwrap();
         mac.update(b"\x03\0\0\0lab\x01\0\0\0c\x01\0\0\0s");
-        assert_eq!(
-            proof("k", "lab", "c", "s"),
-            hex(&mac.finalize().into_bytes())
-        );
+        assert_eq!(proof("k", "lab", "c", "s"), hex(&mac.finalize().into_bytes()));
     }
 
     /// A proof depends on every input, and the two roles never share one.
@@ -511,33 +480,19 @@ mod tests {
         assert_ne!(base, proof("tok", DAEMON_LABEL, "cn", "sx"));
         assert_ne!(base, proof("other", DAEMON_LABEL, "cn", "sn"));
         // Length prefixes keep field boundaries from shifting.
-        assert_ne!(
-            proof("tok", DAEMON_LABEL, "ab", "c"),
-            proof("tok", DAEMON_LABEL, "a", "bc")
-        );
+        assert_ne!(proof("tok", DAEMON_LABEL, "ab", "c"), proof("tok", DAEMON_LABEL, "a", "bc"));
     }
 
     /// The handshake shapes are part of the host <-> daemon contract.
     #[test]
     fn handshake_wire_format() {
         let cases = [
+            (Handshake::AuthHello { client_nonce: "c".into() }, r#"{"op":"auth_hello","client_nonce":"c"}"#),
             (
-                Handshake::AuthHello {
-                    client_nonce: "c".into(),
-                },
-                r#"{"op":"auth_hello","client_nonce":"c"}"#,
-            ),
-            (
-                Handshake::AuthChallenge {
-                    server_nonce: "s".into(),
-                    proof: "p".into(),
-                },
+                Handshake::AuthChallenge { server_nonce: "s".into(), proof: "p".into() },
                 r#"{"op":"auth_challenge","server_nonce":"s","proof":"p"}"#,
             ),
-            (
-                Handshake::Auth { proof: "p".into() },
-                r#"{"op":"auth","proof":"p"}"#,
-            ),
+            (Handshake::Auth { proof: "p".into() }, r#"{"op":"auth","proof":"p"}"#),
             (Handshake::AuthOk, r#"{"op":"auth_ok"}"#),
         ];
         for (msg, json) in cases {

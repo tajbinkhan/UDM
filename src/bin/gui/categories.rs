@@ -103,11 +103,7 @@ pub struct Tree {
 
 impl Default for Tree {
     fn default() -> Self {
-        Tree {
-            open: [Branch::Progress(ProgressKey::All)].into(),
-            projects: Vec::new(),
-            projects_read: None,
-        }
+        Tree { open: [Branch::Progress(ProgressKey::All)].into(), projects: Vec::new(), projects_read: None }
     }
 }
 
@@ -128,7 +124,13 @@ pub struct Outcome {
     pub hide: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, panel: &Panel, tree: &mut Tree, filter: &mut Filter, actions: &mut Vec<Action>) -> Outcome {
+pub fn show(
+    ui: &mut egui::Ui,
+    panel: &Panel,
+    tree: &mut Tree,
+    filter: &mut Filter,
+    actions: &mut Vec<Action>,
+) -> Outcome {
     let mut outcome = Outcome::default();
     if tree.projects_read.is_none_or(|t| t.elapsed() >= PROJECTS_EVERY) {
         tree.projects = uidm::grab::projects_dir().map(|d| uidm::grab::recent_projects(&d)).unwrap_or_default();
@@ -269,8 +271,10 @@ fn row(ui: &mut egui::Ui, depth: usize, expander: Option<bool>, icon: Icon, text
     x += 12.0;
     let icon_rect = Rect::from_min_size(Pos2::new(x, rect.center().y - 7.0), Vec2::splat(14.0));
     x += 18.0;
-    let galley = painter.layout_no_wrap(text.to_string(), egui::TextStyle::Body.resolve(ui.style()), visuals.text_color());
-    let label = Rect::from_min_size(Pos2::new(x - 2.0, rect.top() + 1.0), Vec2::new(galley.size().x + 4.0, ROW_HEIGHT - 2.0));
+    let galley =
+        painter.layout_no_wrap(text.to_string(), egui::TextStyle::Body.resolve(ui.style()), visuals.text_color());
+    let label =
+        Rect::from_min_size(Pos2::new(x - 2.0, rect.top() + 1.0), Vec2::new(galley.size().x + 4.0, ROW_HEIGHT - 2.0));
     if selected {
         painter.rect_filled(label, 0.0, visuals.selection.bg_fill);
     } else if response.hovered() {
@@ -292,11 +296,7 @@ fn row(ui: &mut egui::Ui, depth: usize, expander: Option<bool>, icon: Icon, text
     }
     draw_icon(&painter, icon, icon_rect);
     let toggle = expander.is_some() && ((response.clicked() && on_arrow) || response.double_clicked());
-    Row {
-        pick: response.clicked() && !(expander.is_some() && on_arrow),
-        toggle,
-        response,
-    }
+    Row { pick: response.clicked() && !(expander.is_some() && on_arrow), toggle, response }
 }
 
 #[derive(Clone, Copy)]

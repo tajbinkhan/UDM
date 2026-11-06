@@ -53,26 +53,26 @@ use std::time::{Duration, Instant};
 
 use uidm::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm::engine::DownloadRequest;
-use uidm::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
-use uidm::settings::{ProxyMode, SocksVersion};
 use uidm::engine::{self, Engine, Progress};
+use uidm::grab::{self, GrabRequest};
 use uidm::history::{self, History};
 use uidm::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST_LABEL};
+use uidm::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
+use uidm::notify::{self, Sound, Toast};
+use uidm::power;
+use uidm::protocol::Scan;
 use uidm::protocol::{
     read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, DownloadLogin, Incoming, OnDone, Outgoing,
     Properties, Status, Validator,
 };
-use uidm::settings::{self, Duplicate, FileExists, Folders, Settings, SPEED_LIMIT_RANGE_KBPS};
-use uidm::notify::{self, Sound, Toast};
-use uidm::power;
 use uidm::queue::{self, Queue, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
-use uidm::protocol::Scan;
-use uidm::grab::{self, GrabRequest};
+use uidm::quota::Usage;
 #[cfg(windows)]
 use uidm::registry;
 use uidm::scan;
 use uidm::settings::Notify;
-use uidm::quota::Usage;
+use uidm::settings::{self, Duplicate, FileExists, Folders, Settings, SPEED_LIMIT_RANGE_KBPS};
+use uidm::settings::{ProxyMode, SocksVersion};
 use uidm::state::DownloadTable;
 
 /// Exit after this long with no clients and no queued or running downloads.
@@ -102,10 +102,7 @@ const LINK_PROBES: usize = 4;
 fn early_finished_anyway(early: &Early) -> Option<&Path> {
     let target = early.target.as_deref()?;
     let total = early.total?;
-    let partial_left = early
-        .file
-        .as_deref()
-        .is_some_and(|f| f != target && f.exists());
+    let partial_left = early.file.as_deref().is_some_and(|f| f != target && f.exists());
     let finished = !partial_left
         && !engine::sidecar_path(target).exists()
         && early.file.as_deref().is_none_or(|f| !engine::sidecar_path(f).exists())
@@ -114,9 +111,7 @@ fn early_finished_anyway(early: &Early) -> Option<&Path> {
 }
 
 fn early_root() -> PathBuf {
-    uidm::platform::data_dir()
-        .map(|d| d.join("early"))
-        .unwrap_or_else(|_| std::env::temp_dir().join(EARLY_FOLDER))
+    uidm::platform::data_dir().map(|d| d.join("early")).unwrap_or_else(|_| std::env::temp_dir().join(EARLY_FOLDER))
 }
 /// A failure is announced after this long, so a download the browser
 /// extension takes back (and removes) right away is not announced at all.
@@ -324,10 +319,7 @@ impl Hub {
         f: impl FnOnce(&mut DownloadEntry) -> Result<(), String>,
     ) -> Result<DownloadEntry, String> {
         let mut table = self.table.lock().unwrap();
-        let mut item = table
-            .get(id)
-            .cloned()
-            .ok_or_else(|| format!("no download with id {id}"))?;
+        let mut item = table.get(id).cloned().ok_or_else(|| format!("no download with id {id}"))?;
         f(&mut item)?;
         let msg = Outgoing::Updated { item: item.clone() };
         table.apply(&msg);
@@ -462,10 +454,7 @@ impl Hub {
     fn update_queue<T>(&self, id: u64, f: impl FnOnce(&mut Queue) -> Result<T, String>) -> Result<T, String> {
         let result = {
             let mut queues = self.queues.lock().unwrap();
-            let q = queues
-                .iter_mut()
-                .find(|q| q.id == id)
-                .ok_or_else(|| format!("no queue with id {id}"))?;
+            let q = queues.iter_mut().find(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
             f(q)?
         };
         self.publish_queues();
@@ -491,12 +480,7 @@ impl Hub {
 
     /// The queue holding download `id`.
     fn queue_of(&self, id: u64) -> Option<u64> {
-        self.queues
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|q| q.order.contains(&id))
-            .map(|q| q.id)
+        self.queues.lock().unwrap().iter().find(|q| q.order.contains(&id)).map(|q| q.id)
     }
 
     /// Send `msg` to every client.
@@ -505,10 +489,7 @@ impl Hub {
             return;
         };
         // Dropping a client whose writer is gone keeps the map tidy.
-        self.clients
-            .lock()
-            .unwrap()
-            .retain(|_, tx| tx.send(frame.clone()).is_ok());
+        self.clients.lock().unwrap().retain(|_, tx| tx.send(frame.clone()).is_ok());
     }
 }
 
@@ -523,9 +504,8 @@ struct Paths {
 
 impl Paths {
     fn from_env() -> Self {
-        let warn = |what: &str, r: io::Result<PathBuf>| {
-            r.map_err(|e| eprintln!("[uidm-daemon] no {what} file: {e}")).ok()
-        };
+        let warn =
+            |what: &str, r: io::Result<PathBuf>| r.map_err(|e| eprintln!("[uidm-daemon] no {what} file: {e}")).ok();
         Paths {
             settings: warn("settings", settings::settings_path()),
             history: warn("history", history::history_path()),
@@ -631,11 +611,7 @@ impl Daemon {
                 // Keep the unreadable file for inspection instead of
                 // overwriting it with an empty list.
                 let bad = path.with_extension("json.bad");
-                eprintln!(
-                    "[uidm-daemon] could not read {}: {e}; moved to {}",
-                    path.display(),
-                    bad.display()
-                );
+                eprintln!("[uidm-daemon] could not read {}: {e}; moved to {}", path.display(), bad.display());
                 let _ = std::fs::rename(path, &bad);
                 History::default()
             }),
@@ -654,9 +630,7 @@ impl Daemon {
         if queues.is_empty() {
             queues.push(Queue::main());
         }
-        table.apply(&Outgoing::Downloads {
-            items: history.items,
-        });
+        table.apply(&Outgoing::Downloads { items: history.items });
         requests.retain(|id, _| table.get(*id).is_some_and(|e| e.status.is_retryable()));
 
         let (dirty, dirty_rx) = channel();
@@ -827,10 +801,7 @@ impl Daemon {
         let finished = self.finished_ids();
         let id = {
             let mut queues = self.hub.queues.lock().unwrap();
-            if queues
-                .iter()
-                .any(|q| q.id != edited.id && q.name.eq_ignore_ascii_case(&name))
-            {
+            if queues.iter().any(|q| q.id != edited.id && q.name.eq_ignore_ascii_case(&name)) {
                 return Err(format!("There is already a queue named \"{name}\"."));
             }
             let id = if edited.id == 0 {
@@ -840,10 +811,7 @@ impl Daemon {
             } else {
                 edited.id
             };
-            let q = queues
-                .iter_mut()
-                .find(|q| q.id == id)
-                .ok_or_else(|| format!("no queue with id {id}"))?;
+            let q = queues.iter_mut().find(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
             if q.schedule != edited.schedule && !q.running {
                 // A new schedule may start today even if the old one ran. A
                 // run in progress keeps its day, so its stop time still holds.
@@ -879,10 +847,7 @@ impl Daemon {
         let finished = self.finished_ids();
         {
             let mut queues = self.hub.queues.lock().unwrap();
-            let pos = queues
-                .iter()
-                .position(|q| q.id == id)
-                .ok_or_else(|| format!("no queue with id {id}"))?;
+            let pos = queues.iter().position(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
             let gone = queues.remove(pos);
             if let Some(main) = queues.iter_mut().find(|q| q.id == MAIN_QUEUE) {
                 let keep_done = main.kind.is_sync();
@@ -933,11 +898,7 @@ impl Daemon {
             let table = self.hub.table.lock().unwrap();
             order
                 .into_iter()
-                .filter(|i| {
-                    table
-                        .get(*i)
-                        .is_some_and(|e| matches!(e.status, Status::Queued | Status::Downloading))
-                })
+                .filter(|i| table.get(*i).is_some_and(|e| matches!(e.status, Status::Queued | Status::Downloading)))
                 .collect()
         };
         for i in running {
@@ -977,10 +938,7 @@ impl Daemon {
             // anything (otherwise it runs until it is done).
             let started_any = !self.runs.lock().unwrap().get(&q.id).is_none_or(|r| r.is_empty());
             if q.running && q.started_by_schedule && (schedule.stop.is_some() || !started_any) {
-                let ended = q
-                    .last_scheduled_day
-                    .and_then(|day| schedule.end_of_run(day))
-                    .is_some_and(|end| now >= end);
+                let ended = q.last_scheduled_day.and_then(|day| schedule.end_of_run(day)).is_some_and(|end| now >= end);
                 if ended {
                     eprintln!("[uidm-daemon] schedule stops queue {}", q.name);
                     let _ = self.stop_queue(q.id);
@@ -992,10 +950,7 @@ impl Daemon {
         for q in queues.iter().filter(|q| q.running) {
             let statuses: Vec<(u64, Status)> = {
                 let table = self.hub.table.lock().unwrap();
-                q.order
-                    .iter()
-                    .filter_map(|id| table.get(*id).map(|e| (*id, e.status)))
-                    .collect()
+                q.order.iter().filter_map(|id| table.get(*id).map(|e| (*id, e.status))).collect()
             };
             let started = self.runs.lock().unwrap().entry(q.id).or_default().clone();
 
@@ -1017,10 +972,7 @@ impl Daemon {
             }
             let statuses: Vec<(u64, Status)> = {
                 let table = self.hub.table.lock().unwrap();
-                q.order
-                    .iter()
-                    .filter_map(|id| table.get(*id).map(|e| (*id, e.status)))
-                    .collect()
+                q.order.iter().filter_map(|id| table.get(*id).map(|e| (*id, e.status))).collect()
             };
 
             let checking = self.checking.lock().unwrap().clone();
@@ -1053,10 +1005,7 @@ impl Daemon {
             }
 
             // A download asking about a taken file name is still to do.
-            let busy = active > 0
-                || statuses
-                    .iter()
-                    .any(|(_, s)| matches!(s, Status::Waiting | Status::Confirming));
+            let busy = active > 0 || statuses.iter().any(|(_, s)| matches!(s, Status::Waiting | Status::Confirming));
             // A scheduled run that has started nothing yet stays open until
             // its stop time, for downloads added meanwhile.
             let started_any = !self.runs.lock().unwrap().get(&q.id).is_none_or(|r| r.is_empty());
@@ -1100,10 +1049,7 @@ impl Daemon {
                 return Err(e);
             }
         };
-        let known = entry.validator.clone().unwrap_or(Validator {
-            size: entry.total,
-            ..Validator::default()
-        });
+        let known = entry.validator.clone().unwrap_or(Validator { size: entry.total, ..Validator::default() });
         let gone = !entry.path.as_deref().is_some_and(|p| Path::new(p).is_file());
         let changed = gone || known.changed(&found);
         self.hub.update(id, |e| {
@@ -1129,7 +1075,11 @@ impl Daemon {
             }
             Ok(())
         })?;
-        eprintln!("[uidm-daemon] #{id} {}: {}", if changed { "changed on the server" } else { "is unchanged" }, entry.url);
+        eprintln!(
+            "[uidm-daemon] #{id} {}: {}",
+            if changed { "changed on the server" } else { "is unchanged" },
+            entry.url
+        );
         Ok(changed)
     }
 
@@ -1149,11 +1099,7 @@ impl Daemon {
         }
         let req = self.request_for(download);
         let found = engine::inspect(&req.url, None, &req.headers, &req.net).map_err(|e| e.to_string())?;
-        Ok(Validator {
-            size: found.total,
-            etag: found.etag,
-            last_modified: found.last_modified,
-        })
+        Ok(Validator { size: found.total, etag: found.etag, last_modified: found.last_modified })
     }
 
     /// Check the finished downloads at `urls` for changes, and put those
@@ -1243,7 +1189,8 @@ impl Daemon {
             Ok(())
         });
         if let Ok(e) = cleared {
-            let name = e.path.as_deref().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned());
+            let name =
+                e.path.as_deref().and_then(|p| Path::new(p).file_name()).map(|n| n.to_string_lossy().into_owned());
             self.when_done(then.then, "", Some(name.as_deref().unwrap_or(&e.url)), then.force_close);
         }
     }
@@ -1258,10 +1205,7 @@ impl Daemon {
             let (id, url) = self.add(download);
             eprintln!("[uidm-daemon] add #{id} from the command line: {url}");
             if cmd.quit_after && started {
-                let exit = OnDone {
-                    then: WhenDone::Exit,
-                    ..OnDone::default()
-                };
+                let exit = OnDone { then: WhenDone::Exit, ..OnDone::default() };
                 if let Err(e) = self.set_on_done(id, Some(exit)) {
                     eprintln!("[uidm-daemon] /q for #{id}: {e}");
                 }
@@ -1371,18 +1315,17 @@ impl Daemon {
             };
             !self.grab_runs.lock().unwrap().is_empty()
                 || grab::recent_projects(&dir).iter().any(|name| {
-                    grab::Project::load(&dir, name).ok().and_then(|p| p.schedule).is_some_and(|s| {
-                        s.next_start(now).is_some() || s.open_run(now).is_some()
-                    })
+                    grab::Project::load(&dir, name)
+                        .ok()
+                        .and_then(|p| p.schedule)
+                        .is_some_and(|s| s.next_start(now).is_some() || s.open_run(now).is_some())
                 })
         };
         self.countdown_message().is_some()
             || projects()
             || self.hub.queues.lock().unwrap().iter().any(|q| {
                 q.running
-                    || q.schedule.as_ref().is_some_and(|s| {
-                        s.next_start(now).is_some() || s.open_run(now).is_some()
-                    })
+                    || q.schedule.as_ref().is_some_and(|s| s.next_start(now).is_some() || s.open_run(now).is_some())
             })
     }
 
@@ -1463,12 +1406,7 @@ impl Daemon {
             None => (0, u64::MAX, 0),
         };
         let paused = self.quota_paused.lock().unwrap().is_some();
-        let msg = |paused: bool, resumes_at: Option<u64>| Outgoing::Quota {
-            used,
-            limit,
-            paused,
-            resumes_at,
-        };
+        let msg = |paused: bool, resumes_at: Option<u64>| Outgoing::Quota { used, limit, paused, resumes_at };
         if paused && used < limit {
             let (queues, ids) = self.quota_paused.lock().unwrap().take().unwrap_or_default();
             eprintln!("[uidm-daemon] quota allows downloads again");
@@ -1515,9 +1453,7 @@ impl Daemon {
             .lock()
             .unwrap()
             .entries()
-            .filter(|e| {
-                e.status == Status::Interrupted || (e.status == Status::Canceled && paused.contains(&e.id))
-            })
+            .filter(|e| e.status == Status::Interrupted || (e.status == Status::Canceled && paused.contains(&e.id)))
             .map(|e| e.id)
             .collect();
         for id in ids {
@@ -1561,7 +1497,9 @@ impl Daemon {
             }
             Note::Failed(id) => {
                 thread::sleep(FAILED_GRACE);
-                if self.entry(id).is_some_and(|e| e.status == Status::Failed) && !self.retry_through_browser_proxy(id, &settings) {
+                if self.entry(id).is_some_and(|e| e.status == Status::Failed)
+                    && !self.retry_through_browser_proxy(id, &settings)
+                {
                     self.notify(id, true, &settings);
                 }
             }
@@ -1593,12 +1531,7 @@ impl Daemon {
                     .unwrap()
                     .get(&id)
                     .map_or((true, None), |d| (d.start != Some(false), d.queue));
-                let answer = Answer {
-                    start,
-                    queue,
-                    file_exists: fallback,
-                    ..Answer::start(id)
-                };
+                let answer = Answer { start, queue, file_exists: fallback, ..Answer::start(id) };
                 if let Err(e) = daemon.confirm(answer) {
                     eprintln!("[uidm-daemon] could not start #{id}: {e}");
                 }
@@ -1709,11 +1642,7 @@ impl Daemon {
             return None;
         }
         let table = self.hub.table.lock().unwrap();
-        table
-            .entries()
-            .filter(|e| uidm::app::same_address(&e.url, &download.url))
-            .last()
-            .cloned()
+        table.entries().filter(|e| uidm::app::same_address(&e.url, &download.url)).last().cloned()
     }
 
     /// Apply `choice` to `download`, whose address download `old` already
@@ -1808,9 +1737,7 @@ impl Daemon {
 
     /// `queue` if it exists, else the main queue.
     fn queue_or_main(&self, queue: Option<u64>) -> u64 {
-        queue
-            .filter(|q| self.hub.queues.lock().unwrap().iter().any(|x| x.id == *q))
-            .unwrap_or(MAIN_QUEUE)
+        queue.filter(|q| self.hub.queues.lock().unwrap().iter().any(|x| x.id == *q)).unwrap_or(MAIN_QUEUE)
     }
 
     /// Announce `download` as waiting, not yet in any queue. A full-path
@@ -1827,10 +1754,7 @@ impl Daemon {
         let size = download.size;
         let id = self.engine.reserve_id();
         self.hub.requests.lock().unwrap().insert(id, download);
-        self.hub.publish(&Outgoing::Added {
-            id,
-            url: url.clone(),
-        });
+        self.hub.publish(&Outgoing::Added { id, url: url.clone() });
         let _ = self.hub.update(id, |e| {
             e.status = Status::Waiting;
             if e.total.is_none() {
@@ -1986,14 +1910,19 @@ impl Daemon {
     /// (and the project's own login for its start site), the browser's
     /// cookies when it asks, `login` (see `login_cookies`) for its login
     /// page's site, and short waits so `stop` is noticed quickly.
-    fn run_crawl(&self, req: &GrabRequest, login: Option<&str>, stop: &AtomicBool, progress: impl FnMut(&grab::Outcome)) -> grab::Outcome {
+    fn run_crawl(
+        &self,
+        req: &GrabRequest,
+        login: Option<&str>,
+        stop: &AtomicBool,
+        progress: impl FnMut(&grab::Outcome),
+    ) -> grab::Outcome {
         let settings = self.settings.lock().unwrap().clone();
-        let start = Download {
-            url: req.start.clone(),
-            ..Download::default()
-        };
+        let start = Download { url: req.start.clone(), ..Download::default() };
         let mut net = self.net_for(&start, &settings);
-        if let (Some(user), Ok(url)) = (req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()), url::Url::parse(&req.start)) {
+        if let (Some(user), Ok(url)) =
+            (req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()), url::Url::parse(&req.start))
+        {
             if let Some(host) = url.host_str() {
                 net.logins.push(Login {
                     site: host.to_string(),
@@ -2036,22 +1965,14 @@ impl Daemon {
                 }
                 let mut body = html.into_bytes();
                 body.truncate(grab::MAX_PAGE_BYTES as usize);
-                let page = grab::Page {
-                    url: at,
-                    content_type: Some("text/html".into()),
-                    body,
-                };
+                let page = grab::Page { url: at, content_type: Some("text/html".into()), body };
                 if let Some(m) = req.mirror.as_ref().filter(|m| m.pages) {
                     save_page(req, m, &page);
                 }
                 return Ok(page);
             }
             let page = engine::fetch(url, &page_headers(url), &net, grab::MAX_PAGE_BYTES)
-                .map(|f| grab::Page {
-                    url: f.url,
-                    content_type: f.content_type,
-                    body: f.body,
-                })
+                .map(|f| grab::Page { url: f.url, content_type: f.content_type, body: f.body })
                 .map_err(|e| e.to_string())?;
             if let Some(m) = req.mirror.as_ref().filter(|m| m.pages) {
                 save_page(req, m, &page);
@@ -2180,10 +2101,7 @@ impl Daemon {
         } else {
             self.download_in_queue(&project.request, login.as_deref(), &to_download, project.queue, true).len()
         };
-        eprintln!(
-            "[uidm-daemon] grabber project {} added {added} files to its queue, {changed} changed",
-            project.name
-        );
+        eprintln!("[uidm-daemon] grabber project {} added {added} files to its queue, {changed} changed", project.name);
         let added = added + changed;
         if added == 0 {
             // Nothing to wait for: done now.
@@ -2205,7 +2123,12 @@ impl Daemon {
     /// Convert finished download `id` on another thread. The new file is a
     /// row of its own: added and started now, with ffmpeg's progress, done
     /// with a note, or failed with ffmpeg's complaint.
-    fn convert(self: &Arc<Self>, id: u64, to: uidm::media::convert::Target, delete_original: bool) -> Result<(), String> {
+    fn convert(
+        self: &Arc<Self>,
+        id: u64,
+        to: uidm::media::convert::Target,
+        delete_original: bool,
+    ) -> Result<(), String> {
         let entry = self.entry(id).ok_or_else(|| format!("no download with id {id}"))?;
         let input = entry
             .path
@@ -2224,10 +2147,8 @@ impl Daemon {
         let same = input.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext));
         let name = if same { format!("{stem} (converted).{ext}") } else { format!("{stem}.{ext}") };
         let dir = input.parent().map(Path::to_path_buf).unwrap_or_default();
-        let output = (0..)
-            .map(|n| dir.join(engine::numbered_name(&name, n)))
-            .find(|p| !p.exists())
-            .expect("some name is free");
+        let output =
+            (0..).map(|n| dir.join(engine::numbered_name(&name, n))).find(|p| !p.exists()).expect("some name is free");
         let size = std::fs::metadata(&input).map(|m| m.len()).unwrap_or(0);
         let new_id = self.engine.reserve_id();
         self.hub.uncounted.lock().unwrap().insert(new_id);
@@ -2289,10 +2210,7 @@ impl Daemon {
     /// proxy, and note when that happened.
     fn check_update(&self, url: &str) -> Outgoing {
         let settings = self.settings.lock().unwrap().clone();
-        let start = Download {
-            url: url.to_string(),
-            ..Download::default()
-        };
+        let start = Download { url: url.to_string(), ..Download::default() };
         let net = self.net_for(&start, &settings);
         let headers = [
             ("User-Agent".to_string(), format!("UIDM/{}", env!("CARGO_PKG_VERSION"))),
@@ -2338,7 +2256,8 @@ impl Daemon {
             .map_err(|e| format!("Could not download the update: {e}"))?;
         uidm::update::check_setup(&setup, &fetched.body)?;
         let path = std::env::temp_dir().join(&setup.name);
-        std::fs::write(&path, &fetched.body).map_err(|e| format!("Could not save the update to {}: {e}", path.display()))?;
+        std::fs::write(&path, &fetched.body)
+            .map_err(|e| format!("Could not save the update to {}: {e}", path.display()))?;
         // /fromuidm closes UIDM without asking: the user asked for this.
         Command::new(&path)
             .arg("/fromuidm=yes")
@@ -2385,10 +2304,7 @@ impl Daemon {
         let Some(entry) = entry else {
             return answer(Vec::new(), Some(format!("no download with id {id}")));
         };
-        let download = download.unwrap_or_else(|| Download {
-            url: entry.url.clone(),
-            ..Download::default()
-        });
+        let download = download.unwrap_or_else(|| Download { url: entry.url.clone(), ..Download::default() });
         let req = self.request_for(download);
         thread::spawn(move || {
             let total = match entry.total {
@@ -2418,10 +2334,7 @@ impl Daemon {
         let request = NEXT.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.render_waits.lock().unwrap().insert(request, tx);
-        self.hub.broadcast(&Outgoing::RenderPage {
-            request,
-            url: url.to_string(),
-        });
+        self.hub.broadcast(&Outgoing::RenderPage { request, url: url.to_string() });
         // The extension gives up on a page after 30 seconds itself.
         let got = rx.recv_timeout(Duration::from_secs(40)).ok().flatten();
         self.render_waits.lock().unwrap().remove(&request);
@@ -2447,10 +2360,7 @@ impl Daemon {
         let request = NEXT.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.cookie_waits.lock().unwrap().insert(request, tx);
-        self.hub.broadcast(&Outgoing::CookiesWanted {
-            request,
-            url: url.to_string(),
-        });
+        self.hub.broadcast(&Outgoing::CookiesWanted { request, url: url.to_string() });
         let got = rx.recv_timeout(Duration::from_secs(5)).ok().flatten();
         self.cookie_waits.lock().unwrap().remove(&request);
         eprintln!("[uidm-daemon] browser cookies for the crawl: {}", if got.is_some() { "found" } else { "none" });
@@ -2490,13 +2400,9 @@ impl Daemon {
                     return;
                 }
                 let msg = match found {
-                    Ok(i) => Outgoing::LinkInfo {
-                        request,
-                        index,
-                        total: i.total,
-                        content_type: i.content_type,
-                        error: None,
-                    },
+                    Ok(i) => {
+                        Outgoing::LinkInfo { request, index, total: i.total, content_type: i.content_type, error: None }
+                    }
                     Err(e) => Outgoing::LinkInfo {
                         request,
                         index,
@@ -2528,10 +2434,7 @@ impl Daemon {
         let url = download.url.clone();
         let id = self.engine.reserve_id();
         self.hub.requests.lock().unwrap().insert(id, download.clone());
-        self.hub.publish(&Outgoing::Added {
-            id,
-            url: url.clone(),
-        });
+        self.hub.publish(&Outgoing::Added { id, url: url.clone() });
 
         let daemon = Arc::clone(self);
         thread::spawn(move || {
@@ -2552,11 +2455,7 @@ impl Daemon {
                 Err(e) => {
                     // Same as a download that fails to start, so the browser
                     // can take it back.
-                    daemon.hub.publish(&Outgoing::Failed {
-                        id,
-                        url: download.url,
-                        error: e.to_string(),
-                    });
+                    daemon.hub.publish(&Outgoing::Failed { id, url: download.url, error: e.to_string() });
                     return;
                 }
             };
@@ -2566,7 +2465,8 @@ impl Daemon {
             let settings = daemon.settings.lock().unwrap().clone();
             // A type that starts without asking, known only now from the
             // server's name for the file, skips the dialog after all.
-            let auto = duplicate_of.is_none() && download.ask != Some(true) && settings.starts_without_asking(&found.filename);
+            let auto =
+                duplicate_of.is_none() && download.ask != Some(true) && settings.starts_without_asking(&found.filename);
             let asked = daemon.hub.update(id, |e| {
                 if e.status != Status::Queued {
                     return Err("no longer queued".into());
@@ -2590,7 +2490,12 @@ impl Daemon {
             // Only a file the server sends in ranges can be stopped and
             // carried on elsewhere once the dialog is answered.
             let plain = uidm::app::post_body(&download).is_none() && download.media.is_none();
-            if settings.start_while_asking && duplicate_of.is_none() && plain && found.resumable && found.total.is_some() {
+            if settings.start_while_asking
+                && duplicate_of.is_none()
+                && plain
+                && found.resumable
+                && found.total.is_some()
+            {
                 daemon.start_early(id, download.clone(), &found.filename);
             }
             daemon.await_answer(id, None);
@@ -2621,18 +2526,11 @@ impl Daemon {
         // The server's date stays as the settings say: the engine sets it
         // only on a finished file, and moving that file into place keeps it.
         let shadow = self.engine.reserve_id();
-        self.hub.early.lock().unwrap().insert(
-            shadow,
-            Early {
-                real: id,
-                dir,
-                file: None,
-                target: None,
-                total: None,
-                end: None,
-                discard: false,
-            },
-        );
+        self.hub
+            .early
+            .lock()
+            .unwrap()
+            .insert(shadow, Early { real: id, dir, file: None, target: None, total: None, end: None, discard: false });
         eprintln!("[uidm-daemon] #{id} starts early while its dialog is open");
         self.engine.enqueue_as(shadow, req);
     }
@@ -2705,7 +2603,9 @@ impl Daemon {
                     Err(err) => eprintln!("[uidm-daemon] could not keep #{id}'s early download: {err}"),
                 }
             }
-            (Some(_), Some(path), _, Some(partial)) if partial.is_file() && engine::sidecar_path(&partial).is_file() => {
+            (Some(_), Some(path), _, Some(partial))
+                if partial.is_file() && engine::sidecar_path(&partial).is_file() =>
+            {
                 let to = free_path(&path, overwrite);
                 kept = self
                     .hub
@@ -2819,18 +2719,11 @@ impl Daemon {
                 .as_deref()
                 .map(engine::clean_filename)
                 .filter(|n| !n.is_empty())
-                .or_else(|| {
-                    proposed
-                        .and_then(|p| p.file_name())
-                        .map(|n| n.to_string_lossy().into_owned())
-                })
+                .or_else(|| proposed.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()))
                 .ok_or("the download has no file name")?;
             let dir = match folder.as_deref().map(str::trim) {
                 Some(f) if !f.is_empty() => PathBuf::from(f),
-                _ => proposed
-                    .and_then(Path::parent)
-                    .map(Path::to_path_buf)
-                    .ok_or("the download has no folder")?,
+                _ => proposed.and_then(Path::parent).map(Path::to_path_buf).ok_or("the download has no folder")?,
             };
             if !dir.is_absolute() {
                 return Err(format!("the folder must be a full path: {}", dir.display()));
@@ -2865,10 +2758,8 @@ impl Daemon {
         }
         if file_exists.is_some() || category.is_some() || description.is_some() {
             let mut requests = self.hub.requests.lock().unwrap();
-            let request = requests.entry(id).or_insert_with(|| Download {
-                url: item.url.clone(),
-                ..Download::default()
-            });
+            let request =
+                requests.entry(id).or_insert_with(|| Download { url: item.url.clone(), ..Download::default() });
             if file_exists.is_some() {
                 request.file_exists = file_exists;
             }
@@ -2934,7 +2825,12 @@ impl Daemon {
 
     /// `start`, with where the earlier attempt kept its partial data when
     /// that was a temporary folder.
-    fn start_resuming(&self, download: Download, reuse_path: Option<PathBuf>, reuse_partial: Option<PathBuf>) -> (u64, String) {
+    fn start_resuming(
+        &self,
+        download: Download,
+        reuse_path: Option<PathBuf>,
+        reuse_partial: Option<PathBuf>,
+    ) -> (u64, String) {
         let url = download.url.clone();
         let mut req = self.request_for(download.clone());
         req.reuse_path = reuse_path;
@@ -2946,10 +2842,7 @@ impl Daemon {
         if self.status(id) == Some(Status::Done) {
             self.hub.requests.lock().unwrap().remove(&id);
         }
-        self.hub.publish(&Outgoing::Added {
-            id,
-            url: url.clone(),
-        });
+        self.hub.publish(&Outgoing::Added { id, url: url.clone() });
         (id, url)
     }
 
@@ -2962,29 +2855,17 @@ impl Daemon {
     /// engine resumes the partial file when the server still reports the same
     /// file.
     fn retry(&self, id: u64) -> Result<(u64, String), String> {
-        let entry = self
-            .hub
-            .table
-            .lock()
-            .unwrap()
-            .get(id)
-            .cloned()
-            .ok_or_else(|| format!("no download with id {id}"))?;
+        let entry =
+            self.hub.table.lock().unwrap().get(id).cloned().ok_or_else(|| format!("no download with id {id}"))?;
         if !entry.status.is_retryable() {
             return Err(format!("download {id} is not failed, canceled or interrupted"));
         }
-        let download = self
-            .hub
-            .requests
-            .lock()
-            .unwrap()
-            .remove(&id)
-            .unwrap_or_else(|| Download {
-                url: entry.url.clone(),
-                referrer: entry.referrer.clone(),
-                page: entry.page.clone(),
-                ..Download::default()
-            });
+        let download = self.hub.requests.lock().unwrap().remove(&id).unwrap_or_else(|| Download {
+            url: entry.url.clone(),
+            referrer: entry.referrer.clone(),
+            page: entry.page.clone(),
+            ..Download::default()
+        });
         // The new entry keeps the old one's description and category, and
         // its speed limit unless the user chose not to remember it on stop
         // and resume.
@@ -3056,7 +2937,9 @@ impl Daemon {
         }
         let stored = self.hub.requests.lock().unwrap().get(&id).cloned();
         if stored.is_none() && entry.parts.is_some() {
-            return Err("This stream's playlist is no longer known. Play it in the browser again to download it.".into());
+            return Err(
+                "This stream's playlist is no longer known. Play it in the browser again to download it.".into()
+            );
         }
         let mut download = stored.unwrap_or_else(|| Download {
             url: entry.url.clone(),
@@ -3310,7 +3193,14 @@ impl Daemon {
         if !(s.use_browser_proxy && s.browser_proxy_after_errors) {
             return false;
         }
-        let url = self.hub.requests.lock().unwrap().get(&id).filter(|d| d.proxy.is_some() || d.browser_proxy.is_some()).map(|d| d.url.clone());
+        let url = self
+            .hub
+            .requests
+            .lock()
+            .unwrap()
+            .get(&id)
+            .filter(|d| d.proxy.is_some() || d.browser_proxy.is_some())
+            .map(|d| d.url.clone());
         let Some(url) = url else {
             return false;
         };
@@ -3419,7 +3309,9 @@ impl Daemon {
             proxy,
             logins,
             ftp_active: s.ftp_active,
-            ftp_proxy_login: manual_ftp.as_ref().map_or_else(ProxyLogin::default, |_| proxy_login(&s.proxy_ftp_username, ProxyKind::Ftp)),
+            ftp_proxy_login: manual_ftp
+                .as_ref()
+                .map_or_else(ProxyLogin::default, |_| proxy_login(&s.proxy_ftp_username, ProxyKind::Ftp)),
             ftp_proxy: manual_ftp,
         }
     }
@@ -3478,8 +3370,7 @@ impl Daemon {
                 .map_err(|e| format!("could not change starting at sign-in: {e}"))?;
         }
         if let Some(path) = &self.paths.settings {
-            new.save(path)
-                .map_err(|e| format!("could not save settings to {}: {e}", path.display()))?;
+            new.save(path).map_err(|e| format!("could not save settings to {}: {e}", path.display()))?;
         }
         self.engine.set_concurrency(new.max_concurrent);
         self.engine.set_speed_limit(new.speed_limit_bytes());
@@ -3577,15 +3468,9 @@ impl Daemon {
     /// slip between the snapshot and the client's next frame.
     fn send_list(&self, reply: &Sender<Vec<u8>>) {
         let table = self.hub.table.lock().unwrap();
-        let msg = Outgoing::Downloads {
-            items: table.snapshot(),
-        };
-        let queues = Outgoing::Queues {
-            items: self.hub.queues.lock().unwrap().clone(),
-        };
-        let refresh = Outgoing::RefreshWaiting {
-            id: *self.refresh_waiting.lock().unwrap(),
-        };
+        let msg = Outgoing::Downloads { items: table.snapshot() };
+        let queues = Outgoing::Queues { items: self.hub.queues.lock().unwrap().clone() };
+        let refresh = Outgoing::RefreshWaiting { id: *self.refresh_waiting.lock().unwrap() };
         for msg in [msg, queues, refresh] {
             if let Ok(frame) = serde_json::to_vec(&msg) {
                 let _ = reply.send(frame);
@@ -3643,7 +3528,8 @@ fn run() -> io::Result<()> {
         eprintln!("[uidm-daemon] could not register for notifications: {e}");
     }
     // Queues set to start with UIDM.
-    let launch: Vec<u64> = daemon.hub.queues.lock().unwrap().iter().filter(|q| q.start_on_launch).map(|q| q.id).collect();
+    let launch: Vec<u64> =
+        daemon.hub.queues.lock().unwrap().iter().filter(|q| q.start_on_launch).map(|q| q.id).collect();
     for id in launch {
         if let Err(e) = daemon.start_queue(id, None) {
             eprintln!("[uidm-daemon] could not start queue {id}: {e}");
@@ -3671,10 +3557,7 @@ fn run() -> io::Result<()> {
 /// broadcasts only after it authenticates.
 fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
     let id = NEXT_CLIENT.fetch_add(1, Ordering::Relaxed);
-    let peer = stream
-        .peer_addr()
-        .map(|a| a.to_string())
-        .unwrap_or_else(|_| "?".into());
+    let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
     if let Err(e) = authenticate(&mut stream, token) {
         eprintln!("[uidm-daemon] client #{id} ({peer}) rejected: {e}");
         return;
@@ -3734,13 +3617,7 @@ fn authenticate(stream: &mut TcpStream, token: &str) -> io::Result<()> {
     };
     let server_nonce = ipc::new_nonce()?;
     let proof = ipc::proof(token, DAEMON_LABEL, &client_nonce, &server_nonce);
-    ipc::send_handshake(
-        stream,
-        &Handshake::AuthChallenge {
-            server_nonce: server_nonce.clone(),
-            proof,
-        },
-    )?;
+    ipc::send_handshake(stream, &Handshake::AuthChallenge { server_nonce: server_nonce.clone(), proof })?;
 
     let expected = ipc::proof(token, HOST_LABEL, &client_nonce, &server_nonce);
     match ipc::recv_handshake(&mut ipc::Deadline::new(stream, until))? {
@@ -3767,9 +3644,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
     let incoming: Incoming = match serde_json::from_slice(raw) {
         Ok(msg) => msg,
         Err(e) => {
-            send(&Outgoing::Error {
-                message: format!("invalid message: {e}"),
-            });
+            send(&Outgoing::Error { message: format!("invalid message: {e}") });
             return;
         }
     };
@@ -3804,10 +3679,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
                     daemon.run_command_line(cmd, true);
                 }
             }
-            send(&Outgoing::Hello {
-                name: "uidm-daemon".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-            })
+            send(&Outgoing::Hello { name: "uidm-daemon".to_string(), version: env!("CARGO_PKG_VERSION").to_string() })
         }
         Incoming::Ping => send(&Outgoing::Pong),
         Incoming::CommandLine(cmd) => {
@@ -3827,11 +3699,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             }
             let (id, url) = daemon.add(download);
             eprintln!("[uidm-daemon] add #{id}: {url}");
-            send(&Outgoing::Ack {
-                id,
-                url,
-                status: "accepted".to_string(),
-            });
+            send(&Outgoing::Ack { id, url, status: "accepted".to_string() });
         }
         Incoming::AddMany { items, queue } => {
             let (count, skipped) = daemon.add_many(items, queue);
@@ -3874,11 +3742,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         Incoming::Retry { id } => match daemon.retry(id) {
             Ok((new_id, url)) => {
                 eprintln!("[uidm-daemon] retry #{id} as #{new_id}");
-                send(&Outgoing::Ack {
-                    id: new_id,
-                    url,
-                    status: "accepted".to_string(),
-                });
+                send(&Outgoing::Ack { id: new_id, url, status: "accepted".to_string() });
             }
             Err(message) => send(&Outgoing::Error { message }),
         },
@@ -4025,17 +3889,17 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             eprintln!("[uidm-daemon] resume all");
             daemon.resume_all();
         }
-        Incoming::GetSettings => send(&Outgoing::Settings {
-            settings: daemon.settings.lock().unwrap().clone(),
-        }),
-        Incoming::SetSettings { settings } => match daemon.set_settings(if daemon.hub.windows.lock().unwrap().contains(&client) {
-            settings
-        } else {
-            daemon.with_video_button(&settings)
-        }) {
-            Ok(()) => eprintln!("[uidm-daemon] settings changed"),
-            Err(message) => send(&Outgoing::Error { message }),
-        },
+        Incoming::GetSettings => send(&Outgoing::Settings { settings: daemon.settings.lock().unwrap().clone() }),
+        Incoming::SetSettings { settings } => {
+            match daemon.set_settings(if daemon.hub.windows.lock().unwrap().contains(&client) {
+                settings
+            } else {
+                daemon.with_video_button(&settings)
+            }) {
+                Ok(()) => eprintln!("[uidm-daemon] settings changed"),
+                Err(message) => send(&Outgoing::Error { message }),
+            }
+        }
     }
 }
 
@@ -4078,10 +3942,8 @@ fn register_notifications() -> io::Result<()> {
 /// What a notification says about `e`.
 fn toast_for(e: &DownloadEntry, failed: bool) -> Toast {
     let path = e.path.as_deref().map(Path::new);
-    let name = path
-        .and_then(|p| p.file_name())
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| e.url.clone());
+    let name =
+        path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| e.url.clone());
     let id = e.id;
     if failed {
         return Toast {
@@ -4091,10 +3953,7 @@ fn toast_for(e: &DownloadEntry, failed: bool) -> Toast {
             launch: format!("window:{id}"),
         };
     }
-    let folder = path
-        .and_then(|p| p.parent())
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
+    let folder = path.and_then(|p| p.parent()).map(|p| p.display().to_string()).unwrap_or_default();
     let size = e.total.map(human_bytes).unwrap_or_default();
     let detail = [size, folder].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" in ");
     let show = ("Show in folder".to_string(), format!("show:{id}"));
@@ -4157,10 +4016,7 @@ fn free_path(path: &Path, overwrite: bool) -> PathBuf {
         return path.to_path_buf();
     };
     let name = name.to_string_lossy();
-    (1..)
-        .map(|n| dir.join(engine::numbered_name(&name, n)))
-        .find(|p| !p.exists())
-        .unwrap_or_else(|| path.to_path_buf())
+    (1..).map(|n| dir.join(engine::numbered_name(&name, n))).find(|p| !p.exists()).unwrap_or_else(|| path.to_path_buf())
 }
 
 /// Delete the folders of early downloads a previous run left behind, except
@@ -4169,14 +4025,8 @@ fn clean_early_folders(daemon: &Daemon) {
     let Ok(dirs) = std::fs::read_dir(early_root()) else {
         return;
     };
-    let partials: Vec<PathBuf> = daemon
-        .hub
-        .table
-        .lock()
-        .unwrap()
-        .entries()
-        .filter_map(|e| e.partial.as_deref().map(PathBuf::from))
-        .collect();
+    let partials: Vec<PathBuf> =
+        daemon.hub.table.lock().unwrap().entries().filter_map(|e| e.partial.as_deref().map(PathBuf::from)).collect();
     for dir in dirs.flatten().map(|d| d.path()) {
         if !partials.iter().any(|p| p.starts_with(&dir)) {
             let _ = std::fs::remove_dir_all(&dir);
@@ -4379,9 +4229,13 @@ mod tests {
                         .lines()
                         .find_map(|l| l.strip_prefix("range: bytes="))
                         .and_then(|r| r.trim().split_once('-'))
-                        .and_then(|(a, b)| Some((a.parse::<u64>().ok()?, b.parse::<u64>().unwrap_or(len - 1).min(len - 1))));
+                        .and_then(|(a, b)| {
+                            Some((a.parse::<u64>().ok()?, b.parse::<u64>().unwrap_or(len - 1).min(len - 1)))
+                        });
                     let (status, start, end, extra) = match range {
-                        Some((a, b)) => ("206 Partial Content", a, b, format!("Content-Range: bytes {a}-{b}/{len}\r\n")),
+                        Some((a, b)) => {
+                            ("206 Partial Content", a, b, format!("Content-Range: bytes {a}-{b}/{len}\r\n"))
+                        }
                         None => ("200 OK", 0, len - 1, String::new()),
                     };
                     let head = format!(
@@ -4417,12 +4271,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("uidm_dup_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let (daemon, ..) = Daemon::new(Paths {
-            settings: None,
-            history: None,
-            requests: None,
-            quota: None,
-        });
+        let (daemon, ..) = Daemon::new(Paths { settings: None, history: None, requests: None, quota: None });
         {
             let mut s = daemon.settings.lock().unwrap();
             s.download_dir = Some(dir.display().to_string());
@@ -4432,11 +4281,7 @@ mod tests {
         let (tx, window) = channel();
         daemon.hub.clients.lock().unwrap().insert(1, tx);
         daemon.hub.windows.lock().unwrap().insert(1);
-        Setup {
-            daemon: Arc::new(daemon),
-            dir,
-            window,
-        }
+        Setup { daemon: Arc::new(daemon), dir, window }
     }
 
     impl Setup {
@@ -4448,12 +4293,7 @@ mod tests {
             let id = self.daemon.engine.reserve_id();
             let url = url.to_string();
             self.daemon.hub.publish(&Outgoing::Added { id, url: url.clone() });
-            self.daemon.hub.publish(&Outgoing::Done {
-                id,
-                url,
-                path: path.display().to_string(),
-                note: None,
-            });
+            self.daemon.hub.publish(&Outgoing::Done { id, url, path: path.display().to_string(), note: None });
             id
         }
 
@@ -4461,21 +4301,12 @@ mod tests {
             let id = self.daemon.engine.reserve_id();
             let url = url.to_string();
             self.daemon.hub.publish(&Outgoing::Added { id, url: url.clone() });
-            self.daemon.hub.publish(&Outgoing::Failed {
-                id,
-                url,
-                error: "gone".into(),
-            });
+            self.daemon.hub.publish(&Outgoing::Failed { id, url, error: "gone".into() });
             id
         }
 
         fn add(&self, url: &str) -> u64 {
-            self.daemon
-                .add(Download {
-                    url: url.into(),
-                    ..Download::default()
-                })
-                .0
+            self.daemon.add(Download { url: url.into(), ..Download::default() }).0
         }
 
         fn len(&self) -> usize {
@@ -4495,10 +4326,7 @@ mod tests {
         }
 
         fn window_got(&self, wanted: impl Fn(&Outgoing) -> bool) -> bool {
-            self.window
-                .try_iter()
-                .filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok())
-                .any(|m| wanted(&m))
+            self.window.try_iter().filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok()).any(|m| wanted(&m))
         }
     }
 
@@ -4537,7 +4365,8 @@ mod tests {
         let entry = |url: &str| t.daemon.hub.table.lock().unwrap().entries().find(|e| e.url == url).cloned();
         let ask = |url: &str| -> (Outgoing, Receiver<Vec<u8>>) {
             let (tx, rx) = channel();
-            let msg = format!(r#"{{"op":"command_line","download":{{"url":"{url}","start":false}},"quit_after":true}}"#);
+            let msg =
+                format!(r#"{{"op":"command_line","download":{{"url":"{url}","start":false}},"quit_after":true}}"#);
             dispatch(msg.as_bytes(), &t.daemon, 9, &tx);
             let reply = rx.try_iter().filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok()).last().unwrap();
             (reply, rx)
@@ -4650,12 +4479,7 @@ mod tests {
         let new = t.add(&url);
         let asked = t.wait(new, Status::Confirming);
         assert_eq!(asked.duplicate_of, Some(old));
-        t.daemon
-            .confirm(Answer {
-                duplicate: Some(Duplicate::Existing),
-                ..Answer::start(new)
-            })
-            .unwrap();
+        t.daemon.confirm(Answer { duplicate: Some(Duplicate::Existing), ..Answer::start(new) }).unwrap();
         assert!(t.daemon.entry(new).is_none(), "the new download was not added");
         assert!(t.window_got(|m| matches!(m, Outgoing::ShowDone { id } if *id == old)));
 
@@ -4693,12 +4517,7 @@ mod tests {
     fn add_many_skips_duplicates_unless_told_to_add_them() {
         let url = serve();
         let items = |urls: &[&str]| {
-            urls.iter()
-                .map(|u| Download {
-                    url: u.to_string(),
-                    ..Download::default()
-                })
-                .collect::<Vec<_>>()
+            urls.iter().map(|u| Download { url: u.to_string(), ..Download::default() }).collect::<Vec<_>>()
         };
         let t = setup("many_ask", Duplicate::Ask);
         t.finished(&url, &t.dir.join("f.bin"));
@@ -4721,15 +4540,9 @@ mod tests {
         let t = setup("post", Duplicate::Existing);
         let url = "https://example.com/form";
         t.finished(url, &t.dir.join("form"));
-        let get = Download {
-            url: url.into(),
-            ..Download::default()
-        };
+        let get = Download { url: url.into(), ..Download::default() };
         assert!(t.daemon.duplicate_of(&get).is_some());
-        let post = Download {
-            method: Some("POST".into()),
-            ..get
-        };
+        let post = Download { method: Some("POST".into()), ..get };
         assert!(t.daemon.duplicate_of(&post).is_none());
     }
 
@@ -4769,10 +4582,7 @@ mod tests {
         let changes = Properties {
             url: Some("https://y/new.bin".into()),
             referrer: Some("https://y/page".into()),
-            login: Some(DownloadLogin {
-                username: "me".into(),
-                password: Some("pw".into()),
-            }),
+            login: Some(DownloadLogin { username: "me".into(), password: Some("pw".into()) }),
             ..Properties::default()
         };
         t.daemon.set_properties(id, changes).unwrap();
@@ -4786,10 +4596,7 @@ mod tests {
 
         // A new user name without a password keeps the old password.
         let rename = Properties {
-            login: Some(DownloadLogin {
-                username: "other".into(),
-                password: None,
-            }),
+            login: Some(DownloadLogin { username: "other".into(), password: None }),
             ..Properties::default()
         };
         t.daemon.set_properties(id, rename).unwrap();
@@ -4801,10 +4608,7 @@ mod tests {
         assert_eq!(found.username, "other");
 
         // An empty user name removes the login.
-        let clear = Properties {
-            login: Some(DownloadLogin::default()),
-            ..Properties::default()
-        };
+        let clear = Properties { login: Some(DownloadLogin::default()), ..Properties::default() };
         t.daemon.set_properties(id, clear).unwrap();
         assert_eq!(t.daemon.entry(id).unwrap().login_user, None);
         assert!(t.daemon.hub.requests.lock().unwrap()[&id].login.is_none());
@@ -4828,10 +4632,7 @@ mod tests {
         }
         // Running, it cannot move.
         let elsewhere = t.dir.join("elsewhere");
-        let move_it = || Properties {
-            folder: Some(elsewhere.display().to_string()),
-            ..Properties::default()
-        };
+        let move_it = || Properties { folder: Some(elsewhere.display().to_string()), ..Properties::default() };
         assert!(t.daemon.set_properties(id, move_it()).is_err());
         t.daemon.cancel(id);
         let stopped = t.wait(id, Status::Canceled);
@@ -4862,10 +4663,7 @@ mod tests {
         let t = setup("props_move_unstarted", Duplicate::NewName);
         let id = t.failed("https://x/a.bin");
         let elsewhere = t.dir.join("later");
-        let changes = Properties {
-            folder: Some(elsewhere.display().to_string()),
-            ..Properties::default()
-        };
+        let changes = Properties { folder: Some(elsewhere.display().to_string()), ..Properties::default() };
         t.daemon.set_properties(id, changes).unwrap();
         let req = t.daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap();
         assert_eq!(req.folder.map(PathBuf::from), Some(elsewhere.clone()), "the next attempt saves there");
@@ -4881,39 +4679,29 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        let back = Properties {
-            folder: Some(t.dir.join("again").display().to_string()),
-            ..Properties::default()
-        };
+        let back = Properties { folder: Some(t.dir.join("again").display().to_string()), ..Properties::default() };
         t.daemon.set_properties(id, back).unwrap();
         assert_eq!(std::fs::read(&other).unwrap(), b"theirs");
         assert_eq!(t.daemon.entry(id).unwrap().path.map(PathBuf::from), Some(t.dir.join("again").join("theirs.bin")));
-        let relative = Properties {
-            folder: Some("rel".into()),
-            ..Properties::default()
-        };
+        let relative = Properties { folder: Some("rel".into()), ..Properties::default() };
         assert!(t.daemon.set_properties(id, relative).is_err());
-        let rename = Properties {
-            filename: Some("b.bin".into()),
-            ..Properties::default()
-        };
+        let rename = Properties { filename: Some("b.bin".into()), ..Properties::default() };
         assert!(t.daemon.set_properties(id, rename).is_err(), "only a finished file is renamed");
     }
 
     #[test]
     fn the_link_picker_hears_each_links_type_and_size() {
         let t = setup("probe_links", Duplicate::NewName);
-        let link = |url: String| Download {
-            url,
-            ..Download::default()
-        };
+        let link = |url: String| Download { url, ..Download::default() };
         let links = vec![link(serve()), link("http://127.0.0.1:1/gone.zip".into()), link(serve())];
         let (tx, rx) = channel();
         t.daemon.probe_links(7, 42, links, tx);
         let mut heard = std::collections::BTreeMap::new();
         while heard.len() < 3 {
             let frame = rx.recv_timeout(Duration::from_secs(10)).expect("every link is answered");
-            if let Ok(Outgoing::LinkInfo { request: 42, index, total, content_type, error }) = serde_json::from_slice(&frame) {
+            if let Ok(Outgoing::LinkInfo { request: 42, index, total, content_type, error }) =
+                serde_json::from_slice(&frame)
+            {
                 heard.insert(index, (total, content_type, error));
             }
         }
@@ -4935,22 +4723,11 @@ mod tests {
     #[test]
     fn the_browsers_proxy_can_wait_for_a_failure() {
         let t = setup("browser_proxy", Duplicate::NewName);
-        let d = Download {
-            url: "https://x/a.zip".into(),
-            proxy: Some("http://bp:3128".into()),
-            ..Download::default()
-        };
+        let d = Download { url: "https://x/a.zip".into(), proxy: Some("http://bp:3128".into()), ..Download::default() };
         let through = |s: &Settings| t.daemon.net_for(&d, s).proxy.and_then(|p| p.proxy_for(&d.url));
-        let after = Settings {
-            use_browser_proxy: true,
-            browser_proxy_after_errors: true,
-            ..Settings::default()
-        };
+        let after = Settings { use_browser_proxy: true, browser_proxy_after_errors: true, ..Settings::default() };
         assert_eq!(through(&after), None, "not before it failed");
-        let always = Settings {
-            browser_proxy_after_errors: false,
-            ..after.clone()
-        };
+        let always = Settings { browser_proxy_after_errors: false, ..after.clone() };
         assert_eq!(through(&always).as_deref(), Some("http://bp:3128"));
         t.daemon.browser_proxy_retries.lock().unwrap().insert(d.url.clone());
         assert_eq!(through(&after).as_deref(), Some("http://bp:3128"), "once it failed");
@@ -5058,7 +4835,11 @@ mod tests {
         assert_eq!(via("http://x.net/a.zip", &s).as_deref(), Some("http://web:8080"));
         assert_eq!(via("https://x.net/a.zip", &s).as_deref(), Some("socks5://sock:1080"));
         let off = Settings { proxy_socks_https: false, ..s.clone() };
-        assert_eq!(via("https://x.net/a.zip", &off).as_deref(), Some("http://web:8080"), "an empty HTTPS proxy is the HTTP one");
+        assert_eq!(
+            via("https://x.net/a.zip", &off).as_deref(),
+            Some("http://web:8080"),
+            "an empty HTTPS proxy is the HTTP one"
+        );
 
         // ftp:// takes the SOCKS proxy (on by default) unless an FTP proxy
         // is set, or it is turned off.
@@ -5074,21 +4855,12 @@ mod tests {
         let t = setup("props_refuse", Duplicate::NewName);
         let running = t.daemon.engine.reserve_id();
         t.daemon.hub.publish(&Outgoing::Added { id: running, url: "https://x/a".into() });
-        let describe = Properties {
-            description: Some("x".into()),
-            ..Properties::default()
-        };
+        let describe = Properties { description: Some("x".into()), ..Properties::default() };
         assert!(t.daemon.set_properties(running, describe).is_err());
         let failed = t.failed("https://x/b");
-        let bad = Properties {
-            url: Some("file://x/b".into()),
-            ..Properties::default()
-        };
+        let bad = Properties { url: Some("file://x/b".into()), ..Properties::default() };
         assert!(t.daemon.set_properties(failed, bad).is_err());
-        let rename = Properties {
-            filename: Some("c".into()),
-            ..Properties::default()
-        };
+        let rename = Properties { filename: Some("c".into()), ..Properties::default() };
         assert!(t.daemon.set_properties(failed, rename).is_err(), "only finished files move");
     }
 
@@ -5112,10 +4884,13 @@ mod tests {
         let other = t.dir.join("someone_elses.bin");
         std::fs::write(&other, b"theirs").unwrap();
         let id = t.failed("https://x/someone_elses.bin");
-        t.daemon.hub.update(id, |e| {
-            e.path = Some(other.display().to_string());
-            Ok(())
-        }).unwrap();
+        t.daemon
+            .hub
+            .update(id, |e| {
+                e.path = Some(other.display().to_string());
+                Ok(())
+            })
+            .unwrap();
         t.daemon.remove(id, true).unwrap();
         assert!(other.exists());
     }
@@ -5127,13 +4902,7 @@ mod tests {
         let path = t.dir.join("kept").join("f.bin");
         let id = t.finished(&url, &path);
         t.daemon
-            .set_properties(
-                id,
-                Properties {
-                    description: Some("monthly".into()),
-                    ..Properties::default()
-                },
-            )
+            .set_properties(id, Properties { description: Some("monthly".into()), ..Properties::default() })
             .unwrap();
         t.daemon.redownload(id).unwrap();
         let done = t.wait(id, Status::Done);
@@ -5228,12 +4997,8 @@ mod tests {
                 ..Settings::default()
             };
             s.save(&path).unwrap();
-            let (daemon, ..) = Daemon::new(Paths {
-                settings: Some(path.clone()),
-                history: None,
-                requests: None,
-                quota: None,
-            });
+            let (daemon, ..) =
+                Daemon::new(Paths { settings: Some(path.clone()), history: None, requests: None, quota: None });
             let s = daemon.settings.lock().unwrap().clone();
             (s, daemon.engine.per_file_limit())
         };
@@ -5274,11 +5039,7 @@ mod tests {
     fn a_download_does_what_it_asked_once_finished() {
         let t = setup("on_done", Duplicate::NewName);
         let id = t.failed("https://x/a.bin");
-        let asked = OnDone {
-            dialog: true,
-            then: WhenDone::Nothing,
-            force_close: false,
-        };
+        let asked = OnDone { dialog: true, then: WhenDone::Nothing, force_close: false };
         t.daemon.set_on_done(id, Some(asked)).unwrap();
         assert_eq!(t.daemon.entry(id).unwrap().on_done, Some(asked));
         t.daemon.after_download(id);
@@ -5300,16 +5061,7 @@ mod tests {
     fn choosing_nothing_clears_the_choice() {
         let t = setup("on_done_clear", Duplicate::NewName);
         let id = t.failed("https://x/a.bin");
-        t.daemon
-            .set_on_done(
-                id,
-                Some(OnDone {
-                    dialog: false,
-                    then: WhenDone::ShutDown,
-                    force_close: true,
-                }),
-            )
-            .unwrap();
+        t.daemon.set_on_done(id, Some(OnDone { dialog: false, then: WhenDone::ShutDown, force_close: true })).unwrap();
         t.daemon.set_on_done(id, Some(OnDone::default())).unwrap();
         assert_eq!(t.daemon.entry(id).unwrap().on_done, None);
     }
@@ -5318,10 +5070,7 @@ mod tests {
     fn the_save_as_folder_is_remembered_for_its_category() {
         let t = setup("remember_folder", Duplicate::NewName);
         t.daemon.settings.lock().unwrap().categories[0].remember_folder = true;
-        let (id, _) = t.daemon.add_later(Download {
-            url: "https://x/a.zip".into(),
-            ..Download::default()
-        });
+        let (id, _) = t.daemon.add_later(Download { url: "https://x/a.zip".into(), ..Download::default() });
         let chosen = t.dir.join("chosen");
         t.daemon
             .confirm(Answer {
@@ -5368,10 +5117,7 @@ mod tests {
     fn the_save_as_dialog_keeps_a_category_and_description() {
         let t = setup("category", Duplicate::NewName);
         t.daemon.settings.lock().unwrap().categories[2].remember_folder = true;
-        let (id, _) = t.daemon.add_later(Download {
-            url: "https://x/a.zip".into(),
-            ..Download::default()
-        });
+        let (id, _) = t.daemon.add_later(Download { url: "https://x/a.zip".into(), ..Download::default() });
         let chosen = t.dir.join("tunes");
         t.daemon
             .confirm(Answer {
@@ -5402,11 +5148,7 @@ mod tests {
         let t = setup("queue_force_close", Duplicate::NewName);
         let id = t
             .daemon
-            .save_queue(Queue {
-                when_done: WhenDone::ShutDown,
-                force_close: true,
-                ..Queue::new(0, "Night")
-            })
+            .save_queue(Queue { when_done: WhenDone::ShutDown, force_close: true, ..Queue::new(0, "Night") })
             .unwrap();
         let saved = |t: &Setup| t.daemon.hub.queues.lock().unwrap().iter().find(|q| q.id == id).cloned().unwrap();
         assert!(saved(&t).force_close, "a new queue keeps it");
@@ -5432,10 +5174,7 @@ mod tests {
 
         // "Remember this path" for General, and "Don't ask me again" for the
         // queue of a download added for later.
-        let (id, _) = t.daemon.add_later(Download {
-            url: "https://x/notes.xyz".into(),
-            ..Download::default()
-        });
+        let (id, _) = t.daemon.add_later(Download { url: "https://x/notes.xyz".into(), ..Download::default() });
         let chosen = t.dir.join("misc");
         t.daemon
             .confirm(Answer {
@@ -5453,10 +5192,7 @@ mod tests {
         assert_eq!(s.folders().for_name("other.xyz"), chosen);
         assert_eq!(s.later_queue, Some(queue));
         // Download later now goes to that queue without being told.
-        let (later, _) = t.daemon.add_later(Download {
-            url: "https://x/more.xyz".into(),
-            ..Download::default()
-        });
+        let (later, _) = t.daemon.add_later(Download { url: "https://x/more.xyz".into(), ..Download::default() });
         assert_eq!(t.daemon.hub.queue_of(later), Some(queue));
 
         // "Remember my selection" for an address already in the list.
@@ -5465,11 +5201,7 @@ mod tests {
         let again = t.add(&url);
         assert_eq!(t.wait(again, Status::Confirming).duplicate_of, Some(old));
         t.daemon
-            .confirm(Answer {
-                duplicate: Some(Duplicate::NewName),
-                remember_duplicate: true,
-                ..Answer::start(again)
-            })
+            .confirm(Answer { duplicate: Some(Duplicate::NewName), remember_duplicate: true, ..Answer::start(again) })
             .unwrap();
         assert_eq!(t.daemon.settings.lock().unwrap().if_duplicate, Duplicate::NewName);
     }
@@ -5549,12 +5281,8 @@ mod tests {
                 );
             }
         });
-        let request = GrabRequest {
-            start: format!("http://{addr}/"),
-            depth: 0,
-            delay_ms: 200,
-            ..GrabRequest::default()
-        };
+        let request =
+            GrabRequest { start: format!("http://{addr}/"), depth: 0, delay_ms: 200, ..GrabRequest::default() };
         let project: grab::Project = serde_json::from_value(serde_json::json!({
             "name": "nightly",
             "request": request,
@@ -5566,7 +5294,10 @@ mod tests {
         let saved = grab::Project::load(&dir, "nightly").unwrap();
         assert_eq!(saved.seen, [format!("http://{addr}/report.pdf")]);
         assert_eq!(t.len(), 1, "the new find was added");
-        assert!(t.daemon.hub.queues.lock().unwrap().iter().any(|q| q.id == MAIN_QUEUE && q.max_concurrent == 3), "the grabber's files at once");
+        assert!(
+            t.daemon.hub.queues.lock().unwrap().iter().any(|q| q.id == MAIN_QUEUE && q.max_concurrent == 3),
+            "the grabber's files at once"
+        );
         t.daemon.run_scheduled_grab(&dir, saved.clone(), 2);
         assert_eq!(t.len(), 1, "nothing new the second time");
 
@@ -5576,8 +5307,20 @@ mod tests {
             run: grab::RunAction::DownloadChecked,
             request: GrabRequest { start: "http://127.0.0.1:1/".into(), ..request },
             files: vec![
-                grab::GrabFile { url: format!("http://{addr}/a.pdf"), name: "a.pdf".into(), page: String::new(), size: None, text: None },
-                grab::GrabFile { url: format!("http://{addr}/b.pdf"), name: "b.pdf".into(), page: String::new(), size: None, text: None },
+                grab::GrabFile {
+                    url: format!("http://{addr}/a.pdf"),
+                    name: "a.pdf".into(),
+                    page: String::new(),
+                    size: None,
+                    text: None,
+                },
+                grab::GrabFile {
+                    url: format!("http://{addr}/b.pdf"),
+                    name: "b.pdf".into(),
+                    page: String::new(),
+                    size: None,
+                    text: None,
+                },
             ],
             checked: vec![true, false],
             ..saved
@@ -5590,16 +5333,8 @@ mod tests {
     fn crawled_pages_are_saved_with_local_links() {
         let dir = std::env::temp_dir().join(format!("uidm_save_page_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let mirror = grab::Mirror {
-            folder: dir.display().to_string(),
-            pages: true,
-            overwrite: false,
-        };
-        let req = GrabRequest {
-            start: "https://s/".into(),
-            mirror: Some(mirror.clone()),
-            ..GrabRequest::default()
-        };
+        let mirror = grab::Mirror { folder: dir.display().to_string(), pages: true, overwrite: false };
+        let req = GrabRequest { start: "https://s/".into(), mirror: Some(mirror.clone()), ..GrabRequest::default() };
         let page = grab::Page {
             url: "https://s/docs/".into(),
             content_type: Some("text/html".into()),
@@ -5649,7 +5384,9 @@ mod tests {
                 for mut s in listener.incoming().flatten() {
                     let mut buf = [0u8; 2048];
                     let _ = s.read(&mut buf);
-                    let body = format!(r#"{{"tag_name":"{tag}","html_url":"https://github.com/tajbinkhan/uidm/releases/tag/{tag}"}}"#);
+                    let body = format!(
+                        r#"{{"tag_name":"{tag}","html_url":"https://github.com/tajbinkhan/uidm/releases/tag/{tag}"}}"#
+                    );
                     let _ = write!(
                         s,
                         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -5672,11 +5409,7 @@ mod tests {
     fn a_dropped_link_always_gets_the_save_as_dialog() {
         let t = setup("ask_flag", Duplicate::NewName);
         assert!(!t.daemon.settings.lock().unwrap().ask_where_to_save);
-        let (id, _) = t.daemon.add(Download {
-            url: serve(),
-            ask: Some(true),
-            ..Download::default()
-        });
+        let (id, _) = t.daemon.add(Download { url: serve(), ask: Some(true), ..Download::default() });
         t.wait(id, Status::Confirming);
     }
 
@@ -5700,14 +5433,8 @@ mod tests {
     #[test]
     fn a_download_removed_from_its_queue_stays_listed_and_waits_for_a_hand_start() {
         let t = setup("remove_from_queue", Duplicate::NewName);
-        let (id, _) = t.daemon.add_later(Download {
-            url: serve(),
-            ..Download::default()
-        });
-        let (kept, _) = t.daemon.add_later(Download {
-            url: format!("{}#kept", serve()),
-            ..Download::default()
-        });
+        let (id, _) = t.daemon.add_later(Download { url: serve(), ..Download::default() });
+        let (kept, _) = t.daemon.add_later(Download { url: format!("{}#kept", serve()), ..Download::default() });
         assert_eq!(t.daemon.hub.queue_of(id), Some(MAIN_QUEUE));
 
         t.daemon.remove_from_queue(id).unwrap();
@@ -5751,7 +5478,8 @@ mod tests {
                     }
                     let (body, etag) = file.lock().unwrap().clone();
                     let Some(etag) = etag else {
-                        let _ = stream.write_all(b"HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        let _ =
+                            stream.write_all(b"HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
                         return;
                     };
                     let head = format!(
@@ -5844,7 +5572,8 @@ mod tests {
         let url = serve_versions(Arc::clone(&file));
         let id = t.add(&url);
         let path = PathBuf::from(t.wait(id, Status::Done).path.unwrap());
-        let found = grab::GrabFile { url: url.clone(), name: "mirror.bin".into(), page: String::new(), size: None, text: None };
+        let found =
+            grab::GrabFile { url: url.clone(), name: "mirror.bin".into(), page: String::new(), size: None, text: None };
         let mut project: grab::Project = serde_json::from_value(serde_json::json!({
             "name": "manuals",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
@@ -5875,7 +5604,11 @@ mod tests {
             thread::sleep(Duration::from_millis(20));
         }
         t.wait(id, Status::Done);
-        assert_eq!(grab::Project::load(&dir, "manuals").unwrap().kind, queue::QueueKind::Synchronize, "the type is saved");
+        assert_eq!(
+            grab::Project::load(&dir, "manuals").unwrap().kind,
+            queue::QueueKind::Synchronize,
+            "the type is saved"
+        );
     }
 
     #[test]
@@ -5890,7 +5623,8 @@ mod tests {
             "schedule": { "start": "00:00", "stop": "01:00" },
         }))
         .unwrap();
-        project.files = vec![grab::GrabFile { url, name: "slow.bin".into(), page: String::new(), size: None, text: None }];
+        project.files =
+            vec![grab::GrabFile { url, name: "slow.bin".into(), page: String::new(), size: None, text: None }];
         project.checked = vec![true];
         let dir = t.dir.join("projects");
         // Tomorrow's run, so its stop time is still ahead.
@@ -5934,7 +5668,8 @@ mod tests {
             "force_close": true,
         }))
         .unwrap();
-        project.files = vec![grab::GrabFile { url, name: "joins.bin".into(), page: String::new(), size: None, text: None }];
+        project.files =
+            vec![grab::GrabFile { url, name: "joins.bin".into(), page: String::new(), size: None, text: None }];
         project.checked = vec![true];
         t.daemon.start_queue(MAIN_QUEUE, None).unwrap();
         t.daemon.run_scheduled_grab(&t.dir.join("projects"), project, today + 1);
@@ -5986,7 +5721,10 @@ mod tests {
         }
         assert_eq!(countdown_forces(&t), Some((WhenDone::ShutDown, true)));
         let main = t.daemon.hub.queues.lock().unwrap()[0].clone();
-        assert!(!main.force_close && main.force_close_once.is_none(), "the queue's own choice is back for its next run");
+        assert!(
+            !main.force_close && main.force_close_once.is_none(),
+            "the queue's own choice is back for its next run"
+        );
     }
 
     /// A download that starts while its dialog is open, the dialog then
@@ -6107,7 +5845,16 @@ mod tests {
         let clip = t.dir.join("talk.mkv");
         let id = t.finished("https://x/talk.mkv", &clip);
         let made = uidm::platform::no_window(&mut Command::new(&ffmpeg))
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=160x120:rate=10"])
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1:size=160x120:rate=10",
+            ])
             .args(["-f", "lavfi", "-i", "sine=duration=1", "-c:v", "libx264", "-c:a", "aac", "-shortest"])
             .arg(&clip)
             .status()
@@ -6197,7 +5944,13 @@ mod tests {
         assert!(other_seen.iter().all(|(_, c)| c.is_none()), "no cookies to another host: {other_seen:?}");
         // The files it adds carry them on the login site only.
         let elsewhere = grab::GrabFile { url: format!("http://localhost:{other}/b.pdf"), ..out.files[0].clone() };
-        let ids = t.daemon.download_in_queue(&req, login.as_deref(), &[out.files[0].clone(), elsewhere], queue::MAIN_QUEUE, false);
+        let ids = t.daemon.download_in_queue(
+            &req,
+            login.as_deref(),
+            &[out.files[0].clone(), elsewhere],
+            queue::MAIN_QUEUE,
+            false,
+        );
         let requests = t.daemon.hub.requests.lock().unwrap();
         let cookies: Vec<_> = ids.iter().map(|id| requests.get(id).and_then(|d| d.cookies.clone())).collect();
         assert_eq!(cookies, [Some("session=abc".to_string()), None]);

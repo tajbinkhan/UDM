@@ -11,8 +11,8 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
 
-use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 use serde::{Deserialize, Serialize};
+use tray_icon::menu::{CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use crate::i18n::tr;
@@ -37,7 +37,7 @@ impl Style {
         match self {
             Style::Color => rgba.to_vec(),
             // Keep each pixel's coverage, paint it white.
-            Style::Mono => rgba.chunks_exact(4).flat_map(|p| [255, 255, 255, p[3]]).collect(),
+            Style::Mono => rgba.as_chunks::<4>().0.iter().flat_map(|p| [255, 255, 255, p[3]]).collect(),
         }
     }
 }
@@ -91,7 +91,10 @@ struct DownloadsTray {
 }
 
 thread_local! {
+    // The initializers are already const. Clippy 1.99 still flags the macro.
+    #[allow(clippy::missing_const_for_thread_local)]
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
+    #[allow(clippy::missing_const_for_thread_local)]
     static PROGRESS: RefCell<Option<DownloadsTray>> = const { RefCell::new(None) };
 }
 
@@ -182,7 +185,18 @@ fn build(
     let separator2 = PredefinedMenuItem::separator();
     // The drop target is only on Windows (see `droptarget`).
     if cfg!(windows) {
-        menu.append_items(&[&open, &add, &add_batch, &drop_target, &separator, &pause, &resume, &speed_limit, &separator2, &exit])
+        menu.append_items(&[
+            &open,
+            &add,
+            &add_batch,
+            &drop_target,
+            &separator,
+            &pause,
+            &resume,
+            &speed_limit,
+            &separator2,
+            &exit,
+        ])
     } else {
         menu.append_items(&[&open, &add, &add_batch, &separator, &pause, &resume, &speed_limit, &separator2, &exit])
     }
@@ -209,11 +223,9 @@ fn build(
     TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| match event {
         // The download windows' icon opens its menu on either button.
         _ if event.id() != MAIN_ID => {}
-        TrayIconEvent::Click {
-            button: MouseButton::Left,
-            button_state: MouseButtonState::Up,
-            ..
-        } => on_command(Command::Open),
+        TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => {
+            on_command(Command::Open)
+        }
         // Refresh the tooltip just before it shows.
         TrayIconEvent::Enter { .. } | TrayIconEvent::Move { .. } => set_tooltip(tooltip()),
         _ => {}
@@ -232,7 +244,14 @@ fn build(
             icon,
             speed_limit,
             drop_target,
-            items: vec![(open, OPEN), (add, ADD), (add_batch, ADD_BATCH), (pause, PAUSE), (resume, RESUME), (exit, EXIT)],
+            items: vec![
+                (open, OPEN),
+                (add, ADD),
+                (add_batch, ADD_BATCH),
+                (pause, PAUSE),
+                (resume, RESUME),
+                (exit, EXIT),
+            ],
         })
     });
     INSTALLED.store(true, Ordering::Relaxed);
@@ -342,7 +361,8 @@ fn update_downloads_tray(tray: &mut Option<DownloadsTray>, windows: Vec<(u64, St
         return;
     }
     if tray.is_none() {
-        let Ok(picture) = Icon::from_rgba(arrows_icon(PROGRESS_ICON_SIZE), PROGRESS_ICON_SIZE, PROGRESS_ICON_SIZE) else {
+        let Ok(picture) = Icon::from_rgba(arrows_icon(PROGRESS_ICON_SIZE), PROGRESS_ICON_SIZE, PROGRESS_ICON_SIZE)
+        else {
             return;
         };
         let menu = Menu::new();
@@ -442,7 +462,11 @@ fn arrows_icon(size: u32) -> Vec<u8> {
                     let x = (px as f32 + (sx as f32 + 0.5) / samples as f32) / n;
                     let y = (py as f32 + (sy as f32 + 0.5) / samples as f32) / n;
                     // The lower arrow is drawn over the upper one.
-                    let found = arrows.iter().enumerate().rev().find(|(_, (ax, ay, side))| arrow((x - ax) / side, (y - ay) / side));
+                    let found = arrows
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, (ax, ay, side))| arrow((x - ax) / side, (y - ay) / side));
                     if let Some((i, _)) = found {
                         hit += 1;
                         if i == 0 {
@@ -488,9 +512,9 @@ mod tests {
     fn the_arrows_icon_is_square_and_partly_clear() {
         let rgba = arrows_icon(PROGRESS_ICON_SIZE);
         assert_eq!(rgba.len(), (PROGRESS_ICON_SIZE * PROGRESS_ICON_SIZE * 4) as usize);
-        let alpha: Vec<u8> = rgba.chunks_exact(4).map(|p| p[3]).collect();
-        assert!(alpha.iter().any(|a| *a == 0), "the corners are clear");
-        assert!(alpha.iter().any(|a| *a == 255), "the arrows are solid");
+        let alpha: Vec<u8> = rgba.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
+        assert!(alpha.contains(&0), "the corners are clear");
+        assert!(alpha.contains(&255), "the arrows are solid");
     }
 
     #[test]

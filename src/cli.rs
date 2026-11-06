@@ -91,11 +91,7 @@ where
     if download.is_none() && !start_queue {
         return Ok(None);
     }
-    Ok(Some(CommandLine {
-        download,
-        start_queue,
-        quit_after,
-    }))
+    Ok(Some(CommandLine { download, start_queue, quit_after }))
 }
 
 /// The letter of an IDM switch: `/d`, `/D`, `-d` and `--download` are all

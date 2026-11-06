@@ -56,13 +56,8 @@ impl ListItem {
         let path = e.path.as_deref().map(Path::new);
         ListItem {
             url: e.url.clone(),
-            filename: path
-                .and_then(|p| p.file_name())
-                .map(|n| n.to_string_lossy().into_owned()),
-            folder: path
-                .and_then(|p| p.parent())
-                .map(|p| p.display().to_string())
-                .filter(|p| !p.is_empty()),
+            filename: path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()),
+            folder: path.and_then(|p| p.parent()).map(|p| p.display().to_string()).filter(|p| !p.is_empty()),
             size: e.total,
             status: Some(e.status),
             referrer: e.referrer.clone(),
@@ -78,10 +73,7 @@ pub fn export_text(entries: &[&DownloadEntry]) -> String {
 
 /// `entries` as a JSON list.
 pub fn export_json(entries: &[&DownloadEntry]) -> String {
-    let list = ListFile {
-        uidm_list: FORMAT_VERSION,
-        items: entries.iter().map(|e| ListItem::from_entry(e)).collect(),
-    };
+    let list = ListFile { uidm_list: FORMAT_VERSION, items: entries.iter().map(|e| ListItem::from_entry(e)).collect() };
     serde_json::to_string_pretty(&list).unwrap_or_default()
 }
 
@@ -116,10 +108,7 @@ fn parse_ef2(text: &str) -> Vec<Download> {
     for line in text.lines().map(str::trim) {
         match line {
             "<" => {
-                current = Some(Download {
-                    start: Some(false),
-                    ..Download::default()
-                });
+                current = Some(Download { start: Some(false), ..Download::default() });
             }
             ">" => items.extend(current.take().filter(|d| !d.url.is_empty())),
             "" => {}
@@ -145,8 +134,7 @@ fn parse_ef2(text: &str) -> Vec<Download> {
                     "pd" => {
                         d.method = Some("POST".into());
                         d.body = Some(base64::engine::general_purpose::STANDARD.encode(value));
-                        d.headers
-                            .insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
+                        d.headers.insert("Content-Type".into(), "application/x-www-form-urlencoded".into());
                     }
                     "username" => {
                         d.login.get_or_insert_with(DownloadLogin::default).username = value.to_string();
@@ -176,8 +164,10 @@ fn parse_ef2(text: &str) -> Vec<Download> {
 pub fn decode(bytes: &[u8]) -> String {
     let utf16 = |body: &[u8], big_endian: bool| {
         let units: Vec<u16> = body
-            .chunks_exact(2)
-            .map(|c| if big_endian { u16::from_be_bytes([c[0], c[1]]) } else { u16::from_le_bytes([c[0], c[1]]) })
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| if big_endian { u16::from_be_bytes(c) } else { u16::from_le_bytes(c) })
             .collect();
         String::from_utf16_lossy(&units)
     };
@@ -200,18 +190,10 @@ pub fn import(text: &str) -> Result<(Vec<Download>, usize), String> {
     }
     if !trimmed.starts_with('{') {
         let (urls, rejected) = batch::parse_list(text)?;
-        let items = urls
-            .into_iter()
-            .map(|url| Download {
-                url,
-                start: Some(false),
-                ..Download::default()
-            })
-            .collect();
+        let items = urls.into_iter().map(|url| Download { url, start: Some(false), ..Download::default() }).collect();
         return Ok((items, rejected));
     }
-    let list: ListFile =
-        serde_json::from_str(trimmed).map_err(|e| format!("This is not a UIDM list: {e}"))?;
+    let list: ListFile = serde_json::from_str(trimmed).map_err(|e| format!("This is not a UIDM list: {e}"))?;
     if list.uidm_list > FORMAT_VERSION {
         return Err("This list was written by a newer UIDM.".into());
     }
@@ -453,10 +435,7 @@ mod tests {
         a.login_user = Some("me".into());
         let b = entry(2, "https://x/b.iso", None, Status::Failed);
         let text = export_ef2(&[&a, &b]);
-        assert_eq!(
-            text,
-            "<\r\nhttps://x/a.zip\r\nreferer: https://x/downloads\r\n>\r\n<\r\nhttps://x/b.iso\r\n>\r\n"
-        );
+        assert_eq!(text, "<\r\nhttps://x/a.zip\r\nreferer: https://x/downloads\r\n>\r\n<\r\nhttps://x/b.iso\r\n>\r\n");
         let (items, _) = import(&text).unwrap();
         let urls: Vec<&str> = items.iter().map(|d| d.url.as_str()).collect();
         assert_eq!(urls, ["https://x/a.zip", "https://x/b.iso"]);

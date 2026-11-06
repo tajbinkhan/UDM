@@ -49,7 +49,13 @@ pub struct Outcome {
     pub open_columns: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, list: &List, layout: &mut Layout, state: &mut TableState, actions: &mut Vec<Action>) -> Outcome {
+pub fn show(
+    ui: &mut egui::Ui,
+    list: &List,
+    layout: &mut Layout,
+    state: &mut TableState,
+    actions: &mut Vec<Action>,
+) -> Outcome {
     let mut outcome = Outcome::default();
     let columns = layout.columns.clone();
     let wanted: BTreeMap<Column, f32> = columns.iter().map(|c| (*c, layout.shown_width(*c))).collect();
@@ -106,7 +112,9 @@ pub fn show(ui: &mut egui::Ui, list: &List, layout: &mut Layout, state: &mut Tab
                         let rect = ui.max_rect();
                         grid_lines(ui, outer, line);
                         measured.insert(column, rect.width());
-                        ui.add(egui::Label::new(egui::RichText::new(column.title()).strong()).truncate().selectable(false));
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(column.title()).strong()).truncate().selectable(false),
+                        );
                         let id = ui.id().with(("header", column));
                         let click = ui.interact(rect, id, Sense::click());
                         let click = if list.queue.is_some() {
@@ -154,11 +162,7 @@ pub fn show(ui: &mut egui::Ui, list: &List, layout: &mut Layout, state: &mut Tab
                         });
                     }
                     if response.secondary_clicked() && !list.selected.contains(&e.id) {
-                        actions.push(Action::Click {
-                            id: e.id,
-                            ctrl: false,
-                            shift: false,
-                        });
+                        actions.push(Action::Click { id: e.id, ctrl: false, shift: false });
                     }
                     response.context_menu(|ui| row_menu(ui, e, list, i, actions));
                 });
@@ -232,11 +236,14 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
         }
         Column::Progress => {
             let bar = egui::ProgressBar::new(columns::fraction(e).unwrap_or(0.0)).desired_height(12.0);
-            crate::theme::progress_bar(ui, if e.total.is_some() || e.status == Status::Done {
-                bar.show_percentage()
-            } else {
-                bar.text(human_bytes(e.done))
-            });
+            crate::theme::progress_bar(
+                ui,
+                if e.total.is_some() || e.status == Status::Done {
+                    bar.show_percentage()
+                } else {
+                    bar.text(human_bytes(e.done))
+                },
+            );
         }
         Column::Speed => {
             ui.add(
@@ -245,7 +252,10 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
             );
         }
         Column::TimeLeft => {
-            ui.add(egui::Label::new(columns::time_left(e, running).map(human_duration).unwrap_or_default()).selectable(false));
+            ui.add(
+                egui::Label::new(columns::time_left(e, running).map(human_duration).unwrap_or_default())
+                    .selectable(false),
+            );
         }
         Column::Status => status(ui, e),
         Column::LastTry => {
@@ -315,16 +325,18 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
     }
     if let Some(q) = list.queue {
         let len = list.shown.len();
-        item(ui, on && i > 0, tr("Move up"), Action::MoveToQueue {
-            id: e.id,
-            queue: q.id,
-            position: Some(i.saturating_sub(1)),
-        });
-        item(ui, on && i + 1 < len, tr("Move down"), Action::MoveToQueue {
-            id: e.id,
-            queue: q.id,
-            position: Some(i + 1),
-        });
+        item(
+            ui,
+            on && i > 0,
+            tr("Move up"),
+            Action::MoveToQueue { id: e.id, queue: q.id, position: Some(i.saturating_sub(1)) },
+        );
+        item(
+            ui,
+            on && i + 1 < len,
+            tr("Move down"),
+            Action::MoveToQueue { id: e.id, queue: q.id, position: Some(i + 1) },
+        );
         ui.separator();
     }
     let stopped = matches!(e.status, Status::Failed | Status::Canceled | Status::Interrupted);
@@ -339,7 +351,12 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
         tr("Stop Download"),
         Action::Cancel(e.id),
     );
-    item(ui, on && (stopped || e.status == Status::Waiting), tr("Refresh download address..."), Action::OpenRefresh(e.id));
+    item(
+        ui,
+        on && (stopped || e.status == Status::Waiting),
+        tr("Refresh download address..."),
+        Action::OpenRefresh(e.id),
+    );
     if e.error.as_deref().and_then(uidm::engine::login_wanted).is_some() {
         item(ui, on, tr("Log in..."), Action::OpenLogin(e.id));
     }
@@ -357,11 +374,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
         ui.menu_button(tr("Move to queue"), |ui| {
             for q in list.queues {
                 if ui.button(&q.name).clicked() {
-                    actions.push(Action::MoveToQueue {
-                        id: e.id,
-                        queue: q.id,
-                        position: None,
-                    });
+                    actions.push(Action::MoveToQueue { id: e.id, queue: q.id, position: None });
                     ui.close_menu();
                 }
             }

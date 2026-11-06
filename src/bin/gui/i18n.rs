@@ -24,26 +24,10 @@ pub struct Language {
 }
 
 pub const LANGUAGES: &[Language] = &[
-    Language {
-        code: "en",
-        name: "English",
-        json: "{}",
-    },
-    Language {
-        code: "de",
-        name: "Deutsch",
-        json: include_str!("lang/de.json"),
-    },
-    Language {
-        code: "es",
-        name: "Español",
-        json: include_str!("lang/es.json"),
-    },
-    Language {
-        code: "fr",
-        name: "Français",
-        json: include_str!("lang/fr.json"),
-    },
+    Language { code: "en", name: "English", json: "{}" },
+    Language { code: "de", name: "Deutsch", json: include_str!("lang/de.json") },
+    Language { code: "es", name: "Español", json: include_str!("lang/es.json") },
+    Language { code: "fr", name: "Français", json: include_str!("lang/fr.json") },
 ];
 
 type Table = HashMap<&'static str, &'static str>;
@@ -70,11 +54,7 @@ fn table(index: usize) -> &'static Table {
 /// The language Options names, or for an empty setting the first Windows
 /// display language UIDM has, else English.
 pub fn resolve(setting: &str) -> &'static Language {
-    let wanted = if setting.is_empty() {
-        crate::win::display_languages()
-    } else {
-        vec![setting.to_string()]
-    };
+    let wanted = if setting.is_empty() { crate::win::display_languages() } else { vec![setting.to_string()] };
     wanted
         .iter()
         .find_map(|tag| {
@@ -166,8 +146,8 @@ mod tests {
     #[test]
     fn every_table_parses_and_keeps_placeholders() {
         for (i, language) in LANGUAGES.iter().enumerate() {
-            let parsed: HashMap<String, String> = serde_json::from_str(language.json)
-                .unwrap_or_else(|e| panic!("lang/{}.json: {e}", language.code));
+            let parsed: HashMap<String, String> =
+                serde_json::from_str(language.json).unwrap_or_else(|e| panic!("lang/{}.json: {e}", language.code));
             for (en, text) in &parsed {
                 if !text.is_empty() {
                     assert_eq!(placeholders(en), placeholders(text), "{}: {en:?} -> {text:?}", language.code);
@@ -196,15 +176,20 @@ mod tests {
     /// with Rust's string escapes undone.
     fn looked_up(source: &str) -> Vec<String> {
         let mut found = Vec::new();
-        for opener in ["tr(\"", "trf!(\""] {
+        for opener in ["tr(", "trf!("] {
             for (at, _) in source.match_indices(opener) {
                 // `attr("` or `str("` is not a lookup.
                 let before = source[..at].chars().next_back();
                 if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
                     continue;
                 }
+                // rustfmt may put a long string on the line after `tr(`.
+                let rest = source[at + opener.len()..].trim_start();
+                let Some(literal) = rest.strip_prefix('"') else {
+                    continue;
+                };
                 let mut text = String::new();
-                let mut chars = source[at + opener.len()..].chars().peekable();
+                let mut chars = literal.chars().peekable();
                 while let Some(c) = chars.next() {
                     match c {
                         '"' => break,

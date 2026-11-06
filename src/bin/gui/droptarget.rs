@@ -274,7 +274,8 @@ fn run() {
         };
         RegisterClassW(&wc);
         // Bottom right of the screen the first time.
-        let (x, y) = saved_place().unwrap_or_else(|| (GetSystemMetrics(0) - WIDTH - 40, GetSystemMetrics(1) - HEIGHT - 80));
+        let (x, y) =
+            saved_place().unwrap_or_else(|| (GetSystemMetrics(0) - WIDTH - 40, GetSystemMetrics(1) - HEIGHT - 80));
         let title = wide(tr("UIDM drop target"));
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -298,15 +299,7 @@ fn run() {
         WINDOW.store(hwnd, Ordering::Relaxed);
         let target = DropTarget::new();
         RegisterDragDrop(hwnd, target as *mut c_void);
-        let mut msg = Msg {
-            hwnd: 0,
-            message: 0,
-            wparam: 0,
-            lparam: 0,
-            time: 0,
-            pt: [0, 0],
-            private: 0,
-        };
+        let mut msg = Msg { hwnd: 0, message: 0, wparam: 0, lparam: 0, time: 0, pt: [0, 0], private: 0 };
         while GetMessageW(&mut msg, 0, 0, 0) > 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -409,10 +402,7 @@ type GetData = unsafe extern "system" fn(*mut c_void, *const FormatEtc, *mut Stg
 
 impl DropTarget {
     fn new() -> *mut DropTarget {
-        Box::into_raw(Box::new(DropTarget {
-            vtbl: &VTBL,
-            refs: AtomicU32::new(1),
-        }))
+        Box::into_raw(Box::new(DropTarget { vtbl: &VTBL, refs: AtomicU32::new(1) }))
     }
 
     unsafe extern "system" fn query_interface(this: *mut c_void, iid: *const Guid, out: *mut *mut c_void) -> i32 {
@@ -439,11 +429,8 @@ impl DropTarget {
     }
 
     unsafe extern "system" fn drag_enter(_: *mut c_void, data: *mut c_void, _: u32, _: Point, effect: *mut u32) -> i32 {
-        *effect = if read_text(data).is_some_and(|t| !links_in(&t).is_empty()) {
-            DROPEFFECT_COPY
-        } else {
-            DROPEFFECT_NONE
-        };
+        *effect =
+            if read_text(data).is_some_and(|t| !links_in(&t).is_empty()) { DROPEFFECT_COPY } else { DROPEFFECT_NONE };
         S_OK
     }
 
@@ -489,11 +476,7 @@ unsafe fn read_text(data: *mut c_void) -> Option<String> {
             index: -1,
             tymed: TYMED_HGLOBAL,
         };
-        let mut medium = StgMedium {
-            tymed: 0,
-            data: ptr::null_mut(),
-            release: ptr::null_mut(),
-        };
+        let mut medium = StgMedium { tymed: 0, data: ptr::null_mut(), release: ptr::null_mut() };
         if get_data(data, &fmt, &mut medium) != S_OK {
             continue;
         }

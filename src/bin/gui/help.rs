@@ -96,11 +96,8 @@ mod tests {
     #[test]
     fn every_help_link_names_a_readme_section() {
         let readme = include_str!("../../../README.md");
-        let anchors: Vec<String> = readme
-            .lines()
-            .filter_map(|l| l.strip_prefix('#'))
-            .map(|l| anchor(l.trim_start_matches('#')))
-            .collect();
+        let anchors: Vec<String> =
+            readme.lines().filter_map(|l| l.strip_prefix('#')).map(|l| anchor(l.trim_start_matches('#'))).collect();
         for link in [SCHEDULER, GRABBER, TUTORIALS, CAPTURE] {
             let (_, wanted) = link.split_once('#').unwrap();
             assert!(anchors.iter().any(|a| a == wanted), "README has no section #{wanted}");

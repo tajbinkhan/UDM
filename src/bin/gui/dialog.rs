@@ -148,7 +148,11 @@ impl<'o> Window<'o> {
         self
     }
 
-    pub fn show<R>(self, ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<InnerResponse<Option<R>>> {
+    pub fn show<R>(
+        self,
+        ctx: &egui::Context,
+        add: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> Option<InnerResponse<Option<R>>> {
         if self.open.as_deref().is_some_and(|open| !*open) {
             return None;
         }
@@ -160,11 +164,10 @@ impl<'o> Window<'o> {
 
         let pass = ctx.cumulative_pass_nr();
         let key = id.with("dialog_placement");
-        let main = ctx.input(|i| i.viewport().outer_rect).unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
-        let mut place = ctx
-            .data(|d| d.get_temp::<Placement>(key))
-            .filter(|p| p.pass + 1 >= pass)
-            .unwrap_or_else(|| Placement {
+        let main =
+            ctx.input(|i| i.viewport().outer_rect).unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+        let mut place =
+            ctx.data(|d| d.get_temp::<Placement>(key)).filter(|p| p.pass + 1 >= pass).unwrap_or_else(|| Placement {
                 pass,
                 center: main.center(),
                 fitted: false,
@@ -208,10 +211,9 @@ impl<'o> Window<'o> {
             closed = closable && (close || escape);
 
             let frame = egui::Frame::central_panel(&ctx.style()).inner_margin(egui::Margin::same(MARGIN));
-            let max_height = ctx
-                .input(|i| i.viewport().monitor_size)
-                .map_or(FALLBACK_MAX_HEIGHT, |m| m.y * MAX_SCREEN_SHARE)
-                - 2.0 * MARGIN as f32;
+            let max_height =
+                ctx.input(|i| i.viewport().monitor_size).map_or(FALLBACK_MAX_HEIGHT, |m| m.y * MAX_SCREEN_SHARE)
+                    - 2.0 * MARGIN as f32;
             let panel = egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
                 // The panel itself fills the window; the scroll area takes
                 // only what the dialog drew, up to the screen's limit, and
@@ -265,7 +267,12 @@ impl<'o> Window<'o> {
     }
 
     /// Drawn inside the main window, where egui cannot open another.
-    fn embedded<R>(self, ctx: &egui::Context, id: Id, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<InnerResponse<Option<R>>> {
+    fn embedded<R>(
+        self,
+        ctx: &egui::Context,
+        id: Id,
+        add: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> Option<InnerResponse<Option<R>>> {
         let mut window = egui::Window::new(self.title)
             .id(id)
             .collapsible(false)

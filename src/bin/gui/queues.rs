@@ -7,9 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use eframe::egui;
-use uidm::queue::{
-    self, Queue, QueueKind, Schedule, WhenDone, MAIN_QUEUE, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX,
-};
+use uidm::queue::{self, Queue, QueueKind, Schedule, WhenDone, MAIN_QUEUE, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
 
 use super::{take_picked, Action, Picked};
 use crate::i18n::{tr, trf};
@@ -134,13 +132,11 @@ pub fn header(ui: &mut egui::Ui, q: &Queue, connected: bool, actions: &mut Vec<A
             ui.label(tr("When this run ends:"));
             let current = q.when_done_once.unwrap_or(q.when_done);
             let mut chosen = current;
-            egui::ComboBox::from_id_salt(("once", q.id))
-                .selected_text(tr(chosen.label()))
-                .show_ui(ui, |ui| {
-                    for w in WhenDone::ALL {
-                        ui.selectable_value(&mut chosen, w, tr(w.label()));
-                    }
-                });
+            egui::ComboBox::from_id_salt(("once", q.id)).selected_text(tr(chosen.label())).show_ui(ui, |ui| {
+                for w in WhenDone::ALL {
+                    ui.selectable_value(&mut chosen, w, tr(w.label()));
+                }
+            });
             if chosen != current {
                 // Back to the queue's own choice clears the one-off.
                 let once = (chosen != q.when_done).then_some(chosen);
@@ -238,11 +234,7 @@ impl QueueDraft {
         q.schedule = self.scheduled.then(|| Schedule {
             start: self.start.trim().to_string(),
             stop: self.has_stop.then(|| self.stop.trim().to_string()),
-            days: if self.by_date {
-                Vec::new()
-            } else {
-                (0u8..7).filter(|d| self.days[*d as usize]).collect()
-            },
+            days: if self.by_date { Vec::new() } else { (0u8..7).filter(|d| self.days[*d as usize]).collect() },
             date: self.by_date.then(|| self.date.trim().to_string()),
             repeat_minutes: repeat_value(self.repeat, self.repeat_hours, self.repeat_minutes),
         });
@@ -264,22 +256,14 @@ pub struct QueuesDialog {
 
 impl QueuesDialog {
     pub fn open(queues: &[Queue], select: Option<u64>) -> Self {
-        let q = select
-            .and_then(|id| queues.iter().find(|q| q.id == id))
-            .or_else(|| queues.first());
+        let q = select.and_then(|id| queues.iter().find(|q| q.id == id)).or_else(|| queues.first());
         match q {
-            Some(q) => QueuesDialog {
-                selected: q.id,
-                draft: QueueDraft::from(q),
-                pending_name: None,
-                schedule_note: false,
-            },
-            None => QueuesDialog {
-                selected: 0,
-                draft: QueueDraft::new_queue(),
-                pending_name: None,
-                schedule_note: false,
-            },
+            Some(q) => {
+                QueuesDialog { selected: q.id, draft: QueueDraft::from(q), pending_name: None, schedule_note: false }
+            }
+            None => {
+                QueuesDialog { selected: 0, draft: QueueDraft::new_queue(), pending_name: None, schedule_note: false }
+            }
         }
     }
 }
@@ -435,7 +419,7 @@ fn form(
                 ui.add_enabled_ui(!draft.by_date, |ui| {
                     ui.horizontal(|ui| {
                         for (i, name) in DAY_NAMES.iter().enumerate() {
-                            ui.checkbox(&mut draft.days[i], tr(*name));
+                            ui.checkbox(&mut draft.days[i], tr(name));
                         }
                     });
                 });
@@ -484,9 +468,8 @@ fn form(
     ui.horizontal(|ui| {
         ui.add_enabled_ui(connected, |ui| {
             if ui.button(tr("Save")).clicked() {
-                let duplicate = queues
-                    .iter()
-                    .any(|q| q.id != draft.id && q.name.eq_ignore_ascii_case(draft.name.trim()));
+                let duplicate =
+                    queues.iter().any(|q| q.id != draft.id && q.name.eq_ignore_ascii_case(draft.name.trim()));
                 match draft.to_queue() {
                     Ok(_) if duplicate => {
                         draft.error = Some(trf!("There is already a queue named \"{name}\".", name = draft.name.trim()))
@@ -612,11 +595,8 @@ mod tests {
 
     #[test]
     fn picker_folder_starts_next_to_the_named_file() {
-        let (file, folder) = if cfg!(windows) {
-            (r"C:\Tools\after.bat", r"C:\Tools")
-        } else {
-            ("/opt/tools/after.sh", "/opt/tools")
-        };
+        let (file, folder) =
+            if cfg!(windows) { (r"C:\Tools\after.bat", r"C:\Tools") } else { ("/opt/tools/after.sh", "/opt/tools") };
         assert_eq!(picker_folder(&format!("  {file} ")), Some(PathBuf::from(folder)));
         assert_eq!(picker_folder(""), None);
         assert_eq!(picker_folder("after.bat"), None, "not a full path");

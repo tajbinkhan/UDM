@@ -31,7 +31,9 @@ use super::{
     backoff, choose_output, derive_filename, fetch_with, http, numbered_name, sanitize_filename, CancelToken,
     DownloadRequest, EngineError, Progress, Reporter, Saved, Shared, BUF_SIZE, MAX_CONNECTIONS, MAX_RETRIES,
 };
-use crate::media::{dash, hds, hls, sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED};
+use crate::media::{
+    dash, hds, hls, sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED,
+};
 use crate::net::NetConfig;
 
 /// Most bytes read of a playlist or manifest.
@@ -83,10 +85,7 @@ fn load_tracks(
     choice: &MediaChoice,
 ) -> Result<(Track, Option<Track>), EngineError> {
     let (base, text) = get_text(agent, &req.url, &req.headers)?;
-    let kind = choice
-        .kind
-        .or_else(|| sniff(&text))
-        .ok_or_else(|| refused(NOT_A_STREAM.into()))?;
+    let kind = choice.kind.or_else(|| sniff(&text)).ok_or_else(|| refused(NOT_A_STREAM.into()))?;
     match kind {
         MediaKind::Page => Err(refused("A video page is not an HLS playlist or a DASH manifest.".into())),
         MediaKind::Hds => Ok((hds_track(agent, req, &text, &base, choice.video.as_deref())?, None)),
@@ -169,15 +168,9 @@ fn read_playlist(
     (&mut reader).take(SNIFF_BYTES).read_to_end(&mut body)?;
     if sniff(&String::from_utf8_lossy(&body)).is_none() {
         if let Some(ext) = crate::media::sniff_file(&body) {
-            return Ok(Err(MediaInfo {
-                file: Some(MediaFile { ext: ext.into(), size }),
-                ..MediaInfo::default()
-            }));
+            return Ok(Err(MediaInfo { file: Some(MediaFile { ext: ext.into(), size }), ..MediaInfo::default() }));
         }
-        return Ok(Err(MediaInfo {
-            not_stream: true,
-            ..MediaInfo::failed(None, NOT_A_STREAM.into())
-        }));
+        return Ok(Err(MediaInfo { not_stream: true, ..MediaInfo::failed(None, NOT_A_STREAM.into()) }));
     }
     reader.read_to_end(&mut body)?;
     Ok(Ok((base, String::from_utf8_lossy(&body).into_owned())))
@@ -203,23 +196,13 @@ pub fn probe(url: &str, headers: &[(String, String)], net: &NetConfig) -> MediaI
         },
         Some(MediaKind::Hds) => match hds::parse(&text, &base) {
             Ok(m) => hds::describe(&m),
-            Err(e) => MediaInfo {
-                drm: e == DRM_REFUSED,
-                ..MediaInfo::failed(Some(MediaKind::Hds), e)
-            },
+            Err(e) => MediaInfo { drm: e == DRM_REFUSED, ..MediaInfo::failed(Some(MediaKind::Hds), e) },
         },
         Some(MediaKind::Hls) => match hls::parse(&text, &base, false) {
-            Err(e) => MediaInfo {
-                drm: e == DRM_REFUSED,
-                ..MediaInfo::failed(Some(MediaKind::Hls), e)
-            },
+            Err(e) => MediaInfo { drm: e == DRM_REFUSED, ..MediaInfo::failed(Some(MediaKind::Hls), e) },
             Ok(hls::Playlist::Media(track)) => MediaInfo {
                 kind: Some(MediaKind::Hls),
-                video: vec![MediaOption {
-                    id: String::new(),
-                    label: "Default".into(),
-                    ..MediaOption::default()
-                }],
+                video: vec![MediaOption { id: String::new(), label: "Default".into(), ..MediaOption::default() }],
                 duration: track.duration,
                 ..MediaInfo::default()
             },
@@ -231,10 +214,7 @@ pub fn probe(url: &str, headers: &[(String, String)], net: &NetConfig) -> MediaI
                     .map_err(|e| e.to_string())
                     .and_then(|(b, t)| hls::parse(&t, &b, false));
                 match first {
-                    Err(e) if e == DRM_REFUSED => MediaInfo {
-                        drm: true,
-                        ..MediaInfo::failed(Some(MediaKind::Hls), e)
-                    },
+                    Err(e) if e == DRM_REFUSED => MediaInfo { drm: true, ..MediaInfo::failed(Some(MediaKind::Hls), e) },
                     Ok(hls::Playlist::Media(t)) => hls::describe(&master, t.duration),
                     _ => hls::describe(&master, None),
                 }
@@ -258,10 +238,7 @@ pub(super) fn stem(req: &DownloadRequest) -> String {
         .map(sanitize_filename)
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| derive_filename(&req.url));
-    let stem = Path::new(&name)
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or(name);
+    let stem = Path::new(&name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or(name);
     if stem.is_empty() {
         "video".into()
     } else {
@@ -280,7 +257,9 @@ pub(super) fn run(
     shared: &Shared,
 ) -> Result<Saved, EngineError> {
     if choice.audio_only.is_some() && req.ffmpeg.is_none() {
-        return Err(refused("Saving only the sound needs ffmpeg. Install it, or choose it in Options > General.".into()));
+        return Err(refused(
+            "Saving only the sound needs ffmpeg. Install it, or choose it in Options > General.".into(),
+        ));
     }
     let (main, extra) = load_tracks(agent, req, choice)?;
     // For the sound alone, a separate audio track is all that is fetched.
@@ -326,16 +305,10 @@ pub(super) fn run(
         let Some(track) = track else { continue };
         let first = jobs.len();
         if let Some(init) = &track.init {
-            jobs.push(Job {
-                path: parts.join(format!("{tag}-init")),
-                segment: init.clone(),
-            });
+            jobs.push(Job { path: parts.join(format!("{tag}-init")), segment: init.clone() });
         }
         for (i, s) in track.segments.iter().enumerate() {
-            jobs.push(Job {
-                path: parts.join(format!("{tag}-{i:06}")),
-                segment: s.clone(),
-            });
+            jobs.push(Job { path: parts.join(format!("{tag}-{i:06}")), segment: s.clone() });
         }
         tracks.push((parts.join(format!("{tag}.{}", track.ext)), first..jobs.len(), track.ext));
     }
@@ -427,10 +400,7 @@ fn finish(
     } else {
         format!("{stem}.{ext}")
     };
-    let audio_path = (0..)
-        .map(|n| dir.join(numbered_name(&name, n)))
-        .find(|p| !p.exists())
-        .expect("some name is free");
+    let audio_path = (0..).map(|n| dir.join(numbered_name(&name, n))).find(|p| !p.exists()).expect("some name is free");
     fs::rename(audio, &audio_path)?;
     Ok(Some(format!(
         "Saved as two files, video and audio ({}), because ffmpeg was not found. Install ffmpeg or set it in Options to get one video.",
@@ -747,9 +717,12 @@ mod tests {
         fn run(req: DownloadRequest) -> (Outcome, Vec<[u64; 2]>) {
             let (tx, rx) = mpsc::channel();
             let tx = Mutex::new(tx);
-            let engine = Engine::new(Arc::new(move |p: Progress| {
-                let _ = tx.lock().unwrap().send(p);
-            }), 1);
+            let engine = Engine::new(
+                Arc::new(move |p: Progress| {
+                    let _ = tx.lock().unwrap().send(p);
+                }),
+                1,
+            );
             engine.enqueue(req);
             let mut parts = Vec::new();
             loop {
@@ -821,12 +794,7 @@ mod tests {
 
             // The other quality, by its id.
             let low = format!("{}/v/low/index.m3u8", server.url);
-            let choice = MediaChoice {
-                kind: Some(MediaKind::Hls),
-                video: Some(low),
-                audio: None,
-                audio_only: None,
-            };
+            let choice = MediaChoice { kind: Some(MediaKind::Hls), video: Some(low), audio: None, audio_only: None };
             let (result, _) = run(request(format!("{}/v/master.m3u8", server.url), &dir, choice));
             let (path, _) = result.unwrap();
             assert_eq!(path, dir.join("Movie night (1).ts"));
@@ -861,9 +829,12 @@ mod tests {
 
             let (tx, rx) = mpsc::channel();
             let tx = Mutex::new(tx);
-            let engine = Engine::new(Arc::new(move |p: Progress| {
-                let _ = tx.lock().unwrap().send(p);
-            }), 1);
+            let engine = Engine::new(
+                Arc::new(move |p: Progress| {
+                    let _ = tx.lock().unwrap().send(p);
+                }),
+                1,
+            );
             engine.enqueue(req);
             let taken = loop {
                 match rx.recv_timeout(Duration::from_secs(30)).expect("download timed out") {
@@ -904,10 +875,8 @@ mod tests {
 
             let dir = temp_dir("cookies");
             let mut req = request(format!("{}/v/master.m3u8", site.url), &dir, MediaChoice::default());
-            req.headers = vec![
-                ("Cookie".into(), "session=secret".into()),
-                ("Authorization".into(), "Bearer secret".into()),
-            ];
+            req.headers =
+                vec![("Cookie".into(), "session=secret".into()), ("Authorization".into(), "Bearer secret".into())];
             let (result, _) = run(req);
             let (path, _) = result.unwrap();
             let plain: Vec<u8> = (0..3).flat_map(segment).collect();
@@ -944,7 +913,11 @@ mod tests {
             let fetched_segments: usize = (2..5).map(|i| files[&format!("/v/high/{i}.ts")].len()).sum();
             let served = server.served.load(Ordering::Relaxed) as usize;
             let playlists = files["/v/master.m3u8"].len() + files["/v/high/index.m3u8"].len() + 16;
-            assert_eq!(served, fetched_segments + playlists, "only the missing segments, not the {first_two} bytes on disk");
+            assert_eq!(
+                served,
+                fetched_segments + playlists,
+                "only the missing segments, not the {first_two} bytes on disk"
+            );
             fs::remove_dir_all(&dir).ok();
         }
 
@@ -985,10 +958,7 @@ mod tests {
         #[test]
         fn drm_streams_are_refused_and_probed() {
             let mut files = HashMap::new();
-            files.insert(
-                "/d/master.m3u8".into(),
-                b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv.m3u8\n".to_vec(),
-            );
+            files.insert("/d/master.m3u8".into(), b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv.m3u8\n".to_vec());
             files.insert(
                 "/d/v.m3u8".into(),
                 b"#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://k\",KEYFORMAT=\"com.apple.streamingkeydelivery\"\n#EXTINF:4,\n0.ts\n#EXT-X-ENDLIST\n".to_vec(),
@@ -1029,7 +999,7 @@ mod tests {
             assert!(info.not_stream);
             assert_eq!(info.file, None);
         }
-    
+
         /// A stand-in for ffmpeg: it records its arguments next to itself
         /// and writes the output file, or fails with a message.
         /// A stand-in for ffmpeg that notes its arguments in `args.txt`
@@ -1040,7 +1010,8 @@ mod tests {
             let body = if fail {
                 "@echo off\r\necho Invalid data found when processing input 1>&2\r\nexit /b 1\r\n".to_string()
             } else {
-                "@echo off\r\necho %* > \"%~dp0args.txt\"\r\nfor %%a in (%*) do set last=%%a\r\necho video> %last%\r\n".to_string()
+                "@echo off\r\necho %* > \"%~dp0args.txt\"\r\nfor %%a in (%*) do set last=%%a\r\necho video> %last%\r\n"
+                    .to_string()
             };
             fs::write(&bat, body).unwrap();
             bat
@@ -1081,8 +1052,8 @@ mod tests {
         /// query, as Akamai's are), inline bootstrap info, metadata, and two
         /// F4F fragments for the higher one. Also the FLV it makes.
         fn hds_site() -> (HashMap<String, Vec<u8>>, Vec<u8>) {
-            use base64::Engine as _;
             use crate::media::hds::tests::{abst, fragment};
+            use base64::Engine as _;
             let b64 = |d: &[u8]| base64::engine::general_purpose::STANDARD.encode(d);
             let meta = b"\x02\x00\x0aonMetaData\x08\x00\x00\x00\x00".to_vec();
             let manifest = format!(

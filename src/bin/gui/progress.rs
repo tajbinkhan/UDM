@@ -161,7 +161,8 @@ pub fn window(
     let opening = if w.focus { Opening::Focus } else { Opening::Quiet };
     crate::dialog::Window::new(title)
         .id(egui::Id::new(("progress", w.id)))
-        .dlu_width(353.0).taskbar(true)
+        .dlu_width(353.0)
+        .taskbar(true)
         .minimizable(true)
         .opening(opening)
         .open(&mut open)
@@ -186,11 +187,10 @@ pub fn window(
             }
             ui.add_space(6.0);
             let bar = egui::ProgressBar::new(fraction.unwrap_or(0.0)).desired_width(480.0);
-            theme::progress_bar(ui, if fraction.is_some() {
-                bar.show_percentage()
-            } else {
-                bar.text(human_bytes(e.done))
-            });
+            theme::progress_bar(
+                ui,
+                if fraction.is_some() { bar.show_percentage() } else { bar.text(human_bytes(e.done)) },
+            );
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 let details = if w.details { tr("<< Hide details") } else { tr("Show details >>") };
@@ -223,7 +223,11 @@ pub fn window(
                     }
                     Status::Confirming | Status::Waiting | Status::Done => {}
                 });
-                if ui.button(tr("Cancel")).on_hover_text(tr("Stop it and close this window; it stays in the list")).clicked() {
+                if ui
+                    .button(tr("Cancel"))
+                    .on_hover_text(tr("Stop it and close this window; it stays in the list"))
+                    .clicked()
+                {
                     if matches!(e.status, Status::Queued | Status::Downloading) {
                         actions.push(Action::Cancel(e.id));
                     }
@@ -241,14 +245,10 @@ pub fn window(
 fn status_tab(ui: &mut egui::Ui, e: &DownloadEntry, fraction: Option<f32>, running: Option<f64>) {
     egui::Grid::new("download_status").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
         ui.label(tr("Address"));
-        ui.allocate_ui_with_layout(
-            egui::vec2(380.0, 18.0),
-            egui::Layout::left_to_right(egui::Align::Center),
-            |ui| {
-                ui.set_width(380.0);
-                ui.add(egui::Label::new(&e.url).truncate()).on_hover_text(&e.url);
-            },
-        );
+        ui.allocate_ui_with_layout(egui::vec2(380.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.set_width(380.0);
+            ui.add(egui::Label::new(&e.url).truncate()).on_hover_text(&e.url);
+        });
         ui.end_row();
 
         ui.label(tr("Status"));
@@ -344,13 +344,11 @@ pub fn on_done_fields(ui: &mut egui::Ui, on_done: &mut OnDone) {
         .on_hover_text(tr("For this download, whatever Options > When done says"));
     ui.horizontal(|ui| {
         ui.label(tr("Then"));
-        egui::ComboBox::from_id_salt("on_done_then")
-            .selected_text(tr(on_done.then.label()))
-            .show_ui(ui, |ui| {
-                for action in WhenDone::ALL {
-                    ui.selectable_value(&mut on_done.then, action, tr(action.label()));
-                }
-            });
+        egui::ComboBox::from_id_salt("on_done_then").selected_text(tr(on_done.then.label())).show_ui(ui, |ui| {
+            for action in WhenDone::ALL {
+                ui.selectable_value(&mut on_done.then, action, tr(action.label()));
+            }
+        });
     });
     if on_done.then == WhenDone::ShutDown {
         ui.checkbox(&mut on_done.force_close, tr("Force apps to close"))
@@ -368,11 +366,7 @@ mod tests {
     use super::*;
 
     fn queue(id: u64, running: bool, order: &[u64]) -> Queue {
-        Queue {
-            running,
-            order: order.to_vec(),
-            ..Queue::new(id, "q")
-        }
+        Queue { running, order: order.to_vec(), ..Queue::new(id, "q") }
     }
 
     #[test]

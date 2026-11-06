@@ -35,7 +35,9 @@ fn entry_path() -> io::Result<PathBuf> {
     return Ok(home.join("Library/LaunchAgents/com.uidm.gui.plist"));
     #[cfg(not(target_os = "macos"))]
     {
-        let base = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map_or_else(|| home.join(".config"), PathBuf::from);
+        let base = std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|v| !v.is_empty())
+            .map_or_else(|| home.join(".config"), PathBuf::from);
         Ok(base.join("autostart").join("uidm.desktop"))
     }
 }
@@ -65,8 +67,11 @@ fn entry(gui: &Path, first: &[String]) -> String {
     #[cfg(not(target_os = "macos"))]
     {
         // Exec quotes each argument: a space or quote in it stays part of it.
-        let quote = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('`', "\\`").replace('$', "\\$"));
-        let exec: Vec<String> = std::iter::once(quote(&gui.display().to_string())).chain(first.iter().map(|a| quote(a))).collect();
+        let quote = |s: &str| {
+            format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('`', "\\`").replace('$', "\\$"))
+        };
+        let exec: Vec<String> =
+            std::iter::once(quote(&gui.display().to_string())).chain(first.iter().map(|a| quote(a))).collect();
         format!(
             "[Desktop Entry]\nType=Application\nName=UIDM\nComment=Download manager\nIcon=uidm\n\
              Exec={} --minimized\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",

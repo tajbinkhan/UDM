@@ -99,7 +99,12 @@ pub fn browser_request_headers(sent: &[(String, String)], already: &[(String, St
     for (name, value) in sent {
         let lower = name.to_ascii_lowercase();
         let taken = |list: &[(String, String)]| list.iter().any(|(k, _)| k.eq_ignore_ascii_case(name));
-        if name.is_empty() || name.starts_with(':') || UNREPEATED_HEADERS.contains(&lower.as_str()) || taken(already) || taken(&out) {
+        if name.is_empty()
+            || name.starts_with(':')
+            || UNREPEATED_HEADERS.contains(&lower.as_str())
+            || taken(already)
+            || taken(&out)
+        {
             continue;
         }
         out.push((name.clone(), value.clone()));
@@ -135,16 +140,7 @@ pub fn post_body(d: &Download) -> Option<Vec<u8>> {
 /// Map an engine event to the message sent to clients.
 pub fn progress_to_outgoing(p: Progress) -> Outgoing {
     match p {
-        Progress::Started {
-            id,
-            url,
-            path,
-            total,
-            resumable,
-            connections,
-            partial,
-            validator,
-        } => Outgoing::Started {
+        Progress::Started { id, url, path, total, resumable, connections, partial, validator } => Outgoing::Started {
             id,
             url,
             path: path.display().to_string(),
@@ -154,35 +150,17 @@ pub fn progress_to_outgoing(p: Progress) -> Outgoing {
             partial: partial.map(|p| p.display().to_string()),
             validator,
         },
-        Progress::Advanced {
-            id,
-            url,
-            done,
-            total,
-            parts,
-            segments,
-        } => Outgoing::Progress {
-            id,
-            url,
-            done,
-            total,
-            parts,
-            segments,
-        },
-        Progress::Finished { id, url, path, note } => Outgoing::Done {
-            id,
-            url,
-            path: path.display().to_string(),
-            note,
-        },
+        Progress::Advanced { id, url, done, total, parts, segments } => {
+            Outgoing::Progress { id, url, done, total, parts, segments }
+        }
+        Progress::Finished { id, url, path, note } => {
+            Outgoing::Done { id, url, path: path.display().to_string(), note }
+        }
         Progress::Failed { id, url, error } => Outgoing::Failed { id, url, error },
         Progress::Canceled { id, url } => Outgoing::Canceled { id, url },
-        Progress::NameTaken { id, url, path, total } => Outgoing::NameTaken {
-            id,
-            url,
-            path: path.display().to_string(),
-            total,
-        },
+        Progress::NameTaken { id, url, path, total } => {
+            Outgoing::NameTaken { id, url, path: path.display().to_string(), total }
+        }
     }
 }
 
@@ -239,10 +217,7 @@ mod tests {
 
     #[test]
     fn only_downloads_without_a_browser_agent_get_the_manual_one() {
-        let settings = Settings {
-            manual_user_agent: "Manual/1.0".into(),
-            ..Settings::default()
-        };
+        let settings = Settings { manual_user_agent: "Manual/1.0".into(), ..Settings::default() };
         let ua = |d: Download| {
             to_request(d, &settings)
                 .headers
@@ -251,15 +226,9 @@ mod tests {
                 .map(|(_, v)| v)
                 .collect::<Vec<_>>()
         };
-        let by_hand = Download {
-            url: "https://x/a".into(),
-            ..Download::default()
-        };
+        let by_hand = Download { url: "https://x/a".into(), ..Download::default() };
         assert_eq!(ua(by_hand.clone()), ["Manual/1.0"]);
-        let browser = Download {
-            user_agent: Some("Browser/2.0".into()),
-            ..by_hand.clone()
-        };
+        let browser = Download { user_agent: Some("Browser/2.0".into()), ..by_hand.clone() };
         assert_eq!(ua(browser), ["Browser/2.0"]);
         let none = to_request(by_hand, &Settings::default());
         assert!(!none.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("user-agent")));

@@ -59,12 +59,7 @@ fn setup_asset(assets: &serde_json::Value) -> Option<SetupAsset> {
             .and_then(|d| d.strip_prefix("sha256:"))
             .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
             .map(str::to_ascii_lowercase);
-        usable.then(|| SetupAsset {
-            name: name.to_string(),
-            url: url.to_string(),
-            size,
-            sha256,
-        })
+        usable.then(|| SetupAsset { name: name.to_string(), url: url.to_string(), size, sha256 })
     })
 }
 
@@ -137,7 +132,10 @@ mod tests {
 
     #[test]
     fn releases_are_read_from_githubs_answer() {
-        let r = parse_release(br#"{"tag_name":"v0.4.1","html_url":"https://github.com/tajbinkhan/uidm/releases/tag/v0.4.1"}"#).unwrap();
+        let r = parse_release(
+            br#"{"tag_name":"v0.4.1","html_url":"https://github.com/tajbinkhan/uidm/releases/tag/v0.4.1"}"#,
+        )
+        .unwrap();
         assert_eq!(r.version, "0.4.1");
         assert!(r.url.ends_with("/v0.4.1"));
         let elsewhere = parse_release(br#"{"tag_name":"v9","html_url":"https://evil.example/x"}"#).unwrap();
@@ -167,9 +165,12 @@ mod tests {
         assert!(check_setup(&setup, body).is_ok());
         assert!(check_setup(&setup, b"MZ setuP").unwrap_err().contains("checksum"));
         assert!(check_setup(&setup, b"MZ").unwrap_err().contains("bytes"));
-        assert!(check_setup(&SetupAsset { sha256: None, ..setup.clone() }, b"XX setup").unwrap_err().contains("Windows program"));
+        assert!(check_setup(&SetupAsset { sha256: None, ..setup.clone() }, b"XX setup")
+            .unwrap_err()
+            .contains("Windows program"));
 
-        let elsewhere = json.replace("https://github.com/tajbinkhan/uidm/releases/download/v0.5.0/UIDM", "https://evil.example/UIDM");
+        let elsewhere = json
+            .replace("https://github.com/tajbinkhan/uidm/releases/download/v0.5.0/UIDM", "https://evil.example/UIDM");
         assert_eq!(parse_release(elsewhere.as_bytes()).unwrap().setup, None, "only from the repository's releases");
     }
 }

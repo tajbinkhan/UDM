@@ -31,13 +31,8 @@ pub enum WhenDone {
 }
 
 impl WhenDone {
-    pub const ALL: [WhenDone; 5] = [
-        WhenDone::Nothing,
-        WhenDone::Exit,
-        WhenDone::Sleep,
-        WhenDone::Hibernate,
-        WhenDone::ShutDown,
-    ];
+    pub const ALL: [WhenDone; 5] =
+        [WhenDone::Nothing, WhenDone::Exit, WhenDone::Sleep, WhenDone::Hibernate, WhenDone::ShutDown];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -247,10 +242,7 @@ impl Moment {
     }
 
     pub fn from_total(total: i64) -> Self {
-        Moment {
-            day: total.div_euclid(1440),
-            minute: total.rem_euclid(1440) as u32,
-        }
+        Moment { day: total.div_euclid(1440), minute: total.rem_euclid(1440) as u32 }
     }
 
     /// `Mon 2026-10-26 23:00`.
@@ -476,10 +468,7 @@ mod tests {
     use super::*;
 
     fn at(date: &str, time: &str) -> Moment {
-        Moment {
-            day: parse_date(date).unwrap(),
-            minute: parse_time(time).unwrap(),
-        }
+        Moment { day: parse_date(date).unwrap(), minute: parse_time(time).unwrap() }
     }
 
     fn nightly(days: &[u8]) -> Schedule {

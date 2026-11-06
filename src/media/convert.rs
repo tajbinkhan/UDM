@@ -13,7 +13,6 @@ use std::thread;
 
 use serde::{Deserialize, Serialize};
 
-
 /// What a video becomes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -42,11 +41,33 @@ impl Target {
         match self {
             Target::Mp4 => [
                 &["-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart"],
-                &["-map", "0:v:0?", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart"],
+                &[
+                    "-map",
+                    "0:v:0?",
+                    "-map",
+                    "0:a:0?",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "23",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "160k",
+                    "-movflags",
+                    "+faststart",
+                ],
             ],
-            Target::M4a => [&["-vn", "-map", "0:a:0", "-c:a", "copy"], &["-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]],
+            Target::M4a => {
+                [&["-vn", "-map", "0:a:0", "-c:a", "copy"], &["-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]]
+            }
             // MP3 is always encoded; the copy only works for MP3 sound.
-            Target::Mp3 => [&["-vn", "-map", "0:a:0", "-c:a", "copy", "-f", "mp3"], &["-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "2"]],
+            Target::Mp3 => [
+                &["-vn", "-map", "0:a:0", "-c:a", "copy", "-f", "mp3"],
+                &["-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "2"],
+            ],
         }
     }
 }
@@ -153,7 +174,10 @@ pub fn convert(
 /// Whether a file name looks like a video ffmpeg can convert.
 pub fn is_video(name: &str) -> bool {
     let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
-    matches!(ext.as_str(), "mp4" | "mkv" | "webm" | "ts" | "avi" | "mov" | "flv" | "m4v" | "wmv" | "mpg" | "mpeg" | "3gp")
+    matches!(
+        ext.as_str(),
+        "mp4" | "mkv" | "webm" | "ts" | "avi" | "mov" | "flv" | "m4v" | "wmv" | "mpg" | "mpeg" | "3gp"
+    )
 }
 
 #[cfg(test)]
@@ -202,7 +226,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let clip = dir.join("clip.mkv");
         let made = crate::platform::no_window(&mut Command::new(&ffmpeg))
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=160x120:rate=10"])
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=2:size=160x120:rate=10",
+            ])
             .args(["-f", "lavfi", "-i", "sine=duration=2", "-c:v", "libx264", "-c:a", "aac", "-shortest"])
             .arg(&clip)
             .status()

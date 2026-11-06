@@ -19,13 +19,7 @@ impl AddDialog {
     /// Start with the clipboard's link, if it holds one.
     pub fn new(clipboard: Option<String>) -> Self {
         let url = clipboard.map(|t| t.trim().to_string()).filter(|t| crate::is_download_url(t)).unwrap_or_default();
-        AddDialog {
-            url,
-            use_login: false,
-            user: String::new(),
-            password: String::new(),
-            focus: true,
-        }
+        AddDialog { url, use_login: false, user: String::new(), password: String::new(), focus: true }
     }
 }
 
@@ -81,15 +75,9 @@ pub fn show(ctx: &egui::Context, d: &mut AddDialog, connected: bool) -> Outcome 
                 });
             });
             if ok && can_add {
-                let login = (d.use_login && !d.user.trim().is_empty()).then(|| DownloadLogin {
-                    username: d.user.trim().to_string(),
-                    password: Some(d.password.clone()),
-                });
-                outcome = Outcome::Add(Box::new(Download {
-                    url,
-                    login,
-                    ..Download::default()
-                }));
+                let login = (d.use_login && !d.user.trim().is_empty())
+                    .then(|| DownloadLogin { username: d.user.trim().to_string(), password: Some(d.password.clone()) });
+                outcome = Outcome::Add(Box::new(Download { url, login, ..Download::default() }));
             }
         });
     if !open {

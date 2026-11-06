@@ -118,7 +118,8 @@ fn whole_words(field: &str, text: &str) -> bool {
     let (open, close) = (word(text.chars().next()), word(text.chars().last()));
     !text.is_empty()
         && field.match_indices(text).any(|(at, _)| {
-            (!open || !word(field[..at].chars().next_back())) && (!close || !word(field[at + text.len()..].chars().next()))
+            (!open || !word(field[..at].chars().next_back()))
+                && (!close || !word(field[at + text.len()..].chars().next()))
         })
 }
 
@@ -242,10 +243,7 @@ mod tests {
     }
 
     fn bar(text: &str) -> FindBar {
-        FindBar {
-            text: text.into(),
-            ..FindBar::new()
-        }
+        FindBar { text: text.into(), ..FindBar::new() }
     }
 
     #[test]

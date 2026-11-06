@@ -76,10 +76,7 @@ mod imp {
     fn call(data: &[u8], encrypt: bool) -> io::Result<Vec<u8>> {
         let input = blob(data)?;
         let entropy = blob(ENTROPY)?;
-        let mut output = DataBlob {
-            cb_data: 0,
-            pb_data: ptr::null_mut(),
-        };
+        let mut output = DataBlob { cb_data: 0, pb_data: ptr::null_mut() };
         // SAFETY: every pointer refers to a live blob for the length of the call;
         // DPAPI allocates `output` with LocalAlloc, freed below after copying.
         let ok = unsafe {
@@ -156,17 +153,14 @@ mod imp {
         // sealed with a key that is then overwritten.
         let mut nonce = [0u8; 8];
         getrandom::fill(&mut nonce).map_err(|e| io::Error::other(format!("getrandom: {e}")))?;
-        let tmp = dir.join(format!(
-            "secret.key.{}.{:016x}",
-            std::process::id(),
-            u64::from_le_bytes(nonce)
-        ));
+        let tmp = dir.join(format!("secret.key.{}.{:016x}", std::process::id(), u64::from_le_bytes(nonce)));
         crate::platform::write_private(&tmp, &key)?;
         let linked = std::fs::hard_link(&tmp, &path);
         let result = match linked {
             Ok(()) => Ok(key),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => std::fs::read(&path)
-                .and_then(|bytes| bytes.try_into().map_err(|_| bad("secret.key is damaged"))),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                std::fs::read(&path).and_then(|bytes| bytes.try_into().map_err(|_| bad("secret.key is damaged")))
+            }
             // A file system without hard links: put the key in place as
             // before, unless another caller did meanwhile.
             Err(_) if !path.exists() => std::fs::rename(&tmp, &path).map(|()| key),

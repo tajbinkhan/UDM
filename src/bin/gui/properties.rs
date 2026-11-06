@@ -85,7 +85,9 @@ impl PropertiesDialog {
             p.filename = changed(&self.filename, 3);
         } else if !self.use_login && self.had_login {
             p.login = Some(DownloadLogin::default());
-        } else if self.use_login && (changed(&self.username, 5).is_some() || !self.password.is_empty() || !self.had_login) {
+        } else if self.use_login
+            && (changed(&self.username, 5).is_some() || !self.password.is_empty() || !self.had_login)
+        {
             p.login = Some(DownloadLogin {
                 username: self.username.trim().to_string(),
                 password: Some(self.password.clone()).filter(|p| !p.is_empty()),
@@ -183,12 +185,9 @@ pub fn dialog(
                     ui.label(tr("Link"));
                     ui.add(egui::TextEdit::singleline(&mut d.url).desired_width(420.0));
                     ui.end_row();
-                    ui.label(tr("Referrer")).on_hover_text(tr("The address sent as the Referer header when it downloads"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut d.referrer)
-                            .hint_text(tr("None"))
-                            .desired_width(420.0),
-                    );
+                    ui.label(tr("Referrer"))
+                        .on_hover_text(tr("The address sent as the Referer header when it downloads"));
+                    ui.add(egui::TextEdit::singleline(&mut d.referrer).hint_text(tr("None")).desired_width(420.0));
                     ui.end_row();
                     ui.label(tr("Description"));
                     ui.add(
@@ -244,8 +243,9 @@ pub fn dialog(
             let login_ok = !d.use_login || !d.username.trim().is_empty();
             ui.horizontal(|ui| {
                 // Its choices for when it finishes can change while it runs.
-                let can_save =
-                    connected && (changes.is_some() || on_done.is_some()) && (changes.is_none() || (stopped && login_ok));
+                let can_save = connected
+                    && (changes.is_some() || on_done.is_some())
+                    && (changes.is_none() || (stopped && login_ok));
                 if ui.add_enabled(can_save, egui::Button::new(tr("Save"))).clicked() {
                     if let Some(changes) = changes {
                         actions.push(Action::SetProperties { id: d.id, changes });

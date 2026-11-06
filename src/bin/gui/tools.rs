@@ -43,10 +43,7 @@ pub fn pick_text_file(ctx: &egui::Context, title: &'static str, slot: &Loaded) {
 
 /// A queue picker.
 pub fn queue_combo(ui: &mut egui::Ui, id: &str, queue: &mut u64, queues: &[Queue]) {
-    let name = queues
-        .iter()
-        .find(|q| q.id == *queue)
-        .map_or(tr("Main queue").to_string(), |q| q.name.clone());
+    let name = queues.iter().find(|q| q.id == *queue).map_or(tr("Main queue").to_string(), |q| q.name.clone());
     egui::ComboBox::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
         for q in queues {
             ui.selectable_value(queue, q.id, &q.name);
@@ -114,20 +111,12 @@ impl BatchDialog {
     /// The dialog with `urls` in its list, such as every link on the
     /// clipboard.
     pub fn with_list(urls: &[String]) -> Self {
-        BatchDialog {
-            source: Source::List,
-            list: urls.join("\n"),
-            ..BatchDialog::new()
-        }
+        BatchDialog { source: Source::List, list: urls.join("\n"), ..BatchDialog::new() }
     }
 
     /// The dialog for downloads imported from `name`.
     pub fn imported(name: String, items: Vec<Download>, rejected: usize) -> Self {
-        BatchDialog {
-            source: Source::Imported,
-            imported: Some((name, items, rejected)),
-            ..BatchDialog::new()
-        }
+        BatchDialog { source: Source::Imported, imported: Some((name, items, rejected)), ..BatchDialog::new() }
     }
 
     /// The URLs to add, or why there are none.
@@ -149,7 +138,13 @@ impl BatchDialog {
                     let result = if self.pattern.trim().is_empty() {
                         Ok(Vec::new())
                     } else if asterisk {
-                        batch::expand_asterisk(&self.pattern, self.wildcard, &self.wild_from, &self.wild_to, self.wild_size)
+                        batch::expand_asterisk(
+                            &self.pattern,
+                            self.wildcard,
+                            &self.wild_from,
+                            &self.wild_to,
+                            self.wild_size,
+                        )
                     } else {
                         batch::expand(&self.pattern)
                     };
@@ -186,7 +181,10 @@ fn wildcard_controls(ui: &mut egui::Ui, d: &mut BatchDialog) {
         ui.add_enabled(numbers, egui::Label::new(tr("Wildcard size")));
         ui.horizontal(|ui| {
             ui.add_enabled(numbers, egui::DragValue::new(&mut d.wild_size).range(1..=MAX_WILDCARD_SIZE));
-            ui.add_enabled(numbers, egui::Label::new(egui::RichText::new(tr("digits; numbers are padded with zeros, 1 adds none")).weak()));
+            ui.add_enabled(
+                numbers,
+                egui::Label::new(egui::RichText::new(tr("digits; numbers are padded with zeros, 1 adds none")).weak()),
+            );
         });
         ui.end_row();
     });
@@ -478,7 +476,11 @@ pub fn export_dialog(
         .show(ctx, |ui| {
             ui.radio_value(&mut d.scope, ExportScope::All, trf!("All downloads ({count})", count = rows.len()));
             ui.add_enabled_ui(!selected.is_empty(), |ui| {
-                ui.radio_value(&mut d.scope, ExportScope::Ticked, trf!("The ticked downloads ({count})", count = selected.len()));
+                ui.radio_value(
+                    &mut d.scope,
+                    ExportScope::Ticked,
+                    trf!("The ticked downloads ({count})", count = selected.len()),
+                );
             });
             ui.horizontal(|ui| {
                 ui.radio_value(&mut d.scope, ExportScope::Queue, tr("The downloads waiting in"));
@@ -486,9 +488,17 @@ pub fn export_dialog(
                 ui.weak(format!("({})", in_queue(d.queue).len()));
             });
             ui.add_space(6.0);
-            ui.radio_value(&mut d.format, ExportFormat::Json, tr("UIDM list (.json): addresses, file names, folders and status"));
+            ui.radio_value(
+                &mut d.format,
+                ExportFormat::Json,
+                tr("UIDM list (.json): addresses, file names, folders and status"),
+            );
             ui.radio_value(&mut d.format, ExportFormat::Text, tr("Text (.txt): one address per line"));
-            ui.radio_value(&mut d.format, ExportFormat::Ef2, tr("IDM export file (.ef2): addresses and referrers, for IDM to import"));
+            ui.radio_value(
+                &mut d.format,
+                ExportFormat::Ef2,
+                tr("IDM export file (.ef2): addresses and referrers, for IDM to import"),
+            );
             ui.add_space(4.0);
             ui.weak(tr("Exports never include cookies, request headers or passwords."));
             if let Some(m) = &d.message {
@@ -735,7 +745,11 @@ impl GrabDialog {
                 (0u8..7).filter(|d| self.sched_days[*d as usize]).collect()
             },
             date: self.sched_by_date.then(|| self.sched_date.trim().to_string()),
-            repeat_minutes: super::queues::repeat_value(self.sched_repeat, self.sched_repeat_hours, self.sched_repeat_minutes),
+            repeat_minutes: super::queues::repeat_value(
+                self.sched_repeat,
+                self.sched_repeat_hours,
+                self.sched_repeat_minutes,
+            ),
         });
         if let Some(s) = &schedule {
             s.validate()?;
@@ -770,7 +784,8 @@ impl GrabDialog {
             d.sched_stop = s.stop.clone().unwrap_or_else(|| "06:00".into());
             d.sched_by_date = s.date.is_some();
             d.sched_date = s.date.clone().unwrap_or_default();
-            (d.sched_repeat, d.sched_repeat_hours, d.sched_repeat_minutes) = super::queues::repeat_split(s.repeat_minutes);
+            (d.sched_repeat, d.sched_repeat_hours, d.sched_repeat_minutes) =
+                super::queues::repeat_split(s.repeat_minutes);
             d.sched_days = [false; 7];
             for day in &s.days {
                 if let Some(slot) = d.sched_days.get_mut(*day as usize) {
@@ -858,13 +873,7 @@ impl GrabDialog {
         if !self.running() {
             // The form did not validate: back to the list as it was.
             if let Some((files, checked)) = self.updating.take() {
-                self.phase = GrabPhase::Review {
-                    files,
-                    checked,
-                    pages: 0,
-                    explored: 0,
-                    stopped: self.error.clone(),
-                };
+                self.phase = GrabPhase::Review { files, checked, pages: 0, explored: 0, stopped: self.error.clone() };
             }
         }
     }
@@ -875,18 +884,10 @@ impl GrabDialog {
         match req.validate().and_then(|()| self.store_login()) {
             Ok(()) => {
                 self.error = None;
-                self.phase = GrabPhase::Running {
-                    pages: 0,
-                    bytes: 0,
-                    found: 0,
-                    explored: 0,
-                    added: Vec::new(),
-                };
+                self.phase = GrabPhase::Running { pages: 0, bytes: 0, found: 0, explored: 0, added: Vec::new() };
                 if let Some(q) = req.download_found.and_then(|id| queues.iter().find(|q| q.id == id)) {
-                    actions.push(Action::SaveQueue(Queue {
-                        max_concurrent: req.download_at_once as usize,
-                        ..q.clone()
-                    }));
+                    actions
+                        .push(Action::SaveQueue(Queue { max_concurrent: req.download_at_once as usize, ..q.clone() }));
                 }
                 actions.push(Action::Grab(req));
             }
@@ -914,17 +915,11 @@ impl GrabDialog {
             return false;
         }
         // The queue downloads as many at once as the grabber says.
-        if let Some(q) = queues.iter().find(|q| q.id == self.queue && q.max_concurrent != req.download_at_once as usize) {
-            actions.push(Action::SaveQueue(Queue {
-                max_concurrent: req.download_at_once as usize,
-                ..q.clone()
-            }));
+        if let Some(q) = queues.iter().find(|q| q.id == self.queue && q.max_concurrent != req.download_at_once as usize)
+        {
+            actions.push(Action::SaveQueue(Queue { max_concurrent: req.download_at_once as usize, ..q.clone() }));
         }
-        actions.push(Action::AddMany {
-            items,
-            queue: self.queue,
-            start_queue: self.start_queue,
-        });
+        actions.push(Action::AddMany { items, queue: self.queue, start_queue: self.start_queue });
         true
     }
 
@@ -956,7 +951,9 @@ impl GrabDialog {
             link_text: d.link_text,
             skip_types: d.skip_types.join(", "),
             files_this_site: d.files_this_site,
-            filters: grab::projects_dir().map(|dir| grab::load_filters(&dir)).unwrap_or_else(|_| grab::default_filters()),
+            filters: grab::projects_dir()
+                .map(|dir| grab::load_filters(&dir))
+                .unwrap_or_else(|_| grab::default_filters()),
             filter_edit: None,
             save_choice: match d.save_to {
                 SaveTo::Categories => SaveChoice::Categories,
@@ -1089,17 +1086,18 @@ impl GrabDialog {
     /// The daemon's report of the crawl.
     pub fn progress(&mut self, pages: u64, bytes: u64, found: usize, explored: u64, added: Vec<u64>) {
         if matches!(self.phase, GrabPhase::Running { .. }) {
-            self.phase = GrabPhase::Running {
-                pages,
-                bytes,
-                found,
-                explored,
-                added,
-            };
+            self.phase = GrabPhase::Running { pages, bytes, found, explored, added };
         }
     }
 
-    pub fn done(&mut self, files: Vec<GrabFile>, pages: u64, explored: u64, stopped: Option<String>, login_cookies: Option<String>) {
+    pub fn done(
+        &mut self,
+        files: Vec<GrabFile>,
+        pages: u64,
+        explored: u64,
+        stopped: Option<String>,
+        login_cookies: Option<String>,
+    ) {
         if matches!(self.phase, GrabPhase::Running { .. }) {
             self.crawl_login_cookies = login_cookies;
             let (files, checked) = match self.updating.take() {
@@ -1109,13 +1107,7 @@ impl GrabDialog {
                     (files, checked)
                 }
             };
-            self.phase = GrabPhase::Review {
-                files,
-                checked,
-                pages,
-                explored,
-                stopped,
-            };
+            self.phase = GrabPhase::Review { files, checked, pages, explored, stopped };
         }
     }
 
@@ -1124,13 +1116,9 @@ impl GrabDialog {
         if matches!(self.phase, GrabPhase::Running { .. }) {
             // A failed Update all goes back to the list it started from.
             self.phase = match self.updating.take() {
-                Some((files, checked)) => GrabPhase::Review {
-                    files,
-                    checked,
-                    pages: 0,
-                    explored: 0,
-                    stopped: Some(error.clone()),
-                },
+                Some((files, checked)) => {
+                    GrabPhase::Review { files, checked, pages: 0, explored: 0, stopped: Some(error.clone()) }
+                }
                 None => GrabPhase::Form,
             };
             self.error = Some(error);
@@ -1186,7 +1174,20 @@ pub fn grab_dialog(
                 replace = project_bar(ui, d);
                 ui.separator();
             }
-            grab_body(ui, d, queues, settings, rows, connected, actions, &mut close, &mut added, &mut again, &mut update, &mut start);
+            grab_body(
+                ui,
+                d,
+                queues,
+                settings,
+                rows,
+                connected,
+                actions,
+                &mut close,
+                &mut added,
+                &mut again,
+                &mut update,
+                &mut start,
+            );
         });
     if update {
         d.update_all(queues, actions);
@@ -1205,9 +1206,7 @@ pub fn grab_dialog(
         }
         // A crawl that downloaded its finds as it went has them in the list
         // already: adding them again on close would make copies.
-        d.leave(Leave::Close {
-            add: added || (settings.grab_add_on_close && !d.download_found),
-        });
+        d.leave(Leave::Close { add: added || (settings.grab_add_on_close && !d.download_found) });
     }
     if start {
         d.leave(Leave::Start);
@@ -1217,9 +1216,9 @@ pub fn grab_dialog(
         if !d.unsaved() {
             return go_on(d, queues, settings, connected, actions);
         }
-        let silent_dir = dir
-            .as_deref()
-            .filter(|dir| settings.grab_save_unique_silently && grab::name_is_unique(dir, &d.project, d.saved_as.as_deref()));
+        let silent_dir = dir.as_deref().filter(|dir| {
+            settings.grab_save_unique_silently && grab::name_is_unique(dir, &d.project, d.saved_as.as_deref())
+        });
         if let Some(dir) = silent_dir {
             match d.save_project(dir) {
                 Ok(()) => return go_on(d, queues, settings, connected, actions),
@@ -1244,7 +1243,13 @@ pub fn grab_dialog(
 
 /// Do what waited on the save question. Returns false when that closes the
 /// grabber.
-fn go_on(d: &mut GrabDialog, queues: &[Queue], settings: &uidm::settings::Settings, connected: bool, actions: &mut Vec<Action>) -> bool {
+fn go_on(
+    d: &mut GrabDialog,
+    queues: &[Queue],
+    settings: &uidm::settings::Settings,
+    connected: bool,
+    actions: &mut Vec<Action>,
+) -> bool {
     d.asking = false;
     match d.leaving.take() {
         Some(Leave::Close { add }) => {
@@ -1289,7 +1294,9 @@ fn save_question(
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.label(tr("Project"));
-                ui.add(egui::TextEdit::singleline(&mut d.project).hint_text(tr("Name, to save it")).desired_width(200.0));
+                ui.add(
+                    egui::TextEdit::singleline(&mut d.project).hint_text(tr("Name, to save it")).desired_width(200.0),
+                );
             });
             let named = !d.project.trim().is_empty();
             if named && dir.is_some_and(|dir| !grab::name_is_unique(dir, &d.project, d.saved_as.as_deref())) {
@@ -1352,7 +1359,9 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
                     if let Some(dir) = &dir {
                         match grab::Project::load(dir, name) {
                             Ok(p) => next = Some(GrabDialog::open(p)),
-                            Err(e) => d.project_note = Some(trf!("Could not open {name}: {error}", name = name, error = e)),
+                            Err(e) => {
+                                d.project_note = Some(trf!("Could not open {name}: {error}", name = name, error = e))
+                            }
                         }
                     }
                     ui.close_menu();
@@ -1384,7 +1393,11 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
             }
         });
         ui.menu_button(tr("New"), |ui| {
-            if ui.button(tr("From my last template")).on_hover_text(tr("The settings saved with Save as template, or the defaults")).clicked() {
+            if ui
+                .button(tr("From my last template"))
+                .on_hover_text(tr("The settings saved with Save as template, or the defaults"))
+                .clicked()
+            {
                 next = Some(GrabDialog::new());
                 ui.close_menu();
             }
@@ -1430,7 +1443,8 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
                         let name = name.trim().to_string();
                         let req = d.request();
                         // The unnamed template New starts from follows too.
-                        let saved = grab::save_named_template(dir, &name, &req).and_then(|()| grab::save_template(dir, &req));
+                        let saved =
+                            grab::save_named_template(dir, &name, &req).and_then(|()| grab::save_template(dir, &req));
                         d.project_note = Some(match saved {
                             Ok(()) => trf!("Saved the template \"{name}\".", name = name),
                             Err(e) => trf!("Could not save the template: {error}", error = e),
@@ -1467,7 +1481,9 @@ fn grab_body(
 ) {
     match &mut d.phase {
         GrabPhase::Form => {
-            ui.weak(tr("Reads a site's pages and lists the files they link to. It follows robots.txt and waits between pages."));
+            ui.weak(tr(
+                "Reads a site's pages and lists the files they link to. It follows robots.txt and waits between pages.",
+            ));
             ui.add_space(6.0);
             egui::Grid::new("grab_form").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                 ui.label(tr("Start page"));
@@ -1636,9 +1652,15 @@ fn grab_body(
             egui::CollapsingHeader::new(tr("Grabber settings")).id_salt("grab_settings").show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(tr("Explore"));
-                    ui.add(egui::DragValue::new(&mut d.explore_at_once).range(grab::AT_ONCE_RANGE.0..=grab::AT_ONCE_RANGE.1));
+                    ui.add(
+                        egui::DragValue::new(&mut d.explore_at_once)
+                            .range(grab::AT_ONCE_RANGE.0..=grab::AT_ONCE_RANGE.1),
+                    );
                     ui.label(tr("pages at once, and download"));
-                    ui.add(egui::DragValue::new(&mut d.download_at_once).range(grab::AT_ONCE_RANGE.0..=grab::AT_ONCE_RANGE.1));
+                    ui.add(
+                        egui::DragValue::new(&mut d.download_at_once)
+                            .range(grab::AT_ONCE_RANGE.0..=grab::AT_ONCE_RANGE.1),
+                    );
                     ui.label(tr("files at once"));
                 })
                 .response
@@ -1677,14 +1699,24 @@ fn grab_body(
                     .on_hover_text(tr("Off, a file already there is kept: the new one gets another name, or saving for offline browsing skips it"));
             });
             egui::CollapsingHeader::new(tr("Save for offline browsing")).id_salt("grab_mirror").show(ui, |ui| {
-                ui.checkbox(&mut d.mirror, tr("Keep the site's folders: save each file under a folder that follows its address"));
+                ui.checkbox(
+                    &mut d.mirror,
+                    tr("Keep the site's folders: save each file under a folder that follows its address"),
+                );
                 ui.add_enabled_ui(d.mirror, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(tr("Under"));
-                        ui.add(egui::TextEdit::singleline(&mut d.mirror_folder).hint_text(tr("A full path")).desired_width(320.0));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut d.mirror_folder)
+                                .hint_text(tr("A full path"))
+                                .desired_width(320.0),
+                        );
                         browse_button(ui, tr("Keep the site in"), &d.mirror_folder, &d.mirror_picked);
                     });
-                    ui.checkbox(&mut d.mirror_pages, tr("Save the pages too, with their links changed to the saved copies"));
+                    ui.checkbox(
+                        &mut d.mirror_pages,
+                        tr("Save the pages too, with their links changed to the saved copies"),
+                    );
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut d.overwrite, false, tr("Skip files already there"));
                         ui.radio_value(&mut d.overwrite, true, tr("Replace them"));
@@ -1711,7 +1743,7 @@ fn grab_body(
                         ui.radio_value(&mut d.sched_by_date, false, tr("Every"));
                         ui.add_enabled_ui(!d.sched_by_date, |ui| {
                             for (i, name) in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].iter().enumerate() {
-                                ui.checkbox(&mut d.sched_days[i], tr(*name));
+                                ui.checkbox(&mut d.sched_days[i], tr(name));
                             }
                         });
                     });
@@ -1791,13 +1823,7 @@ fn grab_body(
                 }
             });
         }
-        GrabPhase::Running {
-            pages,
-            bytes,
-            found,
-            explored,
-            added,
-        } => {
+        GrabPhase::Running { pages, bytes, found, explored, added } => {
             ui.horizontal(|ui| {
                 ui.spinner();
                 ui.label(trf!(
@@ -1812,21 +1838,20 @@ fn grab_body(
             if d.download_found {
                 ui.weak(tr("The files found are downloading in the queue as they turn up."));
                 let downloaded = rows.iter().filter(|e| e.status == Status::Done && added.contains(&e.id)).count();
-                ui.label(trf!("Downloaded {done} of {count} files added so far.", done = downloaded, count = added.len()));
+                ui.label(trf!(
+                    "Downloaded {done} of {count} files added so far.",
+                    done = downloaded,
+                    count = added.len()
+                ));
             }
             ui.add_space(8.0);
             if ui.button(tr("Stop")).clicked() {
                 actions.push(Action::CancelGrab);
             }
         }
-        GrabPhase::Review {
-            files,
-            checked,
-            pages,
-            explored,
-            stopped,
-        } => {
-            let done: HashSet<&str> = rows.iter().filter(|e| e.status == Status::Done).map(|e| e.url.as_str()).collect();
+        GrabPhase::Review { files, checked, pages, explored, stopped } => {
+            let done: HashSet<&str> =
+                rows.iter().filter(|e| e.status == Status::Done).map(|e| e.url.as_str()).collect();
             let downloaded = files.iter().filter(|f| done.contains(f.url.as_str())).count();
             ui.label(trf!(
                 "Pages processed: {pages}. File links looked at: {explored}. Matched: {matched}. Downloaded: {downloaded}.",
@@ -1855,8 +1880,11 @@ fn grab_body(
                 let row = |ui: &mut egui::Ui, f: &GrabFile, c: &mut bool| {
                     ui.horizontal(|ui| {
                         ui.checkbox(c, "");
-                        ui.add(egui::Label::new(&f.name).truncate())
-                            .on_hover_text(trf!("{url}\nfound on {page}", url = f.url, page = f.page));
+                        ui.add(egui::Label::new(&f.name).truncate()).on_hover_text(trf!(
+                            "{url}\nfound on {page}",
+                            url = f.url,
+                            page = f.page
+                        ));
                         if let Some(n) = f.size {
                             ui.weak(human_bytes(n));
                         }
@@ -1891,7 +1919,10 @@ fn grab_body(
             });
             let mut on_close = settings.grab_add_on_close;
             if ui
-                .add_enabled(connected, egui::Checkbox::new(&mut on_close, tr("Add the ticked files when the grabber closes")))
+                .add_enabled(
+                    connected,
+                    egui::Checkbox::new(&mut on_close, tr("Add the ticked files when the grabber closes")),
+                )
                 .on_hover_text(tr("Closing the grabber adds them to the list and queue, as Add does"))
                 .changed()
             {
@@ -1981,7 +2012,8 @@ impl TreeNode {
 fn file_tree(files: &[GrabFile], by_page: bool) -> Vec<TreeNode> {
     let mut root = TreeNode::default();
     for (i, f) in files.iter().enumerate() {
-        let key = if by_page { f.page.as_str() } else { f.url.rsplit_once('/').map_or(f.url.as_str(), |(folder, _)| folder) };
+        let key =
+            if by_page { f.page.as_str() } else { f.url.rsplit_once('/').map_or(f.url.as_str(), |(folder, _)| folder) };
         let path = key.split_once("://").map_or(key, |(_, rest)| rest);
         let mut node = &mut root;
         for part in path.split('/').filter(|p| !p.is_empty()) {
@@ -2017,7 +2049,13 @@ fn file_tree(files: &[GrabFile], by_page: bool) -> Vec<TreeNode> {
 /// Draw `node` of the results tree and its branches, each with how many of
 /// its files are ticked and buttons to tick them all or none; `row` draws a
 /// file.
-fn tree_ui(ui: &mut egui::Ui, node: &TreeNode, files: &[GrabFile], checked: &mut [bool], row: &dyn Fn(&mut egui::Ui, &GrabFile, &mut bool)) {
+fn tree_ui(
+    ui: &mut egui::Ui,
+    node: &TreeNode,
+    files: &[GrabFile],
+    checked: &mut [bool],
+    row: &dyn Fn(&mut egui::Ui, &GrabFile, &mut bool),
+) {
     let members = node.all_files();
     let ticked = members.iter().filter(|&&i| checked[i]).count();
     let title = trf!("{group} ({ticked} of {count} ticked)", group = node.name, ticked = ticked, count = members.len());
@@ -2091,10 +2129,7 @@ fn filter_editor(ui: &mut egui::Ui, d: &mut GrabDialog) {
         ui.add(egui::TextEdit::singleline(mask).hint_text("*.jpg;*.png").desired_width(150.0));
         let ready = !name.trim().is_empty() && !mask.trim().is_empty();
         if ui.add_enabled(ready, egui::Button::new(tr("Keep"))).clicked() {
-            finish = Some(Some((*at, grab::Filter {
-                name: name.trim().to_string(),
-                mask: mask.trim().to_string(),
-            })));
+            finish = Some(Some((*at, grab::Filter { name: name.trim().to_string(), mask: mask.trim().to_string() })));
         }
         if ui.button(tr("Cancel")).clicked() {
             finish = Some(None);
@@ -2151,7 +2186,13 @@ mod tests {
     use super::*;
 
     fn found(url: &str, page: &str) -> GrabFile {
-        GrabFile { url: url.into(), name: url.rsplit('/').next().unwrap().into(), page: page.into(), size: None, text: None }
+        GrabFile {
+            url: url.into(),
+            name: url.rsplit('/').next().unwrap().into(),
+            page: page.into(),
+            size: None,
+            text: None,
+        }
     }
 
     #[test]
@@ -2171,7 +2212,10 @@ mod tests {
         assert_eq!(s.children.len(), 1);
         let docs = &s.children[0];
         assert_eq!(docs.name, "docs");
-        assert_eq!(docs.children.iter().map(|n| (n.name.as_str(), n.files.clone())).collect::<Vec<_>>(), [("a", vec![0, 1]), ("b", vec![2])]);
+        assert_eq!(
+            docs.children.iter().map(|n| (n.name.as_str(), n.files.clone())).collect::<Vec<_>>(),
+            [("a", vec![0, 1]), ("b", vec![2])]
+        );
         assert_eq!(s.all_files(), [3, 0, 1, 2]);
 
         let by_page = file_tree(&files, true);
@@ -2193,7 +2237,11 @@ mod tests {
 
     #[test]
     fn stop_takes_the_ticked_files_running_or_waiting_downloads() {
-        let files = [found("https://s/a.pdf", "https://s/"), found("https://s/b.pdf", "https://s/"), found("https://s/c.pdf", "https://s/")];
+        let files = [
+            found("https://s/a.pdf", "https://s/"),
+            found("https://s/b.pdf", "https://s/"),
+            found("https://s/c.pdf", "https://s/"),
+        ];
         let checked = [true, true, false];
         let rows = [
             row(1, "https://s/a.pdf", "downloading"),
@@ -2208,7 +2256,8 @@ mod tests {
 
     #[test]
     fn update_all_keeps_the_list_and_adds_new_finds() {
-        let file = |url: &str| GrabFile { url: url.into(), name: url.into(), page: String::new(), size: None, text: None };
+        let file =
+            |url: &str| GrabFile { url: url.into(), name: url.into(), page: String::new(), size: None, text: None };
         let (files, checked) = merge_update(vec![file("a"), file("b")], vec![true, false], vec![file("b"), file("c")]);
         assert_eq!(files.iter().map(|f| f.url.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
         assert_eq!(checked, [true, false, true], "old ticks kept, new finds ticked");

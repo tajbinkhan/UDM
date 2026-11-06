@@ -20,9 +20,9 @@ use windows::Data::Xml::Dom::XmlDocument;
 #[cfg(windows)]
 use windows::Foundation::TypedEventHandler;
 #[cfg(windows)]
-use windows::UI::Notifications::{ToastActivatedEventArgs, ToastNotification, ToastNotificationManager};
-#[cfg(windows)]
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
+#[cfg(windows)]
+use windows::UI::Notifications::{ToastActivatedEventArgs, ToastNotification, ToastNotificationManager};
 
 #[cfg(windows)]
 use crate::registry::APP_ID;
@@ -111,16 +111,14 @@ fn show_toast(
     let doc = XmlDocument::new()?;
     doc.LoadXml(&HSTRING::from(toast_xml(t)))?;
     let toast = ToastNotification::CreateToastNotification(&doc)?;
-    toast.Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(
-        move |_, args| {
-            if let Some(args) = args.as_ref() {
-                if let Ok(args) = args.cast::<ToastActivatedEventArgs>() {
-                    on_click(args.Arguments()?.to_string());
-                }
+    toast.Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(move |_, args| {
+        if let Some(args) = args.as_ref() {
+            if let Ok(args) = args.cast::<ToastActivatedEventArgs>() {
+                on_click(args.Arguments()?.to_string());
             }
-            Ok(())
-        },
-    ))?;
+        }
+        Ok(())
+    }))?;
     ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?.Show(&toast)?;
     Ok(toast)
 }
@@ -151,7 +149,12 @@ pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Res
     let launch = t.launch.clone();
     let with_actions = notify_send_args(t, true);
     let plain = notify_send_args(t, false);
-    let child = Command::new("notify-send").args(&with_actions).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn();
+    let child = Command::new("notify-send")
+        .args(&with_actions)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
     let child = child.map_err(|e| format!("notify-send: {e}"))?;
     std::thread::spawn(move || {
         let Ok(out) = child.wait_with_output() else {
@@ -286,7 +289,12 @@ pub fn play(sound: Sound, file: Option<&std::path::Path>) {
     let players: &[&str] = if cfg!(target_os = "macos") { &["afplay"] } else { &["paplay", "aplay"] };
     std::thread::spawn(move || {
         for player in players {
-            let played = Command::new(player).arg(&path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
+            let played = Command::new(player)
+                .arg(&path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
             if played.is_ok_and(|s| s.success()) {
                 return;
             }
@@ -330,20 +338,26 @@ mod tests {
         };
         assert_eq!(
             notify_send_args(&t, true),
-            ["--app-name=UIDM", "--icon=uidm", "--wait", "--action=default=window", "--action=open:7=Open", "Download complete", "a.pdf\n4.0 MB"]
+            [
+                "--app-name=UIDM",
+                "--icon=uidm",
+                "--wait",
+                "--action=default=window",
+                "--action=open:7=Open",
+                "Download complete",
+                "a.pdf\n4.0 MB"
+            ]
         );
-        assert_eq!(notify_send_args(&t, false), ["--app-name=UIDM", "--icon=uidm", "Download complete", "a.pdf\n4.0 MB"]);
+        assert_eq!(
+            notify_send_args(&t, false),
+            ["--app-name=UIDM", "--icon=uidm", "Download complete", "a.pdf\n4.0 MB"]
+        );
         assert_eq!(applescript_string("say \"hi\"\\"), r#""say \"hi\"\\""#);
     }
 
     #[test]
     fn no_actions_without_buttons() {
-        let t = Toast {
-            title: "x".into(),
-            lines: vec![],
-            buttons: vec![],
-            launch: "window".into(),
-        };
+        let t = Toast { title: "x".into(), lines: vec![], buttons: vec![], launch: "window".into() };
         assert!(!toast_xml(&t).contains("<actions>"));
     }
 }

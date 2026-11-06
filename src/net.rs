@@ -107,10 +107,7 @@ pub struct ProxyLogin {
 
 impl ProxyLogin {
     pub fn new(username: &str, password: &str) -> Self {
-        ProxyLogin {
-            username: username.to_string(),
-            password: password.to_string(),
-        }
+        ProxyLogin { username: username.to_string(), password: password.to_string() }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -292,11 +289,7 @@ impl SocksProxy {
         use std::io::{Read, Write};
         use std::net::{IpAddr, TcpStream, ToSocketAddrs};
         let fail = |m: String| io::Error::other(format!("the SOCKS proxy {}: {m}", self.addr));
-        let proxy = self
-            .addr
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| fail("could not be found".into()))?;
+        let proxy = self.addr.to_socket_addrs()?.next().ok_or_else(|| fail("could not be found".into()))?;
         let mut s = TcpStream::connect_timeout(&proxy, timeout)?;
         s.set_read_timeout(Some(timeout))?;
         s.set_write_timeout(Some(timeout))?;
@@ -474,10 +467,7 @@ pub fn system_fixed_proxy() -> Option<ProxyRules> {
 pub fn system_proxy() -> Option<ProxyRules> {
     let fixed = system_fixed_proxy();
     match crate::pac::windows_source() {
-        Some(source) => Some(ProxyRules {
-            pac: Some(source),
-            ..fixed.unwrap_or_default()
-        }),
+        Some(source) => Some(ProxyRules { pac: Some(source), ..fixed.unwrap_or_default() }),
         None => fixed,
     }
 }
@@ -537,11 +527,9 @@ pub fn browser_proxy_rules(p: &crate::protocol::BrowserProxy) -> Option<ProxyRul
     match p.mode {
         BrowserProxyMode::Direct => None,
         BrowserProxyMode::System => system_proxy(),
-        BrowserProxyMode::AutoDetect => Some(ProxyRules {
-            pac: Some(PacSource::AutoDetect),
-            bypass,
-            ..ProxyRules::default()
-        }),
+        BrowserProxyMode::AutoDetect => {
+            Some(ProxyRules { pac: Some(PacSource::AutoDetect), bypass, ..ProxyRules::default() })
+        }
         BrowserProxyMode::Pac => {
             let source = match (p.pac_url.as_deref().map(str::trim), p.pac_script.as_deref()) {
                 (Some(url), _) if crate::batch::is_web_url(url) => PacSource::Url(url.to_string()),
@@ -550,11 +538,7 @@ pub fn browser_proxy_rules(p: &crate::protocol::BrowserProxy) -> Option<ProxyRul
                 // as the browser goes when its script cannot be read.
                 _ => return None,
             };
-            Some(ProxyRules {
-                pac: Some(source),
-                bypass,
-                ..ProxyRules::default()
-            })
+            Some(ProxyRules { pac: Some(source), bypass, ..ProxyRules::default() })
         }
         BrowserProxyMode::Fixed => {
             // `host:port` of a plain HTTP proxy; a SOCKS one keeps its scheme.
@@ -562,14 +546,17 @@ pub fn browser_proxy_rules(p: &crate::protocol::BrowserProxy) -> Option<ProxyRul
                 let a = a.as_deref()?.trim();
                 match a.split_once("://") {
                     None => Some(a.to_string()),
-                    Some((scheme, rest)) if scheme.eq_ignore_ascii_case("http") => Some(rest.trim_end_matches('/').to_string()),
+                    Some((scheme, rest)) if scheme.eq_ignore_ascii_case("http") => {
+                        Some(rest.trim_end_matches('/').to_string())
+                    }
                     _ => None,
                 }
             };
             let socks_of = |a: &Option<String>| {
                 let a = a.as_deref()?.trim();
                 let scheme = a.split_once("://")?.0.to_ascii_lowercase();
-                matches!(scheme.as_str(), "socks4" | "socks4a" | "socks5" | "socks5h").then(|| a.trim_end_matches('/').to_string())
+                matches!(scheme.as_str(), "socks4" | "socks4a" | "socks5" | "socks5h")
+                    .then(|| a.trim_end_matches('/').to_string())
             };
             let rules = ProxyRules {
                 http: http(&p.http),
@@ -663,10 +650,7 @@ pub fn login_matches(pattern: &str, url: &str) -> bool {
 /// The login for `url`, if any: of the matching patterns, the longest (the
 /// most specific) wins, so a folder's login beats its server's.
 pub fn find_login<'a>(logins: &'a [Login], url: &str) -> Option<&'a Login> {
-    logins
-        .iter()
-        .filter(|l| login_matches(&l.site, url))
-        .max_by_key(|l| l.site.trim().trim_start_matches("*.").len())
+    logins.iter().filter(|l| login_matches(&l.site, url)).max_by_key(|l| l.site.trim().trim_start_matches("*.").len())
 }
 
 /// Everything a download needs to reach servers.
@@ -893,7 +877,7 @@ mod credentials {
             }
             let c = &*cred;
             let bytes = std::slice::from_raw_parts(c.blob, c.blob_size as usize);
-            let units: Vec<u16> = bytes.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+            let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|&b| u16::from_le_bytes(b)).collect();
             let password = String::from_utf16_lossy(&units);
             CredFree(cred as *mut c_void);
             Some(password)
@@ -1082,7 +1066,10 @@ mod tests {
 
     #[test]
     fn bypass_lists_and_socks_versions() {
-        assert_eq!(parse_bypass("<local>; *.corp.net 10.0.0.1,intranet"), ["<local>", "*.corp.net", "10.0.0.1", "intranet"]);
+        assert_eq!(
+            parse_bypass("<local>; *.corp.net 10.0.0.1,intranet"),
+            ["<local>", "*.corp.net", "10.0.0.1", "intranet"]
+        );
         assert!(parse_bypass("  ").is_empty());
         let rules = ProxyRules {
             socks: Some(format!("{}://s:1080", socks_scheme(false, true))),
@@ -1118,15 +1105,9 @@ mod tests {
         assert_eq!(rules.proxy_for("https://files.corp.net/f"), None);
         assert_eq!(rules.proxy_for("http://10.0.0.1/f"), None);
 
-        let socks = ProxyRules {
-            socks: Some("socks5://s:1080".into()),
-            ..ProxyRules::default()
-        };
+        let socks = ProxyRules { socks: Some("socks5://s:1080".into()), ..ProxyRules::default() };
         assert_eq!(socks.proxy_for("https://a.com/").as_deref(), Some("socks5://s:1080"));
-        let https_only = ProxyRules {
-            https: Some("s:1".into()),
-            ..ProxyRules::default()
-        };
+        let https_only = ProxyRules { https: Some("s:1".into()), ..ProxyRules::default() };
         assert_eq!(https_only.proxy_for("http://a.com/"), None, "no proxy for http");
         assert_eq!(ProxyRules::default().proxy_for("http://a.com/"), None);
     }
@@ -1148,7 +1129,10 @@ mod tests {
             p.bypass = vec!["<local>".into(), ".corp.net".into(), "http://intra:8080".into(), "10.0.0.0/8".into()];
         })
         .unwrap();
-        assert_eq!((fixed.http.as_deref(), fixed.https.as_deref(), fixed.socks.as_deref()), (Some("web.corp:3128"), Some("web.corp:3129"), None));
+        assert_eq!(
+            (fixed.http.as_deref(), fixed.https.as_deref(), fixed.socks.as_deref()),
+            (Some("web.corp:3128"), Some("web.corp:3129"), None)
+        );
         assert_eq!(fixed.bypass, ["<local>", "*.corp.net", "intra"]);
         assert_eq!(fixed.proxy_for("https://files.x/a"), Some("http://web.corp:3129".into()));
         assert_eq!(fixed.proxy_for("http://a.corp.net/a"), None, "bypassed");
@@ -1169,7 +1153,9 @@ mod tests {
 
         let script = p(BrowserProxyMode::Pac, &|p| p.pac_url = Some("http://wpad/proxy.pac".into())).unwrap();
         assert_eq!(script.pac, Some(PacSource::Url("http://wpad/proxy.pac".into())));
-        let text = p(BrowserProxyMode::Pac, &|p| p.pac_script = Some("function FindProxyForURL(){return 'DIRECT'}".into())).unwrap();
+        let text =
+            p(BrowserProxyMode::Pac, &|p| p.pac_script = Some("function FindProxyForURL(){return 'DIRECT'}".into()))
+                .unwrap();
         assert!(matches!(text.pac, Some(PacSource::Script(_))));
         assert_eq!(p(BrowserProxyMode::Pac, &|p| p.pac_url = Some("file:///etc/p.pac".into())), None);
         let auto = p(BrowserProxyMode::AutoDetect, &|p| p.bypass = vec!["localhost".into()]).unwrap();
@@ -1189,10 +1175,7 @@ mod tests {
         assert_eq!(rules.proxy_for("http://a.com/").as_deref(), Some("http://web:1@web:8080"));
         assert_eq!(rules.proxy_for("https://a.com/").as_deref(), Some("socks5://sock:2@s:1080"));
         assert_eq!(rules.login_for("https://a.com/").map(|l| l.username.as_str()), Some("sock"));
-        let no_login = ProxyRules {
-            socks_login: ProxyLogin::default(),
-            ..rules
-        };
+        let no_login = ProxyRules { socks_login: ProxyLogin::default(), ..rules };
         assert_eq!(no_login.login_for("https://a.com/"), None);
     }
 
@@ -1323,19 +1306,21 @@ mod tests {
     }
 
     fn login(site: &str) -> Login {
-        Login {
-            site: site.into(),
-            username: "Mufasa".into(),
-            password: "Circle Of Life".into(),
-            plain: false,
-        }
+        Login { site: site.into(), username: "Mufasa".into(), password: "Circle Of Life".into(), plain: false }
     }
 
     #[test]
     fn digest_matches_rfc_2617() {
         // The worked example in RFC 2617, section 3.5.
         let challenge = r#"Digest realm="testrealm@host.com", qop="auth,auth-int", nonce="dcd98b7102dd2f0e8b11d0f600bfb0c093", opaque="5ccc069c403ebaf9f0171e9517f40e41""#;
-        let header = authorization(&[challenge.into()], &login("host.com"), "GET", "http://www.nowhere.org/dir/index.html", "0a4f113b").unwrap();
+        let header = authorization(
+            &[challenge.into()],
+            &login("host.com"),
+            "GET",
+            "http://www.nowhere.org/dir/index.html",
+            "0a4f113b",
+        )
+        .unwrap();
         assert!(header.contains(r#"response="6629fae49393a05397450978507c4ef1""#), "{header}");
         assert!(header.contains("qop=auth, nc=00000001, cnonce=\"0a4f113b\""));
         assert!(header.contains(r#"opaque="5ccc069c403ebaf9f0171e9517f40e41""#));
@@ -1347,10 +1332,7 @@ mod tests {
         // RFC 7616, section 3.9.1: SHA-256 for the same user.
         let challenge = r#"Digest realm="http-auth@example.org", qop="auth, auth-int", algorithm=SHA-256, nonce="7ypf/xlj9XXwfDPEoM4URrv/xwf94BcCAzFZH4GiTo0v", opaque="FQhe/qaU925kfnzjCev0ciny7QMkPqMAFRtzCUYo5tdS""#;
         // RFC 7616's example spells the password "Circle of Life".
-        let rfc7616 = Login {
-            password: "Circle of Life".into(),
-            ..login("example.org")
-        };
+        let rfc7616 = Login { password: "Circle of Life".into(), ..login("example.org") };
         let header = authorization(
             &[challenge.into()],
             &rfc7616,
@@ -1369,7 +1351,14 @@ mod tests {
         let basic = authorization(&["Basic realm=\"x\"".into()], &login("x"), "GET", "http://x/", "c").unwrap();
         assert_eq!(basic, "Basic TXVmYXNhOkNpcmNsZSBPZiBMaWZl");
         // Digest wins when both are offered; nothing for an unknown scheme.
-        let both = authorization(&["Basic realm=\"x\"".into(), r#"Digest realm="x", nonce="n""#.into()], &login("x"), "GET", "http://x/", "c").unwrap();
+        let both = authorization(
+            &["Basic realm=\"x\"".into(), r#"Digest realm="x", nonce="n""#.into()],
+            &login("x"),
+            "GET",
+            "http://x/",
+            "c",
+        )
+        .unwrap();
         assert!(both.starts_with("Digest "));
         assert_eq!(authorization(&["Negotiate".into()], &login("x"), "GET", "http://x/", "c"), None);
     }
@@ -1520,7 +1509,11 @@ pub(crate) mod socks_server {
                 let mut ip = [0u8; 4];
                 c.read_exact(&mut ip)?;
                 until_nul(&mut c)?;
-                let host = if ip[..3] == [0, 0, 0] && ip[3] != 0 { until_nul(&mut c)? } else { std::net::Ipv4Addr::from(ip).to_string() };
+                let host = if ip[..3] == [0, 0, 0] && ip[3] != 0 {
+                    until_nul(&mut c)?
+                } else {
+                    std::net::Ipv4Addr::from(ip).to_string()
+                };
                 c.write_all(&[0, 0x5a, 0, 0, 0, 0, 0, 0])?;
                 format!("{host}:{port}")
             }

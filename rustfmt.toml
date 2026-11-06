@@ -1,0 +1,3 @@
+# The code keeps short expressions on one line up to 120 columns.
+max_width = 120
+use_small_heuristics = "Max"

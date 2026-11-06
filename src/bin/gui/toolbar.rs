@@ -198,13 +198,10 @@ fn button(ui: &mut egui::Ui, b: &Button, small: bool) -> egui::Response {
     };
     draw_icon(ui.painter(), b.icon, icon_rect, color);
     if !small {
-        let text_color = if b.enabled {
-            visuals.text_color()
-        } else {
-            visuals.weak_text_color().gamma_multiply(0.7)
-        };
+        let text_color = if b.enabled { visuals.text_color() } else { visuals.weak_text_color().gamma_multiply(0.7) };
         // One line: a label too long for the button ends in an ellipsis.
-        let mut job = egui::text::LayoutJob::simple_singleline(b.label.to_string(), egui::FontId::proportional(11.5), text_color);
+        let mut job =
+            egui::text::LayoutJob::simple_singleline(b.label.to_string(), egui::FontId::proportional(11.5), text_color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 2.0);
         let galley = ui.painter().layout_job(job);
         let pos = Pos2::new(rect.center().x - galley.size().x / 2.0, rect.bottom() - galley.size().y - 2.0);
@@ -218,7 +215,9 @@ fn tint(icon: Icon, dark: bool) -> Color32 {
     let (light, deep) = match icon {
         Icon::Add => (Color32::from_rgb(0x4a, 0xc2, 0x7d), Color32::from_rgb(0x1f, 0x8a, 0x4c)),
         Icon::Resume | Icon::StartQueue => (Color32::from_rgb(0x5b, 0xa8, 0xf5), Color32::from_rgb(0x1f, 0x6f, 0xc4)),
-        Icon::Stop | Icon::StopAll | Icon::StopQueue => (Color32::from_rgb(0xf0, 0x8c, 0x5a), Color32::from_rgb(0xc2, 0x55, 0x1f)),
+        Icon::Stop | Icon::StopAll | Icon::StopQueue => {
+            (Color32::from_rgb(0xf0, 0x8c, 0x5a), Color32::from_rgb(0xc2, 0x55, 0x1f))
+        }
         Icon::Delete | Icon::DeleteDone => (Color32::from_rgb(0xe8, 0x6a, 0x7a), Color32::from_rgb(0xb8, 0x2e, 0x44)),
         Icon::Options | Icon::Scheduler => (Color32::from_rgb(0xa9, 0x9a, 0xf0), Color32::from_rgb(0x5b, 0x48, 0xc2)),
         Icon::Grabber => (Color32::from_rgb(0xe0, 0xb8, 0x4a), Color32::from_rgb(0x9a, 0x74, 0x0c)),
@@ -250,7 +249,12 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, color: Color32) {
             p.rect_filled(Rect::from_center_size(c, Vec2::splat(w * 0.34)), 1.5, color);
         }
         Icon::StopAll => {
-            p.rect_stroke(Rect::from_min_size(at(0.08, 0.08), Vec2::splat(w * 0.6)), 2.0, stroke, egui::StrokeKind::Middle);
+            p.rect_stroke(
+                Rect::from_min_size(at(0.08, 0.08), Vec2::splat(w * 0.6)),
+                2.0,
+                stroke,
+                egui::StrokeKind::Middle,
+            );
             p.rect_filled(Rect::from_min_size(at(0.34, 0.34), Vec2::splat(w * 0.58)), 2.0, color);
         }
         Icon::Delete | Icon::DeleteDone => {
@@ -297,14 +301,8 @@ fn draw_icon(p: &egui::Painter, icon: Icon, r: Rect, color: Color32) {
             // A globe with a down arrow.
             p.circle_stroke(at(0.42, 0.42), w * 0.36, stroke);
             p.line_segment([at(0.06, 0.42), at(0.78, 0.42)], stroke);
-            p.add(Shape::line(
-                vec![at(0.42, 0.06), at(0.28, 0.24), at(0.28, 0.6), at(0.42, 0.78)],
-                stroke,
-            ));
-            p.add(Shape::line(
-                vec![at(0.42, 0.06), at(0.56, 0.24), at(0.56, 0.6), at(0.42, 0.78)],
-                stroke,
-            ));
+            p.add(Shape::line(vec![at(0.42, 0.06), at(0.28, 0.24), at(0.28, 0.6), at(0.42, 0.78)], stroke));
+            p.add(Shape::line(vec![at(0.42, 0.06), at(0.56, 0.24), at(0.56, 0.6), at(0.42, 0.78)], stroke));
             let arrow = Stroke::new(stroke.width * 1.2, color);
             p.line_segment([at(0.82, 0.56), at(0.82, 0.96)], arrow);
             p.add(Shape::line(vec![at(0.68, 0.82), at(0.82, 0.96), at(0.96, 0.82)], arrow));

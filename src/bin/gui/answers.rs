@@ -41,7 +41,9 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
         // Form posts and streams are never duplicates, as in the daemon.
         let plain = uidm::app::post_body(d).is_none() && d.media.is_none();
         let duplicate = d.duplicate.unwrap_or(settings.if_duplicate) == Duplicate::Ask;
-        if let (true, true, Some(old)) = (plain, duplicate, rows.iter().rev().find(|e| uidm::app::same_address(&e.url, &d.url))) {
+        if let (true, true, Some(old)) =
+            (plain, duplicate, rows.iter().rev().find(|e| uidm::app::same_address(&e.url, &d.url)))
+        {
             out.push((i, Question::InList(crate::display_name(old))));
         }
         if d.file_exists.unwrap_or(settings.file_exists) == FileExists::Ask {
@@ -75,21 +77,19 @@ pub struct Prompt {
 
 impl Prompt {
     /// The prompt for `items`, or `None` when they raise no question.
-    pub fn new(items: Vec<Download>, queue: u64, start_queue: bool, rows: &[DownloadEntry], settings: &Settings) -> Result<Self, Vec<Download>> {
+    pub fn new(
+        items: Vec<Download>,
+        queue: u64,
+        start_queue: bool,
+        rows: &[DownloadEntry],
+        settings: &Settings,
+    ) -> Result<Self, Vec<Download>> {
         let questions = questions(&items, rows, settings);
         if questions.is_empty() {
             return Err(items);
         }
         let left_out = vec![false; items.len()];
-        Ok(Prompt {
-            items,
-            queue,
-            start_queue,
-            questions,
-            at: 0,
-            left_out,
-            all: [None, None],
-        })
+        Ok(Prompt { items, queue, start_queue, questions, at: 0, left_out, all: [None, None] })
     }
 
     /// The question on screen, skipping those answered already: a "to all"
@@ -142,12 +142,7 @@ impl Prompt {
 
     /// The downloads to add, with their answers.
     pub fn into_items(self) -> Vec<Download> {
-        self.items
-            .into_iter()
-            .zip(self.left_out)
-            .filter(|(_, out)| !out)
-            .map(|(d, _)| d)
-            .collect()
+        self.items.into_iter().zip(self.left_out).filter(|(_, out)| !out).map(|(d, _)| d).collect()
     }
 }
 
@@ -228,20 +223,14 @@ mod tests {
     }
 
     fn item(url: &str) -> Download {
-        Download {
-            url: url.into(),
-            ..Download::default()
-        }
+        Download { url: url.into(), ..Download::default() }
     }
 
     #[test]
     fn only_settings_that_ask_raise_questions() {
         let dir = temp_dir("raise");
         std::fs::write(dir.join("b.zip"), b"old").unwrap();
-        let mut s = Settings {
-            download_dir: Some(dir.display().to_string()),
-            ..Settings::default()
-        };
+        let mut s = Settings { download_dir: Some(dir.display().to_string()), ..Settings::default() };
         s.categories.clear();
         let rows = [entry(1, "https://x.net/a.zip")];
         let items = [item("https://x.net/a.zip#again"), item("https://x.net/b.zip"), item("https://x.net/c.zip")];
@@ -249,10 +238,7 @@ mod tests {
         assert_eq!(questions(&items, &rows, &s), [(0, Question::InList("1.zip".into()))]);
         s.file_exists = FileExists::Ask;
         s.if_duplicate = Duplicate::NewName;
-        assert_eq!(
-            questions(&items, &rows, &s),
-            [(1, Question::Exists(dir.join("b.zip").display().to_string()))]
-        );
+        assert_eq!(questions(&items, &rows, &s), [(1, Question::Exists(dir.join("b.zip").display().to_string()))]);
         std::fs::remove_dir_all(&dir).ok();
     }
 

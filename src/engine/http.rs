@@ -78,7 +78,8 @@ impl Client {
                     proxy_basic = Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(pair)));
                     builder = builder.redirects(0);
                 }
-                let proxy = ureq::Proxy::new(&proxy).map_err(|e| EngineError::Http(format!("bad proxy setting: {e}")))?;
+                let proxy =
+                    ureq::Proxy::new(&proxy).map_err(|e| EngineError::Http(format!("bad proxy setting: {e}")))?;
                 builder = builder.proxy(proxy);
             }
         }
@@ -97,7 +98,6 @@ impl Client {
                     .as_ref()
                     .filter(|_| ftp && net.ftp_proxy.is_none())
                     .and_then(|rules| rules.socks_for_ftp(url)),
-
             },
         })
     }
@@ -115,7 +115,8 @@ impl Client {
         let Some(proxy_auth) = &self.proxy_basic else {
             return self.send_once(method, url, headers, range, body, None);
         };
-        let (mut method, mut url, mut headers, mut body) = (method.to_string(), url.to_string(), headers.to_vec(), body);
+        let (mut method, mut url, mut headers, mut body) =
+            (method.to_string(), url.to_string(), headers.to_vec(), body);
         for _ in 0..=MAX_REDIRECTS {
             let http = url.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("http://"));
             let resp = self.send_once(&method, &url, &headers, range, body, http.then_some(proxy_auth.as_str()))?;
@@ -130,7 +131,8 @@ impl Client {
                         method = "GET".to_string();
                         body = None;
                     }
-                    headers.retain(|(k, _)| !k.eq_ignore_ascii_case("cookie") && !k.eq_ignore_ascii_case("authorization"));
+                    headers
+                        .retain(|(k, _)| !k.eq_ignore_ascii_case("cookie") && !k.eq_ignore_ascii_case("authorization"));
                     url = next.to_string();
                 }
                 _ => return Ok(resp),
@@ -223,23 +225,17 @@ pub fn probe(client: &Client, url: &str, headers: &[(String, String)]) -> Result
     let final_url = resp.get_url().to_string();
     let etag = resp.header("etag").map(str::to_string);
     let last_modified = resp.header("last-modified").map(str::to_string);
-    let suggested_filename = resp
-        .header("content-disposition")
-        .and_then(parse_content_disposition_filename);
+    let suggested_filename = resp.header("content-disposition").and_then(parse_content_disposition_filename);
     let content_type = resp.header("content-type").map(str::to_string);
     let status = resp.status();
 
     if status == 206 {
-        let total = resp
-            .header("content-range")
-            .and_then(parse_content_range_total);
+        let total = resp.header("content-range").and_then(parse_content_range_total);
         Ok(Probe { final_url, total, resumable: true, etag, last_modified, suggested_filename, content_type })
     } else {
         // 200 (or anything else 2xx): no partial content. Read the declared
         // length if present, then let `resp` drop without consuming the body.
-        let total = resp
-            .header("content-length")
-            .and_then(|s| s.trim().parse::<u64>().ok());
+        let total = resp.header("content-length").and_then(|s| s.trim().parse::<u64>().ok());
         Ok(Probe { final_url, total, resumable: false, etag, last_modified, suggested_filename, content_type })
     }
 }
@@ -259,18 +255,13 @@ pub fn fetch_range(
     let range = format!("bytes={start}-{end}");
     let resp = client.send("GET", url, headers, Some(&range), None)?;
     if resp.status() != 206 {
-        return Err(EngineError::Protocol(format!(
-            "expected 206 for range {range}, got {}",
-            resp.status()
-        )));
+        return Err(EngineError::Protocol(format!("expected 206 for range {range}, got {}", resp.status())));
     }
     // A proxy or server that answers with another range would put its bytes
     // at the wrong place in the file.
     let answered = resp.header("content-range").unwrap_or_default().to_string();
     if parse_content_range_start(&answered) != Some(start) {
-        return Err(EngineError::Protocol(format!(
-            "asked for range {range}, but the server sent \"{answered}\""
-        )));
+        return Err(EngineError::Protocol(format!("asked for range {range}, but the server sent \"{answered}\"")));
     }
     Ok(Box::new(resp.into_reader()))
 }
@@ -286,15 +277,11 @@ pub fn post(
     let resp = client.send("POST", url, headers, None, Some(body))?;
     let probe = Probe {
         final_url: resp.get_url().to_string(),
-        total: resp
-            .header("content-length")
-            .and_then(|s| s.trim().parse::<u64>().ok()),
+        total: resp.header("content-length").and_then(|s| s.trim().parse::<u64>().ok()),
         resumable: false,
         etag: None,
         last_modified: None,
-        suggested_filename: resp
-            .header("content-disposition")
-            .and_then(parse_content_disposition_filename),
+        suggested_filename: resp.header("content-disposition").and_then(parse_content_disposition_filename),
         content_type: resp.header("content-type").map(str::to_string),
     };
     Ok((probe, Box::new(resp.into_reader())))
@@ -324,7 +311,11 @@ pub fn get_sized(client: &Client, url: &str, headers: &[(String, String)]) -> Re
 }
 
 /// Fetch the whole body in one stream, for servers without range support.
-pub fn fetch_whole(client: &Client, url: &str, headers: &[(String, String)]) -> Result<Box<dyn Read + Send>, EngineError> {
+pub fn fetch_whole(
+    client: &Client,
+    url: &str,
+    headers: &[(String, String)],
+) -> Result<Box<dyn Read + Send>, EngineError> {
     if super::ftp::is_ftp(url) {
         return super::ftp::fetch(url, &client.ftp, 0, None);
     }
@@ -482,10 +473,7 @@ mod tests {
             parse_content_disposition_filename("attachment; filename=\"file name.zip\""),
             Some("file name.zip".to_string())
         );
-        assert_eq!(
-            parse_content_disposition_filename("attachment; filename=plain.txt"),
-            Some("plain.txt".to_string())
-        );
+        assert_eq!(parse_content_disposition_filename("attachment; filename=plain.txt"), Some("plain.txt".to_string()));
     }
 
     #[test]

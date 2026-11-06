@@ -21,6 +21,8 @@ use crate::settings::{Duplicate, FileExists, Settings};
 /// `op` selects the variant, e.g. `{"op":"add","url":"https://..."}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
+// Each message lives only while it is handled, so boxing the big variants would add churn for no gain.
+#[allow(clippy::large_enum_variant)]
 pub enum Incoming {
     /// Handshake a client may send on connect.
     Hello {
@@ -45,7 +47,10 @@ pub enum Incoming {
     },
     /// Read a stream's playlist or manifest and answer with `media_info`: its
     /// qualities, or why it cannot be downloaded. `request` is echoed back.
-    ProbeMedia { request: u64, download: Download },
+    ProbeMedia {
+        request: u64,
+        download: Download,
+    },
     /// Crawl a site for files; progress comes as `grab_progress` and the
     /// result as `grab_done`, to this client only. One crawl per client.
     Grab(GrabRequest),
@@ -55,19 +60,28 @@ pub enum Incoming {
     /// for the window's link picker. Each answer comes as `link_info`, to
     /// this client only, as it arrives. A new one stops the client's last;
     /// `stop_probe_links` stops it.
-    ProbeLinks { request: u64, links: Vec<Download> },
+    ProbeLinks {
+        request: u64,
+        links: Vec<Download>,
+    },
     /// Stop this client's `probe_links`: the links not asked about yet are
     /// not.
     StopProbeLinks,
     /// Cancel a queued or running download.
-    Cancel { id: u64 },
+    Cancel {
+        id: u64,
+    },
     /// Start a failed or canceled download again; it resumes from its partial
     /// file. The old entry is removed and the retry gets a new id.
-    Retry { id: u64 },
+    Retry {
+        id: u64,
+    },
     /// Download a finished, failed or canceled download again from the
     /// start, keeping its id, link, request, name and folder. A file still
     /// there is handled by the file-exists setting.
-    Redownload { id: u64 },
+    Redownload {
+        id: u64,
+    },
     /// Forget a finished, failed or canceled download. Its files stay unless
     /// `delete_files`, which sends the finished or partial file, its resume
     /// sidecar and a stream's segments to the Recycle Bin.
@@ -87,13 +101,21 @@ pub enum Incoming {
     Confirm(Answer),
     /// Create a queue (`id` 0) or change one: name, downloads at once,
     /// schedule, what happens when done, retries.
-    SaveQueue { queue: Queue },
+    SaveQueue {
+        queue: Queue,
+    },
     /// Delete a queue; its waiting downloads move to the main queue.
-    DeleteQueue { id: u64 },
-    StartQueue { id: u64 },
+    DeleteQueue {
+        id: u64,
+    },
+    StartQueue {
+        id: u64,
+    },
     /// Stop a queue; its running downloads go back to waiting in it, with
     /// their progress kept.
-    StopQueue { id: u64 },
+    StopQueue {
+        id: u64,
+    },
     /// What happens when this queue's current run ends, this time only.
     SetQueueOnce {
         id: u64,
@@ -112,7 +134,9 @@ pub enum Incoming {
     /// download stays waiting, outside every queue, so no queue starts it;
     /// it starts by hand or goes back with `move_to_queue`. A running one
     /// keeps running.
-    RemoveFromQueue { id: u64 },
+    RemoveFromQueue {
+        id: u64,
+    },
     /// Stop the countdown before sleeping or shutting down.
     CancelCountdown,
     /// Give a failed, canceled, interrupted or waiting download a new link.
@@ -155,7 +179,9 @@ pub enum Incoming {
     },
     /// List the files inside a waiting zip download, reading only the end
     /// of the archive; answered with `zip_preview`.
-    PreviewZip { id: u64 },
+    PreviewZip {
+        id: u64,
+    },
     /// A page as the browser showed it, answering `render_page`: its HTML
     /// after its scripts ran and its address then, or nothing; and the
     /// addresses its scripts opened in new windows, which the browser
@@ -177,7 +203,10 @@ pub enum Incoming {
     },
     /// Change a stopped or finished download's link, referrer, description,
     /// login, or (when finished) its file's name and folder.
-    SetProperties { id: u64, changes: Properties },
+    SetProperties {
+        id: u64,
+        changes: Properties,
+    },
     /// Set or clear one download's own speed limit, in bytes per second. A
     /// running download changes speed at once. `remember` sets whether the
     /// limit stays when the download is stopped and resumed; missing leaves
@@ -201,7 +230,9 @@ pub enum Incoming {
     GetSettings,
     /// Replace the settings. Invalid values are refused with `error`; valid
     /// ones are saved and sent to every client as `settings`.
-    SetSettings { settings: Settings },
+    SetSettings {
+        settings: Settings,
+    },
     /// What `uidm-gui` was started with on the command line. With a window
     /// open it runs now; otherwise it waits for the window this process is
     /// about to open. Answered with `command_line`.
@@ -569,22 +600,12 @@ pub enum Status {
 impl Status {
     /// Finished one way or another; nothing is running for it.
     pub fn is_terminal(self) -> bool {
-        matches!(
-            self,
-            Status::Done
-                | Status::Failed
-                | Status::Canceled
-                | Status::Interrupted
-                | Status::Waiting
-        )
+        matches!(self, Status::Done | Status::Failed | Status::Canceled | Status::Interrupted | Status::Waiting)
     }
 
     /// Stopped before finishing, so it can be started again.
     pub fn is_retryable(self) -> bool {
-        matches!(
-            self,
-            Status::Failed | Status::Canceled | Status::Interrupted | Status::Waiting
-        )
+        matches!(self, Status::Failed | Status::Canceled | Status::Interrupted | Status::Waiting)
     }
 }
 
@@ -619,9 +640,13 @@ pub enum Scan {
     Scanning,
     Clean,
     /// The scanner reported a threat; `detail` is the end of its output.
-    Threat { detail: String },
+    Threat {
+        detail: String,
+    },
     /// The scanner could not run or did not finish.
-    Failed { detail: String },
+    Failed {
+        detail: String,
+    },
 }
 
 /// One download as the daemon tracks it, sent in a `downloads` snapshot.
@@ -750,16 +775,28 @@ pub struct OnDone {
 /// A message from the daemon to a client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
+// Each message lives only while it is sent, so boxing the big variants would add churn for no gain.
+#[allow(clippy::large_enum_variant)]
 pub enum Outgoing {
     /// Reply to `hello`, announcing the daemon's identity.
-    Hello { name: String, version: String },
+    Hello {
+        name: String,
+        version: String,
+    },
     /// Reply to `ping`.
     Pong,
     /// Reply to `add` or `retry`, confirming the download was accepted. `id`
     /// identifies it in later events and requests.
-    Ack { id: u64, url: String, status: String },
+    Ack {
+        id: u64,
+        url: String,
+        status: String,
+    },
     /// A download was queued. Sent to every client.
-    Added { id: u64, url: String },
+    Added {
+        id: u64,
+        url: String,
+    },
     /// A download has begun; totals may be unknown for a non-ranged server.
     Started {
         id: u64,
@@ -799,29 +836,48 @@ pub enum Outgoing {
         note: Option<String>,
     },
     /// A download failed partway.
-    Failed { id: u64, url: String, error: String },
+    Failed {
+        id: u64,
+        url: String,
+        error: String,
+    },
     /// A download was canceled; its partial file and resume sidecar are kept.
-    Canceled { id: u64, url: String },
+    Canceled {
+        id: u64,
+        url: String,
+    },
     /// A download was removed from the list (removed or retried).
-    Removed { id: u64 },
+    Removed {
+        id: u64,
+    },
     /// A download's whole entry, replacing what clients had: used for the
     /// changes no other event covers (`confirming`, `waiting`, and back to
     /// `queued` once confirmed).
-    Updated { item: DownloadEntry },
+    Updated {
+        item: DownloadEntry,
+    },
     /// Reply to `list`: every download the daemon knows about, oldest first.
-    Downloads { items: Vec<DownloadEntry> },
+    Downloads {
+        items: Vec<DownloadEntry>,
+    },
     /// The current settings: a reply to `get_settings`, and sent to every
     /// client when they change.
-    Settings { settings: Settings },
+    Settings {
+        settings: Settings,
+    },
     /// Ask the desktop window to come to the front (from a notification).
     /// Other clients ignore it.
     Show,
     /// Show the completion dialog of finished download `id` again: a new
     /// download had the same address. Other clients ignore it.
-    ShowDone { id: u64 },
+    ShowDone {
+        id: u64,
+    },
     /// Every queue, in order: a reply to `list`, and sent to every client when
     /// one changes.
-    Queues { items: Vec<Queue> },
+    Queues {
+        items: Vec<Queue>,
+    },
     /// A finished queue or download will put the computer to sleep,
     /// hibernate it or shut it down in `seconds` unless someone sends
     /// `cancel_countdown`.
@@ -839,7 +895,9 @@ pub enum Outgoing {
     Quit,
     /// Which download waits for a new link from the browser, if any. Sent to
     /// every client when it changes, and after `downloads` in a `list` reply.
-    RefreshWaiting { id: Option<u64> },
+    RefreshWaiting {
+        id: Option<u64>,
+    },
     /// A download's file name is taken and the setting says to ask: nothing
     /// was written, and it waits as `confirming` with `path`, the taken file,
     /// until a window answers with `confirm`.
@@ -865,7 +923,10 @@ pub enum Outgoing {
         skipped: usize,
     },
     /// Reply to `probe_media`.
-    MediaInfo { request: u64, info: MediaInfo },
+    MediaInfo {
+        request: u64,
+        info: MediaInfo,
+    },
     /// What the server said about link `index` of a `probe_links` request:
     /// its size and `Content-Type` when it gave them, or why it could not
     /// be asked.
@@ -909,7 +970,10 @@ pub enum Outgoing {
     },
     /// Asks the browser extension for its cookies for `url` (for a site
     /// crawl that signs in with them); it answers with `cookies`.
-    CookiesWanted { request: u64, url: String },
+    CookiesWanted {
+        request: u64,
+        url: String,
+    },
     /// What the update check found: a newer release, none (`latest` is
     /// this version or older), or why it could not look. Sent to the window
     /// that asked, and to every window when the weekly check finds one.
@@ -920,7 +984,9 @@ pub enum Outgoing {
         error: Option<String>,
     },
     /// Update now could not get or start the new Setup, and why.
-    UpdateFailed { error: String },
+    UpdateFailed {
+        error: String,
+    },
     /// The files inside a zip download, answering `preview_zip`, or why
     /// they could not be listed.
     ZipPreview {
@@ -932,7 +998,10 @@ pub enum Outgoing {
     },
     /// Asks the browser extension to open `url` in a background tab, let
     /// its scripts run, and answer with `rendered`.
-    RenderPage { request: u64, url: String },
+    RenderPage {
+        request: u64,
+        url: String,
+    },
     /// A crawl's progress: pages read, bytes read, files kept and links to
     /// files looked at so far, and the ids of the downloads it has added to
     /// a queue so far (with `download_found`), so the grabber can count the
@@ -961,13 +1030,20 @@ pub enum Outgoing {
         login_cookies: Option<String>,
     },
     /// Any failure the client should hear about.
-    Error { message: String },
+    Error {
+        message: String,
+    },
     /// Reply to `add` when the download was not taken, so the client can
     /// keep it: `message` says why.
-    Rejected { url: String, message: String },
+    Rejected {
+        url: String,
+        message: String,
+    },
     /// Reply to `command_line`: whether a window was open to run it. When
     /// none was, the caller opens one and the command runs once it connects.
-    CommandLine { window_open: bool },
+    CommandLine {
+        window_open: bool,
+    },
 }
 
 /// Read one framed message from `reader`.
@@ -977,9 +1053,8 @@ pub enum Outgoing {
 /// partial frame or an oversized length.
 pub fn read_message<R: Read>(reader: &mut R, max_bytes: u32) -> io::Result<Option<Vec<u8>>> {
     let mut len_buf = [0u8; 4];
-    match read_exact_or_eof(reader, &mut len_buf)? {
-        false => return Ok(None),
-        true => {}
+    if !read_exact_or_eof(reader, &mut len_buf)? {
+        return Ok(None);
     }
 
     let len = u32::from_le_bytes(len_buf);
@@ -1004,10 +1079,8 @@ pub fn write_message<W: Write>(writer: &mut W, message: &Outgoing) -> io::Result
 /// Write an already-encoded payload with the 4-byte length prefix. The host
 /// uses this to relay frames between browser and daemon without re-parsing.
 pub fn write_frame<W: Write>(writer: &mut W, payload: &[u8]) -> io::Result<()> {
-    let len: u32 = payload
-        .len()
-        .try_into()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "frame exceeds u32 length"))?;
+    let len: u32 =
+        payload.len().try_into().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "frame exceeds u32 length"))?;
     writer.write_all(&len.to_le_bytes())?;
     writer.write_all(payload)?;
     Ok(())
@@ -1024,10 +1097,7 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buf: &mut [u8]) -> io::Result<bool
                 if filled == 0 {
                     return Ok(false);
                 }
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "stream ended mid-frame",
-                ));
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "stream ended mid-frame"));
             }
             Ok(n) => filled += n,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
@@ -1043,11 +1113,7 @@ mod tests {
     use std::io::Cursor;
 
     fn v(size: Option<u64>, etag: Option<&str>, date: Option<&str>) -> Validator {
-        Validator {
-            size,
-            etag: etag.map(str::to_string),
-            last_modified: date.map(str::to_string),
-        }
+        Validator { size, etag: etag.map(str::to_string), last_modified: date.map(str::to_string) }
     }
 
     #[test]
@@ -1059,11 +1125,17 @@ mod tests {
         let Incoming::Add(d) = serde_json::from_str::<Incoming>(json).unwrap() else {
             panic!("not an add");
         };
-        assert_eq!(d.request_headers, [("Accept".to_string(), "*/*".to_string()), ("Sec-Fetch-Mode".into(), "navigate".into())]);
+        assert_eq!(
+            d.request_headers,
+            [("Accept".to_string(), "*/*".to_string()), ("Sec-Fetch-Mode".into(), "navigate".into())]
+        );
         assert_eq!(d.redirects, ["https://x/get/a"]);
         assert_eq!((d.size, d.content_type.as_deref()), (Some(1048576), Some("application/zip")));
         let proxy = d.browser_proxy.clone().unwrap();
-        assert_eq!((proxy.mode, proxy.pac_url.as_deref(), proxy.bypass.len()), (BrowserProxyMode::Pac, Some("http://wpad/proxy.pac"), 1));
+        assert_eq!(
+            (proxy.mode, proxy.pac_url.as_deref(), proxy.bypass.len()),
+            (BrowserProxyMode::Pac, Some("http://wpad/proxy.pac"), 1)
+        );
         // Round trips, and an older add without any of it still reads.
         let back: Download = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
         assert_eq!(back.request_headers, d.request_headers);
@@ -1083,7 +1155,11 @@ mod tests {
                 ("X-Split".into(), "a\r\nSet-Cookie: b".into()),
                 ("X-Long".into(), "v".repeat(MAX_HEADER_VALUE + 1)),
             ],
-            redirects: vec!["https://x/1".into(), "javascript:alert(1)".into(), format!("https://x/{}", "a".repeat(MAX_URL))],
+            redirects: vec![
+                "https://x/1".into(),
+                "javascript:alert(1)".into(),
+                format!("https://x/{}", "a".repeat(MAX_URL)),
+            ],
             content_type: Some("a\nb".into()),
             browser_proxy: Some(BrowserProxy {
                 pac_script: Some("x".repeat(MAX_PAC_SCRIPT + 1)),
@@ -1238,19 +1314,14 @@ mod tests {
             _ => panic!("expected confirm"),
         }
         // The answer travels with its op, as the fields used to.
-        let sent = serde_json::to_value(Incoming::Confirm(Answer {
-            category: Some("Music".into()),
-            ..Answer::start(7)
-        }))
-        .unwrap();
+        let sent =
+            serde_json::to_value(Incoming::Confirm(Answer { category: Some("Music".into()), ..Answer::start(7) }))
+                .unwrap();
         assert_eq!(sent["op"], "confirm");
         assert_eq!(sent["id"], 7);
         assert_eq!(sent["category"], "Music");
         // A download without a choice keeps its JSON as it was.
-        let d = Download {
-            url: "https://x/a.zip".into(),
-            ..Download::default()
-        };
+        let d = Download { url: "https://x/a.zip".into(), ..Download::default() };
         assert!(!serde_json::to_string(&d).unwrap().contains("file_exists"));
     }
 }

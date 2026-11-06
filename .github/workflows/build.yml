@@ -40,6 +40,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -50,8 +52,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libssl-dev libxkbcommon-x11-0 libayatana-appindicator3-1
 
+      # rustfmt.toml holds the settings. Run cargo fmt before committing.
+      - name: Check formatting
+        run: cargo fmt --check
+
       - name: Build
         run: cargo build --locked
+
+      # Each runner checks its own platform's code, so a warning in a
+      # Windows-only or Linux-only block fails only there.
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Test
         run: cargo test --locked

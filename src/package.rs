@@ -77,10 +77,7 @@ pub fn spawn_outside(program: &Path, args: &[String]) -> io::Result<()> {
         .status()
         .map_err(|e| io::Error::new(e.kind(), format!("starting PowerShell to start {}: {e}", program.display())))?;
     if !status.success() {
-        return Err(io::Error::other(format!(
-            "WMI could not start {} ({status})",
-            program.display()
-        )));
+        return Err(io::Error::other(format!("WMI could not start {} ({status})", program.display())));
     }
     Ok(())
 }

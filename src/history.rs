@@ -49,8 +49,8 @@ impl History {
             }
             Err(e) => return Err(e),
         };
-        let mut history: History = serde_json::from_slice(&bytes)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let mut history: History =
+            serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         // Every daemon with queues saves at least the main one, so a history
         // without any is from before queues.
         let before_queues = history.queues.is_empty();
@@ -59,11 +59,7 @@ impl History {
             history.queues.iter().flat_map(|q| q.order.iter().copied()).collect();
         for e in &mut history.items {
             if !e.status.is_terminal() {
-                e.status = if queued.contains(&e.id) {
-                    Status::Waiting
-                } else {
-                    Status::Interrupted
-                };
+                e.status = if queued.contains(&e.id) { Status::Waiting } else { Status::Interrupted };
             }
             // The question it was waiting on went away with the daemon.
             e.duplicate_of = None;
@@ -95,9 +91,7 @@ impl History {
         let mut seen = std::collections::HashSet::new();
         for q in &mut self.queues {
             let keep_done = q.kind.is_sync();
-            q.order.retain(|id| {
-                status.get(id).is_some_and(|s| keep_done || *s != Status::Done) && seen.insert(*id)
-            });
+            q.order.retain(|id| status.get(id).is_some_and(|s| keep_done || *s != Status::Done) && seen.insert(*id));
         }
         for e in self.items.iter().filter(|_| before_queues) {
             if e.status == Status::Waiting && !seen.contains(&e.id) {
@@ -107,8 +101,7 @@ impl History {
     }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        let bytes = serde_json::to_vec_pretty(self)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let bytes = serde_json::to_vec_pretty(self).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         write_atomic(path, &bytes)
     }
 }
@@ -121,8 +114,8 @@ pub fn load_requests(path: &Path) -> io::Result<HashMap<u64, Download>> {
         Err(e) => return Err(e),
     };
     let plain = dpapi::unprotect(&sealed)?;
-    let list: Vec<(u64, Download)> = serde_json::from_slice(&plain)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let list: Vec<(u64, Download)> =
+        serde_json::from_slice(&plain).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     Ok(list.into_iter().collect())
 }
 
@@ -235,10 +228,7 @@ mod tests {
         .unwrap();
         let h = History::load(&path).unwrap();
         let statuses: Vec<Status> = h.items.iter().map(|e| e.status).collect();
-        assert_eq!(
-            statuses,
-            [Status::Done, Status::Interrupted, Status::Interrupted, Status::Failed]
-        );
+        assert_eq!(statuses, [Status::Done, Status::Interrupted, Status::Interrupted, Status::Failed]);
         assert_eq!(h.items[1].done, 400, "progress is kept");
         fs::remove_file(&path).ok();
     }
@@ -304,13 +294,9 @@ mod tests {
     #[test]
     fn waiting_downloads_from_before_queues_join_the_main_queue() {
         let path = temp_path("before_queues.json");
-        History {
-            next_id: 3,
-            items: vec![entry(1, Status::Waiting), entry(2, Status::Failed)],
-            queues: Vec::new(),
-        }
-        .save(&path)
-        .unwrap();
+        History { next_id: 3, items: vec![entry(1, Status::Waiting), entry(2, Status::Failed)], queues: Vec::new() }
+            .save(&path)
+            .unwrap();
         let h = History::load(&path).unwrap();
         assert_eq!(h.queues.len(), 1);
         assert_eq!(h.queues[0].order, [1], "only the waiting download joins");
@@ -320,13 +306,7 @@ mod tests {
     #[test]
     fn next_id_is_never_below_a_saved_id() {
         let path = temp_path("next_id.json");
-        History {
-            next_id: 1,
-            items: vec![entry(41, Status::Done)],
-            queues: Vec::new(),
-        }
-        .save(&path)
-        .unwrap();
+        History { next_id: 1, items: vec![entry(41, Status::Done)], queues: Vec::new() }.save(&path).unwrap();
         assert_eq!(History::load(&path).unwrap().next_id, 42);
         fs::remove_file(&path).ok();
     }
@@ -357,13 +337,9 @@ mod tests {
         assert!(!req_path.exists());
 
         let hist_path = temp_path("no-secrets.json");
-        History {
-            next_id: 3,
-            items: vec![entry(2, Status::Downloading)],
-            queues: Vec::new(),
-        }
-        .save(&hist_path)
-        .unwrap();
+        History { next_id: 3, items: vec![entry(2, Status::Downloading)], queues: Vec::new() }
+            .save(&hist_path)
+            .unwrap();
         let text = fs::read_to_string(&hist_path).unwrap().to_lowercase();
         assert!(!text.contains("cookie") && !text.contains("header"));
         fs::remove_file(&hist_path).ok();
