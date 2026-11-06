@@ -398,6 +398,8 @@ function selectionHasLinks(sel) {
       .opt:hover { background: #30363d; }
       .opt .size { margin-left: auto; color: #9198a1; }
       .note { padding: 6px; color: #d29922; }
+      .subs { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 2px 6px 6px; color: #9198a1; font-size: 12px; }
+      .subs label { display: inline-flex; align-items: center; gap: 4px; color: #e6edf3; cursor: pointer; }
     `;
     // IDM's look: a bar with the button, "?" for help and "x" to close it
     // for this player.
@@ -547,6 +549,24 @@ function selectionHasLinks(sel) {
         menu.append(el("div", "note", item.error));
         continue;
       }
+      // Subtitle tracks to keep, ticked as the stream's defaults; they go
+      // with whichever quality is clicked, but not with the sound alone.
+      const subs = item.subtitles || [];
+      const picked = new Set(subs.filter((s) => s.on).map((s) => s.id));
+      if (subs.length) {
+        const row = el("div", "subs", chrome.i18n.getMessage("subtitles"));
+        for (const s of subs) {
+          const label = el("label");
+          const box = el("input");
+          box.type = "checkbox";
+          box.checked = picked.has(s.id);
+          box.addEventListener("click", (ev) => ev.stopPropagation());
+          box.addEventListener("change", () => (box.checked ? picked.add(s.id) : picked.delete(s.id)));
+          label.append(box, el("span", "", s.label));
+          row.append(label);
+        }
+        menu.append(row);
+      }
       for (const o of item.options) {
         menu.append(
           option(o.label, o.size, async () => {
@@ -557,6 +577,7 @@ function selectionHasLinks(sel) {
               video: o.video,
               audio: o.audio,
               audioOnly: o.audioOnly,
+              subtitles: subs.length && !o.audioOnly ? [...picked] : undefined,
               ...pageNames(),
             });
             const result = sent && sent.ok ? chrome.i18n.getMessage("sentToUidm") : chrome.i18n.getMessage("couldNotReachUidm");

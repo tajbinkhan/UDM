@@ -239,6 +239,10 @@
     "message": "Looking for the video...",
     "description": "The video button's menu while it asks UIDM what the video offers."
   },
+  "subtitles": {
+    "message": "Subtitles:",
+    "description": "The video button's menu: the label before the subtitle languages a stream offers, each with a checkbox."
+  },
   "videoProtected": {
     "message": "This video is protected by DRM, so UIDM will not download it.",
     "description": "The video button's menu for a video with copy protection."

@@ -421,6 +421,39 @@ test("choosing the sound alone sends an audio_only stream", async () => {
   assert.equal(add.filename, "Talk.mp3");
   assert.equal(add.media.audio_only, "mp3");
 });
+test("subtitle tracks are listed, ticked by default, and sent with the quality", async () => {
+  const w = loadWorker();
+  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.chrome.webRequest.onHeadersReceived.fire({
+    tabId: 7,
+    url: "https://v.net/master.m3u8",
+    type: "xmlhttprequest",
+    responseHeaders: [{ name: "Content-Type", value: "application/vnd.apple.mpegurl" }],
+  });
+  const subtitles = [
+    { id: "https://v.net/en.m3u8", label: "English", language: "en", default: true },
+    { id: "https://v.net/de.m3u8", label: "Deutsch", language: "de" },
+  ];
+  const menu = await new Promise((resolve) => {
+    const asked = w.content({ type: "video:menu" }, 7);
+    setTimeout(() => {
+      const probe = w.sent.find((m) => m.op === "probe_media");
+      w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { kind: "hls", video: [{ id: "v", label: "720p" }], audio: [], subtitles } });
+    }, 0);
+    asked.then(resolve);
+  });
+  const item = menu.items[0];
+  same(item.subtitles, [
+    { id: "https://v.net/en.m3u8", label: "English", on: true },
+    { id: "https://v.net/de.m3u8", label: "Deutsch", on: false },
+  ]);
+  await w.content({ type: "video:download", entry: item.entry, video: "v", subtitles: ["https://v.net/de.m3u8", 5], title: "Talk" }, 7);
+  same(w.sent.find((m) => m.op === "add").media, { kind: "hls", video: "v", subtitles: ["https://v.net/de.m3u8"] });
+  // The sound alone takes no subtitles.
+  await w.content({ type: "video:download", entry: item.entry, audioOnly: "mp3", subtitles: ["https://v.net/de.m3u8"], title: "Talk" }, 7);
+  assert.equal(w.sent.filter((m) => m.op === "add").at(-1).media.subtitles, undefined);
+});
+
 test("an address that is no stream is left out when another can be downloaded", () => {
   const entries = [
     { id: 1, url: "https://v.net/real.m3u8", kind: "hls", time: 1 },

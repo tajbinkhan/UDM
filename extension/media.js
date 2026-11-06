@@ -464,7 +464,9 @@ function mediaLabel(entry) {
 
 // The video button's menu for a tab's `entries`, newest first. `infos` maps a
 // stream's (or video page's) URL to what UIDM said it offers (a MediaInfo). Each item is
-// { entry, label, options: [{ label, size, video, audio }], drm, error }.
+// { entry, label, options: [{ label, size, video, audio }], subtitles, drm, error },
+// where `subtitles` lists the stream's subtitle tracks as { id, label, on },
+// `on` for the ones the stream marks as default.
 // A stream that is one quality of another listed stream (an HLS variant
 // playlist the player loaded after its master playlist) is left out, and so
 // is an address UIDM found is no stream at all, unless nothing else can be
@@ -517,7 +519,10 @@ function mediaMenu(entries, infos) {
         });
       }
     }
-    items.push({ entry: e.id, label, options });
+    const subtitles = (info.subtitles || [])
+      .filter((s) => s && typeof s.id === "string")
+      .map((s) => ({ id: s.id, label: s.label || s.language || s.id, on: !!s.default }));
+    items.push(subtitles.length ? { entry: e.id, label, options, subtitles } : { entry: e.id, label, options });
   }
   const usable = items.some((i) => i.options.length > 0);
   return items.filter((i) => !(usable && i.notStream)).map(({ notStream, ...i }) => i);

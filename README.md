@@ -1435,7 +1435,8 @@ the key from the playlist's key URL, fetched once, and the IV from the
 playlist or the segment's sequence number. Any other key system
 (`SAMPLE-AES`, or a `KEYFORMAT` other than `identity`, as FairPlay and
 Widevine use) is DRM and refused, as is a live playlist without
-`#EXT-X-ENDLIST`.
+`#EXT-X-ENDLIST`. Subtitle tracks (`#EXT-X-MEDIA:TYPE=SUBTITLES`) in the
+quality's `SUBTITLES` group are offered by name and language.
 
 **DASH.** UIDM reads a static manifest's `SegmentTemplate` (with a fixed
 duration or a `SegmentTimeline`, `$Number$`, `$Time$`, `$Bandwidth$`,
@@ -1444,7 +1445,9 @@ and `SegmentBase` or a plain `BaseURL` (the whole file), inheriting them
 from the period and adaptation set, and resolving `BaseURL`s at every level.
 It picks the best video and audio, or the ones chosen. `ContentProtection`
 marks DRM, refused; live (`dynamic`) manifests and manifests split into
-several periods are refused too.
+several periods are refused too. WebVTT subtitle sets (`text/vtt`) are
+offered by their `Label` or language; one with the `main` role is the
+default. TTML and WebVTT inside MP4 segments are left out.
 
 **HDS.** Adobe HTTP Dynamic Streaming (`.f4m`, `application/f4m+xml`, or XML
 whose root is `<manifest>` in the `ns.adobe.com/f4m` namespace). UIDM reads
@@ -1471,7 +1474,17 @@ only the missing ones. Then each track is joined in order. With ffmpeg,
 re-encoding; without it, an HLS video is saved as its `.ts` (or `.mp4` for
 fragmented MP4 segments), an HDS video as its `.flv`, and a stream with
 separate audio as two files, and
-the entry carries a note saying so. ffmpeg runs without a console window and
+the entry carries a note saying so.
+
+**Subtitles.** The video button's menu lists a stream's subtitle languages
+with a checkbox each, the stream's default ones ticked; the ticked ones go
+with whichever quality is clicked (not with the sound alone), as IDM keeps
+them. Their WebVTT segments are fetched with the video's and joined into one
+file, each segment's own header (and HLS's `X-TIMESTAMP-MAP`) dropped. With
+ffmpeg they go into the video as subtitle tracks (`mov_text` in an MP4,
+WebVTT in a WebM) with a three-letter language tag and the track's name;
+without it each is saved beside the video as `<name>.<language>.vtt`. A
+track that is not WebVTT text is skipped without failing the download. ffmpeg runs without a console window and
 its error, if any, becomes the download's error. Streams land in the Video
 category's folder whatever their extension.
 

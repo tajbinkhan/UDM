@@ -51,6 +51,11 @@ pub struct MediaChoice {
     /// the audio track is fetched when the stream has one of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_only: Option<convert::Target>,
+    /// The subtitle tracks to keep: option `id`s from `MediaInfo`'s
+    /// `subtitles`. `None` keeps the stream's default ones; an empty list
+    /// keeps none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitles: Option<Vec<String>>,
 }
 
 /// One quality or audio track a stream offers.
@@ -68,6 +73,12 @@ pub struct MediaOption {
     /// About how big it is, from its bit rate and the length of the video.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
+    /// A subtitle track's language, as the stream names it (`en`, `de-AT`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// The stream marks this track as the one to use by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub default: bool,
 }
 
 /// What a stream offers, or why it cannot be downloaded.
@@ -81,6 +92,9 @@ pub struct MediaInfo {
     /// Separate audio tracks, if the stream has them.
     #[serde(default)]
     pub audio: Vec<MediaOption>,
+    /// Subtitle tracks (WebVTT) the stream offers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subtitles: Vec<MediaOption>,
     /// Length in seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration: Option<f64>,
@@ -155,6 +169,103 @@ pub struct Track {
     /// (an FLV header and the stream's metadata) followed by each
     /// fragment's FLV tags (its `mdat`), not the fragments as they are.
     pub hds_header: Option<Vec<u8>>,
+}
+
+/// A subtitle track: WebVTT, in one file or in segments.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Subtitle {
+    /// For people, and the track's title in the video: "English".
+    pub label: String,
+    pub language: Option<String>,
+    pub segments: Vec<Segment>,
+}
+
+/// One WebVTT file from the segments of a subtitle track: a `WEBVTT`
+/// header, then every segment's cues. Each segment's own header block goes,
+/// with HLS's `X-TIMESTAMP-MAP` in it, which leaves cue times counted from
+/// the start of the video, as players show them.
+pub fn join_webvtt(parts: &[String]) -> String {
+    let mut out = String::from("WEBVTT\n");
+    for part in parts {
+        let text = part.trim_start_matches('\u{feff}').replace("\r\n", "\n").replace('\r', "\n");
+        // The header block runs to the first blank line.
+        let body = match text.trim_start().strip_prefix("WEBVTT") {
+            Some(rest) => rest.split_once("\n\n").map_or("", |(_, cues)| cues),
+            None => text.as_str(),
+        };
+        let body = body.trim_matches('\n');
+        if !body.is_empty() {
+            out.push('\n');
+            out.push_str(body);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// A language tag's main part, for a file name or ffmpeg: `en-US` is `en`.
+pub fn language_code(tag: &str) -> Option<String> {
+    let main = tag.split(['-', '_']).next()?.trim().to_ascii_lowercase();
+    (!main.is_empty() && main.len() <= 3 && main.chars().all(|c| c.is_ascii_alphabetic())).then_some(main)
+}
+
+/// A language tag as the three-letter ISO 639-2 code MP4 files need
+/// (`en-US` is `eng`). `None` for a two-letter code it does not know.
+pub fn iso639_2(tag: &str) -> Option<String> {
+    const TWO_TO_THREE: &[(&str, &str)] = &[
+        ("ar", "ara"),
+        ("bg", "bul"),
+        ("bn", "ben"),
+        ("ca", "cat"),
+        ("cs", "ces"),
+        ("da", "dan"),
+        ("de", "deu"),
+        ("el", "ell"),
+        ("en", "eng"),
+        ("es", "spa"),
+        ("et", "est"),
+        ("fa", "fas"),
+        ("fi", "fin"),
+        ("fil", "fil"),
+        ("fr", "fra"),
+        ("he", "heb"),
+        ("hi", "hin"),
+        ("hr", "hrv"),
+        ("hu", "hun"),
+        ("id", "ind"),
+        ("is", "isl"),
+        ("it", "ita"),
+        ("ja", "jpn"),
+        ("ko", "kor"),
+        ("lt", "lit"),
+        ("lv", "lav"),
+        ("ms", "msa"),
+        ("nb", "nob"),
+        ("nl", "nld"),
+        ("no", "nor"),
+        ("pl", "pol"),
+        ("pt", "por"),
+        ("ro", "ron"),
+        ("ru", "rus"),
+        ("sk", "slk"),
+        ("sl", "slv"),
+        ("sr", "srp"),
+        ("sv", "swe"),
+        ("ta", "tam"),
+        ("te", "tel"),
+        ("th", "tha"),
+        ("tr", "tur"),
+        ("uk", "ukr"),
+        ("ur", "urd"),
+        ("vi", "vie"),
+        ("zh", "zho"),
+    ];
+    let code = language_code(tag)?;
+    match code.len() {
+        3 => Some(code),
+        2 => TWO_TO_THREE.iter().find(|(two, _)| *two == code).map(|(_, three)| three.to_string()),
+        _ => None,
+    }
 }
 
 /// Why a stream is refused, in words for the user.
@@ -250,6 +361,31 @@ pub fn sniff_file(head: &[u8]) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webvtt_segments_join_into_one_file() {
+        let parts = [
+            "WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000\n\n00:00:01.000 --> 00:00:02.000\nHello\n".to_string(),
+            "\u{feff}WEBVTT\r\nX-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000\r\n\r\n00:00:07.000 --> 00:00:08.000\r\nWorld\r\n".to_string(),
+            "WEBVTT\n\n".to_string(),
+        ];
+        assert_eq!(
+            join_webvtt(&parts),
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n\n00:00:07.000 --> 00:00:08.000\nWorld\n"
+        );
+    }
+
+    #[test]
+    fn language_tags_shorten_to_their_main_part() {
+        assert_eq!(language_code("en-US").as_deref(), Some("en"));
+        assert_eq!(language_code("DEU").as_deref(), Some("deu"));
+        assert_eq!(language_code("English"), None);
+        assert_eq!(language_code(""), None);
+        assert_eq!(iso639_2("en-US").as_deref(), Some("eng"));
+        assert_eq!(iso639_2("de").as_deref(), Some("deu"));
+        assert_eq!(iso639_2("fre").as_deref(), Some("fre"));
+        assert_eq!(iso639_2("xx"), None);
+    }
 
     #[test]
     fn labels_and_sizes() {
