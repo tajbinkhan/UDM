@@ -17,7 +17,7 @@
 
 use roxmltree::{Document, Node};
 
-use super::{resolve, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED};
+use super::{resolve, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED};
 
 /// More segments than this in one track means a broken manifest.
 const MAX_SEGMENTS: usize = 500_000;
@@ -26,6 +26,9 @@ const MAX_SEGMENTS: usize = 500_000;
 pub enum Content {
     Video,
     Audio,
+    /// WebVTT subtitles (`text/vtt`). Other subtitle formats, such as TTML
+    /// or WebVTT inside MP4 segments, are left out.
+    Text,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +38,10 @@ pub struct Representation {
     pub bandwidth: Option<u64>,
     pub height: Option<u32>,
     pub language: Option<String>,
+    /// The adaptation set's `Label`, for people.
+    pub label: Option<String>,
+    /// Its set has the `main` role: the one to use by default.
+    pub default: bool,
     pub drm: bool,
     /// Its segments, or why they could not be worked out.
     pub track: Result<Track, String>,
@@ -45,6 +52,7 @@ pub struct Manifest {
     /// Best first.
     pub video: Vec<Representation>,
     pub audio: Vec<Representation>,
+    pub subtitles: Vec<Representation>,
     pub duration: Option<f64>,
 }
 
@@ -278,6 +286,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
             let content = match kind {
                 "video" => Content::Video,
                 "audio" => Content::Audio,
+                "text" | "application" if mime == "text/vtt" => Content::Text,
                 _ => continue,
             };
             let id = rep.attribute("id").unwrap_or("").to_string();
@@ -296,6 +305,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
             };
             let webm = mime.ends_with("webm");
             let ext = match (content, webm) {
+                (Content::Text, _) => "vtt",
                 (_, true) => "webm",
                 (Content::Video, false) => "mp4",
                 (Content::Audio, false) => "m4a",
@@ -304,7 +314,12 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
                 content,
                 bandwidth,
                 height: rep.attribute("height").or(set.attribute("height")).and_then(|h| h.parse().ok()),
-                language: set.attribute("lang").map(str::to_string),
+                language: set.attribute("lang").or(rep.attribute("lang")).map(str::to_string),
+                label: child(set, "Label")
+                    .and_then(|l| l.text())
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty()),
+                default: children(set, "Role").any(|r| r.attribute("value") == Some("main")),
                 drm: set_drm || child(rep, "ContentProtection").is_some(),
                 track: parts.map(|(init, segments)| Track { init, segments, ext, duration, hds_header: None }),
                 id,
@@ -312,6 +327,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
             match content {
                 Content::Video => manifest.video.push(r),
                 Content::Audio => manifest.audio.push(r),
+                Content::Text => manifest.subtitles.push(r),
             }
         }
     }
@@ -336,6 +352,47 @@ fn options(reps: &[Representation], duration: Option<f64>) -> Vec<MediaOption> {
             height: r.height,
             bandwidth: r.bandwidth,
             size: super::estimate_size(r.bandwidth, duration),
+            ..MediaOption::default()
+        })
+        .collect()
+}
+
+/// A subtitle representation's name for people: its label, its language, or
+/// its id.
+fn subtitle_label(r: &Representation) -> String {
+    r.label.clone().or(r.language.clone()).unwrap_or_else(|| r.id.clone())
+}
+
+fn subtitle_options(reps: &[Representation]) -> Vec<MediaOption> {
+    reps.iter()
+        .filter(|r| !r.drm && r.track.is_ok())
+        .map(|r| MediaOption {
+            id: r.id.clone(),
+            label: subtitle_label(r),
+            language: r.language.clone(),
+            default: r.default,
+            ..MediaOption::default()
+        })
+        .collect()
+}
+
+/// The subtitle tracks `choice` names (option ids), or without a choice the
+/// default ones.
+pub fn pick_subtitles(m: &Manifest, choice: Option<&[String]>) -> Vec<Subtitle> {
+    m.subtitles
+        .iter()
+        .filter(|r| !r.drm)
+        .filter(|r| match choice {
+            Some(ids) => ids.contains(&r.id),
+            None => r.default,
+        })
+        .filter_map(|r| {
+            let track = r.track.as_ref().ok()?;
+            Some(Subtitle {
+                label: subtitle_label(r),
+                language: r.language.clone(),
+                segments: track.init.iter().chain(&track.segments).cloned().collect(),
+            })
         })
         .collect()
 }
@@ -360,6 +417,7 @@ pub fn describe(m: &Manifest) -> MediaInfo {
         kind: Some(MediaKind::Dash),
         video,
         audio,
+        subtitles: subtitle_options(&m.subtitles),
         duration: m.duration,
         drm,
         error,

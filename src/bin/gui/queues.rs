@@ -50,6 +50,49 @@ pub fn named(queues: &[Queue], name: &str) -> Option<u64> {
     queues.iter().find(|q| q.name.eq_ignore_ascii_case(name)).map(|q| q.id)
 }
 
+/// The power plan's wake timer setting, read at most every ten seconds
+/// since the dialogs draw many times a second.
+fn wake_timers_allowed() -> Option<(bool, bool)> {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+    type Cached = Option<(Instant, Option<(bool, bool)>)>;
+    static CACHE: Mutex<Cached> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap();
+    match *cache {
+        Some((at, value)) if at.elapsed() < Duration::from_secs(10) => value,
+        _ => {
+            let value = uidm::power::wake_timers_allowed();
+            *cache = Some((Instant::now(), value));
+            value
+        }
+    }
+}
+
+/// "Wake the computer to start" for a queue's or a grabber project's
+/// schedule, with a warning when the power plan turns wake timers off.
+pub fn wake_field(ui: &mut egui::Ui, wake: &mut bool) {
+    ui.vertical(|ui| {
+        ui.add_enabled(cfg!(windows), egui::Checkbox::new(wake, tr("Wake the computer to start")))
+            .on_hover_text(tr("Wakes Windows from sleep or hibernation shortly before the start time. UIDM must be running."))
+            .on_disabled_hover_text(tr("Only on Windows for now"));
+        if *wake {
+            if let Some((ac, dc)) = wake_timers_allowed() {
+                let off = match (ac, dc) {
+                    (false, false) => Some(tr("Windows has wake timers turned off, so it will not wake up for this.")),
+                    (false, true) => Some(tr("Windows has wake timers turned off on mains power.")),
+                    (true, false) => Some(tr("Windows has wake timers turned off on battery.")),
+                    (true, true) => None,
+                };
+                if let Some(off) = off {
+                    ui.colored_label(ui.visuals().warn_fg_color, off).on_hover_text(tr(
+                        "Turn them on in Control Panel > Power Options > Change plan settings > Change advanced power settings > Sleep > Allow wake timers: Enable.",
+                    ));
+                }
+            }
+        }
+    });
+}
+
 /// "Start again every N hours M minutes" for a queue's or a grabber
 /// project's schedule.
 pub fn repeat_fields(ui: &mut egui::Ui, on: &mut bool, hours: &mut u32, minutes: &mut u32) {
@@ -179,6 +222,7 @@ pub struct QueueDraft {
     repeat: bool,
     repeat_hours: u32,
     repeat_minutes: u32,
+    wake: bool,
     error: Option<String>,
 }
 
@@ -217,6 +261,7 @@ impl QueueDraft {
             repeat,
             repeat_hours,
             repeat_minutes,
+            wake: s.as_ref().is_none_or(|s| s.wake),
             error: None,
         }
     }
@@ -237,6 +282,7 @@ impl QueueDraft {
             days: if self.by_date { Vec::new() } else { (0u8..7).filter(|d| self.days[*d as usize]).collect() },
             date: self.by_date.then(|| self.date.trim().to_string()),
             repeat_minutes: repeat_value(self.repeat, self.repeat_hours, self.repeat_minutes),
+            wake: self.wake,
         });
         q.validate()?;
         Ok(q)
@@ -411,6 +457,10 @@ fn form(
 
             ui.label("");
             repeat_fields(ui, &mut draft.repeat, &mut draft.repeat_hours, &mut draft.repeat_minutes);
+            ui.end_row();
+
+            ui.label("");
+            wake_field(ui, &mut draft.wake);
             ui.end_row();
 
             ui.label(tr("Run"));
@@ -625,6 +675,7 @@ mod tests {
             days: vec![0, 4],
             date: None,
             repeat_minutes: Some(150),
+            wake: true,
         });
         let back = QueueDraft::from(&q).to_queue().unwrap();
         assert_eq!(back.schedule, q.schedule);

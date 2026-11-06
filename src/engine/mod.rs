@@ -2645,6 +2645,44 @@ mod tests {
         }
 
         #[test]
+        fn an_ntlm_login_answers_a_401_on_one_connection() {
+            let data = body(LEN);
+            let behavior = Behavior { ntlm_auth: Some(("CORP\\ann".into(), "pa ss".into())), ..Behavior::default() };
+            let server = TestServer::start_with(data.clone(), behavior);
+            let dir = temp_dir("ntlm");
+            let net = |password: &str| {
+                Arc::new(NetConfig {
+                    ftp_active: false,
+                    ftp_proxy: None,
+                    ftp_proxy_login: Default::default(),
+                    proxy: None,
+                    logins: vec![login("127.0.0.1", "CORP\\ann", password)],
+                })
+            };
+
+            // No login: asked for one.
+            let err = download_err(request(&server.url, &dir, FileExists::Rename));
+            assert_eq!(err, "This site needs a login: 127.0.0.1");
+
+            // The wrong password is refused.
+            let mut req = request(&server.url, &dir, FileExists::Rename);
+            req.net = net("wrong");
+            let err = download_err(req);
+            assert_eq!(err, "The login for 127.0.0.1 was refused");
+
+            // The right one downloads every range, each connection doing its
+            // own handshake, over plain http (no password is sent).
+            let mut req = request(&server.url, &dir, FileExists::Rename);
+            req.net = net("pa ss");
+            let path = download(|_| {}, req);
+            assert_eq!(fs::read(&path).unwrap(), data);
+            let seen = server.auth_seen.lock().unwrap().clone();
+            assert!(seen.iter().all(|a| a.starts_with("Negotiate ") || a.starts_with("NTLM ")), "{seen:?}");
+            assert!(seen.iter().all(|a| !a.contains("pa ss")));
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
         fn a_login_never_follows_a_redirect_to_another_host() {
             let data = body(LEN);
             // B is "localhost", a different host name from A's 127.0.0.1.

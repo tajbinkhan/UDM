@@ -219,6 +219,7 @@ pub fn describe(m: &Manifest) -> MediaInfo {
             height: media.height,
             bandwidth: media.bitrate,
             size: super::estimate_size(media.bitrate, m.duration),
+            ..MediaOption::default()
         })
         .collect();
     MediaInfo { kind: Some(MediaKind::Hds), video, duration: m.duration, ..MediaInfo::default() }

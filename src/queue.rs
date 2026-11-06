@@ -104,6 +104,13 @@ pub struct Schedule {
     /// stop time (or midnight without one).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat_minutes: Option<u32>,
+    /// Wake the computer from sleep or hibernation to start on time.
+    #[serde(default = "yes")]
+    pub wake: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// Longest gap "start again every" allows, in minutes: 99 hours 59 minutes,
@@ -467,6 +474,14 @@ impl Schedule {
 mod tests {
     use super::*;
 
+    #[test]
+    fn schedules_saved_before_the_wake_option_wake_the_computer() {
+        let s: Schedule = serde_json::from_str(r#"{"start":"23:00","days":[0]}"#).unwrap();
+        assert!(s.wake);
+        let off: Schedule = serde_json::from_str(r#"{"start":"23:00","wake":false}"#).unwrap();
+        assert!(!off.wake);
+    }
+
     fn at(date: &str, time: &str) -> Moment {
         Moment { day: parse_date(date).unwrap(), minute: parse_time(time).unwrap() }
     }
@@ -478,6 +493,7 @@ mod tests {
             days: days.to_vec(),
             date: None,
             repeat_minutes: None,
+            wake: true,
         }
     }
 
@@ -534,6 +550,7 @@ mod tests {
             days: vec![0, 1, 2, 3, 4],
             date: None,
             repeat_minutes: None,
+            wake: true,
         };
         assert!(s.open_run(at("2026-10-28", "12:00")).is_some());
         assert!(s.open_run(at("2026-10-28", "17:30")).is_none());
@@ -558,6 +575,7 @@ mod tests {
             days: vec![],
             date: Some("2026-12-24".into()),
             repeat_minutes: None,
+            wake: true,
         };
         assert_eq!(once.next_start(at("2026-12-20", "10:00")), Some(at("2026-12-24", "02:00")));
         assert_eq!(once.next_start(at("2026-12-24", "02:00")), None);
@@ -583,6 +601,7 @@ mod tests {
             days: vec![0, 1, 2, 3, 4],
             date: None,
             repeat_minutes: Some(150),
+            wake: true,
         };
         let wednesday = parse_date("2026-10-28").unwrap();
         let started = |time| Some(at("2026-10-28", time).total());

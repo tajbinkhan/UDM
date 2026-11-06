@@ -175,7 +175,7 @@ pub fn parse_bypass(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// The ureq scheme for a SOCKS proxy: SOCKS5 always lets the proxy look up
+/// The URL scheme for a SOCKS proxy: SOCKS5 always lets the proxy look up
 /// names; SOCKS4 does only as SOCKS4a.
 pub fn socks_scheme(v5: bool, remote_dns: bool) -> &'static str {
     match (v5, remote_dns) {
@@ -186,7 +186,7 @@ pub fn socks_scheme(v5: bool, remote_dns: bool) -> &'static str {
 }
 
 impl ProxyRules {
-    /// The proxy for `url`, as a URL ureq understands, or `None` to connect
+    /// The proxy for `url`, as a URL the HTTP client understands, or `None` to connect
     /// directly.
     pub fn proxy_for(&self, url: &str) -> Option<String> {
         let host = host_of(url);
@@ -254,7 +254,7 @@ impl ProxyRules {
     }
 }
 
-/// A SOCKS proxy that UIDM speaks to itself, for the FTP connections ureq
+/// A SOCKS proxy that UIDM speaks to itself, for the FTP connections the HTTP client
 /// does not make.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SocksProxy {
@@ -730,6 +730,36 @@ pub fn realm(challenges: &[String]) -> Option<String> {
     challenges.iter().find_map(|h| {
         let (_, params) = parse_challenge(h);
         params.into_iter().find(|(k, v)| k == "realm" && !v.is_empty()).map(|(_, v)| v)
+    })
+}
+
+/// The scheme to answer `challenges` with by NTLM, when the server offers
+/// it and offers no Digest (which is preferred): `NTLM`, or `Negotiate`,
+/// which Windows servers also accept NTLM messages under.
+pub fn ntlm_scheme(challenges: &[String]) -> Option<&'static str> {
+    let schemes: Vec<String> = challenges.iter().map(|h| parse_challenge(h).0).collect();
+    if schemes.iter().any(|s| s == "digest") {
+        return None;
+    }
+    if schemes.iter().any(|s| s == "ntlm") {
+        Some("NTLM")
+    } else if schemes.iter().any(|s| s == "negotiate") {
+        Some("Negotiate")
+    } else {
+        None
+    }
+}
+
+/// The server's NTLM challenge message in `challenges`, the 401 answering
+/// a negotiate message sent under `scheme`.
+pub fn ntlm_challenge(challenges: &[String], scheme: &str) -> Option<crate::ntlm::Challenge> {
+    challenges.iter().find_map(|h| {
+        let (name, token) = h.trim().split_once(' ')?;
+        if !name.eq_ignore_ascii_case(scheme) {
+            return None;
+        }
+        let bytes = base64::engine::general_purpose::STANDARD.decode(token.trim()).ok()?;
+        crate::ntlm::parse_challenge(&bytes)
     })
 }
 
@@ -1361,6 +1391,11 @@ mod tests {
         .unwrap();
         assert!(both.starts_with("Digest "));
         assert_eq!(authorization(&["Negotiate".into()], &login("x"), "GET", "http://x/", "c"), None);
+        // NTLM comes after Digest, before Basic, and Negotiate carries it.
+        assert_eq!(ntlm_scheme(&["NTLM".into(), "Basic realm=\"x\"".into()]), Some("NTLM"));
+        assert_eq!(ntlm_scheme(&["Negotiate".into()]), Some("Negotiate"));
+        assert_eq!(ntlm_scheme(&["Digest realm=\"x\", nonce=\"n\"".into(), "NTLM".into()]), None);
+        assert_eq!(ntlm_scheme(&["Basic realm=\"x\"".into()]), None);
     }
 
     #[test]

@@ -1,13 +1,48 @@
 //! HTTP concerns: building a TLS-capable client (through a proxy when one is
 //! set), probing a URL for size and range support, fetching one byte range,
 //! and answering a server that asks for a login.
+//!
+//! The client is reqwest's async one, so a download speaks HTTP/2 when the
+//! server offers it (the segments of one download then share one connection
+//! as streams). The engine keeps its plain threads: each step blocks on one
+//! small shared tokio runtime, and a body is read through `Body`, which gives
+//! up when no data comes for `READ_TIMEOUT`.
 
-use std::io::Read;
-use std::sync::Arc;
+use std::io::{self, Read};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use super::EngineError;
 use crate::net::{self, NetConfig};
+
+/// How long a connection may take to open.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long a response may go without sending anything: its headers, or
+/// the next piece of its body. The download's retry takes over after that.
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The runtime every download's requests run on. Two workers are plenty:
+/// they only move bytes between sockets and the engine's threads.
+fn runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("uidm-http")
+            .enable_all()
+            .build()
+            .expect("the HTTP runtime starts")
+    })
+}
+
+/// Run `future` to its end on the runtime, giving up after `READ_TIMEOUT`.
+fn block_on<T>(future: impl std::future::Future<Output = T>) -> Result<T, EngineError> {
+    runtime()
+        .block_on(async { tokio::time::timeout(READ_TIMEOUT, future).await })
+        .map_err(|_| EngineError::Http("timed out".into()))
+}
 
 /// What a probe learned about a URL before downloading.
 pub struct Probe {
@@ -38,55 +73,172 @@ impl Probe {
     }
 }
 
-/// A blocking HTTP client for one download: an agent that validates TLS
-/// through the OS (SChannel on Windows via native-tls), with bounded timeouts,
-/// going through the download's proxy, plus the site logins it may answer a
-/// 401 with.
+/// A response whose headers have arrived; its body is read with
+/// `into_reader`.
+struct Response {
+    status: u16,
+    url: String,
+    headers: HeaderMap,
+    /// Taken by `into_reader`.
+    inner: Option<reqwest::Response>,
+}
+
+impl Response {
+    fn status(&self) -> u16 {
+        self.status
+    }
+
+    fn get_url(&self) -> &str {
+        &self.url
+    }
+
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).and_then(|v| v.to_str().ok())
+    }
+
+    fn all(&self, name: &str) -> Vec<String> {
+        self.headers.get_all(name).iter().filter_map(|v| v.to_str().ok()).map(str::to_string).collect()
+    }
+
+    fn into_reader(mut self) -> Body {
+        Body { inner: self.inner.take(), chunk: bytes::Bytes::new() }
+    }
+
+    /// Read and drop the body, so an HTTP/1.1 connection can carry the
+    /// next request.
+    fn drain(self) {
+        let _ = io::copy(&mut self.into_reader().take(1 << 20), &mut io::sink());
+    }
+}
+
+/// A response body as a blocking reader. Each read waits at most
+/// `READ_TIMEOUT` for the next piece, so a stalled connection fails the
+/// segment instead of hanging it.
+pub struct Body {
+    inner: Option<reqwest::Response>,
+    chunk: bytes::Bytes,
+}
+
+impl Read for Body {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        if out.is_empty() {
+            return Ok(0);
+        }
+        while self.chunk.is_empty() {
+            let Some(resp) = self.inner.as_mut() else {
+                return Ok(0);
+            };
+            match runtime().block_on(async { tokio::time::timeout(READ_TIMEOUT, resp.chunk()).await }) {
+                Ok(Ok(Some(chunk))) => self.chunk = chunk,
+                Ok(Ok(None)) => {
+                    self.close();
+                    return Ok(0);
+                }
+                Ok(Err(e)) => return Err(io::Error::other(error_text(&e))),
+                Err(_) => return Err(io::Error::new(io::ErrorKind::TimedOut, "timed out")),
+            }
+        }
+        let n = out.len().min(self.chunk.len());
+        out[..n].copy_from_slice(&self.chunk[..n]);
+        bytes::Buf::advance(&mut self.chunk, n);
+        Ok(n)
+    }
+}
+
+impl Body {
+    /// Drop the response inside the runtime, which its connection belongs to.
+    fn close(&mut self) {
+        if let Some(resp) = self.inner.take() {
+            let _guard = runtime().enter();
+            drop(resp);
+        }
+    }
+}
+
+impl Drop for Body {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+impl Drop for Response {
+    fn drop(&mut self) {
+        if let Some(resp) = self.inner.take() {
+            let _guard = runtime().enter();
+            drop(resp);
+        }
+    }
+}
+
+/// Why a request got no usable response.
+enum Failed {
+    /// The server answered with this error status (400 and up).
+    Status(u16, Box<Response>),
+    /// No answer: the connection, TLS, the proxy or a timeout.
+    Transport(EngineError),
+}
+
+/// An HTTP client for one download: TLS through the OS (SChannel on Windows
+/// via native-tls), HTTP/2 or HTTP/1.1, bounded timeouts, the download's
+/// proxy, plus the site logins it may answer a 401 with.
 #[derive(Clone)]
 pub struct Client {
-    agent: ureq::Agent,
+    http: reqwest::Client,
+    /// A new client like `http` with a connection pool of its own, on
+    /// HTTP/1.1, for an NTLM handshake: its steps must share one connection,
+    /// which another segment's request could take from a shared pool, and
+    /// NTLM does not work over HTTP/2.
+    fresh_http1: Arc<dyn Fn() -> Result<reqwest::Client, EngineError> + Send + Sync>,
     logins: Arc<Vec<net::Login>>,
-    /// `Proxy-Authorization` for plain http requests through an HTTP proxy
-    /// with a login. ureq sends proxy credentials only when it tunnels
-    /// (https), so for these the client adds them itself, and then follows
-    /// redirects itself too (`agent` does not), so the header never rides a
-    /// redirect to another server.
-    proxy_basic: Option<String>,
     /// How to reach an `ftp://` address, which goes to the FTP module.
     ftp: super::ftp::FtpOptions,
 }
 
-/// Most redirects followed by hand.
+/// Most redirects followed.
 const MAX_REDIRECTS: usize = 8;
+
+/// The proxy URL `net` gives, as reqwest reads it. SOCKS5 lets the proxy
+/// look up host names, which reqwest calls `socks5h`.
+fn reqwest_proxy(proxy: &str) -> Result<reqwest::Proxy, EngineError> {
+    let proxy = match proxy.get(..9) {
+        Some(p) if p.eq_ignore_ascii_case("socks5://") => format!("socks5h://{}", &proxy[9..]),
+        _ => proxy.to_string(),
+    };
+    reqwest::Proxy::all(&proxy).map_err(|e| EngineError::Http(format!("bad proxy setting: {e}")))
+}
 
 impl Client {
     /// A client for downloading `url` under `net`. The proxy is chosen for
-    /// this URL's scheme and host.
+    /// this URL's scheme and host; an HTTP proxy's login rides in its URL,
+    /// and goes only to the proxy.
     pub fn new(net: &NetConfig, url: &str) -> Result<Self, EngineError> {
-        let connector = native_tls::TlsConnector::new().map_err(|e| EngineError::Tls(e.to_string()))?;
-        let mut builder = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(20))
-            .timeout_read(Duration::from_secs(60))
-            .tls_connector(Arc::new(connector));
-        let mut proxy_basic = None;
         let ftp = super::ftp::is_ftp(url);
-        if let Some(rules) = net.proxy.as_ref().filter(|_| !ftp) {
-            if let Some(proxy) = rules.proxy_for(url) {
-                if let Some(login) = rules.login_for(url).filter(|_| proxy.starts_with("http://")) {
-                    use base64::Engine as _;
-                    let pair = format!("{}:{}", login.username, login.password);
-                    proxy_basic = Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(pair)));
-                    builder = builder.redirects(0);
-                }
-                let proxy =
-                    ureq::Proxy::new(&proxy).map_err(|e| EngineError::Http(format!("bad proxy setting: {e}")))?;
-                builder = builder.proxy(proxy);
+        let proxy = match net.proxy.as_ref().filter(|_| !ftp).and_then(|rules| rules.proxy_for(url)) {
+            Some(p) => Some(reqwest_proxy(&p)?),
+            None => None,
+        };
+        let make = move |http1: bool| -> Result<reqwest::Client, EngineError> {
+            let mut builder = reqwest::Client::builder()
+                .use_native_tls()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .read_timeout(READ_TIMEOUT)
+                // Redirects are followed in `send`, which drops cookies and
+                // logins on every hop.
+                .redirect(reqwest::redirect::Policy::none());
+            builder = match &proxy {
+                Some(p) => builder.proxy(p.clone()),
+                None => builder.no_proxy(),
+            };
+            if http1 {
+                builder = builder.http1_only();
             }
-        }
+            let _guard = runtime().enter();
+            builder.build().map_err(|e| EngineError::Tls(error_text(&e)))
+        };
         Ok(Client {
-            agent: builder.build(),
+            http: make(false)?,
+            fresh_http1: Arc::new(move || make(true)),
             logins: Arc::new(net.logins.clone()),
-            proxy_basic,
             ftp: super::ftp::FtpOptions {
                 active: net.ftp_active,
                 logins: net.logins.clone(),
@@ -102,8 +254,9 @@ impl Client {
         })
     }
 
-    /// Send a request, following redirects by hand when `proxy_basic` is set
-    /// (see there). Each hop drops `Cookie` and `Authorization` as ureq does.
+    /// Send a request and follow its redirects. Each hop drops `Cookie` and
+    /// `Authorization`, so neither reaches a server it was not meant for;
+    /// a 303 (or a 301 or 302 after a POST) turns the request into a GET.
     fn send(
         &self,
         method: &str,
@@ -111,15 +264,11 @@ impl Client {
         headers: &[(String, String)],
         range: Option<&str>,
         body: Option<&[u8]>,
-    ) -> Result<ureq::Response, EngineError> {
-        let Some(proxy_auth) = &self.proxy_basic else {
-            return self.send_once(method, url, headers, range, body, None);
-        };
+    ) -> Result<Response, EngineError> {
         let (mut method, mut url, mut headers, mut body) =
             (method.to_string(), url.to_string(), headers.to_vec(), body);
         for _ in 0..=MAX_REDIRECTS {
-            let http = url.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("http://"));
-            let resp = self.send_once(&method, &url, &headers, range, body, http.then_some(proxy_auth.as_str()))?;
+            let resp = self.send_once(&method, &url, &headers, range, body)?;
             let status = resp.status();
             let location = resp.header("location").map(str::to_string);
             match location {
@@ -127,13 +276,17 @@ impl Client {
                     let next = url::Url::parse(&url)
                         .and_then(|base| base.join(&loc))
                         .map_err(|e| EngineError::Http(format!("bad redirect to {loc}: {e}")))?;
-                    if matches!(status, 301..=303) && method == "POST" {
+                    if !matches!(next.scheme(), "http" | "https") {
+                        return Err(EngineError::Http(format!("redirect to an unsupported address: {next}")));
+                    }
+                    if status == 303 || (matches!(status, 301 | 302) && method == "POST") {
                         method = "GET".to_string();
                         body = None;
                     }
                     headers
                         .retain(|(k, _)| !k.eq_ignore_ascii_case("cookie") && !k.eq_ignore_ascii_case("authorization"));
                     url = next.to_string();
+                    resp.drain();
                 }
                 _ => return Ok(resp),
             }
@@ -142,12 +295,7 @@ impl Client {
     }
 
     /// Send one request. When the server answers 401, send it once more with
-    /// the login for the host that asked, straight to the URL that asked.
-    /// ureq drops `Authorization` on every redirect, so a login never follows
-    /// one to another host.
-    // ureq's error is large, but it lives only between the send and the
-    // match below.
-    #[allow(clippy::result_large_err)]
+    /// the login for that URL's host.
     fn send_once(
         &self,
         method: &str,
@@ -155,32 +303,40 @@ impl Client {
         headers: &[(String, String)],
         range: Option<&str>,
         body: Option<&[u8]>,
-        proxy_auth: Option<&str>,
-    ) -> Result<ureq::Response, EngineError> {
-        let build = |url: &str, auth: Option<&str>| {
-            let mut r = apply_headers(self.agent.request(method, url), headers);
-            if let Some(p) = proxy_auth {
-                r = r.set("Proxy-Authorization", p);
+    ) -> Result<Response, EngineError> {
+        let build_on = |http: &reqwest::Client, auth: Option<&str>| -> Result<Response, Failed> {
+            let method = reqwest::Method::from_bytes(method.as_bytes())
+                .map_err(|_| Failed::Transport(EngineError::Http(format!("bad method {method}"))))?;
+            let mut map = header_map(headers);
+            if let Some(range) = range.and_then(|r| HeaderValue::from_str(r).ok()) {
+                map.insert(reqwest::header::RANGE, range);
             }
-            if let Some(range) = range {
-                r = r.set("Range", range);
+            if let Some(auth) = auth.and_then(|a| HeaderValue::from_str(a).ok()) {
+                map.insert(reqwest::header::AUTHORIZATION, auth);
             }
-            if let Some(auth) = auth {
-                r = r.set("Authorization", auth);
+            let mut req = http.request(method, url).headers(map);
+            if let Some(b) = body {
+                req = req.body(b.to_vec());
             }
-            match body {
-                Some(b) => r.send_bytes(b),
-                None => r.call(),
-            }
+            execute(req)
         };
-        match build(url, None) {
-            Err(ureq::Error::Status(401, resp)) => {
+        match build_on(&self.http, None) {
+            Err(Failed::Status(401, resp)) => {
                 let asked = resp.get_url().to_string();
                 let host = net::host_of(&asked);
-                let challenges: Vec<String> = resp.all("www-authenticate").iter().map(|h| h.to_string()).collect();
+                let challenges = resp.all("www-authenticate");
                 let realm = net::realm(&challenges);
+                (*resp).drain();
                 let needs = || EngineError::NeedsLogin(host.clone(), realm.clone());
                 let login = net::find_login(&self.logins, &asked).ok_or_else(needs)?;
+                if let Some(scheme) = net::ntlm_scheme(&challenges) {
+                    let http = (self.fresh_http1)()?;
+                    let build = |auth: Option<&str>| build_on(&http, auth);
+                    return ntlm(scheme, login, &build).map_err(|e| match e {
+                        NtlmError::Rejected => EngineError::LoginRejected(host, realm),
+                        NtlmError::Other(e) => e,
+                    });
+                }
                 let auth = net::authorization(&challenges, login, method, &asked, &cnonce()).ok_or_else(needs)?;
                 // Basic sends the password as it is: over plain http it goes
                 // only with a login allowed there, else the user is asked.
@@ -189,13 +345,108 @@ impl Client {
                 if auth.starts_with("Basic ") && !asked.starts_with("https:") && !login.plain {
                     return Err(needs());
                 }
-                match build(&asked, Some(&auth)) {
-                    Err(ureq::Error::Status(401, _)) => Err(EngineError::LoginRejected(host, realm)),
-                    other => other.map_err(map_ureq),
+                match build_on(&self.http, Some(&auth)) {
+                    Err(Failed::Status(401, _)) => Err(EngineError::LoginRejected(host, realm)),
+                    other => other.map_err(failed),
                 }
             }
-            other => other.map_err(map_ureq),
+            other => other.map_err(failed),
         }
+    }
+}
+
+/// Send a request and wait for its headers.
+fn execute(req: reqwest::RequestBuilder) -> Result<Response, Failed> {
+    // The future is made inside the runtime: reqwest starts its timers
+    // as soon as it is made.
+    let inner = match block_on(async move { req.send().await }) {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => return Err(Failed::Transport(EngineError::Http(error_text(&e)))),
+        Err(e) => return Err(Failed::Transport(e)),
+    };
+    let resp = Response {
+        status: inner.status().as_u16(),
+        url: inner.url().to_string(),
+        headers: inner.headers().clone(),
+        inner: Some(inner),
+    };
+    if resp.status >= 400 {
+        return Err(Failed::Status(resp.status, Box::new(resp)));
+    }
+    Ok(resp)
+}
+
+/// The request's headers as reqwest takes them. A name or value that is not
+/// valid HTTP is left out rather than failing the download.
+fn header_map(headers: &[(String, String)]) -> HeaderMap {
+    let mut map = HeaderMap::new();
+    for (name, value) in headers {
+        if let (Ok(name), Ok(value)) = (HeaderName::from_bytes(name.as_bytes()), HeaderValue::from_str(value)) {
+            map.insert(name, value);
+        }
+    }
+    map
+}
+
+/// A reqwest error in words, with its causes: "error sending request"
+/// alone says nothing about the refused connection under it.
+fn error_text(e: &dyn std::error::Error) -> String {
+    let mut text = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        let more = cause.to_string();
+        if !text.contains(&more) {
+            text.push_str(": ");
+            text.push_str(&more);
+        }
+        source = cause.source();
+    }
+    text
+}
+
+fn failed(f: Failed) -> EngineError {
+    match f {
+        Failed::Status(code, resp) => {
+            (*resp).drain();
+            EngineError::Status(code)
+        }
+        Failed::Transport(e) => e,
+    }
+}
+
+/// Sends the request with an `Authorization` header, for the NTLM
+/// handshake.
+type SendWith<'a> = &'a dyn Fn(Option<&str>) -> Result<Response, Failed>;
+
+/// Why an NTLM handshake did not get through.
+enum NtlmError {
+    /// The server refused the login.
+    Rejected,
+    Other(EngineError),
+}
+
+/// The NTLM handshake under `scheme` (`NTLM` or `Negotiate`): a negotiate
+/// message, the server's challenge in its 401, then the answer. The
+/// challenge's body is read to the end so the connection goes back to the
+/// pool and the answer goes on it, as NTLM requires. `build` sends the
+/// request with an `Authorization` header, on a client of its own.
+fn ntlm(scheme: &str, login: &net::Login, build: SendWith) -> Result<Response, NtlmError> {
+    use base64::Engine as _;
+    let b64 = |m: Vec<u8>| base64::engine::general_purpose::STANDARD.encode(m);
+    let first = format!("{scheme} {}", b64(crate::ntlm::negotiate()));
+    let challenge = match build(Some(&first)) {
+        Err(Failed::Status(401, resp)) => {
+            let challenges = resp.all("www-authenticate");
+            (*resp).drain();
+            net::ntlm_challenge(&challenges, scheme).ok_or(NtlmError::Rejected)?
+        }
+        // Let in without the rest of the handshake.
+        other => return other.map_err(|e| NtlmError::Other(failed(e))),
+    };
+    let answer = crate::ntlm::authenticate(&challenge, &login.username, &login.password, &crate::ntlm::workstation());
+    match build(Some(&format!("{scheme} {}", b64(answer)))) {
+        Err(Failed::Status(401, _)) => Err(NtlmError::Rejected),
+        other => other.map_err(|e| NtlmError::Other(failed(e))),
     }
 }
 
@@ -204,13 +455,6 @@ fn cnonce() -> String {
     let mut bytes = [0u8; 16];
     let _ = getrandom::fill(&mut bytes);
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn apply_headers(mut req: ureq::Request, headers: &[(String, String)]) -> ureq::Request {
-    for (name, value) in headers {
-        req = req.set(name, value);
-    }
-    req
 }
 
 /// Probe with a one-byte range request. A 206 reply confirms range support and
@@ -436,17 +680,22 @@ fn basename(name: &str) -> Option<String> {
     }
 }
 
-/// Flatten a ureq error (transport or HTTP status) into our error type.
-fn map_ureq(e: ureq::Error) -> EngineError {
-    match e {
-        ureq::Error::Status(code, _) => EngineError::Status(code),
-        ureq::Error::Transport(t) => EngineError::Http(t.to_string()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{parse_content_disposition_filename, parse_content_range_start, parse_content_range_total};
+
+    /// Against a real HTTPS server, which needs the network: run with
+    /// `cargo test -- --ignored`.
+    #[test]
+    #[ignore]
+    fn a_real_server_is_reached_over_http2() {
+        let client = super::Client::new(&Default::default(), "https://www.cloudflare.com/").unwrap();
+        let resp = client.send("GET", "https://www.cloudflare.com/", &[], Some("bytes=0-0"), None).unwrap();
+        assert_eq!(resp.inner.as_ref().unwrap().version(), reqwest::Version::HTTP_2);
+        // Two requests on one client share the connection as streams.
+        let again = client.send("GET", "https://www.cloudflare.com/", &[], Some("bytes=0-0"), None).unwrap();
+        assert_eq!(again.inner.as_ref().unwrap().version(), reqwest::Version::HTTP_2);
+    }
 
     #[test]
     fn content_range_start() {

@@ -297,6 +297,7 @@ pub fn describe(v: &Value) -> MediaInfo {
                 height: f.height,
                 bandwidth: Some(f.bits()).filter(|b| *b > 0),
                 size: own.zip(sound).map(|(a, b)| a + b).or(own),
+                ..MediaOption::default()
             }
         })
         .collect();
@@ -475,6 +476,7 @@ mod tests {
             video: video.map(String::from),
             audio: audio.map(String::from),
             audio_only: None,
+            subtitles: None,
         };
         assert_eq!(
             format_spec(&pick(Some("137"), None), true),

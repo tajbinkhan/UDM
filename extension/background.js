@@ -361,6 +361,11 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
     if (typeof msg.video === "string") download.media.video = msg.video;
     if (typeof msg.audio === "string") download.media.audio = msg.audio;
     if (soundOnly) download.media.audio_only = soundOnly;
+    // Subtitle ids come from what UIDM offered; UIDM fetches only tracks
+    // the stream itself lists.
+    if (Array.isArray(msg.subtitles) && !soundOnly) {
+      download.media.subtitles = msg.subtitles.filter((id) => typeof id === "string").slice(0, 64);
+    }
   }
   if (!download.filename) delete download.filename;
   return send(download);

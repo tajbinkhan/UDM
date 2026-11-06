@@ -22,6 +22,10 @@ pub struct Behavior {
     pub post_only_body: Option<Vec<u8>>,
     /// Require HTTP Basic with this `user:password`: 401 without it.
     pub basic_auth: Option<String>,
+    /// Require NTLM with this login (`DOMAIN\user` or `user`) and password,
+    /// offered as `NTLM` and `Negotiate`. The challenge is kept with the
+    /// connection, so the answer must come on the same one.
+    pub ntlm_auth: Option<(String, String)>,
     /// Answer every request with a 302 to this URL.
     pub redirect_to: Option<String>,
     /// Serve these files by path (such as `/v/1.ts`) instead of one body
@@ -83,7 +87,7 @@ impl TestServer {
                 let cookies = Arc::clone(&cookies);
                 let behavior = behavior.clone();
                 thread::spawn(move || {
-                    let _ = serve(stream, &body, &counter, &behavior, &seen, &cookies);
+                    let _ = serve(stream, &body, &counter, &behavior, &seen, &cookies, None);
                 });
             }
         });
@@ -98,6 +102,7 @@ fn serve(
     behavior: &Behavior,
     auth_seen: &Mutex<Vec<String>>,
     cookies_seen: &Mutex<Vec<(String, String)>>,
+    challenged: Option<crate::ntlm::Challenge>,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut range: Option<(u64, u64)> = None;
@@ -150,6 +155,34 @@ fn serve(
                 stream,
                 "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"files\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             );
+        }
+    }
+    if let Some((login, password)) = &behavior.ntlm_auth {
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let token = auth
+            .as_deref()
+            .and_then(|a| a.split_once(' '))
+            .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("NTLM") || scheme.eq_ignore_ascii_case("Negotiate"))
+            .and_then(|(scheme, t)| Some((scheme.to_string(), b64.decode(t).ok()?)));
+        match (token, challenged) {
+            (Some((scheme, t)), _) if t.get(8) == Some(&1) => {
+                let c = crate::ntlm::test_challenge();
+                let message = b64.encode(crate::ntlm::challenge_message(&c));
+                write!(
+                    stream,
+                    "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: {scheme} {message}\r\nContent-Length: 0\r\n\r\n"
+                )?;
+                drop(reader);
+                return serve(stream, body, served, behavior, auth_seen, cookies_seen, Some(c));
+            }
+            (Some((_, t)), Some(c)) if crate::ntlm::check_authenticate(&c, &t, login, password) => {}
+            _ => {
+                return write!(
+                    stream,
+                    "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+            }
         }
     }
     if let Some(to) = &behavior.redirect_to {

@@ -183,6 +183,9 @@
   "lookingForVideo": {
     "message": "Video wird gesucht..."
   },
+  "subtitles": {
+    "message": "Untertitel:"
+  },
   "videoProtected": {
     "message": "Dieses Video ist durch DRM geschützt, daher lädt UIDM es nicht herunter."
   },

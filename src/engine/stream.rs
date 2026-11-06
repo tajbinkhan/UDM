@@ -32,7 +32,8 @@ use super::{
     DownloadRequest, EngineError, Progress, Reporter, Saved, Shared, BUF_SIZE, MAX_CONNECTIONS, MAX_RETRIES,
 };
 use crate::media::{
-    dash, hds, hls, sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED,
+    dash, hds, hls, sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track,
+    DRM_REFUSED,
 };
 use crate::net::NetConfig;
 
@@ -78,23 +79,24 @@ fn get_text(agent: &http::Client, url: &str, headers: &[(String, String)]) -> Re
     Ok((page.url, String::from_utf8_lossy(&page.body).into_owned()))
 }
 
-/// The tracks `choice` asks for: the main one and, apart from it, its audio.
-fn load_tracks(
-    agent: &http::Client,
-    req: &DownloadRequest,
-    choice: &MediaChoice,
-) -> Result<(Track, Option<Track>), EngineError> {
+/// The tracks `choice` asks for: the main one, apart from it its audio, and
+/// the subtitles to keep.
+type Tracks = (Track, Option<Track>, Vec<Subtitle>);
+
+fn load_tracks(agent: &http::Client, req: &DownloadRequest, choice: &MediaChoice) -> Result<Tracks, EngineError> {
     let (base, text) = get_text(agent, &req.url, &req.headers)?;
     let kind = choice.kind.or_else(|| sniff(&text)).ok_or_else(|| refused(NOT_A_STREAM.into()))?;
     match kind {
         MediaKind::Page => Err(refused("A video page is not an HLS playlist or a DASH manifest.".into())),
-        MediaKind::Hds => Ok((hds_track(agent, req, &text, &base, choice.video.as_deref())?, None)),
+        MediaKind::Hds => Ok((hds_track(agent, req, &text, &base, choice.video.as_deref())?, None, Vec::new())),
         MediaKind::Dash => {
             let manifest = dash::parse(&text, &base).map_err(refused)?;
-            dash::pick(&manifest, choice.video.as_deref(), choice.audio.as_deref()).map_err(refused)
+            let (video, audio) =
+                dash::pick(&manifest, choice.video.as_deref(), choice.audio.as_deref()).map_err(refused)?;
+            Ok((video, audio, dash::pick_subtitles(&manifest, choice.subtitles.as_deref())))
         }
         MediaKind::Hls => match hls::parse(&text, &base, false).map_err(refused)? {
-            hls::Playlist::Media(track) => Ok((track, None)),
+            hls::Playlist::Media(track) => Ok((track, None, Vec::new())),
             hls::Playlist::Master(master) => {
                 if master.drm {
                     return Err(refused(DRM_REFUSED.into()));
@@ -111,7 +113,23 @@ fn load_tracks(
                 let audio = hls::pick_audio(&master, variant, choice.audio.as_deref())
                     .map(|url| media(url, true))
                     .transpose()?;
-                Ok((video, audio))
+                // A subtitle playlist that cannot be read costs the subtitle,
+                // not the video.
+                let subtitles = hls::pick_subtitles(&master, variant, choice.subtitles.as_deref())
+                    .into_iter()
+                    .filter_map(|s| match media(&s.url, false) {
+                        Ok(track) => Some(Subtitle {
+                            label: s.name.clone(),
+                            language: s.language.clone(),
+                            segments: track.init.into_iter().chain(track.segments).collect(),
+                        }),
+                        Err(e) => {
+                            eprintln!("[uidm-engine] skipping subtitles {}: {e}", s.name);
+                            None
+                        }
+                    })
+                    .collect();
+                Ok((video, audio, subtitles))
             }
         },
     }
@@ -261,12 +279,13 @@ pub(super) fn run(
             "Saving only the sound needs ffmpeg. Install it, or choose it in Options > General.".into(),
         ));
     }
-    let (main, extra) = load_tracks(agent, req, choice)?;
+    let (main, extra, subtitles) = load_tracks(agent, req, choice)?;
     // For the sound alone, a separate audio track is all that is fetched.
     let (main, extra) = match (choice.audio_only, extra) {
         (Some(_), Some(audio)) => (audio, None),
         (_, extra) => (main, extra),
     };
+    let subtitles = if choice.audio_only.is_some() { Vec::new() } else { subtitles };
     let stem = stem(req);
     let ext = match (choice.audio_only, &req.ffmpeg, main.ext) {
         (Some(target), _, _) => target.extension(),
@@ -312,6 +331,14 @@ pub(super) fn run(
         }
         tracks.push((parts.join(format!("{tag}.{}", track.ext)), first..jobs.len(), track.ext));
     }
+    let mut subs = Vec::new();
+    for (n, sub) in subtitles.iter().enumerate() {
+        let first = jobs.len();
+        for (i, s) in sub.segments.iter().enumerate() {
+            jobs.push(Job { path: parts.join(format!("s{n}-{i:06}")), segment: s.clone() });
+        }
+        subs.push((parts.join(format!("s{n}.vtt")), first..jobs.len(), sub));
+    }
 
     let workers = req.connections.clamp(1, MAX_CONNECTIONS).min(jobs.len());
     reporter.send(Progress::Started {
@@ -334,24 +361,69 @@ pub(super) fn run(
     for ((joined, range, _), header) in tracks.iter().zip(headers) {
         join(&jobs[range.clone()], joined, header)?;
     }
+    let subs: Vec<Joined> = subs
+        .into_iter()
+        .filter_map(|(joined, range, sub)| match join_subtitle(&jobs[range], &joined) {
+            Ok(true) => Some(Joined { path: joined, label: &sub.label, language: sub.language.as_deref() }),
+            Ok(false) => {
+                eprintln!("[uidm-engine] skipping subtitles {}: not WebVTT", sub.label);
+                None
+            }
+            Err(e) => {
+                eprintln!("[uidm-engine] skipping subtitles {}: {e}", sub.label);
+                None
+            }
+        })
+        .collect();
     let note = match (choice.audio_only, &req.ffmpeg) {
         (Some(target), Some(ffmpeg)) => {
             crate::media::convert::convert(ffmpeg, &tracks[0].0, &output, target, token, |_| {})
                 .map_err(EngineError::Io)?;
             None
         }
-        _ => finish(req, &tracks, &output, &stem)?,
+        _ => finish(req, &tracks, &subs, &output, &stem)?,
     };
     let _ = fs::remove_dir_all(&parts);
     drop(claim);
     Ok(Saved { path: output, note })
 }
 
-/// Make the output from the joined tracks: with ffmpeg one video, without it
-/// the tracks themselves.
+/// A subtitle track joined into one WebVTT file.
+struct Joined<'a> {
+    path: PathBuf,
+    label: &'a str,
+    language: Option<&'a str>,
+}
+
+/// Join a subtitle track's WebVTT segments into `joined`. `false` when they
+/// are not WebVTT text (WebVTT in MP4 segments, say), which is skipped.
+fn join_subtitle(jobs: &[Job], joined: &Path) -> Result<bool, EngineError> {
+    let mut parts = Vec::with_capacity(jobs.len());
+    for job in jobs {
+        let text = String::from_utf8_lossy(&fs::read(&job.path)?).into_owned();
+        if !text.trim_start_matches('\u{feff}').trim_start().starts_with("WEBVTT") {
+            return Ok(false);
+        }
+        parts.push(text);
+    }
+    fs::write(joined, crate::media::join_webvtt(&parts))?;
+    Ok(true)
+}
+
+/// Where a subtitle track goes beside a video saved without ffmpeg:
+/// `<stem>.<language>.vtt`, or a number when it has no language.
+fn subtitle_name(stem: &str, sub: &Joined, n: usize) -> String {
+    let tag = sub.language.and_then(crate::media::language_code).unwrap_or_else(|| (n + 1).to_string());
+    format!("{stem}.{tag}.vtt")
+}
+
+/// Make the output from the joined tracks: with ffmpeg one video with the
+/// subtitles in it, without it the tracks themselves and the subtitles as
+/// `.vtt` files beside them.
 fn finish(
     req: &DownloadRequest,
     tracks: &[(PathBuf, std::ops::Range<usize>, &'static str)],
+    subs: &[Joined],
     output: &Path,
     stem: &str,
 ) -> Result<Option<String>, EngineError> {
@@ -362,10 +434,30 @@ fn finish(
         for (joined, _, _) in tracks {
             cmd.arg("-i").arg(joined);
         }
+        for sub in subs {
+            cmd.arg("-i").arg(&sub.path);
+        }
         if tracks.len() > 1 {
             cmd.args(["-map", "0:v:0?", "-map", "1:a:0?"]);
+        } else if !subs.is_empty() {
+            cmd.args(["-map", "0:v:0?", "-map", "0:a:0?"]);
+        }
+        for i in 0..subs.len() {
+            cmd.arg("-map").arg(format!("{}:s:0", tracks.len() + i));
         }
         cmd.args(["-c", "copy"]);
+        if !subs.is_empty() {
+            // MP4 holds subtitles as timed text; WebM keeps WebVTT.
+            let webm = output.extension().is_some_and(|e| e == "webm");
+            cmd.args(["-c:s", if webm { "webvtt" } else { "mov_text" }]);
+            for (i, sub) in subs.iter().enumerate() {
+                let lang = if webm { crate::media::language_code } else { crate::media::iso639_2 };
+                if let Some(lang) = sub.language.and_then(lang) {
+                    cmd.arg(format!("-metadata:s:s:{i}")).arg(format!("language={lang}"));
+                }
+                cmd.arg(format!("-metadata:s:s:{i}")).arg(format!("title={}", sub.label));
+            }
+        }
         if output.extension().is_some_and(|e| e == "mp4") && tracks.iter().any(|t| matches!(t.2, "ts" | "aac")) {
             // ADTS AAC from MPEG-TS needs reframing to go in an MP4.
             cmd.args(["-bsf:a", "aac_adtstoasc"]);
@@ -387,6 +479,12 @@ fn finish(
     }
 
     fs::rename(&main.0, output)?;
+    let dir = output.parent().unwrap_or(Path::new("."));
+    for (n, sub) in subs.iter().enumerate() {
+        let name = subtitle_name(stem, sub, n);
+        let to = (0..).map(|k| dir.join(numbered_name(&name, k))).find(|p| !p.exists()).expect("some name is free");
+        fs::rename(&sub.path, to)?;
+    }
     let Some((audio, _, ext)) = tracks.get(1) else {
         return Ok(match main.2 {
             "ts" => Some("Saved as a .ts video. With ffmpeg (set in Options) it would be an .mp4.".into()),
@@ -394,7 +492,6 @@ fn finish(
             _ => None,
         });
     };
-    let dir = output.parent().unwrap_or(Path::new("."));
     let name = if output.extension().is_some_and(|e| e == *ext) {
         format!("{stem} (audio).{ext}")
     } else {
@@ -795,7 +892,7 @@ mod tests {
 
             // The other quality, by its id.
             let low = format!("{}/v/low/index.m3u8", server.url);
-            let choice = MediaChoice { kind: Some(MediaKind::Hls), video: Some(low), audio: None, audio_only: None };
+            let choice = MediaChoice { kind: Some(MediaKind::Hls), video: Some(low), ..MediaChoice::default() };
             let (result, _) = run(request(format!("{}/v/master.m3u8", server.url), &dir, choice));
             let (path, _) = result.unwrap();
             assert_eq!(path, dir.join("Movie night (1).ts"));
@@ -811,6 +908,7 @@ mod tests {
                 video: None,
                 audio: None,
                 audio_only: Some(crate::media::convert::Target::Mp3),
+                subtitles: None,
             };
             // Refused before anything is fetched, so no server is needed.
             let (result, _) = run(request("http://127.0.0.1:1/master.m3u8".into(), &dir, choice));
@@ -1123,6 +1221,132 @@ mod tests {
             assert!(args.contains("v.flv") && args.contains("-c copy"), "{args}");
             fs::remove_dir_all(&dir).ok();
             fs::remove_dir_all(&tools).ok();
+        }
+
+        /// An HLS stream with English (the default) and German subtitles,
+        /// each two WebVTT segments, and a French track in MP4 segments.
+        fn hls_subtitle_site() -> HashMap<String, Vec<u8>> {
+            let mut files = HashMap::new();
+            files.insert(
+                "/s/master.m3u8".into(),
+                concat!(
+                    "#EXTM3U\n",
+                    "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"English\",LANGUAGE=\"en-US\",DEFAULT=YES,AUTOSELECT=YES,URI=\"en/index.m3u8\"\n",
+                    "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"Deutsch\",LANGUAGE=\"de\",URI=\"de/index.m3u8\"\n",
+                    "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"Francais\",LANGUAGE=\"fr\",URI=\"fr/index.m3u8\"\n",
+                    "#EXT-X-STREAM-INF:BANDWIDTH=900000,RESOLUTION=640x360,SUBTITLES=\"subs\"\n",
+                    "v/index.m3u8\n"
+                )
+                .as_bytes()
+                .to_vec(),
+            );
+            files.insert("/s/v/index.m3u8".into(), b"#EXTM3U\n#EXTINF:4,\n0.ts\n#EXT-X-ENDLIST\n".to_vec());
+            files.insert("/s/v/0.ts".into(), b"VIDEO".to_vec());
+            for (lang, first, second) in [("en", "Hello", "World"), ("de", "Hallo", "Welt")] {
+                files.insert(
+                    format!("/s/{lang}/index.m3u8"),
+                    b"#EXTM3U\n#EXTINF:4,\n0.vtt\n#EXTINF:4,\n1.vtt\n#EXT-X-ENDLIST\n".to_vec(),
+                );
+                let map = "X-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000";
+                files.insert(
+                    format!("/s/{lang}/0.vtt"),
+                    format!("WEBVTT\n{map}\n\n00:00:01.000 --> 00:00:02.000\n{first}\n").into_bytes(),
+                );
+                files.insert(
+                    format!("/s/{lang}/1.vtt"),
+                    format!("WEBVTT\n{map}\n\n00:00:05.000 --> 00:00:06.000\n{second}\n").into_bytes(),
+                );
+            }
+            files.insert("/s/fr/index.m3u8".into(), b"#EXTM3U\n#EXTINF:4,\n0.mp4\n#EXT-X-ENDLIST\n".to_vec());
+            files.insert("/s/fr/0.mp4".into(), b"\x00\x00\x00\x18ftypiso6".to_vec());
+            files
+        }
+
+        #[test]
+        fn hls_subtitles_are_saved_beside_the_video_without_ffmpeg() {
+            let server = TestServer::start_files(hls_subtitle_site());
+            let dir = temp_dir("hls_subs");
+            let url = format!("{}/s/master.m3u8", server.url);
+            let (result, _) = run(request(url.clone(), &dir, MediaChoice::default()));
+            let (path, _) = result.unwrap();
+            assert_eq!(fs::read(&path).unwrap(), b"VIDEO");
+            assert_eq!(
+                fs::read_to_string(dir.join("Movie night.en.vtt")).unwrap(),
+                "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n\n00:00:05.000 --> 00:00:06.000\nWorld\n",
+                "the default track, its segments joined"
+            );
+            assert!(!dir.join("Movie night.de.vtt").exists(), "only the default without a choice");
+
+            // German by choice; French is WebVTT in MP4, which is skipped
+            // without failing the download.
+            let ids = vec![format!("{}/s/de/index.m3u8", server.url), format!("{}/s/fr/index.m3u8", server.url)];
+            let choice = MediaChoice { subtitles: Some(ids), ..MediaChoice::default() };
+            let (result, _) = run(request(url.clone(), &dir, choice));
+            result.unwrap();
+            assert!(fs::read_to_string(dir.join("Movie night.de.vtt")).unwrap().contains("Hallo"));
+            assert!(!dir.join("Movie night.fr.vtt").exists());
+
+            // None at all.
+            let choice = MediaChoice { subtitles: Some(Vec::new()), ..MediaChoice::default() };
+            let before = fs::read_dir(&dir).unwrap().count();
+            let (result, _) = run(request(url, &dir, choice));
+            result.unwrap();
+            assert_eq!(fs::read_dir(&dir).unwrap().count(), before + 1, "only the video");
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn ffmpeg_puts_subtitles_in_the_video() {
+            let server = TestServer::start_files(hls_subtitle_site());
+            let dir = temp_dir("ffmpeg_subs");
+            let tools = temp_dir("ffmpeg_subs_tools");
+            let ids = vec![format!("{}/s/en/index.m3u8", server.url), format!("{}/s/de/index.m3u8", server.url)];
+            let choice = MediaChoice { subtitles: Some(ids), ..MediaChoice::default() };
+            let mut req = request(format!("{}/s/master.m3u8", server.url), &dir, choice);
+            req.ffmpeg = Some(fake_ffmpeg(&tools, false));
+            let (result, _) = run(req);
+            let (path, _) = result.unwrap();
+            assert_eq!(path, dir.join("Movie night.mp4"));
+            assert!(!dir.join("Movie night.en.vtt").exists(), "in the video, not beside it");
+            // Windows quotes arguments with `=` in them.
+            let args = fs::read_to_string(tools.join("args.txt")).unwrap().replace('"', "");
+            assert!(args.contains("s0.vtt") && args.contains("s1.vtt"), "{args}");
+            assert!(args.contains("-map 0:v:0? -map 0:a:0? -map 1:s:0 -map 2:s:0 -c copy -c:s mov_text"), "{args}");
+            assert!(args.contains("-metadata:s:s:0 language=eng -metadata:s:s:0 title=English"), "{args}");
+            assert!(args.contains("-metadata:s:s:1 language=deu"), "{args}");
+            fs::remove_dir_all(&dir).ok();
+            fs::remove_dir_all(&tools).ok();
+        }
+
+        #[test]
+        fn dash_webvtt_subtitles_are_offered_and_saved() {
+            let mut files = dash_site();
+            files.insert(
+                "/m/manifest.mpd".into(),
+                br#"<MPD type="static" mediaPresentationDuration="PT8S"><Period>
+                  <AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1">
+                    <SegmentTemplate timescale="1" duration="4" media="v-$Number$.m4s"/></Representation></AdaptationSet>
+                  <AdaptationSet contentType="text" mimeType="text/vtt" lang="es"><Label>Espanol</Label><Role schemeIdUri="urn:mpeg:dash:role:2011" value="main"/>
+                    <Representation id="sub-es" bandwidth="1"><BaseURL>es.vtt</BaseURL></Representation></AdaptationSet>
+                  <AdaptationSet contentType="text" mimeType="application/ttml+xml" lang="it">
+                    <Representation id="sub-it" bandwidth="1"><BaseURL>it.ttml</BaseURL></Representation></AdaptationSet>
+                  </Period></MPD>"#
+                    .to_vec(),
+            );
+            files.insert("/m/es.vtt".into(), b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHola\n".to_vec());
+            let server = TestServer::start_files(files);
+            let url = format!("{}/m/manifest.mpd", server.url);
+            let info = probe(&url, &[], &NetConfig::default());
+            assert_eq!(info.subtitles.len(), 1, "TTML is left out");
+            assert_eq!(info.subtitles[0].id, "sub-es");
+            assert_eq!(info.subtitles[0].label, "Espanol");
+            assert!(info.subtitles[0].default);
+
+            let dir = temp_dir("dash_subs");
+            let (result, _) = run(request(url, &dir, MediaChoice::default()));
+            result.unwrap();
+            assert!(fs::read_to_string(dir.join("Movie night.es.vtt")).unwrap().contains("Hola"));
+            fs::remove_dir_all(&dir).ok();
         }
 
         #[test]

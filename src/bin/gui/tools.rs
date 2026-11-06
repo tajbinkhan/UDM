@@ -666,6 +666,7 @@ pub struct GrabDialog {
     sched_repeat: bool,
     sched_repeat_hours: u32,
     sched_repeat_minutes: u32,
+    sched_wake: bool,
     /// What a scheduled run does, in `sched_queue`.
     run: grab::RunAction,
     /// One-time downloading, or periodic synchronization of what earlier
@@ -750,6 +751,7 @@ impl GrabDialog {
                 self.sched_repeat_hours,
                 self.sched_repeat_minutes,
             ),
+            wake: self.sched_wake,
         });
         if let Some(s) = &schedule {
             s.validate()?;
@@ -786,6 +788,7 @@ impl GrabDialog {
             d.sched_date = s.date.clone().unwrap_or_default();
             (d.sched_repeat, d.sched_repeat_hours, d.sched_repeat_minutes) =
                 super::queues::repeat_split(s.repeat_minutes);
+            d.sched_wake = s.wake;
             d.sched_days = [false; 7];
             for day in &s.days {
                 if let Some(slot) = d.sched_days.get_mut(*day as usize) {
@@ -1003,6 +1006,7 @@ impl GrabDialog {
             sched_repeat: false,
             sched_repeat_hours: 2,
             sched_repeat_minutes: 0,
+            sched_wake: true,
             run: grab::RunAction::Explore,
             sync: uidm::queue::QueueKind::OneTime,
             sched_queue: MAIN_QUEUE,
@@ -1739,6 +1743,7 @@ fn grab_body(
                         &mut d.sched_repeat_hours,
                         &mut d.sched_repeat_minutes,
                     );
+                    super::queues::wake_field(ui, &mut d.sched_wake);
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut d.sched_by_date, false, tr("Every"));
                         ui.add_enabled_ui(!d.sched_by_date, |ui| {

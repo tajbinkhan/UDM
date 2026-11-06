@@ -42,6 +42,7 @@ pub mod listfile;
 pub mod media;
 pub mod net;
 pub mod notify;
+pub mod ntlm;
 pub mod pac;
 #[cfg(windows)]
 pub mod package;

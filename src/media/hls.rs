@@ -18,6 +18,19 @@ pub struct Variant {
     pub height: Option<u32>,
     /// The `GROUP-ID` of its separate audio tracks.
     pub audio: Option<String>,
+    /// The `GROUP-ID` of its subtitle tracks.
+    pub subtitles: Option<String>,
+}
+
+/// A subtitle track (`#EXT-X-MEDIA:TYPE=SUBTITLES`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubtitleRendition {
+    pub group: String,
+    pub name: String,
+    pub language: Option<String>,
+    /// Its media playlist of WebVTT segments.
+    pub url: String,
+    pub default: bool,
 }
 
 /// A separate audio track (`#EXT-X-MEDIA:TYPE=AUDIO`).
@@ -35,6 +48,7 @@ pub struct Master {
     /// Best first.
     pub variants: Vec<Variant>,
     pub audio: Vec<Rendition>,
+    pub subtitles: Vec<SubtitleRendition>,
     /// A `#EXT-X-SESSION-KEY` names a DRM key system.
     pub drm: bool,
 }
@@ -142,6 +156,19 @@ fn parse_master(text: &str, base: &str) -> Result<Master, String> {
             pending = Some(attributes(rest));
         } else if let Some(rest) = line.strip_prefix("#EXT-X-MEDIA:") {
             let a = attributes(rest);
+            if attr(&a, "TYPE") == Some("SUBTITLES") {
+                if let Some(uri) = attr(&a, "URI") {
+                    let language = attr(&a, "LANGUAGE").map(str::to_string);
+                    master.subtitles.push(SubtitleRendition {
+                        group: attr(&a, "GROUP-ID").unwrap_or_default().to_string(),
+                        name: attr(&a, "NAME").map(str::to_string).or(language.clone()).unwrap_or("Subtitles".into()),
+                        language,
+                        url: resolve(base, uri)?,
+                        default: attr(&a, "DEFAULT") == Some("YES"),
+                    });
+                }
+                continue;
+            }
             if attr(&a, "TYPE") != Some("AUDIO") {
                 continue;
             }
@@ -164,6 +191,7 @@ fn parse_master(text: &str, base: &str) -> Result<Master, String> {
                     bandwidth: attr(&a, "BANDWIDTH").and_then(|b| b.parse().ok()),
                     height,
                     audio: attr(&a, "AUDIO").map(str::to_string),
+                    subtitles: attr(&a, "SUBTITLES").map(str::to_string),
                 });
             }
         }
@@ -262,6 +290,7 @@ pub fn describe(master: &Master, duration: Option<f64>) -> MediaInfo {
             height: v.height,
             bandwidth: v.bandwidth,
             size: super::estimate_size(v.bandwidth, duration),
+            ..MediaOption::default()
         })
         .collect();
     let mut seen = std::collections::HashSet::new();
@@ -272,10 +301,24 @@ pub fn describe(master: &Master, duration: Option<f64>) -> MediaInfo {
         .filter(|(u, _)| seen.insert(u.clone()))
         .map(|(url, r)| MediaOption { id: url, label: r.name.clone(), ..MediaOption::default() })
         .collect();
+    let mut seen = std::collections::HashSet::new();
+    let subtitles = master
+        .subtitles
+        .iter()
+        .filter(|s| seen.insert(s.url.clone()))
+        .map(|s| MediaOption {
+            id: s.url.clone(),
+            label: s.name.clone(),
+            language: s.language.clone(),
+            default: s.default,
+            ..MediaOption::default()
+        })
+        .collect();
     MediaInfo {
         kind: Some(MediaKind::Hls),
         video,
         audio,
+        subtitles,
         duration,
         drm: master.drm,
         error: master.drm.then(|| DRM_REFUSED.to_string()),
@@ -287,6 +330,27 @@ pub fn describe(master: &Master, duration: Option<f64>) -> MediaInfo {
 /// The variant `choice` names, or the best.
 pub fn pick_variant<'a>(master: &'a Master, choice: Option<&str>) -> &'a Variant {
     choice.and_then(|id| master.variants.iter().find(|v| v.url == id)).unwrap_or(&master.variants[0])
+}
+
+/// The subtitle tracks to fetch with `variant`: those `choice` names, or
+/// without a choice the default ones. Tracks outside the variant's group are
+/// left out when it names one.
+pub fn pick_subtitles<'a>(
+    master: &'a Master,
+    variant: &Variant,
+    choice: Option<&[String]>,
+) -> Vec<&'a SubtitleRendition> {
+    let mut seen = std::collections::HashSet::new();
+    master
+        .subtitles
+        .iter()
+        .filter(|s| variant.subtitles.as_ref().is_none_or(|g| *g == s.group))
+        .filter(|s| match choice {
+            Some(ids) => ids.contains(&s.url),
+            None => s.default,
+        })
+        .filter(|s| seen.insert(s.url.as_str()))
+        .collect()
 }
 
 /// The separate audio track to fetch with `variant`: the chosen one if it is

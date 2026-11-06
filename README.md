@@ -326,6 +326,11 @@ tests, not in a running Firefox.
   run. If UIDM was not running at the start time, the queue starts as soon
   as it is, while the time window is still open. The Queues dialog says so
   next to a schedule until **Don't show this again** hides the note.
+  **Wake the computer to start** (on by default, for queues and grabber
+  projects) sets a Windows wake timer, so a sleeping or hibernating PC
+  wakes 30 seconds before the start time, as IDM does. UIDM must be
+  running, and the power plan must allow wake timers; the schedule shows a
+  warning with the setting's location when it does not.
 - **When a queue is done**, UIDM can do nothing, exit, or put the computer to
   sleep, hibernate or shut it down, per queue or for the current run only.
   Sleeping, hibernating and shutting down wait for a 60-second countdown in
@@ -349,6 +354,10 @@ tests, not in a running Firefox.
   and completion dialogs have a taskbar button and stay on top of other
   windows until closed, but leave the keyboard with the program you are in,
   so nothing you type goes into them by accident.
+- **Keep the computer awake while downloading** (in Options, on by default)
+  stops Windows from going to sleep on its own while a download, a site grab
+  or a conversion runs, as IDM does. The screen can still turn off, and a
+  queue's own sleep or shutdown still happens.
 - **The download window** (double-click a download's name, or **More >
   Download window**) shows its address, status, size, how much is in, the
   transfer rate, the time left and whether the server lets it resume, with
@@ -413,7 +422,7 @@ tests, not in a running Firefox.
   retry one that failed. Site logins pair a site with a user name and
   password; a site can name one of its folders, such as
   `example.com/private/*`, to use another login there. When a server asks
-  for a login (HTTP Basic or Digest), UIDM sends the matching one to that
+  for a login (HTTP Basic, Digest or NTLM), UIDM sends the matching one to that
   site and no other. A saved login goes over plain http as Basic, or to an
   FTP server, only with its **Plain connections** box ticked, since there
   the password can be read on the way; a login saved from **Log in to the
@@ -936,6 +945,13 @@ over 1 KiB is dropped, and each step times out after 5 seconds.
 
 ## The download engine
 
+The engine talks HTTP/2 when the server offers it (through TLS ALPN, as IDM
+does) and HTTP/1.1 otherwise. On HTTP/2 the segments of a download are
+streams on one connection, and **Maximum connections per server** counts
+them as it counts connections. The client is reqwest's async one on a small
+shared runtime; the engine's threads block on each step, and a response that
+sends nothing for 60 seconds fails its segment, which is retried.
+
 Given an `add`, the engine:
 
 1. Probes the URL with a one-byte range request. A `206` reply means the server
@@ -1305,11 +1321,10 @@ proxy (`proxy_socks_ftp`, on by default): UIDM opens both the control and
 the data connections with a SOCKS CONNECT itself (SOCKS4, SOCKS4a or SOCKS5,
 with the SOCKS login), and always in passive mode, since the server cannot
 connect back through the proxy.
-ureq sends proxy credentials only when it tunnels `https://` requests, so
-for plain `http://` requests through a proxy with a login UIDM adds
-`Proxy-Authorization` itself and follows redirects itself, adding it only on
-`http://` hops and dropping `Cookie` and `Authorization` on every hop, so
-neither the proxy login nor a site's cookies reach another server. With
+A proxy's login goes to the proxy only (`Proxy-Authorization`, or the
+SOCKS handshake). UIDM follows redirects itself, dropping `Cookie` and
+`Authorization` on every hop, so a site's cookies and logins never reach
+another server. With
 `use_browser_proxy`, the extension reports the browser's whole proxy
 setting (`chrome.proxy`, Firefox's `browser.proxy`) with each download, and
 it wins for downloads that carry one: no proxy, its fixed HTTP and SOCKS
@@ -1336,13 +1351,19 @@ properties) replaces the site logins for its host. A request goes out
 without credentials. On a 401, UIDM picks the login for the address that
 answered and sends the request again, once, straight to that URL,
 with `Authorization` for the `WWW-Authenticate` challenge: Digest (MD5,
-MD5-sess, SHA-256, with `qop=auth`) when offered, else Basic. Basic over
+MD5-sess, SHA-256, with `qop=auth`) when offered, else NTLM, else Basic.
+NTLM (offered as `NTLM`, or as `Negotiate`, under which Windows servers take
+NTLM messages too) is a handshake on one connection: a negotiate message,
+the server's challenge in its 401, then an NTLMv2 answer, which proves the
+password without sending it, so plain http is fine. A user name written
+`DOMAIN\user` gives the domain. Each segment's connection does its own
+handshake. Signing in as the current Windows user without a saved login is
+not supported. Basic over
 plain http, and any FTP login, needs a login allowed on plain connections
 (a download's own login always is); otherwise the download asks for one,
 so a server offering only Basic cannot draw out a password saved for
-https. ureq never
-carries `Authorization` across a redirect, so a login never reaches another
-host. No login for the host fails with "This site needs a login: <host>",
+https. `Authorization` is never carried across a redirect, so a login
+never reaches another host. No login for the host fails with "This site needs a login: <host>",
 and a refused login with "The login for <host> was refused"; neither is
 retried.
 
@@ -1426,7 +1447,8 @@ the key from the playlist's key URL, fetched once, and the IV from the
 playlist or the segment's sequence number. Any other key system
 (`SAMPLE-AES`, or a `KEYFORMAT` other than `identity`, as FairPlay and
 Widevine use) is DRM and refused, as is a live playlist without
-`#EXT-X-ENDLIST`.
+`#EXT-X-ENDLIST`. Subtitle tracks (`#EXT-X-MEDIA:TYPE=SUBTITLES`) in the
+quality's `SUBTITLES` group are offered by name and language.
 
 **DASH.** UIDM reads a static manifest's `SegmentTemplate` (with a fixed
 duration or a `SegmentTimeline`, `$Number$`, `$Time$`, `$Bandwidth$`,
@@ -1435,7 +1457,9 @@ and `SegmentBase` or a plain `BaseURL` (the whole file), inheriting them
 from the period and adaptation set, and resolving `BaseURL`s at every level.
 It picks the best video and audio, or the ones chosen. `ContentProtection`
 marks DRM, refused; live (`dynamic`) manifests and manifests split into
-several periods are refused too.
+several periods are refused too. WebVTT subtitle sets (`text/vtt`) are
+offered by their `Label` or language; one with the `main` role is the
+default. TTML and WebVTT inside MP4 segments are left out.
 
 **HDS.** Adobe HTTP Dynamic Streaming (`.f4m`, `application/f4m+xml`, or XML
 whose root is `<manifest>` in the `ns.adobe.com/f4m` namespace). UIDM reads
@@ -1462,7 +1486,17 @@ only the missing ones. Then each track is joined in order. With ffmpeg,
 re-encoding; without it, an HLS video is saved as its `.ts` (or `.mp4` for
 fragmented MP4 segments), an HDS video as its `.flv`, and a stream with
 separate audio as two files, and
-the entry carries a note saying so. ffmpeg runs without a console window and
+the entry carries a note saying so.
+
+**Subtitles.** The video button's menu lists a stream's subtitle languages
+with a checkbox each, the stream's default ones ticked; the ticked ones go
+with whichever quality is clicked (not with the sound alone), as IDM keeps
+them. Their WebVTT segments are fetched with the video's and joined into one
+file, each segment's own header (and HLS's `X-TIMESTAMP-MAP`) dropped. With
+ffmpeg they go into the video as subtitle tracks (`mov_text` in an MP4,
+WebVTT in a WebM) with a three-letter language tag and the track's name;
+without it each is saved beside the video as `<name>.<language>.vtt`. A
+track that is not WebVTT text is skipped without failing the download. ffmpeg runs without a console window and
 its error, if any, becomes the download's error. Streams land in the Video
 category's folder whatever their extension.
 
@@ -1851,7 +1885,9 @@ would not display correctly yet.
 - Proxies, logins and new links. Unit tests cover site matching, proxies by
   scheme with credentials and bypass rules, Windows' proxy setting (read from
   the registry, off and on), Digest against the worked examples of RFC 2617
-  (MD5) and RFC 7616 (SHA-256), Basic, the most specific login, Credential
+  (MD5) and RFC 7616 (SHA-256), NTLMv2 against the MS-NLMP test vectors and
+  a local server that keeps its challenge per connection, Basic, the most
+  specific login, Credential
   Manager and DPAPI round trips, passwords never reaching the settings file,
   proxy and login validation, the browser's proxy setting as proxy rules
   (direct, fixed, script by address or as text, detection, system, and its
