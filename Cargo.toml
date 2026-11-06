@@ -39,6 +39,8 @@ getrandom = "0.4"
 url = "2"
 # Digest authentication for site logins (MD5 and MD5-sess; SHA-256 uses sha2).
 md-5 = "0.10"
+# NTLM logins: the NT hash of the password is MD4 (same digest family as md-5).
+md4 = "0.10"
 # Form bodies of POST downloads travel base64-encoded in JSON.
 base64 = "0.22"
 # HMAC-SHA256 proofs in the host <-> daemon handshake, so neither side ever

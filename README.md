@@ -422,7 +422,7 @@ tests, not in a running Firefox.
   retry one that failed. Site logins pair a site with a user name and
   password; a site can name one of its folders, such as
   `example.com/private/*`, to use another login there. When a server asks
-  for a login (HTTP Basic or Digest), UIDM sends the matching one to that
+  for a login (HTTP Basic, Digest or NTLM), UIDM sends the matching one to that
   site and no other. A saved login goes over plain http as Basic, or to an
   FTP server, only with its **Plain connections** box ticked, since there
   the password can be read on the way; a login saved from **Log in to the
@@ -1345,7 +1345,14 @@ properties) replaces the site logins for its host. A request goes out
 without credentials. On a 401, UIDM picks the login for the address that
 answered and sends the request again, once, straight to that URL,
 with `Authorization` for the `WWW-Authenticate` challenge: Digest (MD5,
-MD5-sess, SHA-256, with `qop=auth`) when offered, else Basic. Basic over
+MD5-sess, SHA-256, with `qop=auth`) when offered, else NTLM, else Basic.
+NTLM (offered as `NTLM`, or as `Negotiate`, under which Windows servers take
+NTLM messages too) is a handshake on one connection: a negotiate message,
+the server's challenge in its 401, then an NTLMv2 answer, which proves the
+password without sending it, so plain http is fine. A user name written
+`DOMAIN\user` gives the domain. Each segment's connection does its own
+handshake. Signing in as the current Windows user without a saved login is
+not supported. Basic over
 plain http, and any FTP login, needs a login allowed on plain connections
 (a download's own login always is); otherwise the download asks for one,
 so a server offering only Basic cannot draw out a password saved for
@@ -1873,7 +1880,9 @@ would not display correctly yet.
 - Proxies, logins and new links. Unit tests cover site matching, proxies by
   scheme with credentials and bypass rules, Windows' proxy setting (read from
   the registry, off and on), Digest against the worked examples of RFC 2617
-  (MD5) and RFC 7616 (SHA-256), Basic, the most specific login, Credential
+  (MD5) and RFC 7616 (SHA-256), NTLMv2 against the MS-NLMP test vectors and
+  a local server that keeps its challenge per connection, Basic, the most
+  specific login, Credential
   Manager and DPAPI round trips, passwords never reaching the settings file,
   proxy and login validation, the browser's proxy setting as proxy rules
   (direct, fixed, script by address or as text, detection, system, and its

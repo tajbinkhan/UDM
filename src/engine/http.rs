@@ -45,6 +45,10 @@ impl Probe {
 #[derive(Clone)]
 pub struct Client {
     agent: ureq::Agent,
+    /// A new agent like `agent` with a pool of its own, for an NTLM
+    /// handshake: its steps must share one connection, which another
+    /// segment's request could take from a shared pool.
+    fresh_agent: Arc<dyn Fn() -> ureq::Agent + Send + Sync>,
     logins: Arc<Vec<net::Login>>,
     /// `Proxy-Authorization` for plain http requests through an HTTP proxy
     /// with a login. ureq sends proxy credentials only when it tunnels
@@ -63,12 +67,9 @@ impl Client {
     /// A client for downloading `url` under `net`. The proxy is chosen for
     /// this URL's scheme and host.
     pub fn new(net: &NetConfig, url: &str) -> Result<Self, EngineError> {
-        let connector = native_tls::TlsConnector::new().map_err(|e| EngineError::Tls(e.to_string()))?;
-        let mut builder = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(20))
-            .timeout_read(Duration::from_secs(60))
-            .tls_connector(Arc::new(connector));
+        let connector = Arc::new(native_tls::TlsConnector::new().map_err(|e| EngineError::Tls(e.to_string()))?);
         let mut proxy_basic = None;
+        let mut agent_proxy: Option<ureq::Proxy> = None;
         let ftp = super::ftp::is_ftp(url);
         if let Some(rules) = net.proxy.as_ref().filter(|_| !ftp) {
             if let Some(proxy) = rules.proxy_for(url) {
@@ -76,15 +77,28 @@ impl Client {
                     use base64::Engine as _;
                     let pair = format!("{}:{}", login.username, login.password);
                     proxy_basic = Some(format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(pair)));
-                    builder = builder.redirects(0);
                 }
-                let proxy =
-                    ureq::Proxy::new(&proxy).map_err(|e| EngineError::Http(format!("bad proxy setting: {e}")))?;
-                builder = builder.proxy(proxy);
+                agent_proxy =
+                    Some(ureq::Proxy::new(&proxy).map_err(|e| EngineError::Http(format!("bad proxy setting: {e}")))?);
             }
         }
+        let by_hand = proxy_basic.is_some();
+        let make = move || {
+            let mut builder = ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(20))
+                .timeout_read(Duration::from_secs(60))
+                .tls_connector(Arc::clone(&connector));
+            if by_hand {
+                builder = builder.redirects(0);
+            }
+            if let Some(proxy) = &agent_proxy {
+                builder = builder.proxy(proxy.clone());
+            }
+            builder.build()
+        };
         Ok(Client {
-            agent: builder.build(),
+            agent: make(),
+            fresh_agent: Arc::new(make),
             logins: Arc::new(net.logins.clone()),
             proxy_basic,
             ftp: super::ftp::FtpOptions {
@@ -157,8 +171,8 @@ impl Client {
         body: Option<&[u8]>,
         proxy_auth: Option<&str>,
     ) -> Result<ureq::Response, EngineError> {
-        let build = |url: &str, auth: Option<&str>| {
-            let mut r = apply_headers(self.agent.request(method, url), headers);
+        let build_on = |agent: &ureq::Agent, url: &str, auth: Option<&str>| {
+            let mut r = apply_headers(agent.request(method, url), headers);
             if let Some(p) = proxy_auth {
                 r = r.set("Proxy-Authorization", p);
             }
@@ -173,6 +187,7 @@ impl Client {
                 None => r.call(),
             }
         };
+        let build = |url: &str, auth: Option<&str>| build_on(&self.agent, url, auth);
         match build(url, None) {
             Err(ureq::Error::Status(401, resp)) => {
                 let asked = resp.get_url().to_string();
@@ -181,6 +196,14 @@ impl Client {
                 let realm = net::realm(&challenges);
                 let needs = || EngineError::NeedsLogin(host.clone(), realm.clone());
                 let login = net::find_login(&self.logins, &asked).ok_or_else(needs)?;
+                if let Some(scheme) = net::ntlm_scheme(&challenges) {
+                    let agent = (self.fresh_agent)();
+                    let build = |url: &str, auth: Option<&str>| build_on(&agent, url, auth);
+                    return self.ntlm(scheme, &asked, login, &build).map_err(|e| match e {
+                        NtlmError::Rejected => EngineError::LoginRejected(host, realm),
+                        NtlmError::Other(e) => e,
+                    });
+                }
                 let auth = net::authorization(&challenges, login, method, &asked, &cnonce()).ok_or_else(needs)?;
                 // Basic sends the password as it is: over plain http it goes
                 // only with a login allowed there, else the user is asked.
@@ -195,6 +218,47 @@ impl Client {
                 }
             }
             other => other.map_err(map_ureq),
+        }
+    }
+}
+
+/// Sends the request with an `Authorization` header, for the NTLM
+/// handshake.
+type SendWith<'a> = &'a dyn Fn(&str, Option<&str>) -> Result<ureq::Response, ureq::Error>;
+
+/// Why an NTLM handshake did not get through.
+enum NtlmError {
+    /// The server refused the login.
+    Rejected,
+    Other(EngineError),
+}
+
+impl Client {
+    /// The NTLM handshake for `url` under `scheme` (`NTLM` or `Negotiate`):
+    /// a negotiate message, the server's challenge in its 401, then the
+    /// answer. The challenge's body is read to the end so the connection
+    /// goes back to the agent's pool and the answer goes on it, as NTLM
+    /// requires. `build` sends the request with an `Authorization` header.
+    #[allow(clippy::result_large_err)]
+    fn ntlm(&self, scheme: &str, url: &str, login: &net::Login, build: SendWith) -> Result<ureq::Response, NtlmError> {
+        use base64::Engine as _;
+        use std::io::Read as _;
+        let b64 = |m: Vec<u8>| base64::engine::general_purpose::STANDARD.encode(m);
+        let first = format!("{scheme} {}", b64(crate::ntlm::negotiate()));
+        let challenge = match build(url, Some(&first)) {
+            Err(ureq::Error::Status(401, resp)) => {
+                let challenges: Vec<String> = resp.all("www-authenticate").iter().map(|h| h.to_string()).collect();
+                let _ = std::io::copy(&mut resp.into_reader().take(1 << 20), &mut std::io::sink());
+                net::ntlm_challenge(&challenges, scheme).ok_or(NtlmError::Rejected)?
+            }
+            // Let in without the rest of the handshake.
+            other => return other.map_err(|e| NtlmError::Other(map_ureq(e))),
+        };
+        let answer =
+            crate::ntlm::authenticate(&challenge, &login.username, &login.password, &crate::ntlm::workstation());
+        match build(url, Some(&format!("{scheme} {}", b64(answer)))) {
+            Err(ureq::Error::Status(401, _)) => Err(NtlmError::Rejected),
+            other => other.map_err(|e| NtlmError::Other(map_ureq(e))),
         }
     }
 }

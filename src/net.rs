@@ -733,6 +733,36 @@ pub fn realm(challenges: &[String]) -> Option<String> {
     })
 }
 
+/// The scheme to answer `challenges` with by NTLM, when the server offers
+/// it and offers no Digest (which is preferred): `NTLM`, or `Negotiate`,
+/// which Windows servers also accept NTLM messages under.
+pub fn ntlm_scheme(challenges: &[String]) -> Option<&'static str> {
+    let schemes: Vec<String> = challenges.iter().map(|h| parse_challenge(h).0).collect();
+    if schemes.iter().any(|s| s == "digest") {
+        return None;
+    }
+    if schemes.iter().any(|s| s == "ntlm") {
+        Some("NTLM")
+    } else if schemes.iter().any(|s| s == "negotiate") {
+        Some("Negotiate")
+    } else {
+        None
+    }
+}
+
+/// The server's NTLM challenge message in `challenges`, the 401 answering
+/// a negotiate message sent under `scheme`.
+pub fn ntlm_challenge(challenges: &[String], scheme: &str) -> Option<crate::ntlm::Challenge> {
+    challenges.iter().find_map(|h| {
+        let (name, token) = h.trim().split_once(' ')?;
+        if !name.eq_ignore_ascii_case(scheme) {
+            return None;
+        }
+        let bytes = base64::engine::general_purpose::STANDARD.decode(token.trim()).ok()?;
+        crate::ntlm::parse_challenge(&bytes)
+    })
+}
+
 /// The `Authorization` header answering `challenges` (the server's
 /// `WWW-Authenticate` headers) for a `method` request to `url`, preferring
 /// Digest. `cnonce` is the client nonce Digest needs.
@@ -1361,6 +1391,11 @@ mod tests {
         .unwrap();
         assert!(both.starts_with("Digest "));
         assert_eq!(authorization(&["Negotiate".into()], &login("x"), "GET", "http://x/", "c"), None);
+        // NTLM comes after Digest, before Basic, and Negotiate carries it.
+        assert_eq!(ntlm_scheme(&["NTLM".into(), "Basic realm=\"x\"".into()]), Some("NTLM"));
+        assert_eq!(ntlm_scheme(&["Negotiate".into()]), Some("Negotiate"));
+        assert_eq!(ntlm_scheme(&["Digest realm=\"x\", nonce=\"n\"".into(), "NTLM".into()]), None);
+        assert_eq!(ntlm_scheme(&["Basic realm=\"x\"".into()]), None);
     }
 
     #[test]
