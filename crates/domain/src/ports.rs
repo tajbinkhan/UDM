@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use crate::download::Status;
-use crate::queue::Queue;
+use crate::queue::{Moment, Queue};
 
 /// The download queues, the main queue first.
 pub trait QueueStore: Send + Sync {
@@ -28,4 +28,36 @@ pub trait DownloadList: Send + Sync {
     /// Make download `id` wait to run again. Returns false when there is no
     /// such download.
     fn set_waiting(&self, id: u64) -> bool;
+
+    /// Whether download `id` is running: queued in the engine or downloading.
+    fn is_running(&self, id: u64) -> bool {
+        matches!(self.status(id), Some(Status::Queued | Status::Downloading))
+    }
+}
+
+/// Stops downloads that are running.
+pub trait DownloadControl: Send + Sync {
+    /// Stop download `id` so that it waits in its queue again, with its
+    /// progress kept.
+    fn hold(&self, id: u64);
+}
+
+/// What the scheduler remembers about each queue's current run.
+pub trait QueueRuns: Send + Sync {
+    /// Queue `queue` started a run with nothing started in it yet.
+    fn begin(&self, queue: u64);
+
+    /// Queue `queue`'s run ended (or the queue is gone).
+    fn end(&self, queue: u64);
+}
+
+/// The sounds the user may have chosen to hear.
+pub trait QueueSounds: Send + Sync {
+    /// A queue that was not running started.
+    fn queue_started(&self);
+}
+
+/// The computer's local date and time.
+pub trait Clock: Send + Sync {
+    fn now(&self) -> Moment;
 }

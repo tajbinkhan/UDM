@@ -215,6 +215,30 @@ impl Queue {
         Queue::new(MAIN_QUEUE, MAIN_QUEUE_NAME)
     }
 
+    /// Start the queue: its waiting downloads run in order. `scheduled_day`
+    /// is the day whose scheduled run this is, or `None` when started by
+    /// hand; `now` is when. Returns whether it was running already.
+    pub fn start(&mut self, scheduled_day: Option<i64>, now: Moment) -> bool {
+        let was = self.running;
+        self.running = true;
+        self.started_by_schedule = scheduled_day.is_some();
+        if scheduled_day.is_some() {
+            self.last_scheduled_day = scheduled_day;
+            self.last_scheduled_start = Some(now.total());
+        }
+        was
+    }
+
+    /// Stop the queue, forgetting the choices made for this run only.
+    pub fn stop(&mut self) {
+        self.running = false;
+        self.started_by_schedule = false;
+        self.when_done_once = None;
+        self.open_when_done_once = None;
+        self.force_close_once = None;
+        self.stop_at_once = None;
+    }
+
     /// Check the parts a user edits, with a message fit to show them.
     pub fn validate(&self) -> Result<(), String> {
         if self.name.trim().is_empty() {

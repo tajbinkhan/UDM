@@ -51,12 +51,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use uidm_application::queues::{DeleteQueue, MoveToQueue, RemoveFromQueue, SaveQueue};
+use uidm_application::queues::{DeleteQueue, MoveToQueue, RemoveFromQueue, SaveQueue, StartQueue, StopQueue};
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DownloadLogin, OnDone, Properties, Status, Validator};
-use uidm_domain::ports::{DownloadList, QueueStore};
+use uidm_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore};
 use uidm_domain::queue::{self, Queue, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
+use uidm_infrastructure::clock::LocalClock;
 use uidm_infrastructure::engine::DownloadRequest;
 use uidm_infrastructure::engine::{self, Engine, Progress};
 use uidm_infrastructure::grab::{self, GrabRequest};
@@ -530,6 +531,34 @@ impl DownloadList for Hub {
     }
 }
 
+// The daemon owns the engine, the scheduler's runs and the settings, so it
+// is the adapter for these ports until they move to uidm-infrastructure.
+impl QueueRuns for Daemon {
+    fn begin(&self, queue: u64) {
+        self.runs.lock().unwrap().insert(queue, HashSet::new());
+    }
+
+    fn end(&self, queue: u64) {
+        self.runs.lock().unwrap().remove(&queue);
+    }
+}
+
+impl QueueSounds for Daemon {
+    fn queue_started(&self) {
+        let settings = self.settings.lock().unwrap().clone();
+        if settings.sound_on_queue_started {
+            notify::play(Sound::QueueStarted, settings.sound_file(Sound::QueueStarted).as_deref());
+        }
+    }
+}
+
+impl DownloadControl for Daemon {
+    fn hold(&self, id: u64) {
+        self.hub.held.lock().unwrap().insert(id);
+        self.engine.cancel(id);
+    }
+}
+
 /// Where the daemon keeps its files. A path is `None` when its environment
 /// variable is missing; that data then lives in memory only.
 struct Paths {
@@ -808,58 +837,19 @@ impl Daemon {
     /// Delete a queue. Its downloads move to the main queue; the running ones
     /// keep running.
     fn delete_queue(&self, id: u64) -> Result<(), String> {
-        DeleteQueue::new(&*self.hub, &*self.hub).run(id).map_err(|e| e.to_string())?;
-        self.runs.lock().unwrap().remove(&id);
-        Ok(())
+        DeleteQueue::new(&*self.hub, &*self.hub, self).run(id).map_err(|e| e.to_string())
     }
 
-    /// Start a queue: its waiting downloads run in order.
+    /// Start a queue: its waiting downloads run in order. `scheduled_day` is
+    /// the day whose scheduled run this is, or `None` when started by hand.
     fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), String> {
-        let was_running = self.hub.update_queue(id, |q| {
-            let was = q.running;
-            q.running = true;
-            q.started_by_schedule = scheduled_day.is_some();
-            if scheduled_day.is_some() {
-                q.last_scheduled_day = scheduled_day;
-                q.last_scheduled_start = Some(uidm_infrastructure::clock::local_now().total());
-            }
-            Ok(was)
-        })?;
-        self.runs.lock().unwrap().insert(id, HashSet::new());
-        if !was_running {
-            let settings = self.settings.lock().unwrap().clone();
-            if settings.sound_on_queue_started {
-                notify::play(Sound::QueueStarted, settings.sound_file(Sound::QueueStarted).as_deref());
-            }
-        }
-        Ok(())
+        StartQueue::new(&*self.hub, self, &LocalClock, self).run(id, scheduled_day).map_err(|e| e.to_string())
     }
 
     /// Stop a queue. Its running downloads stop and wait in it again, with
     /// their progress kept.
     fn stop_queue(&self, id: u64) -> Result<(), String> {
-        let order = self.hub.update_queue(id, |q| {
-            q.running = false;
-            q.started_by_schedule = false;
-            q.when_done_once = None;
-            q.open_when_done_once = None;
-            q.force_close_once = None;
-            q.stop_at_once = None;
-            Ok(q.order.clone())
-        })?;
-        self.runs.lock().unwrap().remove(&id);
-        let running: Vec<u64> = {
-            let table = self.hub.table.lock().unwrap();
-            order
-                .into_iter()
-                .filter(|i| table.get(*i).is_some_and(|e| matches!(e.status, Status::Queued | Status::Downloading)))
-                .collect()
-        };
-        for i in running {
-            self.hub.held.lock().unwrap().insert(i);
-            self.engine.cancel(i);
-        }
-        Ok(())
+        StopQueue::new(&*self.hub, &*self.hub, self, self).run(id).map_err(|e| e.to_string())
     }
 
     /// One pass of the scheduler: start and stop queues on their schedules,

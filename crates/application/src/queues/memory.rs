@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use uidm_domain::download::Status;
-use uidm_domain::ports::{DownloadList, QueueStore};
-use uidm_domain::queue::{Queue, MAIN_QUEUE, MAIN_QUEUE_NAME};
+use uidm_domain::ports::{Clock, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore};
+use uidm_domain::queue::{Moment, Queue, MAIN_QUEUE, MAIN_QUEUE_NAME};
 
 pub struct Queues {
     list: Mutex<Vec<Queue>>,
@@ -59,5 +59,68 @@ impl DownloadList for Downloads {
 
     fn set_waiting(&self, id: u64) -> bool {
         self.0.lock().unwrap().get_mut(&id).map(|s| *s = Status::Waiting).is_some()
+    }
+}
+
+/// The queues that have a run going.
+#[derive(Default)]
+pub struct Runs(Mutex<HashSet<u64>>);
+
+impl Runs {
+    pub fn running(&self, queue: u64) -> bool {
+        self.0.lock().unwrap().contains(&queue)
+    }
+}
+
+impl QueueRuns for Runs {
+    fn begin(&self, queue: u64) {
+        self.0.lock().unwrap().insert(queue);
+    }
+
+    fn end(&self, queue: u64) {
+        self.0.lock().unwrap().remove(&queue);
+    }
+}
+
+/// Counts the sounds played.
+#[derive(Default)]
+pub struct Sounds(AtomicUsize);
+
+impl Sounds {
+    pub fn started(&self) -> usize {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+impl QueueSounds for Sounds {
+    fn queue_started(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Records the downloads held.
+#[derive(Default)]
+pub struct Control(Mutex<Vec<u64>>);
+
+impl Control {
+    pub fn held(&self) -> Vec<u64> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+impl DownloadControl for Control {
+    fn hold(&self, id: u64) {
+        self.0.lock().unwrap().push(id);
+    }
+}
+
+/// A clock stopped at Wed 2026-10-28 09:30.
+pub struct FixedClock(pub Moment);
+
+pub const FIXED_NOW: FixedClock = FixedClock(Moment { day: 20754, minute: 9 * 60 + 30 });
+
+impl Clock for FixedClock {
+    fn now(&self) -> Moment {
+        self.0
     }
 }

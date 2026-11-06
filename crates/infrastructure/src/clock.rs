@@ -1,7 +1,17 @@
 //! The computer's local clock. The queue rules in `uidm_domain::queue` take
 //! the time as a parameter; this is where it comes from.
 
+use uidm_domain::ports::Clock;
 use uidm_domain::queue::{days_from_civil, Moment};
+
+/// The [`Clock`] port over the computer's clock.
+pub struct LocalClock;
+
+impl Clock for LocalClock {
+    fn now(&self) -> Moment {
+        local_now()
+    }
+}
 
 #[cfg(windows)]
 #[repr(C)]
