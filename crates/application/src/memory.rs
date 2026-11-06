@@ -7,10 +7,10 @@ use std::sync::Mutex;
 
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::ports::{
-    Clock, ControlError, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads, QueueRuns,
-    QueueSounds, QueueStore,
+    Clock, ControlError, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads, QueueFinish,
+    QueueRuns, QueueSounds, QueueStore, SyncChecks,
 };
-use uidm_domain::queue::{Moment, Queue, MAIN_QUEUE, MAIN_QUEUE_NAME};
+use uidm_domain::queue::{Moment, Queue, RunEnd, MAIN_QUEUE, MAIN_QUEUE_NAME};
 
 pub struct Queues {
     list: Mutex<Vec<Queue>>,
@@ -137,9 +137,10 @@ impl DownloadList for Downloads {
     }
 }
 
-/// The queues that have a run going, with what each run started.
+/// The queues that have a run going, with what each run started, and the
+/// retries counted per download.
 #[derive(Default)]
-pub struct Runs(Mutex<HashMap<u64, HashSet<u64>>>);
+pub struct Runs(Mutex<HashMap<u64, HashSet<u64>>>, Mutex<HashMap<u64, u32>>);
 
 impl Runs {
     pub fn running(&self, queue: u64) -> bool {
@@ -161,8 +162,25 @@ impl QueueRuns for Runs {
         self.0.lock().unwrap().remove(&queue);
     }
 
-    fn started_any(&self, queue: u64) -> bool {
-        self.0.lock().unwrap().get(&queue).is_some_and(|r| !r.is_empty())
+    fn started_in_run(&self, queue: u64) -> HashSet<u64> {
+        self.0.lock().unwrap().get(&queue).cloned().unwrap_or_default()
+    }
+
+    fn note_started(&self, queue: u64, id: u64) {
+        self.started(queue, id);
+    }
+
+    fn count_retry(&self, id: u64, max: u32) -> Option<u32> {
+        let mut retries = self.1.lock().unwrap();
+        let n = retries.entry(id).or_insert(0);
+        (*n < max).then(|| {
+            *n += 1;
+            *n
+        })
+    }
+
+    fn forget_retries(&self, ids: &HashSet<u64>) {
+        self.1.lock().unwrap().retain(|id, _| !ids.contains(id));
     }
 }
 
@@ -193,6 +211,7 @@ pub struct Control {
     restarted: Mutex<Vec<Restart>>,
     limits: Mutex<Vec<(u64, Option<u64>)>>,
     started_again: Mutex<Vec<(u64, Download)>>,
+    dispatched: Mutex<Vec<u64>>,
     waiting_for_link: Mutex<Option<u64>>,
     refuse: HashSet<u64>,
     /// What [`DownloadControl::check_partial`] answers.
@@ -245,6 +264,10 @@ impl Control {
         self.started_again.lock().unwrap().clone()
     }
 
+    pub fn dispatched(&self) -> Vec<u64> {
+        self.dispatched.lock().unwrap().clone()
+    }
+
     /// A control whose partial-file checks answer `answer`.
     pub fn checking(answer: Result<Option<String>, ControlError>) -> Self {
         Control { partial_check: Some(answer), ..Control::default() }
@@ -278,6 +301,14 @@ impl DownloadControl for Control {
 
     fn start_again(&self, id: u64, download: Download) {
         self.started_again.lock().unwrap().push((id, download));
+    }
+
+    fn dispatch(&self, id: u64) -> bool {
+        if self.refuse.contains(&id) {
+            return false;
+        }
+        self.dispatched.lock().unwrap().push(id);
+        true
     }
 
     fn wait_for_link(&self, id: Option<u64>) {
@@ -396,5 +427,49 @@ pub const FIXED_NOW: FixedClock = FixedClock(Moment { day: 20754, minute: 9 * 60
 impl Clock for FixedClock {
     fn now(&self) -> Moment {
         self.0
+    }
+}
+
+/// Records the checks started; `running` are the ones going on.
+#[derive(Default)]
+pub struct Checks {
+    running: HashSet<u64>,
+    started: Mutex<Vec<u64>>,
+}
+
+impl Checks {
+    /// Checks where the downloads in `running` are being checked now.
+    pub fn going_on(running: &[u64]) -> Self {
+        Checks { running: running.iter().copied().collect(), ..Checks::default() }
+    }
+
+    pub fn started(&self) -> Vec<u64> {
+        self.started.lock().unwrap().clone()
+    }
+}
+
+impl SyncChecks for Checks {
+    fn checking(&self) -> HashSet<u64> {
+        self.running.clone()
+    }
+
+    fn check(&self, id: u64) {
+        self.started.lock().unwrap().push(id);
+    }
+}
+
+/// Records the runs that ended.
+#[derive(Default)]
+pub struct Finish(Mutex<Vec<(String, RunEnd)>>);
+
+impl Finish {
+    pub fn ended(&self) -> Vec<(String, RunEnd)> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+impl QueueFinish for Finish {
+    fn run_ended(&self, queue: &str, end: &RunEnd) {
+        self.0.lock().unwrap().push((queue.to_string(), end.clone()));
     }
 }

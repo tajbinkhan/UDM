@@ -56,14 +56,16 @@ use uidm_application::downloads::{
     SetProperties, SetSpeedLimit, StopRunning, Stopped,
 };
 use uidm_application::queues::{
-    DeleteQueue, MoveToQueue, RemoveFromQueue, RunSchedules, SaveQueue, Scheduled, StartQueue, StopQueue,
+    DeleteQueue, MoveToQueue, QueueEvent, RemoveFromQueue, RunQueues, RunSchedules, SaveQueue, Scheduled, StartQueue,
+    StopQueue,
 };
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Status, Validator};
 use uidm_domain::ports::{
-    ControlError, DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueSounds, QueueStore,
+    ControlError, DownloadControl, DownloadList, PausedDownloads, QueueFinish, QueueRuns, QueueSounds, QueueStore,
+    SyncChecks,
 };
-use uidm_domain::queue::{self, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
+use uidm_domain::queue::{self, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::clock::LocalClock;
 use uidm_infrastructure::engine::DownloadRequest;
@@ -590,8 +592,61 @@ impl QueueRuns for Daemon {
         self.runs.lock().unwrap().remove(&queue);
     }
 
-    fn started_any(&self, queue: u64) -> bool {
-        self.runs.lock().unwrap().get(&queue).is_some_and(|r| !r.is_empty())
+    fn started_in_run(&self, queue: u64) -> HashSet<u64> {
+        self.runs.lock().unwrap().get(&queue).cloned().unwrap_or_default()
+    }
+
+    fn note_started(&self, queue: u64, id: u64) {
+        self.runs.lock().unwrap().entry(queue).or_default().insert(id);
+    }
+
+    fn count_retry(&self, id: u64, max: u32) -> Option<u32> {
+        let mut attempts = self.attempts.lock().unwrap();
+        let n = attempts.entry(id).or_insert(0);
+        (*n < max).then(|| {
+            *n += 1;
+            *n
+        })
+    }
+
+    fn forget_retries(&self, ids: &HashSet<u64>) {
+        let mut attempts = self.attempts.lock().unwrap();
+        for id in ids {
+            attempts.remove(id);
+        }
+    }
+}
+
+impl QueueFinish for Daemon {
+    fn run_ended(&self, queue: &str, end: &RunEnd) {
+        let settings = self.settings.lock().unwrap().clone();
+        if settings.sound_on_queue_done {
+            notify::play(Sound::QueueDone, settings.sound_file(Sound::QueueDone).as_deref());
+        }
+        if let Some(file) = &end.open {
+            open_after_run(file);
+        }
+        self.when_done(end.action, queue, None, end.force_close);
+    }
+}
+
+/// The checks a synchronizing queue runs, each on a thread of its own that
+/// holds the daemon.
+struct SyncCheck<'a>(&'a Arc<Daemon>);
+
+impl SyncChecks for SyncCheck<'_> {
+    fn checking(&self) -> HashSet<u64> {
+        self.0.checking.lock().unwrap().clone()
+    }
+
+    fn check(&self, id: u64) {
+        self.0.checking.lock().unwrap().insert(id);
+        let daemon = Arc::clone(self.0);
+        thread::spawn(move || {
+            let _ = daemon.check_for_change(id);
+            daemon.checking.lock().unwrap().remove(&id);
+            let _ = daemon.hub.wake.send(());
+        });
     }
 }
 
@@ -625,6 +680,10 @@ impl DownloadControl for Daemon {
     fn start_again(&self, id: u64, download: Download) {
         let req = self.request_for(download);
         self.engine.enqueue_as(id, req);
+    }
+
+    fn dispatch(&self, id: u64) -> bool {
+        Daemon::dispatch(self, id).is_ok()
     }
 
     fn wait_for_link(&self, id: Option<u64>) {
@@ -986,71 +1045,13 @@ impl Daemon {
             eprintln!("[uidm-daemon] {why} queue {queue}");
         }
 
-        let queues = self.hub.queues.lock().unwrap().clone();
-        for q in queues.iter().filter(|q| q.running) {
-            let statuses: Vec<(u64, Status)> = {
-                let table = self.hub.table.lock().unwrap();
-                q.order.iter().filter_map(|id| table.get(*id).map(|e| (*id, e.status))).collect()
-            };
-            let started = self.runs.lock().unwrap().entry(q.id).or_default().clone();
-
-            // Failed in this run and retries left: wait again.
-            for (id, status) in &statuses {
-                if *status == Status::Failed && started.contains(id) {
-                    let mut attempts = self.attempts.lock().unwrap();
-                    let n = attempts.entry(*id).or_insert(0);
-                    if *n < q.retries {
-                        *n += 1;
-                        eprintln!("[uidm-daemon] queue {} retries #{id} ({}/{})", q.name, n, q.retries);
-                        drop(attempts);
-                        let _ = self.hub.update(*id, |e| {
-                            e.status = Status::Waiting;
-                            Ok(())
-                        });
-                    }
+        let events = RunQueues::new(&*self.hub, &*self.hub, &**self, &**self, &SyncCheck(self), &**self).run();
+        for event in events {
+            match event {
+                QueueEvent::Retried { queue, id, attempt, of } => {
+                    eprintln!("[uidm-daemon] queue {queue} retries #{id} ({attempt}/{of})")
                 }
-            }
-            let statuses: Vec<(u64, Status)> = {
-                let table = self.hub.table.lock().unwrap();
-                q.order.iter().filter_map(|id| table.get(*id).map(|e| (*id, e.status))).collect()
-            };
-
-            let checking = self.checking.lock().unwrap().clone();
-            let mut active = statuses
-                .iter()
-                .filter(|(id, s)| matches!(s, Status::Queued | Status::Downloading) || checking.contains(id))
-                .count();
-            for (id, status) in &statuses {
-                if active >= q.max_concurrent {
-                    break;
-                }
-                if *status == Status::Waiting && self.dispatch(*id).is_ok() {
-                    self.runs.lock().unwrap().entry(q.id).or_default().insert(*id);
-                    active += 1;
-                }
-                // A synchronizing run checks each finished download once,
-                // as many at a time as it downloads.
-                let unchecked = || !self.runs.lock().unwrap().get(&q.id).is_some_and(|r| r.contains(id));
-                if q.kind.is_sync() && *status == Status::Done && !checking.contains(id) && unchecked() {
-                    self.runs.lock().unwrap().entry(q.id).or_default().insert(*id);
-                    self.checking.lock().unwrap().insert(*id);
-                    active += 1;
-                    let (daemon, id) = (Arc::clone(self), *id);
-                    thread::spawn(move || {
-                        let _ = daemon.check_for_change(id);
-                        daemon.checking.lock().unwrap().remove(&id);
-                        let _ = daemon.hub.wake.send(());
-                    });
-                }
-            }
-
-            // A download asking about a taken file name is still to do.
-            let busy = active > 0 || statuses.iter().any(|(_, s)| matches!(s, Status::Waiting | Status::Confirming));
-            // A scheduled run that has started nothing yet stays open until
-            // its stop time, for downloads added meanwhile.
-            let started_any = !self.runs.lock().unwrap().get(&q.id).is_none_or(|r| r.is_empty());
-            if !busy && (started_any || !q.started_by_schedule) {
-                self.finish_run(q.id);
+                QueueEvent::Finished { queue } => eprintln!("[uidm-daemon] queue {queue} is done"),
             }
         }
     }
@@ -1160,40 +1161,6 @@ impl Daemon {
             }
         }
         (changed, listed)
-    }
-
-    /// A started queue has nothing left to do: stop it and, if it started
-    /// anything, do what it asks when done.
-    fn finish_run(&self, id: u64) {
-        let started = self.runs.lock().unwrap().remove(&id).unwrap_or_default();
-        {
-            let mut attempts = self.attempts.lock().unwrap();
-            for d in &started {
-                attempts.remove(d);
-            }
-        }
-        let Ok((name, action, open, force_close)) = self.hub.update_queue(id, |q| {
-            q.running = false;
-            q.started_by_schedule = false;
-            q.stop_at_once = None;
-            let action = q.when_done_once.take().unwrap_or(q.when_done);
-            let open = q.open_when_done_once.take().or_else(|| q.open_when_done.clone());
-            let force_close = q.force_close_once.take().unwrap_or(q.force_close);
-            Ok((q.name.clone(), action, open, force_close))
-        }) else {
-            return;
-        };
-        eprintln!("[uidm-daemon] queue {name} is done");
-        if !started.is_empty() {
-            let settings = self.settings.lock().unwrap().clone();
-            if settings.sound_on_queue_done {
-                notify::play(Sound::QueueDone, settings.sound_file(Sound::QueueDone).as_deref());
-            }
-            if let Some(file) = open {
-                open_after_run(&file);
-            }
-            self.when_done(action, &name, None, force_close);
-        }
     }
 
     /// Do what a finished queue, or with `file` one finished download, asks.

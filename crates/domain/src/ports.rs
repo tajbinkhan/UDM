@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::download::{Download, DownloadEntry, Status};
-use crate::queue::{Moment, Queue};
+use crate::queue::{Moment, Queue, RunEnd};
 
 /// The download queues, the main queue first.
 pub trait QueueStore: Send + Sync {
@@ -88,6 +88,9 @@ pub trait DownloadControl: Send + Sync {
     /// Start download `id` again under its own id from `download`.
     fn start_again(&self, id: u64, download: Download);
 
+    /// Hand waiting download `id` to the engine. Returns whether it started.
+    fn dispatch(&self, id: u64) -> bool;
+
     /// Make download `id` the one waiting for the next link the browser
     /// hands over, or none, and tell every client.
     fn wait_for_link(&self, id: Option<u64>);
@@ -160,7 +163,40 @@ pub trait QueueRuns: Send + Sync {
     fn end(&self, queue: u64);
 
     /// Whether queue `queue`'s current run started any download.
-    fn started_any(&self, queue: u64) -> bool;
+    fn started_any(&self, queue: u64) -> bool {
+        !self.started_in_run(queue).is_empty()
+    }
+
+    /// The downloads queue `queue`'s current run started (or checked).
+    fn started_in_run(&self, queue: u64) -> HashSet<u64>;
+
+    /// Queue `queue`'s run started (or checked) download `id`.
+    fn note_started(&self, queue: u64, id: u64);
+
+    /// Count one more retry of download `id`, if it has had fewer than
+    /// `max`. Returns its new count, or `None` when it has had them all.
+    fn count_retry(&self, id: u64, max: u32) -> Option<u32>;
+
+    /// Forget the retries counted for `ids`.
+    fn forget_retries(&self, ids: &HashSet<u64>);
+}
+
+/// The background checks a synchronizing queue runs on its finished
+/// downloads: has the server's copy changed since?
+pub trait SyncChecks: Send + Sync {
+    /// The downloads being checked now.
+    fn checking(&self) -> HashSet<u64>;
+
+    /// Start checking finished download `id`. When its copy changed, it
+    /// waits to be downloaded again; the scheduler hears when the check ends.
+    fn check(&self, id: u64);
+}
+
+/// What happens when a queue's run ends having started something.
+pub trait QueueFinish: Send + Sync {
+    /// Queue `queue`'s run ended as `end` asks: play the sound the user
+    /// chose, open the file, and sleep, shut down or exit if asked.
+    fn run_ended(&self, queue: &str, end: &RunEnd);
 }
 
 /// The sounds the user may have chosen to hear.

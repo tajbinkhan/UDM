@@ -215,6 +215,31 @@ impl Queue {
         Queue::new(MAIN_QUEUE, MAIN_QUEUE_NAME)
     }
 
+    /// End the run: the queue stops, and the choices made for this run
+    /// only give way to its own settings again. Returns what the end of the
+    /// run asks for.
+    pub fn finish_run(&mut self) -> RunEnd {
+        self.running = false;
+        self.started_by_schedule = false;
+        self.stop_at_once = None;
+        RunEnd {
+            action: self.when_done_once.take().unwrap_or(self.when_done),
+            open: self.open_when_done_once.take().or_else(|| self.open_when_done.clone()),
+            force_close: self.force_close_once.take().unwrap_or(self.force_close),
+        }
+    }
+
+    /// Whether the run has nothing left to do. `statuses` are its
+    /// downloads' states, `active` how many of them run or are being
+    /// checked, and `started_any` whether the run started any. A download
+    /// waiting, or asking about a taken file name, is still to do; a
+    /// scheduled run that has started nothing yet stays open until its stop
+    /// time, for downloads added meanwhile.
+    pub fn run_finished(&self, statuses: &[(u64, Status)], active: usize, started_any: bool) -> bool {
+        let busy = active > 0 || statuses.iter().any(|(_, s)| matches!(s, Status::Waiting | Status::Confirming));
+        !busy && (started_any || !self.started_by_schedule)
+    }
+
     /// What the queue's schedule asks of it at `now`, if anything.
     /// `started_any` says whether its current run started any download.
     pub fn schedule_step(&self, now: Moment, started_any: bool) -> Option<ScheduleStep> {
@@ -284,6 +309,17 @@ impl Queue {
         }
         Ok(())
     }
+}
+
+/// What a queue does when a run ends, after its downloads are done.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunEnd {
+    /// Nothing, sleep, hibernate, shut down, or exit UIDM.
+    pub action: WhenDone,
+    /// A file to open.
+    pub open: Option<String>,
+    /// Close programs that would stop a shutdown.
+    pub force_close: bool,
 }
 
 /// What a queue's schedule asks of it at a given moment.
@@ -843,5 +879,29 @@ mod tests {
         assert_eq!(q.schedule_step(now, true), None, "it is not running");
         q.start(None, now);
         assert_eq!(q.schedule_step(now, true), Some(ScheduleStep::Stop(StopReason::GrabberStopTime)));
+    }
+
+    #[test]
+    fn finishing_a_run_uses_this_runs_choices_once() {
+        let mut q = Queue { when_done: WhenDone::Sleep, open_when_done: Some("a.txt".into()), ..Queue::main() };
+        q.start(None, at("2026-10-28", "12:00"));
+        q.when_done_once = Some(WhenDone::ShutDown);
+        q.force_close_once = Some(true);
+        let end = q.finish_run();
+        assert_eq!(end, RunEnd { action: WhenDone::ShutDown, open: Some("a.txt".into()), force_close: true });
+        assert!(!q.running);
+        assert_eq!(q.finish_run().action, WhenDone::Sleep, "the next run uses the queue's own setting");
+    }
+
+    #[test]
+    fn a_run_ends_when_nothing_is_left_to_do() {
+        let q = Queue::main();
+        assert!(q.run_finished(&[(1, Status::Done)], 0, true));
+        assert!(!q.run_finished(&[(1, Status::Done)], 1, true), "one is running");
+        assert!(!q.run_finished(&[(1, Status::Waiting)], 0, true));
+        assert!(!q.run_finished(&[(1, Status::Confirming)], 0, true));
+        let scheduled = Queue { started_by_schedule: true, ..Queue::main() };
+        assert!(!scheduled.run_finished(&[], 0, false), "it waits for downloads added before its stop time");
+        assert!(scheduled.run_finished(&[], 0, true));
     }
 }

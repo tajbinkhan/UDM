@@ -3,16 +3,20 @@
 //! them.
 
 mod delete_queue;
+mod finish_run;
 mod move_to_queue;
 mod remove_from_queue;
+mod run_queues;
 mod run_schedules;
 mod save_queue;
 mod start_queue;
 mod stop_queue;
 
 pub use delete_queue::DeleteQueue;
+pub use finish_run::FinishRun;
 pub use move_to_queue::MoveToQueue;
 pub use remove_from_queue::RemoveFromQueue;
+pub use run_queues::{QueueEvent, RunQueues};
 pub use run_schedules::{RunSchedules, Scheduled};
 pub use save_queue::SaveQueue;
 pub use start_queue::StartQueue;

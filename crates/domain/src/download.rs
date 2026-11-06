@@ -368,6 +368,11 @@ impl Status {
         matches!(self, Status::Done | Status::Failed | Status::Canceled | Status::Interrupted | Status::Waiting)
     }
 
+    /// Running: queued in the engine or downloading.
+    pub fn is_active(self) -> bool {
+        matches!(self, Status::Queued | Status::Downloading)
+    }
+
     /// Stopped before finishing, so it can be started again.
     pub fn is_retryable(self) -> bool {
         matches!(self, Status::Failed | Status::Canceled | Status::Interrupted | Status::Waiting)
