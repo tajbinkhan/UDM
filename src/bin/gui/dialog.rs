@@ -65,6 +65,8 @@ struct Placement {
     fitted: bool,
     /// It has been brought in front of other programs' windows.
     raised: bool,
+    /// The main window owns it, so it stays in front of the main window.
+    owned: bool,
     /// It took the focus when it opened. Decided once, since egui makes a
     /// new window whenever this changes.
     active: bool,
@@ -172,6 +174,7 @@ impl<'o> Window<'o> {
                 center: main.center(),
                 fitted: false,
                 raised: false,
+                owned: false,
                 active: match self.opening {
                     Opening::Focus => true,
                     Opening::OnTop => crate::win::in_front(),
@@ -194,6 +197,10 @@ impl<'o> Window<'o> {
             Opening::Quiet => builder.with_active(false),
         };
         let opening = self.opening;
+        // A window with its own taskbar button (a download's) stands on its
+        // own, as IDM's do; every other dialog stays in front of the main
+        // window.
+        let owner = !self.taskbar;
 
         let closable = self.open.is_some();
         let resizable = self.resizable;
@@ -254,6 +261,9 @@ impl<'o> Window<'o> {
             if !place.raised && opening == Opening::Focus {
                 ctx.send_viewport_cmd(ViewportCommand::Focus);
                 place.raised = crate::win::raise_window(&self.title);
+            }
+            if owner && !place.owned {
+                place.owned = crate::win::own_window(&self.title);
             }
             Some(InnerResponse::new(r, panel.response))
         });
