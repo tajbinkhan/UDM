@@ -8,7 +8,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::protocol::{DownloadEntry, Outgoing, Status};
+use crate::protocol::Outgoing;
+
+use uidm_domain::download::{DownloadEntry, Status};
 
 #[derive(Debug, Default, Clone)]
 pub struct DownloadTable {

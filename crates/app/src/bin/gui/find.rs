@@ -5,7 +5,7 @@
 //! choice of where to look.
 
 use eframe::egui;
-use uidm_infrastructure::protocol::DownloadEntry;
+use uidm_domain::download::DownloadEntry;
 
 use super::display_name;
 use crate::i18n::{tr, trf};
@@ -210,7 +210,7 @@ pub fn show(ui: &mut egui::Ui, bar: &mut FindBar, ids: &[u64]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_infrastructure::protocol::Status;
+    use uidm_domain::download::Status;
 
     fn entry(id: u64, url: &str, path: Option<&str>, referrer: Option<&str>) -> DownloadEntry {
         DownloadEntry {

@@ -11,64 +11,41 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use serde::{Deserialize, Serialize};
+pub use uidm_domain::media::Target;
 
-/// What a video becomes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Target {
-    Mp4,
-    Mp3,
-    M4a,
-}
-
-impl Target {
-    pub fn extension(self) -> &'static str {
-        match self {
-            Target::Mp4 => "mp4",
-            Target::Mp3 => "mp3",
-            Target::M4a => "m4a",
-        }
-    }
-
-    pub fn audio_only(self) -> bool {
-        self != Target::Mp4
-    }
-
-    /// The ffmpeg arguments between the input and the output: a copy of
-    /// the streams first, then an encode.
-    fn attempts(self) -> [&'static [&'static str]; 2] {
-        match self {
-            Target::Mp4 => [
-                &["-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart"],
-                &[
-                    "-map",
-                    "0:v:0?",
-                    "-map",
-                    "0:a:0?",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "23",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "160k",
-                    "-movflags",
-                    "+faststart",
-                ],
+/// The ffmpeg arguments between the input and the output: a copy of
+/// the streams first, then an encode.
+fn attempts(target: Target) -> [&'static [&'static str]; 2] {
+    match target {
+        Target::Mp4 => [
+            &["-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart"],
+            &[
+                "-map",
+                "0:v:0?",
+                "-map",
+                "0:a:0?",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "160k",
+                "-movflags",
+                "+faststart",
             ],
-            Target::M4a => {
-                [&["-vn", "-map", "0:a:0", "-c:a", "copy"], &["-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]]
-            }
-            // MP3 is always encoded; the copy only works for MP3 sound.
-            Target::Mp3 => [
-                &["-vn", "-map", "0:a:0", "-c:a", "copy", "-f", "mp3"],
-                &["-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "2"],
-            ],
+        ],
+        Target::M4a => {
+            [&["-vn", "-map", "0:a:0", "-c:a", "copy"], &["-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]]
         }
+        // MP3 is always encoded; the copy only works for MP3 sound.
+        Target::Mp3 => [
+            &["-vn", "-map", "0:a:0", "-c:a", "copy", "-f", "mp3"],
+            &["-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "2"],
+        ],
     }
 }
 
@@ -162,7 +139,7 @@ pub fn convert(
     cancel: &AtomicBool,
     mut progress: impl FnMut(f64),
 ) -> Result<(), String> {
-    let [copy, encode] = target.attempts();
+    let [copy, encode] = attempts(target);
     match run_once(ffmpeg, input, output, copy, cancel, &mut progress) {
         Ok(()) => Ok(()),
         Err(e) if e == "canceled" => Err(e),

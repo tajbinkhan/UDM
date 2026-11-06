@@ -32,11 +32,11 @@ use uidm_domain::filename::{numbered_name, sanitize_filename};
 
 use crate::media::MediaChoice;
 use crate::net::NetConfig;
-use crate::protocol::{SegmentInfo, SegmentState, Validator};
 use crate::settings::{FileExists, Folders};
 use limit::{RateLimiter, Throttle};
 use resume::Manifest;
 use segments::split;
+use uidm_domain::download::{SegmentInfo, SegmentState, Validator};
 
 /// Smallest file worth splitting; below this, one connection is used.
 const MIN_SEGMENT_BYTES: u64 = 256 * 1024;

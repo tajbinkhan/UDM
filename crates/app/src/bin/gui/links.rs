@@ -12,9 +12,9 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
+use uidm_domain::download::{Download, PageLink};
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
 use uidm_domain::settings::{Settings, GENERAL};
-use uidm_infrastructure::protocol::{Download, PageLink};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::i18n::{tr, trf};

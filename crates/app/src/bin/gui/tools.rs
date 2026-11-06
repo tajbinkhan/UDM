@@ -8,10 +8,10 @@ use std::thread;
 
 use eframe::egui;
 use uidm_domain::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
+use uidm_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
 use uidm_infrastructure::grab::{self, GrabFile, GrabRequest, SaveTo};
 use uidm_infrastructure::listfile;
-use uidm_infrastructure::protocol::{Download, DownloadEntry, DownloadLogin, Status};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::i18n::{tr, trf};

@@ -105,15 +105,7 @@ fn with_query(url: &str, query: Option<&str>) -> String {
     }
 }
 
-/// Whether `text` is an F4M manifest: XML whose root is `<manifest>` in
-/// Adobe's F4M namespace.
-pub fn sniff(text: &str) -> bool {
-    let head = text.trim_start_matches('\u{feff}').trim_start();
-    let head = &head.as_bytes()[..head.len().min(4096)];
-    head.starts_with(b"<")
-        && head.windows(9).any(|w| w == b"<manifest")
-        && head.windows(16).any(|w| w == b"ns.adobe.com/f4m")
-}
+pub use uidm_domain::media::sniff_hds as sniff;
 
 /// Read a manifest fetched from `url`.
 pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {

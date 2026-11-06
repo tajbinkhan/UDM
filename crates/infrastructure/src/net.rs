@@ -463,9 +463,9 @@ pub fn proxy_from_env(var: impl Fn(&str) -> Option<String>) -> Option<ProxyRules
 /// System mode reads it. A script given as text runs as one at an address
 /// does (see `pac::PacSource::Script`). HTTPS and QUIC proxies, which the
 /// download engine cannot speak, are left out.
-pub fn browser_proxy_rules(p: &crate::protocol::BrowserProxy) -> Option<ProxyRules> {
+pub fn browser_proxy_rules(p: &uidm_domain::download::BrowserProxy) -> Option<ProxyRules> {
     use crate::pac::PacSource;
-    use crate::protocol::BrowserProxyMode;
+    use uidm_domain::download::BrowserProxyMode;
     let bypass = browser_bypass(&p.bypass);
     match p.mode {
         BrowserProxyMode::Direct => None,
@@ -1078,7 +1078,7 @@ mod tests {
     #[test]
     fn the_browsers_proxy_setting_maps_to_proxy_rules() {
         use crate::pac::PacSource;
-        use crate::protocol::{BrowserProxy, BrowserProxyMode};
+        use uidm_domain::download::{BrowserProxy, BrowserProxyMode};
         let p = |mode, f: &dyn Fn(&mut BrowserProxy)| {
             let mut p = BrowserProxy { mode, ..BrowserProxy::default() };
             f(&mut p);

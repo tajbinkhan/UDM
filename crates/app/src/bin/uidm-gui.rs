@@ -84,6 +84,7 @@ use eframe::egui;
 use i18n::{tr, trf};
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, SegmentInfo, Status};
 use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
 use uidm_domain::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
@@ -95,10 +96,7 @@ use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
 use uidm_infrastructure::grab::{GrabFile, GrabRequest};
 use uidm_infrastructure::ipc;
 use uidm_infrastructure::notify::Sound;
-use uidm_infrastructure::protocol::{
-    read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, Incoming, OnDone, Outgoing, Properties,
-    Scan, SegmentInfo, Status,
-};
+use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
 use uidm_infrastructure::state::DownloadTable;
 
 /// Ignore speed samples closer together than this; they are too noisy.

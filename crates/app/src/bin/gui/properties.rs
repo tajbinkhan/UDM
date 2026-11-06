@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use eframe::egui;
-use uidm_infrastructure::protocol::{DownloadEntry, DownloadLogin, OnDone, Properties, Status};
+use uidm_domain::download::{DownloadEntry, DownloadLogin, OnDone, Properties, Status};
 
 use crate::i18n::{tr, trf};
 

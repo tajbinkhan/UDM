@@ -7,8 +7,8 @@
 use std::path::Path;
 
 use eframe::egui;
+use uidm_domain::download::{Download, DownloadEntry};
 use uidm_domain::settings::{Duplicate, FileExists, Settings};
-use uidm_infrastructure::protocol::{Download, DownloadEntry};
 
 use crate::i18n::{tr, trf};
 

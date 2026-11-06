@@ -613,15 +613,15 @@ pub fn download_for(
     f: &GrabFile,
     settings: &crate::settings::Settings,
     login_cookies: Option<&str>,
-) -> Option<crate::protocol::Download> {
-    let mut d = crate::protocol::Download {
+) -> Option<uidm_domain::download::Download> {
+    let mut d = uidm_domain::download::Download {
         url: f.url.clone(),
         referrer: Some(f.page.clone()),
         page: Some(f.page.clone()),
         cookies: crawl_cookies(req, &f.url, None, login_cookies),
         start: Some(false),
         description: f.text.clone().filter(|t| req.link_text && !t.is_empty()),
-        ..crate::protocol::Download::default()
+        ..uidm_domain::download::Download::default()
     };
     match &req.save_to {
         SaveTo::Categories => {}
@@ -665,7 +665,7 @@ pub fn download_for(
     // The project's own login goes to the start site's files.
     if let Some(user) = req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
         if on_start_site(req, &f.url) {
-            d.login = Some(crate::protocol::DownloadLogin {
+            d.login = Some(uidm_domain::download::DownloadLogin {
                 username: user.to_string(),
                 password: project_password(&req.start, user),
             });

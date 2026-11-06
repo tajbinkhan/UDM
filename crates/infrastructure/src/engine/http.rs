@@ -64,8 +64,8 @@ pub struct Probe {
 impl Probe {
     /// What identifies this version of the file, for telling later whether
     /// the server's copy changed.
-    pub fn validator(&self) -> crate::protocol::Validator {
-        crate::protocol::Validator {
+    pub fn validator(&self) -> uidm_domain::download::Validator {
+        uidm_domain::download::Validator {
             size: self.total,
             etag: self.etag.clone(),
             last_modified: self.last_modified.clone(),

@@ -8,9 +8,9 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
+use uidm_domain::download::{DownloadEntry, Status};
 use uidm_domain::queue::Queue;
 use uidm_domain::settings::GENERAL;
-use uidm_infrastructure::protocol::{DownloadEntry, Status};
 
 use crate::i18n::tr;
 use crate::Action;

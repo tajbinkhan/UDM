@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::dpapi;
-use crate::protocol::{Download, DownloadEntry, Status};
 use crate::settings::write_atomic;
+use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]

@@ -15,8 +15,8 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::protocol::Scan;
 use crate::settings::Scanner;
+use uidm_domain::download::Scan;
 
 pub use uidm_domain::command::{parse_command, PATH_TOKEN};
 /// A scan that runs longer than this is stopped and counts as failed.

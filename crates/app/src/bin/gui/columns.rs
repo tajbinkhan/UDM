@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use serde::{Deserialize, Serialize};
+use uidm_domain::download::{DownloadEntry, Status};
 use uidm_domain::queue;
-use uidm_infrastructure::protocol::{DownloadEntry, Status};
 
 use super::display_name;
 use crate::i18n::tr;

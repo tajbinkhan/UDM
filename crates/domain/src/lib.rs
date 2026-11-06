@@ -3,7 +3,9 @@
 
 pub mod batch;
 pub mod command;
+pub mod download;
 pub mod filename;
+pub mod media;
 pub mod queue;
 pub mod settings;
 pub mod site;

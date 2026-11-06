@@ -51,6 +51,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use uidm_domain::download::Scan;
+use uidm_domain::download::{Answer, Download, DownloadEntry, DownloadLogin, OnDone, Properties, Status, Validator};
 use uidm_domain::queue::{self, Queue, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::engine::DownloadRequest;
@@ -61,11 +63,7 @@ use uidm_infrastructure::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST
 use uidm_infrastructure::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
 use uidm_infrastructure::notify::{self, Sound, Toast};
 use uidm_infrastructure::power;
-use uidm_infrastructure::protocol::Scan;
-use uidm_infrastructure::protocol::{
-    read_message, write_frame, Answer, CommandLine, Download, DownloadEntry, DownloadLogin, Incoming, OnDone, Outgoing,
-    Properties, Status, Validator,
-};
+use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
 use uidm_infrastructure::quota::Usage;
 #[cfg(windows)]
 use uidm_infrastructure::registry;
@@ -4848,7 +4846,7 @@ mod tests {
 
     #[test]
     fn the_browsers_whole_proxy_setting_is_used() {
-        use uidm_infrastructure::protocol::{BrowserProxy, BrowserProxyMode};
+        use uidm_domain::download::{BrowserProxy, BrowserProxyMode};
         let t = setup("browser_proxy_setting", Duplicate::NewName);
         let s = Settings {
             use_browser_proxy: true,

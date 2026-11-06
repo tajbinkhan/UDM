@@ -10,8 +10,8 @@ use std::path::Path;
 
 use eframe::egui::{self, Align, Rect, Sense, Stroke};
 use egui_extras::TableBuilder;
+use uidm_domain::download::{Answer, DownloadEntry, Status};
 use uidm_domain::queue::Queue;
-use uidm_infrastructure::protocol::{Answer, DownloadEntry, Status};
 
 use crate::columns::{self, Column, Layout};
 use crate::i18n::{tr, trf};
