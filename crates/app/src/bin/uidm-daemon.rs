@@ -51,8 +51,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use uidm_application::queues::{DeleteQueue, MoveToQueue, RemoveFromQueue, SaveQueue};
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DownloadLogin, OnDone, Properties, Status, Validator};
+use uidm_domain::ports::{DownloadList, QueueStore};
 use uidm_domain::queue::{self, Queue, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE};
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::engine::DownloadRequest;
@@ -495,6 +497,39 @@ impl Hub {
     }
 }
 
+// The hub keeps the queues and the download list in memory, so it is the
+// adapter for the queue use cases' ports until that state moves to
+// uidm-infrastructure (AGENTS.md section 16).
+impl QueueStore for Hub {
+    fn edit<T>(&self, f: impl FnOnce(&mut Vec<Queue>) -> T) -> T {
+        f(&mut self.queues.lock().unwrap())
+    }
+
+    fn queues_changed(&self) {
+        self.publish_queues();
+        let _ = self.wake.send(());
+    }
+}
+
+impl DownloadList for Hub {
+    fn status(&self, id: u64) -> Option<Status> {
+        self.table.lock().unwrap().get(id).map(|e| e.status)
+    }
+
+    fn finished(&self) -> HashSet<u64> {
+        let table = self.table.lock().unwrap();
+        table.entries().filter(|e| e.status == Status::Done).map(|e| e.id).collect()
+    }
+
+    fn set_waiting(&self, id: u64) -> bool {
+        self.update(id, |e| {
+            e.status = Status::Waiting;
+            Ok(())
+        })
+        .is_ok()
+    }
+}
+
 /// Where the daemon keeps its files. A path is `None` when its environment
 /// variable is missing; that data then lives in memory only.
 struct Paths {
@@ -756,108 +791,25 @@ impl Daemon {
     /// Put download `id` in queue `queue` at `position` (or at the end). A
     /// download that is not running waits there.
     fn move_to_queue(&self, id: u64, queue: u64, position: Option<usize>) -> Result<(), String> {
-        let status = self.status(id).ok_or_else(|| format!("no download with id {id}"))?;
-        let sync = {
-            let queues = self.hub.queues.lock().unwrap();
-            let q = queues.iter().find(|q| q.id == queue).ok_or_else(|| format!("no queue with id {queue}"))?;
-            q.kind.is_sync()
-        };
-        // A synchronizing queue also keeps finished downloads, to check.
-        if status == Status::Confirming || (status == Status::Done && !sync) {
-            return Err("Only a download that has not finished can wait in a queue.".to_string());
-        }
-        // Joining a queue (not just moving within it) makes a stopped download
-        // wait to run again.
-        let reorder = position.is_some() && self.hub.queue_of(id) == Some(queue);
-        if status.is_retryable() && status != Status::Waiting && !reorder {
-            self.hub.update(id, |e| {
-                e.status = Status::Waiting;
-                Ok(())
-            })?;
-        }
-        self.hub.leave_queues(id);
-        self.hub.update_queue(queue, |q| {
-            let at = position.unwrap_or(q.order.len()).min(q.order.len());
-            q.order.insert(at, id);
-            Ok(())
-        })
+        MoveToQueue::new(&*self.hub, &*self.hub).run(id, queue, position).map_err(|e| e.to_string())
     }
 
-    /// Take download `id` out of its queue, keeping it in the list. Nothing
-    /// puts it back by itself (see `History::tidy_queues`), so no queue
-    /// starts it until it is started by hand or moved to a queue again.
+    /// Take download `id` out of its queue, keeping it in the list (see
+    /// `RemoveFromQueue`).
     fn remove_from_queue(&self, id: u64) -> Result<(), String> {
-        self.status(id).ok_or_else(|| format!("no download with id {id}"))?;
-        if !self.hub.leave_queues(id) {
-            return Err("That download is not in a queue.".to_string());
-        }
-        self.hub.publish_queues();
-        Ok(())
+        RemoveFromQueue::new(&*self.hub, &*self.hub).run(id).map_err(|e| e.to_string())
     }
 
-    /// Create a queue (id 0) or change one. Its downloads and running state
-    /// are kept; only what the user edits changes.
+    /// Create a queue (id 0) or change one.
     fn save_queue(&self, edited: Queue) -> Result<u64, String> {
-        edited.validate()?;
-        let name = edited.name.trim().to_string();
-        let finished = self.finished_ids();
-        let id = {
-            let mut queues = self.hub.queues.lock().unwrap();
-            if queues.iter().any(|q| q.id != edited.id && q.name.eq_ignore_ascii_case(&name)) {
-                return Err(format!("There is already a queue named \"{name}\"."));
-            }
-            let id = if edited.id == 0 {
-                let id = queues.iter().map(|q| q.id).max().unwrap_or(MAIN_QUEUE) + 1;
-                queues.push(Queue::new(id, &name));
-                id
-            } else {
-                edited.id
-            };
-            let q = queues.iter_mut().find(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
-            if q.schedule != edited.schedule && !q.running {
-                // A new schedule may start today even if the old one ran. A
-                // run in progress keeps its day, so its stop time still holds.
-                q.last_scheduled_day = None;
-                q.last_scheduled_start = None;
-            }
-            q.name = name;
-            q.max_concurrent = edited.max_concurrent;
-            q.schedule = edited.schedule;
-            q.when_done = edited.when_done;
-            q.retries = edited.retries;
-            q.open_when_done = edited.open_when_done.map(|f| f.trim().to_string()).filter(|f| !f.is_empty());
-            q.start_on_launch = edited.start_on_launch;
-            q.force_close = edited.force_close;
-            q.kind = edited.kind;
-            // A one-time queue holds only what is still to do.
-            if !q.kind.is_sync() {
-                q.order.retain(|d| !finished.contains(d));
-            }
-            id
-        };
-        self.hub.publish_queues();
-        let _ = self.hub.wake.send(());
-        Ok(id)
+        SaveQueue::new(&*self.hub, &*self.hub).run(edited).map_err(|e| e.to_string())
     }
 
-    /// Delete a queue. Its downloads move to the main queue, which cannot be
-    /// deleted; the running ones keep running.
+    /// Delete a queue. Its downloads move to the main queue; the running ones
+    /// keep running.
     fn delete_queue(&self, id: u64) -> Result<(), String> {
-        if id == MAIN_QUEUE {
-            return Err("The main queue cannot be deleted.".to_string());
-        }
-        let finished = self.finished_ids();
-        {
-            let mut queues = self.hub.queues.lock().unwrap();
-            let pos = queues.iter().position(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
-            let gone = queues.remove(pos);
-            if let Some(main) = queues.iter_mut().find(|q| q.id == MAIN_QUEUE) {
-                let keep_done = main.kind.is_sync();
-                main.order.extend(gone.order.into_iter().filter(|d| keep_done || !finished.contains(d)));
-            }
-        }
+        DeleteQueue::new(&*self.hub, &*self.hub).run(id).map_err(|e| e.to_string())?;
         self.runs.lock().unwrap().remove(&id);
-        self.hub.publish_queues();
         Ok(())
     }
 
@@ -1015,12 +967,6 @@ impl Daemon {
                 self.finish_run(q.id);
             }
         }
-    }
-
-    /// The downloads that have finished.
-    fn finished_ids(&self) -> HashSet<u64> {
-        let table = self.hub.table.lock().unwrap();
-        table.entries().filter(|e| e.status == Status::Done).map(|e| e.id).collect()
     }
 
     /// Ask the server about finished download `id` and, when its copy

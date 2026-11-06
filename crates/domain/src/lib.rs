@@ -6,6 +6,7 @@ pub mod command;
 pub mod download;
 pub mod filename;
 pub mod media;
+pub mod ports;
 pub mod queue;
 pub mod settings;
 pub mod site;

@@ -8,6 +8,8 @@ license.workspace = true
 # Pure crates only (AGENTS.md section 3): no I/O, async runtime or UI crate.
 [dependencies]
 serde = { workspace = true }
+# Error enums (AGENTS.md section 9).
+thiserror.workspace = true
 # Parsing addresses only (batch patterns); no requests.
 url.workspace = true
 

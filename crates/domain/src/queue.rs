@@ -9,7 +9,11 @@
 //! Times are the computer's local time, as minutes since midnight, and days
 //! are counted from 1970-01-01.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
+
+use crate::download::Status;
 
 /// The queue that always exists; "Download later" uses it by default.
 pub const MAIN_QUEUE: u64 = 1;
@@ -419,6 +423,117 @@ impl Schedule {
             .map(|day| Moment::from_total(day * 1440 + start))
             .find(|m| *m > now && self.runs_on(m.day))
     }
+}
+
+/// Why a change to the queues was refused. The messages are shown to the
+/// user, translated by the window.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum QueueError {
+    #[error("no queue with id {0}")]
+    NoQueue(u64),
+    #[error("no download with id {0}")]
+    NoDownload(u64),
+    #[error("There is already a queue named \"{0}\".")]
+    NameTaken(String),
+    #[error("The main queue cannot be deleted.")]
+    MainQueue,
+    #[error("Only a download that has not finished can wait in a queue.")]
+    Finished,
+    #[error("That download is not in a queue.")]
+    NotQueued,
+    /// The queue's own settings are not valid; see [`Queue::validate`].
+    #[error("{0}")]
+    Invalid(String),
+}
+
+/// Create a queue (`edited.id` 0) or change one, in `queues`, and return its
+/// id. Its downloads and running state are kept; only what the user edits
+/// changes. A one-time queue drops the `finished` downloads it held.
+pub fn save(queues: &mut Vec<Queue>, edited: Queue, finished: &HashSet<u64>) -> Result<u64, QueueError> {
+    edited.validate().map_err(QueueError::Invalid)?;
+    let name = edited.name.trim().to_string();
+    if queues.iter().any(|q| q.id != edited.id && q.name.eq_ignore_ascii_case(&name)) {
+        return Err(QueueError::NameTaken(name));
+    }
+    let id = if edited.id == 0 {
+        let id = queues.iter().map(|q| q.id).max().unwrap_or(MAIN_QUEUE) + 1;
+        queues.push(Queue::new(id, &name));
+        id
+    } else {
+        edited.id
+    };
+    let q = queues.iter_mut().find(|q| q.id == id).ok_or(QueueError::NoQueue(id))?;
+    if q.schedule != edited.schedule && !q.running {
+        // A new schedule may start today even if the old one ran. A run in
+        // progress keeps its day, so its stop time still holds.
+        q.last_scheduled_day = None;
+        q.last_scheduled_start = None;
+    }
+    q.name = name;
+    q.max_concurrent = edited.max_concurrent;
+    q.schedule = edited.schedule;
+    q.when_done = edited.when_done;
+    q.retries = edited.retries;
+    q.open_when_done = edited.open_when_done.map(|f| f.trim().to_string()).filter(|f| !f.is_empty());
+    q.start_on_launch = edited.start_on_launch;
+    q.force_close = edited.force_close;
+    q.kind = edited.kind;
+    // A one-time queue holds only what is still to do.
+    if !q.kind.is_sync() {
+        q.order.retain(|d| !finished.contains(d));
+    }
+    Ok(id)
+}
+
+/// Delete queue `id` from `queues`. Its downloads move to the main queue,
+/// which cannot be deleted; finished ones go too unless the main queue
+/// synchronizes.
+pub fn delete(queues: &mut Vec<Queue>, id: u64, finished: &HashSet<u64>) -> Result<(), QueueError> {
+    if id == MAIN_QUEUE {
+        return Err(QueueError::MainQueue);
+    }
+    let pos = queues.iter().position(|q| q.id == id).ok_or(QueueError::NoQueue(id))?;
+    let gone = queues.remove(pos);
+    if let Some(main) = queues.iter_mut().find(|q| q.id == MAIN_QUEUE) {
+        let keep_done = main.kind.is_sync();
+        main.order.extend(gone.order.into_iter().filter(|d| keep_done || !finished.contains(d)));
+    }
+    Ok(())
+}
+
+/// The queue holding download `id`.
+pub fn queue_of(queues: &[Queue], id: u64) -> Option<u64> {
+    queues.iter().find(|q| q.order.contains(&id)).map(|q| q.id)
+}
+
+/// Take download `id` out of every queue. Returns whether it was in one.
+pub fn leave(queues: &mut [Queue], id: u64) -> bool {
+    let mut changed = false;
+    for q in queues.iter_mut() {
+        let before = q.order.len();
+        q.order.retain(|x| *x != id);
+        changed |= q.order.len() != before;
+    }
+    changed
+}
+
+/// Whether a download in state `status` may wait in a queue. A
+/// synchronizing queue (`sync`) also keeps finished downloads, to check.
+pub fn may_wait(status: Status, sync: bool) -> bool {
+    !(status == Status::Confirming || (status == Status::Done && !sync))
+}
+
+/// Put download `id` in queue `queue` at `position` (or at the end), out of
+/// any queue it was in.
+pub fn place(queues: &mut [Queue], id: u64, queue: u64, position: Option<usize>) -> Result<(), QueueError> {
+    if !queues.iter().any(|q| q.id == queue) {
+        return Err(QueueError::NoQueue(queue));
+    }
+    leave(queues, id);
+    let q = queues.iter_mut().find(|q| q.id == queue).ok_or(QueueError::NoQueue(queue))?;
+    let at = position.unwrap_or(q.order.len()).min(q.order.len());
+    q.order.insert(at, id);
+    Ok(())
 }
 
 #[cfg(test)]

@@ -4790,6 +4790,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tray-icon",
+ "uidm-application",
  "uidm-domain",
  "uidm-infrastructure",
  "url",
@@ -4809,6 +4810,7 @@ version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "url",
 ]
 
