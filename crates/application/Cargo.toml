@@ -1,0 +1,9 @@
+[package]
+name = "uidm-application"
+description = "UIDM's use cases, which coordinate the domain through its ports"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+uidm-domain.workspace = true

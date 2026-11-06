@@ -1571,30 +1571,31 @@ is a failed scan, as is one that runs over 10 minutes.
 
 | Path | What it is |
 | --- | --- |
-| `src/bin/uidm-gui.rs` | Desktop window |
-| `src/bin/uidm-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
-| `src/bin/uidm-daemon.rs` | Daemon: server, auth, download list, retry/remove, idle exit |
-| `src/state.rs` | `DownloadTable`, kept by both the daemon and the window |
-| `src/settings.rs` | Settings, their defaults, validation and file |
-| `src/history.rs` | Download history and saved requests on disk |
-| `src/dpapi.rs` | DPAPI encryption for saved requests |
-| `src/registry.rs` | Start with Windows and the notification app id |
-| `src/browsers.rs` | The browsers found, and registering the host with each |
-| `src/notify.rs` | Windows notifications and sounds |
-| `src/scan.rs` | Virus scans of finished downloads |
-| `src/queue.rs` | Queues, schedules and their calendar arithmetic |
-| `src/power.rs` | Sleep, hibernate and shut down |
-| `src/net.rs` | Proxies, site logins, HTTP authentication, Credential Manager |
-| `src/media/` | HLS playlists, DASH and HDS manifests: qualities, segments, keys, DRM; yt-dlp pages |
-| `src/batch.rs` | URL patterns, pasted lists and the clipboard link rule |
-| `src/listfile.rs` | Exporting and importing the download list |
-| `src/grab.rs` | The site grabber's crawler and `robots.txt` |
-| `src/bin/gui/` | The window's tray icon, queue controls, tools (batch, import, export, grabber, clipboard) and Win32 helpers |
-| `src/ipc.rs` | Daemon address, start-up, token file, HMAC handshake |
-| `src/app.rs` | Request building and event mapping |
-| `src/protocol.rs` | Framing and message types |
-| `src/bin/gui/i18n.rs`, `src/bin/gui/lang/` | The window's text in other languages, one JSON table each |
-| `src/engine/` | Queue, segments, resume sidecar, speed limiter, HTTP, streams (`stream.rs`) |
+| `crates/` | The workspace, one crate per layer of `AGENTS.md`: `domain`, `application`, `infrastructure`, `ui`, `app` |
+| `crates/app/src/bin/uidm-gui.rs` | Desktop window |
+| `crates/app/src/bin/uidm-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
+| `crates/app/src/bin/uidm-daemon.rs` | Daemon: server, auth, download list, retry/remove, idle exit |
+| `crates/infrastructure/src/state.rs` | `DownloadTable`, kept by both the daemon and the window |
+| `crates/infrastructure/src/settings.rs` | Settings, their defaults, validation and file |
+| `crates/infrastructure/src/history.rs` | Download history and saved requests on disk |
+| `crates/infrastructure/src/dpapi.rs` | DPAPI encryption for saved requests |
+| `crates/infrastructure/src/registry.rs` | Start with Windows and the notification app id |
+| `crates/infrastructure/src/browsers.rs` | The browsers found, and registering the host with each |
+| `crates/infrastructure/src/notify.rs` | Windows notifications and sounds |
+| `crates/infrastructure/src/scan.rs` | Virus scans of finished downloads |
+| `crates/infrastructure/src/queue.rs` | Queues, schedules and their calendar arithmetic |
+| `crates/infrastructure/src/power.rs` | Sleep, hibernate and shut down |
+| `crates/infrastructure/src/net.rs` | Proxies, site logins, HTTP authentication, Credential Manager |
+| `crates/infrastructure/src/media/` | HLS playlists, DASH and HDS manifests: qualities, segments, keys, DRM; yt-dlp pages |
+| `crates/infrastructure/src/batch.rs` | URL patterns, pasted lists and the clipboard link rule |
+| `crates/infrastructure/src/listfile.rs` | Exporting and importing the download list |
+| `crates/infrastructure/src/grab.rs` | The site grabber's crawler and `robots.txt` |
+| `crates/app/src/bin/gui/` | The window's tray icon, queue controls, tools (batch, import, export, grabber, clipboard) and Win32 helpers |
+| `crates/infrastructure/src/ipc.rs` | Daemon address, start-up, token file, HMAC handshake |
+| `crates/infrastructure/src/app.rs` | Request building and event mapping |
+| `crates/infrastructure/src/protocol.rs` | Framing and message types |
+| `crates/app/src/bin/gui/i18n.rs`, `crates/app/src/bin/gui/lang/` | The window's text in other languages, one JSON table each |
+| `crates/infrastructure/src/engine/` | Queue, segments, resume sidecar, speed limiter, HTTP, streams (`stream.rs`) |
 | `extension/` | MV3 extension: capture, context menu, popup |
 | `extension/_locales/` | The extension's text in each language |
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
@@ -1650,7 +1651,7 @@ $env:UIDM_INSTANCE = "test"; .\target\debug\uidm-gui.exe
 ```
 
 A string the window shows needs its German, Spanish and French translations
-in `src/bin/gui/lang/`; a test fails for one without them.
+in `crates/app/src/bin/gui/lang/`; a test fails for one without them.
 `lang/untranslated.json` lists the strings that were untranslated before
 that test came in, and an entry leaves the list once it is translated.
 
@@ -1718,9 +1719,9 @@ cargo run --release --bin uidm-host -- download https://example.com/file.zip
 
 The window's strings are written in English in the code, and that English is
 each string's ID: `tr("Save")`, or `trf!("{count} files", count = n)` for text
-with values. A language is one JSON file in `src/bin/gui/lang/`, mapping each
+with values. A language is one JSON file in `crates/app/src/bin/gui/lang/`, mapping each
 English string to its translation, plus a line in `LANGUAGES` in
-`src/bin/gui/i18n.rs`; a missing string shows in English. The tests check that
+`crates/app/src/bin/gui/i18n.rs`; a missing string shows in English. The tests check that
 every key is still used and keeps its `{placeholders}`. The extension's text is
 in `extension/_locales/<code>/messages.json`, as Chrome expects; its tests
 check that every locale has the same messages as `en`. egui draws text without

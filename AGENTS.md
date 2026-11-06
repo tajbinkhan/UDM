@@ -94,7 +94,7 @@ egui-specific rules:
 - Talk to workers through channels (`std::sync::mpsc` or `crossbeam-channel`). Workers send results back and call `ctx.request_repaint()` so egui wakes up. `update` drains the channel with `try_recv`, never `recv`.
 - MUST NOT call the daemon, read files or sleep inside `update` or any `show` function. egui calls these every frame.
 - Every dialog and download window is drawn during the main window's frame (see `docs/adr/0001-cloak-the-main-window-in-the-tray.md`). Code that changes how windows are hidden MUST keep that frame running.
-- User-facing text goes through the translation tables in `ui` (today `src/bin/gui/lang/*.json`). MUST NOT hardcode English strings in views.
+- User-facing text goes through the translation tables in `ui` (today `crates/app/src/bin/gui/lang/*.json`). MUST NOT hardcode English strings in views.
 - Before copying an IDM window, dialog or tray behavior, observe IDM first (the `observe-idm` skill in `.claude/skills/`).
 
 ## 8. App (composition root) rules
@@ -126,7 +126,7 @@ egui-specific rules:
 
 - Domain: pure unit tests, no mocks needed.
 - Application: test use cases with in-memory adapters that implement the port traits.
-- Infrastructure: integration tests against temporary files and directories (and a temporary database, if one is added), and against the local test HTTP server (today `src/engine/testserver.rs`). Tests MUST NOT reach the internet.
+- Infrastructure: integration tests against temporary files and directories (and a temporary database, if one is added), and against the local test HTTP server (today `crates/infrastructure/src/engine/testserver.rs`). Tests MUST NOT reach the internet.
 - Every new use case MUST come with tests.
 - Changes to the browser extension MUST pass `node --test extension/test/*.test.js`.
 
@@ -164,10 +164,10 @@ CI runs them on Windows, macOS and Linux (`.github/workflows/`). Code under `cfg
 
 ## 16. Migration notes
 
-Where the code on `main` (version 0.3.0) deviates from the rules above. These are notes, not tasks.
+Where the code on `main` deviates from the rules above. These are notes, not tasks.
 
-- **No workspace.** `Cargo.toml` defines one package, `uidm`, with a library (`src/lib.rs`) and three binaries in `src/bin/`. There is no `crates/` directory.
-- **No layer boundaries.** `src/lib.rs` exposes about 30 flat modules. Domain rules and I/O sit in the same modules. Examples:
+- **Workspace in place, layers mostly empty.** The five crates exist. `domain`, `application` and `ui` hold no code yet. `infrastructure` is the old `uidm` library, moved unchanged. `app` holds the three binaries, and the GUI's views still live there in `src/bin/gui/` and call `uidm_infrastructure` directly. Paths below are relative to `crates/infrastructure/` or `crates/app/`.
+- **No layer boundaries.** `infrastructure/src/lib.rs` exposes about 30 flat modules. Domain rules and I/O sit in the same modules. Examples:
   - `queue.rs` mixes queue rules and calendar arithmetic with `libc::localtime_r`.
   - `settings.rs` holds both the settings model and its file paths and atomic writes.
   - `engine/mod.rs` holds file-name rules (`sanitize_filename`) next to the transfer code.
@@ -180,4 +180,4 @@ Where the code on `main` (version 0.3.0) deviates from the rules above. These ar
 - **Paths.** `directories` is not used. `platform::data_dir`, `settings::settings_path`, `history::history_path` and the GUI read `APPDATA`, `LOCALAPPDATA` and `XDG_CONFIG_HOME` by hand. `browsers.rs` reads them to find browser profiles, which is a legitimate adapter concern but should go through the path module.
 - **Raw primitives.** Download ids, byte counts, URLs and file names travel as `u64` and `String`.
 - **Storage.** State is JSON files, not SQLite. Section 6 is written for files. Nothing needs to change unless a database is added.
-- **Quality gates.** CI runs `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings` and `cargo test --locked` without `--workspace` or `--all`, which is equivalent while there is one package. Switch to the workspace forms once `crates/` exists.
+- **Module cycles.** Some infrastructure modules depend on each other in a cycle, for example `protocol` and `grab`, and `settings` and `net`. Cycles must be cut before those modules can split across crates.

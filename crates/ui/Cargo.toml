@@ -1,0 +1,11 @@
+[package]
+name = "uidm-ui"
+description = "UIDM's egui views, UI state and messages"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Never uidm-infrastructure (AGENTS.md section 3).
+[dependencies]
+uidm-domain.workspace = true
+uidm-application.workspace = true

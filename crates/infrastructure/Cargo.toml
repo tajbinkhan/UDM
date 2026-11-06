@@ -1,0 +1,58 @@
+[package]
+name = "uidm-infrastructure"
+description = "UIDM's adapters: download engine, protocol, storage, IPC and OS integration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# The old `uidm` library, moved here unchanged. It still holds domain rules
+# next to its I/O; AGENTS.md section 16 tracks what moves out.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# OS randomness for the daemon's per-start auth token and handshake nonces.
+getrandom = "0.4"
+# Resolving redirect locations, which the engine follows itself.
+url.workspace = true
+# Digest authentication for site logins (MD5 and MD5-sess; SHA-256 uses sha2).
+md-5 = "0.10"
+# NTLM logins: the NT hash of the password is MD4 (same digest family as md-5).
+md4 = "0.10"
+# Form bodies of POST downloads travel base64-encoded in JSON.
+base64.workspace = true
+# HMAC-SHA256 proofs in the host <-> daemon handshake, so neither side ever
+# sends the token itself.
+hmac = "0.13.0"
+sha2 = "0.11.1"
+# DASH manifests (.mpd) are XML; a small, read-only, pure-Rust parser.
+roxmltree = "0.20"
+# HLS segments encrypted with AES-128 (CBC with PKCS#7 padding).
+aes = "0.8"
+cbc = "0.1"
+# The site grabber reads pages with html5ever, a browser-grade HTML parser.
+scraper = "0.20"
+# Decoding %-escapes in file names the site grabber finds (url uses it too).
+percent-encoding.workspace = true
+# The download engine's HTTP client: HTTP/2 when the server offers it
+# (ALPN through native-tls, so SChannel on Windows, which builds without a
+# C/assembly toolchain, unlike rustls + ring on windows-gnu), SOCKS proxies,
+# and a timeout between reads. Async, run on one small shared tokio runtime; the
+# engine keeps its plain threads and blocks on each step. No gzip: a range
+# request must come back as the bytes asked for.
+reqwest = { version = "0.12", default-features = false, features = ["native-tls-alpn", "http2", "socks"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+bytes = "1"
+# The traits for the connector layer that keeps an NTLM handshake on one
+# connection. reqwest already depends on both.
+tower-layer = "0.3"
+tower-service = "0.3"
+
+# WinRT toast notifications from the daemon, DPAPI, the registry.
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
+
+# The Trash on macOS and Linux (the Recycle Bin is called directly).
+[target.'cfg(unix)'.dependencies]
+trash = "5"
+# The local time zone for queue schedules (localtime_r).
+libc = "0.2"

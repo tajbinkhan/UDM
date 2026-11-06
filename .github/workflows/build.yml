@@ -54,18 +54,18 @@ jobs:
 
       # rustfmt.toml holds the settings. Run cargo fmt before committing.
       - name: Check formatting
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
       - name: Build
-        run: cargo build --locked
+        run: cargo build --workspace --locked
 
       # Each runner checks its own platform's code, so a warning in a
       # Windows-only or Linux-only block fails only there.
       - name: Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --workspace --locked --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --locked
+        run: cargo test --workspace --locked
 
       - name: Install Node
         uses: actions/setup-node@v4

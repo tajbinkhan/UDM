@@ -1,0 +1,9 @@
+[package]
+name = "uidm-domain"
+description = "UIDM's entities, value objects, business rules and port traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Pure crates only (AGENTS.md section 3): no I/O, async runtime or UI crate.
+[dependencies]

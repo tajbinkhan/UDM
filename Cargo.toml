@@ -1,84 +1,28 @@
-[package]
-name = "uidm"
+[workspace]
+resolver = "2"
+# The layers of AGENTS.md. Dependencies point inward: domain <- application
+# <- infrastructure and ui <- app. The code still lives mostly in
+# infrastructure (the old `uidm` library) and app (the three binaries);
+# AGENTS.md section 16 tracks the moves still to make.
+members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/ui", "crates/app"]
+
+# The release scripts read the first `version = ` line of this file.
+[workspace.package]
 version = "0.3.0"
 edition = "2021"
-description = "A download manager rebuilt in Rust: native-messaging host, persistent daemon, and download engine"
 license = "MIT"
 
-[lib]
-name = "uidm"
-path = "src/lib.rs"
+[workspace.dependencies]
+uidm-domain = { path = "crates/domain" }
+uidm-application = { path = "crates/application" }
+uidm-infrastructure = { path = "crates/infrastructure" }
+uidm-ui = { path = "crates/ui" }
 
-# The browser launches this; it relays to the daemon (and has a CLI test mode).
-[[bin]]
-name = "uidm-host"
-path = "src/bin/uidm-host.rs"
-
-# Long-lived process that owns the engine so downloads outlive the browser.
-[[bin]]
-name = "uidm-daemon"
-path = "src/bin/uidm-daemon.rs"
-
-# Desktop window that lists and controls downloads; another daemon client.
-[[bin]]
-name = "uidm-gui"
-path = "src/bin/uidm-gui.rs"
-
-[dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
-# OS randomness for the daemon's per-start auth token and handshake nonces.
-getrandom = "0.4"
-# Resolving redirect locations, which the engine follows itself.
 url = "2"
-# Digest authentication for site logins (MD5 and MD5-sess; SHA-256 uses sha2).
-md-5 = "0.10"
-# NTLM logins: the NT hash of the password is MD4 (same digest family as md-5).
-md4 = "0.10"
-# Form bodies of POST downloads travel base64-encoded in JSON.
 base64 = "0.22"
-# HMAC-SHA256 proofs in the host <-> daemon handshake, so neither side ever
-# sends the token itself.
-hmac = "0.13.0"
-sha2 = "0.11.1"
-# Immediate-mode GUI for the desktop window. Pure Rust; the default glow
-# backend renders through OpenGL.
-eframe = "0.31.1"
-# The download list's table: resizable columns and whole-row selection.
-egui_extras = { version = "0.31.1", default-features = false }
-# Native folder picker for the Options dialog (IFileOpenDialog on Windows,
-# through windows-sys, so it builds on windows-gnu).
-rfd = { version = "0.15.4", default-features = false }
-# System tray icon and its menu (Win32 underneath, builds on windows-gnu;
-# GTK on Linux, without libxdo, which only menu shortcuts need).
-tray-icon = { version = "0.21", default-features = false }
-# The window's HWND, to show and hide it from the tray while egui is idle.
-raw-window-handle = "0.6"
-# DASH manifests (.mpd) are XML; a small, read-only, pure-Rust parser.
-roxmltree = "0.20"
-# HLS segments encrypted with AES-128 (CBC with PKCS#7 padding).
-aes = "0.8"
-cbc = "0.1"
-# The site grabber reads pages with html5ever, a browser-grade HTML parser.
-scraper = "0.20"
-# Decoding %-escapes in file names the site grabber finds (url uses it too).
 percent-encoding = "2"
-# The download engine's HTTP client: HTTP/2 when the server offers it
-# (ALPN through native-tls, so SChannel on Windows, which builds without a
-# C/assembly toolchain, unlike rustls + ring on windows-gnu), SOCKS proxies,
-# and a timeout between reads. Async, run on one small shared tokio runtime; the
-# engine keeps its plain threads and blocks on each step. No gzip: a range
-# request must come back as the bytes asked for.
-reqwest = { version = "0.12", default-features = false, features = ["native-tls-alpn", "http2", "socks"] }
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-bytes = "1"
-# The traits for the connector layer that keeps an NTLM handshake on one
-# connection. reqwest already depends on both.
-tower-layer = "0.3"
-tower-service = "0.3"
-
-# WinRT toast notifications from the daemon.
-[target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
     "Data_Xml_Dom",
     "Foundation",
@@ -90,20 +34,6 @@ windows = { version = "0.61", features = [
     # ITaskbarList: the window's taskbar button while it is in the tray.
     "Win32_UI_Shell",
 ] }
-
-# The Trash on macOS and Linux (the Recycle Bin is called directly).
-[target.'cfg(unix)'.dependencies]
-trash = "5"
-# The local time zone for queue schedules (localtime_r).
-libc = "0.2"
-# The window's clipboard reads outside egui (egui uses it too).
-arboard = { version = "3.7.0", default-features = false }
-
-# The folder picker's GTK backend on Linux (macOS uses its own panels), and
-# GTK's loop for the tray icon, which tray-icon builds on there.
-[target.'cfg(target_os = "linux")'.dependencies]
-rfd = { version = "0.15.4", default-features = false, features = ["gtk3"] }
-gtk = "0.18"
 
 [profile.release]
 strip = true
