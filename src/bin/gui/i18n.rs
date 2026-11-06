@@ -196,15 +196,20 @@ mod tests {
     /// with Rust's string escapes undone.
     fn looked_up(source: &str) -> Vec<String> {
         let mut found = Vec::new();
-        for opener in ["tr(\"", "trf!(\""] {
+        for opener in ["tr(", "trf!("] {
             for (at, _) in source.match_indices(opener) {
                 // `attr("` or `str("` is not a lookup.
                 let before = source[..at].chars().next_back();
                 if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
                     continue;
                 }
+                // rustfmt may put a long string on the line after `tr(`.
+                let rest = source[at + opener.len()..].trim_start();
+                let Some(literal) = rest.strip_prefix('"') else {
+                    continue;
+                };
                 let mut text = String::new();
-                let mut chars = source[at + opener.len()..].chars().peekable();
+                let mut chars = literal.chars().peekable();
                 while let Some(c) = chars.next() {
                     match c {
                         '"' => break,
