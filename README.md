@@ -689,6 +689,50 @@ tests, not in a running Firefox.
   ```
   uidm-gui.exe /n /d "https://example.com/files/setup.exe" /p D:\Downloads
   ```
+- **Sending links from other programs**: `uidm-host send` takes what IDM's
+  `SendLinkToIDM2` and `SendLinksArray` COM calls take, as JSON in a file or
+  on stdin (`-`):
+
+  ```
+  uidm-host send links.json
+  uidm-host send -
+  ```
+
+  One link is an object with `url` and any of `referer`, `cookies`,
+  `post_data` (the form body as text; it makes the download a POST, sent as
+  `application/x-www-form-urlencoded` unless `content_type` says otherwise),
+  `user`, `password`, `folder`, `filename` and `user_agent`. `"silent": true`
+  adds it with no dialog and `"add_only": true` adds it to the main queue
+  without starting it, like `/n` and `/a`; IDM's `flags` number (1 and 2)
+  works too. It is added as a link from the browser is, and its download id
+  is printed. A list is an object with `links`, each an address or an object
+  with `url` and an optional `text` and `cookies`, plus one `referer` for them
+  all; it opens the link picker with them. A relative `folder` is under the
+  current one, and an empty string counts as left out. UIDM starts if it is
+  not running. The exit code is 0 when UIDM took the links, 1 when it refused
+  them or could not be reached, and 2 for bad input. The host talks to the
+  daemon over the same authenticated connection as the browser (see
+  [Host-daemon authentication](#host-daemon-authentication)), so only
+  programs running as the same Windows user can send links. From PowerShell:
+
+  ```powershell
+  $uidm = "$env:LOCALAPPDATA\Programs\UIDM\uidm-host.exe"
+  @{ url = "https://example.com/report"; referer = "https://example.com/";
+     cookies = "session=abc"; post_data = "id=42"; folder = "D:\Reports";
+     filename = "report.pdf"; silent = $true } | ConvertTo-Json | & $uidm send -
+  @{ referer = "https://example.com/files/";
+     links = @("https://example.com/a.zip", "https://example.com/b.zip") } |
+     ConvertTo-Json | & $uidm send -
+  ```
+
+  Or from Python:
+
+  ```python
+  import json, os, subprocess
+  uidm = os.path.expandvars(r"%LOCALAPPDATA%\Programs\UIDM\uidm-host.exe")
+  link = {"url": "https://example.com/a.zip", "user": "me", "password": "pw", "add_only": True}
+  subprocess.run([uidm, "send", "-"], input=json.dumps(link), text=True, check=True)
+  ```
 - **Languages**: the window comes in English, German, Spanish and French.
   It starts in the first Windows display language it has, else English;
   **Options > General > Language** picks another. The extension follows the
@@ -733,7 +777,8 @@ desktop window (uidm-gui) ---------------+   (authenticated)   (owns downloads)
   genuine daemon answers. When the browser closes the port, the host closes
   its side, delivers any reply still in flight for up to 2 seconds, and exits.
   The daemon is started with the host's stdio marked non-inheritable, so it
-  never holds the browser's pipes open.
+  never holds the browser's pipes open. `uidm-host send` connects the same
+  way to hand the daemon links from other programs.
 - **`uidm-gui`** is the desktop window: one more daemon client. It starts the
   daemon too if needed, asks for the full list on connect, and applies every
   event to the same `DownloadTable` the daemon keeps.
@@ -1493,7 +1538,7 @@ is a failed scan, as is one that runs over 10 minutes.
 | Path | What it is |
 | --- | --- |
 | `src/bin/uidm-gui.rs` | Desktop window |
-| `src/bin/uidm-host.rs` | Native-messaging relay and CLI test mode |
+| `src/bin/uidm-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
 | `src/bin/uidm-daemon.rs` | Daemon: server, auth, download list, retry/remove, idle exit |
 | `src/state.rs` | `DownloadTable`, kept by both the daemon and the window |
 | `src/settings.rs` | Settings, their defaults, validation and file |
