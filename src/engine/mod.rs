@@ -110,6 +110,10 @@ pub struct DownloadRequest {
     /// The most connections to this download's host, across every download
     /// to it; `None` for no limit beyond `connections`.
     pub host_limit: Option<usize>,
+    /// Save into a folder that needs administrator rights: the download is
+    /// written in a staging folder and the finished file moved into place by
+    /// the elevated helper (see `crate::elevate`).
+    pub elevate: bool,
 }
 
 /// Progress events over the course of a download. `id` matches the `Ack`.
@@ -184,6 +188,17 @@ pub enum EngineError {
         path: PathBuf,
         total: Option<u64>,
     },
+    /// UIDM may not create files in this folder; saving there needs
+    /// administrator rights.
+    NeedsAdmin(PathBuf),
+    /// The finished file could not be moved into the folder with
+    /// administrator rights; it waits at `file`. `refused` is a No to the
+    /// UAC prompt, else the helper failed and `why` says how.
+    NotMoved {
+        file: PathBuf,
+        dir: PathBuf,
+        why: Option<String>,
+    },
 }
 
 impl fmt::Display for EngineError {
@@ -200,6 +215,19 @@ impl fmt::Display for EngineError {
             EngineError::Protocol(s) => write!(f, "protocol error: {s}"),
             EngineError::Refused(s) => f.write_str(s),
             EngineError::NameTaken { path, .. } => write!(f, "{} already exists", path.display()),
+            EngineError::NeedsAdmin(dir) => write!(f, "{NEEDS_ADMIN}{}", dir.display()),
+            EngineError::NotMoved { file, dir, why } => {
+                match why {
+                    None => f.write_str("Administrator rights were refused, so the file was not moved. ")?,
+                    Some(why) => write!(f, "The file could not be moved with administrator rights ({why}). ")?,
+                }
+                write!(
+                    f,
+                    "It is in {}. Move it to {} yourself, or choose another folder.",
+                    file.display(),
+                    dir.display()
+                )
+            }
         }
     }
 }
@@ -207,6 +235,8 @@ impl fmt::Display for EngineError {
 impl std::error::Error for EngineError {}
 
 const NEEDS_LOGIN: &str = "This site needs a login: ";
+const NEEDS_ADMIN: &str = "Saving here needs administrator rights: ";
+
 const LOGIN_FOR: &str = "The login for ";
 const LOGIN_REFUSED: &str = " was refused";
 const REALM: &str = " (realm: ";
@@ -251,6 +281,8 @@ impl EngineError {
                 | EngineError::LoginRejected(..)
                 | EngineError::Refused(_)
                 | EngineError::NameTaken { .. }
+                | EngineError::NeedsAdmin(_)
+                | EngineError::NotMoved { .. }
         )
     }
 }
@@ -602,7 +634,11 @@ fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, sh
         own_limits.insert(id, (Arc::clone(&own), own_rate));
         own
     };
-    let result = run_inner(id, &token, &req, &reporter, shared);
+    let result = if req.elevate {
+        run_elevated(id, &token, &mut req, &reporter, shared)
+    } else {
+        run_inner(id, &token, &req, &reporter, shared)
+    };
     {
         let mut own_limits = shared.own_limits.lock().unwrap();
         if own_limits.get(&id).is_some_and(|(o, _)| Arc::ptr_eq(o, &own)) {
@@ -627,6 +663,94 @@ fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, sh
             }
             reporter.send(Progress::Failed { id, url, error })
         }
+    }
+}
+
+/// Make `dir` if it is missing, and fail with `NeedsAdmin` before anything
+/// is downloaded if UIDM may not create files in it.
+fn writable(dir: &Path) -> Result<(), EngineError> {
+    if !crate::elevate::can_write(dir) {
+        return Err(EngineError::NeedsAdmin(dir.to_path_buf()));
+    }
+    fs::create_dir_all(dir)?;
+    Ok(())
+}
+
+/// The staging folder of download `id` saved with administrator rights. A
+/// retry (which gets a new id) keeps the folder its file is already in, so
+/// it resumes, or goes straight to the move when the file is complete.
+fn staging_dir(req: &DownloadRequest, id: u64) -> PathBuf {
+    let earlier = req
+        .reuse_path
+        .as_deref()
+        .and_then(Path::parent)
+        .filter(|dir| dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with(STAGING_PREFIX)));
+    match earlier {
+        Some(dir) => dir.to_path_buf(),
+        None => {
+            let base = req.temp_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("UIDM"));
+            base.join(format!("{STAGING_PREFIX}{id}"))
+        }
+    }
+}
+
+const STAGING_PREFIX: &str = "elevated-";
+
+/// Written next to a staged file once it is complete, so a download whose
+/// move was refused goes straight to the move when it is started again.
+const STAGED_DONE: &str = ".complete";
+
+/// Run a download whose folder needs administrator rights: download it into
+/// a staging folder as the user, then move the finished file into its
+/// folder through the elevated helper.
+fn run_elevated(
+    id: u64,
+    token: &CancelToken,
+    req: &mut DownloadRequest,
+    reporter: &Reporter,
+    shared: &Shared,
+) -> Result<Saved, EngineError> {
+    let staging = staging_dir(req, id);
+    let marker = staging.join(STAGED_DONE);
+    let finished = fs::read_to_string(&marker).ok().map(|name| staging.join(name.trim())).filter(|p| p.is_file());
+    let saved = match finished {
+        Some(path) => Saved::from(path),
+        None => {
+            // A file chosen in the folder itself (not yet started) is
+            // downloaded under its name in the staging folder instead.
+            let outside = req.reuse_path.take_if(|p| !p.starts_with(&staging));
+            if let Some(name) = outside.as_deref().and_then(Path::file_name) {
+                req.filename = Some(name.to_string_lossy().into_owned());
+            }
+            let folders = std::mem::replace(&mut req.folders, Folders::fixed(staging.clone()));
+            let result = run_inner(id, token, req, reporter, shared);
+            req.folders = folders;
+            let saved = result?;
+            if token.load(Ordering::Relaxed) {
+                return Ok(saved);
+            }
+            if let Some(name) = saved.path.file_name() {
+                let _ = fs::write(&marker, name.to_string_lossy().as_bytes());
+            }
+            saved
+        }
+    };
+    let name = saved.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let dir = req.folders.for_name(&name);
+    let target = (0..=MAX_RENAMES)
+        .map(|n| dir.join(numbered_name(&name, n)))
+        .find(|p| req.file_exists == FileExists::Overwrite || !p.exists())
+        .ok_or_else(|| EngineError::Io(format!("no free file name for {name} in {}", dir.display())))?;
+    let not_moved = |why| EngineError::NotMoved { file: saved.path.clone(), dir: dir.clone(), why };
+    match crate::elevate::move_as_admin(&saved.path, &target) {
+        Ok(()) if target.is_file() => {
+            let _ = fs::remove_file(&marker);
+            let _ = fs::remove_dir(&staging);
+            Ok(Saved { path: target, note: saved.note })
+        }
+        Ok(()) => Err(not_moved(Some("the file did not arrive".into()))),
+        Err(crate::elevate::MoveError::Refused) => Err(not_moved(None)),
+        Err(crate::elevate::MoveError::Failed(why)) => Err(not_moved(Some(why))),
     }
 }
 
@@ -662,7 +786,7 @@ fn run_inner(
     let probe = http::probe(&agent, &req.url, &req.headers)?;
     let filename = pick_filename(req.filename.as_deref(), &probe);
     let dir = req.folders.for_name(&filename);
-    fs::create_dir_all(&dir)?;
+    writable(&dir)?;
     let claim = choose_output(&shared.claimed, &dir, &filename, req, &probe)?;
     let output = claim.path.clone();
     let work = work_file(req, &output);
@@ -796,7 +920,7 @@ fn run_post(
     let (probe, mut reader) = http::post(agent, &req.url, &req.headers, body)?;
     let filename = pick_filename(req.filename.as_deref(), &probe);
     let dir = req.folders.for_name(&filename);
-    fs::create_dir_all(&dir)?;
+    writable(&dir)?;
     let claim = choose_output(&shared.claimed, &dir, &filename, req, &probe)?;
     let output = claim.path.clone();
     reporter.send(Progress::Started {
@@ -1773,6 +1897,19 @@ mod tests {
         assert_eq!(numbered_name(".bashrc", 1), ".bashrc (1)");
     }
 
+    #[test]
+    fn a_retry_keeps_its_staging_folder() {
+        let mut req = live::request("http://x/", Path::new("/dl"), FileExists::Rename);
+        req.temp_dir = Some(PathBuf::from("/tmp/uidm"));
+        assert_eq!(staging_dir(&req, 7), Path::new("/tmp/uidm/elevated-7"));
+        // A retry gets a new id but resumes the file in the old folder.
+        req.reuse_path = Some(PathBuf::from("/tmp/uidm/elevated-7/report.pdf"));
+        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/uidm/elevated-7"));
+        // A file chosen in the folder itself is not a staged one.
+        req.reuse_path = Some(PathBuf::from("/dl/report.pdf"));
+        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/uidm/elevated-9"));
+    }
+
     /// End-to-end checks against a local server.
     mod live {
         use super::super::testserver::{body, Behavior, TestServer};
@@ -1788,7 +1925,7 @@ mod tests {
             dir
         }
 
-        fn request(url: &str, dir: &Path, file_exists: FileExists) -> DownloadRequest {
+        pub(super) fn request(url: &str, dir: &Path, file_exists: FileExists) -> DownloadRequest {
             DownloadRequest {
                 url: url.to_string(),
                 folders: Folders::fixed(dir.to_path_buf()),
@@ -1808,6 +1945,7 @@ mod tests {
                 temp_dir: None,
                 reuse_partial: None,
                 host_limit: None,
+                elevate: false,
             }
         }
 

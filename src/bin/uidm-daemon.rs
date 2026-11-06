@@ -1627,7 +1627,14 @@ impl Daemon {
             return self.add_later(download);
         }
         let name = engine::Inspection::unprobed(&download.url, download.filename.as_deref()).filename;
-        if download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(&name)) {
+        // A folder UIDM may not write to asks first, so the dialog can offer
+        // administrator rights or another folder.
+        let folder = match download.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
+            Some(f) => f.to_path_buf(),
+            None => settings.folders_for(&download.url).for_name(&name),
+        };
+        let denied = !download.elevate && !uidm::elevate::can_write(&folder);
+        if denied || download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(&name)) {
             self.ask(download, None)
         } else {
             self.start(download, None)
@@ -2465,8 +2472,11 @@ impl Daemon {
             let settings = daemon.settings.lock().unwrap().clone();
             // A type that starts without asking, known only now from the
             // server's name for the file, skips the dialog after all.
-            let auto =
-                duplicate_of.is_none() && download.ask != Some(true) && settings.starts_without_asking(&found.filename);
+            let writable = download.elevate || uidm::elevate::can_write(path.parent().unwrap_or(&path));
+            let auto = duplicate_of.is_none()
+                && download.ask != Some(true)
+                && writable
+                && settings.starts_without_asking(&found.filename);
             let asked = daemon.hub.update(id, |e| {
                 if e.status != Status::Queued {
                     return Err("no longer queued".into());
@@ -2491,6 +2501,7 @@ impl Daemon {
             // carried on elsewhere once the dialog is answered.
             let plain = uidm::app::post_body(&download).is_none() && download.media.is_none();
             if settings.start_while_asking
+                && writable
                 && duplicate_of.is_none()
                 && plain
                 && found.resumable
@@ -2669,6 +2680,7 @@ impl Daemon {
             remember_folder,
             remember_duplicate,
             remember_queue,
+            elevate,
         } = answer;
         let category = category.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
         let description = description.map(|d| d.trim().to_string());
@@ -2756,7 +2768,7 @@ impl Daemon {
                 eprintln!("[uidm-daemon] could not remember the dialog's choices: {e}");
             }
         }
-        if file_exists.is_some() || category.is_some() || description.is_some() {
+        if file_exists.is_some() || category.is_some() || description.is_some() || elevate {
             let mut requests = self.hub.requests.lock().unwrap();
             let request =
                 requests.entry(id).or_insert_with(|| Download { url: item.url.clone(), ..Download::default() });
@@ -2768,6 +2780,14 @@ impl Daemon {
             }
             if description.is_some() {
                 request.description = item.description.clone();
+            }
+            // The folder goes with it too: a retry resumes the staged file,
+            // which is not in that folder, so only this says where it goes.
+            if elevate {
+                request.elevate = true;
+                if let Some(dir) = item.path.as_deref().map(Path::new).and_then(Path::parent) {
+                    request.folder = Some(dir.display().to_string());
+                }
             }
         }
         // A download started early stops first, so its bytes can move to
@@ -3480,6 +3500,18 @@ impl Daemon {
 }
 
 fn main() {
+    // Started by a download saved with administrator rights (see
+    // `uidm::elevate`): move its finished file into place and exit.
+    let args: Vec<String> = std::env::args().collect();
+    if let [_, flag, from, to] = args.as_slice() {
+        if flag == uidm::elevate::MOVE_ARG {
+            if let Err(e) = uidm::elevate::move_file(Path::new(from), Path::new(to)) {
+                eprintln!("[uidm-daemon] could not move {from} to {to}: {e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+    }
     // Started through WMI, out of an app package's copy of AppData, the
     // daemon opens its log itself.
     #[cfg(windows)]

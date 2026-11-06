@@ -247,6 +247,17 @@ tests, not in a running Firefox.
   even with the dialog turned off: the download stops before writing anything
   and opens the dialog. If no window answers within 20 seconds, it gets a new
   name.
+- **When UIDM may not write to the folder** (one under `C:\Program Files`,
+  say), the save-as dialog opens even when it is turned off and says so.
+  Pick another folder with **Browse...**, cancel, or tick **Save there with
+  administrator rights** (Windows only). With that ticked, the download
+  still runs as you, in a staging folder (`UIDM\elevated-<id>` in the
+  temporary folder), and when it is done Windows asks for administrator
+  rights and a helper (`uidm-daemon --move-elevated`) moves the file into
+  place. If you say No, the download fails with a message naming the
+  finished file, which stays in the staging folder; starting it again asks
+  again without downloading it again. IDM does this with its elevated
+  helper, `idmfsa.dll`.
 - **When the address is already in the list**, UIDM asks by default: the
   save-as dialog (shown for this even when it is turned off) says which
   download has it and offers **Add it anyway** (with a new name if the old
@@ -925,6 +936,14 @@ download (POST) is renamed without asking, since asking would send the form
 again. Two downloads never write the same file at once. A retry reuses the
 file its earlier attempt wrote.
 
+Before it writes anything, the engine checks that it may create files in the
+folder; if not, the download fails with `Saving here needs administrator
+rights: <folder>`. A request with `elevate` set is downloaded into a staging
+folder instead, and the finished file is moved into its folder by `uidm-daemon
+--move-elevated <from> <to>`, started with the `runas` verb so Windows shows
+its UAC prompt. The helper copies the file, so it takes the folder's
+permissions, then deletes the staged one.
+
 Downloads run up to the **Downloads at once** setting (3 by default) and the
 rest queue in order. Changing the setting takes effect at once: raising it
 starts queued downloads, lowering it lets running ones finish. Canceling a
@@ -1070,7 +1089,8 @@ other event covers. A `hello` with `client: "window"` tells the daemon a
 window is open to show save-as dialogs. `confirm` answers the dialog of a
 `confirming` download or starts a `waiting` one, keeping its id; `filename`
 and `folder` default to the proposed ones, and `start: false` makes it
-`waiting`. `file_exists` (`rename` or `overwrite`) decides what happens if
+`waiting`. `elevate: true` saves it into a folder UIDM may not write to,
+with administrator rights. `file_exists` (`rename` or `overwrite`) decides what happens if
 the name is taken, for this start and later ones; without it the setting
 decides. `name_taken` means the name is taken under the `ask` setting:
 nothing was written, and the download is `confirming` with `path` set to the

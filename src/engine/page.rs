@@ -331,6 +331,7 @@ mod tests {
             temp_dir: None,
             reuse_partial: None,
             host_limit: None,
+            elevate: false,
         });
         let mut advanced = 0;
         let path = loop {

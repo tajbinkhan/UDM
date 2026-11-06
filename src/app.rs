@@ -56,6 +56,7 @@ pub fn to_request(d: Download, settings: &Settings) -> DownloadRequest {
         temp_dir: settings.temp_dir.as_deref().map(PathBuf::from).filter(|d| d.is_absolute()),
         reuse_partial: None,
         host_limit,
+        elevate: d.elevate,
     }
 }
 
