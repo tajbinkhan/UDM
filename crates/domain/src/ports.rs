@@ -57,6 +57,9 @@ pub trait DownloadList: Send + Sync {
     /// such download.
     fn set_waiting(&self, id: u64) -> bool;
 
+    /// The last download in the list for which `keep` holds.
+    fn find_last(&self, keep: impl Fn(&DownloadEntry) -> bool) -> Option<DownloadEntry>;
+
     /// The ids of the downloads for which `keep(id, status)` holds.
     fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64>;
 
@@ -71,6 +74,17 @@ pub trait DownloadList: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
 pub struct ControlError(pub String);
+
+/// Taking new downloads into the list.
+pub trait DownloadIntake: Send + Sync {
+    /// Whether UIDM can send `download`'s request: a form body must be
+    /// readable.
+    fn sendable(&self, download: &Download) -> bool;
+
+    /// Add `download` to the list as waiting, in no queue yet, without
+    /// opening a connection. Returns its id and address.
+    fn stage(&self, download: Download) -> (u64, String);
+}
 
 /// Stops and restarts downloads.
 pub trait DownloadControl: Send + Sync {

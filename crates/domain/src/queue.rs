@@ -644,6 +644,11 @@ pub fn delete(queues: &mut Vec<Queue>, id: u64, finished: &HashSet<u64>) -> Resu
     Ok(())
 }
 
+/// `queue` if it exists in `queues`, else the main queue.
+pub fn existing_or_main(queues: &[Queue], queue: Option<u64>) -> u64 {
+    queue.filter(|q| queues.iter().any(|x| x.id == *q)).unwrap_or(MAIN_QUEUE)
+}
+
 /// The queue holding download `id`.
 pub fn queue_of(queues: &[Queue], id: u64) -> Option<u64> {
     queues.iter().find(|q| q.order.contains(&id)).map(|q| q.id)

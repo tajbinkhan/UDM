@@ -52,8 +52,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use uidm_application::downloads::{
-    AfterDownload, ConvertDownload, PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
-    RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit,
+    AddLater, AddMany, AfterDownload, ConvertDownload, PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload,
+    ResumeAll, RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit,
 };
 use uidm_application::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use uidm_application::queues::{
@@ -63,11 +63,11 @@ use uidm_application::queues::{
 use uidm_application::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use uidm_application::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
 use uidm_domain::download::Scan;
-use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Status, Validator};
+use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status, Validator};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    ControlError, Converter, DownloadControl, DownloadList, PausedDownloads, PowerControl, QueueFinish, QueueRuns,
-    QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
+    ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, PausedDownloads, PowerControl, QueueFinish,
+    QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -549,6 +549,10 @@ impl DownloadList for Hub {
         .is_ok()
     }
 
+    fn find_last(&self, keep: impl Fn(&DownloadEntry) -> bool) -> Option<DownloadEntry> {
+        self.table.lock().unwrap().entries().filter(|e| keep(e)).last().cloned()
+    }
+
     fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64> {
         self.table.lock().unwrap().entries().filter(|e| keep(e.id, e.status)).map(|e| e.id).collect()
     }
@@ -789,6 +793,16 @@ impl ReleaseSource for GitHub<'_> {
             .spawn()
             .map(|_| ())
             .map_err(|e| UpdateError::Start { path: path.display().to_string(), reason: e.to_string() })
+    }
+}
+
+impl DownloadIntake for Daemon {
+    fn sendable(&self, download: &Download) -> bool {
+        check_body(download).is_ok()
+    }
+
+    fn stage(&self, download: Download) -> (u64, String) {
+        Daemon::stage(self, download)
     }
 }
 
@@ -1768,15 +1782,13 @@ impl Daemon {
         }
     }
 
-    /// The newest download in the list with `download`'s address. Form posts
-    /// and streams are never duplicates: one address can stand for different
-    /// files there (another form, another quality).
+    /// The newest download in the list with `download`'s address, unless it
+    /// cannot be a duplicate (a form post or a stream).
     fn duplicate_of(&self, download: &Download) -> Option<DownloadEntry> {
-        if uidm_infrastructure::app::post_body(download).is_some() || download.media.is_some() {
+        if !download.may_be_duplicate() {
             return None;
         }
-        let table = self.hub.table.lock().unwrap();
-        table.entries().filter(|e| uidm_infrastructure::app::same_address(&e.url, &download.url)).last().cloned()
+        self.hub.find_last(|e| uidm_domain::download::same_address(&e.url, &download.url))
     }
 
     /// Apply `choice` to `download`, whose address download `old` already
@@ -1788,20 +1800,10 @@ impl Daemon {
         old: &DownloadEntry,
         choice: Duplicate,
     ) -> Option<(u64, String)> {
-        match choice {
-            Duplicate::Ask | Duplicate::NewName => {
-                download.file_exists = Some(FileExists::Rename);
-                None
-            }
-            Duplicate::Existing => self.use_existing(old),
-            // A running download's file cannot be replaced under it.
-            Duplicate::Overwrite if !old.status.is_terminal() => self.use_existing(old),
-            Duplicate::Overwrite => {
-                if let Some(path) = old.path.as_deref().map(Path::new) {
-                    download.filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
-                    download.folder = path.parent().map(|d| d.display().to_string());
-                }
-                download.file_exists = Some(FileExists::Overwrite);
+        match download.settle_duplicate(old, choice) {
+            DuplicateStep::Add => None,
+            DuplicateStep::UseExisting => self.use_existing(old),
+            DuplicateStep::Replace => {
                 if let Err(e) = self.remove(old.id, false) {
                     eprintln!("[uidm-daemon] could not remove #{}: {e}", old.id);
                 }
@@ -1860,18 +1862,12 @@ impl Daemon {
     /// connection.
     fn add_later(&self, download: Download) -> (u64, String) {
         let later = self.settings.lock().unwrap().later_queue;
-        let queue = self.queue_or_main(download.queue.or(later));
-        let (id, url) = self.stage(download);
-        let _ = self.hub.update_queue(queue, |q| {
-            q.order.push(id);
-            Ok(())
-        });
-        (id, url)
+        AddLater::new(&*self.hub, self).run(download, later)
     }
 
     /// `queue` if it exists, else the main queue.
     fn queue_or_main(&self, queue: Option<u64>) -> u64 {
-        queue.filter(|q| self.hub.queues.lock().unwrap().iter().any(|x| x.id == *q)).unwrap_or(MAIN_QUEUE)
+        queue::existing_or_main(&self.hub.queues.lock().unwrap(), queue)
     }
 
     /// Announce `download` as waiting, not yet in any queue. A full-path
@@ -1902,12 +1898,8 @@ impl Daemon {
         (id, url)
     }
 
-    /// Add `items` to wait in `queue`, announcing the queue once rather than
-    /// once per download. Items that are not web addresses are skipped, and
-    /// so are those already in the list unless their own answer or the
-    /// duplicate setting says to add them (with a new name, or in place of a
-    /// stopped download). Returns
-    /// how many were added and how many were skipped as duplicates.
+    /// Add `items` to wait in `queue` (see `AddMany`). Returns how many were
+    /// added and how many were skipped as duplicates.
     fn add_many(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (usize, usize) {
         let (ids, skipped) = self.add_many_ids(items, queue);
         (ids.len(), skipped)
@@ -1915,34 +1907,12 @@ impl Daemon {
 
     /// `add_many`, answering with the new downloads' ids.
     fn add_many_ids(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (Vec<u64>, usize) {
-        let queue = self.queue_or_main(queue);
         let choice = self.settings.lock().unwrap().if_duplicate;
-        let mut ids = Vec::new();
-        let mut skipped = 0;
-        for mut d in items {
-            if !uidm_domain::batch::is_download_url(&d.url) || check_body(&d).is_err() {
-                continue;
-            }
-            if let Some(old) = self.duplicate_of(&d) {
-                let choice = d.duplicate.unwrap_or(choice);
-                let add = match choice {
-                    Duplicate::NewName => true,
-                    Duplicate::Overwrite => old.status.is_terminal(),
-                    Duplicate::Ask | Duplicate::Existing => false,
-                };
-                if !add {
-                    skipped += 1;
-                    continue;
-                }
-                self.settle_duplicate(&mut d, &old, choice);
-            }
-            ids.push(self.stage(d).0);
+        let added = AddMany::new(&*self.hub, &*self.hub, &**self, &DiskFiles, &**self).run(items, queue, choice);
+        for (id, e) in added.not_replaced {
+            eprintln!("[uidm-daemon] could not remove #{id}: {e}");
         }
-        let _ = self.hub.update_queue(queue, |q| {
-            q.order.extend(ids.iter().copied());
-            Ok(())
-        });
-        (ids, skipped)
+        (added.ids, added.skipped)
     }
 
     /// Read a stream's playlist on another thread and answer `reply` with

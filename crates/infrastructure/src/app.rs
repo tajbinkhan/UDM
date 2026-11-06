@@ -114,19 +114,7 @@ pub fn browser_request_headers(sent: &[(String, String)], already: &[(String, St
     out
 }
 
-/// Whether two download addresses name the same file: equal once parsed (so
-/// the case of the scheme and host and a default port do not matter) and with
-/// the fragment, which never reaches the server, dropped.
-pub fn same_address(a: &str, b: &str) -> bool {
-    let key = |u: &str| match url::Url::parse(u.trim()) {
-        Ok(mut parsed) => {
-            parsed.set_fragment(None);
-            parsed.to_string()
-        }
-        Err(_) => u.trim().split('#').next().unwrap_or("").to_string(),
-    };
-    key(a) == key(b)
-}
+pub use uidm_domain::download::same_address;
 
 /// The decoded form body when `d` is a POST. A POST without a body sends an
 /// empty one.
@@ -169,15 +157,6 @@ pub fn progress_to_outgoing(p: Progress) -> Outgoing {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn same_address_ignores_fragment_and_host_case() {
-        assert!(same_address("https://Example.com/a.zip", "https://example.com/a.zip#part"));
-        assert!(same_address("https://example.com:443/a.zip", " https://example.com/a.zip "));
-        assert!(!same_address("https://example.com/a.zip", "https://example.com/a.zip?v=2"));
-        assert!(!same_address("https://example.com/a.zip", "http://example.com/a.zip"));
-        assert!(!same_address("https://example.com/A.zip", "https://example.com/a.zip"));
-    }
 
     #[test]
     fn only_safe_browser_headers_go_along() {

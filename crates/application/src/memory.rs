@@ -8,8 +8,9 @@ use std::sync::Mutex;
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads,
-    PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
+    Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList, FilesError,
+    PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource,
+    SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use uidm_domain::quota::QuotaNotice;
@@ -130,6 +131,13 @@ impl DownloadList for Downloads {
 
     fn set_waiting(&self, id: u64) -> bool {
         self.set(id, Status::Waiting)
+    }
+
+    fn find_last(&self, keep: impl Fn(&DownloadEntry) -> bool) -> Option<DownloadEntry> {
+        let rows = self.rows.lock().unwrap();
+        let mut found: Vec<&DownloadEntry> = rows.values().filter(|e| keep(e)).collect();
+        found.sort_by_key(|e| e.id);
+        found.last().map(|e| (*e).clone())
     }
 
     fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64> {
@@ -685,5 +693,33 @@ impl Converter for Convert {
 
     fn start(&self, conversion: Conversion) {
         self.started.lock().unwrap().push(conversion);
+    }
+}
+
+/// Stages downloads as rows in `list`, numbering them from 1000. Downloads
+/// whose address ends in `.bad` are not sendable.
+pub struct Intake<'a> {
+    list: &'a Downloads,
+    next: AtomicUsize,
+}
+
+impl<'a> Intake<'a> {
+    pub fn into(list: &'a Downloads) -> Self {
+        Intake { list, next: AtomicUsize::new(1000) }
+    }
+}
+
+impl DownloadIntake for Intake<'_> {
+    fn sendable(&self, download: &Download) -> bool {
+        !download.url.ends_with(".bad")
+    }
+
+    fn stage(&self, download: Download) -> (u64, String) {
+        let id = self.next.fetch_add(1, Ordering::SeqCst) as u64;
+        let mut e = row(id, Status::Waiting);
+        e.url = download.url.clone();
+        self.list.rows.lock().unwrap().insert(id, e);
+        self.list.keep_request(id, download.clone());
+        (id, download.url)
     }
 }

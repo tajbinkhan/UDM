@@ -857,6 +857,76 @@ impl PropertiesPlan {
     }
 }
 
+/// Whether two download addresses name the same file: equal once parsed (so
+/// the case of the scheme and host and a default port do not matter) and with
+/// the fragment, which never reaches the server, dropped.
+pub fn same_address(a: &str, b: &str) -> bool {
+    let key = |u: &str| match url::Url::parse(u.trim()) {
+        Ok(mut parsed) => {
+            parsed.set_fragment(None);
+            parsed.to_string()
+        }
+        Err(_) => u.trim().split('#').next().unwrap_or("").to_string(),
+    };
+    key(a) == key(b)
+}
+
+/// What a duplicate setting does with a new download whose address an
+/// older one has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DuplicateStep {
+    /// Add the new one as well.
+    Add,
+    /// Add the new one in place of the old one, which leaves the list
+    /// first; the new one overwrites its file.
+    Replace,
+    /// Do not add it; point the user at the old one instead.
+    UseExisting,
+}
+
+impl Duplicate {
+    /// Whether this choice adds the new download when many are added at
+    /// once, with the old one in state `old`. Asking is not possible then.
+    pub fn adds_in_bulk(self, old: Status) -> bool {
+        match self {
+            Duplicate::NewName => true,
+            Duplicate::Overwrite => old.is_terminal(),
+            Duplicate::Ask | Duplicate::Existing => false,
+        }
+    }
+}
+
+impl Download {
+    /// Whether it can be a duplicate of another download. Form posts and
+    /// streams cannot: one address can stand for different files there
+    /// (another form, another quality).
+    pub fn may_be_duplicate(&self) -> bool {
+        !self.method.as_deref().is_some_and(|m| m.eq_ignore_ascii_case("POST")) && self.media.is_none()
+    }
+
+    /// Prepare it, whose address `old` already has, as `choice` says. A
+    /// running download's file cannot be replaced under it, so overwriting
+    /// one points at it instead.
+    pub fn settle_duplicate(&mut self, old: &DownloadEntry, choice: Duplicate) -> DuplicateStep {
+        match choice {
+            Duplicate::Ask | Duplicate::NewName => {
+                self.file_exists = Some(FileExists::Rename);
+                DuplicateStep::Add
+            }
+            Duplicate::Existing => DuplicateStep::UseExisting,
+            Duplicate::Overwrite if !old.status.is_terminal() => DuplicateStep::UseExisting,
+            Duplicate::Overwrite => {
+                if let Some(path) = old.path.as_deref().map(Path::new) {
+                    self.filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
+                    self.folder = path.parent().map(|d| d.display().to_string());
+                }
+                self.file_exists = Some(FileExists::Overwrite);
+                DuplicateStep::Replace
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1055,5 +1125,39 @@ mod tests {
         let mut e = entry(Status::Waiting, 0);
         e.set_on_done(Some(OnDone::default())).unwrap();
         assert_eq!(e.on_done, None, "choosing nothing clears it");
+    }
+
+    #[test]
+    fn same_address_ignores_fragment_and_host_case() {
+        assert!(same_address("https://Example.com/a.zip", "https://example.com/a.zip#part"));
+        assert!(same_address("https://example.com:443/a.zip", " https://example.com/a.zip "));
+        assert!(!same_address("https://example.com/a.zip", "https://example.com/a.zip?v=2"));
+        assert!(!same_address("https://example.com/a.zip", "http://example.com/a.zip"));
+        assert!(!same_address("https://example.com/A.zip", "https://example.com/a.zip"));
+    }
+
+    #[test]
+    fn duplicates_are_settled_as_the_setting_says() {
+        let mut old = entry(Status::Done, 1);
+        old.path = Some(if cfg!(windows) { r"C:\dl\a.zip" } else { "/dl/a.zip" }.into());
+        let mut new = Download { url: old.url.clone(), ..Download::default() };
+        assert_eq!(new.settle_duplicate(&old, Duplicate::NewName), DuplicateStep::Add);
+        assert_eq!(new.file_exists, Some(FileExists::Rename));
+        assert_eq!(new.settle_duplicate(&old, Duplicate::Overwrite), DuplicateStep::Replace);
+        assert_eq!((new.filename.as_deref(), new.file_exists), (Some("a.zip"), Some(FileExists::Overwrite)));
+        let running = DownloadEntry { status: Status::Downloading, ..old.clone() };
+        assert_eq!(new.settle_duplicate(&running, Duplicate::Overwrite), DuplicateStep::UseExisting);
+        assert_eq!(new.settle_duplicate(&old, Duplicate::Existing), DuplicateStep::UseExisting);
+    }
+
+    #[test]
+    fn only_some_choices_add_in_bulk_and_posts_are_never_duplicates() {
+        assert!(Duplicate::NewName.adds_in_bulk(Status::Downloading));
+        assert!(Duplicate::Overwrite.adds_in_bulk(Status::Done));
+        assert!(!Duplicate::Overwrite.adds_in_bulk(Status::Downloading));
+        assert!(!Duplicate::Ask.adds_in_bulk(Status::Done) && !Duplicate::Existing.adds_in_bulk(Status::Done));
+        let post = Download { method: Some("post".into()), ..Download::default() };
+        assert!(!post.may_be_duplicate());
+        assert!(Download::default().may_be_duplicate());
     }
 }

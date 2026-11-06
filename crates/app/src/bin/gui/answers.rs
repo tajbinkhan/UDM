@@ -42,7 +42,7 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
         let plain = uidm_infrastructure::app::post_body(d).is_none() && d.media.is_none();
         let duplicate = d.duplicate.unwrap_or(settings.if_duplicate) == Duplicate::Ask;
         if let (true, true, Some(old)) =
-            (plain, duplicate, rows.iter().rev().find(|e| uidm_infrastructure::app::same_address(&e.url, &d.url)))
+            (plain, duplicate, rows.iter().rev().find(|e| uidm_domain::download::same_address(&e.url, &d.url)))
         {
             out.push((i, Question::InList(crate::display_name(old))));
         }
