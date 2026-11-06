@@ -877,5 +877,11 @@
   "Choose another folder, or save there with administrator rights": "Wählen Sie einen anderen Ordner oder speichern Sie dort mit Administratorrechten",
   "Keep the computer awake while downloading": "Computer während Downloads wach halten",
   "Windows does not go to sleep on its own while a download or a site grab runs. The screen can still turn off.": "Windows geht nicht von selbst in den Energiesparmodus, solange ein Download oder ein Site-Grabber läuft. Der Bildschirm kann sich trotzdem ausschalten.",
-  "Only on Windows for now": "Vorerst nur unter Windows"
+  "Only on Windows for now": "Vorerst nur unter Windows",
+  "Wake the computer to start": "Computer zum Starten aufwecken",
+  "Wakes Windows from sleep or hibernation shortly before the start time. UIDM must be running.": "Weckt Windows kurz vor der Startzeit aus dem Energiesparmodus oder Ruhezustand. UIDM muss laufen.",
+  "Windows has wake timers turned off, so it will not wake up for this.": "In Windows sind Reaktivierungszeitgeber ausgeschaltet, daher wacht der Computer dafür nicht auf.",
+  "Windows has wake timers turned off on mains power.": "In Windows sind Reaktivierungszeitgeber im Netzbetrieb ausgeschaltet.",
+  "Windows has wake timers turned off on battery.": "In Windows sind Reaktivierungszeitgeber im Akkubetrieb ausgeschaltet.",
+  "Turn them on in Control Panel > Power Options > Change plan settings > Change advanced power settings > Sleep > Allow wake timers: Enable.": "Einschalten unter Systemsteuerung > Energieoptionen > Energiesparplaneinstellungen ändern > Erweiterte Energieeinstellungen ändern > Energie sparen > Zeitgeber zur Aktivierung zulassen: Aktivieren."
 }

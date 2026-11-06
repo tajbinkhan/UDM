@@ -326,6 +326,11 @@ tests, not in a running Firefox.
   run. If UIDM was not running at the start time, the queue starts as soon
   as it is, while the time window is still open. The Queues dialog says so
   next to a schedule until **Don't show this again** hides the note.
+  **Wake the computer to start** (on by default, for queues and grabber
+  projects) sets a Windows wake timer, so a sleeping or hibernating PC
+  wakes 30 seconds before the start time, as IDM does. UIDM must be
+  running, and the power plan must allow wake timers; the schedule shows a
+  warning with the setting's location when it does not.
 - **When a queue is done**, UIDM can do nothing, exit, or put the computer to
   sleep, hibernate or shut it down, per queue or for the current run only.
   Sleeping, hibernating and shutting down wait for a 60-second countdown in

@@ -1307,6 +1307,27 @@ impl Daemon {
         })
     }
 
+    /// The next scheduled start, of a queue or a grabber project, whose
+    /// schedule asks to wake the computer.
+    fn next_wake(&self, now: queue::Moment) -> Option<queue::Moment> {
+        let queues = self.hub.queues.lock().unwrap().clone();
+        let from_queues = queues.iter().filter(|q| !q.running).filter_map(|q| {
+            q.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, q.last_scheduled_start))
+        });
+        let projects = grab::projects_dir()
+            .map(|dir| {
+                grab::recent_projects(&dir)
+                    .iter()
+                    .filter_map(|name| grab::Project::load(&dir, name).ok())
+                    .filter_map(|p| {
+                        p.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, p.last_scheduled_start))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        from_queues.chain(projects).filter(|m| *m > now).min()
+    }
+
     /// Whether work is running that sleep would interrupt: a download, a
     /// site grab or a conversion.
     fn is_working(&self) -> bool {
@@ -3950,14 +3971,29 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
 /// Run the queue scheduler: a pass whenever something wakes it (a download
 /// ended, a queue changed) and every few seconds for the clock.
 fn spawn_scheduler(daemon: Arc<Daemon>, wake: Receiver<()>) {
-    thread::spawn(move || loop {
-        match wake.recv_timeout(SCHEDULER_POLL) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                while wake.try_recv().is_ok() {}
-                daemon.tick();
-                daemon.check_grab_schedules();
+    thread::spawn(move || {
+        // Wakes the computer for the next scheduled start; kept here so the
+        // handle lives as long as the scheduler.
+        let mut timer = power::WakeTimer::new();
+        loop {
+            match wake.recv_timeout(SCHEDULER_POLL) {
+                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    while wake.try_recv().is_ok() {}
+                    daemon.tick();
+                    daemon.check_grab_schedules();
+                    let next = daemon.next_wake(queue::local_now());
+                    if next != timer.at() {
+                        match timer.set(next) {
+                            Ok(()) => match next {
+                                Some(at) => eprintln!("[uidm-daemon] wake timer set for {}", at.display()),
+                                None => eprintln!("[uidm-daemon] wake timer cleared"),
+                            },
+                            Err(e) => eprintln!("[uidm-daemon] could not set the wake timer: {e}"),
+                        }
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
         }
     });
 }

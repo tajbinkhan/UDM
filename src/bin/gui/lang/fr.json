@@ -877,5 +877,11 @@
   "Choose another folder, or save there with administrator rights": "Choisissez un autre dossier ou enregistrez-y avec des droits d'administrateur",
   "Keep the computer awake while downloading": "Garder l'ordinateur éveillé pendant les téléchargements",
   "Windows does not go to sleep on its own while a download or a site grab runs. The screen can still turn off.": "Windows ne se met pas en veille de lui-même pendant un téléchargement ou une capture de site. L'écran peut quand même s'éteindre.",
-  "Only on Windows for now": "Pour l'instant uniquement sous Windows"
+  "Only on Windows for now": "Pour l'instant uniquement sous Windows",
+  "Wake the computer to start": "Réveiller l'ordinateur pour démarrer",
+  "Wakes Windows from sleep or hibernation shortly before the start time. UIDM must be running.": "Sort Windows de la veille ou de la mise en veille prolongée peu avant l'heure de début. UIDM doit être en cours d'exécution.",
+  "Windows has wake timers turned off, so it will not wake up for this.": "Les minuteurs de réveil sont désactivés dans Windows, l'ordinateur ne se réveillera donc pas pour cela.",
+  "Windows has wake timers turned off on mains power.": "Les minuteurs de réveil sont désactivés sur secteur dans Windows.",
+  "Windows has wake timers turned off on battery.": "Les minuteurs de réveil sont désactivés sur batterie dans Windows.",
+  "Turn them on in Control Panel > Power Options > Change plan settings > Change advanced power settings > Sleep > Allow wake timers: Enable.": "Activez-les dans Panneau de configuration > Options d'alimentation > Modifier les paramètres du mode > Modifier les paramètres d'alimentation avancés > Veille > Autoriser les minuteurs de réveil : Activer."
 }
