@@ -163,3 +163,36 @@ Checked and covered or out of scope
 
 Undecided
 - `CheckFileType()` (`FUN_005ec070`) parses AVI, MP3, WAV and MPEG headers and returns a text and a flag to `FUN_005ea530`. It looks like media details for one of the dialogs, but the caller chain was not followed.
+
+## Engine and settings pass, 2026-11-06
+
+Earlier passes read dialogs, string tables, help files, the type library and helper DLLs. This pass read what they skipped: the setting names IDMan.exe reads and writes (Ghidra string inventory, 9,182 strings, plus a raw byte scan for strings Ghidra did not list), its import table, and the network code behind them. Checked against origin/main at 4d8f33d. Filed on 2026-11-06 as #179 to #183 (milestone 25) under roadmap #184. Same IDMan.exe build (SHA-256 `75ac33a7…2145285`).
+
+REA tools used: `open_binary` (Ghidra), `list_strings`, `inspect_pe_imports`, `xrefs`, `resolve_containing_procedure`, `procedure_callers`, `procedure_pseudo_code`, `analyze_function`, `inspect_analysis_view`, `close_binary`. The live registry (`HKCU\Software\DownloadManager`) holds only 62 values because IDM writes non-default settings only, so the binary is the full list.
+
+Missing
+
+| IDM feature | Evidence | UIDM |
+|---|---|---|
+| HTTP/2 | nghttp2 strings in IDMan.exe ("PRI * HTTP/2.0", "HTTP/2 ALPN negotiation failed"), OpenSSL `SSL_CTX_set_alpn_protos` and `SSL_get0_alpn_selected` | ureq 2 speaks HTTP/1.1 only (`Cargo.toml`). Servers that rate-limit HTTP/1.1 connections or serve faster over h2 get slower downloads. |
+| NTLM logins | Auth parser strings at 0x70cc98 "NTLM", next to "Digest", "realm", "WWW-Authenticate:", referenced from code at 0x58cfc9, 0x58d21e, 0x58d3e6 and 0x58d506; SSPI imports (`AcquireCredentialsHandleA`, `InitializeSecurityContextA`) | `net::authorization` answers Basic and Digest only (`net.rs:739`). An intranet or SharePoint server that offers only NTLM fails with 401. |
+| Wake the PC for a scheduled queue | `CreateWaitableTimerA` and `SetWaitableTimer` imports; strings "IDM will not be able to wake up computer from sleep to start your download queue at a scheduled time" and the "Allow wake timers" help text | The daemon's scheduler polls the clock (`uidm-daemon.rs:131`). A sleeping PC misses the start time. No wake timer, no warning when Windows disables wake timers. |
+| Keep the PC awake while a job runs | `FUN_005ce2e0` calls `SetThreadExecutionState(ES_CONTINUOUS \| ES_SYSTEM_REQUIRED)` before its work and clears it after | No `SetThreadExecutionState` anywhere in `src`. Windows can sleep mid-download. The caller chain of `FUN_005ce2e0` is partial (one indirect caller), so which jobs IDM guards is an inference: the flag is passed in by the caller. |
+| Subtitles in HLS and DASH streams | ts2mp4 class `SubtitleSource`, `SubtitleHandler`, "WEBVTT", "tx3g" (MP4 timed text), "SUBTITLES=" | `hls.rs` keeps only `TYPE=AUDIO` renditions; `dash.rs:278` skips every adaptation set that is not video or audio. Subtitle tracks are dropped. |
+
+Low value or hidden
+
+- Per-download log files: `bSaveLogs`, `LogFileName`, format `%s%s_%ld.log`. No dialog control in the resources, so it looks like a support switch. UIDM has one daemon log (`ipc.rs:328`).
+- Per-download network workarounds saved with each download (`FUN_005db280`): `bUseCstmHdrs` (custom headers), `bFGzHdr` (gzip header), `bIPV4SsCn` (IPv4 only), `bRetAfFR`. They are combined into a flag word passed to `FUN_005da2f0`. No dialog sets them; they look like fixes IDM applies after a failure. Not filed until a user-facing case shows up.
+- `Accept-Charset: *` and `Origin:` headers with switches `bNoAcceptCharsetH`, `bNoOriginH`. UIDM forwards the browser's own headers (`app.rs:69`), which covers the common case.
+- MMS (`mmsIndex`, `mmsPacketSize`) and RTMP (`RTMPT_*`, `CatchSecureRTMP`): dead protocols, out of scope like dial-up.
+
+Covered
+
+- Retry through the browser's proxy ("Try via the same proxy as in browser request", `uBrProxy`): `addBrowserProxy` in `extension/background.js:930`.
+- SOCKS remote DNS (`Socks5ProxyDNS`): `proxy_remote_dns` in settings.
+- Digest with MD5-sess: `net.rs:750`.
+
+Resolved from "Undecided"
+
+- `CheckFileType()`: its only caller chain is `FUN_005bcbc0`, which runs on a download in state 2. For a `.zip` it reads the central directory (the zip preview, done in UIDM as #62). For other files it calls `FUN_005ea530` and `CheckFileType` on the downloaded start of the file, and stores `fGDFB`/`fGDFE` in the download's registry key, which read as "get data from beginning/end". This is IDM checking media headers so it can fetch the parts a player needs to preview a partial AVI, MP3, WAV or MPEG. Inference, not observed at runtime. UIDM has no partial media preview; low value next to the zip preview.
