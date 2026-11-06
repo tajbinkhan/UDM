@@ -40,6 +40,10 @@ impl DownloadFiles for DiskFiles {
     fn exists(&self, path: &Path) -> bool {
         path.exists()
     }
+
+    fn is_file(&self, path: &Path) -> bool {
+        path.is_file()
+    }
 }
 
 /// Move a finished file to `to`, which must not exist yet. Across drives

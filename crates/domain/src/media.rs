@@ -2,6 +2,8 @@
 //! tracks a stream offers, and which of them to download. Reading the
 //! playlists and manifests is `uidm_infrastructure::media`.
 
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 
 /// What a video becomes.
@@ -25,6 +27,33 @@ impl Target {
     pub fn audio_only(self) -> bool {
         self != Target::Mp4
     }
+
+    /// The name of `input` converted to this format: its stem with the new
+    /// extension, or with " (converted)" when the extension stays the same.
+    pub fn converted_name(self, input: &Path) -> String {
+        let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "converted".into());
+        let ext = self.extension();
+        if input.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext)) {
+            format!("{stem} (converted).{ext}")
+        } else {
+            format!("{stem}.{ext}")
+        }
+    }
+}
+
+/// A finished download to convert: its file becomes a new row of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conversion {
+    /// The download converted.
+    pub from: u64,
+    /// Its address, which the new row shows.
+    pub url: String,
+    pub input: PathBuf,
+    /// A free name beside the input.
+    pub output: PathBuf,
+    pub target: Target,
+    /// Remove the original, with its file, once the conversion succeeds.
+    pub delete_original: bool,
 }
 
 /// The stream formats, and a video page yt-dlp reads.
@@ -450,5 +479,11 @@ mod tests {
         assert_eq!(sniff_file(&[0xff, 0xf1, 0x50]), Some("aac"));
         assert_eq!(sniff_file(b"<html><body>"), None);
         assert_eq!(sniff_file(b"#EXTM3U"), None);
+    }
+
+    #[test]
+    fn a_converted_file_keeps_its_stem() {
+        assert_eq!(Target::Mp3.converted_name(Path::new("/dl/song.webm")), "song.mp3");
+        assert_eq!(Target::Mp4.converted_name(Path::new("/dl/clip.MP4")), "clip (converted).mp4");
     }
 }

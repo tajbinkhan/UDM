@@ -52,8 +52,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use uidm_application::downloads::{
-    AfterDownload, PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload,
-    SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit,
+    AfterDownload, ConvertDownload, PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
+    RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit,
 };
 use uidm_application::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use uidm_application::queues::{
@@ -64,9 +64,10 @@ use uidm_application::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use uidm_application::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Status, Validator};
+use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    ControlError, DownloadControl, DownloadList, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds,
-    QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
+    ControlError, Converter, DownloadControl, DownloadList, PausedDownloads, PowerControl, QueueFinish, QueueRuns,
+    QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -788,6 +789,76 @@ impl ReleaseSource for GitHub<'_> {
             .spawn()
             .map(|_| ())
             .map_err(|e| UpdateError::Start { path: path.display().to_string(), reason: e.to_string() })
+    }
+}
+
+/// Conversions with ffmpeg, each on a thread of its own that holds the
+/// daemon.
+struct Conversions<'a>(&'a Arc<Daemon>);
+
+impl Converter for Conversions<'_> {
+    fn available(&self) -> bool {
+        settings::ffmpeg(&self.0.settings.lock().unwrap()).is_some()
+    }
+
+    fn start(&self, c: Conversion) {
+        let daemon = Arc::clone(self.0);
+        let Some(ffmpeg) = settings::ffmpeg(&daemon.settings.lock().unwrap()) else {
+            return;
+        };
+        let size = std::fs::metadata(&c.input).map(|m| m.len()).unwrap_or(0);
+        let new_id = daemon.engine.reserve_id();
+        daemon.hub.uncounted.lock().unwrap().insert(new_id);
+        let url = c.url.clone();
+        daemon.hub.publish(&Outgoing::Added { id: new_id, url: url.clone() });
+        daemon.hub.publish(&Outgoing::Started {
+            id: new_id,
+            url: url.clone(),
+            path: c.output.display().to_string(),
+            total: Some(size),
+            resumable: false,
+            connections: 1,
+            partial: None,
+            validator: None,
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        daemon.conversions.lock().unwrap().insert(new_id, Arc::clone(&stop));
+        thread::spawn(move || {
+            let mut last = Instant::now() - Duration::from_secs(1);
+            let result =
+                uidm_infrastructure::media::convert::convert(&ffmpeg, &c.input, &c.output, c.target, &stop, |f| {
+                    if last.elapsed() >= Duration::from_millis(500) {
+                        last = Instant::now();
+                        daemon.hub.publish(&Outgoing::Progress {
+                            id: new_id,
+                            url: url.clone(),
+                            done: (f * size as f64) as u64,
+                            total: Some(size),
+                            parts: None,
+                            segments: None,
+                        });
+                    }
+                });
+            daemon.conversions.lock().unwrap().remove(&new_id);
+            let from = c.input.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            match result {
+                Ok(()) => {
+                    if c.delete_original {
+                        if let Err(e) = daemon.remove(c.from, true) {
+                            eprintln!("[uidm-daemon] kept the original of #{}: {e}", c.from);
+                        }
+                    }
+                    daemon.hub.publish(&Outgoing::Done {
+                        id: new_id,
+                        url,
+                        path: c.output.display().to_string(),
+                        note: Some(format!("Converted from {from}")),
+                    });
+                }
+                Err(e) if e == "canceled" => daemon.hub.publish(&Outgoing::Canceled { id: new_id, url }),
+                Err(error) => daemon.hub.publish(&Outgoing::Failed { id: new_id, url, error }),
+            }
+        });
     }
 }
 
@@ -2183,87 +2254,20 @@ impl Daemon {
             self.when_done(project.when_done, &project.name, None, project.force_close);
         }
     }
-    /// Convert finished download `id` on another thread. The new file is a
-    /// row of its own: added and started now, with ffmpeg's progress, done
-    /// with a note, or failed with ffmpeg's complaint.
+    /// Convert finished download `id` on another thread (see
+    /// `ConvertDownload`). The new file is a row of its own: added and
+    /// started now, with ffmpeg's progress, done with a note, or failed with
+    /// ffmpeg's complaint.
     fn convert(
         self: &Arc<Self>,
         id: u64,
         to: uidm_infrastructure::media::convert::Target,
         delete_original: bool,
     ) -> Result<(), String> {
-        let entry = self.entry(id).ok_or_else(|| format!("no download with id {id}"))?;
-        let input = entry
-            .path
-            .as_deref()
-            .map(PathBuf::from)
-            .filter(|p| entry.status == Status::Done && p.is_file())
-            .ok_or("Only a finished download whose file is still there can be converted.")?;
-        let ffmpeg = settings::ffmpeg(&self.settings.lock().unwrap())
-            .ok_or("Converting needs ffmpeg. Install it, or choose it in Options > General.")?;
-        let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "converted".into());
-        let ext = to.extension();
-        let same = input.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext));
-        let name = if same { format!("{stem} (converted).{ext}") } else { format!("{stem}.{ext}") };
-        let dir = input.parent().map(Path::to_path_buf).unwrap_or_default();
-        let output = (0..)
-            .map(|n| dir.join(uidm_domain::filename::numbered_name(&name, n)))
-            .find(|p| !p.exists())
-            .expect("some name is free");
-        let size = std::fs::metadata(&input).map(|m| m.len()).unwrap_or(0);
-        let new_id = self.engine.reserve_id();
-        self.hub.uncounted.lock().unwrap().insert(new_id);
-        let url = entry.url.clone();
-        self.hub.publish(&Outgoing::Added { id: new_id, url: url.clone() });
-        self.hub.publish(&Outgoing::Started {
-            id: new_id,
-            url: url.clone(),
-            path: output.display().to_string(),
-            total: Some(size),
-            resumable: false,
-            connections: 1,
-            partial: None,
-            validator: None,
-        });
-        let stop = Arc::new(AtomicBool::new(false));
-        self.conversions.lock().unwrap().insert(new_id, Arc::clone(&stop));
+        let output = ConvertDownload::new(&*self.hub, &DiskFiles, &Conversions(self))
+            .run(id, to, delete_original)
+            .map_err(|e| e.to_string())?;
         eprintln!("[uidm-daemon] converting #{id} to {}", output.display());
-        let daemon = Arc::clone(self);
-        thread::spawn(move || {
-            let mut last = Instant::now() - Duration::from_secs(1);
-            let result = uidm_infrastructure::media::convert::convert(&ffmpeg, &input, &output, to, &stop, |f| {
-                if last.elapsed() >= Duration::from_millis(500) {
-                    last = Instant::now();
-                    daemon.hub.publish(&Outgoing::Progress {
-                        id: new_id,
-                        url: url.clone(),
-                        done: (f * size as f64) as u64,
-                        total: Some(size),
-                        parts: None,
-                        segments: None,
-                    });
-                }
-            });
-            daemon.conversions.lock().unwrap().remove(&new_id);
-            let from = input.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            match result {
-                Ok(()) => {
-                    if delete_original {
-                        if let Err(e) = daemon.remove(id, true) {
-                            eprintln!("[uidm-daemon] kept the original of #{id}: {e}");
-                        }
-                    }
-                    daemon.hub.publish(&Outgoing::Done {
-                        id: new_id,
-                        url,
-                        path: output.display().to_string(),
-                        note: Some(format!("Converted from {from}")),
-                    });
-                }
-                Err(e) if e == "canceled" => daemon.hub.publish(&Outgoing::Canceled { id: new_id, url }),
-                Err(error) => daemon.hub.publish(&Outgoing::Failed { id: new_id, url, error }),
-            }
-        });
         Ok(())
     }
 

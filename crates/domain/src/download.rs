@@ -584,6 +584,10 @@ pub enum DownloadError {
     Exists(String),
     #[error("The download started while its properties were being saved.")]
     StartedWhileSaving,
+    #[error("Only a finished download whose file is still there can be converted.")]
+    NotConvertible,
+    #[error("Converting needs ffmpeg. Install it, or choose it in Options > General.")]
+    NoFfmpeg,
     #[error("This download has already finished.")]
     AlreadyFinished,
     #[error("could not reach the new link: {0}")]

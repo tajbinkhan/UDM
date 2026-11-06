@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::download::{Download, DownloadEntry, Status};
+use crate::media::Conversion;
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
 use crate::update::{Release, SetupAsset, UpdateError};
@@ -145,6 +146,9 @@ pub trait DownloadFiles: Send + Sync {
 
     /// Whether anything is at `path`.
     fn exists(&self, path: &Path) -> bool;
+
+    /// Whether a file (not a folder) is at `path`.
+    fn is_file(&self, path: &Path) -> bool;
 }
 
 /// What "pause all" stopped, for "resume all" to start again.
@@ -278,6 +282,16 @@ pub trait UpdateChecks: Send + Sync {
     /// A check happened at `at`; with `save`, keep that in the settings
     /// file too.
     fn note_checked(&self, at: u64, save: bool);
+}
+
+/// Converting finished downloads with ffmpeg.
+pub trait Converter: Send + Sync {
+    /// Whether ffmpeg can be found: the one set in Options, or one on `PATH`.
+    fn available(&self) -> bool;
+
+    /// Add the conversion's row and run it in the background, reporting
+    /// its progress, its end and ffmpeg's complaint if it fails.
+    fn start(&self, conversion: Conversion);
 }
 
 /// The computer's local date and time.

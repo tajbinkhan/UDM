@@ -1,8 +1,10 @@
 //! Acting on downloads: remove one, retry one, download one again, give it a
 //! new link, change its properties, speed limit or what happens when it
-//! finishes, stop everything that runs, pause all and resume all.
+//! finishes, convert its file, stop everything that runs, pause all and
+//! resume all.
 
 mod after_download;
+mod convert_download;
 mod pause_all;
 mod redownload;
 mod refresh_link;
@@ -15,6 +17,7 @@ mod set_speed_limit;
 mod stop_running;
 
 pub use after_download::AfterDownload;
+pub use convert_download::ConvertDownload;
 pub use pause_all::PauseAll;
 pub use redownload::Redownload;
 pub use refresh_link::{RefreshLink, Refreshed};

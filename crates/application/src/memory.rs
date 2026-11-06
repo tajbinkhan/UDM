@@ -6,9 +6,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use uidm_domain::download::{Download, DownloadEntry, Status};
+use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    Clock, ControlError, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads, PowerControl,
-    QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
+    Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadList, FilesError, PausedDownloads,
+    PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use uidm_domain::quota::QuotaNotice;
@@ -403,6 +404,10 @@ impl DownloadFiles for Files {
     fn exists(&self, path: &Path) -> bool {
         self.existing.contains(path)
     }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.existing.contains(path)
+    }
 }
 
 /// What was paused.
@@ -652,5 +657,33 @@ impl UpdateChecks for Checked {
     fn note_checked(&self, at: u64, save: bool) {
         *self.last.lock().unwrap() = at;
         self.noted.lock().unwrap().push((at, save));
+    }
+}
+
+/// Records the conversions started; `ffmpeg` says whether it is there.
+#[derive(Default)]
+pub struct Convert {
+    ffmpeg: bool,
+    started: Mutex<Vec<Conversion>>,
+}
+
+impl Convert {
+    /// A converter that finds ffmpeg.
+    pub fn with_ffmpeg() -> Self {
+        Convert { ffmpeg: true, ..Convert::default() }
+    }
+
+    pub fn started(&self) -> Vec<Conversion> {
+        self.started.lock().unwrap().clone()
+    }
+}
+
+impl Converter for Convert {
+    fn available(&self) -> bool {
+        self.ffmpeg
+    }
+
+    fn start(&self, conversion: Conversion) {
+        self.started.lock().unwrap().push(conversion);
     }
 }
