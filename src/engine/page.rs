@@ -8,7 +8,7 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -51,7 +51,7 @@ impl Tally {
 fn kill_tree(child: &mut Child) {
     #[cfg(windows)]
     {
-        let _ = crate::platform::no_window(&mut Command::new("taskkill"))
+        let _ = crate::platform::no_window(&mut std::process::Command::new("taskkill"))
             .args(["/T", "/F", "/PID", &child.id().to_string()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())

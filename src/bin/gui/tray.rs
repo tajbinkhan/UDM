@@ -37,7 +37,7 @@ impl Style {
         match self {
             Style::Color => rgba.to_vec(),
             // Keep each pixel's coverage, paint it white.
-            Style::Mono => rgba.chunks_exact(4).flat_map(|p| [255, 255, 255, p[3]]).collect(),
+            Style::Mono => rgba.as_chunks::<4>().0.iter().flat_map(|p| [255, 255, 255, p[3]]).collect(),
         }
     }
 }
@@ -91,7 +91,10 @@ struct DownloadsTray {
 }
 
 thread_local! {
+    // The initializers are already const. Clippy 1.99 still flags the macro.
+    #[allow(clippy::missing_const_for_thread_local)]
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
+    #[allow(clippy::missing_const_for_thread_local)]
     static PROGRESS: RefCell<Option<DownloadsTray>> = const { RefCell::new(None) };
 }
 
@@ -488,9 +491,9 @@ mod tests {
     fn the_arrows_icon_is_square_and_partly_clear() {
         let rgba = arrows_icon(PROGRESS_ICON_SIZE);
         assert_eq!(rgba.len(), (PROGRESS_ICON_SIZE * PROGRESS_ICON_SIZE * 4) as usize);
-        let alpha: Vec<u8> = rgba.chunks_exact(4).map(|p| p[3]).collect();
-        assert!(alpha.iter().any(|a| *a == 0), "the corners are clear");
-        assert!(alpha.iter().any(|a| *a == 255), "the arrows are solid");
+        let alpha: Vec<u8> = rgba.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
+        assert!(alpha.contains(&0), "the corners are clear");
+        assert!(alpha.contains(&255), "the arrows are solid");
     }
 
     #[test]

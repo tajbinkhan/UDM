@@ -21,6 +21,8 @@ use crate::settings::{Duplicate, FileExists, Settings};
 /// `op` selects the variant, e.g. `{"op":"add","url":"https://..."}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
+// Each message lives only while it is handled, so boxing the big variants would add churn for no gain.
+#[allow(clippy::large_enum_variant)]
 pub enum Incoming {
     /// Handshake a client may send on connect.
     Hello {
@@ -750,6 +752,8 @@ pub struct OnDone {
 /// A message from the daemon to a client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
+// Each message lives only while it is sent, so boxing the big variants would add churn for no gain.
+#[allow(clippy::large_enum_variant)]
 pub enum Outgoing {
     /// Reply to `hello`, announcing the daemon's identity.
     Hello { name: String, version: String },
@@ -977,9 +981,8 @@ pub enum Outgoing {
 /// partial frame or an oversized length.
 pub fn read_message<R: Read>(reader: &mut R, max_bytes: u32) -> io::Result<Option<Vec<u8>>> {
     let mut len_buf = [0u8; 4];
-    match read_exact_or_eof(reader, &mut len_buf)? {
-        false => return Ok(None),
-        true => {}
+    if !read_exact_or_eof(reader, &mut len_buf)? {
+        return Ok(None);
     }
 
     let len = u32::from_le_bytes(len_buf);

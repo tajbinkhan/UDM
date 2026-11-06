@@ -677,7 +677,7 @@ fn run_inner(
         fs::create_dir_all(dir)?;
     }
 
-    let segmented = probe.resumable && probe.total.map_or(false, |t| t > 0);
+    let segmented = probe.resumable && probe.total.is_some_and(|t| t > 0);
     let connections = if segmented {
         effective_connections(probe.total.unwrap(), req.connections)
     } else {

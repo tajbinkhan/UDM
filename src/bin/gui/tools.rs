@@ -1711,7 +1711,7 @@ fn grab_body(
                         ui.radio_value(&mut d.sched_by_date, false, tr("Every"));
                         ui.add_enabled_ui(!d.sched_by_date, |ui| {
                             for (i, name) in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].iter().enumerate() {
-                                ui.checkbox(&mut d.sched_days[i], tr(*name));
+                                ui.checkbox(&mut d.sched_days[i], tr(name));
                             }
                         });
                     });

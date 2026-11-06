@@ -93,9 +93,8 @@ impl Manifest {
         if self.total != total {
             return false;
         }
-        match (self.etag.as_deref(), etag) {
-            (Some(a), Some(b)) => return a == b,
-            _ => {}
+        if let (Some(a), Some(b)) = (self.etag.as_deref(), etag) {
+            return a == b;
         }
         if ignore_date {
             return true;

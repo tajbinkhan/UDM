@@ -435,7 +435,7 @@ fn form(
                 ui.add_enabled_ui(!draft.by_date, |ui| {
                     ui.horizontal(|ui| {
                         for (i, name) in DAY_NAMES.iter().enumerate() {
-                            ui.checkbox(&mut draft.days[i], tr(*name));
+                            ui.checkbox(&mut draft.days[i], tr(name));
                         }
                     });
                 });

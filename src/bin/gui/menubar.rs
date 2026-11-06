@@ -371,6 +371,8 @@ mod native_bar {
     }
 
     thread_local! {
+        // The initializer is already const. Clippy 1.99 still flags the macro.
+        #[allow(clippy::missing_const_for_thread_local)]
         static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
     }
 
