@@ -66,6 +66,10 @@ pub fn open_with(path: &str) {
     let _ = uidm::platform::reveal(std::path::Path::new(path));
 }
 
+/// Dragging a file out of the window is Windows-only for now, so a drag
+/// here does nothing.
+pub fn drag_file(_path: &str) {}
+
 /// The clipboard, opened once; the system keeps one per process.
 fn clipboard() -> &'static Mutex<Option<arboard::Clipboard>> {
     static CLIPBOARD: OnceLock<Mutex<Option<arboard::Clipboard>>> = OnceLock::new();

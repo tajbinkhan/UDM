@@ -869,5 +869,6 @@
   "{count} download windows": "{count} ventanas de descarga",
   "Hide": "Ocultar",
   "Show all": "Mostrar todas",
-  "Put this window in the tray; the green arrows there bring it back": "Llevar esta ventana a la bandeja; las flechas verdes de allí la devuelven"
+  "Put this window in the tray; the green arrows there bring it back": "Llevar esta ventana a la bandeja; las flechas verdes de allí la devuelven",
+  "Drag the file to a folder or another program": "Arrastrar el archivo a una carpeta o a otro programa"
 }

@@ -869,5 +869,6 @@
   "{count} download windows": "{count} fenêtres de téléchargement",
   "Hide": "Masquer",
   "Show all": "Tout afficher",
-  "Put this window in the tray; the green arrows there bring it back": "Placer cette fenêtre dans la zone de notification ; les flèches vertes l'y font revenir"
+  "Put this window in the tray; the green arrows there bring it back": "Placer cette fenêtre dans la zone de notification ; les flèches vertes l'y font revenir",
+  "Drag the file to a folder or another program": "Faire glisser le fichier vers un dossier ou un autre programme"
 }

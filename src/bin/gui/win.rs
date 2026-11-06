@@ -1,7 +1,8 @@
 //! Win32 calls the window needs outside egui: showing and hiding it while egui
 //! is idle (viewport commands wait for a frame),
 //! reading the clipboard for the tray menu and the clipboard offer, the
-//! Windows `Open with` picker, and the display languages.
+//! Windows `Open with` picker, dragging a file out of the window, and the
+//! display languages.
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
@@ -16,6 +17,7 @@ const SW_MINIMIZE: i32 = 6;
 const SW_SHOWMINNOACTIVE: i32 = 7;
 const SW_RESTORE: i32 = 9;
 const CF_UNICODETEXT: u32 = 13;
+const WM_LBUTTONUP: u32 = 0x0202;
 
 const HWND_TOPMOST: isize = -1;
 const HWND_NOTOPMOST: isize = -2;
@@ -53,6 +55,8 @@ extern "system" {
     fn CloseClipboard() -> i32;
     fn GetClipboardData(format: u32) -> *mut c_void;
     fn GetClipboardSequenceNumber() -> u32;
+    fn GetCapture() -> isize;
+    fn PostMessageW(hwnd: isize, msg: u32, wparam: usize, lparam: isize) -> i32;
 }
 
 /// `OPENASINFO`.
@@ -308,6 +312,59 @@ pub fn open_with(path: &str) {
     });
 }
 
+/// Drag the file at `path` out of the window, as Explorer drags one. A drop
+/// in a folder copies it, and a program takes it as the file itself. Call
+/// it while the left button is down; it returns once the file is dropped or
+/// the drag is given up. Moving is not offered, so the download keeps its
+/// file.
+pub fn drag_file(path: &str) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::Ole::{IDropSource, OleInitialize, OleUninitialize, DROPEFFECT_COPY, DROPEFFECT_LINK};
+    use windows::Win32::UI::Shell::SHDoDragDrop;
+    // SAFETY: COM calls on objects made here, on the window's thread, which
+    // OLE needs for a drag. The shell supplies both the file's data object
+    // and the drop source, and runs the drag's loop until it ends.
+    unsafe {
+        // eframe captures the mouse for the window the button went down in,
+        // which may be a dialog rather than the main window.
+        let source = match GetCapture() {
+            0 => WINDOW.load(Ordering::Relaxed),
+            hwnd => hwnd,
+        };
+        let ole = OleInitialize(None).is_ok();
+        if let Some(data) = file_data(path) {
+            let _ = SHDoDragDrop(
+                Some(HWND(source as *mut c_void)),
+                &data,
+                None::<&IDropSource>,
+                DROPEFFECT_COPY | DROPEFFECT_LINK,
+            );
+        }
+        if ole {
+            OleUninitialize();
+        }
+        // The drag's loop took the button's release, so the window never
+        // saw it, and egui would go on dragging until the next click.
+        if source != 0 {
+            PostMessageW(source, WM_LBUTTONUP, 0, 0);
+        }
+    }
+}
+
+/// The shell's data object for the file at `path`, the one Explorer drags,
+/// which carries it as a file list (`CF_HDROP`) among other formats.
+fn file_data(path: &str) -> Option<windows::Win32::System::Com::IDataObject> {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Com::{IBindCtx, IDataObject};
+    use windows::Win32::UI::Shell::{BHID_DataObject, IShellItem, SHCreateItemFromParsingName};
+    // SAFETY: the path lives until the call returns; the item and its data
+    // object are COM objects that release themselves when dropped.
+    unsafe {
+        let item = SHCreateItemFromParsingName::<_, _, IShellItem>(&HSTRING::from(path), None::<&IBindCtx>).ok()?;
+        item.BindToHandler::<_, IDataObject>(None::<&IBindCtx>, &BHID_DataObject).ok()
+    }
+}
+
 /// A number that changes whenever the clipboard does.
 pub fn clipboard_sequence() -> u32 {
     // SAFETY: takes no arguments and only reads a counter.
@@ -360,5 +417,37 @@ pub fn display_languages() -> Vec<String> {
             return Vec::new();
         }
         buffer.split(|&c| c == 0).filter(|tag| !tag.is_empty()).map(String::from_utf16_lossy).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_drags_as_a_file_list() {
+        use windows::Win32::System::Com::{
+            CoInitializeEx, COINIT_APARTMENTTHREADED, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL,
+        };
+        const CF_HDROP: u16 = 15;
+        let path = std::env::temp_dir().join(format!("uidm-drag-test-{}.txt", std::process::id()));
+        std::fs::write(&path, b"drag me").unwrap();
+        // SAFETY: COM is started on this thread before the shell is asked
+        // for the data object; the format is a plain struct read by the call.
+        let found = unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let data = file_data(path.to_str().unwrap()).expect("the shell has a data object for a file");
+            let format = FORMATETC {
+                cfFormat: CF_HDROP,
+                ptd: std::ptr::null_mut(),
+                dwAspect: DVASPECT_CONTENT.0,
+                lindex: -1,
+                tymed: TYMED_HGLOBAL.0 as u32,
+            };
+            data.QueryGetData(&format).is_ok()
+        };
+        let _ = std::fs::remove_file(&path);
+        assert!(found, "Explorer and other programs take a dropped file as CF_HDROP");
+        assert!(file_data(r"C:\no such folder\no such file.txt").is_none());
     }
 }

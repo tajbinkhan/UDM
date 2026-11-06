@@ -869,5 +869,6 @@
   "{count} download windows": "{count} Downloadfenster",
   "Hide": "Ausblenden",
   "Show all": "Alle anzeigen",
-  "Put this window in the tray; the green arrows there bring it back": "Dieses Fenster in den Infobereich legen; die grünen Pfeile dort holen es zurück"
+  "Put this window in the tray; the green arrows there bring it back": "Dieses Fenster in den Infobereich legen; die grünen Pfeile dort holen es zurück",
+  "Drag the file to a folder or another program": "Die Datei in einen Ordner oder ein anderes Programm ziehen"
 }

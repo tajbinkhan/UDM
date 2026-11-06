@@ -374,7 +374,10 @@ tests, not in a running Firefox.
   turned on by itself, with a `.wav` file of your own
   (**Browse...**, **Play**) or Windows' sound for the event. The dialog's
   **Don't show this dialog again** goes back to notifications. Canceled
-  downloads are never announced.
+  downloads are never announced. On Windows, drag the dialog's file icon,
+  or a finished download's row in the list, into a folder to copy the file
+  there, or into another program to hand it the file, such as a player's
+  playlist. A file that is gone drags nothing.
 - **Virus scan** (off by default) checks each finished file with Microsoft
   Defender or a scanner command you set, with `{path}` where the file goes;
   **Browse...** picks the scanner program and keeps the arguments typed.

@@ -4075,33 +4075,39 @@ impl App {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 let path = e.path.as_deref().map(Path::new);
-                egui::Grid::new("completed_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                    ui.label(tr("File"));
-                    ui.strong(display_name(&e));
-                    ui.end_row();
-                    ui.label(tr("Address"));
-                    ui.add(egui::Label::new(&e.url).truncate()).on_hover_text(&e.url);
-                    ui.end_row();
-                    if let Some(t) = e.total {
-                        ui.label(tr("Size"));
-                        ui.label(human_bytes(t));
-                        ui.end_row();
+                ui.horizontal_top(|ui| {
+                    // Only Windows drags a file out so far (see `win::drag_file`).
+                    if let Some(p) = e.path.as_deref().filter(|_| !failed && cfg!(windows)) {
+                        file_icon(ui, p);
                     }
-                    if let Some(folder) = path.and_then(|p| p.parent()) {
-                        ui.label(tr("Saved in"));
-                        ui.label(folder.display().to_string());
+                    egui::Grid::new("completed_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+                        ui.label(tr("File"));
+                        ui.strong(display_name(&e));
                         ui.end_row();
-                    }
-                    if failed {
-                        ui.label(tr("Error"));
-                        ui.colored_label(ui.visuals().error_fg_color, e.error.clone().unwrap_or_default());
+                        ui.label(tr("Address"));
+                        ui.add(egui::Label::new(&e.url).truncate()).on_hover_text(&e.url);
                         ui.end_row();
-                    }
-                    if let Some(scan) = &e.scan {
-                        ui.label(tr("Virus scan"));
-                        scan_label(ui, scan);
-                        ui.end_row();
-                    }
+                        if let Some(t) = e.total {
+                            ui.label(tr("Size"));
+                            ui.label(human_bytes(t));
+                            ui.end_row();
+                        }
+                        if let Some(folder) = path.and_then(|p| p.parent()) {
+                            ui.label(tr("Saved in"));
+                            ui.label(folder.display().to_string());
+                            ui.end_row();
+                        }
+                        if failed {
+                            ui.label(tr("Error"));
+                            ui.colored_label(ui.visuals().error_fg_color, e.error.clone().unwrap_or_default());
+                            ui.end_row();
+                        }
+                        if let Some(scan) = &e.scan {
+                            ui.label(tr("Virus scan"));
+                            scan_label(ui, scan);
+                            ui.end_row();
+                        }
+                    });
                 });
                 if waiting > 1 {
                     ui.weak(trf!("{count} more after this one.", count = waiting - 1));
@@ -4174,6 +4180,42 @@ impl App {
             self.threat_prompt = None;
         }
     }
+}
+
+/// The completion dialog's file icon, a page with a folded corner, which
+/// drags the finished file out to a folder or another program, as IDM's
+/// does.
+fn file_icon(ui: &mut egui::Ui, path: &str) {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 36.0), egui::Sense::drag());
+    let color = ui.style().interact(&response).fg_stroke.color;
+    let page = egui::Rect::from_center_size(rect.center(), egui::vec2(24.0, 30.0));
+    let fold = 8.0;
+    let stroke = egui::Stroke::new(1.0_f32, color);
+    let outline = vec![
+        page.left_top(),
+        egui::pos2(page.right() - fold, page.top()),
+        egui::pos2(page.right(), page.top() + fold),
+        page.right_bottom(),
+        page.left_bottom(),
+    ];
+    let painter = ui.painter();
+    painter.add(egui::Shape::convex_polygon(outline, ui.visuals().extreme_bg_color, stroke));
+    painter.add(egui::Shape::line(
+        vec![
+            egui::pos2(page.right() - fold, page.top()),
+            egui::pos2(page.right() - fold, page.top() + fold),
+            egui::pos2(page.right(), page.top() + fold),
+        ],
+        stroke,
+    ));
+    let lines = egui::Stroke::new(1.0_f32, color.gamma_multiply(0.5));
+    for i in 0..4 {
+        let y = page.top() + fold + 4.0 + i as f32 * 4.0;
+        painter.hline((page.left() + 5.0)..=(page.right() - 5.0), y, lines);
+    }
+    let cursor = if response.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab };
+    let response = response.on_hover_cursor(cursor).on_hover_text(tr("Drag the file to a folder or another program"));
+    table::drag_out(&response, path);
 }
 
 fn scan_label(ui: &mut egui::Ui, scan: &Scan) {
