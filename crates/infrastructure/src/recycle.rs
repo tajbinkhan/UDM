@@ -6,7 +6,7 @@ use std::path::Path;
 
 use uidm_domain::ports::{DownloadFiles, FilesError};
 
-use crate::engine::{files_of, partial_files};
+use crate::engine::{files_of, partial_files, sidecar_path};
 
 pub use imp::recycle;
 
@@ -21,6 +21,13 @@ impl DownloadFiles for RecycleBin {
             return Ok(());
         }
         recycle(&files).map_err(|e| FilesError(e.to_string()))
+    }
+
+    fn forget_resume(&self, paths: &[&str]) {
+        for p in paths {
+            // A record that is not there is already forgotten.
+            let _ = std::fs::remove_file(sidecar_path(Path::new(p)));
+        }
     }
 }
 

@@ -33,6 +33,20 @@ pub trait DownloadList: Send + Sync {
     /// Take download `id`'s row out of the list and tell every client.
     fn drop_row(&self, id: u64);
 
+    /// Change download `id`'s row with `f` and tell every client. `f`
+    /// returns false to leave the row as it was. Returns `None` when there
+    /// is no such download, otherwise what `f` returned.
+    fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool>;
+
+    /// The request download `id` was made with, if it was kept.
+    fn request(&self, id: u64) -> Option<Download>;
+
+    /// Keep `download` as the request download `id` starts from.
+    fn keep_request(&self, id: u64, download: Download);
+
+    /// Change download `id`'s kept request with `f`, if one was kept.
+    fn edit_request(&self, id: u64, f: impl FnOnce(&mut Download));
+
     /// The ids of the finished downloads.
     fn finished(&self) -> HashSet<u64>;
 
@@ -67,6 +81,13 @@ pub trait DownloadControl: Send + Sync {
     /// Start stopped download `id` again where it left off.
     fn resume(&self, id: u64) -> Result<(), ControlError>;
 
+    /// Set running download `id`'s own speed limit, in bytes per second;
+    /// `None` lifts it.
+    fn set_limit(&self, id: u64, bytes_per_sec: Option<u64>);
+
+    /// Start download `id` again under its own id from `download`.
+    fn start_again(&self, id: u64, download: Download);
+
     /// Remove download `id` from the list for good: its row, its kept
     /// request, and any wait for a new address for it.
     fn forget(&self, id: u64);
@@ -93,6 +114,10 @@ pub trait DownloadFiles: Send + Sync {
     /// Send the file at `path` and the partial copy at `partial` (each with
     /// the files the engine keeps beside it) to the Recycle Bin or Trash.
     fn recycle(&self, path: Option<&str>, partial: Option<&str>) -> Result<(), FilesError>;
+
+    /// Delete the resume records kept beside `paths`, so a file left there
+    /// counts as a taken name rather than something to resume.
+    fn forget_resume(&self, paths: &[&str]);
 }
 
 /// What "pause all" stopped, for "resume all" to start again.

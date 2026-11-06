@@ -4,10 +4,11 @@
 //! inside the messages of `uidm_infrastructure::protocol`.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use crate::media::MediaChoice;
 use crate::queue::WhenDone;
-use crate::settings::{Duplicate, FileExists};
+use crate::settings::{Duplicate, FileExists, SPEED_LIMIT_RANGE_KBPS};
 use serde::{Deserialize, Serialize};
 
 fn yes() -> bool {
@@ -546,12 +547,84 @@ pub enum DownloadError {
     StillRunning(u64),
     #[error("download {0} is not failed, canceled or interrupted")]
     NotRetryable(u64),
+    #[error("Only a finished or stopped download can be downloaded again.")]
+    NotFinishedOrStopped,
+    #[error("This stream's playlist is no longer known. Play it in the browser again to download it.")]
+    PlaylistGone,
+    #[error("The download started again in the meantime.")]
+    StartedMeanwhile,
+    #[error("{kbps} KB/s is not a speed limit between {lo} and {hi} KB/s.")]
+    BadSpeedLimit { kbps: u64, lo: u64, hi: u64 },
     /// It left the list, but its files could not go to the Recycle Bin.
     #[error("Removed {url} from the list, but its files stay: {reason}")]
     FilesStay { url: String, reason: String },
 }
 
+/// A download's own speed limit from `bytes_per_sec`: `None` (or 0) is no
+/// limit, anything else must lie in the settings' range.
+pub fn speed_limit(bytes_per_sec: Option<u64>) -> Result<Option<u64>, DownloadError> {
+    let limit = bytes_per_sec.filter(|b| *b > 0);
+    let (lo, hi) = SPEED_LIMIT_RANGE_KBPS;
+    match limit {
+        Some(b) if !(lo * 1024..=hi * 1024).contains(&b) => {
+            Err(DownloadError::BadSpeedLimit { kbps: b / 1024, lo, hi })
+        }
+        _ => Ok(limit),
+    }
+}
+
+impl Status {
+    /// Whether a download in this state may be downloaded again from the
+    /// first byte.
+    pub fn can_download_again(self) -> bool {
+        matches!(self, Status::Done | Status::Failed | Status::Canceled | Status::Interrupted)
+    }
+}
+
 impl DownloadEntry {
+    /// The request to download it again from the first byte with: the
+    /// `stored` one when it was kept, otherwise one made from its address
+    /// (which a stream cannot do without its playlist). It keeps its
+    /// description, category and speed limit, and goes to the same name and
+    /// folder when it wrote a file of its own.
+    pub fn redownload_request(&self, stored: Option<Download>) -> Result<Download, DownloadError> {
+        if !self.status.can_download_again() {
+            return Err(DownloadError::NotFinishedOrStopped);
+        }
+        if stored.is_none() && self.parts.is_some() {
+            return Err(DownloadError::PlaylistGone);
+        }
+        let mut download = stored.unwrap_or_else(|| Download {
+            url: self.url.clone(),
+            referrer: self.referrer.clone(),
+            page: self.page.clone(),
+            ..Download::default()
+        });
+        download.description = self.description.clone();
+        download.category = self.category.clone();
+        download.speed_limit = self.speed_limit;
+        if let Some(path) = self.path.as_deref().filter(|_| self.wrote_files()).map(Path::new) {
+            download.filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
+            download.folder = path.parent().map(|d| d.display().to_string());
+        }
+        Ok(download)
+    }
+
+    /// Clear what its last attempt left, so it starts again from the first
+    /// byte under the same id.
+    pub fn reset_for_redownload(&mut self) {
+        self.status = Status::Queued;
+        self.done = 0;
+        self.total = None;
+        self.parts = None;
+        self.error = None;
+        self.scan = None;
+        self.note = None;
+        self.resumable = false;
+        self.connections = 0;
+        self.partial = None;
+    }
+
     /// Whether it ever opened a connection. Only such a download has a file
     /// of its own: one that never got past its save-as dialog only has a
     /// proposed path, which may be somebody else's file.
@@ -673,5 +746,36 @@ mod tests {
         let stored = Download { url: "https://dl.example/b.zip".into(), ..Download::default() };
         let d = DownloadEntry { limit_remember: false, ..e }.retry_request(Some(stored));
         assert_eq!((d.url.as_str(), d.speed_limit), ("https://dl.example/b.zip", None));
+    }
+
+    #[test]
+    fn a_speed_limit_lies_in_the_settings_range() {
+        assert_eq!(speed_limit(None), Ok(None));
+        assert_eq!(speed_limit(Some(0)), Ok(None), "0 is no limit");
+        assert_eq!(speed_limit(Some(50 * 1024)), Ok(Some(50 * 1024)));
+        let err = speed_limit(Some(100)).unwrap_err();
+        assert_eq!(err.to_string(), "0 KB/s is not a speed limit between 1 and 10000000 KB/s.");
+    }
+
+    #[test]
+    fn downloading_again_keeps_the_name_of_a_file_it_wrote() {
+        let mut e = entry(Status::Done, 3);
+        e.path = Some(if cfg!(windows) { r"C:\dl\a.zip" } else { "/dl/a.zip" }.into());
+        let d = e.redownload_request(None).unwrap();
+        assert_eq!(d.filename.as_deref(), Some("a.zip"));
+        assert_eq!((d.description.as_deref(), d.speed_limit), (Some("note"), Some(1000)));
+        let never_started = DownloadEntry { status: Status::Canceled, connections: 0, ..e.clone() };
+        assert_eq!(never_started.redownload_request(None).unwrap().filename, None);
+        let stream = DownloadEntry { parts: Some([1, 10]), ..e.clone() };
+        assert_eq!(stream.redownload_request(None).unwrap_err(), DownloadError::PlaylistGone);
+        let running = DownloadEntry { status: Status::Downloading, ..e };
+        assert_eq!(running.redownload_request(None).unwrap_err(), DownloadError::NotFinishedOrStopped);
+    }
+
+    #[test]
+    fn a_reset_starts_from_the_first_byte() {
+        let mut e = DownloadEntry { done: 500, partial: Some("/tmp/a.part".into()), ..entry(Status::Failed, 2) };
+        e.reset_for_redownload();
+        assert_eq!((e.status, e.done, e.connections, e.partial), (Status::Queued, 0, 0, None));
     }
 }

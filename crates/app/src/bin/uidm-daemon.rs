@@ -51,7 +51,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use uidm_application::downloads::{PauseAll, RemoveDownload, ResumeAll, RetryDownload, StopRunning, Stopped};
+use uidm_application::downloads::{
+    PauseAll, Redownload, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetSpeedLimit, StopRunning,
+    Stopped,
+};
 use uidm_application::queues::{
     DeleteQueue, MoveToQueue, RemoveFromQueue, RunSchedules, SaveQueue, Scheduled, StartQueue, StopQueue,
 };
@@ -78,7 +81,7 @@ use uidm_infrastructure::recycle::RecycleBin;
 use uidm_infrastructure::registry;
 use uidm_infrastructure::scan;
 use uidm_infrastructure::settings::Notify;
-use uidm_infrastructure::settings::{self, Duplicate, FileExists, Folders, Settings, SPEED_LIMIT_RANGE_KBPS};
+use uidm_infrastructure::settings::{self, Duplicate, FileExists, Folders, Settings};
 use uidm_infrastructure::settings::{ProxyMode, SocksVersion};
 use uidm_infrastructure::state::DownloadTable;
 
@@ -551,6 +554,29 @@ impl DownloadList for Hub {
     fn drop_row(&self, id: u64) {
         self.publish(&Outgoing::Removed { id });
     }
+
+    fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool> {
+        // `f` refusing is an empty error; a missing download names itself.
+        match Hub::update(self, id, |e| if f(e) { Ok(()) } else { Err(String::new()) }) {
+            Ok(_) => Some(true),
+            Err(e) if e.is_empty() => Some(false),
+            Err(_) => None,
+        }
+    }
+
+    fn request(&self, id: u64) -> Option<Download> {
+        self.requests.lock().unwrap().get(&id).cloned()
+    }
+
+    fn keep_request(&self, id: u64, download: Download) {
+        self.requests.lock().unwrap().insert(id, download);
+    }
+
+    fn edit_request(&self, id: u64, f: impl FnOnce(&mut Download)) {
+        if let Some(d) = self.requests.lock().unwrap().get_mut(&id) {
+            f(d);
+        }
+    }
 }
 
 // The daemon owns the engine, the scheduler's runs and the settings, so it
@@ -590,6 +616,15 @@ impl DownloadControl for Daemon {
 
     fn resume(&self, id: u64) -> Result<(), ControlError> {
         self.retry(id).map(|_| ()).map_err(ControlError)
+    }
+
+    fn set_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
+        self.engine.set_download_limit(id, bytes_per_sec);
+    }
+
+    fn start_again(&self, id: u64, download: Download) {
+        let req = self.request_for(download);
+        self.engine.enqueue_as(id, req);
     }
 
     fn forget(&self, id: u64) {
@@ -2867,95 +2902,22 @@ impl Daemon {
         RetryDownload::new(&*self.hub, &*self.hub, self).run(id).map_err(|e| e.to_string())
     }
 
-    /// Set or clear download `id`'s own speed limit. It is kept on the
-    /// entry (so in the history) and in the stored request, and a running
-    /// download changes speed at once.
+    /// Set or clear download `id`'s own speed limit (see `SetSpeedLimit`).
     fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) -> Result<(), String> {
-        let limit = bytes_per_sec.filter(|b| *b > 0);
-        let (lo, hi) = SPEED_LIMIT_RANGE_KBPS;
-        if let Some(b) = limit.filter(|b| !(lo * 1024..=hi * 1024).contains(b)) {
-            return Err(format!("{} KB/s is not a speed limit between {lo} and {hi} KB/s.", b / 1024));
-        }
-        self.hub.update(id, |e| {
-            e.speed_limit = limit;
-            Ok(())
-        })?;
-        if let Some(d) = self.hub.requests.lock().unwrap().get_mut(&id) {
-            d.speed_limit = limit;
-        }
-        self.engine.set_download_limit(id, limit);
-        Ok(())
+        SetSpeedLimit::new(&*self.hub, self).run(id, bytes_per_sec).map_err(|e| e.to_string())
     }
 
     /// Set whether download `id` keeps its own speed limit when it is
     /// stopped and resumed.
     fn set_limit_remember(&self, id: u64, remember: bool) -> Result<(), String> {
-        self.hub.update(id, |e| {
-            e.limit_remember = remember;
-            Ok(())
-        })?;
-        Ok(())
+        SetLimitRemember::new(&*self.hub).run(id, remember).map_err(|e| e.to_string())
     }
 
-    /// Start download `id` again from the first byte, under the same id, so
-    /// it keeps its place and description. It goes to the same name and
-    /// folder; a file still there is handled by the file-exists setting, as
-    /// anybody else's file would be.
+    /// Start download `id` again from the first byte, under the same id (see
+    /// `Redownload`).
     fn redownload(&self, id: u64) -> Result<(), String> {
-        let again = |s: Status| matches!(s, Status::Done | Status::Failed | Status::Canceled | Status::Interrupted);
-        let entry = self.entry(id).ok_or_else(|| format!("no download with id {id}"))?;
-        if !again(entry.status) {
-            return Err("Only a finished or stopped download can be downloaded again.".into());
-        }
-        let stored = self.hub.requests.lock().unwrap().get(&id).cloned();
-        if stored.is_none() && entry.parts.is_some() {
-            return Err(
-                "This stream's playlist is no longer known. Play it in the browser again to download it.".into()
-            );
-        }
-        let mut download = stored.unwrap_or_else(|| Download {
-            url: entry.url.clone(),
-            referrer: entry.referrer.clone(),
-            page: entry.page.clone(),
-            ..Download::default()
-        });
-        download.description = entry.description.clone();
-        download.category = entry.category.clone();
-        download.speed_limit = entry.speed_limit;
-        // Only a download that started has a file of its own; a proposed
-        // path may be somebody else's.
-        let wrote = entry.status == Status::Done || entry.connections > 0;
-        if let Some(path) = entry.path.as_deref().filter(|_| wrote).map(Path::new) {
-            download.filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
-            download.folder = path.parent().map(|d| d.display().to_string());
-        }
-        // No reuse_path, and no resume sidecar left: a partial file still
-        // there is a taken name like any other, not something to resume.
-        if entry.status != Status::Done {
-            for p in [entry.path.as_deref(), entry.partial.as_deref()].into_iter().flatten() {
-                let _ = std::fs::remove_file(engine::sidecar_path(Path::new(p)));
-            }
-        }
-        let req = self.request_for(download.clone());
-        self.hub.update(id, |e| {
-            if !again(e.status) {
-                return Err("The download started again in the meantime.".into());
-            }
-            e.status = Status::Queued;
-            e.done = 0;
-            e.total = None;
-            e.parts = None;
-            e.error = None;
-            e.scan = None;
-            e.note = None;
-            e.resumable = false;
-            e.connections = 0;
-            e.partial = None;
-            Ok(())
-        })?;
-        self.hub.requests.lock().unwrap().insert(id, download);
-        eprintln!("[uidm-daemon] downloading #{id} again: {}", entry.url);
-        self.engine.enqueue_as(id, req);
+        let url = Redownload::new(&*self.hub, self, &RecycleBin).run(id).map_err(|e| e.to_string())?;
+        eprintln!("[uidm-daemon] downloading #{id} again: {url}");
         Ok(())
     }
 

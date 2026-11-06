@@ -74,10 +74,6 @@ impl Downloads {
         self.rows.lock().unwrap().get_mut(&id).map(|e| e.status = status).is_some()
     }
 
-    pub fn keep_request(&self, id: u64, download: Download) {
-        self.requests.lock().unwrap().insert(id, download);
-    }
-
     pub fn has_row(&self, id: u64) -> bool {
         self.rows.lock().unwrap().contains_key(&id)
     }
@@ -98,6 +94,31 @@ impl DownloadList for Downloads {
 
     fn drop_row(&self, id: u64) {
         self.rows.lock().unwrap().remove(&id);
+    }
+
+    fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool> {
+        let mut rows = self.rows.lock().unwrap();
+        let row = rows.get_mut(&id)?;
+        let mut changed = row.clone();
+        let ok = f(&mut changed);
+        if ok {
+            *row = changed;
+        }
+        Some(ok)
+    }
+
+    fn request(&self, id: u64) -> Option<Download> {
+        self.requests.lock().unwrap().get(&id).cloned()
+    }
+
+    fn keep_request(&self, id: u64, download: Download) {
+        self.requests.lock().unwrap().insert(id, download);
+    }
+
+    fn edit_request(&self, id: u64, f: impl FnOnce(&mut Download)) {
+        if let Some(d) = self.requests.lock().unwrap().get_mut(&id) {
+            f(d);
+        }
     }
 
     fn finished(&self) -> HashSet<u64> {
@@ -170,6 +191,8 @@ pub struct Control {
     resumed: Mutex<Vec<u64>>,
     forgotten: Mutex<Vec<u64>>,
     restarted: Mutex<Vec<Restart>>,
+    limits: Mutex<Vec<(u64, Option<u64>)>>,
+    started_again: Mutex<Vec<(u64, Download)>>,
     refuse: HashSet<u64>,
 }
 
@@ -210,6 +233,14 @@ impl Control {
     pub fn restarted(&self) -> Vec<Restart> {
         self.restarted.lock().unwrap().clone()
     }
+
+    pub fn limits(&self) -> Vec<(u64, Option<u64>)> {
+        self.limits.lock().unwrap().clone()
+    }
+
+    pub fn started_again(&self) -> Vec<(u64, Download)> {
+        self.started_again.lock().unwrap().clone()
+    }
 }
 
 impl DownloadControl for Control {
@@ -233,6 +264,14 @@ impl DownloadControl for Control {
         self.forgotten.lock().unwrap().push(id);
     }
 
+    fn set_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
+        self.limits.lock().unwrap().push((id, bytes_per_sec));
+    }
+
+    fn start_again(&self, id: u64, download: Download) {
+        self.started_again.lock().unwrap().push((id, download));
+    }
+
     fn restart(
         &self,
         download: Download,
@@ -252,6 +291,7 @@ impl DownloadControl for Control {
 pub struct Files {
     fail: bool,
     recycled: Mutex<Vec<(Option<String>, Option<String>)>>,
+    forgot_resume: Mutex<Vec<String>>,
 }
 
 impl Files {
@@ -263,6 +303,10 @@ impl Files {
     pub fn recycled(&self) -> Vec<(Option<String>, Option<String>)> {
         self.recycled.lock().unwrap().clone()
     }
+
+    pub fn forgot_resume(&self) -> Vec<String> {
+        self.forgot_resume.lock().unwrap().clone()
+    }
 }
 
 impl DownloadFiles for Files {
@@ -272,6 +316,10 @@ impl DownloadFiles for Files {
         }
         self.recycled.lock().unwrap().push((path.map(String::from), partial.map(String::from)));
         Ok(())
+    }
+
+    fn forget_resume(&self, paths: &[&str]) {
+        self.forgot_resume.lock().unwrap().extend(paths.iter().map(|p| p.to_string()));
     }
 }
 
