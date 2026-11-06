@@ -4,7 +4,7 @@
 //! inside the messages of `uidm_infrastructure::protocol`.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::media::MediaChoice;
 use crate::queue::WhenDone;
@@ -555,6 +555,35 @@ pub enum DownloadError {
     StartedMeanwhile,
     #[error("{kbps} KB/s is not a speed limit between {lo} and {hi} KB/s.")]
     BadSpeedLimit { kbps: u64, lo: u64, hi: u64 },
+    #[error("Stop the download before changing its properties.")]
+    NotStopped,
+    #[error("Only a stopped download can get a new link.")]
+    LinkNeedsStop,
+    #[error("{0} is not an http, https or ftp link")]
+    NotDownloadLink(String),
+    #[error("{0} is not an http or https address")]
+    NotWebAddress(String),
+    #[error("A finished download keeps no login. Download it again to use one.")]
+    LoginOnFinished,
+    #[error("Only a finished download's file can be renamed.")]
+    RenameUnfinished,
+    #[error("The folder must be a full path: {0}")]
+    RelativeFolder(String),
+    #[error("The download has no file.")]
+    NoFile,
+    #[error("The download has no file name.")]
+    NoFileName,
+    #[error("The download has no folder.")]
+    NoFolder,
+    #[error("{0} already exists.")]
+    Exists(String),
+    #[error("The download started while its properties were being saved.")]
+    StartedWhileSaving,
+    #[error("could not reach the new link: {0}")]
+    Unreachable(String),
+    /// Moving its file failed; the message says how.
+    #[error("{0}")]
+    Files(String),
     /// It left the list, but its files could not go to the Recycle Bin.
     #[error("Removed {url} from the list, but its files stay: {reason}")]
     FilesStay { url: String, reason: String },
@@ -582,6 +611,87 @@ impl Status {
 }
 
 impl DownloadEntry {
+    /// Whether its properties may change: it is finished or stopped.
+    pub fn properties_editable(&self) -> bool {
+        self.status == Status::Done || self.status.is_retryable()
+    }
+
+    /// The request it was made with, as far as its row tells: its address,
+    /// referrer and page.
+    pub fn base_request(&self) -> Download {
+        Download {
+            url: self.url.clone(),
+            referrer: self.referrer.clone(),
+            page: self.page.clone(),
+            ..Download::default()
+        }
+    }
+
+    /// Work out what changing its properties to `p` does, refusing a change
+    /// that is not allowed.
+    pub fn plan_properties(&self, p: Properties) -> Result<PropertiesPlan, DownloadError> {
+        let done = self.status == Status::Done;
+        if !self.properties_editable() {
+            return Err(DownloadError::NotStopped);
+        }
+        let trimmed = |s: Option<String>| s.map(|s| s.trim().to_string());
+        let url = trimmed(p.url).filter(|u| *u != self.url);
+        if let Some(u) = url.as_deref().filter(|u| !crate::batch::is_download_url(u)) {
+            return Err(DownloadError::NotDownloadLink(u.to_string()));
+        }
+        let referrer = trimmed(p.referrer);
+        if let Some(r) = referrer.as_deref().filter(|r| !r.is_empty() && !crate::batch::is_web_url(r)) {
+            return Err(DownloadError::NotWebAddress(r.to_string()));
+        }
+        let description = trimmed(p.description);
+        if p.login.is_some() && done {
+            return Err(DownloadError::LoginOnFinished);
+        }
+        let full = |dir: PathBuf| {
+            if dir.is_absolute() {
+                Ok(dir)
+            } else {
+                Err(DownloadError::RelativeFolder(dir.display().to_string()))
+            }
+        };
+        let mut new_folder = None;
+        let moved = match (p.filename, p.folder) {
+            (None, None) => None,
+            (Some(_), _) if !done => return Err(DownloadError::RenameUnfinished),
+            (None, Some(folder)) if !done => {
+                // An unfinished download moves to another folder: its
+                // partial file and resume record go along when they are kept
+                // beside it, and the next attempt saves there. A partial file
+                // in the temporary folder stays put; it is moved into place
+                // when the download finishes, as always.
+                let dir = full(PathBuf::from(folder.trim()))?;
+                new_folder = Some(dir.clone());
+                self.path
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .and_then(|from| Some((from.file_name()?.to_owned(), from)))
+                    .map(|(name, from)| (from, dir.join(name)))
+                    .filter(|(from, to)| to != from)
+            }
+            (filename, folder) => {
+                let from = self.path.as_deref().map(PathBuf::from).ok_or(DownloadError::NoFile)?;
+                let name = filename
+                    .as_deref()
+                    .map(crate::filename::sanitize_filename)
+                    .filter(|n| !n.is_empty())
+                    .or_else(|| from.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .ok_or(DownloadError::NoFileName)?;
+                let dir = match folder.as_deref().map(str::trim) {
+                    Some(f) if !f.is_empty() => PathBuf::from(f),
+                    _ => from.parent().map(Path::to_path_buf).ok_or(DownloadError::NoFolder)?,
+                };
+                let to = full(dir)?.join(name);
+                (to != from).then_some((from, to))
+            }
+        };
+        Ok(PropertiesPlan { url, referrer, description, login: p.login, moved, new_folder })
+    }
+
     /// The request to download it again from the first byte with: the
     /// `stored` one when it was kept, otherwise one made from its address
     /// (which a stream cannot do without its playlist). It keeps its
@@ -594,12 +704,7 @@ impl DownloadEntry {
         if stored.is_none() && self.parts.is_some() {
             return Err(DownloadError::PlaylistGone);
         }
-        let mut download = stored.unwrap_or_else(|| Download {
-            url: self.url.clone(),
-            referrer: self.referrer.clone(),
-            page: self.page.clone(),
-            ..Download::default()
-        });
+        let mut download = stored.unwrap_or_else(|| self.base_request());
         download.description = self.description.clone();
         download.category = self.category.clone();
         download.speed_limit = self.speed_limit;
@@ -642,18 +747,74 @@ impl DownloadEntry {
     /// category, and its speed limit unless the user chose not to remember
     /// it on stop and resume.
     pub fn retry_request(&self, stored: Option<Download>) -> Download {
-        let download = stored.unwrap_or_else(|| Download {
-            url: self.url.clone(),
-            referrer: self.referrer.clone(),
-            page: self.page.clone(),
-            ..Download::default()
-        });
+        let download = stored.unwrap_or_else(|| self.base_request());
         Download {
             description: self.description.clone(),
             category: self.category.clone(),
             speed_limit: self.speed_limit.filter(|_| self.limit_remember),
             ..download
         }
+    }
+}
+
+/// What a [`Properties`] change does to a download, worked out by
+/// [`DownloadEntry::plan_properties`] before anything changes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertiesPlan {
+    /// A new address (trimmed, and different from the old one).
+    pub url: Option<String>,
+    /// A new referrer; empty removes it.
+    pub referrer: Option<String>,
+    /// A new description; empty removes it.
+    pub description: Option<String>,
+    /// A new login; an empty user name removes it.
+    pub login: Option<DownloadLogin>,
+    /// The file to move on disk, from and to.
+    pub moved: Option<(PathBuf, PathBuf)>,
+    /// The folder an unfinished download saves into from now on.
+    pub new_folder: Option<PathBuf>,
+}
+
+impl PropertiesPlan {
+    /// Apply the plan to the request a retry starts from.
+    pub fn apply_to_request(&self, req: &mut Download) {
+        if let Some(u) = &self.url {
+            req.url = u.clone();
+        }
+        if let Some(r) = &self.referrer {
+            req.referrer = Some(r.clone()).filter(|r| !r.is_empty());
+        }
+        if let Some(d) = &self.description {
+            req.description = Some(d.clone()).filter(|d| !d.is_empty());
+        }
+        if let Some(dir) = &self.new_folder {
+            req.folder = Some(dir.display().to_string());
+        }
+        if let Some(l) = &self.login {
+            let username = l.username.trim().to_string();
+            req.login = (!username.is_empty()).then(|| DownloadLogin {
+                password: l.password.clone().or_else(|| req.login.as_ref().and_then(|o| o.password.clone())),
+                username,
+            });
+        }
+    }
+
+    /// Apply the plan to the download's row. `login_user` is the user name
+    /// its request now logs in with.
+    pub fn apply_to_row(&self, e: &mut DownloadEntry, login_user: Option<String>) {
+        if let Some(u) = &self.url {
+            e.url = u.clone();
+        }
+        if let Some(r) = &self.referrer {
+            e.referrer = Some(r.clone()).filter(|r| !r.is_empty());
+        }
+        if let Some(d) = &self.description {
+            e.description = Some(d.clone()).filter(|d| !d.is_empty());
+        }
+        if let Some((_, to)) = &self.moved {
+            e.path = Some(to.display().to_string());
+        }
+        e.login_user = login_user;
     }
 }
 
@@ -777,5 +938,68 @@ mod tests {
         let mut e = DownloadEntry { done: 500, partial: Some("/tmp/a.part".into()), ..entry(Status::Failed, 2) };
         e.reset_for_redownload();
         assert_eq!((e.status, e.done, e.connections, e.partial), (Status::Queued, 0, 0, None));
+    }
+
+    fn full(p: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{}", p.replace('/', "\\"))
+        } else {
+            p.to_string()
+        }
+    }
+
+    #[test]
+    fn a_finished_file_is_renamed_in_its_folder() {
+        let mut e = entry(Status::Done, 1);
+        e.path = Some(full("/dl/a.zip"));
+        let p = Properties { filename: Some(" b?.zip ".into()), ..Properties::default() };
+        let plan = e.plan_properties(p).unwrap();
+        assert_eq!(plan.moved, Some((PathBuf::from(full("/dl/a.zip")), PathBuf::from(full("/dl/b_.zip")))));
+        let same = Properties { filename: Some("a.zip".into()), ..Properties::default() };
+        assert_eq!(e.plan_properties(same).unwrap().moved, None, "nothing to move");
+    }
+
+    #[test]
+    fn an_unfinished_download_moves_folder_but_keeps_its_name() {
+        let mut e = entry(Status::Canceled, 1);
+        e.path = Some(full("/dl/a.zip"));
+        let p = Properties { folder: Some(full("/new")), ..Properties::default() };
+        let plan = e.plan_properties(p).unwrap();
+        assert_eq!(plan.new_folder, Some(PathBuf::from(full("/new"))));
+        assert_eq!(plan.moved.map(|(_, to)| to), Some(PathBuf::from(full("/new/a.zip"))));
+        let rename = Properties { filename: Some("b.zip".into()), ..Properties::default() };
+        assert_eq!(e.plan_properties(rename), Err(DownloadError::RenameUnfinished));
+        let relative = Properties { folder: Some("new".into()), ..Properties::default() };
+        assert_eq!(e.plan_properties(relative), Err(DownloadError::RelativeFolder("new".into())));
+    }
+
+    #[test]
+    fn properties_are_checked_before_anything_changes() {
+        let e = entry(Status::Failed, 0);
+        let bad_link = Properties { url: Some("file:///etc/passwd".into()), ..Properties::default() };
+        assert_eq!(e.plan_properties(bad_link), Err(DownloadError::NotDownloadLink("file:///etc/passwd".into())));
+        let bad_referrer = Properties { referrer: Some("ftp://x/".into()), ..Properties::default() };
+        assert_eq!(e.plan_properties(bad_referrer), Err(DownloadError::NotWebAddress("ftp://x/".into())));
+        let login = Properties {
+            login: Some(DownloadLogin { username: "me".into(), password: None }),
+            ..Properties::default()
+        };
+        assert_eq!(entry(Status::Done, 1).plan_properties(login.clone()), Err(DownloadError::LoginOnFinished));
+        assert_eq!(entry(Status::Downloading, 1).plan_properties(login), Err(DownloadError::NotStopped));
+    }
+
+    #[test]
+    fn a_new_login_keeps_the_old_password_unless_given() {
+        let plan = PropertiesPlan {
+            login: Some(DownloadLogin { username: " me ".into(), password: None }),
+            ..entry(Status::Failed, 0).plan_properties(Properties::default()).unwrap()
+        };
+        let mut req = Download {
+            login: Some(DownloadLogin { username: "old".into(), password: Some("secret".into()) }),
+            ..Download::default()
+        };
+        plan.apply_to_request(&mut req);
+        let login = req.login.unwrap();
+        assert_eq!((login.username.as_str(), login.password.as_deref()), ("me", Some("secret")));
     }
 }

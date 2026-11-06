@@ -1,7 +1,7 @@
 //! In-memory adapters for the use cases' tests.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -193,7 +193,10 @@ pub struct Control {
     restarted: Mutex<Vec<Restart>>,
     limits: Mutex<Vec<(u64, Option<u64>)>>,
     started_again: Mutex<Vec<(u64, Download)>>,
+    waiting_for_link: Mutex<Option<u64>>,
     refuse: HashSet<u64>,
+    /// What [`DownloadControl::check_partial`] answers.
+    partial_check: Option<Result<Option<String>, ControlError>>,
 }
 
 /// One call to [`DownloadControl::restart`].
@@ -241,6 +244,11 @@ impl Control {
     pub fn started_again(&self) -> Vec<(u64, Download)> {
         self.started_again.lock().unwrap().clone()
     }
+
+    /// A control whose partial-file checks answer `answer`.
+    pub fn checking(answer: Result<Option<String>, ControlError>) -> Self {
+        Control { partial_check: Some(answer), ..Control::default() }
+    }
 }
 
 impl DownloadControl for Control {
@@ -272,6 +280,18 @@ impl DownloadControl for Control {
         self.started_again.lock().unwrap().push((id, download));
     }
 
+    fn wait_for_link(&self, id: Option<u64>) {
+        *self.waiting_for_link.lock().unwrap() = id;
+    }
+
+    fn waiting_for_link(&self) -> Option<u64> {
+        *self.waiting_for_link.lock().unwrap()
+    }
+
+    fn check_partial(&self, _download: &Download, _partial: &str) -> Result<Option<String>, ControlError> {
+        self.partial_check.clone().expect("the test sets what the check answers")
+    }
+
     fn restart(
         &self,
         download: Download,
@@ -292,6 +312,8 @@ pub struct Files {
     fail: bool,
     recycled: Mutex<Vec<(Option<String>, Option<String>)>>,
     forgot_resume: Mutex<Vec<String>>,
+    moved: Mutex<Vec<(PathBuf, PathBuf, bool)>>,
+    existing: HashSet<PathBuf>,
 }
 
 impl Files {
@@ -307,6 +329,16 @@ impl Files {
     pub fn forgot_resume(&self) -> Vec<String> {
         self.forgot_resume.lock().unwrap().clone()
     }
+
+    /// Files where something already is at each of `paths`.
+    pub fn with_existing(paths: &[&str]) -> Self {
+        Files { existing: paths.iter().map(PathBuf::from).collect(), ..Files::default() }
+    }
+
+    /// The moves made: from, to, and whether the file was finished.
+    pub fn moved(&self) -> Vec<(PathBuf, PathBuf, bool)> {
+        self.moved.lock().unwrap().clone()
+    }
 }
 
 impl DownloadFiles for Files {
@@ -320,6 +352,23 @@ impl DownloadFiles for Files {
 
     fn forget_resume(&self, paths: &[&str]) {
         self.forgot_resume.lock().unwrap().extend(paths.iter().map(|p| p.to_string()));
+    }
+
+    fn move_finished(&self, from: &Path, to: &Path) -> Result<(), FilesError> {
+        if self.fail {
+            return Err(FilesError("the file is open".into()));
+        }
+        self.moved.lock().unwrap().push((from.to_path_buf(), to.to_path_buf(), true));
+        Ok(())
+    }
+
+    fn move_partial(&self, from: &Path, to: &Path) -> Result<(), FilesError> {
+        self.moved.lock().unwrap().push((from.to_path_buf(), to.to_path_buf(), false));
+        Ok(())
+    }
+
+    fn exists(&self, path: &Path) -> bool {
+        self.existing.contains(path)
     }
 }
 

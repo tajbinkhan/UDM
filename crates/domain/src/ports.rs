@@ -3,7 +3,7 @@
 //! (see AGENTS.md section 16).
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::download::{Download, DownloadEntry, Status};
 use crate::queue::{Moment, Queue};
@@ -88,6 +88,18 @@ pub trait DownloadControl: Send + Sync {
     /// Start download `id` again under its own id from `download`.
     fn start_again(&self, id: u64, download: Download);
 
+    /// Make download `id` the one waiting for the next link the browser
+    /// hands over, or none, and tell every client.
+    fn wait_for_link(&self, id: Option<u64>);
+
+    /// The download waiting for a link from the browser, if any.
+    fn waiting_for_link(&self) -> Option<u64>;
+
+    /// Ask the server at `download`'s address whether it still has the file
+    /// the partial copy at `partial` was taken from. Returns why not, or
+    /// `None` when it does.
+    fn check_partial(&self, download: &Download, partial: &str) -> Result<Option<String>, ControlError>;
+
     /// Remove download `id` from the list for good: its row, its kept
     /// request, and any wait for a new address for it.
     fn forget(&self, id: u64);
@@ -118,6 +130,16 @@ pub trait DownloadFiles: Send + Sync {
     /// Delete the resume records kept beside `paths`, so a file left there
     /// counts as a taken name rather than something to resume.
     fn forget_resume(&self, paths: &[&str]);
+
+    /// Move a finished file to `to`, which must not exist yet.
+    fn move_finished(&self, from: &Path, to: &Path) -> Result<(), FilesError>;
+
+    /// Move an unfinished download's file and its resume record to `to`.
+    /// Either may be missing.
+    fn move_partial(&self, from: &Path, to: &Path) -> Result<(), FilesError>;
+
+    /// Whether anything is at `path`.
+    fn exists(&self, path: &Path) -> bool;
 }
 
 /// What "pause all" stopped, for "resume all" to start again.

@@ -35,6 +35,7 @@ pub mod clock;
 pub mod dpapi;
 pub mod elevate;
 pub mod engine;
+pub mod files;
 pub mod grab;
 pub mod history;
 pub mod ipc;

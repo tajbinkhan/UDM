@@ -52,14 +52,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use uidm_application::downloads::{
-    PauseAll, Redownload, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetSpeedLimit, StopRunning,
-    Stopped,
+    PauseAll, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember,
+    SetProperties, SetSpeedLimit, StopRunning, Stopped,
 };
 use uidm_application::queues::{
     DeleteQueue, MoveToQueue, RemoveFromQueue, RunSchedules, SaveQueue, Scheduled, StartQueue, StopQueue,
 };
 use uidm_domain::download::Scan;
-use uidm_domain::download::{Answer, Download, DownloadEntry, DownloadLogin, OnDone, Properties, Status, Validator};
+use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Status, Validator};
 use uidm_domain::ports::{
     ControlError, DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueSounds, QueueStore,
 };
@@ -68,6 +68,7 @@ use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYT
 use uidm_infrastructure::clock::LocalClock;
 use uidm_infrastructure::engine::DownloadRequest;
 use uidm_infrastructure::engine::{self, Engine, Progress};
+use uidm_infrastructure::files::DiskFiles;
 use uidm_infrastructure::grab::{self, GrabRequest};
 use uidm_infrastructure::history::{self, History};
 use uidm_infrastructure::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST_LABEL};
@@ -76,7 +77,6 @@ use uidm_infrastructure::notify::{self, Sound, Toast};
 use uidm_infrastructure::power;
 use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
 use uidm_infrastructure::quota::Usage;
-use uidm_infrastructure::recycle::RecycleBin;
 #[cfg(windows)]
 use uidm_infrastructure::registry;
 use uidm_infrastructure::scan;
@@ -625,6 +625,22 @@ impl DownloadControl for Daemon {
     fn start_again(&self, id: u64, download: Download) {
         let req = self.request_for(download);
         self.engine.enqueue_as(id, req);
+    }
+
+    fn wait_for_link(&self, id: Option<u64>) {
+        self.set_refresh_waiting(id);
+    }
+
+    fn waiting_for_link(&self) -> Option<u64> {
+        *self.refresh_waiting.lock().unwrap()
+    }
+
+    fn check_partial(&self, download: &Download, partial: &str) -> Result<Option<String>, ControlError> {
+        let req = self.request_for(download.clone());
+        let found =
+            engine::inspect(&download.url, None, &req.headers, &req.net).map_err(|e| ControlError(e.to_string()))?;
+        let ignore_date = self.settings.lock().unwrap().resume_ignores_date;
+        Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err())
     }
 
     fn forget(&self, id: u64) {
@@ -2623,7 +2639,7 @@ impl Daemon {
         match (entry, path, end, early.file) {
             (Some(e), Some(path), Some(Some(finished)), _) => {
                 let to = free_path(&path, overwrite);
-                match move_file(&finished, &to) {
+                match uidm_infrastructure::files::move_file(&finished, &to) {
                     Ok(()) => {
                         eprintln!("[uidm-daemon] #{id} finished while its dialog was open");
                         self.hub.leave_queues(id);
@@ -2916,184 +2932,30 @@ impl Daemon {
     /// Start download `id` again from the first byte, under the same id (see
     /// `Redownload`).
     fn redownload(&self, id: u64) -> Result<(), String> {
-        let url = Redownload::new(&*self.hub, self, &RecycleBin).run(id).map_err(|e| e.to_string())?;
+        let url = Redownload::new(&*self.hub, self, &DiskFiles).run(id).map_err(|e| e.to_string())?;
         eprintln!("[uidm-daemon] downloading #{id} again: {url}");
         Ok(())
     }
 
-    /// Give download `id` a new link. Without `download`, wait for the next one
-    /// the browser hands over. With it, check the new link against the
-    /// partial file: on a mismatch (and no `restart`) return why, changing
-    /// nothing. Otherwise store the new request: a waiting download keeps
-    /// waiting with it, any other starts again, resuming its partial file
-    /// when the link is for the same file.
+    /// Give download `id` a new link, or wait for the browser's next one (see
+    /// `RefreshLink`). Returns why the new link was refused, if it was.
     fn refresh_link(&self, id: u64, download: Option<Download>, restart: bool) -> Result<Option<String>, String> {
-        let entry = self.entry(id).ok_or_else(|| format!("no download with id {id}"))?;
-        if !entry.status.is_retryable() {
-            return Err("Only a stopped download can get a new link.".to_string());
-        }
-        let Some(download) = download else {
-            self.set_refresh_waiting(Some(id));
-            return Ok(None);
-        };
-        if !uidm_domain::batch::is_download_url(&download.url) {
-            return Err(format!("{} is not an http, https or ftp link", download.url));
-        }
-        if self.refresh_waiting.lock().unwrap().is_some_and(|w| w == id) {
-            self.set_refresh_waiting(None);
-        }
-        let started = entry.connections > 0;
-        if started && !restart {
-            if let Some(path) = entry.partial.as_deref().or(entry.path.as_deref()) {
-                let req = self.request_for(download.clone());
-                let found = engine::inspect(&download.url, None, &req.headers, &req.net)
-                    .map_err(|e| format!("could not reach the new link: {e}"))?;
-                let ignore_date = self.settings.lock().unwrap().resume_ignores_date;
-                if let Err(reason) = engine::partial_matches(Path::new(path), &found, ignore_date) {
-                    return Ok(Some(reason));
-                }
+        match RefreshLink::new(&*self.hub, &*self.hub, self).run(id, download, restart).map_err(|e| e.to_string())? {
+            Refreshed::Waiting => Ok(None),
+            Refreshed::Mismatch(reason) => Ok(Some(reason)),
+            Refreshed::NewLink(url) => {
+                eprintln!("[uidm-daemon] new link for #{id}: {url}");
+                Ok(None)
             }
         }
-        eprintln!("[uidm-daemon] new link for #{id}: {}", download.url);
-        self.hub.requests.lock().unwrap().insert(id, download.clone());
-        if entry.status == Status::Waiting {
-            self.hub.update(id, |e| {
-                e.url = download.url.clone();
-                Ok(())
-            })?;
-            return Ok(None);
-        }
-        self.retry(id)?;
-        Ok(None)
     }
 
-    /// Change a stopped or finished download's details. The link, referrer
-    /// and login go into the request a retry starts from; a finished
-    /// download's file is renamed or moved on disk first, and an unfinished
-    /// one's partial file moves with its folder.
+    /// Change a stopped or finished download's details (see `SetProperties`).
     fn set_properties(&self, id: u64, p: Properties) -> Result<(), String> {
-        let entry = self.entry(id).ok_or_else(|| format!("no download with id {id}"))?;
-        let done = entry.status == Status::Done;
-        let stopped = |s: Status| s == Status::Done || s.is_retryable();
-        if !stopped(entry.status) {
-            return Err("Stop the download before changing its properties.".into());
-        }
-        let trimmed = |s: Option<String>| s.map(|s| s.trim().to_string());
-        let url = trimmed(p.url).filter(|u| *u != entry.url);
-        if let Some(u) = url.as_deref().filter(|u| !uidm_domain::batch::is_download_url(u)) {
-            return Err(format!("{u} is not an http, https or ftp link"));
-        }
-        let referrer = trimmed(p.referrer);
-        if let Some(r) = referrer.as_deref().filter(|r| !r.is_empty() && !uidm_domain::batch::is_web_url(r)) {
-            return Err(format!("{r} is not an http or https address"));
-        }
-        let description = trimmed(p.description);
-        if p.login.is_some() && done {
-            return Err("A finished download keeps no login. Download it again to use one.".into());
-        }
-        let mut new_folder = None;
-        let moved = match (p.filename, p.folder) {
-            (None, None) => None,
-            (Some(_), _) if !done => return Err("Only a finished download's file can be renamed.".into()),
-            (None, Some(folder)) if !done => {
-                // An unfinished download moves to another folder: its partial
-                // file and resume sidecar go along when they are kept beside
-                // it, and the next attempt saves there. A partial file in the
-                // temporary folder stays put; it is moved into place when the
-                // download finishes, as always.
-                let dir = PathBuf::from(folder.trim());
-                if !dir.is_absolute() {
-                    return Err(format!("The folder must be a full path: {}", dir.display()));
-                }
-                new_folder = Some(dir.clone());
-                entry
-                    .path
-                    .as_deref()
-                    .map(PathBuf::from)
-                    .and_then(|from| Some((from.file_name()?.to_owned(), from)))
-                    .map(|(name, from)| (from, dir.join(name)))
-                    .filter(|(from, to)| to != from)
-            }
-            (filename, folder) => {
-                let from = entry.path.as_deref().map(PathBuf::from).ok_or("The download has no file.")?;
-                let name = filename
-                    .as_deref()
-                    .map(uidm_domain::filename::sanitize_filename)
-                    .filter(|n| !n.is_empty())
-                    .or_else(|| from.file_name().map(|n| n.to_string_lossy().into_owned()))
-                    .ok_or("The download has no file name.")?;
-                let dir = match folder.as_deref().map(str::trim) {
-                    Some(f) if !f.is_empty() => PathBuf::from(f),
-                    _ => from.parent().map(Path::to_path_buf).ok_or("The download has no folder.")?,
-                };
-                if !dir.is_absolute() {
-                    return Err(format!("The folder must be a full path: {}", dir.display()));
-                }
-                let to = dir.join(name);
-                (to != from).then_some((from, to))
-            }
-        };
-        if let Some((from, to)) = &moved {
-            if done {
-                move_file(from, to)?;
-            } else if entry.connections > 0 {
-                move_partial(from, to)?;
-            } else if to.exists() {
-                // Never started: only a proposed path, which may be
-                // somebody else's file, so nothing is moved.
-                return Err(format!("{} already exists.", to.display()));
-            }
+        let moved = SetProperties::new(&*self.hub, &DiskFiles).run(id, p).map_err(|e| e.to_string())?;
+        if let Some(to) = moved {
             eprintln!("[uidm-daemon] moved #{id} to {}", to.display());
         }
-        let mut login_user = entry.login_user.clone();
-        if !done {
-            let mut requests = self.hub.requests.lock().unwrap();
-            let req = requests.entry(id).or_insert_with(|| Download {
-                url: entry.url.clone(),
-                referrer: entry.referrer.clone(),
-                page: entry.page.clone(),
-                ..Download::default()
-            });
-            if let Some(u) = &url {
-                req.url = u.clone();
-            }
-            if let Some(r) = &referrer {
-                req.referrer = Some(r.clone()).filter(|r| !r.is_empty());
-            }
-            if let Some(d) = &description {
-                req.description = Some(d.clone()).filter(|d| !d.is_empty());
-            }
-            if let Some(dir) = &new_folder {
-                req.folder = Some(dir.display().to_string());
-            }
-            if let Some(l) = p.login {
-                let username = l.username.trim().to_string();
-                req.login = (!username.is_empty()).then(|| DownloadLogin {
-                    password: l.password.or_else(|| req.login.as_ref().and_then(|o| o.password.clone())),
-                    username,
-                });
-            }
-            login_user = req.login.as_ref().map(|l| l.username.clone());
-        }
-        self.hub.update(id, |e| {
-            if !stopped(e.status) {
-                return Err("The download started while its properties were being saved.".into());
-            }
-            if let Some(u) = &url {
-                e.url = u.clone();
-            }
-            if let Some(r) = &referrer {
-                e.referrer = Some(r.clone()).filter(|r| !r.is_empty());
-            }
-            if let Some(d) = &description {
-                e.description = Some(d.clone()).filter(|d| !d.is_empty());
-            }
-            if let Some((_, to)) = &moved {
-                e.path = Some(to.display().to_string());
-            }
-            e.login_user = login_user;
-            Ok(())
-        })?;
         Ok(())
     }
 
@@ -3366,7 +3228,7 @@ impl Daemon {
         if delete_files {
             eprintln!("[uidm-daemon] removing #{id} with its files");
         }
-        RemoveDownload::new(&*self.hub, &*self.hub, self, &RecycleBin).run(id, delete_files).map_err(|e| e.to_string())
+        RemoveDownload::new(&*self.hub, &*self.hub, self, &DiskFiles).run(id, delete_files).map_err(|e| e.to_string())
     }
 
     /// Send the whole list to one client, under the table lock so no event can
@@ -3970,48 +3832,6 @@ fn clean_early_folders(daemon: &Daemon) {
     }
 }
 
-/// Move a finished file to `to`, which must not exist yet. Across drives
-/// this copies the file, then deletes the original.
-fn move_file(from: &Path, to: &Path) -> Result<(), String> {
-    if !from.is_file() {
-        return Err(format!("The file is no longer at {}.", from.display()));
-    }
-    if to.exists() {
-        return Err(format!("{} already exists.", to.display()));
-    }
-    if let Some(dir) = to.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
-    }
-    if std::fs::rename(from, to).is_ok() {
-        return Ok(());
-    }
-    std::fs::copy(from, to).map_err(|e| format!("Could not move the file to {}: {e}", to.display()))?;
-    std::fs::remove_file(from).map_err(|e| format!("Copied the file, but could not delete {}: {e}", from.display()))
-}
-
-/// Move an unfinished download's file `from` and its resume sidecar to
-/// `to`, refusing to land on any file already there. Either may be missing:
-/// a download that never started has no file yet, and one writing to the
-/// temporary folder keeps its data there.
-fn move_partial(from: &Path, to: &Path) -> Result<(), String> {
-    let (sidecar, new_sidecar) = (engine::sidecar_path(from), engine::sidecar_path(to));
-    for taken in [to, new_sidecar.as_path()] {
-        if taken.exists() {
-            return Err(format!("{} already exists.", taken.display()));
-        }
-    }
-    if let Some(dir) = to.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
-    }
-    if from.is_file() {
-        move_file(from, to)?;
-    }
-    if sidecar.is_file() {
-        move_file(&sidecar, &new_sidecar)?;
-    }
-    Ok(())
-}
-
 /// Keep a page a crawl read under its mirror folder, with its links to
 /// kept pages and files pointing at the local copies. Not robots.txt, and
 /// not pages that are not HTML.
@@ -4127,6 +3947,7 @@ fn spawn_idle_monitor(daemon: Arc<Daemon>) {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+    use uidm_domain::download::DownloadLogin;
 
     const BODY: &[u8] = b"the new bytes";
 
