@@ -9,7 +9,8 @@
 //! The tables are `lang/<code>.json`, built into the program: one JSON object
 //! from English text to its translation. To add a language, add its file and
 //! a line to `LANGUAGES`; the tests check that every key is still used and
-//! keeps its placeholders.
+//! keeps its placeholders, and that every `tr` and `trf!` string has a
+//! translation in each table, apart from those `lang/untranslated.json` lists.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
@@ -189,6 +190,78 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The English text of every `tr("…")` and `trf!("…")` in `source`,
+    /// with Rust's string escapes undone.
+    fn looked_up(source: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for opener in ["tr(\"", "trf!(\""] {
+            for (at, _) in source.match_indices(opener) {
+                // `attr("` or `str("` is not a lookup.
+                let before = source[..at].chars().next_back();
+                if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let mut text = String::new();
+                let mut chars = source[at + opener.len()..].chars().peekable();
+                while let Some(c) = chars.next() {
+                    match c {
+                        '"' => break,
+                        '\\' => match chars.next() {
+                            Some('n') => text.push('\n'),
+                            Some('t') => text.push('\t'),
+                            Some('u') => {
+                                let code: String = chars.by_ref().skip(1).take_while(|c| *c != '}').collect();
+                                text.extend(u32::from_str_radix(&code, 16).ok().and_then(char::from_u32));
+                            }
+                            // A line continuation drops the break and the next line's indent.
+                            Some('\r' | '\n') => {
+                                while chars.peek().is_some_and(|c| c.is_whitespace()) {
+                                    chars.next();
+                                }
+                            }
+                            Some(other) => text.push(other),
+                            None => break,
+                        },
+                        _ => text.push(c),
+                    }
+                }
+                found.push(text);
+            }
+        }
+        found
+    }
+
+    /// Strings that were already untranslated when this check came in
+    /// (2026-11-06). The list only shrinks: a new string needs its
+    /// translations, and a translated one leaves the list.
+    const UNTRANSLATED: &str = include_str!("lang/untranslated.json");
+
+    #[test]
+    fn every_string_in_the_window_is_translated() {
+        let known: Vec<String> = serde_json::from_str(UNTRANSLATED).unwrap();
+        let used: Vec<String> = SOURCES.iter().flat_map(|s| looked_up(s)).collect();
+        let tables: Vec<(&str, HashMap<String, String>)> =
+            LANGUAGES[1..].iter().map(|l| (l.code, serde_json::from_str(l.json).unwrap())).collect();
+        let mut problems = Vec::new();
+        for en in &used {
+            for (code, table) in &tables {
+                if !table.contains_key(en) && !known.contains(en) {
+                    problems.push(format!("lang/{code}.json lacks {en:?}"));
+                }
+            }
+        }
+        for en in &known {
+            if !used.contains(en) {
+                problems.push(format!("lang/untranslated.json lists {en:?}, which the window no longer uses"));
+            } else if tables.iter().all(|(_, table)| table.contains_key(en)) {
+                problems.push(format!("lang/untranslated.json lists {en:?}, which every language now has"));
+            }
+        }
+        problems.sort();
+        problems.dedup();
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
     }
 
     #[test]

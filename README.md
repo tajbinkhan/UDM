@@ -1538,6 +1538,20 @@ cargo build --release
 node --test extension/test/*.test.js
 ```
 
+To try a build next to the installed UIDM, give it a name in
+`UIDM_INSTANCE`. That copy keeps its settings and list in `UIDM-<name>`
+folders, runs its daemon on a port of its own, and shows the name in the
+window's title. It does not end other daemons when it restarts its own.
+
+```powershell
+$env:UIDM_INSTANCE = "test"; .\target\debug\uidm-gui.exe
+```
+
+A string the window shows needs its German, Spanish and French translations
+in `src/bin/gui/lang/`; a test fails for one without them.
+`lang/untranslated.json` lists the strings that were untranslated before
+that test came in, and an entry leaves the list once it is translated.
+
 GitHub Actions builds and tests UIDM on Windows, macOS and Linux on every
 push and pull request (`.github/workflows/build.yml`), and the extension's
 tests with Node. Those runs keep no files.

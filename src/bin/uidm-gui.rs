@@ -135,7 +135,11 @@ fn main() -> eframe::Result {
     }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("UIDM")
+            // A named copy says so, to tell it from the installed one.
+            .with_title(match uidm::platform::instance() {
+                Some(name) => format!("UIDM ({name})"),
+                None => "UIDM".to_string(),
+            })
             // Elsewhere "hidden" is minimized, which needs a visible window.
             .with_visible(!minimized || !cfg!(windows))
             .with_icon(egui::IconData {

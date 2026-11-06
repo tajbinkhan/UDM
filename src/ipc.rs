@@ -37,9 +37,27 @@ use sha2::Sha256;
 
 use crate::protocol::{read_message, write_frame};
 
-/// Loopback address the daemon serves on. Loopback only: nothing off this
-/// machine can reach it, and local clients must still authenticate.
-pub const DAEMON_ADDR: &str = "127.0.0.1:51515";
+/// The daemon's port for the usual copy of UIDM.
+pub const DAEMON_PORT: u16 = 51515;
+
+/// The loopback address the daemon serves on. Loopback only, so nothing off
+/// this machine can reach it, and local clients must still authenticate. A
+/// copy named by `UIDM_INSTANCE` gets a port of its own (see
+/// `platform::instance`).
+pub fn daemon_addr() -> String {
+    format!("127.0.0.1:{}", daemon_port(crate::platform::instance().as_deref()))
+}
+
+/// The port for instance `name`: the usual one without a name, else one
+/// from 52000 to 52999 picked by the name, the same on every run.
+fn daemon_port(name: Option<&str>) -> u16 {
+    let Some(name) = name else {
+        return DAEMON_PORT;
+    };
+    // FNV-1a, so the port does not change between Rust versions.
+    let hash = name.bytes().fold(0x811c_9dc5_u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+    52000 + (hash % 1000) as u16
+}
 
 /// How long either side waits for the other's handshake frame.
 pub const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
@@ -131,7 +149,7 @@ pub fn connect_or_spawn() -> io::Result<TcpStream> {
     let detail = last_err.map(|e| e.to_string()).unwrap_or_default();
     Err(io::Error::new(
         io::ErrorKind::TimedOut,
-        format!("could not connect to daemon on {DAEMON_ADDR}: {detail}"),
+        format!("could not connect to daemon on {}: {detail}", daemon_addr()),
     ))
 }
 
@@ -141,14 +159,19 @@ pub fn restart_daemon() -> io::Result<TcpStream> {
     stop_daemons()?;
     // The old one's listener goes with its process.
     let deadline = Instant::now() + STARTUP_WAIT;
-    while TcpStream::connect(DAEMON_ADDR).is_ok() && Instant::now() < deadline {
+    while TcpStream::connect(daemon_addr()).is_ok() && Instant::now() < deadline {
         thread::sleep(STARTUP_POLL);
     }
     connect_or_spawn()
 }
 
-/// End every `uidm-daemon` process this user may end.
+/// End every `uidm-daemon` process this user may end. A named copy (see
+/// `platform::instance`) ends none: it cannot tell its own daemon from the
+/// installed one's, so its restart only reconnects.
 fn stop_daemons() -> io::Result<()> {
+    if crate::platform::instance().is_some() {
+        return Ok(());
+    }
     #[cfg(windows)]
     let mut cmd = {
         let mut c = std::process::Command::new("taskkill");
@@ -198,7 +221,7 @@ fn retry_proof(first: io::Error) -> io::Result<TcpStream> {
 /// Connect once and run the client side of the handshake. Returns the stream
 /// ready for normal frames only after the daemon has proved itself.
 fn connect_authenticated() -> io::Result<TcpStream> {
-    let mut stream = TcpStream::connect(DAEMON_ADDR)?;
+    let mut stream = TcpStream::connect(daemon_addr())?;
     let token = read_token()?;
     let client_nonce = new_nonce()?;
     stream.set_read_timeout(Some(AUTH_TIMEOUT))?;
@@ -223,7 +246,7 @@ fn connect_authenticated() -> io::Result<TcpStream> {
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                format!("the listener on {DAEMON_ADDR} could not prove it is the UIDM daemon"),
+                format!("the listener on {} could not prove it is the UIDM daemon", daemon_addr()),
             ))
         }
     };
@@ -432,6 +455,15 @@ fn keep_stdio_private() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_named_copy_gets_its_own_steady_port() {
+        assert_eq!(daemon_port(None), DAEMON_PORT);
+        let test = daemon_port(Some("test"));
+        assert!((52000..53000).contains(&test), "{test}");
+        assert_eq!(daemon_port(Some("test")), test, "the same name gives the same port");
+        assert_ne!(daemon_port(Some("test")), daemon_port(Some("dev")));
+    }
 
     #[test]
     fn tokens_are_hex_and_distinct() {
