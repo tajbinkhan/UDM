@@ -13,6 +13,31 @@ extern "system" {
     fn SetSuspendState(hibernate: u8, force: u8, wakeup_events_disabled: u8) -> u8;
 }
 
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn SetThreadExecutionState(flags: u32) -> u32;
+}
+
+/// Tell Windows the system is in use (`on`), so its idle timer does not put
+/// it to sleep, or hand that back. The request belongs to the calling
+/// thread and lasts until the same thread changes it or ends, so one thread
+/// should own it. The display may still turn off, and an explicit sleep or
+/// shutdown (a queue's "when done" action) still goes ahead. Does nothing
+/// on other systems.
+pub fn keep_awake(on: bool) {
+    #[cfg(windows)]
+    {
+        const ES_CONTINUOUS: u32 = 0x8000_0000;
+        const ES_SYSTEM_REQUIRED: u32 = 0x0000_0001;
+        let flags = if on { ES_CONTINUOUS | ES_SYSTEM_REQUIRED } else { ES_CONTINUOUS };
+        // SAFETY: takes flags only; returns 0 on failure, which changes nothing.
+        unsafe { SetThreadExecutionState(flags) };
+    }
+    #[cfg(not(windows))]
+    let _ = on;
+}
+
 /// Carry out a power action. `Nothing` and `Exit` are not power actions and
 /// do nothing here. `force_close` shuts down without waiting for programs
 /// that hold it up (such as one asking to save a file); sleep and hibernate

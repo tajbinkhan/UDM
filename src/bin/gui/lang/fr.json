@@ -874,5 +874,8 @@
   "UIDM may not save files in this folder. Saving there needs administrator rights.": "UIDM ne peut pas enregistrer de fichiers dans ce dossier. Il faut des droits d'administrateur pour y enregistrer.",
   "Save there with administrator rights": "Y enregistrer avec des droits d'administrateur",
   "The download runs as you; Windows asks once it is done, before the file is moved there": "Le téléchargement s'exécute avec votre compte ; Windows demande à la fin, avant de déplacer le fichier",
-  "Choose another folder, or save there with administrator rights": "Choisissez un autre dossier ou enregistrez-y avec des droits d'administrateur"
+  "Choose another folder, or save there with administrator rights": "Choisissez un autre dossier ou enregistrez-y avec des droits d'administrateur",
+  "Keep the computer awake while downloading": "Garder l'ordinateur éveillé pendant les téléchargements",
+  "Windows does not go to sleep on its own while a download or a site grab runs. The screen can still turn off.": "Windows ne se met pas en veille de lui-même pendant un téléchargement ou une capture de site. L'écran peut quand même s'éteindre.",
+  "Only on Windows for now": "Pour l'instant uniquement sous Windows"
 }

@@ -504,6 +504,8 @@ pub struct Settings {
     pub categories_panel: bool,
     /// Start the window, hidden in the tray, when you sign in to Windows.
     pub start_with_windows: bool,
+    /// Keep Windows from going to sleep while something downloads.
+    pub keep_awake: bool,
     pub notify: Notify,
     /// Play a sound when a download finishes.
     pub sound_on_done: bool,
@@ -777,6 +779,7 @@ impl Default for Settings {
             tray_icon: true,
             categories_panel: true,
             start_with_windows: false,
+            keep_awake: true,
             notify: Notify::Toast,
             sound_on_done: false,
             sound_on_failed: false,
@@ -1535,6 +1538,7 @@ mod tests {
             tray_icon: false,
             categories_panel: false,
             start_with_windows: true,
+            keep_awake: false,
             notify: Notify::Dialog,
             sound_on_done: true,
             sound_on_failed: true,

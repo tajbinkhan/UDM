@@ -130,6 +130,8 @@ const WINDOW_CLIENT: &str = "window";
 const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
 /// How often the scheduler looks at the clock when nothing wakes it.
 const SCHEDULER_POLL: Duration = Duration::from_secs(5);
+/// How often the keep-awake thread looks for running work.
+const AWAKE_POLL: Duration = Duration::from_secs(2);
 /// How the site grabber names itself to servers.
 const GRABBER_AGENT: &str = "Mozilla/5.0 (compatible; UIDM site grabber; obeys robots.txt)";
 /// Set to make sleep, hibernate and shut down only log what they would do
@@ -1303,6 +1305,15 @@ impl Daemon {
             queue: c.queue.clone(),
             file: c.file.clone(),
         })
+    }
+
+    /// Whether work is running that sleep would interrupt: a download, a
+    /// site grab or a conversion.
+    fn is_working(&self) -> bool {
+        self.engine.active_count() > 0
+            || !self.grabs.lock().unwrap().is_empty()
+            || !self.grab_runs.lock().unwrap().is_empty()
+            || !self.conversions.lock().unwrap().is_empty()
     }
 
     /// Whether the daemon must stay up for a queue: one is started, one has a
@@ -3570,6 +3581,7 @@ fn run() -> io::Result<()> {
     if daemon.settings.lock().unwrap().resume_at_startup {
         daemon.resume_interrupted();
     }
+    spawn_awake_keeper(Arc::clone(&daemon));
     spawn_idle_monitor(Arc::clone(&daemon));
 
     for conn in listener.incoming() {
@@ -4180,6 +4192,23 @@ fn spawn_history_writer(daemon: Arc<Daemon>, dirty: Receiver<()>) {
 
 /// Exit the process once it has been idle (no clients, no downloads) for
 /// `IDLE_EXIT`, so a daemon started by the browser does not linger forever.
+/// Hold Windows awake while anything downloads, a site grab runs or a
+/// video converts, when the "keep awake" option is on. One thread owns the
+/// request, since Windows ties it to the thread that made it.
+fn spawn_awake_keeper(daemon: Arc<Daemon>) {
+    thread::spawn(move || {
+        let mut held = false;
+        loop {
+            let want = daemon.settings.lock().unwrap().keep_awake && daemon.is_working();
+            if want != held {
+                power::keep_awake(want);
+                held = want;
+            }
+            thread::sleep(AWAKE_POLL);
+        }
+    });
+}
+
 fn spawn_idle_monitor(daemon: Arc<Daemon>) {
     thread::spawn(move || {
         let mut idle_since: Option<Instant> = None;

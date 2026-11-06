@@ -1020,6 +1020,7 @@ struct OptionsDraft {
     /// Kept as it is; the View menu changes it.
     categories_panel: bool,
     start_with_windows: bool,
+    keep_awake: bool,
     notify: Notify,
     sound_on_done: bool,
     sound_on_failed: bool,
@@ -1185,6 +1186,7 @@ impl OptionsDraft {
             tray_icon: s.tray_icon,
             categories_panel: s.categories_panel,
             start_with_windows: s.start_with_windows,
+            keep_awake: s.keep_awake,
             notify: s.notify,
             sound_on_done: s.sound_on_done,
             sound_on_failed: s.sound_on_failed,
@@ -1396,6 +1398,7 @@ impl OptionsDraft {
             tray_icon: self.tray_icon,
             categories_panel: self.categories_panel,
             start_with_windows: self.start_with_windows,
+            keep_awake: self.keep_awake,
             notify: self.notify,
             sound_on_done: self.sound_on_done,
             sound_on_failed: self.sound_on_failed,
@@ -3120,6 +3123,12 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
             &mut draft.start_with_windows,
             if cfg!(windows) { tr("Start with Windows, in the tray") } else { tr("Start when I sign in, in the tray") },
         );
+        ui.end_row();
+
+        ui.label("");
+        ui.add_enabled(cfg!(windows), egui::Checkbox::new(&mut draft.keep_awake, tr("Keep the computer awake while downloading")))
+            .on_hover_text(tr("Windows does not go to sleep on its own while a download or a site grab runs. The screen can still turn off."))
+            .on_disabled_hover_text(tr("Only on Windows for now"));
         ui.end_row();
 
         ui.label("");

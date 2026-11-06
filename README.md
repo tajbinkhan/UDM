@@ -349,6 +349,10 @@ tests, not in a running Firefox.
   and completion dialogs have a taskbar button and stay on top of other
   windows until closed, but leave the keyboard with the program you are in,
   so nothing you type goes into them by accident.
+- **Keep the computer awake while downloading** (in Options, on by default)
+  stops Windows from going to sleep on its own while a download, a site grab
+  or a conversion runs, as IDM does. The screen can still turn off, and a
+  queue's own sleep or shutdown still happens.
 - **The download window** (double-click a download's name, or **More >
   Download window**) shows its address, status, size, how much is in, the
   transfer rate, the time left and whether the server lets it resume, with
