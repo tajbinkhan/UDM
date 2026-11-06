@@ -33,6 +33,7 @@ pub mod batch;
 pub mod browsers;
 pub mod cli;
 pub mod dpapi;
+pub mod elevate;
 pub mod engine;
 pub mod grab;
 pub mod history;

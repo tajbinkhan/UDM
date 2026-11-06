@@ -307,6 +307,10 @@ pub struct Answer {
     /// "Download later" uses without asking.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remember_queue: bool,
+    /// Save into the folder with administrator rights, because UIDM may
+    /// not write there itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub elevate: bool,
 }
 
 impl Answer {
@@ -325,6 +329,7 @@ impl Answer {
             remember_folder: None,
             remember_duplicate: false,
             remember_queue: false,
+            elevate: false,
         }
     }
 }
@@ -429,6 +434,10 @@ pub struct Download {
     /// proxy and is still sent for older daemons.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_proxy: Option<BrowserProxy>,
+    /// Save into a folder that needs administrator rights: the finished
+    /// file is moved there after a UAC prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub elevate: bool,
 }
 
 /// How the browser reaches the web, as its extension reads it

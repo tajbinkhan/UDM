@@ -870,5 +870,9 @@
   "Hide": "Masquer",
   "Show all": "Tout afficher",
   "Put this window in the tray; the green arrows there bring it back": "Placer cette fenêtre dans la zone de notification ; les flèches vertes l'y font revenir",
-  "Drag the file to a folder or another program": "Faire glisser le fichier vers un dossier ou un autre programme"
+  "Drag the file to a folder or another program": "Faire glisser le fichier vers un dossier ou un autre programme",
+  "UIDM may not save files in this folder. Saving there needs administrator rights.": "UIDM ne peut pas enregistrer de fichiers dans ce dossier. Il faut des droits d'administrateur pour y enregistrer.",
+  "Save there with administrator rights": "Y enregistrer avec des droits d'administrateur",
+  "The download runs as you; Windows asks once it is done, before the file is moved there": "Le téléchargement s'exécute avec votre compte ; Windows demande à la fin, avant de déplacer le fichier",
+  "Choose another folder, or save there with administrator rights": "Choisissez un autre dossier ou enregistrez-y avec des droits d'administrateur"
 }
