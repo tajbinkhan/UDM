@@ -295,6 +295,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_written_list_reads_back() {
+        use uidm_application::window::ListFiles;
+        let dir = std::env::temp_dir().join(format!("uidm_listfile_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("list.txt");
+        let text = "http://127.0.0.1/a.zip
+http://127.0.0.1/b.zip
+";
+        ListFormats.write(&path, text).unwrap();
+        assert_eq!(ListFormats.read(&path).unwrap(), text);
+        assert!(ListFormats.read(&dir.join("missing.txt")).is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn imported_folders_stay_in_the_home_folder() {
         let home = crate::paths::home_dir().unwrap();
         assert!(safe_folder(&home.join("Downloads").join("Music")));
