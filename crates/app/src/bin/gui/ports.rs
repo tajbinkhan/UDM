@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use uidm_application::window::{GrabLibrary, ListFiles, SettingsChecks, SystemServices, WindowFiles};
+use uidm_application::window::{BrowserRegistry, GrabLibrary, ListFiles, SettingsChecks, SystemServices, WindowFiles};
 use uidm_domain::ports::{Clock, DownloadFiles, FileOpener, GrabDownloads, SaveFolders, Timestamps};
 use uidm_domain::queue::Moment;
 
@@ -39,6 +39,8 @@ pub struct Ports {
     /// The operating system: its proxy, wake timers, sounds and
     /// credential store.
     pub system: Arc<dyn SystemServices>,
+    /// Registering UIDM with the browsers.
+    pub browsers: Arc<dyn BrowserRegistry>,
 }
 
 impl Ports {
@@ -84,12 +86,12 @@ pub fn ports() -> &'static Ports {
 /// Stand-ins for the tests: UTC as the local time, a Downloads folder in
 /// the temporary folder, every folder writable, no files opened or saved,
 /// no grabber library, empty lists and a system without proxies, wake
-/// timers or sounds.
+/// timers or sounds, and no browsers.
 #[cfg(test)]
 mod fakes {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use uidm_application::window::{ListError, ListFormat, SystemProxy};
+    use uidm_application::window::{BrowserSlot, IdentifiedBrowser, ListError, ListFormat, SystemProxy};
     use uidm_domain::download::{Download, DownloadEntry};
     use uidm_domain::grab::{GrabFile, GrabRequest};
     use uidm_domain::ports::{FilesError, SettingsError};
@@ -202,6 +204,33 @@ mod fakes {
         }
     }
 
+    impl BrowserRegistry for Temp {
+        fn known(&self) -> Vec<(BrowserSlot, bool)> {
+            Vec::new()
+        }
+        fn identify(&self, _: &Path) -> Option<IdentifiedBrowser> {
+            None
+        }
+        fn registered(&self, _: &BrowserSlot) -> bool {
+            false
+        }
+        fn set_registered(&self, _: &BrowserSlot, _: bool) -> Result<(), FilesError> {
+            Ok(())
+        }
+        fn display_name(&self, program: &Path) -> String {
+            program.display().to_string()
+        }
+        fn chrome_readers(&self) -> Vec<String> {
+            Vec::new()
+        }
+        fn can_restart(&self, _: &BrowserSlot, _: Option<&Path>) -> bool {
+            false
+        }
+        fn restart(&self, _: &BrowserSlot, _: Option<&Path>) -> Result<(), FilesError> {
+            Ok(())
+        }
+    }
+
     pub fn ports() -> Ports {
         Ports {
             clock: Arc::new(Utc),
@@ -215,6 +244,7 @@ mod fakes {
             lists: Arc::new(Temp),
             checks: Arc::new(Temp),
             system: Arc::new(Temp),
+            browsers: Arc::new(Temp),
         }
     }
 }
