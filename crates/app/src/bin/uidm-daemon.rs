@@ -45,7 +45,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -68,17 +68,20 @@ use uidm_application::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use uidm_application::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
 use uidm_domain::download::CommandLine;
 use uidm_domain::download::Scan;
+use uidm_domain::download::ZipEntry;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status};
-use uidm_domain::ports::{DownloadControl, DownloadList};
+use uidm_domain::grab::RenderedPage;
+use uidm_domain::ports::{Browser, DownloadControl, DownloadList, Probes, SiteCrawler};
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
 };
 use uidm_domain::quota::QuotaLimit;
 use uidm_infrastructure::background;
+use uidm_infrastructure::browser_bridge::BrowserBridge;
 use uidm_infrastructure::clock::{LocalClock, StoppedClock};
 use uidm_infrastructure::connect::ProxyRetries;
 use uidm_infrastructure::conversions::Conversions;
-use uidm_infrastructure::engine::DownloadRequest;
+use uidm_infrastructure::crawler::Crawler;
 use uidm_infrastructure::engine::{self, Engine};
 use uidm_infrastructure::files::DiskFiles;
 use uidm_infrastructure::front::{self, AnswerWait, Front, Hook, Notifier, Windows};
@@ -86,8 +89,9 @@ use uidm_infrastructure::grab::{self, GrabRequest};
 use uidm_infrastructure::history;
 use uidm_infrastructure::live_settings::{LiveSettings, QueueChimes};
 use uidm_infrastructure::logging;
-use uidm_infrastructure::net::{self, Login};
+use uidm_infrastructure::net;
 use uidm_infrastructure::power_control::{self, PowerOff, RunEnds};
+use uidm_infrastructure::probes::ServerProbes;
 use uidm_infrastructure::queue_runs::{PauseBook, RunBook};
 use uidm_infrastructure::quota::QuotaHold;
 use uidm_infrastructure::scan;
@@ -109,16 +113,9 @@ const WINDOW_CLIENT: &str = "window";
 /// How long a command line waits for the window its `uidm-gui` opens. One
 /// older than this belonged to a window that never connected.
 const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
-/// How the site grabber names itself to servers.
-const GRABBER_AGENT: &str = "Mozilla/5.0 (compatible; UIDM site grabber; obeys robots.txt)";
 
 /// This copy's version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// A page the browser rendered for a crawl: its HTML and its address then.
-/// A page the browser rendered: its HTML, its address, and the addresses
-/// its scripts opened in new windows.
-type Rendered = Option<(String, String, Vec<String>)>;
 
 /// Work for the notification thread.
 enum Note {
@@ -189,10 +186,12 @@ struct Daemon {
     /// A command line held for the window its `uidm-gui` is opening, and
     /// when it came.
     command_line: Mutex<Option<(CommandLine, Instant)>>,
-    /// Crawls waiting for the browser's cookies, by request.
-    cookie_waits: Mutex<HashMap<u64, Sender<Option<String>>>>,
-    /// Crawls waiting for a page the browser renders: its HTML and address.
-    render_waits: Mutex<HashMap<u64, Sender<Rendered>>>,
+    /// The browser extension, for its cookies and rendered pages.
+    browser: Arc<dyn Browser>,
+    /// Asks servers about downloads.
+    probes: Arc<dyn Probes>,
+    /// Crawls sites for the site grabber.
+    crawler: Arc<dyn SiteCrawler>,
     /// Grabber projects whose scheduled run is going on, by name.
     grab_runs: Arc<Mutex<HashSet<String>>>,
     /// When the projects' schedules were last looked at.
@@ -271,6 +270,10 @@ impl Daemon {
             next_id,
         ));
         let engine = Arc::clone(transfers.engine());
+        let browser: Arc<dyn Browser> = Arc::new(BrowserBridge::new(Arc::clone(&clients)));
+        let probes: Arc<dyn Probes> = Arc::new(ServerProbes::new(Arc::clone(&transfers)));
+        let crawler: Arc<dyn SiteCrawler> =
+            Arc::new(Crawler::new(Arc::clone(&transfers), Arc::clone(&settings), Arc::clone(&browser)));
         let chimes = QueueChimes(Arc::clone(&settings));
         let quota = QuotaHold::new(Arc::clone(&store), Arc::clone(&events));
         let power = {
@@ -351,8 +354,9 @@ impl Daemon {
             link_probes: Mutex::new(HashMap::new()),
             picked_links: Mutex::new(None),
             command_line: Mutex::new(None),
-            cookie_waits: Mutex::new(HashMap::new()),
-            render_waits: Mutex::new(HashMap::new()),
+            browser,
+            probes,
+            crawler,
             grab_runs: Arc::default(),
             grab_checked: Mutex::new(None),
             browser_proxy_retries: retries,
@@ -810,10 +814,9 @@ impl Daemon {
     /// Read a stream's playlist on another thread and answer `reply` with
     /// what it offers.
     fn probe_media(&self, request: u64, download: Download, reply: Reply) {
-        let req = self.transfers.request_for(download);
+        let probes = Arc::clone(&self.probes);
         thread::spawn(move || {
-            let info = engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref());
-            reply.send(Event::MediaInfo { request, info });
+            reply.send(Event::MediaInfo { request, info: probes.media(&download) });
         });
     }
 
@@ -839,7 +842,7 @@ impl Daemon {
             let mut handed = 0;
             let mut added = Vec::new();
             let login = daemon.login_cookies(&req);
-            let out = daemon.run_crawl(&req, login.as_deref(), &stop, |o| {
+            let out = daemon.crawler.crawl(&req, login.as_deref(), &stop, &mut |o| {
                 if let Some(queue) = req.download_found {
                     let fresh = &o.files[handed..];
                     if !fresh.is_empty() {
@@ -898,95 +901,6 @@ impl Daemon {
         added
     }
 
-    /// Crawl for `req` on this thread, with the settings' proxy and logins
-    /// (and the project's own login for its start site), the browser's
-    /// cookies when it asks, `login` (see `login_cookies`) for its login
-    /// page's site, and short waits so `stop` is noticed quickly.
-    fn run_crawl(
-        &self,
-        req: &GrabRequest,
-        login: Option<&str>,
-        stop: &AtomicBool,
-        progress: impl FnMut(&grab::Outcome),
-    ) -> grab::Outcome {
-        let settings = self.settings.lock().clone();
-        let start = Download { url: req.start.clone(), ..Download::default() };
-        let mut net = self.transfers.net_for(&start, &settings);
-        if let (Some(user), Ok(url)) =
-            (req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()), url::Url::parse(&req.start))
-        {
-            if let Some(host) = url.host_str() {
-                net.logins.push(Login {
-                    site: host.to_string(),
-                    username: user.to_string(),
-                    password: grab::project_password(&req.start, user).unwrap_or_default(),
-                    // Given for this project's start site.
-                    plain: true,
-                });
-            }
-        }
-        let headers = [("User-Agent".to_string(), GRABBER_AGENT.to_string())];
-        let cookies = if req.browser_cookies { self.browser_cookies(&req.start) } else { None };
-        // Each site's cookies go to that site's pages only.
-        let page_headers = |url: &str| {
-            let mut h = headers.to_vec();
-            if let Some(c) = grab::crawl_cookies(req, url, cookies.as_deref(), login) {
-                h.push(("Cookie".to_string(), c));
-            }
-            h
-        };
-        // Rendering needs the browser extension connected.
-        let render = AtomicBool::new(req.render_scripts && self.clients.extension_connected());
-        let fetch = |url: &str| {
-            // A page as the browser shows it, when asked and the browser
-            // can; otherwise as the server sends it.
-            let rendering = render.load(Ordering::Relaxed) && !url.ends_with("/robots.txt");
-            let rendered = rendering.then(|| self.render_in_browser(url)).flatten();
-            // A browser that does not answer once is not asked again.
-            if rendering && rendered.is_none() {
-                info!(url = %url, "the browser did not render the page; reading pages as sent");
-                render.store(false, Ordering::Relaxed);
-            }
-            if let Some((mut html, at, popups)) = rendered {
-                // Pages the page's scripts opened in new windows are links
-                // like the rest, unless the crawl ignores them.
-                if !req.ignore_popups {
-                    for p in popups.iter().filter(|p| p.starts_with("http://") || p.starts_with("https://")) {
-                        html.push_str(&format!("<a href=\"{}\"></a>", p.replace('"', "%22")));
-                    }
-                }
-                let mut body = html.into_bytes();
-                body.truncate(grab::MAX_PAGE_BYTES as usize);
-                let page = grab::Page { url: at, content_type: Some("text/html".into()), body };
-                if let Some(m) = req.mirror.as_ref().filter(|m| m.pages) {
-                    if let Err(e) = grab::save_page(req, m, &page) {
-                        warn!(error = %e, "could not save");
-                    }
-                }
-                return Ok(page);
-            }
-            let page = engine::fetch(url, &page_headers(url), &net, grab::MAX_PAGE_BYTES)
-                .map(|f| grab::Page { url: f.url, content_type: f.content_type, body: f.body })
-                .map_err(|e| e.to_string())?;
-            if let Some(m) = req.mirror.as_ref().filter(|m| m.pages) {
-                if let Err(e) = grab::save_page(req, m, &page) {
-                    warn!(error = %e, "could not save");
-                }
-            }
-            Ok(page)
-        };
-        // Wait in short steps, so stopping is quick.
-        let wait = |d: Duration| {
-            let until = Instant::now() + d;
-            while Instant::now() < until && !stop.load(Ordering::Relaxed) {
-                thread::sleep(Duration::from_millis(100).min(until - Instant::now()));
-            }
-        };
-        // A file's size, for the size filters and duplicates.
-        let size = |url: &str| engine::inspect(url, None, &page_headers(url), &net).ok().and_then(|i| i.total);
-        grab::crawl(req, fetch, size, wait, stop, progress)
-    }
-
     /// Look for due grabber projects at most every half minute: the
     /// scheduler wakes on every download event, and this reads files.
     fn check_grab_schedules(self: &Arc<Self>) {
@@ -1038,7 +952,7 @@ impl Daemon {
             }
             run => {
                 let stop = AtomicBool::new(false);
-                let out = self.run_crawl(&project.request, login.as_deref(), &stop, |_| {
+                let out = self.crawler.crawl(&project.request, login.as_deref(), &stop, &mut |_| {
                     if end.is_some_and(|end| uidm_infrastructure::clock::local_now() >= end) {
                         stop.store(true, Ordering::Relaxed);
                     }
@@ -1169,47 +1083,18 @@ impl Daemon {
     fn preview_zip(&self, id: u64, reply: Reply) {
         let entry = self.entry(id);
         let download = self.store.requests().get(&id).cloned();
-        let answer = move |entries: Vec<uidm_infrastructure::zip::ZipEntry>, error: Option<String>| {
+        let answer = move |entries: Vec<ZipEntry>, error: Option<String>| {
             reply.send(Event::ZipPreview { id, entries, error });
         };
         let Some(entry) = entry else {
             return answer(Vec::new(), Some(format!("no download with id {id}")));
         };
         let download = download.unwrap_or_else(|| Download { url: entry.url.clone(), ..Download::default() });
-        let req = self.transfers.request_for(download);
-        thread::spawn(move || {
-            let total = match entry.total {
-                Some(t) => Ok(t),
-                None => engine::inspect(&req.url, None, &req.headers, &req.net)
-                    .map_err(|e| e.to_string())
-                    .and_then(|i| i.total.ok_or_else(|| "The server does not say how big the file is.".to_string())),
-            };
-            let listed = total.and_then(|total| {
-                uidm_infrastructure::zip::list(total, |a, b| {
-                    engine::fetch_range_bytes(&req.url, &req.headers, &req.net, a, b)
-                        .map_err(|e| format!("The server would not send part of the file: {e}"))
-                })
-            });
-            match listed {
-                Ok(entries) => answer(entries, None),
-                Err(e) => answer(Vec::new(), Some(e)),
-            }
+        let probes = Arc::clone(&self.probes);
+        thread::spawn(move || match probes.zip(&download, entry.total) {
+            Ok(entries) => answer(entries, None),
+            Err(e) => answer(Vec::new(), Some(e.0)),
         });
-    }
-
-    /// Ask the browser extension to render `url` in a background tab and
-    /// wait for its HTML and final address. `None` without an extension or
-    /// an answer in time.
-    fn render_in_browser(&self, url: &str) -> Rendered {
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        let request = NEXT.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = channel();
-        self.render_waits.lock().unwrap().insert(request, tx);
-        self.clients.broadcast(Event::RenderPage { request, url: url.to_string() });
-        // The extension gives up on a page after 30 seconds itself.
-        let got = rx.recv_timeout(Duration::from_secs(40)).ok().flatten();
-        self.render_waits.lock().unwrap().remove(&request);
-        got
     }
 
     /// The cookies for `req`'s login page's site: the browser's, where the
@@ -1217,25 +1102,7 @@ impl Daemon {
     /// without a login page.
     fn login_cookies(&self, req: &GrabRequest) -> Option<String> {
         let login = req.login_url.as_deref()?;
-        self.browser_cookies(login).or_else(|| req.login_cookies.as_deref().and_then(grab::clean_cookies))
-    }
-
-    /// Ask the browser extension for its cookies for `url`, waiting a few
-    /// seconds for the answer. `None` without an extension or cookies.
-    fn browser_cookies(&self, url: &str) -> Option<String> {
-        // Without the extension nobody answers: no need to wait.
-        if !self.clients.extension_connected() {
-            return None;
-        }
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        let request = NEXT.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = channel();
-        self.cookie_waits.lock().unwrap().insert(request, tx);
-        self.clients.broadcast(Event::CookiesWanted { request, url: url.to_string() });
-        let got = rx.recv_timeout(Duration::from_secs(5)).ok().flatten();
-        self.cookie_waits.lock().unwrap().remove(&request);
-        info!(found = got.is_some(), "browser cookies for the crawl");
-        got.filter(|c| !c.is_empty())
+        self.browser.cookies(login).or_else(|| req.login_cookies.as_deref().and_then(grab::clean_cookies))
     }
 
     /// Stop `client`'s crawl, if it has one.
@@ -1256,17 +1123,17 @@ impl Daemon {
         if let Some(old) = self.link_probes.lock().unwrap().insert(client, Arc::clone(&stop)) {
             old.store(true, Ordering::Relaxed);
         }
-        let reqs: Arc<Vec<DownloadRequest>> =
-            Arc::new(links.into_iter().map(|d| self.transfers.request_for(d)).collect());
+        let links = Arc::new(links);
         let next = Arc::new(AtomicUsize::new(0));
-        for _ in 0..LINK_PROBES.min(reqs.len()) {
-            let (reqs, next, stop, reply) = (Arc::clone(&reqs), Arc::clone(&next), Arc::clone(&stop), reply.clone());
+        for _ in 0..LINK_PROBES.min(links.len()) {
+            let (links, next, stop, reply) = (Arc::clone(&links), Arc::clone(&next), Arc::clone(&stop), reply.clone());
+            let probes = Arc::clone(&self.probes);
             thread::spawn(move || loop {
                 let index = next.fetch_add(1, Ordering::Relaxed);
-                let Some(req) = reqs.get(index).filter(|_| !stop.load(Ordering::Relaxed)) else {
+                let Some(link) = links.get(index).filter(|_| !stop.load(Ordering::Relaxed)) else {
                     return;
                 };
-                let found = engine::inspect(&req.url, None, &req.headers, &req.net);
+                let found = probes.link(link);
                 // Stopped while asking: the picker is gone, or asked anew.
                 if stop.load(Ordering::Relaxed) {
                     return;
@@ -1306,19 +1173,7 @@ impl Daemon {
 
         let daemon = Arc::clone(self);
         thread::spawn(move || {
-            let req = daemon.transfers.request_for(download.clone());
-            // Probing a POST download would send a GET (or repeat the POST),
-            // so its dialog proposes a name from the request alone.
-            // What the browser's response said is all there is to show then.
-            let probed = if uidm_infrastructure::app::post_body(&download).is_some() {
-                let mut found = engine::Inspection::unprobed(&download.url, download.filename.as_deref());
-                found.total = download.size;
-                found.content_type = download.content_type.clone();
-                Ok(found)
-            } else {
-                engine::inspect(&download.url, download.filename.as_deref(), &req.headers, &req.net)
-            };
-            let found = match probed {
+            let found = match daemon.probes.file(&download) {
                 Ok(found) => found,
                 Err(e) => {
                     // Same as a download that fails to start, so the browser
@@ -1327,8 +1182,8 @@ impl Daemon {
                     return;
                 }
             };
-            let path = req.folders.for_name(&found.filename).join(&found.filename);
-            let probed = Probed { filename: found.filename, path, total: found.total, resumable: found.resumable };
+            let probed =
+                Probed { filename: found.filename, path: found.path, total: found.total, resumable: found.resumable };
             let hold = HoldForAnswer::new(
                 &*daemon.store,
                 &*daemon.transfers,
@@ -1838,15 +1693,10 @@ fn dispatch(incoming: Command, daemon: &Arc<Daemon>, client: u64, reply: &Reply)
             });
         }
         Command::Rendered { request, html, url, popups } => {
-            if let Some(tx) = daemon.render_waits.lock().unwrap().remove(&request) {
-                let _ = tx.send(html.zip(url).map(|(h, u)| (h, u, popups)));
-            }
+            let page = html.zip(url).map(|(html, url)| RenderedPage { html, url, popups });
+            daemon.browser.answered_render(request, page);
         }
-        Command::Cookies { request, cookies } => {
-            if let Some(tx) = daemon.cookie_waits.lock().unwrap().remove(&request) {
-                let _ = tx.send(cookies);
-            }
-        }
+        Command::Cookies { request, cookies } => daemon.browser.answered_cookies(request, cookies),
         Command::SetSpeedLimit { id, bytes_per_sec, remember } => {
             let set = daemon
                 .set_download_limit(id, bytes_per_sec)
@@ -1897,6 +1747,7 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::atomic::AtomicU64;
     use uidm_domain::download::DownloadLogin;
     use uidm_domain::ports::QuotaState;
     use uidm_domain::quota::Usage;
@@ -2900,25 +2751,6 @@ mod tests {
     }
 
     #[test]
-    fn a_crawl_asks_the_browser_for_its_cookies() {
-        let t = setup("crawl_cookies", Duplicate::NewName);
-        // The browser's extension is connected; without it nobody is asked.
-        let (_extension, _from_daemon) = t.daemon.clients.connect(2);
-        let d = Arc::clone(&t.daemon);
-        let asking = thread::spawn(move || d.browser_cookies("https://site.net/"));
-        let request = loop {
-            let frame = t.window.recv_timeout(Duration::from_secs(5)).expect("no cookies_wanted");
-            if let Ok(Outgoing::CookiesWanted { request, url }) = serde_json::from_slice(&frame) {
-                assert_eq!(url, "https://site.net/");
-                break request;
-            }
-        };
-        let tx = t.daemon.cookie_waits.lock().unwrap().remove(&request).unwrap();
-        tx.send(Some("session=abc".into())).unwrap();
-        assert_eq!(asking.join().unwrap().as_deref(), Some("session=abc"));
-    }
-
-    #[test]
     fn a_scheduled_project_adds_only_new_finds() {
         let t = setup("grab_schedule", Duplicate::NewName);
         // A one-page site linking to one PDF.
@@ -2987,24 +2819,6 @@ mod tests {
         };
         t.daemon.run_scheduled_grab(&dir, checked, 3);
         assert_eq!(t.len(), 2, "only the ticked file was added");
-    }
-
-    #[test]
-    fn a_crawl_can_have_the_browser_render_a_page() {
-        let t = setup("render_page", Duplicate::NewName);
-        assert!(!t.daemon.clients.extension_connected(), "only a window is connected");
-        let d = Arc::clone(&t.daemon);
-        let asking = thread::spawn(move || d.render_in_browser("https://site.net/app"));
-        let request = loop {
-            let frame = t.window.recv_timeout(Duration::from_secs(5)).expect("no render_page");
-            if let Ok(Outgoing::RenderPage { request, .. }) = serde_json::from_slice(&frame) {
-                break request;
-            }
-        };
-        let tx = t.daemon.render_waits.lock().unwrap().remove(&request).unwrap();
-        tx.send(Some(("<a href=x.pdf>".into(), "https://site.net/app/".into(), Vec::new()))).unwrap();
-        let (html, url, _) = asking.join().unwrap().unwrap();
-        assert_eq!((html.as_str(), url.as_str()), ("<a href=x.pdf>", "https://site.net/app/"));
     }
 
     #[test]
@@ -3535,7 +3349,7 @@ mod tests {
         };
         let stop = AtomicBool::new(false);
         let login = t.daemon.login_cookies(&req);
-        let out = t.daemon.run_crawl(&req, login.as_deref(), &stop, |_| {});
+        let out = t.daemon.crawler.crawl(&req, login.as_deref(), &stop, &mut |_| {});
         assert_eq!(out.files.len(), 1, "the members page was read: {:?}", out.files);
         let site_seen = site_seen.lock().unwrap().clone();
         let pages: Vec<_> = site_seen.iter().filter(|(p, _)| p != "/robots.txt").collect();

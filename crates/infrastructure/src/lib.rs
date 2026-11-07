@@ -29,17 +29,22 @@
 //! - `logging`: each program's log file in the data folder.
 //! - `server`: the daemon's listening socket, its clients and their handshake.
 //! - `wire`: mapping the wire messages to and from the application's commands and events.
+//! - `probes`, `browser_bridge`, `crawler`: the `Probes`, `Browser` and
+//!   `SiteCrawler` adapters (asking servers, the browser extension, and
+//!   crawling for the site grabber).
 //! - `background`: the daemon's background threads (scheduler, history
 //!   writer, notifications, awake keeper, idle exit).
 
 pub mod app;
 pub mod autostart;
 pub mod background;
+pub mod browser_bridge;
 pub mod browsers;
 pub mod cli;
 pub mod clock;
 pub mod connect;
 pub mod conversions;
+pub mod crawler;
 pub mod daemon_client;
 pub mod dpapi;
 pub mod elevate;
@@ -63,6 +68,7 @@ pub mod paths;
 pub mod platform;
 pub mod power;
 pub mod power_control;
+pub mod probes;
 pub mod protocol;
 pub mod queue_runs;
 pub mod quota;

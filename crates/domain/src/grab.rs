@@ -654,6 +654,16 @@ pub struct Page {
     pub body: Vec<u8>,
 }
 
+/// A page as the browser showed it after its scripts ran.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderedPage {
+    pub html: String,
+    /// Its address then.
+    pub url: String,
+    /// The addresses its scripts opened in new windows.
+    pub popups: Vec<String>,
+}
+
 /// The lower-case extension of a URL's last path segment.
 pub fn url_extension(url: &Url) -> Option<String> {
     let last = url.path_segments()?.next_back()?;
