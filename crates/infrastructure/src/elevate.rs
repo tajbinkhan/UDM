@@ -10,6 +10,7 @@
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The argument that makes `uidm-daemon` move one file and exit, instead of
 /// running as the daemon: `uidm-daemon --move-elevated <from> <to>`.
@@ -35,7 +36,14 @@ pub fn can_write(dir: &Path) -> bool {
 }
 
 fn try_write(dir: &Path) -> io::Result<()> {
-    let probe = dir.join(format!(".uidm-write-check-{}", std::process::id()));
+    // Each check gets a file of its own. With one name per process, two
+    // downloads checking one folder at once share the file: the second
+    // `create_new` can land while the first check is deleting it, and
+    // Windows answers a file pending deletion with "access denied", which
+    // reads as a folder that needs administrator rights.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let probe = dir.join(format!(".uidm-write-check-{}-{n}", std::process::id()));
     fs::OpenOptions::new().write(true).create_new(true).open(&probe)?;
     fs::remove_file(&probe)
 }
@@ -220,6 +228,29 @@ mod tests {
         move_file(&from, &to).unwrap();
         assert!(!from.exists());
         assert_eq!(fs::read(&to).unwrap(), b"data");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn checks_of_one_folder_at_once_all_pass() {
+        // Two downloads into one folder check it at the same moment.
+        let dir = std::env::temp_dir().join(format!("uidm-elevate-race-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let refused = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    for _ in 0..500 {
+                        if !can_write(&dir) {
+                            refused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                });
+            }
+        });
+        assert_eq!(refused.into_inner(), 0, "a writable folder was refused");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0, "no check file left behind");
         let _ = fs::remove_dir_all(&dir);
     }
 }
