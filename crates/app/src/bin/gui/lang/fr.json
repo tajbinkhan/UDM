@@ -436,6 +436,7 @@
   "Saved \"{name}\".": "« {name} » enregistré.",
   "Could not save it: {error}": "Impossible de l'enregistrer : {error}",
   "Could not open {name}: {error}": "Impossible d'ouvrir {name} : {error}",
+  "There is no projects folder.": "Il n'y a pas de dossier de projets.",
   "New": "Nouveau",
   "Save as template": "Enregistrer comme modèle",
   "Could not save the template: {error}": "Impossible d'enregistrer le modèle : {error}",

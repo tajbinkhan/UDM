@@ -130,6 +130,13 @@ fn main() -> eframe::Result {
         files: Arc::new(uidm_infrastructure::files::DiskFiles),
         opener: Arc::new(uidm_infrastructure::platform::Desktop),
         window_files: Arc::new(uidm_infrastructure::window_files::WindowDir::new()),
+        grab: uidm_infrastructure::grab::projects_dir()
+            .ok()
+            .map(|dir| Arc::new(uidm_infrastructure::grab::ProjectFiles(dir)) as _),
+        found: Arc::new(uidm_infrastructure::grab::FoundFiles),
+        lists: Arc::new(uidm_infrastructure::listfile::ListFormats),
+        checks: Arc::new(uidm_infrastructure::settings::DiskChecks),
+        system: Arc::new(uidm_infrastructure::system::ThisSystem),
     });
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut minimized = args.iter().any(|a| a == "--minimized");
@@ -1541,7 +1548,7 @@ impl OptionsDraft {
             // The daemon keeps its own.
             last_update_check: 0,
         };
-        uidm_infrastructure::settings::validate(&settings)?;
+        crate::ports::ports().checks.validate(&settings).map_err(|e| e.0)?;
         if let Some(l) = self.logins.iter().find(|l| l.new && l.password.is_empty()) {
             return Err(trf!("The new login for {site} needs a password.", site = l.site.trim()));
         }
@@ -2150,8 +2157,10 @@ impl App {
                 }
             }
             Action::OpenGrabProject(name) => {
-                let project = uidm_infrastructure::grab::projects_dir()
-                    .and_then(|d| uidm_infrastructure::grab::load_project(&d, &name));
+                let project = match crate::ports::ports().grab.as_ref() {
+                    Some(l) => l.load(&name),
+                    None => Err(uidm_domain::ports::FilesError(tr("There is no projects folder.").to_string())),
+                };
                 match project {
                     // An open grabber asks to save its project first.
                     Ok(p) => match self.grabber.as_mut() {
@@ -2212,7 +2221,10 @@ impl App {
         let queue_list = self.shared.lock().unwrap().queues.clone();
         if let Some(read) = self.import.lock().unwrap().take() {
             let opened = read.and_then(|(name, text)| {
-                uidm_infrastructure::listfile::import(&text)
+                crate::ports::ports()
+                    .lists
+                    .import(&text)
+                    .map_err(|e| e.0)
                     .map(|(items, rejected)| tools::BatchDialog::imported(name, items, rejected))
             });
             match opened {
@@ -2599,7 +2611,7 @@ impl App {
                         tr("UIDM may not save files in this folder. Saving there needs administrator rights."),
                     );
                     ui.horizontal(|ui| {
-                        if uidm_infrastructure::elevate::supported() {
+                        if crate::ports::ports().system.can_elevate() {
                             ui.checkbox(&mut draft.elevate, tr("Save there with administrator rights"))
                                 .on_hover_text(tr(
                                     "The download runs as you; Windows asks once it is done, before the file is moved there",
@@ -3087,7 +3099,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
 
         ui.label("");
         let created = ui.add_enabled(
-            uidm_infrastructure::engine::CAN_SET_CREATION_TIME,
+            crate::ports::ports().system.can_set_creation_time(),
             egui::Checkbox::new(&mut draft.server_file_date_created, tr("Use the server's date for the file's creation time too")),
         );
         created
@@ -3241,7 +3253,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
                 );
                 browse_file_button(ui, tr("Where is ffmpeg.exe?"), "exe", &draft.ffmpeg_picked);
             });
-            let found = uidm_infrastructure::settings::ffmpeg(&Settings {
+            let found = crate::ports::ports().checks.ffmpeg(&Settings {
                 ffmpeg_path: draft.ffmpeg_path.trim().to_string(),
                 ..Settings::default()
             });
@@ -3422,7 +3434,7 @@ fn connection_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
 /// System does. Windows' SOCKS proxies speak SOCKS4. Its configuration
 /// script is not read: it picks a proxy per address.
 fn get_system_proxy(draft: &mut OptionsDraft) {
-    let Some(rules) = uidm_infrastructure::net::system_fixed_proxy() else {
+    let Some(rules) = crate::ports::ports().system.fixed_proxy() else {
         draft.error = Some(
             if cfg!(windows) {
                 tr("Windows has no proxy server turned on.")
@@ -3480,7 +3492,7 @@ fn notifications_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                     });
                     if ui.add_enabled(*on, egui::Button::new(tr("Play"))).clicked() {
                         let file = draft.sound_files[i].trim();
-                        uidm_infrastructure::notify::play(sound, (!file.is_empty()).then(|| Path::new(file)));
+                        crate::ports::ports().system.play(sound, (!file.is_empty()).then(|| Path::new(file)));
                     }
                     ui.end_row();
                 }
