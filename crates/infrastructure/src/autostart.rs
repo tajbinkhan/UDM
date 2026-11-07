@@ -30,16 +30,11 @@ pub fn set_autostart(enabled: bool) -> io::Result<()> {
 /// Where the sign-in entry lives.
 #[cfg(unix)]
 fn entry_path() -> io::Result<PathBuf> {
-    let home = crate::platform::home_dir().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))?;
+    let dir = crate::paths::autostart_dir()?;
     #[cfg(target_os = "macos")]
-    return Ok(home.join("Library/LaunchAgents/com.uidm.gui.plist"));
+    return Ok(dir.join("com.uidm.gui.plist"));
     #[cfg(not(target_os = "macos"))]
-    {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|v| !v.is_empty())
-            .map_or_else(|| home.join(".config"), PathBuf::from);
-        Ok(base.join("autostart").join("uidm.desktop"))
-    }
+    return Ok(dir.join("uidm.desktop"));
 }
 
 /// The sign-in entry that starts `gui` with `first` (the program's name

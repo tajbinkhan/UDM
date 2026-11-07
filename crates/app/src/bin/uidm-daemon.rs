@@ -134,7 +134,7 @@ fn early_finished_anyway(early: &Early) -> Option<&Path> {
 }
 
 fn early_root() -> PathBuf {
-    uidm_infrastructure::platform::data_dir()
+    uidm_infrastructure::paths::data_dir()
         .map(|d| d.join("early"))
         .unwrap_or_else(|_| std::env::temp_dir().join(EARLY_FOLDER))
 }

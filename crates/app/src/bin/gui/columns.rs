@@ -301,7 +301,7 @@ impl Layout {
 
 /// `%LOCALAPPDATA%\UIDM\window.json`.
 fn path() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|base| PathBuf::from(base).join("UIDM").join("window.json"))
+    uidm_infrastructure::paths::window_dir().map(|dir| dir.join("window.json"))
 }
 
 fn compare(sort: Sort, a: &DownloadEntry, b: &DownloadEntry, speed: &impl Fn(u64) -> Option<f64>) -> Ordering {

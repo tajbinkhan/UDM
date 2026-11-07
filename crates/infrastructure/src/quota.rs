@@ -23,7 +23,7 @@ pub fn save(usage: &Usage, path: &Path) -> io::Result<()> {
 
 /// `quota.json` in UIDM's data folder (`%LOCALAPPDATA%\UIDM` on Windows).
 pub fn quota_path() -> io::Result<PathBuf> {
-    Ok(crate::platform::data_dir()?.join("quota.json"))
+    Ok(crate::paths::data_dir()?.join("quota.json"))
 }
 
 /// Minutes since 1970.

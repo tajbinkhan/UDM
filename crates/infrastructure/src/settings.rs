@@ -1,6 +1,6 @@
 //! Reading and writing the user's settings in `settings.json`, in UIDM's
 //! settings folder (`%APPDATA%\UIDM` on Windows; see
-//! `platform::config_dir`), and the settings rules that need the filesystem.
+//! `paths::config_dir`), and the settings rules that need the filesystem.
 //! The settings themselves are `uidm_domain::settings`.
 //!
 //! A missing file, or a missing field in an older file, means the default
@@ -147,12 +147,12 @@ fn split_browser_menu(value: &mut serde_json::Value) {
 
 /// `settings.json` in UIDM's settings folder (`%APPDATA%\UIDM` on Windows).
 pub fn settings_path() -> io::Result<PathBuf> {
-    Ok(crate::platform::config_dir()?.join("settings.json"))
+    Ok(crate::paths::config_dir()?.join("settings.json"))
 }
 
 /// The current user's Downloads folder, or the temp dir if it can't be found.
 pub fn default_downloads_dir() -> PathBuf {
-    if let Some(home) = crate::platform::home_dir() {
+    if let Some(home) = crate::paths::home_dir() {
         let dir = home.join("Downloads");
         if dir.is_dir() {
             return dir;

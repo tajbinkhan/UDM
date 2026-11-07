@@ -134,7 +134,7 @@ pub fn save_requests(path: &Path, requests: &HashMap<u64, Download>) -> io::Resu
 }
 
 fn local_data_dir() -> io::Result<PathBuf> {
-    crate::platform::data_dir()
+    crate::paths::data_dir()
 }
 
 /// `%LOCALAPPDATA%\UIDM\history.json`.

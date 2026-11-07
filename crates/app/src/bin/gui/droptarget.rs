@@ -203,7 +203,7 @@ static ON_OPEN: Mutex<Option<Arc<dyn Fn() + Send + Sync>>> = Mutex::new(None);
 
 /// `%LOCALAPPDATA%\UIDM\droptarget.txt`: `x y` of the window.
 fn place_file() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|b| PathBuf::from(b).join("UIDM").join("droptarget.txt"))
+    uidm_infrastructure::paths::window_dir().map(|dir| dir.join("droptarget.txt"))
 }
 
 fn saved_place() -> Option<(i32, i32)> {

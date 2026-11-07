@@ -43,9 +43,9 @@ pub const DAEMON_PORT: u16 = 51515;
 /// The loopback address the daemon serves on. Loopback only, so nothing off
 /// this machine can reach it, and local clients must still authenticate. A
 /// copy named by `UIDM_INSTANCE` gets a port of its own (see
-/// `platform::instance`).
+/// `paths::instance`).
 pub fn daemon_addr() -> String {
-    format!("127.0.0.1:{}", daemon_port(crate::platform::instance().as_deref()))
+    format!("127.0.0.1:{}", daemon_port(crate::paths::instance().as_deref()))
 }
 
 /// The port for instance `name`: the usual one without a name, else one
@@ -162,10 +162,10 @@ pub fn restart_daemon() -> io::Result<TcpStream> {
 }
 
 /// End every `uidm-daemon` process this user may end. A named copy (see
-/// `platform::instance`) ends none: it cannot tell its own daemon from the
+/// `paths::instance`) ends none: it cannot tell its own daemon from the
 /// installed one's, so its restart only reconnects.
 fn stop_daemons() -> io::Result<()> {
-    if crate::platform::instance().is_some() {
+    if crate::paths::instance().is_some() {
         return Ok(());
     }
     #[cfg(windows)]
@@ -296,7 +296,7 @@ fn hex(bytes: &[u8]) -> String {
 
 /// Where the running daemon's token lives.
 pub fn token_path() -> io::Result<PathBuf> {
-    Ok(crate::platform::data_dir()?.join("daemon.token"))
+    Ok(crate::paths::data_dir()?.join("daemon.token"))
 }
 
 /// Publish `token` for clients. Writes a temp file and renames it over the old
@@ -320,16 +320,9 @@ pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// The daemon's log: in the temp folder on Windows, which is the user's
-/// own; elsewhere in UIDM's data folder, as `/tmp` is shared by every user
-/// and the log holds download addresses.
+/// The daemon's log (see `paths::daemon_log`).
 pub fn daemon_log() -> PathBuf {
-    if cfg!(windows) {
-        return std::env::temp_dir().join("uidm-daemon.log");
-    }
-    crate::platform::data_dir()
-        .map(|d| d.join("uidm-daemon.log"))
-        .unwrap_or_else(|_| std::env::temp_dir().join("uidm-daemon.log"))
+    crate::paths::daemon_log()
 }
 
 /// Open the daemon's log for adding to its end, readable only by the user

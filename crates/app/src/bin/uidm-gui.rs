@@ -135,7 +135,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             // A named copy says so, to tell it from the installed one.
-            .with_title(match uidm_infrastructure::platform::instance() {
+            .with_title(match uidm_infrastructure::paths::instance() {
                 Some(name) => format!("UIDM ({name})"),
                 None => "UIDM".to_string(),
             })

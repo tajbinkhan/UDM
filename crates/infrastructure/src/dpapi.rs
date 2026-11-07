@@ -133,7 +133,7 @@ mod imp {
 
     /// The user's key, made the first time.
     fn master_key() -> io::Result<[u8; 32]> {
-        key_at(&crate::platform::data_dir()?.join("secret.key"))
+        key_at(&crate::paths::data_dir()?.join("secret.key"))
     }
 
     /// The key kept at `path`, made there if there is none.

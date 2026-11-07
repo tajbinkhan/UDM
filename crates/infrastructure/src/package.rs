@@ -32,13 +32,13 @@ pub const LOG_ARG: &str = "--log";
 /// Windows sends them to an app package's copy; `None` when they reach the
 /// real folder.
 pub fn data_copy() -> Option<PathBuf> {
-    let data = crate::platform::data_dir().ok()?;
+    let data = crate::paths::data_dir().ok()?;
     fs::create_dir_all(&data).ok()?;
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let name = format!("copy-probe-{}-{nanos}.tmp", std::process::id());
     let probe = data.join(&name);
     fs::write(&probe, b"").ok()?;
-    let packages = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Packages");
+    let packages = crate::paths::packages_dir()?;
     let found = fs::read_dir(packages)
         .into_iter()
         .flatten()
@@ -169,7 +169,7 @@ mod tests {
         // Either answer is right, depending on where the tests run; the
         // probe must be gone either way.
         let _ = super::data_copy();
-        let data = crate::platform::data_dir().unwrap();
+        let data = crate::paths::data_dir().unwrap();
         let prefix = format!("copy-probe-{}-", std::process::id());
         let left = std::fs::read_dir(data)
             .into_iter()
