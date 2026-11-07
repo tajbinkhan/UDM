@@ -3,12 +3,13 @@
 # suggests code changes. Owners and collaborators can run it again by
 # commenting /review, /describe, /improve or /ask "<question>" on the PR.
 #
-# The model is reached through OpenRouter, with Mistral as the fallback when
-# OpenRouter fails. Add the repository secrets OPENROUTER_KEY and MISTRAL_KEY.
+# The model is reached through OpenRouter, with Groq as the fallback when
+# OpenRouter fails. Add the repository secrets OPENROUTER_KEY and GROQ_KEY.
 # "openrouter/free" lets OpenRouter pick one of its free models for each
-# request; mistral-small-latest runs on Mistral's free tier. PR-Agent's token
-# table has no Mistral models, so CUSTOM_MODEL_MAX_TOKENS gives their context
-# size. It does not change openrouter/free, which is in that table.
+# request; gpt-oss-120b runs on Groq's free plan, which allows 8K tokens a
+# minute. PR-Agent's token table lacks that model, so CUSTOM_MODEL_MAX_TOKENS
+# keeps each Groq request under the cap. It does not change openrouter/free,
+# which is in that table.
 
 name: PR Agent
 
@@ -27,7 +28,7 @@ jobs:
   pr_agent:
     # Skip bots (PR-Agent's own comments included), comments on plain issues,
     # and commands from people without write access, so strangers cannot
-    # spend the OpenRouter and Mistral quotas.
+    # spend the OpenRouter and Groq quotas.
     if: >-
       github.event.sender.type != 'Bot' &&
       (github.event_name == 'pull_request' ||
@@ -48,10 +49,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER__KEY: ${{ secrets.OPENROUTER_KEY }}
-          MISTRAL__KEY: ${{ secrets.MISTRAL_KEY }}
+          GROQ__KEY: ${{ secrets.GROQ_KEY }}
           CONFIG__MODEL: openrouter/free
-          CONFIG__FALLBACK_MODELS: '["mistral/mistral-small-latest"]'
-          CONFIG__CUSTOM_MODEL_MAX_TOKENS: "32000"
+          CONFIG__FALLBACK_MODELS: '["groq/openai/gpt-oss-120b"]'
+          CONFIG__CUSTOM_MODEL_MAX_TOKENS: "6000"
           # Describe, review and suggest only when a PR is opened, reopened or
           # marked ready, not on every push. Comment a command to rerun it.
           github_action_config.auto_describe: "true"
