@@ -814,7 +814,11 @@ mod tests {
         }
 
         /// Where a download was saved and its note, or its error.
-        type Outcome = Result<(PathBuf, Option<String>), String>;
+        type Outcome = Result<(PathBuf, Option<String>), Failed>;
+
+        /// A download's failure, as its progress reported it.
+        #[derive(Debug, PartialEq)]
+        struct Failed(String);
 
         /// Run a download; the result and the segment counts it reported.
         fn run(req: DownloadRequest) -> (Outcome, Vec<[u64; 2]>) {
@@ -832,7 +836,7 @@ mod tests {
                 match rx.recv_timeout(Duration::from_secs(30)).expect("download timed out") {
                     Progress::Advanced { parts: Some(p), .. } => parts.push(p),
                     Progress::Finished { path, note, .. } => return (Ok((path, note)), parts),
-                    Progress::Failed { error, .. } => return (Err(error), parts),
+                    Progress::Failed { error, .. } => return (Err(Failed(error)), parts),
                     Progress::Canceled { .. } => panic!("canceled"),
                     _ => {}
                 }
@@ -917,7 +921,7 @@ mod tests {
             };
             // Refused before anything is fetched, so no server is needed.
             let (result, _) = run(request("http://127.0.0.1:1/master.m3u8".into(), &dir, choice));
-            let err = result.unwrap_err();
+            let Failed(err) = result.unwrap_err();
             assert!(err.contains("ffmpeg"), "{err}");
             fs::remove_dir_all(&dir).ok();
         }
@@ -1071,7 +1075,7 @@ mod tests {
             let dir = temp_dir("drm");
             let url = format!("{}/d/master.m3u8", server.url);
             let (result, _) = run(request(url.clone(), &dir, MediaChoice::default()));
-            assert_eq!(result.unwrap_err(), DRM_REFUSED);
+            assert_eq!(result.unwrap_err(), Failed(DRM_REFUSED.into()));
             let info = probe(&url, &[], &NetConfig::default());
             assert!(info.drm);
             assert_eq!(info.error.as_deref(), Some(DRM_REFUSED));
@@ -1377,7 +1381,7 @@ mod tests {
             let mut req = request(format!("{}/m/manifest.mpd", server.url), &dir, MediaChoice::default());
             req.ffmpeg = Some(fake_ffmpeg(&tools, true));
             let (result, _) = run(req);
-            let error = result.unwrap_err();
+            let Failed(error) = result.unwrap_err();
             assert!(error.contains("ffmpeg could not make the video: Invalid data"), "{error}");
             assert!(parts_dir(&dir.join("Movie night (1).mp4")).join("v-000000").exists());
             fs::remove_dir_all(&dir).ok();

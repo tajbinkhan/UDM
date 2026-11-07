@@ -316,33 +316,34 @@ impl Transfers {
         let known = entry.validator.clone().unwrap_or(Validator { size: entry.total, ..Validator::default() });
         let gone = !entry.path.as_deref().is_some_and(|p| Path::new(p).is_file());
         let changed = gone || known.changed(&found);
-        self.store.update(id, |e| {
-            if e.status != Status::Done {
-                return false;
-            }
-            e.note = None;
-            if changed {
-                // Its own file, to download over (see `dispatch`). The
-                // validator stays the old one until the new copy starts, so
-                // a download that fails is found changed again next time.
-                e.status = Status::Waiting;
-                e.done = 0;
-                e.parts = None;
-                e.error = None;
-                e.scan = None;
-                e.partial = None;
-                e.connections = e.connections.max(1);
-            } else {
-                // Learn what the server says now, such as an ETag it did
-                // not send before.
-                e.validator = Some(found);
-            }
-            true
-        })
-        .map_err(|e| match e {
-            EditError::NoDownload(id) => TransferError::NoDownload(id),
-            EditError::Refused => TransferError::StartedAgain,
-        })?;
+        self.store
+            .update(id, |e| {
+                if e.status != Status::Done {
+                    return false;
+                }
+                e.note = None;
+                if changed {
+                    // Its own file, to download over (see `dispatch`). The
+                    // validator stays the old one until the new copy starts, so
+                    // a download that fails is found changed again next time.
+                    e.status = Status::Waiting;
+                    e.done = 0;
+                    e.parts = None;
+                    e.error = None;
+                    e.scan = None;
+                    e.partial = None;
+                    e.connections = e.connections.max(1);
+                } else {
+                    // Learn what the server says now, such as an ETag it did
+                    // not send before.
+                    e.validator = Some(found);
+                }
+                true
+            })
+            .map_err(|e| match e {
+                EditError::NoDownload(id) => TransferError::NoDownload(id),
+                EditError::Refused => TransferError::StartedAgain,
+            })?;
         info!(download_id = id, changed, url = %entry.url, "checked the server for changes");
         Ok(changed)
     }
@@ -594,8 +595,7 @@ impl Transfers {
         let new = self.store_secrets(new)?;
         let old_autostart = self.settings.lock().start_with_windows;
         if new.start_with_windows != old_autostart {
-            crate::autostart::set_autostart(new.start_with_windows)
-                .map_err(SaveError::Autostart)?;
+            crate::autostart::set_autostart(new.start_with_windows).map_err(SaveError::Autostart)?;
         }
         if let Some(path) = self.settings.path() {
             settings::save(&new, path).map_err(|source| SaveError::File { path: path.to_path_buf(), source })?;
@@ -673,7 +673,7 @@ impl DownloadControl for Transfers {
         let found =
             engine::inspect(&download.url, None, &req.headers, &req.net).map_err(|e| ControlError(e.to_string()))?;
         let ignore_date = self.settings.lock().resume_ignores_date;
-        Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err())
+        Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err().map(|e| e.to_string()))
     }
 
     fn forget(&self, id: u64) {

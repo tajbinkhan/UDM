@@ -67,10 +67,9 @@ impl From<CheckError> for uidm_domain::ports::SettingsError {
 pub fn validate(settings: &Settings) -> Result<(), CheckError> {
     settings.validate()?;
     let folders = settings.download_dir.iter().map(|dir| (SettingsField::DownloadFolder, dir)).chain(
-        settings
-            .categories
-            .iter()
-            .filter_map(|c| c.folder.as_ref().map(|dir| (SettingsField::CategoryFolder(c.name.trim().to_string()), dir))),
+        settings.categories.iter().filter_map(|c| {
+            c.folder.as_ref().map(|dir| (SettingsField::CategoryFolder(c.name.trim().to_string()), dir))
+        }),
     );
     for (what, dir) in folders {
         let path = Path::new(dir);

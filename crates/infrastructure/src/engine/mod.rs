@@ -20,7 +20,6 @@ mod stream;
 pub(crate) mod testserver;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -169,74 +168,52 @@ pub enum Progress {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EngineError {
     /// The server answered with an error status.
+    #[error("server returned HTTP {0}")]
     Status(u16),
     /// The server asked for a login and none is set for this host; the
     /// realm it named, if any.
+    #[error("{}", uidm_domain::download::needs_login_error(.0, .1.as_deref()))]
     NeedsLogin(String, Option<String>),
     /// The server refused the login set for this host.
+    #[error("{}", uidm_domain::download::login_refused_error(.0, .1.as_deref()))]
     LoginRejected(String, Option<String>),
+    #[error("http error: {0}")]
     Http(String),
+    #[error("tls error: {0}")]
     Tls(String),
+    #[error("io error: {0}")]
     Io(String),
+    #[error("protocol error: {0}")]
     Protocol(String),
     /// UIDM will not download this (DRM, a live stream); the message says
     /// why, for the user.
+    #[error("{0}")]
     Refused(String),
     /// The file name is taken and the request says to ask first.
-    NameTaken {
-        path: PathBuf,
-        total: Option<u64>,
-    },
+    #[error("{} already exists", path.display())]
+    NameTaken { path: PathBuf, total: Option<u64> },
     /// UIDM may not create files in this folder; saving there needs
     /// administrator rights.
+    #[error("{NEEDS_ADMIN}{}", .0.display())]
     NeedsAdmin(PathBuf),
     /// The finished file could not be moved into the folder with
     /// administrator rights; it waits at `file`. `refused` is a No to the
     /// UAC prompt, else the helper failed and `why` says how.
-    NotMoved {
-        file: PathBuf,
-        dir: PathBuf,
-        why: Option<String>,
-    },
+    #[error("{}", not_moved_text(file, dir, why.as_deref()))]
+    NotMoved { file: PathBuf, dir: PathBuf, why: Option<String> },
 }
 
-impl fmt::Display for EngineError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EngineError::Status(code) => write!(f, "server returned HTTP {code}"),
-            EngineError::NeedsLogin(host, realm) => {
-                f.write_str(&uidm_domain::download::needs_login_error(host, realm.as_deref()))
-            }
-            EngineError::LoginRejected(host, realm) => {
-                f.write_str(&uidm_domain::download::login_refused_error(host, realm.as_deref()))
-            }
-            EngineError::Http(s) => write!(f, "http error: {s}"),
-            EngineError::Tls(s) => write!(f, "tls error: {s}"),
-            EngineError::Io(s) => write!(f, "io error: {s}"),
-            EngineError::Protocol(s) => write!(f, "protocol error: {s}"),
-            EngineError::Refused(s) => f.write_str(s),
-            EngineError::NameTaken { path, .. } => write!(f, "{} already exists", path.display()),
-            EngineError::NeedsAdmin(dir) => write!(f, "{NEEDS_ADMIN}{}", dir.display()),
-            EngineError::NotMoved { file, dir, why } => {
-                match why {
-                    None => f.write_str("Administrator rights were refused, so the file was not moved. ")?,
-                    Some(why) => write!(f, "The file could not be moved with administrator rights ({why}). ")?,
-                }
-                write!(
-                    f,
-                    "It is in {}. Move it to {} yourself, or choose another folder.",
-                    file.display(),
-                    dir.display()
-                )
-            }
-        }
-    }
+/// What [`EngineError::NotMoved`] says.
+fn not_moved_text(file: &Path, dir: &Path, why: Option<&str>) -> String {
+    let first = match why {
+        None => "Administrator rights were refused, so the file was not moved. ".to_string(),
+        Some(why) => format!("The file could not be moved with administrator rights ({why}). "),
+    };
+    format!("{first}It is in {}. Move it to {} yourself, or choose another folder.", file.display(), dir.display())
 }
-
-impl std::error::Error for EngineError {}
 
 const NEEDS_ADMIN: &str = "Saving here needs administrator rights: ";
 
@@ -1090,12 +1067,27 @@ pub fn partial_files(partial: &Path) -> Vec<PathBuf> {
     vec![partial.to_path_buf(), Manifest::sidecar_path(partial)]
 }
 
+/// Why a partial download cannot continue from a new link. The window
+/// shows the message.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Mismatch {
+    #[error("The new link does not say how big its file is, so it cannot be matched to the partial download.")]
+    UnknownSize,
+    /// The new link's size and the partial download's, as "2.0 MB".
+    #[error("The new link is for a {0} file; the partial download is of a {1} file.")]
+    Size(String, String),
+    #[error("The file at the new link has changed since the download started (its ETag or date differs).")]
+    Changed,
+    #[error("The new link's server cannot resume downloads, so it must start over.")]
+    NotResumable,
+}
+
 /// Whether the partial file at `output` can be continued from the file
 /// `found` describes: the same size, and the same ETag or Last-Modified when
 /// both sides have one (`ignore_date` skips the Last-Modified check). A
 /// missing partial file or sidecar has nothing to keep, so anything fits. The
 /// error says why not, for the user.
-pub fn partial_matches(output: &Path, found: &Inspection, ignore_date: bool) -> Result<(), String> {
+pub fn partial_matches(output: &Path, found: &Inspection, ignore_date: bool) -> Result<(), Mismatch> {
     let Ok(m) = Manifest::load(&Manifest::sidecar_path(output)) else {
         return Ok(());
     };
@@ -1104,19 +1096,12 @@ pub fn partial_matches(output: &Path, found: &Inspection, ignore_date: bool) -> 
     }
     let mb = |n: u64| format!("{:.1} MB", n as f64 / (1024.0 * 1024.0));
     match found.total {
-        None => {
-            Err("The new link does not say how big its file is, so it cannot be matched to the partial download."
-                .into())
-        }
-        Some(total) if total != m.total => {
-            Err(format!("The new link is for a {} file; the partial download is of a {} file.", mb(total), mb(m.total)))
-        }
+        None => Err(Mismatch::UnknownSize),
+        Some(total) if total != m.total => Err(Mismatch::Size(mb(total), mb(m.total))),
         Some(total) if !m.matches(total, found.etag.as_deref(), found.last_modified.as_deref(), ignore_date) => {
-            Err("The file at the new link has changed since the download started (its ETag or date differs).".into())
+            Err(Mismatch::Changed)
         }
-        Some(_) if !found.resumable => {
-            Err("The new link's server cannot resume downloads, so it must start over.".into())
-        }
+        Some(_) if !found.resumable => Err(Mismatch::NotResumable),
         Some(_) => Ok(()),
     }
 }
@@ -1767,6 +1752,25 @@ fn effective_connections(total: u64, requested: usize) -> usize {
 mod tests {
     use super::*;
     use uidm_domain::download::{login_wanted, LoginWanted};
+
+    #[test]
+    fn a_file_not_moved_says_where_it_is() {
+        let (file, dir) = (PathBuf::from("t/a.zip"), PathBuf::from("p"));
+        let refused = EngineError::NotMoved { file: file.clone(), dir: dir.clone(), why: None };
+        assert_eq!(
+            refused.to_string(),
+            format!(
+                "Administrator rights were refused, so the file was not moved. It is in {}. Move it to {} yourself, or choose another folder.",
+                file.display(),
+                dir.display()
+            )
+        );
+        let failed = EngineError::NotMoved { file, dir, why: Some("no helper".into()) };
+        assert!(failed
+            .to_string()
+            .starts_with("The file could not be moved with administrator rights (no helper). It is in "));
+        assert_eq!(EngineError::Status(404).to_string(), "server returned HTTP 404");
+    }
 
     #[test]
     fn effective_connections_bounds() {
@@ -2744,11 +2748,11 @@ mod tests {
             assert_eq!(partial_matches(&partial, &found, false), Ok(()));
 
             let other_size = Inspection { total: Some(LEN as u64 + 1), ..found.clone() };
-            assert!(partial_matches(&partial, &other_size, false).unwrap_err().contains("2.0 MB file"));
+            assert!(partial_matches(&partial, &other_size, false).unwrap_err().to_string().contains("2.0 MB file"));
             let changed = Inspection { etag: Some("\"v2\"".into()), ..found.clone() };
-            assert!(partial_matches(&partial, &changed, false).unwrap_err().contains("changed"));
+            assert_eq!(partial_matches(&partial, &changed, false), Err(Mismatch::Changed));
             let unknown = Inspection { total: None, ..found.clone() };
-            assert!(partial_matches(&partial, &unknown, false).is_err());
+            assert_eq!(partial_matches(&partial, &unknown, false), Err(Mismatch::UnknownSize));
 
             // Nothing on disk: nothing to keep, any link fits.
             assert_eq!(partial_matches(&dir.join("none.bin"), &other_size, false), Ok(()));
