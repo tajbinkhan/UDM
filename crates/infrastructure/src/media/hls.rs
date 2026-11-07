@@ -9,8 +9,39 @@
 //! (`SAMPLE-AES`, or any `KEYFORMAT` other than `identity`, such as FairPlay
 //! or Widevine) are DRM, and refused.
 
-use super::resolve;
-use uidm_domain::media::{MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED};
+use uidm_domain::media::{
+    resolve, AddressError, MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED,
+};
+
+/// Why a playlist cannot be downloaded. The message is shown to the user
+/// as the download's failure.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum HlsError {
+    #[error("This is not an HLS playlist.")]
+    NotPlaylist,
+    #[error("The playlist lists no videos.")]
+    NoVariants,
+    #[error("The playlist has no segments.")]
+    NoSegments,
+    #[error("{}", DRM_REFUSED)]
+    Drm,
+    #[error("{}", LIVE_REFUSED)]
+    Live,
+    #[error("bad IV {0}")]
+    BadIv(String),
+    #[error("bad byte range {0}")]
+    BadByteRange(String),
+    #[error("empty byte range {0}")]
+    EmptyByteRange(String),
+    #[error("bad media sequence {0}")]
+    BadSequence(String),
+    #[error("an encryption key has no address")]
+    KeyNoAddress,
+    #[error("a header segment has no address")]
+    HeaderNoAddress,
+    #[error(transparent)]
+    Address(#[from] AddressError),
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variant {
@@ -97,24 +128,25 @@ fn is_drm_key(attrs: &[(String, String)]) -> bool {
     method != "NONE" && (method != "AES-128" || !format.eq_ignore_ascii_case("identity") || uri.starts_with("skd:"))
 }
 
-fn parse_iv(hex: &str) -> Result<[u8; 16], String> {
+fn parse_iv(hex: &str) -> Result<[u8; 16], HlsError> {
     let digits = hex.trim().trim_start_matches("0x").trim_start_matches("0X");
     if digits.len() > 32 || digits.is_empty() {
-        return Err(format!("bad IV {hex}"));
+        return Err(HlsError::BadIv(hex.to_string()));
     }
-    let n = u128::from_str_radix(digits, 16).map_err(|_| format!("bad IV {hex}"))?;
+    let n = u128::from_str_radix(digits, 16).map_err(|_| HlsError::BadIv(hex.to_string()))?;
     Ok(n.to_be_bytes())
 }
 
 /// `n[@o]` of `#EXT-X-BYTERANGE`, with `next` the offset to use without `@o`.
-fn byte_range(spec: &str, next: u64) -> Result<(u64, u64), String> {
+fn byte_range(spec: &str, next: u64) -> Result<(u64, u64), HlsError> {
+    let bad = || HlsError::BadByteRange(spec.to_string());
     let (len, offset) = match spec.split_once('@') {
-        Some((l, o)) => (l, o.trim().parse().map_err(|_| format!("bad byte range {spec}"))?),
+        Some((l, o)) => (l, o.trim().parse().map_err(|_| bad())?),
         None => (spec, next),
     };
-    let len: u64 = len.trim().parse().map_err(|_| format!("bad byte range {spec}"))?;
+    let len: u64 = len.trim().parse().map_err(|_| bad())?;
     if len == 0 {
-        return Err(format!("empty byte range {spec}"));
+        return Err(HlsError::EmptyByteRange(spec.to_string()));
     }
     Ok((offset, offset + len - 1))
 }
@@ -137,10 +169,10 @@ fn track_ext(init: bool, first: Option<&str>, audio: bool) -> &'static str {
 
 /// Read a playlist fetched from `base`. `audio` says a media playlist is an
 /// audio track, for its file extension.
-pub fn parse(text: &str, base: &str, audio: bool) -> Result<Playlist, String> {
+pub fn parse(text: &str, base: &str, audio: bool) -> Result<Playlist, HlsError> {
     let text = text.trim_start_matches('\u{feff}');
     if !text.trim_start().starts_with("#EXTM3U") {
-        return Err("This is not an HLS playlist.".into());
+        return Err(HlsError::NotPlaylist);
     }
     if text.contains("#EXT-X-STREAM-INF") {
         parse_master(text, base).map(Playlist::Master)
@@ -149,7 +181,7 @@ pub fn parse(text: &str, base: &str, audio: bool) -> Result<Playlist, String> {
     }
 }
 
-fn parse_master(text: &str, base: &str) -> Result<Master, String> {
+fn parse_master(text: &str, base: &str) -> Result<Master, HlsError> {
     let mut master = Master::default();
     let mut pending: Option<Vec<(String, String)>> = None;
     for line in text.lines().map(str::trim) {
@@ -198,13 +230,13 @@ fn parse_master(text: &str, base: &str) -> Result<Master, String> {
         }
     }
     if master.variants.is_empty() {
-        return Err("The playlist lists no videos.".into());
+        return Err(HlsError::NoVariants);
     }
     master.variants.sort_by_key(|v| std::cmp::Reverse((v.height.unwrap_or(0), v.bandwidth.unwrap_or(0))));
     Ok(master)
 }
 
-fn parse_media(text: &str, base: &str, audio: bool) -> Result<Track, String> {
+fn parse_media(text: &str, base: &str, audio: bool) -> Result<Track, HlsError> {
     let mut segments = Vec::new();
     let mut init = None;
     let mut key: Option<(String, Option<[u8; 16]>)> = None;
@@ -217,25 +249,25 @@ fn parse_media(text: &str, base: &str, audio: bool) -> Result<Track, String> {
     let mut duration = 0.0;
     for line in text.lines().map(str::trim) {
         if let Some(n) = line.strip_prefix("#EXT-X-MEDIA-SEQUENCE:") {
-            sequence = n.trim().parse().map_err(|_| format!("bad media sequence {n}"))?;
+            sequence = n.trim().parse().map_err(|_| HlsError::BadSequence(n.to_string()))?;
         } else if let Some(rest) = line.strip_prefix("#EXTINF:") {
             let secs = rest.split(',').next().unwrap_or("").trim();
             duration += secs.parse::<f64>().unwrap_or(0.0);
         } else if let Some(rest) = line.strip_prefix("#EXT-X-KEY:") {
             let a = attributes(rest);
             if is_drm_key(&a) {
-                return Err(DRM_REFUSED.into());
+                return Err(HlsError::Drm);
             }
             key = match attr(&a, "METHOD") {
                 Some("AES-128") => {
-                    let uri = attr(&a, "URI").ok_or("an encryption key has no address")?;
+                    let uri = attr(&a, "URI").ok_or(HlsError::KeyNoAddress)?;
                     Some((resolve(base, uri)?, attr(&a, "IV").map(parse_iv).transpose()?))
                 }
                 _ => None,
             };
         } else if let Some(rest) = line.strip_prefix("#EXT-X-MAP:") {
             let a = attributes(rest);
-            let uri = attr(&a, "URI").ok_or("a header segment has no address")?;
+            let uri = attr(&a, "URI").ok_or(HlsError::HeaderNoAddress)?;
             let range = attr(&a, "BYTERANGE").map(|r| byte_range(r, 0)).transpose()?;
             init = Some(Segment { url: resolve(base, uri)?, range, key: None });
         } else if let Some(rest) = line.strip_prefix("#EXT-X-BYTERANGE:") {
@@ -270,10 +302,10 @@ fn parse_media(text: &str, base: &str, audio: bool) -> Result<Track, String> {
         }
     }
     if !ended {
-        return Err(LIVE_REFUSED.into());
+        return Err(HlsError::Live);
     }
     if segments.is_empty() {
-        return Err("The playlist has no segments.".into());
+        return Err(HlsError::NoSegments);
     }
     let ext = track_ext(init.is_some(), segments.first().map(|s| s.url.as_str()), audio);
     Ok(Track { init, segments, ext, duration: Some(duration), hds_header: None })
@@ -469,14 +501,14 @@ main.mp4
 a.ts
 #EXT-X-ENDLIST
 ";
-        assert_eq!(parse(fairplay, BASE, false).unwrap_err(), DRM_REFUSED);
+        assert_eq!(parse(fairplay, BASE, false).unwrap_err(), HlsError::Drm);
         let widevine = "#EXTM3U
 #EXT-X-KEY:METHOD=AES-128,URI=\"data:x\",KEYFORMAT=\"urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed\"
 #EXTINF:4,
 a.ts
 #EXT-X-ENDLIST
 ";
-        assert_eq!(parse(widevine, BASE, false).unwrap_err(), DRM_REFUSED);
+        assert_eq!(parse(widevine, BASE, false).unwrap_err(), HlsError::Drm);
         let session = "#EXTM3U
 #EXT-X-SESSION-KEY:METHOD=SAMPLE-AES,URI=\"skd://x\",KEYFORMAT=\"com.apple.streamingkeydelivery\"
 #EXT-X-STREAM-INF:BANDWIDTH=1
@@ -485,7 +517,7 @@ a.m3u8
         let Playlist::Master(m) = parse(session, BASE, false).unwrap() else { panic!() };
         assert!(describe(&m, None).drm);
         let live = "#EXTM3U\n#EXTINF:4,\na.ts\n#EXTINF:4,\nb.ts\n";
-        assert_eq!(parse(live, BASE, false).unwrap_err(), LIVE_REFUSED);
+        assert_eq!(parse(live, BASE, false).unwrap_err(), HlsError::Live);
         assert!(parse("<html>", BASE, false).is_err());
     }
 }

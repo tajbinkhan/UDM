@@ -5,13 +5,37 @@
 //! of the input's length.
 
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use uidm_domain::media::Target;
+
+/// Why a conversion stopped. The message is shown to the user as the
+/// conversion's failure.
+#[derive(Debug, thiserror::Error)]
+pub enum FfmpegError {
+    #[error("could not run ffmpeg ({}): {source}", program.display())]
+    Start {
+        program: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error(transparent)]
+    Wait(std::io::Error),
+    #[error("canceled")]
+    Canceled,
+    #[error("ffmpeg failed")]
+    Failed,
+    /// The last thing ffmpeg wrote to its error output.
+    #[error("{0}")]
+    Said(String),
+    /// The encode, after the copy failed, failed too.
+    #[error("ffmpeg could not convert it: {0}")]
+    NotConverted(Box<FfmpegError>),
+}
 
 /// The ffmpeg arguments between the input and the output: a copy of
 /// the streams first, then an encode.
@@ -77,7 +101,7 @@ fn run_once(
     args: &[&str],
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(f64),
-) -> Result<(), String> {
+) -> Result<(), FfmpegError> {
     let mut child = crate::platform::no_window(&mut Command::new(ffmpeg))
         .args(["-hide_banner", "-nostats", "-y", "-i"])
         .arg(input)
@@ -88,7 +112,7 @@ fn run_once(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("could not run ffmpeg ({}): {e}", ffmpeg.display()))?;
+        .map_err(|source| FfmpegError::Start { program: ffmpeg.to_path_buf(), source })?;
     // stderr has the input's length and any complaint; read it aside.
     let duration = Arc::new(Mutex::new(None::<f64>));
     let last_error = Arc::new(Mutex::new(String::new()));
@@ -115,18 +139,18 @@ fn run_once(
             }
         }
     }
-    let status = child.wait().map_err(|e| e.to_string())?;
+    let status = child.wait().map_err(FfmpegError::Wait)?;
     let _ = reader.join();
     if cancel.load(Ordering::Relaxed) {
         let _ = std::fs::remove_file(output);
-        return Err("canceled".into());
+        return Err(FfmpegError::Canceled);
     }
     if status.success() {
         return Ok(());
     }
     let _ = std::fs::remove_file(output);
     let why = last_error.lock().unwrap().clone();
-    Err(if why.is_empty() { "ffmpeg failed".into() } else { why })
+    Err(if why.is_empty() { FfmpegError::Failed } else { FfmpegError::Said(why) })
 }
 
 /// Convert `input` to `output` as `target`, reporting progress from 0 to 1.
@@ -138,13 +162,13 @@ pub fn convert(
     target: Target,
     cancel: &AtomicBool,
     mut progress: impl FnMut(f64),
-) -> Result<(), String> {
+) -> Result<(), FfmpegError> {
     let [copy, encode] = attempts(target);
     match run_once(ffmpeg, input, output, copy, cancel, &mut progress) {
         Ok(()) => Ok(()),
-        Err(e) if e == "canceled" => Err(e),
+        Err(FfmpegError::Canceled) => Err(FfmpegError::Canceled),
         Err(_) => run_once(ffmpeg, input, output, encode, cancel, &mut progress)
-            .map_err(|e| format!("ffmpeg could not convert it: {e}")),
+            .map_err(|e| FfmpegError::NotConverted(Box::new(e))),
     }
 }
 
@@ -180,7 +204,7 @@ mod tests {
             |_| {},
         )
         .unwrap_err();
-        assert!(err.contains("ffmpeg"), "{err}");
+        assert!(err.to_string().contains("could not run ffmpeg"), "{err}");
     }
 
     /// Makes a two-second clip with ffmpeg and converts it every way. Skipped
