@@ -1068,6 +1068,18 @@ pub fn files_of(output: &Path) -> Vec<PathBuf> {
     vec![output.to_path_buf(), Manifest::sidecar_path(output), output.with_file_name(parts)]
 }
 
+/// Leave beside `file` the resume sidecar of a download whose `total`
+/// bytes are all written: what a download stopped just after its last byte,
+/// before the engine saw it through, leaves behind.
+#[cfg(test)]
+pub(crate) fn leave_whole_sidecar(file: &Path, url: &str, total: u64) -> std::io::Result<()> {
+    let mut m = Manifest::new(url.to_string(), total, None, None, &split(total, 1));
+    for s in &mut m.segments {
+        s.done = s.len();
+    }
+    m.save(&Manifest::sidecar_path(file))
+}
+
 /// The resume sidecar of a partial file at `partial`.
 pub fn sidecar_path(partial: &Path) -> PathBuf {
     Manifest::sidecar_path(partial)
@@ -1184,10 +1196,20 @@ fn choose_output<'a>(
     req: &DownloadRequest,
     probe: &http::Probe,
 ) -> Result<Claim<'a>, EngineError> {
-    let mut set = claimed.lock().unwrap();
-    let path = pick_free_path(&set, dir, filename, req, probe)?;
-    set.insert(path.clone());
-    Ok(Claim { set: claimed, path })
+    let path = {
+        let mut set = claimed.lock().unwrap();
+        let path = pick_free_path(&set, dir, filename, req, probe)?;
+        set.insert(path.clone());
+        path
+    };
+    let claim = Claim { set: claimed, path };
+    // A file chosen in a folder of its own (a save-as dialog answered while
+    // the download ran early, which then carries on from its partial file)
+    // names a folder that may not be there yet.
+    if let Some(parent) = claim.path.parent().filter(|p| *p != dir) {
+        writable(parent)?;
+    }
+    Ok(claim)
 }
 
 fn pick_free_path(
@@ -2183,6 +2205,28 @@ mod tests {
             let done = download(|_| {}, req());
             assert_eq!(done, path);
             assert_eq!(fs::read(&path).unwrap(), data);
+            assert!(!partial.exists() && !Manifest::sidecar_path(&partial).exists());
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        /// An early download stopped after its dialog was answered carries
+        /// on from its partial file into the file the dialog chose, in a
+        /// folder nothing has made yet.
+        #[test]
+        fn a_partial_file_resumes_into_a_folder_not_made_yet() {
+            const LEN: usize = 2 * 1024 * 1024;
+            let data = body(LEN);
+            let behavior =
+                Behavior { slow_range_start: Some(0), slow_bytes_per_sec: 512 * 1024, ..Behavior::default() };
+            let server = TestServer::start_with(data.clone(), behavior);
+            let dir = temp_dir("new_folder");
+            let (partial, _) = stop_partway(request(&server.url, &dir.join("early"), FileExists::Rename));
+            let chosen = dir.join("chosen").join("big.bin");
+            let mut req = request(&server.url, &dir.join("downloads"), FileExists::Rename);
+            req.reuse_path = Some(chosen.clone());
+            req.reuse_partial = Some(partial.clone());
+            assert_eq!(download(|_| {}, req), chosen);
+            assert_eq!(fs::read(&chosen).unwrap(), data);
             assert!(!partial.exists() && !Manifest::sidecar_path(&partial).exists());
             fs::remove_dir_all(&dir).ok();
         }
