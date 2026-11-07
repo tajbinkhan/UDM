@@ -46,7 +46,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -172,7 +172,7 @@ enum Note {
 
 impl Windows for Clients {
     fn window_open(&self) -> bool {
-        !self.windows.lock().unwrap().is_empty()
+        !self.windows().is_empty()
     }
 }
 
@@ -196,15 +196,22 @@ impl StoreEvents for Clients {
 }
 
 impl Clients {
+    /// The clients that are windows. Only single inserts and removals change
+    /// the set, so a lock poisoned by a panicking thread still holds a
+    /// usable one.
+    fn windows(&self) -> MutexGuard<'_, HashSet<u64>> {
+        self.windows.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Whether a client other than a window is connected: the browser
     /// extension, through its host.
     fn extension_connected(&self) -> bool {
-        let windows = self.windows.lock().unwrap().len();
+        let windows = self.windows().len();
         self.clients.lock().unwrap().len() > windows
     }
 
     fn window_open(&self) -> bool {
-        !self.windows.lock().unwrap().is_empty()
+        !self.windows().is_empty()
     }
 
     /// Send `msg` to the desktop windows only.
@@ -212,7 +219,7 @@ impl Clients {
         let Ok(frame) = serde_json::to_vec(msg) else {
             return;
         };
-        let windows = self.windows.lock().unwrap();
+        let windows = self.windows();
         for (_, tx) in self.clients.lock().unwrap().iter().filter(|(id, _)| windows.contains(id)) {
             let _ = tx.send(frame.clone());
         }
@@ -243,7 +250,7 @@ impl Clients {
     /// windows hear when it went.
     fn client_gone(&self, id: u64) {
         self.clients.lock().unwrap().remove(&id);
-        self.windows.lock().unwrap().remove(&id);
+        self.windows().remove(&id);
         let last = {
             let mut browsers = self.browsers.lock().unwrap();
             browsers.remove(&id) && browsers.is_empty()
@@ -1856,7 +1863,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
                 daemon.clients.browser_connected(client);
             }
             if kind.as_deref() == Some(WINDOW_CLIENT) {
-                daemon.clients.windows.lock().unwrap().insert(client);
+                daemon.clients.windows().insert(client);
                 send(&daemon.clients.browser_link());
                 // A window that opens during a countdown shows it too.
                 if let Some(countdown) = daemon.countdown_message() {
@@ -2088,7 +2095,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::GetSettings => send(&Outgoing::Settings { settings: daemon.settings.lock().clone() }),
         Incoming::SetSettings { settings } => {
-            match daemon.transfers.set_settings(if daemon.clients.windows.lock().unwrap().contains(&client) {
+            match daemon.transfers.set_settings(if daemon.clients.windows().contains(&client) {
                 settings
             } else {
                 daemon.with_video_button(&settings)
