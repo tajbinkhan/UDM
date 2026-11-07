@@ -47,6 +47,10 @@ bytes = "1"
 # connection. reqwest already depends on both.
 tower-layer = "0.3"
 tower-service = "0.3"
+# The user's home, AppData and XDG base folders for the paths module, so no
+# other module reads APPDATA, LOCALAPPDATA or XDG_* (AGENTS.md section 6).
+# Its dirs-sys is already in the lockfile through another dependency.
+directories = "6"
 
 # WinRT toast notifications from the daemon, DPAPI, the registry.
 [target.'cfg(windows)'.dependencies]

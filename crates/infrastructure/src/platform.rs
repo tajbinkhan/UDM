@@ -1,92 +1,10 @@
 //! What differs between Windows, macOS and Linux and is not worth a module
-//! of its own: where UIDM keeps its files, program names, and starting
-//! helper programs without a console window.
-//!
-//! | | Windows | macOS | Linux |
-//! |---|---|---|---|
-//! | settings ([`config_dir`]) | `%APPDATA%\UIDM` | `~/Library/Application Support/UIDM` | `$XDG_CONFIG_HOME/uidm` (`~/.config/uidm`) |
-//! | list, token, logs ([`data_dir`]) | `%LOCALAPPDATA%\UIDM` | `~/Library/Application Support/UIDM` | `$XDG_DATA_HOME/uidm` (`~/.local/share/uidm`) |
-//!
-//! With [`INSTANCE_VAR`] set, these folders get the instance's name after a
-//! dash (`UIDM-test`), and the daemon its own port (see `ipc::daemon_addr`):
-//! a second copy, such as a build under test, runs beside the installed one
-//! without sharing its list, settings or daemon.
+//! of its own: program names, starting helper programs without a console
+//! window, and opening files. Where UIDM keeps its files is in `paths`.
 
 use std::io;
 use std::path::PathBuf;
 use std::process::Command;
-
-/// The running user's home folder.
-pub fn home_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    let home = std::env::var_os("USERPROFILE");
-    #[cfg(not(windows))]
-    let home = std::env::var_os("HOME");
-    home.filter(|h| !h.is_empty()).map(PathBuf::from)
-}
-
-/// The environment variable naming a separate copy of UIDM. Programs UIDM
-/// starts inherit it, so a whole copy (window, daemon, host) stays apart.
-pub const INSTANCE_VAR: &str = "UIDM_INSTANCE";
-
-/// The name of this copy of UIDM, from [`INSTANCE_VAR`]; `None` for the
-/// usual one. A name is up to 32 letters, digits, `-` and `_`; anything else
-/// is ignored, so a typo cannot reach a folder outside UIDM's own.
-pub fn instance() -> Option<String> {
-    instance_name(std::env::var(INSTANCE_VAR).ok())
-}
-
-fn instance_name(value: Option<String>) -> Option<String> {
-    let name = value?.trim().to_string();
-    let ok =
-        !name.is_empty() && name.len() <= 32 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    ok.then_some(name)
-}
-
-/// UIDM's folder name, `base`, with this copy's instance name after it.
-fn folder(base: &str) -> String {
-    match instance() {
-        Some(name) => format!("{base}-{name}"),
-        None => base.to_string(),
-    }
-}
-
-fn not_found(what: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::NotFound, format!("{what} is not set"))
-}
-
-/// `name` under an XDG base folder: `$var`, else `~/fallback`.
-#[cfg(all(unix, not(target_os = "macos")))]
-fn xdg(var: &str, fallback: &str) -> io::Result<PathBuf> {
-    match std::env::var_os(var).filter(|v| !v.is_empty()) {
-        Some(dir) => Ok(PathBuf::from(dir).join(folder("uidm"))),
-        None => Ok(home_dir().ok_or_else(|| not_found("HOME"))?.join(fallback).join(folder("uidm"))),
-    }
-}
-
-/// The folder settings, templates and grabber projects live in, which
-/// roams with the user on Windows.
-pub fn config_dir() -> io::Result<PathBuf> {
-    #[cfg(windows)]
-    return Ok(PathBuf::from(std::env::var_os("APPDATA").ok_or_else(|| not_found("APPDATA"))?).join(folder("UIDM")));
-    #[cfg(target_os = "macos")]
-    return Ok(home_dir().ok_or_else(|| not_found("HOME"))?.join("Library/Application Support").join(folder("UIDM")));
-    #[cfg(all(unix, not(target_os = "macos")))]
-    return xdg("XDG_CONFIG_HOME", ".config");
-}
-
-/// The folder the download list, the daemon's token and other machine-local
-/// state live in.
-pub fn data_dir() -> io::Result<PathBuf> {
-    #[cfg(windows)]
-    return Ok(
-        PathBuf::from(std::env::var_os("LOCALAPPDATA").ok_or_else(|| not_found("LOCALAPPDATA"))?).join(folder("UIDM"))
-    );
-    #[cfg(target_os = "macos")]
-    return config_dir();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    return xdg("XDG_DATA_HOME", ".local/share");
-}
 
 /// The file name of UIDM's program `name` (`uidm-daemon`) on this system.
 pub fn exe_name(name: &str) -> String {
@@ -315,23 +233,5 @@ mod tests {
         } else {
             assert_eq!(name, "uidm-daemon");
         }
-    }
-
-    #[test]
-    fn an_instance_name_is_short_and_plain() {
-        assert_eq!(instance_name(Some(" test ".into())).as_deref(), Some("test"));
-        assert_eq!(instance_name(Some("dev_2-a".into())).as_deref(), Some("dev_2-a"));
-        assert_eq!(instance_name(None), None);
-        assert_eq!(instance_name(Some("".into())), None);
-        assert_eq!(instance_name(Some("../x".into())), None, "no path parts");
-        assert_eq!(instance_name(Some("a".repeat(33))), None);
-    }
-
-    #[test]
-    fn folders_end_in_uidm() {
-        let config = config_dir().unwrap();
-        assert!(config.ends_with("UIDM") || config.ends_with("uidm"), "{}", config.display());
-        let data = data_dir().unwrap();
-        assert!(data.ends_with("UIDM") || data.ends_with("uidm"), "{}", data.display());
     }
 }

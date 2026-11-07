@@ -47,6 +47,7 @@ pub mod ntlm;
 pub mod pac;
 #[cfg(windows)]
 pub mod package;
+pub mod paths;
 pub mod platform;
 pub mod power;
 pub mod protocol;

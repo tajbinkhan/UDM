@@ -17,6 +17,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::paths::Root;
 #[cfg(windows)]
 use crate::registry;
 
@@ -35,9 +36,9 @@ pub struct Browser {
     /// `HKEY_CURRENT_USER` on Windows, a folder under the home folder
     /// elsewhere.
     hosts_key: &'static str,
-    /// Its profile folder, which shows it is installed for this user: an
-    /// environment variable and a path inside the folder it names.
-    profile: (&'static str, &'static str),
+    /// Its profile folder, which shows it is installed for this user: a
+    /// base folder and a path inside it.
+    profile: (Root, &'static str),
     firefox: bool,
     /// How Options restarts it: its process name and what starts it (a
     /// program found the way Run finds it on Windows, a command on `PATH`
@@ -51,35 +52,35 @@ pub const BROWSERS: [Browser; 5] = [
     Browser {
         name: "Google Chrome",
         hosts_key: r"Software\Google\Chrome\NativeMessagingHosts",
-        profile: ("LOCALAPPDATA", r"Google\Chrome\User Data"),
+        profile: (Root::Local, r"Google\Chrome\User Data"),
         firefox: false,
         run: Some(("chrome.exe", "chrome.exe")),
     },
     Browser {
         name: "Microsoft Edge",
         hosts_key: r"Software\Microsoft\Edge\NativeMessagingHosts",
-        profile: ("LOCALAPPDATA", r"Microsoft\Edge\User Data"),
+        profile: (Root::Local, r"Microsoft\Edge\User Data"),
         firefox: false,
         run: Some(("msedge.exe", "msedge.exe")),
     },
     Browser {
         name: "Mozilla Firefox",
         hosts_key: r"Software\Mozilla\NativeMessagingHosts",
-        profile: ("APPDATA", r"Mozilla\Firefox"),
+        profile: (Root::Roaming, r"Mozilla\Firefox"),
         firefox: true,
         run: Some(("firefox.exe", "firefox.exe")),
     },
     Browser {
         name: "Brave",
         hosts_key: r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts",
-        profile: ("LOCALAPPDATA", r"BraveSoftware\Brave-Browser\User Data"),
+        profile: (Root::Local, r"BraveSoftware\Brave-Browser\User Data"),
         firefox: false,
         run: Some(("brave.exe", "brave.exe")),
     },
     Browser {
         name: "Chromium",
         hosts_key: r"Software\Chromium\NativeMessagingHosts",
-        profile: ("LOCALAPPDATA", r"Chromium\User Data"),
+        profile: (Root::Local, r"Chromium\User Data"),
         firefox: false,
         run: None,
     },
@@ -88,50 +89,50 @@ pub const BROWSERS: [Browser; 5] = [
 /// Chromium browsers that read Chrome's registration instead of keeping
 /// their own, with their profile folders.
 #[cfg(windows)]
-pub const READ_CHROMES: [(&str, (&str, &str)); 2] =
-    [("Vivaldi", ("LOCALAPPDATA", r"Vivaldi\User Data")), ("Opera", ("APPDATA", r"Opera Software\Opera Stable"))];
+pub const READ_CHROMES: [(&str, (Root, &str)); 2] =
+    [("Vivaldi", (Root::Local, r"Vivaldi\User Data")), ("Opera", (Root::Roaming, r"Opera Software\Opera Stable"))];
 
 #[cfg(all(unix, not(target_os = "macos")))]
 pub const BROWSERS: [Browser; 6] = [
     Browser {
         name: "Google Chrome",
         hosts_key: ".config/google-chrome/NativeMessagingHosts",
-        profile: ("HOME", ".config/google-chrome"),
+        profile: (Root::Home, ".config/google-chrome"),
         firefox: false,
         run: Some(("chrome", "google-chrome")),
     },
     Browser {
         name: "Microsoft Edge",
         hosts_key: ".config/microsoft-edge/NativeMessagingHosts",
-        profile: ("HOME", ".config/microsoft-edge"),
+        profile: (Root::Home, ".config/microsoft-edge"),
         firefox: false,
         run: Some(("msedge", "microsoft-edge")),
     },
     Browser {
         name: "Mozilla Firefox",
         hosts_key: ".mozilla/native-messaging-hosts",
-        profile: ("HOME", ".mozilla"),
+        profile: (Root::Home, ".mozilla"),
         firefox: true,
         run: Some(("firefox", "firefox")),
     },
     Browser {
         name: "Brave",
         hosts_key: ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",
-        profile: ("HOME", ".config/BraveSoftware/Brave-Browser"),
+        profile: (Root::Home, ".config/BraveSoftware/Brave-Browser"),
         firefox: false,
         run: Some(("brave", "brave-browser")),
     },
     Browser {
         name: "Chromium",
         hosts_key: ".config/chromium/NativeMessagingHosts",
-        profile: ("HOME", ".config/chromium"),
+        profile: (Root::Home, ".config/chromium"),
         firefox: false,
         run: Some(("chromium", "chromium")),
     },
     Browser {
         name: "Vivaldi",
         hosts_key: ".config/vivaldi/NativeMessagingHosts",
-        profile: ("HOME", ".config/vivaldi"),
+        profile: (Root::Home, ".config/vivaldi"),
         firefox: false,
         run: Some(("vivaldi-bin", "vivaldi")),
     },
@@ -142,42 +143,42 @@ pub const BROWSERS: [Browser; 6] = [
     Browser {
         name: "Google Chrome",
         hosts_key: "Library/Application Support/Google/Chrome/NativeMessagingHosts",
-        profile: ("HOME", "Library/Application Support/Google/Chrome"),
+        profile: (Root::Home, "Library/Application Support/Google/Chrome"),
         firefox: false,
         run: Some(("Google Chrome", "Google Chrome")),
     },
     Browser {
         name: "Microsoft Edge",
         hosts_key: "Library/Application Support/Microsoft Edge/NativeMessagingHosts",
-        profile: ("HOME", "Library/Application Support/Microsoft Edge"),
+        profile: (Root::Home, "Library/Application Support/Microsoft Edge"),
         firefox: false,
         run: Some(("Microsoft Edge", "Microsoft Edge")),
     },
     Browser {
         name: "Mozilla Firefox",
         hosts_key: "Library/Application Support/Mozilla/NativeMessagingHosts",
-        profile: ("HOME", "Library/Application Support/Firefox"),
+        profile: (Root::Home, "Library/Application Support/Firefox"),
         firefox: true,
         run: Some(("Firefox", "Firefox")),
     },
     Browser {
         name: "Brave",
         hosts_key: "Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts",
-        profile: ("HOME", "Library/Application Support/BraveSoftware/Brave-Browser"),
+        profile: (Root::Home, "Library/Application Support/BraveSoftware/Brave-Browser"),
         firefox: false,
         run: Some(("Brave Browser", "Brave Browser")),
     },
     Browser {
         name: "Chromium",
         hosts_key: "Library/Application Support/Chromium/NativeMessagingHosts",
-        profile: ("HOME", "Library/Application Support/Chromium"),
+        profile: (Root::Home, "Library/Application Support/Chromium"),
         firefox: false,
         run: Some(("Chromium", "Chromium")),
     },
     Browser {
         name: "Vivaldi",
         hosts_key: "Library/Application Support/Vivaldi/NativeMessagingHosts",
-        profile: ("HOME", "Library/Application Support/Vivaldi"),
+        profile: (Root::Home, "Library/Application Support/Vivaldi"),
         firefox: false,
         run: Some(("Vivaldi", "Vivaldi")),
     },
@@ -186,13 +187,13 @@ pub const BROWSERS: [Browser; 6] = [
 /// Chromium browsers that read Chrome's registration instead of keeping
 /// their own, with their profile folders.
 #[cfg(all(unix, not(target_os = "macos")))]
-pub const READ_CHROMES: [(&str, (&str, &str)); 1] = [("Opera", ("HOME", ".config/opera"))];
+pub const READ_CHROMES: [(&str, (Root, &str)); 1] = [("Opera", (Root::Home, ".config/opera"))];
 #[cfg(target_os = "macos")]
-pub const READ_CHROMES: [(&str, (&str, &str)); 1] =
-    [("Opera", ("HOME", "Library/Application Support/com.operasoftware.Opera"))];
+pub const READ_CHROMES: [(&str, (Root, &str)); 1] =
+    [("Opera", (Root::Home, "Library/Application Support/com.operasoftware.Opera"))];
 
-fn profile_exists((var, path): (&str, &str)) -> bool {
-    std::env::var_os(var).is_some_and(|base| Path::new(&base).join(path).is_dir())
+fn profile_exists((base, path): (Root, &str)) -> bool {
+    crate::paths::root(base).is_some_and(|base| base.join(path).is_dir())
 }
 
 /// The browsers in `READ_CHROMES` installed for this user.
@@ -494,7 +495,7 @@ impl Registrar {
     /// Windows with the manifests in `%LOCALAPPDATA%\UIDM` as
     /// `install-host.ps1` writes them, elsewhere in the home folder.
     pub fn for_this_user() -> io::Result<Self> {
-        let dir = crate::platform::data_dir()?;
+        let dir = crate::paths::data_dir()?;
         // An AppImage's AppRun starts the host when a browser calls it.
         let host = match crate::platform::appimage() {
             Some(image) => image,
@@ -503,7 +504,7 @@ impl Registrar {
         #[cfg(windows)]
         let root = String::new();
         #[cfg(not(windows))]
-        let root = crate::platform::home_dir()
+        let root = crate::paths::home_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is not set"))?
             .display()
             .to_string();
@@ -637,7 +638,7 @@ pub fn register_found() -> io::Result<Vec<&'static str>> {
         return Ok(Vec::new());
     }
     let registrar = Registrar::for_this_user()?;
-    let done = crate::platform::data_dir()?.join("browsers.done");
+    let done = crate::paths::data_dir()?.join("browsers.done");
     let first = !done.exists();
     let mut registered = Vec::new();
     for b in BROWSERS.iter().filter(|b| registrar.installed(b)) {

@@ -246,7 +246,7 @@ fn keep_valid(candidates: Vec<Download>) -> Result<(Vec<Download>, usize), Strin
 /// which would send the user's Windows login to its server.
 fn safe_folder(folder: &Path) -> bool {
     use std::path::Component;
-    let Some(home) = crate::platform::home_dir() else {
+    let Some(home) = crate::paths::home_dir() else {
         return false;
     };
     if !folder.is_absolute() || !folder.starts_with(&home) {
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn imported_folders_stay_in_the_home_folder() {
-        let home = crate::platform::home_dir().unwrap();
+        let home = crate::paths::home_dir().unwrap();
         assert!(safe_folder(&home.join("Downloads").join("Music")));
         assert!(!safe_folder(&home.join("AppData").join("Roaming").join("Startup")));
         assert!(!safe_folder(&home.join(".config").join("autostart")));

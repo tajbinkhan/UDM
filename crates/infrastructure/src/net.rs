@@ -883,7 +883,7 @@ mod credentials {
     static LOCK: Mutex<()> = Mutex::new(());
 
     fn path() -> io::Result<std::path::PathBuf> {
-        Ok(crate::platform::data_dir()?.join("credentials.bin"))
+        Ok(crate::paths::data_dir()?.join("credentials.bin"))
     }
 
     fn read() -> io::Result<BTreeMap<String, Entry>> {

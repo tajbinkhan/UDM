@@ -294,8 +294,7 @@ pub fn links(html: &str, page: &Url) -> (Vec<Url>, Vec<(Url, String)>) {
 
 /// `%APPDATA%\UIDM\grabber`, next to the settings file.
 pub fn projects_dir() -> io::Result<PathBuf> {
-    let settings = crate::settings::settings_path()?;
-    Ok(settings.with_file_name("grabber"))
+    crate::paths::grabber_dir()
 }
 
 const TEMPLATE_FILE: &str = "template.json";
