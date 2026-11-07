@@ -42,6 +42,7 @@ mod menubar;
 mod pending;
 mod ports;
 
+pub use errors::UiError;
 pub use ports::Ports;
 mod progress;
 mod properties;
@@ -119,7 +120,7 @@ pub struct Start {
     pub minimized: bool,
     /// A command line to run, such as a download to add, or why it could
     /// not be read.
-    pub command_line: Option<Result<CommandLine, String>>,
+    pub command_line: Option<Result<CommandLine, UiError>>,
     /// A named test copy's name, which the title shows.
     pub instance: Option<String>,
 }
@@ -146,7 +147,7 @@ pub fn run(start: Start) -> eframe::Result {
                 startup_error = Some(trf!("Could not pass the command line to UIDM: {error}", error = error));
             }
         },
-        Some(Err(e)) => startup_error = Some(e),
+        Some(Err(e)) => startup_error = Some(e.to_string()),
     }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -192,7 +193,7 @@ pub fn run(start: Start) -> eframe::Result {
             let mut app = App::new(&cc.egui_ctx, daemon);
             if startup_error.is_some() {
                 if let Some(e) = startup_error {
-                    state::apply(&mut app.state, UiMessage::Error(e));
+                    state::apply(&mut app.state, UiMessage::Error(e.to_string()));
                 }
             }
             menubar::init(&cc.egui_ctx);
@@ -494,7 +495,7 @@ struct LimitDialog {
 /// The files inside a zip download, once the daemon has listed them.
 struct ZipPreview {
     id: u64,
-    result: Option<Result<Vec<uidm_domain::download::ZipEntry>, String>>,
+    result: Option<Result<Vec<uidm_domain::download::ZipEntry>, UiError>>,
 }
 
 /// Downloads about to be removed, and the confirmation's boxes.
@@ -597,7 +598,7 @@ struct NewCategory {
 
 impl NewCategory {
     /// The settings with this category added, checked as Options would.
-    fn add_to(&self, settings: &Settings) -> Result<Settings, String> {
+    fn add_to(&self, settings: &Settings) -> Result<Settings, UiError> {
         let mut new = settings.clone();
         let folder = self.folder.trim();
         new.categories.push(Category {
@@ -605,7 +606,7 @@ impl NewCategory {
             folder: (!folder.is_empty()).then(|| folder.to_string()),
             ..Category::new(self.name.trim(), &[])
         });
-        new.validate().map_err(|e| errors::settings(&e))?;
+        new.validate()?;
         Ok(new)
     }
 }
@@ -672,7 +673,7 @@ type AskedBatch = (Result<answers::Prompt, Vec<Download>>, u64, bool);
 
 /// What Save's worker did: each registration it made (the browser and
 /// whether it is now registered), and the settings to send, or why not.
-type SaveChecked = (Vec<(uidm_application::window::BrowserSlot, bool)>, Result<Settings, String>);
+type SaveChecked = (Vec<(uidm_application::window::BrowserSlot, bool)>, Result<Settings, UiError>);
 
 /// A browser in Options' list: whether it was registered when the dialog
 /// opened, and whether it should be.
@@ -735,12 +736,12 @@ fn check_and_register(
 ) -> SaveChecked {
     let ports = crate::ports::ports();
     if let Err(e) = ports.checks.validate(&settings) {
-        return (Vec::new(), Err(errors::settings_error(&e)));
+        return (Vec::new(), Err(UiError::from(e)));
     }
     let mut done = Vec::new();
     for (browser, name, on) in changes {
         if let Err(e) = ports.browsers.set_registered(&browser, on) {
-            return (done, Err(trf!("Could not change {browser}: {error}", browser = name, error = e)));
+            return (done, Err(trf!("Could not change {browser}: {error}", browser = name, error = e).into()));
         }
         done.push((browser, on));
     }
@@ -1172,7 +1173,7 @@ impl OptionsDraft {
 
     /// The settings these fields describe, checked the same way the daemon
     /// checks them.
-    fn to_settings(&self) -> Result<Settings, String> {
+    fn to_settings(&self) -> Result<Settings, UiError> {
         let optional = |text: &str| {
             let t = text.trim();
             (!t.is_empty()).then(|| t.to_string())
@@ -1339,7 +1340,7 @@ impl OptionsDraft {
             last_update_check: 0,
         };
         if let Some(l) = self.logins.iter().find(|l| l.new && l.password.is_empty()) {
-            return Err(trf!("The new login for {site} needs a password.", site = l.site.trim()));
+            return Err(trf!("The new login for {site} needs a password.", site = l.site.trim()).into());
         }
         Ok(settings)
     }
@@ -1548,7 +1549,7 @@ impl App {
                 }
             }
             Some(Err(e)) => {
-                state::apply(&mut self.state, UiMessage::Error(e));
+                state::apply(&mut self.state, UiMessage::Error(e.to_string()));
             }
             None => {}
         }
@@ -2054,7 +2055,7 @@ impl App {
                         }
                         None => Err(tr("There is no projects folder.").to_string()),
                     };
-                    if outbox.send(UiMessage::GrabProjectRead(read)).is_ok() {
+                    if outbox.send(UiMessage::GrabProjectRead(read.map_err(UiError::from))).is_ok() {
                         ctx.request_repaint();
                     }
                 });
@@ -2112,11 +2113,12 @@ impl App {
                     .import(&text)
                     .map_err(|e| e.0)
                     .map(|(items, rejected)| tools::BatchDialog::imported(name, items, rejected))
+                    .map_err(UiError::from)
             });
             match opened {
                 Ok(d) => self.batch = Some(d),
                 Err(e) => {
-                    state::apply(&mut self.state, UiMessage::Error(e));
+                    state::apply(&mut self.state, UiMessage::Error(e.to_string()));
                 }
             }
         }
@@ -2564,7 +2566,7 @@ impl App {
                                         actions.push(Action::SaveQueue(q));
                                         close_new = true;
                                     }
-                                    Err(e) => *error = Some(e),
+                                    Err(e) => *error = Some(e.to_string()),
                                 }
                             }
                             if ui.button(tr("Cancel")).clicked() {
@@ -2681,10 +2683,10 @@ impl App {
                     if ui.add_enabled(connected, egui::Button::new(tr("OK"))).clicked() {
                         match loaded
                             .as_ref()
-                            .map_or(Err(tr("not connected to the UIDM daemon").to_string()), |s| new.add_to(s))
+                            .map_or(Err(tr("not connected to the UIDM daemon").into()), |s| new.add_to(s))
                         {
                             Ok(s) => added = Some(s),
-                            Err(e) => new.error = Some(e),
+                            Err(e) => new.error = Some(e.to_string()),
                         }
                     }
                     if ui.button(tr("Cancel")).clicked() {
@@ -2724,7 +2726,7 @@ impl App {
                 self.options = None;
                 return;
             }
-            Some(Err(e)) => draft.error = Some(e),
+            Some(Err(e)) => draft.error = Some(e.to_string()),
             None => {}
         }
         take_picked(&draft.picked, &mut draft.folder);
@@ -2740,7 +2742,7 @@ impl App {
                     draft.error = None;
                     actions.push(Action::SaveSettings(settings));
                 }
-                Err(e) => draft.error = Some(e),
+                Err(e) => draft.error = Some(e.to_string()),
             }
         }
         if let Some(note) = draft.restart_done.lock().unwrap().take() {
@@ -2812,7 +2814,7 @@ impl App {
                                 let changes = draft.browser_changes();
                                 draft.checking.start(ui.ctx(), move || check_and_register(settings, changes));
                             }
-                            Err(e) => draft.error = Some(e),
+                            Err(e) => draft.error = Some(e.to_string()),
                         }
                     }
                     if ui.button(tr("Cancel")).clicked() {

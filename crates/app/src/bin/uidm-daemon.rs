@@ -327,14 +327,15 @@ fn main() {
         }
     }
     if let Err(e) = run() {
-        error!(error = %e, "fatal");
+        error!(error = format!("{e:#}"), "fatal");
         std::process::exit(1);
     }
 }
 
-fn run() -> io::Result<()> {
+fn run() -> anyhow::Result<()> {
+    use anyhow::Context as _;
     // Binding is the single-instance lock.
-    let Some(server) = Server::bind()? else {
+    let Some(server) = Server::bind().context("could not listen for clients")? else {
         return Ok(());
     };
     // Only the daemon holding the bind moves the logs aside, so no two

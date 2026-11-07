@@ -13,6 +13,78 @@ use uidm_domain::settings::{
 
 use crate::i18n::{tr, trf};
 
+/// A failure to show the user: in their language where the window made
+/// it, in the daemon's own words where it came from the daemon (see #234).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct UiError(String);
+
+impl UiError {
+    /// A message already in the user's language.
+    pub fn new(message: impl Into<String>) -> UiError {
+        UiError(message.into())
+    }
+
+    /// The message, to draw.
+    pub fn text(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for UiError {
+    fn from(message: String) -> Self {
+        UiError(message)
+    }
+}
+
+impl From<&str> for UiError {
+    fn from(message: &str) -> Self {
+        UiError(message.to_string())
+    }
+}
+
+impl From<BatchError> for UiError {
+    fn from(e: BatchError) -> Self {
+        UiError(batch(&e))
+    }
+}
+
+impl From<InvalidSettings> for UiError {
+    fn from(e: InvalidSettings) -> Self {
+        UiError(settings(&e))
+    }
+}
+
+impl From<SettingsError> for UiError {
+    fn from(e: SettingsError) -> Self {
+        UiError(settings_error(&e))
+    }
+}
+
+impl From<InvalidQueue> for UiError {
+    fn from(e: InvalidQueue) -> Self {
+        UiError(queue(&e))
+    }
+}
+
+impl From<InvalidGrab> for UiError {
+    fn from(e: InvalidGrab) -> Self {
+        UiError(grab(&e))
+    }
+}
+
+impl From<&UiError> for eframe::egui::RichText {
+    fn from(e: &UiError) -> Self {
+        e.0.clone().into()
+    }
+}
+
+impl From<&UiError> for eframe::egui::WidgetText {
+    fn from(e: &UiError) -> Self {
+        e.0.clone().into()
+    }
+}
+
 fn bound(b: Bound) -> &'static str {
     match b {
         Bound::From => tr("From"),
@@ -229,6 +301,15 @@ pub fn grab(e: &InvalidGrab) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `?` turns the domain's errors into the window's, in the user's words.
+    #[test]
+    fn domain_errors_become_messages() {
+        assert_eq!(UiError::from(InvalidQueue::NoName).text(), "A queue needs a name.");
+        assert_eq!(UiError::from(BatchError::TwoAsterisks).text(), "The address may have only one *.");
+        let refused = SettingsError::Refused("the settings file is read-only".into());
+        assert_eq!(UiError::from(refused).to_string(), "the settings file is read-only");
+    }
 
     /// In English each translation reads as the error's own message.
     #[test]
