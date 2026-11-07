@@ -757,9 +757,90 @@ pub fn load_project_file(path: &Path) -> io::Result<Project> {
     Ok(p)
 }
 
+/// Runs one scheduled run of a project, for the day given, through the
+/// use cases.
+pub type RunProject = std::sync::Arc<dyn Fn(Project, i64) + Send + Sync>;
+
+/// The [`GrabRuns`](uidm_domain::ports::GrabRuns) port: the projects whose
+/// scheduled run is going on, and a thread for each run.
+pub struct ScheduledGrabs {
+    /// Projects whose scheduled run is going on, by name.
+    claims: std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+    run: RunProject,
+}
+
+impl ScheduledGrabs {
+    /// Runs that share `claims`, each done by `run`.
+    pub fn new(claims: std::sync::Arc<std::sync::Mutex<HashSet<String>>>, run: RunProject) -> Self {
+        ScheduledGrabs { claims, run }
+    }
+}
+
+/// Only single inserts and removals change the set, so a poisoned lock
+/// still holds a usable one.
+fn claims(set: &std::sync::Mutex<HashSet<String>>) -> std::sync::MutexGuard<'_, HashSet<String>> {
+    set.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl uidm_domain::ports::GrabRuns for ScheduledGrabs {
+    fn claim(&self, name: &str) -> bool {
+        claims(&self.claims).insert(name.to_string())
+    }
+
+    fn run(&self, project: Project, day: i64) {
+        let (set, run) = (std::sync::Arc::clone(&self.claims), std::sync::Arc::clone(&self.run));
+        std::thread::spawn(move || {
+            let name = project.name.clone();
+            run(project, day);
+            claims(&set).remove(&name);
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_project_runs_once_at_a_time() {
+        use uidm_domain::ports::GrabRuns;
+        let set = std::sync::Arc::default();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let runs = ScheduledGrabs::new(
+            std::sync::Arc::clone(&set),
+            std::sync::Arc::new(move |p: Project, day| {
+                let _ = tx.send((p.name, day));
+            }),
+        );
+        assert!(runs.claim("site"));
+        assert!(!runs.claim("site"), "claimed already");
+        let project = Project {
+            name: "site".into(),
+            request: GrabRequest::default(),
+            files: Vec::new(),
+            checked: Vec::new(),
+            schedule: None,
+            run: RunAction::Explore,
+            download_new: false,
+            when_done: uidm_domain::queue::WhenDone::Nothing,
+            open_when_done: None,
+            force_close: false,
+            queue: uidm_domain::queue::MAIN_QUEUE,
+            seen: Vec::new(),
+            last_scheduled_day: None,
+            last_scheduled_start: None,
+            kind: uidm_domain::queue::QueueKind::Synchronize,
+        };
+        runs.run(project, 3);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), ("site".to_string(), 3));
+        for _ in 0..500 {
+            if runs.claim("site") {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("the claim is released when the run ends");
+    }
     use std::cell::RefCell;
 
     #[test]

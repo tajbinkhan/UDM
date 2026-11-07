@@ -1,10 +1,8 @@
-use uidm_domain::download::Status;
-use uidm_domain::ports::{
-    Clock, ControlError, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore, QuotaState,
-};
+use uidm_domain::download::{DownloadError, Status};
+use uidm_domain::ports::{Clock, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore, QuotaState};
 use uidm_domain::quota::{self, QuotaLimit, QuotaNotice, QuotaStep};
 
-use crate::downloads::StopRunning;
+use crate::downloads::{RetryDownload, StopRunning};
 use crate::queues::StartQueue;
 
 /// A change [`CheckQuota`] made.
@@ -13,7 +11,7 @@ pub enum QuotaEvent {
     /// The quota was reached and everything stopped.
     Reached { used: u64, limit: u64 },
     /// The window allows downloads again; these could not resume.
-    Resumed { failed: Vec<(u64, ControlError)> },
+    Resumed { failed: Vec<(u64, DownloadError)> },
 }
 
 /// Pause everything when the download quota is reached, warn shortly
@@ -87,10 +85,11 @@ where
                 }
                 let mut downloads: Vec<u64> = downloads.into_iter().collect();
                 downloads.sort_unstable();
+                let retry = RetryDownload::new(self.queues, self.downloads, self.control);
                 let failed = downloads
                     .into_iter()
                     .filter(|id| self.downloads.status(*id) == Some(Status::Canceled))
-                    .filter_map(|id| self.control.resume(id).err().map(|e| (id, e)))
+                    .filter_map(|id| retry.run(id).err().map(|e| (id, e)))
                     .collect();
                 self.quota.announce(notice(false, None));
                 Some(QuotaEvent::Resumed { failed })
@@ -156,7 +155,8 @@ mod tests {
         quota.set_used(10);
         assert_eq!(w.check(&quota, Some(LIMIT)), Some(QuotaEvent::Resumed { failed: vec![] }));
         assert!(w.queues.get(MAIN_QUEUE).running);
-        assert_eq!(w.control.resumed(), [1]);
+        assert_eq!(w.control.restarted().len(), 1);
+        assert!(w.downloads.entry(1).is_none(), "it goes on as a new row");
         assert!(!quota.paused());
     }
 

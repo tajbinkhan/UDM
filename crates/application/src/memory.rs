@@ -212,13 +212,12 @@ impl QueueSounds for Sounds {
     }
 }
 
-/// Records the downloads held, stopped and resumed. Downloads in
-/// `refuse` cannot be resumed.
+/// Records the downloads held, stopped and restarted. Downloads in
+/// `refuse` cannot be started.
 #[derive(Default)]
 pub struct Control {
     held: Mutex<Vec<u64>>,
     stopped: Mutex<Vec<u64>>,
-    resumed: Mutex<Vec<u64>>,
     forgotten: Mutex<Vec<u64>>,
     restarted: Mutex<Vec<Restart>>,
     limits: Mutex<Vec<(u64, Option<u64>)>>,
@@ -244,7 +243,7 @@ pub struct Restart {
 pub const RESTARTED_ID: u64 = 100;
 
 impl Control {
-    /// A control that cannot resume the downloads in `refuse`.
+    /// A control that cannot start the downloads in `refuse`.
     pub fn refusing(refuse: &[u64]) -> Self {
         Control { refuse: refuse.iter().copied().collect(), ..Control::default() }
     }
@@ -255,10 +254,6 @@ impl Control {
 
     pub fn stopped(&self) -> Vec<u64> {
         self.stopped.lock().unwrap().clone()
-    }
-
-    pub fn resumed(&self) -> Vec<u64> {
-        self.resumed.lock().unwrap().clone()
     }
 
     pub fn forgotten(&self) -> Vec<u64> {
@@ -298,14 +293,6 @@ impl DownloadControl for Control {
 
     fn stop(&self, id: u64) {
         self.stopped.lock().unwrap().push(id);
-    }
-
-    fn resume(&self, id: u64) -> Result<(), ControlError> {
-        if self.refuse.contains(&id) {
-            return Err(ControlError(format!("download {id} cannot resume")));
-        }
-        self.resumed.lock().unwrap().push(id);
-        Ok(())
     }
 
     fn forget(&self, id: u64) {

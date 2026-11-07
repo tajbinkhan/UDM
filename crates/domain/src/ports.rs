@@ -97,9 +97,6 @@ pub trait DownloadControl: Send + Sync {
     /// Stop download `id`, keeping its progress. It shows as canceled.
     fn stop(&self, id: u64);
 
-    /// Start stopped download `id` again where it left off.
-    fn resume(&self, id: u64) -> Result<(), ControlError>;
-
     /// Set running download `id`'s own speed limit, in bytes per second;
     /// `None` lifts it.
     fn set_limit(&self, id: u64, bytes_per_sec: Option<u64>);
