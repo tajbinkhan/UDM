@@ -28,6 +28,7 @@
 //! - `package`: keeping the daemon out of an app package's copy of AppData.
 //! - `logging`: each program's log file in the data folder.
 //! - `server`: the daemon's listening socket, its clients and their handshake.
+//! - `wire`: mapping the wire messages to and from the application's commands and events.
 //! - `background`: the daemon's background threads (scheduler, history
 //!   writer, notifications, awake keeper, idle exit).
 
@@ -75,4 +76,5 @@ pub mod state;
 pub mod store;
 pub mod transfers;
 pub mod update;
+pub mod wire;
 pub mod zip;

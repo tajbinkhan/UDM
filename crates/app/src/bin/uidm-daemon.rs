@@ -52,6 +52,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tracing::{error, info, warn};
+use uidm_application::daemon::{Command, Event, Reply, Requests};
 use uidm_application::downloads::{
     AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
     Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
@@ -65,6 +66,7 @@ use uidm_application::queues::{
 };
 use uidm_application::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use uidm_application::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
+use uidm_domain::download::CommandLine;
 use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status};
 use uidm_domain::ports::{DownloadControl, DownloadList};
@@ -86,11 +88,10 @@ use uidm_infrastructure::live_settings::{LiveSettings, QueueChimes};
 use uidm_infrastructure::logging;
 use uidm_infrastructure::net::{self, Login};
 use uidm_infrastructure::power_control::{self, PowerOff, RunEnds};
-use uidm_infrastructure::protocol::{CommandLine, Incoming, Outgoing};
 use uidm_infrastructure::queue_runs::{PauseBook, RunBook};
 use uidm_infrastructure::quota::QuotaHold;
 use uidm_infrastructure::scan;
-use uidm_infrastructure::server::{Clients, Handler, Reply, Server};
+use uidm_infrastructure::server::{Clients, Server};
 use uidm_infrastructure::settings::{self, Duplicate, FileExists, Settings};
 use uidm_infrastructure::store::{check_body, DownloadStore, Ended, Intake, StoreEvents, StoreFiles};
 use uidm_infrastructure::transfers::{self, EarlyHandOver, GoOn, SyncChecker, Transfers};
@@ -184,7 +185,7 @@ struct Daemon {
     /// Each client's link picker probes, by their stop flag.
     link_probes: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     /// Links from a page, held for the window that is being opened.
-    picked_links: Mutex<Option<Outgoing>>,
+    picked_links: Mutex<Option<Event>>,
     /// A command line held for the window its `uidm-gui` is opening, and
     /// when it came.
     command_line: Mutex<Option<(CommandLine, Instant)>>,
@@ -494,7 +495,7 @@ impl Daemon {
                     info!("start the main queue from the command line");
                     let _ = self.wake.send(());
                 }
-                Err(message) => self.clients.to_windows(&Outgoing::Error { message }),
+                Err(message) => self.clients.to_windows(Event::Error { message }),
             }
         }
     }
@@ -516,7 +517,7 @@ impl Daemon {
     }
 
     /// The countdown still running, as the message a window joining now needs.
-    fn countdown_message(&self) -> Option<Outgoing> {
+    fn countdown_message(&self) -> Option<Event> {
         self.power.countdown_message()
     }
 
@@ -597,9 +598,9 @@ impl Daemon {
 
     /// The quota's state for a window that just connected, if downloads are
     /// paused for it or it is nearly reached.
-    fn quota_message(&self) -> Option<Outgoing> {
+    fn quota_message(&self) -> Option<Event> {
         let now = uidm_infrastructure::quota::now_minute();
-        QuotaStatus::new(&self.quota).run(self.quota_limit(), now).map(uidm_infrastructure::quota::notice_message)
+        QuotaStatus::new(&self.quota).run(self.quota_limit(), now).map(uidm_infrastructure::quota::notice_event)
     }
 
     /// Pause everything when the download quota is reached, warn shortly
@@ -812,7 +813,7 @@ impl Daemon {
         let req = self.transfers.request_for(download);
         thread::spawn(move || {
             let info = engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref());
-            reply.send(&Outgoing::MediaInfo { request, info });
+            reply.send(Event::MediaInfo { request, info });
         });
     }
 
@@ -831,8 +832,8 @@ impl Daemon {
         }
         let daemon = Arc::clone(self);
         thread::spawn(move || {
-            let send = |msg: &Outgoing| {
-                reply.send(msg);
+            let send = |event: Event| {
+                reply.send(event);
             };
             info!(client, url = %req.start, "crawl");
             let mut handed = 0;
@@ -846,7 +847,7 @@ impl Daemon {
                     }
                     handed = o.files.len();
                 }
-                send(&Outgoing::GrabProgress {
+                send(Event::GrabProgress {
                     pages: o.pages,
                     bytes: o.bytes,
                     found: o.files.len(),
@@ -856,7 +857,7 @@ impl Daemon {
             });
             daemon.grabs.lock().unwrap().remove(&client);
             info!(client, pages = out.pages, files = out.files.len(), "crawl done");
-            send(&Outgoing::GrabDone {
+            send(Event::GrabDone {
                 files: out.files,
                 pages: out.pages,
                 explored: out.explored,
@@ -1119,11 +1120,11 @@ impl Daemon {
 
     /// Ask GitHub (at `url`) for the latest release, through the settings'
     /// proxy, and note when that happened.
-    fn check_update(&self, url: &str) -> Outgoing {
+    fn check_update(&self, url: &str) -> Event {
         let github = GitHub::new(Arc::clone(&self.settings), Arc::clone(&self.browser_proxy_retries), url);
         match CheckForUpdate::new(&github, &*self.settings, VERSION).run(uidm_infrastructure::state::unix_now()) {
-            Ok(newer) => Outgoing::Update { newer, error: None },
-            Err(e) => Outgoing::Update { newer: None, error: Some(e.to_string()) },
+            Ok(newer) => Event::Update { newer, error: None },
+            Err(e) => Event::Update { newer: None, error: Some(e.to_string()) },
         }
     }
 
@@ -1142,7 +1143,7 @@ impl Daemon {
         info!(path = %path.display(), "started the update; quitting for it");
         self.pause_all();
         self.transfers.save_history();
-        self.clients.broadcast(&Outgoing::Quit);
+        self.clients.broadcast(Event::Quit);
         Ok(())
     }
 
@@ -1154,10 +1155,10 @@ impl Daemon {
         }
         let daemon = Arc::clone(self);
         thread::spawn(move || {
-            if let msg @ Outgoing::Update { newer: Some(_), .. } =
+            if let msg @ Event::Update { newer: Some(_), .. } =
                 daemon.check_update(uidm_infrastructure::update::LATEST_RELEASE)
             {
-                daemon.clients.broadcast(&msg);
+                daemon.clients.broadcast(msg);
             }
         });
     }
@@ -1169,7 +1170,7 @@ impl Daemon {
         let entry = self.entry(id);
         let download = self.store.requests().get(&id).cloned();
         let answer = move |entries: Vec<uidm_infrastructure::zip::ZipEntry>, error: Option<String>| {
-            reply.send(&Outgoing::ZipPreview { id, entries, error });
+            reply.send(Event::ZipPreview { id, entries, error });
         };
         let Some(entry) = entry else {
             return answer(Vec::new(), Some(format!("no download with id {id}")));
@@ -1204,7 +1205,7 @@ impl Daemon {
         let request = NEXT.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.render_waits.lock().unwrap().insert(request, tx);
-        self.clients.broadcast(&Outgoing::RenderPage { request, url: url.to_string() });
+        self.clients.broadcast(Event::RenderPage { request, url: url.to_string() });
         // The extension gives up on a page after 30 seconds itself.
         let got = rx.recv_timeout(Duration::from_secs(40)).ok().flatten();
         self.render_waits.lock().unwrap().remove(&request);
@@ -1230,7 +1231,7 @@ impl Daemon {
         let request = NEXT.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.cookie_waits.lock().unwrap().insert(request, tx);
-        self.clients.broadcast(&Outgoing::CookiesWanted { request, url: url.to_string() });
+        self.clients.broadcast(Event::CookiesWanted { request, url: url.to_string() });
         let got = rx.recv_timeout(Duration::from_secs(5)).ok().flatten();
         self.cookie_waits.lock().unwrap().remove(&request);
         info!(found = got.is_some(), "browser cookies for the crawl");
@@ -1272,18 +1273,14 @@ impl Daemon {
                 }
                 let msg = match found {
                     Ok(i) => {
-                        Outgoing::LinkInfo { request, index, total: i.total, content_type: i.content_type, error: None }
+                        Event::LinkInfo { request, index, total: i.total, content_type: i.content_type, error: None }
                     }
-                    Err(e) => Outgoing::LinkInfo {
-                        request,
-                        index,
-                        total: None,
-                        content_type: None,
-                        error: Some(e.to_string()),
-                    },
+                    Err(e) => {
+                        Event::LinkInfo { request, index, total: None, content_type: None, error: Some(e.to_string()) }
+                    }
                 };
                 // A send that fails means the client went.
-                if !reply.send(&msg) {
+                if !reply.send(msg) {
                     return;
                 }
             });
@@ -1305,7 +1302,7 @@ impl Daemon {
         let url = download.url.clone();
         let id = self.engine.reserve_id();
         self.store.requests().insert(id, download.clone());
-        self.store.publish(&Outgoing::Added { id, url: url.clone() });
+        self.store.announce(Event::Added { id, url: url.clone() });
 
         let daemon = Arc::clone(self);
         thread::spawn(move || {
@@ -1326,7 +1323,7 @@ impl Daemon {
                 Err(e) => {
                     // Same as a download that fails to start, so the browser
                     // can take it back.
-                    daemon.store.publish(&Outgoing::Failed { id, url: download.url, error: e.to_string() });
+                    daemon.store.announce(Event::Failed { id, url: download.url, error: e.to_string() });
                     return;
                 }
             };
@@ -1492,9 +1489,9 @@ impl Daemon {
     /// slip between the snapshot and the client's next frame.
     fn send_list(&self, reply: &Reply) {
         self.store.snapshot(|items, queues| {
-            let refresh = Outgoing::RefreshWaiting { id: self.transfers.waiting_for_link() };
-            for msg in [Outgoing::Downloads { items }, Outgoing::Queues { items: queues }, refresh] {
-                reply.send(&msg);
+            let refresh = Event::RefreshWaiting { id: self.transfers.waiting_for_link() };
+            for msg in [Event::Downloads { items }, Event::Queues { items: queues }, refresh] {
+                reply.send(msg);
             }
         })
     }
@@ -1626,16 +1623,16 @@ fn run() -> io::Result<()> {
     }
 
     let clients = Arc::clone(&daemon.clients);
-    server.serve(clients, Arc::new(Requests(daemon)));
+    server.serve(clients, Arc::new(Served(daemon)));
     Ok(())
 }
 
 /// The daemon's answers to its clients' requests.
-struct Requests(Arc<Daemon>);
+struct Served(Arc<Daemon>);
 
-impl Handler for Requests {
-    fn handle(&self, client: u64, msg: Incoming, reply: &Reply) {
-        dispatch(msg, &self.0, client, reply);
+impl Requests for Served {
+    fn handle(&self, client: u64, command: Command, reply: &Reply) {
+        dispatch(command, &self.0, client, reply);
     }
 
     fn gone(&self, client: u64) {
@@ -1646,29 +1643,29 @@ impl Handler for Requests {
 
 /// Handle request `incoming` from client `client`, sending any direct reply
 /// to `reply`.
-fn dispatch(incoming: Incoming, daemon: &Arc<Daemon>, client: u64, reply: &Reply) {
-    let send = |msg: &Outgoing| {
-        reply.send(msg);
+fn dispatch(incoming: Command, daemon: &Arc<Daemon>, client: u64, reply: &Reply) {
+    let send = |event: Event| {
+        reply.send(event);
     };
     match incoming {
-        Incoming::Hello { client: kind, .. } => {
+        Command::Hello { client: kind, .. } => {
             if kind.is_none() {
                 daemon.clients.browser_connected(client);
             }
             if kind.as_deref() == Some(WINDOW_CLIENT) {
                 daemon.clients.add_window(client);
-                send(&daemon.clients.browser_link());
+                send(daemon.clients.browser_link());
                 // A window that opens during a countdown shows it too.
                 if let Some(countdown) = daemon.countdown_message() {
-                    send(&countdown);
+                    send(countdown);
                 }
                 if let Some(quota) = daemon.quota_message() {
-                    send(&quota);
+                    send(quota);
                 }
                 daemon.weekly_update_check();
                 // Links picked from a page while no window was open.
                 if let Some(links) = daemon.picked_links.lock().unwrap().take() {
-                    send(&links);
+                    send(links);
                 }
                 // The command line of the `uidm-gui` that opened this window.
                 let held = daemon.command_line.lock().unwrap().take();
@@ -1676,220 +1673,220 @@ fn dispatch(incoming: Incoming, daemon: &Arc<Daemon>, client: u64, reply: &Reply
                     daemon.run_command_line(cmd, true);
                 }
             }
-            send(&Outgoing::Hello { name: "uidm-daemon".to_string(), version: env!("CARGO_PKG_VERSION").to_string() })
+            send(Event::Hello { name: "uidm-daemon".to_string(), version: env!("CARGO_PKG_VERSION").to_string() })
         }
-        Incoming::Ping => send(&Outgoing::Pong),
-        Incoming::CommandLine(cmd) => {
+        Command::Ping => send(Event::Pong),
+        Command::CommandLine(cmd) => {
             let window_open = daemon.clients.window_open();
             if window_open {
                 daemon.run_command_line(cmd, false);
             } else {
                 *daemon.command_line.lock().unwrap() = Some((cmd, Instant::now()));
             }
-            send(&Outgoing::CommandLine { window_open });
+            send(Event::CommandLine { window_open });
         }
-        Incoming::Add(mut download) => {
+        Command::Add(mut download) => {
             download.limit_browser_request();
             if let Err(message) = check_body(&download) {
-                send(&Outgoing::Rejected { url: download.url, message });
+                send(Event::Rejected { url: download.url, message });
                 return;
             }
             let (id, url) = daemon.add(download);
             info!(download_id = id, url = %url, "add");
-            send(&Outgoing::Ack { id, url, status: "accepted".to_string() });
+            send(Event::Ack { id, url, status: "accepted".to_string() });
         }
-        Incoming::AddMany { items, queue } => {
+        Command::AddMany { items, queue } => {
             let (count, skipped) = daemon.add_many(items, queue);
             info!(count, skipped, "added downloads to wait");
-            send(&Outgoing::AddedMany { count, skipped });
+            send(Event::AddedMany { count, skipped });
         }
-        Incoming::ProbeMedia { request, mut download } => {
+        Command::ProbeMedia { request, mut download } => {
             download.limit_browser_request();
             if let Err(message) = check_body(&download) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
                 return;
             }
             daemon.probe_media(request, download, reply.clone());
         }
-        Incoming::Grab(req) => {
+        Command::Grab(req) => {
             if let Err(message) = daemon.grab(client, req, reply.clone()) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::CancelGrab => daemon.stop_grab(client),
-        Incoming::ProbeLinks { request, links } => {
+        Command::CancelGrab => daemon.stop_grab(client),
+        Command::ProbeLinks { request, links } => {
             if let Some(message) = links.iter().find_map(|d| check_body(d).err()) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
                 return;
             }
             daemon.probe_links(client, request, links, reply.clone());
         }
-        Incoming::StopProbeLinks => daemon.stop_probe_links(client),
-        Incoming::Cancel { id } => {
+        Command::StopProbeLinks => daemon.stop_probe_links(client),
+        Command::Cancel { id } => {
             info!(download_id = id, "cancel");
             daemon.cancel(id);
         }
-        Incoming::Confirm(answer) => {
+        Command::Confirm(answer) => {
             let (id, start) = (answer.id, answer.start);
             match daemon.confirm(answer) {
                 Ok(()) => info!(download_id = id, start, "confirm"),
-                Err(message) => send(&Outgoing::Error { message }),
+                Err(message) => send(Event::Error { message }),
             }
         }
-        Incoming::Retry { id } => match daemon.retry(id) {
+        Command::Retry { id } => match daemon.retry(id) {
             Ok((new_id, url)) => {
                 info!(download_id = id, new_id, "retry");
-                send(&Outgoing::Ack { id: new_id, url, status: "accepted".to_string() });
+                send(Event::Ack { id: new_id, url, status: "accepted".to_string() });
             }
-            Err(message) => send(&Outgoing::Error { message }),
+            Err(message) => send(Event::Error { message }),
         },
-        Incoming::Remove { id, delete_files } => {
+        Command::Remove { id, delete_files } => {
             if let Err(message) = daemon.remove(id, delete_files) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::List => daemon.send_list(reply),
-        Incoming::SaveQueue { queue } => match daemon.save_queue(queue) {
+        Command::List => daemon.send_list(reply),
+        Command::SaveQueue { queue } => match daemon.save_queue(queue) {
             Ok(id) => info!(queue = %id, "queue saved"),
-            Err(message) => send(&Outgoing::Error { message }),
+            Err(message) => send(Event::Error { message }),
         },
-        Incoming::DeleteQueue { id } => {
+        Command::DeleteQueue { id } => {
             if let Err(message) = daemon.delete_queue(id) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::StartQueue { id } => match daemon.start_queue(id, None) {
+        Command::StartQueue { id } => match daemon.start_queue(id, None) {
             Ok(()) => {
                 info!(queue = %id, "start queue");
                 let _ = daemon.wake.send(());
             }
-            Err(message) => send(&Outgoing::Error { message }),
+            Err(message) => send(Event::Error { message }),
         },
-        Incoming::StopQueue { id } => match daemon.stop_queue(id) {
+        Command::StopQueue { id } => match daemon.stop_queue(id) {
             Ok(()) => info!(queue = %id, "stop queue"),
-            Err(message) => send(&Outgoing::Error { message }),
+            Err(message) => send(Event::Error { message }),
         },
-        Incoming::SetQueueOnce { id, when_done } => {
+        Command::SetQueueOnce { id, when_done } => {
             if let Err(message) = daemon.store.update_queue(id, |q| {
                 q.when_done_once = when_done;
                 Ok(())
             }) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::MoveToQueue { id, queue, position } => {
+        Command::MoveToQueue { id, queue, position } => {
             if let Err(message) = daemon.move_to_queue(id, queue, position) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::RemoveFromQueue { id } => {
+        Command::RemoveFromQueue { id } => {
             if let Err(message) = daemon.remove_from_queue(id) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::CancelCountdown => daemon.cancel_countdown(),
-        Incoming::CountdownNow => daemon.countdown_now(),
-        Incoming::RefreshLink { id, mut download, restart } => {
+        Command::CancelCountdown => daemon.cancel_countdown(),
+        Command::CountdownNow => daemon.countdown_now(),
+        Command::RefreshLink { id, mut download, restart } => {
             if let Some(d) = &mut download {
                 d.limit_browser_request();
             }
             let url = download.as_ref().map(|d| d.url.clone()).unwrap_or_default();
             if let Some(d) = &download {
                 if let Err(message) = check_body(d) {
-                    send(&Outgoing::Error { message });
+                    send(Event::Error { message });
                     return;
                 }
             }
             match daemon.refresh_link(id, download, restart) {
-                Ok(Some(reason)) => send(&Outgoing::RefreshMismatch { id, url, reason }),
+                Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason }),
                 Ok(None) => {}
-                Err(message) => send(&Outgoing::Error { message }),
+                Err(message) => send(Event::Error { message }),
             }
         }
-        Incoming::CancelRefresh => daemon.transfers.set_refresh_waiting(None),
-        Incoming::PickLinks { page, mut links, user_agent } => {
+        Command::CancelRefresh => daemon.transfers.set_refresh_waiting(None),
+        Command::PickLinks { page, mut links, user_agent } => {
             links.retain(|l| uidm_domain::batch::is_web_url(&l.url));
             links.truncate(uidm_domain::batch::MAX_BATCH);
             info!(links = links.len(), page = %page, "links to pick from");
-            let msg = Outgoing::PickLinks { page, links, user_agent };
+            let msg = Event::PickLinks { page, links, user_agent };
             if daemon.clients.window_open() {
-                daemon.clients.broadcast(&msg);
-                daemon.clients.broadcast(&Outgoing::Show);
+                daemon.clients.broadcast(msg);
+                daemon.clients.broadcast(Event::Show);
             } else {
                 *daemon.picked_links.lock().unwrap() = Some(msg);
                 daemon.show_window();
             }
         }
-        Incoming::PreviewZip { id } => daemon.preview_zip(id, reply.clone()),
-        Incoming::Convert { id, to, delete_original } => {
+        Command::PreviewZip { id } => daemon.preview_zip(id, reply.clone()),
+        Command::Convert { id, to, delete_original } => {
             if let Err(message) = daemon.convert(id, to, delete_original) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::InstallUpdate => {
+        Command::InstallUpdate => {
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
                 if let Err(error) = daemon.install_update() {
-                    reply.send(&Outgoing::UpdateFailed { error });
+                    reply.send(Event::UpdateFailed { error });
                 }
             });
         }
-        Incoming::CheckUpdate => {
+        Command::CheckUpdate => {
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
-                reply.send(&daemon.check_update(uidm_infrastructure::update::LATEST_RELEASE));
+                reply.send(daemon.check_update(uidm_infrastructure::update::LATEST_RELEASE));
             });
         }
-        Incoming::Rendered { request, html, url, popups } => {
+        Command::Rendered { request, html, url, popups } => {
             if let Some(tx) = daemon.render_waits.lock().unwrap().remove(&request) {
                 let _ = tx.send(html.zip(url).map(|(h, u)| (h, u, popups)));
             }
         }
-        Incoming::Cookies { request, cookies } => {
+        Command::Cookies { request, cookies } => {
             if let Some(tx) = daemon.cookie_waits.lock().unwrap().remove(&request) {
                 let _ = tx.send(cookies);
             }
         }
-        Incoming::SetSpeedLimit { id, bytes_per_sec, remember } => {
+        Command::SetSpeedLimit { id, bytes_per_sec, remember } => {
             let set = daemon
                 .set_download_limit(id, bytes_per_sec)
                 .and_then(|()| remember.map_or(Ok(()), |r| daemon.set_limit_remember(id, r)));
             if let Err(message) = set {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::SetOnDone { id, on_done } => {
+        Command::SetOnDone { id, on_done } => {
             if let Err(message) = daemon.set_on_done(id, on_done) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::Redownload { id } => {
+        Command::Redownload { id } => {
             if let Err(message) = daemon.redownload(id) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::SetProperties { id, changes } => {
+        Command::SetProperties { id, changes } => {
             if let Err(message) = daemon.set_properties(id, changes) {
-                send(&Outgoing::Error { message });
+                send(Event::Error { message });
             }
         }
-        Incoming::PauseAll => {
+        Command::PauseAll => {
             info!("pause all");
             daemon.pause_all();
         }
-        Incoming::ResumeAll => {
+        Command::ResumeAll => {
             info!("resume all");
             daemon.resume_all();
         }
-        Incoming::GetSettings => send(&Outgoing::Settings { settings: daemon.settings.lock().clone() }),
-        Incoming::SetSettings { settings } => {
+        Command::GetSettings => send(Event::Settings { settings: daemon.settings.lock().clone() }),
+        Command::SetSettings { settings } => {
             match daemon.transfers.set_settings(if daemon.clients.is_window(client) {
                 settings
             } else {
                 daemon.with_video_button(&settings)
             }) {
                 Ok(()) => info!("settings changed"),
-                Err(message) => send(&Outgoing::Error { message }),
+                Err(message) => send(Event::Error { message }),
             }
         }
     }
@@ -1903,6 +1900,7 @@ mod tests {
     use uidm_domain::download::DownloadLogin;
     use uidm_domain::ports::QuotaState;
     use uidm_domain::quota::Usage;
+    use uidm_infrastructure::protocol::Outgoing;
     use uidm_infrastructure::server;
 
     const BODY: &[u8] = b"the new bytes";
@@ -1990,7 +1988,7 @@ mod tests {
 
     /// Hand `raw` to the daemon as client `client` sent it.
     fn send(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Reply) {
-        server::receive(&daemon.clients, &Requests(Arc::clone(daemon)), client, raw, reply);
+        server::receive(&daemon.clients, &Served(Arc::clone(daemon)), client, raw, reply);
     }
 
     struct Setup {
@@ -2013,8 +2011,7 @@ mod tests {
             s.ask_where_to_save = false;
             s.if_duplicate = choice;
         }
-        let (tx, window) = Reply::channel();
-        daemon.clients.connect(1, tx);
+        let (_reply, window) = daemon.clients.connect(1);
         daemon.clients.add_window(1);
         Setup { daemon: Arc::new(daemon), dir, window }
     }
@@ -2068,18 +2065,16 @@ mod tests {
     #[test]
     fn the_windows_hear_when_the_browser_extension_connects_and_goes() {
         let t = setup("browser_link", Duplicate::Ask);
-        assert!(matches!(t.daemon.clients.browser_link(), Outgoing::BrowserLink { connected: false, last_seen: None }));
+        assert!(matches!(t.daemon.clients.browser_link(), Event::BrowserLink { connected: false, last_seen: None }));
 
         // The extension says hello with no `client`.
-        let (tx, _browser) = Reply::channel();
-        t.daemon.clients.connect(2, tx.clone());
+        let (tx, _browser) = t.daemon.clients.connect(2);
         send(br#"{"op":"hello","version":"1"}"#, &t.daemon, 2, &tx);
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: true, .. })));
         assert!(t.daemon.clients.browser_seen().is_some());
 
         // A second one is no news; the first going is none either.
-        let (tx3, _browser3) = Reply::channel();
-        t.daemon.clients.connect(3, tx3.clone());
+        let (tx3, _browser3) = t.daemon.clients.connect(3);
         send(br#"{"op":"hello"}"#, &t.daemon, 3, &tx3);
         t.daemon.clients.client_gone(2);
         assert!(!t.window_got(|m| matches!(m, Outgoing::BrowserLink { .. })));
@@ -2099,7 +2094,7 @@ mod tests {
         let t = setup("command_line", Duplicate::NewName);
         let entry = |url: &str| t.daemon.store.table().entries().find(|e| e.url == url).cloned();
         let ask = |url: &str| -> (Outgoing, Receiver<Vec<u8>>) {
-            let (tx, rx) = Reply::channel();
+            let (tx, rx) = server::reply_channel();
             let msg =
                 format!(r#"{{"op":"command_line","download":{{"url":"{url}","start":false}},"quit_after":true}}"#);
             send(msg.as_bytes(), &t.daemon, 9, &tx);
@@ -2120,7 +2115,7 @@ mod tests {
         let (reply, _) = ask("https://example.com/new.bin");
         assert!(matches!(reply, Outgoing::CommandLine { window_open: false }));
         assert!(entry("https://example.com/new.bin").is_none(), "held for the window");
-        let (tx, _rx) = Reply::channel();
+        let (tx, _rx) = server::reply_channel();
         send(br#"{"op":"hello","client":"window"}"#, &t.daemon, 1, &tx);
         let e = entry("https://example.com/new.bin").expect("added once the window says hello");
         assert_eq!(e.on_done.map(|o| o.then), Some(WhenDone::Exit));
@@ -2431,7 +2426,7 @@ mod tests {
         let t = setup("probe_links", Duplicate::NewName);
         let link = |url: String| Download { url, ..Download::default() };
         let links = vec![link(serve()), link("http://127.0.0.1:1/gone.zip".into()), link(serve())];
-        let (tx, rx) = Reply::channel();
+        let (tx, rx) = server::reply_channel();
         t.daemon.probe_links(7, 42, links, tx);
         let mut heard = std::collections::BTreeMap::new();
         while heard.len() < 3 {
@@ -2448,7 +2443,7 @@ mod tests {
         assert!(heard[&1].2.is_some(), "a link that cannot be reached says why");
 
         // A new request stops the last; closing the picker stops the new one.
-        let (tx, _rx) = Reply::channel();
+        let (tx, _rx) = server::reply_channel();
         let before = Arc::clone(&t.daemon.link_probes.lock().unwrap()[&7]);
         t.daemon.probe_links(7, 43, vec![link(serve())], tx);
         assert!(before.load(Ordering::Relaxed));
@@ -2908,8 +2903,7 @@ mod tests {
     fn a_crawl_asks_the_browser_for_its_cookies() {
         let t = setup("crawl_cookies", Duplicate::NewName);
         // The browser's extension is connected; without it nobody is asked.
-        let (extension, _from_daemon) = Reply::channel();
-        t.daemon.clients.connect(2, extension);
+        let (_extension, _from_daemon) = t.daemon.clients.connect(2);
         let d = Arc::clone(&t.daemon);
         let asking = thread::spawn(move || d.browser_cookies("https://site.net/"));
         let request = loop {
@@ -3036,11 +3030,11 @@ mod tests {
             format!("http://{addr}/releases/latest")
         };
         match t.daemon.check_update(&serve_tag("v99.0.0")) {
-            Outgoing::Update { newer: Some(r), error: None } => assert_eq!(r.version, "99.0.0"),
+            Event::Update { newer: Some(r), error: None } => assert_eq!(r.version, "99.0.0"),
             other => panic!("expected a newer release: {other:?}"),
         }
-        assert!(matches!(t.daemon.check_update(&serve_tag("v0.0.1")), Outgoing::Update { newer: None, error: None }));
-        assert!(matches!(t.daemon.check_update("http://127.0.0.1:1/none"), Outgoing::Update { error: Some(_), .. }));
+        assert!(matches!(t.daemon.check_update(&serve_tag("v0.0.1")), Event::Update { newer: None, error: None }));
+        assert!(matches!(t.daemon.check_update("http://127.0.0.1:1/none"), Event::Update { error: Some(_), .. }));
         assert!(t.daemon.settings.lock().last_update_check > 0, "the check was noted");
     }
 

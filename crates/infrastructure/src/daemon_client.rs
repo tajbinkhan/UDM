@@ -18,6 +18,7 @@ use uidm_domain::download::CommandLine;
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::ipc;
 use crate::protocol::{read_message, write_frame, Incoming, Outgoing};
+use crate::wire::{event, incoming};
 
 /// How long a command line waits for the daemon's answer.
 const COMMAND_LINE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -92,7 +93,7 @@ impl DaemonClient for IpcDaemonClient {
             }
             while let Ok(Some(raw)) = read_message(&mut reader, MAX_MESSAGE_BYTES) {
                 // A message this build does not know is skipped.
-                if let Some(event) = serde_json::from_slice::<Outgoing>(&raw).ok().and_then(event) {
+                if let Some(event) = serde_json::from_slice::<Outgoing>(&raw).ok().map(event).filter(for_window) {
                     on_event(event);
                 }
             }
@@ -130,101 +131,19 @@ impl DaemonClient for IpcDaemonClient {
     }
 }
 
-/// The wire message for `command`.
-pub fn incoming(command: Command) -> Incoming {
-    match command {
-        Command::Add(d) => Incoming::Add(d),
-        Command::AddMany { items, queue } => Incoming::AddMany { items, queue },
-        Command::Grab(r) => Incoming::Grab(r),
-        Command::CancelGrab => Incoming::CancelGrab,
-        Command::ProbeLinks { request, links } => Incoming::ProbeLinks { request, links },
-        Command::StopProbeLinks => Incoming::StopProbeLinks,
-        Command::Cancel { id } => Incoming::Cancel { id },
-        Command::Retry { id } => Incoming::Retry { id },
-        Command::Redownload { id } => Incoming::Redownload { id },
-        Command::Remove { id, delete_files } => Incoming::Remove { id, delete_files },
-        Command::List => Incoming::List,
-        Command::PauseAll => Incoming::PauseAll,
-        Command::ResumeAll => Incoming::ResumeAll,
-        Command::Confirm(a) => Incoming::Confirm(a),
-        Command::SaveQueue { queue } => Incoming::SaveQueue { queue },
-        Command::DeleteQueue { id } => Incoming::DeleteQueue { id },
-        Command::StartQueue { id } => Incoming::StartQueue { id },
-        Command::StopQueue { id } => Incoming::StopQueue { id },
-        Command::SetQueueOnce { id, when_done } => Incoming::SetQueueOnce { id, when_done },
-        Command::MoveToQueue { id, queue, position } => Incoming::MoveToQueue { id, queue, position },
-        Command::RemoveFromQueue { id } => Incoming::RemoveFromQueue { id },
-        Command::CancelCountdown => Incoming::CancelCountdown,
-        Command::RefreshLink { id, download, restart } => Incoming::RefreshLink { id, download, restart },
-        Command::CancelRefresh => Incoming::CancelRefresh,
-        Command::CheckUpdate => Incoming::CheckUpdate,
-        Command::InstallUpdate => Incoming::InstallUpdate,
-        Command::Convert { id, to, delete_original } => Incoming::Convert { id, to, delete_original },
-        Command::PreviewZip { id } => Incoming::PreviewZip { id },
-        Command::SetProperties { id, changes } => Incoming::SetProperties { id, changes },
-        Command::SetSpeedLimit { id, bytes_per_sec, remember } => {
-            Incoming::SetSpeedLimit { id, bytes_per_sec, remember }
-        }
-        Command::CountdownNow => Incoming::CountdownNow,
-        Command::SetOnDone { id, on_done } => Incoming::SetOnDone { id, on_done },
-        Command::GetSettings => Incoming::GetSettings,
-        Command::SetSettings { settings } => Incoming::SetSettings { settings },
-    }
-}
-
-/// The event `msg` is for a window, if it is one. Replies only the host or
-/// the browser extension uses, and the command line's answer, are not.
-pub fn event(msg: Outgoing) -> Option<Event> {
-    Some(match msg {
-        Outgoing::Added { id, url } => Event::Added { id, url },
-        Outgoing::Started { id, url, path, total, resumable, connections, partial, validator } => {
-            Event::Started { id, url, path, total, resumable, connections, partial, validator }
-        }
-        Outgoing::Progress { id, url, done, total, parts, segments } => {
-            Event::Progress { id, url, done, total, parts, segments }
-        }
-        Outgoing::Done { id, url, path, note } => Event::Done { id, url, path, note },
-        Outgoing::Failed { id, url, error } => Event::Failed { id, url, error },
-        Outgoing::Canceled { id, url } => Event::Canceled { id, url },
-        Outgoing::Removed { id } => Event::Removed { id },
-        Outgoing::Updated { item } => Event::Updated { item },
-        Outgoing::Downloads { items } => Event::Downloads { items },
-        Outgoing::Settings { settings } => Event::Settings { settings },
-        Outgoing::Show => Event::Show,
-        Outgoing::ShowDone { id } => Event::ShowDone { id },
-        Outgoing::Queues { items } => Event::Queues { items },
-        Outgoing::Countdown { action, seconds, queue, file } => Event::Countdown { action, seconds, queue, file },
-        Outgoing::CountdownCanceled => Event::CountdownCanceled,
-        Outgoing::Quit => Event::Quit,
-        Outgoing::RefreshWaiting { id } => Event::RefreshWaiting { id },
-        Outgoing::NameTaken { id, url, path, total } => Event::NameTaken { id, url, path, total },
-        Outgoing::RefreshMismatch { id, url, reason } => Event::RefreshMismatch { id, url, reason },
-        Outgoing::AddedMany { count, skipped } => Event::AddedMany { count, skipped },
-        Outgoing::LinkInfo { request, index, total, content_type, error } => {
-            Event::LinkInfo { request, index, total, content_type, error }
-        }
-        Outgoing::PickLinks { page, links, user_agent } => Event::PickLinks { page, links, user_agent },
-        Outgoing::Quota { used, limit, paused, resumes_at } => Event::Quota { used, limit, paused, resumes_at },
-        Outgoing::BrowserLink { connected, last_seen } => Event::BrowserLink { connected, last_seen },
-        Outgoing::Update { newer, error } => Event::Update { newer, error },
-        Outgoing::UpdateFailed { error } => Event::UpdateFailed { error },
-        Outgoing::ZipPreview { id, entries, error } => Event::ZipPreview { id, entries, error },
-        Outgoing::GrabProgress { pages, bytes, found, explored, added } => {
-            Event::GrabProgress { pages, bytes, found, explored, added }
-        }
-        Outgoing::GrabDone { files, pages, explored, stopped, login_cookies } => {
-            Event::GrabDone { files, pages, explored, stopped, login_cookies }
-        }
-        Outgoing::Error { message } => Event::Error { message },
-        Outgoing::Rejected { url, message } => Event::Rejected { url, message },
-        Outgoing::Hello { .. }
-        | Outgoing::Pong
-        | Outgoing::Ack { .. }
-        | Outgoing::MediaInfo { .. }
-        | Outgoing::CookiesWanted { .. }
-        | Outgoing::RenderPage { .. }
-        | Outgoing::CommandLine { .. } => return None,
-    })
+/// Whether `event` is for a window. Replies only the host or the browser
+/// extension uses, and the command line's answer, are not.
+fn for_window(event: &Event) -> bool {
+    !matches!(
+        event,
+        Event::Hello { .. }
+            | Event::Pong
+            | Event::Ack { .. }
+            | Event::MediaInfo { .. }
+            | Event::CookiesWanted { .. }
+            | Event::RenderPage { .. }
+            | Event::CommandLine { .. }
+    )
 }
 
 #[cfg(test)]
@@ -232,7 +151,6 @@ mod tests {
     use super::*;
     use std::net::TcpListener;
     use std::sync::mpsc::{channel, Receiver};
-    use uidm_domain::download::Download;
 
     /// A pretend daemon on a local port: it hands each accepted
     /// connection to `serve`.
@@ -340,16 +258,5 @@ mod tests {
         });
         let client = IpcDaemonClient::with_connector("window", connector);
         assert_eq!(client.run_command_line(CommandLine::default()), Err(DaemonError::Closed));
-    }
-
-    #[test]
-    fn commands_keep_their_fields_on_the_wire() {
-        let d = Download { url: "http://x/f".into(), ..Download::default() };
-        let json = serde_json::to_value(incoming(Command::AddMany { items: vec![d], queue: Some(3) })).unwrap();
-        assert_eq!(json["op"], "add_many");
-        assert_eq!(json["queue"], 3);
-        assert_eq!(json["items"][0]["url"], "http://x/f");
-        let json = serde_json::to_value(incoming(Command::Remove { id: 2, delete_files: true })).unwrap();
-        assert_eq!(json, serde_json::json!({"op": "remove", "id": 2, "delete_files": true}));
     }
 }

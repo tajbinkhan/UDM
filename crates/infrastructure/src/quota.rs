@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use uidm_application::daemon::Event;
 use uidm_domain::ports::QuotaState;
 use uidm_domain::quota::QuotaNotice;
 pub use uidm_domain::quota::Usage;
@@ -40,6 +41,11 @@ pub fn quota_path() -> io::Result<PathBuf> {
 /// Minutes since 1970.
 pub fn now_minute() -> u64 {
     crate::state::unix_now() / 60
+}
+
+/// The `quota` event that tells the clients `notice`.
+pub fn notice_event(n: QuotaNotice) -> Event {
+    crate::wire::event(notice_message(n))
 }
 
 /// The `quota` message that tells the clients `notice`.

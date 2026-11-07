@@ -11,7 +11,9 @@
 //! store's `StoreEvents` listener, so every change to the download list goes
 //! to every client.
 //!
-//! What a request does is up to the `Handler` the daemon wires in.
+//! Each frame is read as a `Command` (see `wire`) and handed to the
+//! application's `Requests` port, which the daemon wires in; its answers
+//! come back as `Event`s on a `Reply`, which go out as frames.
 
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -24,44 +26,34 @@ use std::time::Instant;
 
 use tracing::{info, warn};
 
+use uidm_application::daemon::{Event, Reply, Requests};
+
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::front::Windows;
 use crate::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST_LABEL};
 use crate::protocol::{read_message, write_frame, Incoming, Outgoing};
 use crate::state::unix_now;
 use crate::store::{Ended, StoreEvents};
+use crate::wire;
 
-/// Where one client's messages go: a channel its writer thread drains.
-/// Sending fails once the client is gone.
-#[derive(Clone)]
-pub struct Reply(Sender<Vec<u8>>);
+/// A client's frames, drained by its writer thread.
+type Frames = Sender<Vec<u8>>;
 
-impl Reply {
-    /// A reply and the receiver of its framed messages, for a client's
-    /// writer or a test.
-    pub fn channel() -> (Reply, Receiver<Vec<u8>>) {
-        let (tx, rx) = channel();
-        (Reply(tx), rx)
-    }
-
-    /// Send `msg` to the client. False when the client is gone.
-    pub fn send(&self, msg: &Outgoing) -> bool {
-        serde_json::to_vec(msg).is_ok_and(|frame| self.0.send(frame).is_ok())
-    }
-
-    fn send_frame(&self, frame: Vec<u8>) -> bool {
-        self.0.send(frame).is_ok()
-    }
+/// Frame `msg` and send it on `frames`. False when the client is gone.
+fn send_wire(frames: &Frames, msg: &Outgoing) -> bool {
+    serde_json::to_vec(msg).is_ok_and(|frame| frames.send(frame).is_ok())
 }
 
-/// What the daemon does with a client's requests.
-pub trait Handler: Send + Sync + 'static {
-    /// Handle request `msg` from client `client`; a direct answer goes to
-    /// `reply`.
-    fn handle(&self, client: u64, msg: Incoming, reply: &Reply);
+/// A reply that sends each event to `frames`.
+fn reply_to(frames: Frames) -> Reply {
+    Reply::new(move |event| wire::outgoing(event).is_some_and(|msg| send_wire(&frames, &msg)))
+}
 
-    /// Client `client` disconnected, after `Clients` forgot it.
-    fn gone(&self, client: u64);
+/// A reply and the receiver of its framed messages, for a client that is
+/// not in the list, such as one in a test.
+pub fn reply_channel() -> (Reply, Receiver<Vec<u8>>) {
+    let (tx, rx) = channel();
+    (reply_to(tx), rx)
 }
 
 /// The connected clients, and how the store's changes reach them: each
@@ -69,7 +61,7 @@ pub trait Handler: Send + Sync + 'static {
 /// to the listener given at start.
 pub struct Clients {
     /// Connected clients by id.
-    clients: Mutex<HashMap<u64, Reply>>,
+    clients: Mutex<HashMap<u64, Frames>>,
     /// Clients that said they are a desktop window.
     windows: Mutex<HashSet<u64>>,
     /// Clients that said hello as the browser extension does, with no
@@ -105,9 +97,12 @@ impl Clients {
         }
     }
 
-    /// Add client `id`, whose messages go to `reply`.
-    pub fn connect(&self, id: u64, reply: Reply) {
-        lock(&self.clients).insert(id, reply);
+    /// Add client `id`. Returns its reply and the receiver of every frame
+    /// it is sent, replies and broadcasts alike.
+    pub fn connect(&self, id: u64) -> (Reply, Receiver<Vec<u8>>) {
+        let (tx, rx) = channel();
+        lock(&self.clients).insert(id, tx.clone());
+        (reply_to(tx), rx)
     }
 
     /// Whether no client is connected.
@@ -137,29 +132,35 @@ impl Clients {
         lock(&self.clients).len() > windows
     }
 
-    /// Send `msg` to the desktop windows only.
-    pub fn to_windows(&self, msg: &Outgoing) {
-        let Ok(frame) = serde_json::to_vec(msg) else {
+    /// Send `event` to the desktop windows only.
+    pub fn to_windows(&self, event: Event) {
+        let Some(frame) = wire::outgoing(event).and_then(|msg| serde_json::to_vec(&msg).ok()) else {
             return;
         };
         let windows = lock(&self.windows);
-        for (_, reply) in lock(&self.clients).iter().filter(|(id, _)| windows.contains(id)) {
-            reply.send_frame(frame.clone());
+        for (_, frames) in lock(&self.clients).iter().filter(|(id, _)| windows.contains(id)) {
+            let _ = frames.send(frame.clone());
         }
     }
 
-    /// Send `msg` to every client.
-    pub fn broadcast(&self, msg: &Outgoing) {
+    /// Send `event` to every client.
+    pub fn broadcast(&self, event: Event) {
+        if let Some(msg) = wire::outgoing(event) {
+            self.wire_broadcast(&msg);
+        }
+    }
+
+    fn wire_broadcast(&self, msg: &Outgoing) {
         let Ok(frame) = serde_json::to_vec(msg) else {
             return;
         };
         // Dropping a client whose writer is gone keeps the map tidy.
-        lock(&self.clients).retain(|_, reply| reply.send_frame(frame.clone()));
+        lock(&self.clients).retain(|_, frames| frames.send(frame.clone()).is_ok());
     }
 
     /// Whether a browser extension is connected, and when one last was.
-    pub fn browser_link(&self) -> Outgoing {
-        Outgoing::BrowserLink { connected: !lock(&self.browsers).is_empty(), last_seen: self.browser_seen() }
+    pub fn browser_link(&self) -> Event {
+        Event::BrowserLink { connected: !lock(&self.browsers).is_empty(), last_seen: self.browser_seen() }
     }
 
     /// When a browser extension last connected or sent anything.
@@ -176,7 +177,7 @@ impl Clients {
             browsers.insert(id) && browsers.len() == 1
         };
         if first {
-            self.to_windows(&self.browser_link());
+            self.to_windows(self.browser_link());
         }
     }
 
@@ -198,7 +199,7 @@ impl Clients {
         };
         if last {
             *lock(&self.browser_seen) = Some(unix_now());
-            self.to_windows(&self.browser_link());
+            self.to_windows(self.browser_link());
         }
     }
 
@@ -217,7 +218,7 @@ impl Windows for Clients {
 
 impl StoreEvents for Clients {
     fn announce(&self, event: &Outgoing) {
-        self.broadcast(event);
+        self.wire_broadcast(event);
     }
 
     fn ended(&self, how: Ended) {
@@ -230,18 +231,18 @@ impl StoreEvents for Clients {
 }
 
 /// Handle one frame from client `client`: decode it, note that the client
-/// is still there, and hand it to `handler`. A frame that is not a request
+/// is still there, and hand it to `requests`. A frame that is not a request
 /// gets an `error` back.
-pub fn receive(clients: &Clients, handler: &dyn Handler, client: u64, raw: &[u8], reply: &Reply) {
+pub fn receive(clients: &Clients, requests: &dyn Requests, client: u64, raw: &[u8], reply: &Reply) {
     let msg: Incoming = match serde_json::from_slice(raw) {
         Ok(msg) => msg,
         Err(e) => {
-            reply.send(&Outgoing::Error { message: format!("invalid message: {e}") });
+            reply.send(Event::Error { message: format!("invalid message: {e}") });
             return;
         }
     };
     clients.heard_from(client);
-    handler.handle(client, msg, reply);
+    requests.handle(client, wire::command(msg), reply);
 }
 
 /// The daemon's listening socket and the token clients must prove they
@@ -272,15 +273,15 @@ impl Server {
     }
 
     /// Serve clients until the listener fails, each on its own thread.
-    pub fn serve(self, clients: Arc<Clients>, handler: Arc<dyn Handler>) {
+    pub fn serve(self, clients: Arc<Clients>, requests: Arc<dyn Requests>) {
         static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
         for conn in self.listener.incoming() {
             match conn {
                 Ok(stream) => {
                     let id = NEXT_CLIENT.fetch_add(1, Ordering::Relaxed);
-                    let (clients, handler, token) =
-                        (Arc::clone(&clients), Arc::clone(&handler), Arc::clone(&self.token));
-                    thread::spawn(move || handle_client(stream, id, &clients, &*handler, &token));
+                    let (clients, requests, token) =
+                        (Arc::clone(&clients), Arc::clone(&requests), Arc::clone(&self.token));
+                    thread::spawn(move || handle_client(stream, id, &clients, &*requests, &token));
                 }
                 Err(e) => warn!(error = %e, "accept failed"),
             }
@@ -290,7 +291,7 @@ impl Server {
 
 /// Serve client `id` until it disconnects. It joins `clients`, and so hears
 /// broadcasts, only after it authenticates.
-fn handle_client(mut stream: TcpStream, id: u64, clients: &Clients, handler: &dyn Handler, token: &str) {
+fn handle_client(mut stream: TcpStream, id: u64, clients: &Clients, requests: &dyn Requests, token: &str) {
     let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
     if let Err(e) = authenticate(&mut stream, token) {
         warn!(client = id, peer = %peer, error = %e, "client rejected");
@@ -305,8 +306,7 @@ fn handle_client(mut stream: TcpStream, id: u64, clients: &Clients, handler: &dy
             return;
         }
     };
-    let (reply, frames) = Reply::channel();
-    clients.connect(id, reply.clone());
+    let (reply, frames) = clients.connect(id);
 
     // One writer per client keeps its frames whole even when replies and
     // broadcasts race.
@@ -321,7 +321,7 @@ fn handle_client(mut stream: TcpStream, id: u64, clients: &Clients, handler: &dy
     let mut reader = stream;
     loop {
         match read_message(&mut reader, MAX_MESSAGE_BYTES) {
-            Ok(Some(raw)) => receive(clients, handler, id, &raw, &reply),
+            Ok(Some(raw)) => receive(clients, requests, id, &raw, &reply),
             Ok(None) => break, // clean disconnect
             Err(e) => {
                 warn!(client = id, error = %e, "client read error");
@@ -334,7 +334,7 @@ fn handle_client(mut stream: TcpStream, id: u64, clients: &Clients, handler: &dy
     // channel with no senders, so it drains what is queued and ends.
     // Downloads this client started keep running.
     clients.client_gone(id);
-    handler.gone(id);
+    requests.gone(id);
     drop(reply);
     let _ = writer.join();
     info!(client = id, "client disconnected");
@@ -369,13 +369,14 @@ fn denied(why: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_application::daemon::Command;
 
     struct Echo(Mutex<Vec<u64>>);
 
-    impl Handler for Echo {
-        fn handle(&self, _client: u64, msg: Incoming, reply: &Reply) {
-            if matches!(msg, Incoming::Ping) {
-                reply.send(&Outgoing::Pong);
+    impl Requests for Echo {
+        fn handle(&self, _client: u64, command: Command, reply: &Reply) {
+            if matches!(command, Command::Ping) {
+                reply.send(Event::Pong);
             }
         }
 
@@ -395,7 +396,7 @@ mod tests {
     #[test]
     fn a_frame_that_is_not_a_request_gets_an_error() {
         let (clients, handler) = (clients(), Echo(Mutex::default()));
-        let (reply, frames) = Reply::channel();
+        let (reply, frames) = reply_channel();
         receive(&clients, &handler, 1, b"{\"op\":\"nonsense\"}", &reply);
         receive(&clients, &handler, 1, br#"{"op":"ping"}"#, &reply);
         let got = got(&frames);
@@ -406,14 +407,12 @@ mod tests {
     #[test]
     fn only_windows_hear_what_is_sent_to_windows() {
         let clients = clients();
-        let (window, window_frames) = Reply::channel();
-        let (browser, browser_frames) = Reply::channel();
-        clients.connect(1, window);
-        clients.connect(2, browser);
+        let (_window, window_frames) = clients.connect(1);
+        let (_browser, browser_frames) = clients.connect(2);
         clients.add_window(1);
         assert!(clients.extension_connected());
-        clients.to_windows(&Outgoing::Show);
-        clients.broadcast(&Outgoing::Pong);
+        clients.to_windows(Event::Show);
+        clients.broadcast(Event::Pong);
         assert_eq!(got(&window_frames).len(), 2);
         assert!(matches!(got(&browser_frames)[..], [Outgoing::Pong]));
     }
@@ -421,10 +420,9 @@ mod tests {
     #[test]
     fn a_client_whose_writer_is_gone_is_dropped_on_broadcast() {
         let clients = clients();
-        let (reply, frames) = Reply::channel();
-        clients.connect(1, reply);
+        let (_reply, frames) = clients.connect(1);
         drop(frames);
-        clients.broadcast(&Outgoing::Pong);
+        clients.broadcast(Event::Pong);
         assert!(clients.is_empty());
     }
 
@@ -437,7 +435,7 @@ mod tests {
         let clients = Arc::new(clients());
         let handler = Arc::new(Echo(Mutex::default()));
         {
-            let (clients, handler) = (Arc::clone(&clients), Arc::clone(&handler) as Arc<dyn Handler>);
+            let (clients, handler) = (Arc::clone(&clients), Arc::clone(&handler) as Arc<dyn Requests>);
             thread::spawn(move || server.serve(clients, handler));
         }
         (addr, clients, handler)
