@@ -95,6 +95,7 @@ use uidm_domain::settings::{
 };
 use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
 use uidm_infrastructure::ipc;
+use uidm_infrastructure::logging;
 use uidm_infrastructure::notify::Sound;
 use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
 use uidm_infrastructure::state::DownloadTable;
@@ -116,6 +117,7 @@ const CLIPBOARD_POLL: Duration = Duration::from_millis(700);
 const FAILED_GRACE: Duration = Duration::from_secs(1);
 
 fn main() -> eframe::Result {
+    logging::init(logging::Program::Gui);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut minimized = args.iter().any(|a| a == "--minimized");
     let cwd = std::env::current_dir().unwrap_or_default();

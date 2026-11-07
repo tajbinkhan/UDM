@@ -7,7 +7,7 @@
 //! |---|---|---|---|
 //! | settings, grabber projects ([`config_dir`]) | `%APPDATA%\UIDM` | `~/Library/Application Support/UIDM` | `$XDG_CONFIG_HOME/uidm` (`~/.config/uidm`) |
 //! | list, token, quota, keys ([`data_dir`]) | `%LOCALAPPDATA%\UIDM` | `~/Library/Application Support/UIDM` | `$XDG_DATA_HOME/uidm` (`~/.local/share/uidm`) |
-//! | daemon log ([`daemon_log`]) | `%TEMP%\uidm-daemon.log` | in [`data_dir`] | in [`data_dir`] |
+//! | logs ([`daemon_log`], [`host_log`], [`gui_log`]) | in [`data_dir`] | in [`data_dir`] | in [`data_dir`] |
 //! | window layout ([`window_dir`]) | `%LOCALAPPDATA%\UIDM` | none | none |
 //! | sign-in entry ([`autostart_dir`]) | the registry | `~/Library/LaunchAgents` | `$XDG_CONFIG_HOME/autostart` |
 //!
@@ -153,13 +153,15 @@ fn grabber_dir_for(name: Option<&str>) -> io::Result<PathBuf> {
     Ok(config_dir_for(name)?.join("grabber"))
 }
 
-fn daemon_log_for(name: Option<&str>) -> PathBuf {
-    let in_temp = std::env::temp_dir().join("uidm-daemon.log");
-    if cfg!(windows) {
-        return in_temp;
-    }
-    data_dir_for(name).map(|d| d.join("uidm-daemon.log")).unwrap_or(in_temp)
+/// The log called `file` in the data folder, or in the temp folder when the
+/// data folder cannot be found.
+fn log_for(name: Option<&str>, file: &str) -> PathBuf {
+    data_dir_for(name).map(|d| d.join(file)).unwrap_or_else(|_| std::env::temp_dir().join(file))
 }
+
+const DAEMON_LOG: &str = "uidm-daemon.log";
+const HOST_LOG: &str = "uidm-host.log";
+const GUI_LOG: &str = "uidm-gui.log";
 
 /// The folder settings, templates and grabber projects live in, which
 /// roams with the user on Windows.
@@ -179,11 +181,20 @@ pub fn grabber_dir() -> io::Result<PathBuf> {
     grabber_dir_for(instance().as_deref())
 }
 
-/// The daemon's log: in the temp folder on Windows, which is the user's
-/// own; elsewhere in UIDM's data folder, as `/tmp` is shared by every user
-/// and the log holds download addresses.
+/// The daemon's log, in [`data_dir`]. It holds download addresses, so it
+/// stays out of a shared `/tmp`.
 pub fn daemon_log() -> PathBuf {
-    daemon_log_for(instance().as_deref())
+    log_for(instance().as_deref(), DAEMON_LOG)
+}
+
+/// The native-messaging host's log, beside the daemon's.
+pub fn host_log() -> PathBuf {
+    log_for(instance().as_deref(), HOST_LOG)
+}
+
+/// The window's log, beside the daemon's.
+pub fn gui_log() -> PathBuf {
+    log_for(instance().as_deref(), GUI_LOG)
 }
 
 /// The folder the window keeps its layout and the drop target's place in:
@@ -262,11 +273,12 @@ mod tests {
         assert_eq!(data_dir_for(Some("test")).unwrap(), local.join("UIDM-test"));
         assert_eq!(grabber_dir_for(None).unwrap(), roaming.join(r"UIDM\grabber"));
         assert_eq!(grabber_dir_for(Some("test")).unwrap(), roaming.join(r"UIDM-test\grabber"));
-        // The window's files and the log are shared by every instance.
+        // The window's files are shared by every instance; the logs are not.
         assert_eq!(window_dir().unwrap(), local.join("UIDM"));
-        let log = std::env::temp_dir().join("uidm-daemon.log");
-        assert_eq!(daemon_log_for(None), log);
-        assert_eq!(daemon_log_for(Some("test")), log);
+        assert_eq!(log_for(None, DAEMON_LOG), local.join(r"UIDM\uidm-daemon.log"));
+        assert_eq!(log_for(Some("test"), DAEMON_LOG), local.join(r"UIDM-test\uidm-daemon.log"));
+        assert_eq!(log_for(None, HOST_LOG), local.join(r"UIDM\uidm-host.log"));
+        assert_eq!(log_for(None, GUI_LOG), local.join(r"UIDM\uidm-gui.log"));
         assert_eq!(packages_dir().unwrap(), local.join("Packages"));
     }
 
@@ -288,8 +300,10 @@ mod tests {
         assert_eq!(data_dir_for(Some("test")).unwrap(), support.join("UIDM-test"));
         assert_eq!(grabber_dir_for(None).unwrap(), support.join("UIDM/grabber"));
         assert_eq!(grabber_dir_for(Some("test")).unwrap(), support.join("UIDM-test/grabber"));
-        assert_eq!(daemon_log_for(None), support.join("UIDM/uidm-daemon.log"));
-        assert_eq!(daemon_log_for(Some("test")), support.join("UIDM-test/uidm-daemon.log"));
+        assert_eq!(log_for(None, DAEMON_LOG), support.join("UIDM/uidm-daemon.log"));
+        assert_eq!(log_for(Some("test"), DAEMON_LOG), support.join("UIDM-test/uidm-daemon.log"));
+        assert_eq!(log_for(None, HOST_LOG), support.join("UIDM/uidm-host.log"));
+        assert_eq!(log_for(None, GUI_LOG), support.join("UIDM/uidm-gui.log"));
         assert_eq!(autostart_dir().unwrap(), home().join("Library/LaunchAgents"));
         assert_eq!(window_dir(), None);
         assert_eq!(root(Root::Local), Some(home()));
@@ -315,8 +329,10 @@ mod tests {
         assert_eq!(data_dir_for(Some("test")).unwrap(), data.join("uidm-test"));
         assert_eq!(grabber_dir_for(None).unwrap(), config.join("uidm/grabber"));
         assert_eq!(grabber_dir_for(Some("test")).unwrap(), config.join("uidm-test/grabber"));
-        assert_eq!(daemon_log_for(None), data.join("uidm/uidm-daemon.log"));
-        assert_eq!(daemon_log_for(Some("test")), data.join("uidm-test/uidm-daemon.log"));
+        assert_eq!(log_for(None, DAEMON_LOG), data.join("uidm/uidm-daemon.log"));
+        assert_eq!(log_for(Some("test"), DAEMON_LOG), data.join("uidm-test/uidm-daemon.log"));
+        assert_eq!(log_for(None, HOST_LOG), data.join("uidm/uidm-host.log"));
+        assert_eq!(log_for(None, GUI_LOG), data.join("uidm/uidm-gui.log"));
         assert_eq!(autostart_dir().unwrap(), config.join("autostart"));
         assert_eq!(window_dir(), None);
         assert_eq!(root(Root::Roaming), Some(home()));

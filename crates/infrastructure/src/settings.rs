@@ -22,7 +22,8 @@ pub fn load(path: &Path) -> io::Result<Settings> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Settings::default()),
         Err(e) => return Err(e),
     };
-    let invalid = |e| io::Error::new(io::ErrorKind::InvalidData, e);
+    // Older files hold proxy passwords; serde's message could quote one.
+    let invalid = |e: serde_json::Error| crate::logging::json_error(&e);
     let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
     let split = split_proxy_login(&mut value);
     split_browser_menu(&mut value);

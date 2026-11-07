@@ -16,17 +16,13 @@
 //!   whose processes run in the user's session without the copy;
 //! - the client deletes a stale token from the copy when a handshake fails.
 
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
-
-/// The argument that tells a daemon started through WMI to write its
-/// standard error to the log itself, as nobody hands it the log file.
-pub const LOG_ARG: &str = "--log";
 
 /// The folder this process's writes to UIDM's data folder really go to, when
 /// Windows sends them to an app package's copy; `None` when they reach the
@@ -78,26 +74,6 @@ pub fn spawn_outside(program: &Path, args: &[String]) -> io::Result<()> {
         .map_err(|e| io::Error::new(e.kind(), format!("starting PowerShell to start {}: {e}", program.display())))?;
     if !status.success() {
         return Err(io::Error::other(format!("WMI could not start {} ({status})", program.display())));
-    }
-    Ok(())
-}
-
-/// Send this process's standard error to the end of `log`. For a daemon
-/// started through WMI, whose standard error is a hidden console.
-pub fn stderr_to(log: &Path) -> io::Result<()> {
-    use std::os::windows::io::IntoRawHandle;
-
-    const STD_ERROR_HANDLE: u32 = -12i32 as u32;
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn SetStdHandle(std_handle: u32, handle: *mut std::ffi::c_void) -> i32;
-    }
-
-    let file = OpenOptions::new().create(true).append(true).open(log)?;
-    // SAFETY: the handle is a file this process just opened and never
-    // closes; it stays standard error for the life of the process.
-    if unsafe { SetStdHandle(STD_ERROR_HANDLE, file.into_raw_handle()) } == 0 {
-        return Err(io::Error::last_os_error());
     }
     Ok(())
 }

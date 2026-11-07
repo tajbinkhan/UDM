@@ -8,8 +8,8 @@
 //! When the browser closes the port the host exits, but the daemon and its
 //! downloads keep running.
 //!
-//! stdout carries protocol frames only; logs go to stderr, which the browser
-//! captures.
+//! stdout carries protocol frames only; logs go to `uidm-host.log` in the
+//! data folder (see `uidm_infrastructure::logging`).
 //!
 //! A CLI test mode runs a download in-process, without a browser or daemon:
 //!   uidm-host download <url> [output_dir]
@@ -36,6 +36,7 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 use uidm_infrastructure::cli::Sent;
 use uidm_infrastructure::engine::{self, DownloadRequest, Progress};
 use uidm_infrastructure::ipc;
+use uidm_infrastructure::logging;
 use uidm_infrastructure::protocol::{read_message, write_frame, Incoming, Outgoing};
 use uidm_infrastructure::settings::{default_downloads_dir, FileExists, Folders, DEFAULT_CONNECTIONS};
 
@@ -76,14 +77,17 @@ fn from_browser(frame: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn main() {
+    logging::init(logging::Program::Host);
     let args: Vec<String> = std::env::args().collect();
+    // The test and `send` modes print to stdout and stderr on purpose: that
+    // is their output, for the person or program that ran them.
     match args.get(1).map(String::as_str) {
         Some("download") => std::process::exit(run_cli(&args)),
         Some("send") => std::process::exit(run_send(&args)),
         _ => {}
     }
     if let Err(e) = run_relay() {
-        eprintln!("[uidm-host] fatal: {e}");
+        tracing::error!(error = %e, "fatal");
         std::process::exit(1);
     }
 }
@@ -91,7 +95,7 @@ fn main() {
 /// Relay frames between the browser (stdio) and the daemon (loopback TCP).
 fn run_relay() -> io::Result<()> {
     let daemon = ipc::connect_or_spawn()?;
-    eprintln!("[uidm-host] connected to daemon at {}", ipc::daemon_addr());
+    tracing::info!(addr = %ipc::daemon_addr(), "connected to the daemon");
     let mut to_daemon = daemon.try_clone()?;
     let mut from_daemon = daemon;
 
@@ -113,16 +117,16 @@ fn run_relay() -> io::Result<()> {
         match read_message(&mut input, MAX_MESSAGE_BYTES)? {
             Some(frame) => {
                 let Some(frame) = from_browser(&frame) else {
-                    eprintln!("[uidm-host] dropped a request the extension does not send");
+                    tracing::warn!("dropped a request the extension does not send");
                     continue;
                 };
                 if write_frame(&mut to_daemon, &frame).is_err() {
-                    eprintln!("[uidm-host] daemon connection lost");
+                    tracing::warn!("daemon connection lost");
                     break;
                 }
             }
             None => {
-                eprintln!("[uidm-host] stdin closed, exiting");
+                tracing::info!("stdin closed, exiting");
                 break;
             }
         }
