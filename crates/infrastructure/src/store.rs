@@ -499,6 +499,33 @@ impl DownloadIntake for Intake<'_> {
     }
 }
 
+impl uidm_application::daemon::DownloadFeed for DownloadStore {
+    fn announce(&self, event: Event) {
+        DownloadStore::announce(self, event);
+    }
+
+    fn snapshot<T>(&self, then: impl FnOnce(Vec<DownloadEntry>, Vec<Queue>) -> T) -> T {
+        DownloadStore::snapshot(self, then)
+    }
+}
+
+/// The `DownloadIntake` adapter that owns its store and engine, for a
+/// service that keeps it.
+pub struct StoreIntake {
+    pub store: Arc<DownloadStore>,
+    pub engine: Arc<Engine>,
+}
+
+impl DownloadIntake for StoreIntake {
+    fn sendable(&self, download: &Download) -> bool {
+        Intake { store: &self.store, engine: &self.engine }.sendable(download)
+    }
+
+    fn stage(&self, download: Download) -> (u64, String) {
+        Intake { store: &self.store, engine: &self.engine }.stage(download)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,6 +9,8 @@ license.workspace = true
 uidm-domain.workspace = true
 # Error enums for use cases that combine several ports (AGENTS.md section 9).
 thiserror.workspace = true
+# Logging what the daemon service does (AGENTS.md section 5).
+tracing.workspace = true
 
 # Building download rows in tests.
 [dev-dependencies]

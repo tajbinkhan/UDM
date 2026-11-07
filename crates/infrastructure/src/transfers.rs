@@ -793,6 +793,28 @@ impl uidm_domain::ports::EarlyStarts for EarlyHandOver {
     }
 }
 
+impl uidm_domain::ports::TransferEngine for Transfers {
+    fn reserve_id(&self) -> u64 {
+        self.engine.reserve_id()
+    }
+
+    fn active_count(&self) -> usize {
+        self.engine.active_count()
+    }
+
+    fn start(&self, download: Download) -> (u64, String) {
+        self.start_resuming(download, None, None)
+    }
+
+    fn save_history(&self) {
+        Transfers::save_history(self);
+    }
+
+    fn has_changed(&self, id: u64) -> bool {
+        matches!(self.check_for_change(id), Ok(true))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

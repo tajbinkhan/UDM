@@ -318,6 +318,9 @@ pub trait Converter: Send + Sync {
     /// Stop the conversion running as row `id`. Returns false when no
     /// conversion runs as that row.
     fn stop(&self, id: u64) -> bool;
+
+    /// Whether any conversion is running.
+    fn any_running(&self) -> bool;
 }
 
 /// Why the settings could not be saved. The message is shown to the user
@@ -354,6 +357,11 @@ pub trait Answers: Send + Sync {
     /// none is open. If none answers in time, the download starts as
     /// proposed.
     fn await_answer(&self, id: u64);
+
+    /// Download `id` stopped because its file name is taken: wait for a
+    /// window to answer its dialog as `await_answer` does, and if none
+    /// answers in time, give it a new name.
+    fn await_new_name(&self, id: u64);
 }
 
 /// Bringing things in front of the user.
@@ -467,6 +475,56 @@ pub trait SiteCrawler: Send + Sync {
     ) -> Outcome;
 }
 
+/// The download engine's own state, and starting a download with it.
+pub trait TransferEngine: Send + Sync {
+    /// A fresh download id.
+    fn reserve_id(&self) -> u64;
+
+    /// How many downloads the engine is running.
+    fn active_count(&self) -> usize;
+
+    /// Queue `download` now, remember its request for retries, and announce
+    /// it. Returns its id and address.
+    fn start(&self, download: Download) -> (u64, String);
+
+    /// Save the download list and the requests kept for retries.
+    fn save_history(&self);
+
+    /// Whether finished download `id`'s file changed on its server since it
+    /// was downloaded. False when that cannot be told.
+    fn has_changed(&self, id: u64) -> bool;
+}
+
+/// The sound and notification for a finished or failed download.
+pub trait Notifications: Send + Sync {
+    /// Play the sound `settings` choose for download `id` finishing (or
+    /// with `failed`, failing), and show a notification when they ask.
+    fn notify(&self, id: u64, failed: bool, settings: &Settings);
+}
+
+/// Addresses retried through the browser's proxy after failing through
+/// UIDM's own proxy setting.
+pub trait ProxyFallback: Send + Sync {
+    /// Note that `url` is retried through the browser's proxy. False when
+    /// it already was: each address gets one such retry.
+    fn claim_retry(&self, url: String) -> bool;
+}
+
+/// The downloads a crawl's finds become.
+pub trait GrabDownloads: Send + Sync {
+    /// The download for `file`, which a crawl for `req` found, saved where
+    /// the request and `settings` say, carrying `login` (the login page
+    /// site's cookies) when it is on that site. `None` when the mirror
+    /// skips files already there and this one is.
+    fn download_for(
+        &self,
+        req: &GrabRequest,
+        file: &crate::grab::GrabFile,
+        settings: &Settings,
+        login: Option<&str>,
+    ) -> Option<Download>;
+}
+
 /// The computer's local date and time.
 pub trait Clock: Send + Sync {
     fn now(&self) -> Moment;
@@ -483,10 +541,6 @@ pub trait SaveFolders: Send + Sync {
     /// The system's Downloads folder, which the settings' folders start
     /// from.
     fn downloads_dir(&self) -> PathBuf;
-
-    /// Whether UIDM may write in `folder`, or in the nearest folder above it
-    /// that exists. A folder it may not write to needs administrator rights.
-    fn can_write(&self, folder: &Path) -> bool;
 }
 
 /// The virus scanner the settings name.
