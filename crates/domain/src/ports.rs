@@ -4,10 +4,11 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 
-use crate::download::{Download, DownloadEntry, Status};
-use crate::grab::Project;
-use crate::media::Conversion;
+use crate::download::{Download, DownloadEntry, Status, ZipEntry};
+use crate::grab::{GrabRequest, Outcome, Project, RenderedPage};
+use crate::media::{Conversion, MediaInfo};
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
 use crate::settings::Settings;
@@ -386,6 +387,84 @@ pub trait GrabRuns: Send + Sync {
     /// keep what it found, and add and start downloads as it asks. The claim
     /// is released when it ends.
     fn run(&self, project: Project, day: i64);
+}
+
+/// What a server said about a link, asked the way a download of it would
+/// ask (its cookies, referrer, proxy and login).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LinkFacts {
+    pub total: Option<u64>,
+    pub content_type: Option<String>,
+}
+
+/// What the save-as dialog for a download proposes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileFacts {
+    pub filename: String,
+    /// The folder for its category, then the name.
+    pub path: PathBuf,
+    pub total: Option<u64>,
+    /// Whether the server sends the file in ranges, so a download can resume.
+    pub resumable: bool,
+}
+
+/// Why a server could not be asked, in words for the user.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct ProbeError(pub String);
+
+/// Asking servers about downloads before, or instead of, downloading them.
+/// Each call waits for the server.
+pub trait Probes: Send + Sync {
+    /// The size and type of `download`'s file.
+    fn link(&self, download: &Download) -> Result<LinkFacts, ProbeError>;
+
+    /// The file the save-as dialog for `download` proposes. A form post is
+    /// not asked, which would send it again: its name and size come from
+    /// the request alone.
+    fn file(&self, download: &Download) -> Result<FileFacts, ProbeError>;
+
+    /// What the stream at `download` offers: its qualities and tracks.
+    fn media(&self, download: &Download) -> MediaInfo;
+
+    /// The files inside the zip archive at `download`, reading only its
+    /// end. `total` is its size when known already.
+    fn zip(&self, download: &Download, total: Option<u64>) -> Result<Vec<ZipEntry>, ProbeError>;
+}
+
+/// The browser extension, for what only the browser knows. Asking waits a
+/// few seconds for its answer, which comes back through `answered_*`.
+pub trait Browser: Send + Sync {
+    /// Whether the extension is connected.
+    fn connected(&self) -> bool;
+
+    /// The browser's cookies for `url`, or `None` without the extension,
+    /// an answer or cookies.
+    fn cookies(&self, url: &str) -> Option<String>;
+
+    /// `url` as the browser shows it, or `None` without the extension or
+    /// an answer in time.
+    fn render(&self, url: &str) -> Option<RenderedPage>;
+
+    /// The browser answered cookie request `request`.
+    fn answered_cookies(&self, request: u64, cookies: Option<String>);
+
+    /// The browser answered render request `request`.
+    fn answered_render(&self, request: u64, page: Option<RenderedPage>);
+}
+
+/// Crawling a site for the site grabber.
+pub trait SiteCrawler: Send + Sync {
+    /// Crawl for `req` on this thread with the settings' proxy and logins,
+    /// sending `login` (the login page site's cookies) to that site's
+    /// pages, until done or `stop` is set. `progress` hears how it goes.
+    fn crawl(
+        &self,
+        req: &GrabRequest,
+        login: Option<&str>,
+        stop: &AtomicBool,
+        progress: &mut dyn FnMut(&Outcome),
+    ) -> Outcome;
 }
 
 /// The computer's local date and time.
