@@ -1,0 +1,55 @@
+# Runs PR-Agent (https://github.com/The-PR-Agent/pr-agent) on pull requests.
+# When a PR is opened or reopened, it writes a description, posts a review and
+# suggests code changes. Owners and collaborators can run it again by
+# commenting /review, /describe, /improve or /ask "<question>" on the PR.
+#
+# The model is reached through OpenRouter. Add an OpenRouter API key as the
+# repository secret OPENROUTER_KEY. "openrouter/free" lets OpenRouter pick one
+# of its free models for each request, so it needs no token limit setting.
+
+name: PR Agent
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+# A newer push or command on the same PR replaces the older run.
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr_agent:
+    # Skip bots (PR-Agent's own comments included), comments on plain issues,
+    # and commands from people without write access, so strangers cannot
+    # spend the OpenRouter quota.
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (github.event_name == 'pull_request' ||
+       (github.event.issue.pull_request &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      # PR-Agent reads the PR through the GitHub API, so no checkout is needed.
+      - name: Run PR-Agent
+        # 0.49.0-github_action, pinned by digest so a re-pushed tag cannot
+        # change what runs with the secrets. Update the digest to upgrade.
+        uses: docker://pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_KEY }}
+          CONFIG__MODEL: openrouter/free
+          CONFIG__FALLBACK_MODELS: "[]"
+          # Describe, review and suggest only when a PR is opened, reopened or
+          # marked ready, not on every push. Comment a command to rerun it.
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_review: "true"
+          github_action_config.auto_improve: "true"
+          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review"]'
