@@ -48,6 +48,27 @@ use crate::queues::{
 use crate::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
 
+/// Why the daemon refused a client's command. Clients hear the message
+/// (see #234 for sending it typed).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ServiceError {
+    #[error(transparent)]
+    Queue(#[from] uidm_domain::queue::QueueError),
+    #[error(transparent)]
+    Download(#[from] uidm_domain::download::DownloadError),
+    #[error(transparent)]
+    Confirm(#[from] crate::downloads::ConfirmError),
+    #[error(transparent)]
+    Update(#[from] uidm_domain::update::UpdateError),
+    #[error(transparent)]
+    Grab(#[from] grab::InvalidGrab),
+    #[error("A site crawl is already running.")]
+    CrawlRunning,
+    /// The address of a download whose form body cannot be sent.
+    #[error("the form body of {0} is not valid base64")]
+    BadBody(String),
+}
+
 /// Links the link picker's probes ask about at once.
 const LINK_PROBES: usize = 4;
 
@@ -281,10 +302,13 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Change queue `id` with `f`, then save the queues and tell the
     /// clients.
-    pub fn update_queue<T>(&self, id: u64, f: impl FnOnce(&mut Queue) -> Result<T, String>) -> Result<T, String> {
+    pub fn update_queue<T>(
+        &self,
+        id: u64,
+        f: impl FnOnce(&mut Queue) -> T,
+    ) -> Result<T, uidm_domain::queue::QueueError> {
         let result = self.store.edit(|queues| {
-            let q = queues.iter_mut().find(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
-            f(q)
+            queues.iter_mut().find(|q| q.id == id).map(f).ok_or(uidm_domain::queue::QueueError::NoQueue(id))
         })?;
         self.store.queues_changed();
         Ok(result)
@@ -292,11 +316,11 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Whether UIDM can send `download`'s request: a form body must be
     /// readable.
-    fn check_body(&self, download: &Download) -> Result<(), String> {
+    fn check_body(&self, download: &Download) -> Result<(), ServiceError> {
         if self.intake.sendable(download) {
             Ok(())
         } else {
-            Err(format!("the form body of {} is not valid base64", download.url))
+            Err(ServiceError::BadBody(download.url.clone()))
         }
     }
 
@@ -343,39 +367,39 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Put download `id` in queue `queue` at `position` (or at the end). A
     /// download that is not running waits there.
-    pub fn move_to_queue(&self, id: u64, queue: u64, position: Option<usize>) -> Result<(), String> {
-        MoveToQueue::new(&*self.store, &*self.store).run(id, queue, position).map_err(|e| e.to_string())
+    pub fn move_to_queue(&self, id: u64, queue: u64, position: Option<usize>) -> Result<(), ServiceError> {
+        MoveToQueue::new(&*self.store, &*self.store).run(id, queue, position).map_err(ServiceError::from)
     }
 
     /// Take download `id` out of its queue, keeping it in the list (see
     /// `RemoveFromQueue`).
-    pub fn remove_from_queue(&self, id: u64) -> Result<(), String> {
-        RemoveFromQueue::new(&*self.store, &*self.store).run(id).map_err(|e| e.to_string())
+    pub fn remove_from_queue(&self, id: u64) -> Result<(), ServiceError> {
+        RemoveFromQueue::new(&*self.store, &*self.store).run(id).map_err(ServiceError::from)
     }
 
     /// Create a queue (id 0) or change one.
-    pub fn save_queue(&self, edited: Queue) -> Result<u64, String> {
-        SaveQueue::new(&*self.store, &*self.store).run(edited).map_err(|e| e.to_string())
+    pub fn save_queue(&self, edited: Queue) -> Result<u64, ServiceError> {
+        SaveQueue::new(&*self.store, &*self.store).run(edited).map_err(ServiceError::from)
     }
 
     /// Delete a queue. Its downloads move to the main queue; the running ones
     /// keep running.
-    pub fn delete_queue(&self, id: u64) -> Result<(), String> {
-        DeleteQueue::new(&*self.store, &*self.store, &self.run_book).run(id).map_err(|e| e.to_string())
+    pub fn delete_queue(&self, id: u64) -> Result<(), ServiceError> {
+        DeleteQueue::new(&*self.store, &*self.store, &self.run_book).run(id).map_err(ServiceError::from)
     }
 
     /// Start a queue: its waiting downloads run in order. `scheduled_day` is
     /// the day whose scheduled run this is, or `None` when started by hand.
-    pub fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), String> {
+    pub fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), ServiceError> {
         StartQueue::new(&*self.store, &self.run_book, &self.clock, &self.chimes)
             .run(id, scheduled_day)
-            .map_err(|e| e.to_string())
+            .map_err(ServiceError::from)
     }
 
     /// Stop a queue. Its running downloads stop and wait in it again, with
     /// their progress kept.
-    pub fn stop_queue(&self, id: u64) -> Result<(), String> {
-        StopQueue::new(&*self.store, &*self.store, &self.run_book, &*self.transfers).run(id).map_err(|e| e.to_string())
+    pub fn stop_queue(&self, id: u64) -> Result<(), ServiceError> {
+        StopQueue::new(&*self.store, &*self.store, &self.run_book, &*self.transfers).run(id).map_err(ServiceError::from)
     }
 
     /// One pass of the scheduler: start and stop queues on their schedules,
@@ -469,14 +493,14 @@ impl<W: Wiring> DaemonService<W> {
                     info!("start the main queue from the command line");
                     let _ = self.wake.send(());
                 }
-                Err(message) => self.clients.to_windows(Event::Error { message }),
+                Err(e) => self.clients.to_windows(Event::Error { message: e.to_string() }),
             }
         }
     }
 
     /// Set or clear what download `id` does once it finishes.
-    pub fn set_on_done(&self, id: u64, on_done: Option<OnDone>) -> Result<(), String> {
-        SetOnDone::new(&*self.store).run(id, on_done).map_err(|e| e.to_string())
+    pub fn set_on_done(&self, id: u64, on_done: Option<OnDone>) -> Result<(), ServiceError> {
+        SetOnDone::new(&*self.store).run(id, on_done).map_err(ServiceError::from)
     }
 
     /// End the countdown early and carry out its action now.
@@ -785,13 +809,13 @@ impl<W: Wiring> DaemonService<W> {
     /// Crawl a site for `client` on another thread, sending it progress and
     /// then what was found. With `download_found`, each file found goes to
     /// that queue at once, and the queue starts.
-    pub fn grab(self: &Arc<Self>, client: u64, req: GrabRequest, reply: Reply) -> Result<(), String> {
-        req.validate().map_err(|e| e.to_string())?;
+    pub fn grab(self: &Arc<Self>, client: u64, req: GrabRequest, reply: Reply) -> Result<(), ServiceError> {
+        req.validate()?;
         let stop = Arc::new(AtomicBool::new(false));
         {
             let mut grabs = lock(&self.grabs);
             if grabs.contains_key(&client) {
-                return Err("A site crawl is already running.".into());
+                return Err(ServiceError::CrawlRunning);
             }
             grabs.insert(client, Arc::clone(&stop));
         }
@@ -852,7 +876,6 @@ impl<W: Wiring> DaemonService<W> {
             let at_once = req.download_at_once as usize;
             let _ = self.update_queue(queue, |q| {
                 q.max_concurrent = at_once;
-                Ok(())
             });
         }
         if !added.is_empty() && !self.queues().iter().any(|q| q.id == queue && q.running) {
@@ -939,14 +962,13 @@ impl<W: Wiring> DaemonService<W> {
         let mut owns_run = false;
         let _ = self.update_queue(project.queue, |q| {
             if q.running {
-                return Ok(());
+                return;
             }
             owns_run = true;
             q.when_done_once = Some(project.when_done);
             q.open_when_done_once = project.open_when_done.clone();
             q.force_close_once = Some(project.force_close);
             q.stop_at_once = end.map(queue::Moment::total);
-            Ok(())
         });
         // A synchronizing project downloads again what earlier runs got and
         // the server has since changed.
@@ -968,7 +990,6 @@ impl<W: Wiring> DaemonService<W> {
                     q.open_when_done_once = None;
                     q.force_close_once = None;
                     q.stop_at_once = None;
-                    Ok(())
                 });
             }
             if let Some(file) = &project.open_when_done {
@@ -986,10 +1007,9 @@ impl<W: Wiring> DaemonService<W> {
         id: u64,
         to: uidm_domain::media::Target,
         delete_original: bool,
-    ) -> Result<(), String> {
-        let output = ConvertDownload::new(&*self.store, &*self.files, &self.conversions)
-            .run(id, to, delete_original)
-            .map_err(|e| e.to_string())?;
+    ) -> Result<(), ServiceError> {
+        let output =
+            ConvertDownload::new(&*self.store, &*self.files, &self.conversions).run(id, to, delete_original)?;
         info!(download_id = id, output = %output.display(), "converting");
         Ok(())
     }
@@ -1007,11 +1027,9 @@ impl<W: Wiring> DaemonService<W> {
     /// Update now (see `InstallUpdate`), then stop the downloads, save the
     /// list and quit with the windows, so Setup can replace the files.
     /// Setup closes whatever is left.
-    pub fn install_update(&self) -> Result<(), String> {
+    pub fn install_update(&self) -> Result<(), ServiceError> {
         let github = (self.releases)(&self.release_url);
-        let path = InstallUpdate::new(&github, &*self.settings, self.version)
-            .run(self.clock.unix_now())
-            .map_err(|e| e.to_string())?;
+        let path = InstallUpdate::new(&github, &*self.settings, self.version).run(self.clock.unix_now())?;
         info!(path = %path.display(), "started the update; quitting for it");
         self.pause_all();
         self.transfers.save_history();
@@ -1163,7 +1181,7 @@ impl<W: Wiring> DaemonService<W> {
     /// `duplicate` decides what happens to the other download first (a new
     /// name when missing). A category and description, when given, are kept
     /// with it. The dialog's "remember" boxes change the settings.
-    pub fn confirm(&self, answer: Answer) -> Result<(), String> {
+    pub fn confirm(&self, answer: Answer) -> Result<(), ServiceError> {
         confirm_answer::<W>(&self.store, &self.transfers, &self.files, &self.front, &self.early, answer)
     }
 
@@ -1181,36 +1199,38 @@ impl<W: Wiring> DaemonService<W> {
     /// Re-queue a failed, canceled or interrupted download from its stored
     /// request, or from its URL alone when the request was not kept (see
     /// `RetryDownload`).
-    pub fn retry(&self, id: u64) -> Result<(u64, String), String> {
-        RetryDownload::new(&*self.store, &*self.store, &*self.transfers).run(id).map_err(|e| e.to_string())
+    pub fn retry(&self, id: u64) -> Result<(u64, String), ServiceError> {
+        RetryDownload::new(&*self.store, &*self.store, &*self.transfers).run(id).map_err(ServiceError::from)
     }
 
     /// Set or clear download `id`'s own speed limit (see `SetSpeedLimit`).
-    pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) -> Result<(), String> {
-        SetSpeedLimit::new(&*self.store, &*self.transfers).run(id, bytes_per_sec).map_err(|e| e.to_string())
+    pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) -> Result<(), ServiceError> {
+        SetSpeedLimit::new(&*self.store, &*self.transfers).run(id, bytes_per_sec).map_err(ServiceError::from)
     }
 
     /// Set whether download `id` keeps its own speed limit when it is
     /// stopped and resumed.
-    pub fn set_limit_remember(&self, id: u64, remember: bool) -> Result<(), String> {
-        SetLimitRemember::new(&*self.store).run(id, remember).map_err(|e| e.to_string())
+    pub fn set_limit_remember(&self, id: u64, remember: bool) -> Result<(), ServiceError> {
+        SetLimitRemember::new(&*self.store).run(id, remember).map_err(ServiceError::from)
     }
 
     /// Start download `id` again from the first byte, under the same id (see
     /// `Redownload`).
-    pub fn redownload(&self, id: u64) -> Result<(), String> {
-        let url = Redownload::new(&*self.store, &*self.transfers, &*self.files).run(id).map_err(|e| e.to_string())?;
+    pub fn redownload(&self, id: u64) -> Result<(), ServiceError> {
+        let url = Redownload::new(&*self.store, &*self.transfers, &*self.files).run(id)?;
         info!(download_id = id, url = %url, "downloading again");
         Ok(())
     }
 
     /// Give download `id` a new link, or wait for the browser's next one (see
     /// `RefreshLink`). Returns why the new link was refused, if it was.
-    pub fn refresh_link(&self, id: u64, download: Option<Download>, restart: bool) -> Result<Option<String>, String> {
-        match RefreshLink::new(&*self.store, &*self.store, &*self.transfers)
-            .run(id, download, restart)
-            .map_err(|e| e.to_string())?
-        {
+    pub fn refresh_link(
+        &self,
+        id: u64,
+        download: Option<Download>,
+        restart: bool,
+    ) -> Result<Option<String>, ServiceError> {
+        match RefreshLink::new(&*self.store, &*self.store, &*self.transfers).run(id, download, restart)? {
             Refreshed::Waiting => Ok(None),
             Refreshed::Mismatch(reason) => Ok(Some(reason)),
             Refreshed::NewLink(url) => {
@@ -1221,8 +1241,8 @@ impl<W: Wiring> DaemonService<W> {
     }
 
     /// Change a stopped or finished download's details (see `SetProperties`).
-    pub fn set_properties(&self, id: u64, p: Properties) -> Result<(), String> {
-        let moved = SetProperties::new(&*self.store, &*self.files).run(id, p).map_err(|e| e.to_string())?;
+    pub fn set_properties(&self, id: u64, p: Properties) -> Result<(), ServiceError> {
+        let moved = SetProperties::new(&*self.store, &*self.files).run(id, p)?;
         if let Some(to) = moved {
             info!(download_id = id, to = %to.display(), "moved");
         }
@@ -1281,13 +1301,13 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Forget a download that is no longer running. Its files stay on disk
     /// unless `delete_files`, which sends them to the Recycle Bin.
-    pub fn remove(&self, id: u64, delete_files: bool) -> Result<(), String> {
+    pub fn remove(&self, id: u64, delete_files: bool) -> Result<(), ServiceError> {
         if delete_files {
             info!(download_id = id, "removing with its files");
         }
         RemoveDownload::new(&*self.store, &*self.store, &*self.transfers, &*self.files)
             .run(id, delete_files)
-            .map_err(|e| e.to_string())
+            .map_err(ServiceError::from)
     }
 
     /// Send the whole list to one client, under the table lock so no event can
@@ -1324,10 +1344,10 @@ pub fn confirm_answer<W: Wiring>(
     front: &W::Front,
     early: &W::Early,
     answer: Answer,
-) -> Result<(), String> {
+) -> Result<(), ServiceError> {
     let id = answer.id;
     let confirm = ConfirmAnswer::new(store, store, transfers, files, front, transfers, early);
-    let (done, warnings) = confirm.run(answer).map_err(|e| e.to_string())?;
+    let (done, warnings) = confirm.run(answer)?;
     for w in warnings {
         match w {
             ConfirmWarning::DuplicateNotRemembered(e) => {
@@ -1408,7 +1428,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::Add(mut download) => {
             download.limit_browser_request();
             if let Err(message) = daemon.check_body(&download) {
-                send(Event::Rejected { url: download.url, message });
+                send(Event::Rejected { url: download.url, message: message.to_string() });
                 return;
             }
             let (id, url) = daemon.add(download);
@@ -1423,20 +1443,20 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::ProbeMedia { request, mut download } => {
             download.limit_browser_request();
             if let Err(message) = daemon.check_body(&download) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
                 return;
             }
             daemon.probe_media(request, download, reply.clone());
         }
         Command::Grab(req) => {
             if let Err(message) = daemon.grab(client, req, reply.clone()) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::CancelGrab => daemon.stop_grab(client),
         Command::ProbeLinks { request, links } => {
             if let Some(message) = links.iter().find_map(|d| daemon.check_body(d).err()) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
                 return;
             }
             daemon.probe_links(client, request, links, reply.clone());
@@ -1450,7 +1470,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
             let (id, start) = (answer.id, answer.start);
             match daemon.confirm(answer) {
                 Ok(()) => info!(download_id = id, start, "confirm"),
-                Err(message) => send(Event::Error { message }),
+                Err(message) => send(Event::Error { message: message.to_string() }),
             }
         }
         Command::Retry { id } => match daemon.retry(id) {
@@ -1458,21 +1478,21 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 info!(download_id = id, new_id, "retry");
                 send(Event::Ack { id: new_id, url, status: "accepted".to_string() });
             }
-            Err(message) => send(Event::Error { message }),
+            Err(message) => send(Event::Error { message: message.to_string() }),
         },
         Command::Remove { id, delete_files } => {
             if let Err(message) = daemon.remove(id, delete_files) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::List => daemon.send_list(reply),
         Command::SaveQueue { queue } => match daemon.save_queue(queue) {
             Ok(id) => info!(queue = %id, "queue saved"),
-            Err(message) => send(Event::Error { message }),
+            Err(message) => send(Event::Error { message: message.to_string() }),
         },
         Command::DeleteQueue { id } => {
             if let Err(message) = daemon.delete_queue(id) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::StartQueue { id } => match daemon.start_queue(id, None) {
@@ -1480,28 +1500,27 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 info!(queue = %id, "start queue");
                 let _ = daemon.wake.send(());
             }
-            Err(message) => send(Event::Error { message }),
+            Err(message) => send(Event::Error { message: message.to_string() }),
         },
         Command::StopQueue { id } => match daemon.stop_queue(id) {
             Ok(()) => info!(queue = %id, "stop queue"),
-            Err(message) => send(Event::Error { message }),
+            Err(message) => send(Event::Error { message: message.to_string() }),
         },
         Command::SetQueueOnce { id, when_done } => {
             if let Err(message) = daemon.update_queue(id, |q| {
                 q.when_done_once = when_done;
-                Ok(())
             }) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::MoveToQueue { id, queue, position } => {
             if let Err(message) = daemon.move_to_queue(id, queue, position) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::RemoveFromQueue { id } => {
             if let Err(message) = daemon.remove_from_queue(id) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::CancelCountdown => daemon.cancel_countdown(),
@@ -1513,14 +1532,14 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
             let url = download.as_ref().map(|d| d.url.clone()).unwrap_or_default();
             if let Some(d) = &download {
                 if let Err(message) = daemon.check_body(d) {
-                    send(Event::Error { message });
+                    send(Event::Error { message: message.to_string() });
                     return;
                 }
             }
             match daemon.refresh_link(id, download, restart) {
                 Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason }),
                 Ok(None) => {}
-                Err(message) => send(Event::Error { message }),
+                Err(message) => send(Event::Error { message: message.to_string() }),
             }
         }
         Command::CancelRefresh => daemon.transfers.wait_for_link(None),
@@ -1540,14 +1559,14 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::PreviewZip { id } => daemon.preview_zip(id, reply.clone()),
         Command::Convert { id, to, delete_original } => {
             if let Err(message) = daemon.convert(id, to, delete_original) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::InstallUpdate => {
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
                 if let Err(error) = daemon.install_update() {
-                    reply.send(Event::UpdateFailed { error });
+                    reply.send(Event::UpdateFailed { error: error.to_string() });
                 }
             });
         }
@@ -1567,22 +1586,22 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 .set_download_limit(id, bytes_per_sec)
                 .and_then(|()| remember.map_or(Ok(()), |r| daemon.set_limit_remember(id, r)));
             if let Err(message) = set {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::SetOnDone { id, on_done } => {
             if let Err(message) = daemon.set_on_done(id, on_done) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::Redownload { id } => {
             if let Err(message) = daemon.redownload(id) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::SetProperties { id, changes } => {
             if let Err(message) = daemon.set_properties(id, changes) {
-                send(Event::Error { message });
+                send(Event::Error { message: message.to_string() });
             }
         }
         Command::PauseAll => {
@@ -1597,10 +1616,32 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::SetSettings { settings } => {
             let settings =
                 if daemon.clients.is_window(client) { settings } else { daemon.with_video_button(&settings) };
-            match daemon.transfers.save_settings(settings).map_err(|e| e.to_string()) {
+            match daemon.transfers.save_settings(settings) {
                 Ok(()) => info!("settings changed"),
-                Err(message) => send(Event::Error { message }),
+                Err(message) => send(Event::Error { message: message.to_string() }),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uidm_domain::download::DownloadError;
+    use uidm_domain::queue::QueueError;
+
+    /// Clients hear the same words as before the errors were typed.
+    #[test]
+    fn messages_read_as_before() {
+        assert_eq!(ServiceError::CrawlRunning.to_string(), "A site crawl is already running.");
+        assert_eq!(
+            ServiceError::BadBody("http://a/x".into()).to_string(),
+            "the form body of http://a/x is not valid base64"
+        );
+        assert_eq!(ServiceError::from(QueueError::NoQueue(7)).to_string(), "no queue with id 7");
+        assert_eq!(
+            ServiceError::from(DownloadError::NoDownload(3)).to_string(),
+            DownloadError::NoDownload(3).to_string()
+        );
     }
 }
