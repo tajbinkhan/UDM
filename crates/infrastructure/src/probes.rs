@@ -66,9 +66,9 @@ impl Probes for ServerProbes {
         };
         crate::zip::list(total, |a, b| {
             engine::fetch_range_bytes(&req.url, &req.headers, &req.net, a, b)
-                .map_err(|e| format!("The server would not send part of the file: {e}"))
+                .map_err(|e| crate::zip::ZipError::Unread(format!("The server would not send part of the file: {e}")))
         })
-        .map_err(ProbeError)
+        .map_err(probe_error)
     }
 }
 

@@ -25,13 +25,20 @@ const POLL: Duration = Duration::from_millis(200);
 /// Keep this much of the scanner's output as the result's detail.
 const DETAIL_CHARS: usize = 300;
 
+/// Why no scanner command can be made.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ScanError {
+    #[error("Microsoft Defender is only on Windows. Choose a scanner program such as clamscan.")]
+    DefenderNotHere,
+    #[error(transparent)]
+    Command(#[from] uidm_domain::command::CommandError),
+}
+
 /// The program and arguments that scan `file`.
-pub fn command_for(scanner: Scanner, custom: &str, file: &Path) -> Result<(PathBuf, Vec<String>), String> {
+pub fn command_for(scanner: Scanner, custom: &str, file: &Path) -> Result<(PathBuf, Vec<String>), ScanError> {
     let file = file.display().to_string();
     match scanner {
-        Scanner::Defender if !cfg!(windows) => {
-            Err("Microsoft Defender is only on Windows. Choose a scanner program such as clamscan.".to_string())
-        }
+        Scanner::Defender if !cfg!(windows) => Err(ScanError::DefenderNotHere),
         Scanner::Defender => {
             let base = std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".into());
             let exe = PathBuf::from(base).join("Windows Defender").join("MpCmdRun.exe");
@@ -39,7 +46,7 @@ pub fn command_for(scanner: Scanner, custom: &str, file: &Path) -> Result<(PathB
             Ok((exe, args.iter().map(|a| a.to_string()).collect()))
         }
         Scanner::Custom => {
-            let (program, args) = parse_command(custom).map_err(|e| e.to_string())?;
+            let (program, args) = parse_command(custom)?;
             let args = args.iter().map(|a| a.replace(PATH_TOKEN, &file)).collect();
             Ok((PathBuf::from(program), args))
         }
@@ -72,7 +79,7 @@ fn join_detail(head: &str, output: &str) -> String {
 pub fn scan(scanner: Scanner, custom: &str, file: &Path) -> Scan {
     let (program, args) = match command_for(scanner, custom, file) {
         Ok(c) => c,
-        Err(detail) => return Scan::Failed { detail },
+        Err(e) => return Scan::Failed { detail: e.to_string() },
     };
     let mut child = match crate::platform::no_window(Command::new(&program).args(&args))
         .stdin(Stdio::null())

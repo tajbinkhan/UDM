@@ -49,29 +49,46 @@ fn setup_asset(assets: &serde_json::Value) -> Option<SetupAsset> {
     })
 }
 
+/// Why GitHub's answer or a downloaded Setup is refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ReleaseError {
+    /// What the JSON parser said.
+    #[error("GitHub's answer is not JSON: {0}")]
+    NotJson(String),
+    #[error("GitHub's answer names no release.")]
+    NoRelease,
+    /// The bytes downloaded and the size GitHub lists.
+    #[error("The update is {0} bytes, not the {1} GitHub lists.")]
+    WrongSize(usize, u64),
+    #[error("The update is not a Windows program.")]
+    NotProgram,
+    #[error("The update does not match the checksum GitHub lists.")]
+    WrongChecksum,
+}
+
 /// Check a downloaded Setup against what GitHub said about it: its size,
 /// its SHA-256 when given, and that it is a Windows program.
-pub fn check_setup(asset: &SetupAsset, bytes: &[u8]) -> Result<(), String> {
+pub fn check_setup(asset: &SetupAsset, bytes: &[u8]) -> Result<(), ReleaseError> {
     use sha2::Digest as _;
     if bytes.len() as u64 != asset.size {
-        return Err(format!("The update is {} bytes, not the {} GitHub lists.", bytes.len(), asset.size));
+        return Err(ReleaseError::WrongSize(bytes.len(), asset.size));
     }
     if !bytes.starts_with(b"MZ") {
-        return Err("The update is not a Windows program.".into());
+        return Err(ReleaseError::NotProgram);
     }
     if let Some(want) = &asset.sha256 {
         let got: String = sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
         if &got != want {
-            return Err("The update does not match the checksum GitHub lists.".into());
+            return Err(ReleaseError::WrongChecksum);
         }
     }
     Ok(())
 }
 
 /// The release in GitHub's answer for the latest release.
-pub fn parse_release(json: &[u8]) -> Result<Release, String> {
-    let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| format!("GitHub's answer is not JSON: {e}"))?;
-    let tag = v["tag_name"].as_str().ok_or("GitHub's answer names no release.")?;
+pub fn parse_release(json: &[u8]) -> Result<Release, ReleaseError> {
+    let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| ReleaseError::NotJson(e.to_string()))?;
+    let tag = v["tag_name"].as_str().ok_or(ReleaseError::NoRelease)?;
     let url = v["html_url"].as_str().unwrap_or("https://github.com/tajbinkhan/uidm/releases");
     // Only a link to GitHub is ever shown.
     let url = if url.starts_with("https://github.com/") { url } else { "https://github.com/tajbinkhan/uidm/releases" };
@@ -112,7 +129,7 @@ impl ReleaseSource for GitHub {
             ("Accept".to_string(), "application/vnd.github+json".to_string()),
         ];
         let body = self.fetch(&self.url, &headers, 1024 * 1024).map_err(|e| UpdateError::Unreachable(e.to_string()))?;
-        let release = parse_release(&body).map_err(UpdateError::Answer)?;
+        let release = parse_release(&body).map_err(|e| UpdateError::Answer(e.to_string()))?;
         // Only Windows has a Setup to run; elsewhere the page is shown.
         Ok(Release { setup: release.setup.filter(|_| cfg!(windows)), ..release })
     }
@@ -122,7 +139,7 @@ impl ReleaseSource for GitHub {
         info!(url = %setup.url, "downloading the update");
         let body =
             self.fetch(&setup.url, &headers, MAX_SETUP_BYTES).map_err(|e| UpdateError::Download(e.to_string()))?;
-        check_setup(setup, &body).map_err(UpdateError::BadSetup)?;
+        check_setup(setup, &body).map_err(|e| UpdateError::BadSetup(e.to_string()))?;
         let path = std::env::temp_dir().join(&setup.name);
         std::fs::write(&path, &body)
             .map_err(|e| UpdateError::Save { path: path.display().to_string(), reason: e.to_string() })?;
@@ -207,11 +224,12 @@ mod tests {
         assert_eq!(setup.name, "UIDM-Setup-0.5.0.exe");
         assert_eq!(setup.sha256.as_deref(), Some(sha.as_str()));
         assert!(check_setup(&setup, body).is_ok());
-        assert!(check_setup(&setup, b"MZ setuP").unwrap_err().contains("checksum"));
-        assert!(check_setup(&setup, b"MZ").unwrap_err().contains("bytes"));
-        assert!(check_setup(&SetupAsset { sha256: None, ..setup.clone() }, b"XX setup")
-            .unwrap_err()
-            .contains("Windows program"));
+        assert_eq!(check_setup(&setup, b"MZ setuP").unwrap_err(), ReleaseError::WrongChecksum);
+        assert_eq!(check_setup(&setup, b"MZ").unwrap_err(), ReleaseError::WrongSize(2, 8));
+        assert_eq!(
+            check_setup(&SetupAsset { sha256: None, ..setup.clone() }, b"XX setup").unwrap_err(),
+            ReleaseError::NotProgram
+        );
 
         let elsewhere = json
             .replace("https://github.com/tajbinkhan/uidm/releases/download/v0.5.0/UIDM", "https://evil.example/UIDM");

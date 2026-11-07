@@ -179,23 +179,36 @@ pub fn decode(bytes: &[u8]) -> String {
     }
 }
 
+/// Why a list file cannot be imported. The window shows the message.
+#[derive(Debug, thiserror::Error)]
+pub enum ImportError {
+    #[error(transparent)]
+    Batch(#[from] uidm_domain::batch::BatchError),
+    #[error("This is not a UIDM list: {0}")]
+    NotList(#[source] serde_json::Error),
+    #[error("This list was written by a newer UIDM.")]
+    Newer,
+    #[error("The list has {0} downloads; at most {max} can be added at once.", max = batch::MAX_BATCH)]
+    TooMany(usize),
+}
+
 /// The downloads in an exported file, in any of the formats, each set to
 /// wait rather than start. Items without a web address, and repeats, are
 /// left out; so is a folder that is not a full path. Also returns how many
 /// items were left out for not being web addresses.
-pub fn import(text: &str) -> Result<(Vec<Download>, usize), String> {
+pub fn import(text: &str) -> Result<(Vec<Download>, usize), ImportError> {
     let trimmed = text.trim_start_matches('\u{feff}').trim_start();
     if is_ef2(trimmed) {
         return keep_valid(parse_ef2(trimmed));
     }
     if !trimmed.starts_with('{') {
-        let (urls, rejected) = batch::parse_list(text).map_err(|e| e.to_string())?;
+        let (urls, rejected) = batch::parse_list(text)?;
         let items = urls.into_iter().map(|url| Download { url, start: Some(false), ..Download::default() }).collect();
         return Ok((items, rejected));
     }
-    let list: ListFile = serde_json::from_str(trimmed).map_err(|e| format!("This is not a UIDM list: {e}"))?;
+    let list: ListFile = serde_json::from_str(trimmed).map_err(ImportError::NotList)?;
     if list.uidm_list > FORMAT_VERSION {
-        return Err("This list was written by a newer UIDM.".into());
+        return Err(ImportError::Newer);
     }
     keep_valid(
         list.items
@@ -215,7 +228,7 @@ pub fn import(text: &str) -> Result<(Vec<Download>, usize), String> {
 
 /// `candidates` without repeats and without those whose URL is not a web
 /// address, and how many of those there were. Too many is an error.
-fn keep_valid(candidates: Vec<Download>) -> Result<(Vec<Download>, usize), String> {
+fn keep_valid(candidates: Vec<Download>) -> Result<(Vec<Download>, usize), ImportError> {
     let mut seen = std::collections::HashSet::new();
     let mut items = Vec::new();
     let mut rejected = 0;
@@ -230,11 +243,7 @@ fn keep_valid(candidates: Vec<Download>) -> Result<(Vec<Download>, usize), Strin
         }
     }
     if items.len() > batch::MAX_BATCH {
-        return Err(format!(
-            "The list has {} downloads; at most {} can be added at once.",
-            items.len(),
-            batch::MAX_BATCH
-        ));
+        return Err(ImportError::TooMany(items.len()));
     }
     Ok((items, rejected))
 }
@@ -277,7 +286,7 @@ impl uidm_application::window::ListFiles for ListFormats {
     }
 
     fn import(&self, text: &str) -> Result<(Vec<Download>, usize), uidm_application::window::ListError> {
-        import(text).map_err(uidm_application::window::ListError)
+        import(text).map_err(|e| uidm_application::window::ListError(e.to_string()))
     }
 
     fn export(&self, format: uidm_application::window::ListFormat, entries: &[&DownloadEntry]) -> String {
