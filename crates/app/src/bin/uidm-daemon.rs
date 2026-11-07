@@ -44,7 +44,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -70,34 +70,37 @@ use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDo
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadList, EarlyStarts, GrabRuns,
-    PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QuotaState, ReleaseSource, SettingsError,
-    SettingsStore, SyncChecks, UpdateChecks,
+    QueueFinish, SettingsError, SettingsStore, SyncChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
 };
-use uidm_domain::quota::{QuotaLimit, QuotaNotice};
-use uidm_domain::update::{Release, SetupAsset, UpdateError};
+use uidm_domain::quota::QuotaLimit;
 use uidm_infrastructure::app::{progress_to_outgoing, to_request, MAX_MESSAGE_BYTES};
 use uidm_infrastructure::clock::LocalClock;
+use uidm_infrastructure::connect::{config_for, ProxyRetries};
 use uidm_infrastructure::engine::DownloadRequest;
 use uidm_infrastructure::engine::{self, Engine, Progress};
 use uidm_infrastructure::files::DiskFiles;
 use uidm_infrastructure::grab::{self, GrabRequest};
 use uidm_infrastructure::history;
 use uidm_infrastructure::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST_LABEL};
+use uidm_infrastructure::live_settings::{LiveSettings, QueueChimes};
 use uidm_infrastructure::logging;
-use uidm_infrastructure::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
+use uidm_infrastructure::net::{self, Login, NetConfig, ProxyKind};
 use uidm_infrastructure::notify::{self, Sound, Toast};
 use uidm_infrastructure::power;
+use uidm_infrastructure::power_control::PowerOff;
 use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
+use uidm_infrastructure::queue_runs::{PauseBook, RunBook};
+use uidm_infrastructure::quota::QuotaHold;
 #[cfg(windows)]
 use uidm_infrastructure::registry;
 use uidm_infrastructure::scan;
 use uidm_infrastructure::settings::Notify;
 use uidm_infrastructure::settings::{self, Duplicate, FileExists, Folders, Settings};
-use uidm_infrastructure::settings::{ProxyMode, SocksVersion};
 use uidm_infrastructure::store::{check_body, DownloadStore, Ended, Intake, StoreEvents, StoreFiles};
+use uidm_infrastructure::update::GitHub;
 
 /// Exit after this long with no clients and no queued or running downloads.
 const IDLE_EXIT: Duration = Duration::from_secs(60);
@@ -162,9 +165,9 @@ const LOG_TRIM_EVERY: Duration = Duration::from_secs(60 * 60);
 const AWAKE_POLL: Duration = Duration::from_secs(2);
 /// How the site grabber names itself to servers.
 const GRABBER_AGENT: &str = "Mozilla/5.0 (compatible; UIDM site grabber; obeys robots.txt)";
-/// Set to make sleep, hibernate and shut down only log what they would do
-/// (for testing the countdown without losing the machine).
-const POWER_DRY_RUN_ENV: &str = "UIDM_POWER_DRY_RUN";
+
+/// This copy's version.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
 
@@ -367,6 +370,15 @@ impl Clients {
         }
     }
 
+    /// Bring the window forward: ask an open one to show itself, or start one.
+    fn show_window(&self) {
+        if self.window_open() {
+            self.broadcast(&Outgoing::Show);
+        } else if let Err(e) = open_window() {
+            warn!(error = %e, "could not open the window");
+        }
+    }
+
     /// Send `msg` to every client.
     fn broadcast(&self, msg: &Outgoing) {
         let Ok(frame) = serde_json::to_vec(msg) else {
@@ -377,45 +389,11 @@ impl Clients {
     }
 }
 
-// The daemon owns the engine, the scheduler's runs and the settings, so it
-// is the adapter for these ports until they move to uidm-infrastructure.
-impl QueueRuns for Daemon {
-    fn begin(&self, queue: u64) {
-        self.runs.lock().unwrap().insert(queue, HashSet::new());
-    }
-
-    fn end(&self, queue: u64) {
-        self.runs.lock().unwrap().remove(&queue);
-    }
-
-    fn started_in_run(&self, queue: u64) -> HashSet<u64> {
-        self.runs.lock().unwrap().get(&queue).cloned().unwrap_or_default()
-    }
-
-    fn note_started(&self, queue: u64, id: u64) {
-        self.runs.lock().unwrap().entry(queue).or_default().insert(id);
-    }
-
-    fn count_retry(&self, id: u64, max: u32) -> Option<u32> {
-        let mut attempts = self.attempts.lock().unwrap();
-        let n = attempts.entry(id).or_insert(0);
-        (*n < max).then(|| {
-            *n += 1;
-            *n
-        })
-    }
-
-    fn forget_retries(&self, ids: &HashSet<u64>) {
-        let mut attempts = self.attempts.lock().unwrap();
-        for id in ids {
-            attempts.remove(id);
-        }
-    }
-}
-
+// The daemon owns the engine and the download logic, so it is the adapter
+// for these ports until they move to uidm-infrastructure.
 impl QueueFinish for Daemon {
     fn run_ended(&self, queue: &str, end: &RunEnd) {
-        let settings = self.settings.lock().unwrap().clone();
+        let settings = self.settings.lock().clone();
         if settings.sound_on_queue_done {
             notify::play(Sound::QueueDone, settings.sound_file(Sound::QueueDone).as_deref());
         }
@@ -426,163 +404,9 @@ impl QueueFinish for Daemon {
     }
 }
 
-impl QuotaState for Daemon {
-    fn used(&self, now: u64, window: u64) -> u64 {
-        self.store.quota().used(now, window)
-    }
-
-    fn frees_at(&self, now: u64, window: u64, limit: u64) -> u64 {
-        self.store.quota().frees_at(now, window, limit)
-    }
-
-    fn paused(&self) -> bool {
-        self.quota_paused.lock().unwrap().is_some()
-    }
-
-    fn hold(&self, queues: &[u64], downloads: &[u64]) {
-        let mut held = self.quota_paused.lock().unwrap();
-        let (q, d) = held.get_or_insert_with(Default::default);
-        q.extend(queues);
-        d.extend(downloads);
-    }
-
-    fn release(&self) -> (Vec<u64>, HashSet<u64>) {
-        self.quota_paused.lock().unwrap().take().unwrap_or_default()
-    }
-
-    fn warned(&self) -> bool {
-        self.quota_warned.load(Ordering::Relaxed)
-    }
-
-    fn set_warned(&self, warned: bool) {
-        self.quota_warned.store(warned, Ordering::Relaxed);
-    }
-
-    fn announce(&self, notice: QuotaNotice) {
-        self.clients.broadcast(&quota_outgoing(notice));
-    }
-}
-
-impl PowerControl for Daemon {
-    fn exit(&self) {
-        self.clients.broadcast(&Outgoing::Quit);
-        self.save_history();
-        // Other downloads may still run; the idle monitor ends the daemon
-        // once they are done and every window has closed.
-    }
-
-    fn start_countdown(&self, request: &PowerRequest, seconds: u32) {
-        let canceled = Arc::new(AtomicBool::new(false));
-        let deadline = Instant::now() + Duration::from_secs(seconds as u64);
-        let countdown = Countdown { request: request.clone(), deadline, canceled: Arc::clone(&canceled) };
-        if let Some(old) = self.countdown.lock().unwrap().replace(countdown) {
-            old.canceled.store(true, Ordering::Relaxed);
-        }
-        self.clients.broadcast(&Outgoing::Countdown {
-            action: request.action,
-            seconds,
-            queue: request.queue.clone(),
-            file: request.file.clone(),
-        });
-        self.show_window();
-        // Save now: the machine may go away when the countdown ends.
-        self.save_history();
-        let (action, force_close) = (request.action, request.force_close);
-        thread::spawn(move || {
-            while Instant::now() < deadline {
-                if canceled.load(Ordering::Relaxed) {
-                    return;
-                }
-                thread::sleep(Duration::from_millis(250));
-            }
-            if canceled.load(Ordering::Relaxed) {
-                return;
-            }
-            power_off(action, force_close);
-        });
-    }
-
-    fn take_countdown(&self) -> Option<PowerRequest> {
-        let c = self.countdown.lock().unwrap().take()?;
-        c.canceled.store(true, Ordering::Relaxed);
-        Some(c.request)
-    }
-
-    fn countdown_canceled(&self) {
-        self.clients.broadcast(&Outgoing::CountdownCanceled);
-    }
-
-    fn power_off(&self, action: WhenDone, force_close: bool) {
-        power_off(action, force_close);
-    }
-}
-
-impl UpdateChecks for Daemon {
-    fn weekly(&self) -> (bool, u64) {
-        let s = self.settings.lock().unwrap();
-        (s.check_updates, s.last_update_check)
-    }
-
-    fn note_checked(&self, at: u64, save: bool) {
-        let mut s = self.settings.lock().unwrap();
-        s.last_update_check = at;
-        if let Some(path) = self.paths.settings.as_ref().filter(|_| save) {
-            let _ = settings::save(&s, path);
-        }
-    }
-}
-
-/// This copy's version.
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-/// GitHub's releases at `url`, reached through the settings' proxy.
-struct GitHub<'a> {
-    daemon: &'a Daemon,
-    url: &'a str,
-}
-
-impl ReleaseSource for GitHub<'_> {
-    fn latest(&self) -> Result<Release, UpdateError> {
-        let settings = self.daemon.settings.lock().unwrap().clone();
-        let net = self.daemon.net_for(&Download { url: self.url.to_string(), ..Download::default() }, &settings);
-        let headers = [
-            ("User-Agent".to_string(), format!("UIDM/{VERSION}")),
-            ("Accept".to_string(), "application/vnd.github+json".to_string()),
-        ];
-        let page = engine::fetch(self.url, &headers, &net, 1024 * 1024)
-            .map_err(|e| UpdateError::Unreachable(e.to_string()))?;
-        let release = uidm_infrastructure::update::parse_release(&page.body).map_err(UpdateError::Answer)?;
-        // Only Windows has a Setup to run; elsewhere the page is shown.
-        Ok(Release { setup: release.setup.filter(|_| cfg!(windows)), ..release })
-    }
-
-    fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError> {
-        let settings = self.daemon.settings.lock().unwrap().clone();
-        let net = self.daemon.net_for(&Download { url: setup.url.clone(), ..Download::default() }, &settings);
-        let headers = [("User-Agent".to_string(), format!("UIDM/{VERSION}"))];
-        info!(url = %setup.url, "downloading the update");
-        let fetched = engine::fetch(&setup.url, &headers, &net, uidm_infrastructure::update::MAX_SETUP_BYTES)
-            .map_err(|e| UpdateError::Download(e.to_string()))?;
-        uidm_infrastructure::update::check_setup(setup, &fetched.body).map_err(UpdateError::BadSetup)?;
-        let path = std::env::temp_dir().join(&setup.name);
-        std::fs::write(&path, &fetched.body)
-            .map_err(|e| UpdateError::Save { path: path.display().to_string(), reason: e.to_string() })?;
-        Ok(path)
-    }
-
-    fn run_setup(&self, path: &Path) -> Result<(), UpdateError> {
-        // /fromuidm closes UIDM without asking: the user asked for this.
-        Command::new(path)
-            .arg("/fromuidm=yes")
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| UpdateError::Start { path: path.display().to_string(), reason: e.to_string() })
-    }
-}
-
 impl SettingsStore for Daemon {
     fn settings(&self) -> Settings {
-        self.settings.lock().unwrap().clone()
+        self.settings.lock().clone()
     }
 
     fn save_settings(&self, settings: Settings) -> Result<(), SettingsError> {
@@ -667,7 +491,7 @@ impl Attention for Front<'_> {
         } else {
             // Without a window, a notification stands in for the dialog,
             // whatever the notification setting.
-            let mut settings = self.0.settings.lock().unwrap().clone();
+            let mut settings = self.0.settings.lock().clone();
             settings.notify = Notify::Toast;
             settings.sound_on_done = false;
             self.0.notify(id, false, &settings);
@@ -685,7 +509,7 @@ struct Conversions<'a>(&'a Arc<Daemon>);
 
 impl Converter for Conversions<'_> {
     fn available(&self) -> bool {
-        settings::ffmpeg(&self.0.settings.lock().unwrap()).is_some()
+        settings::ffmpeg(&self.0.settings.lock()).is_some()
     }
 
     fn stop(&self, id: u64) -> bool {
@@ -700,7 +524,7 @@ impl Converter for Conversions<'_> {
 
     fn start(&self, c: Conversion) {
         let daemon = Arc::clone(self.0);
-        let Some(ffmpeg) = settings::ffmpeg(&daemon.settings.lock().unwrap()) else {
+        let Some(ffmpeg) = settings::ffmpeg(&daemon.settings.lock()) else {
             return;
         };
         let size = std::fs::metadata(&c.input).map(|m| m.len()).unwrap_or(0);
@@ -759,11 +583,6 @@ impl Converter for Conversions<'_> {
     }
 }
 
-/// The `quota` message that tells the clients `notice`.
-fn quota_outgoing(n: QuotaNotice) -> Outgoing {
-    Outgoing::Quota { used: n.used, limit: n.limit, paused: n.paused, resumes_at: n.resumes_at }
-}
-
 /// The checks a synchronizing queue runs, each on a thread of its own that
 /// holds the daemon.
 struct SyncCheck<'a>(&'a Arc<Daemon>);
@@ -781,15 +600,6 @@ impl SyncChecks for SyncCheck<'_> {
             daemon.checking.lock().unwrap().remove(&id);
             let _ = daemon.clients.wake.send(());
         });
-    }
-}
-
-impl QueueSounds for Daemon {
-    fn queue_started(&self) {
-        let settings = self.settings.lock().unwrap().clone();
-        if settings.sound_on_queue_started {
-            notify::play(Sound::QueueStarted, settings.sound_file(Sound::QueueStarted).as_deref());
-        }
     }
 }
 
@@ -840,7 +650,7 @@ impl DownloadControl for Daemon {
         let req = self.request_for(download.clone());
         let found =
             engine::inspect(&download.url, None, &req.headers, &req.net).map_err(|e| ControlError(e.to_string()))?;
-        let ignore_date = self.settings.lock().unwrap().resume_ignores_date;
+        let ignore_date = self.settings.lock().resume_ignores_date;
         Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err())
     }
 
@@ -867,17 +677,6 @@ impl DownloadControl for Daemon {
     }
 }
 
-impl PausedDownloads for Daemon {
-    fn remember(&self, queues: &[u64], downloads: &[u64]) {
-        self.paused_queues.lock().unwrap().extend(queues);
-        self.paused.lock().unwrap().extend(downloads);
-    }
-
-    fn take(&self) -> (HashSet<u64>, HashSet<u64>) {
-        (std::mem::take(&mut *self.paused_queues.lock().unwrap()), std::mem::take(&mut *self.paused.lock().unwrap()))
-    }
-}
-
 /// Where the daemon keeps its files. A path is `None` when its environment
 /// variable is missing; that data then lives in memory only.
 struct Paths {
@@ -900,27 +699,16 @@ impl Paths {
 }
 
 struct Daemon {
-    engine: Engine,
+    engine: Arc<Engine>,
     /// The download list, the kept requests and the queues.
     store: Arc<DownloadStore>,
     clients: Arc<Clients>,
     early: Arc<EarlyRuns>,
-    settings: Mutex<Settings>,
-    paths: Paths,
-    /// Downloads stopped by `pause_all`, for `resume_all`.
-    paused: Mutex<HashSet<u64>>,
+    settings: Arc<LiveSettings>,
     /// Recent notifications; dropping one can stop its buttons working.
     toasts: Mutex<VecDeque<notify::Shown>>,
-    /// Queues stopped by `pause_all`, for `resume_all`.
-    paused_queues: Mutex<HashSet<u64>>,
-    /// What each started queue has started in its current run.
-    runs: Mutex<HashMap<u64, HashSet<u64>>>,
-    /// Retries each download got from its queue in the current run.
-    attempts: Mutex<HashMap<u64, u32>>,
     /// Finished downloads a synchronizing queue is checking with the server.
     checking: Mutex<HashSet<u64>>,
-    /// The countdown before a power action, while one runs.
-    countdown: Mutex<Option<Countdown>>,
     /// Keeps two scheduler passes from running at once.
     tick_lock: Mutex<()>,
     /// The download waiting for a new link from the browser, if any.
@@ -934,10 +722,6 @@ struct Daemon {
     /// A command line held for the window its `uidm-gui` is opening, and
     /// when it came.
     command_line: Mutex<Option<(CommandLine, Instant)>>,
-    /// What the quota stopped (queues and downloads), while it holds them.
-    quota_paused: Mutex<Option<(Vec<u64>, HashSet<u64>)>>,
-    /// The nearly-reached warning was sent for the current window.
-    quota_warned: AtomicBool,
     /// Crawls waiting for the browser's cookies, by request.
     cookie_waits: Mutex<HashMap<u64, Sender<Option<String>>>>,
     /// Crawls waiting for a page the browser renders: its HTML and address.
@@ -950,14 +734,17 @@ struct Daemon {
     grab_checked: Mutex<Option<Instant>>,
     /// Addresses retried through the browser's proxy after failing through
     /// UIDM's own proxy setting; they keep using it.
-    browser_proxy_retries: Mutex<HashSet<String>>,
-}
-
-/// A countdown before sleeping, hibernating or shutting down.
-struct Countdown {
-    request: PowerRequest,
-    deadline: Instant,
-    canceled: Arc<AtomicBool>,
+    browser_proxy_retries: Arc<ProxyRetries>,
+    /// Each started queue's current run, and its retries.
+    run_book: RunBook,
+    /// What `pause_all` stopped, for `resume_all`.
+    pause_book: PauseBook,
+    /// The download quota's count and what it stopped.
+    quota: QuotaHold,
+    /// Closing UIDM and the countdown before a power action.
+    power: PowerOff,
+    /// The queue sounds.
+    chimes: QueueChimes,
 }
 
 impl Daemon {
@@ -1012,35 +799,44 @@ impl Daemon {
         engine.set_speed_limit(settings.speed_limit_bytes());
         engine.set_per_file_limit(settings.per_file_limit_bytes());
         engine.set_next_id(next_id);
+        let engine = Arc::new(engine);
+        let settings = Arc::new(LiveSettings::new(settings, paths.settings.clone()));
+        let chimes = QueueChimes(Arc::clone(&settings));
+        let quota = QuotaHold::new(Arc::clone(&store), Arc::clone(&clients) as _);
+        let power = {
+            let (store, engine, shown) = (Arc::clone(&store), Arc::clone(&engine), Arc::clone(&clients));
+            PowerOff::new(
+                Arc::clone(&clients) as _,
+                Box::new(move || store.save(engine.next_id())),
+                Box::new(move || shown.show_window()),
+            )
+        };
 
         let daemon = Daemon {
             engine,
             store,
             clients,
             early,
-            settings: Mutex::new(settings),
-            paths,
-            paused: Mutex::new(HashSet::new()),
+            settings,
             toasts: Mutex::new(VecDeque::new()),
-            paused_queues: Mutex::new(HashSet::new()),
-            runs: Mutex::new(HashMap::new()),
-            attempts: Mutex::new(HashMap::new()),
             checking: Mutex::new(HashSet::new()),
-            countdown: Mutex::new(None),
             tick_lock: Mutex::new(()),
             refresh_waiting: Mutex::new(None),
             grabs: Mutex::new(HashMap::new()),
             link_probes: Mutex::new(HashMap::new()),
             picked_links: Mutex::new(None),
             command_line: Mutex::new(None),
-            quota_paused: Mutex::new(None),
-            quota_warned: AtomicBool::new(false),
             cookie_waits: Mutex::new(HashMap::new()),
             render_waits: Mutex::new(HashMap::new()),
             grab_runs: Mutex::new(HashSet::new()),
             conversions: Mutex::new(HashMap::new()),
             grab_checked: Mutex::new(None),
-            browser_proxy_retries: Mutex::new(HashSet::new()),
+            browser_proxy_retries: Arc::default(),
+            chimes,
+            run_book: RunBook::default(),
+            pause_book: PauseBook::default(),
+            quota,
+            power,
         };
         (daemon, dirty_rx, notes_rx, wake_rx)
     }
@@ -1119,19 +915,21 @@ impl Daemon {
     /// Delete a queue. Its downloads move to the main queue; the running ones
     /// keep running.
     fn delete_queue(&self, id: u64) -> Result<(), String> {
-        DeleteQueue::new(&*self.store, &*self.store, self).run(id).map_err(|e| e.to_string())
+        DeleteQueue::new(&*self.store, &*self.store, &self.run_book).run(id).map_err(|e| e.to_string())
     }
 
     /// Start a queue: its waiting downloads run in order. `scheduled_day` is
     /// the day whose scheduled run this is, or `None` when started by hand.
     fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), String> {
-        StartQueue::new(&*self.store, self, &LocalClock, self).run(id, scheduled_day).map_err(|e| e.to_string())
+        StartQueue::new(&*self.store, &self.run_book, &LocalClock, &self.chimes)
+            .run(id, scheduled_day)
+            .map_err(|e| e.to_string())
     }
 
     /// Stop a queue. Its running downloads stop and wait in it again, with
     /// their progress kept.
     fn stop_queue(&self, id: u64) -> Result<(), String> {
-        StopQueue::new(&*self.store, &*self.store, self, self).run(id).map_err(|e| e.to_string())
+        StopQueue::new(&*self.store, &*self.store, &self.run_book, self).run(id).map_err(|e| e.to_string())
     }
 
     /// One pass of the scheduler: start and stop queues on their schedules,
@@ -1140,7 +938,8 @@ impl Daemon {
     fn tick(self: &Arc<Self>) {
         let _guard = self.tick_lock.lock().unwrap();
         self.check_quota();
-        let scheduled = RunSchedules::new(&*self.store, &*self.store, &**self, &**self, &LocalClock, &**self).run();
+        let scheduled =
+            RunSchedules::new(&*self.store, &*self.store, &self.run_book, &**self, &LocalClock, &self.chimes).run();
         for Scheduled { queue, step } in scheduled {
             let why = match step {
                 ScheduleStep::Start { .. } => "schedule starts",
@@ -1150,7 +949,8 @@ impl Daemon {
             info!(queue = %queue, why, "schedule step");
         }
 
-        let events = RunQueues::new(&*self.store, &*self.store, &**self, &**self, &SyncCheck(self), &**self).run();
+        let events =
+            RunQueues::new(&*self.store, &*self.store, &self.run_book, &**self, &SyncCheck(self), &**self).run();
         for event in events {
             match event {
                 QueueEvent::Retried { queue, id, attempt, of } => {
@@ -1268,7 +1068,7 @@ impl Daemon {
     /// (see `RunWhenDone`).
     fn when_done(&self, action: WhenDone, queue: &str, file: Option<&str>, force_close: bool) {
         let request = PowerRequest { action, queue: queue.to_string(), file: file.map(str::to_string), force_close };
-        match RunWhenDone::new(self).run(&request) {
+        match RunWhenDone::new(&self.power).run(&request) {
             PowerStep::None => {}
             PowerStep::Exit => info!(subject = %request.subject(), "done: exiting"),
             PowerStep::Countdown => {
@@ -1280,7 +1080,7 @@ impl Daemon {
     /// Run what download `id` asked to happen once it finished, then clear
     /// it so downloading it again does not repeat it.
     fn after_download(&self, id: u64) {
-        AfterDownload::new(&*self.store, self).run(id);
+        AfterDownload::new(&*self.store, &self.power).run(id);
     }
 
     /// Do what `uidm-gui`'s command line asked. `/q` counts only when that
@@ -1317,29 +1117,18 @@ impl Daemon {
 
     /// End the countdown early and carry out its action now.
     fn countdown_now(&self) {
-        CountdownNow::new(self).run();
+        CountdownNow::new(&self.power).run();
     }
 
     fn cancel_countdown(&self) {
-        if CancelCountdown::new(self).run() {
+        if CancelCountdown::new(&self.power).run() {
             info!("countdown canceled");
         }
     }
 
     /// The countdown still running, as the message a window joining now needs.
     fn countdown_message(&self) -> Option<Outgoing> {
-        let mut slot = self.countdown.lock().unwrap();
-        let c = slot.as_ref()?;
-        if c.canceled.load(Ordering::Relaxed) || Instant::now() >= c.deadline {
-            *slot = None;
-            return None;
-        }
-        Some(Outgoing::Countdown {
-            action: c.request.action,
-            seconds: c.deadline.saturating_duration_since(Instant::now()).as_secs() as u32,
-            queue: c.request.queue.clone(),
-            file: c.request.file.clone(),
-        })
+        self.power.countdown_message()
     }
 
     /// The next scheduled start, of a queue or a grabber project, whose
@@ -1402,22 +1191,18 @@ impl Daemon {
 
     /// Bring the window forward: ask an open one to show itself, or start one.
     fn show_window(&self) {
-        if self.clients.window_open() {
-            self.clients.broadcast(&Outgoing::Show);
-        } else if let Err(e) = open_window() {
-            warn!(error = %e, "could not open the window");
-        }
+        self.clients.show_window();
     }
 
     /// Stop every queued or running download, remembering them for
     /// `resume_all`.
     fn pause_all(&self) {
-        PauseAll::new(&*self.store, &*self.store, self, self, self).run();
+        PauseAll::new(&*self.store, &*self.store, &self.run_book, self, &self.pause_book).run();
     }
 
     /// The quota the settings ask for, if it is on.
     fn quota_limit(&self) -> Option<QuotaLimit> {
-        let s = self.settings.lock().unwrap();
+        let s = self.settings.lock();
         s.quota().map(|(bytes, window)| QuotaLimit { bytes, window, warn: s.quota_warn })
     }
 
@@ -1425,7 +1210,7 @@ impl Daemon {
     /// paused for it or it is nearly reached.
     fn quota_message(&self) -> Option<Outgoing> {
         let now = uidm_infrastructure::quota::now_minute();
-        QuotaStatus::new(self).run(self.quota_limit(), now).map(quota_outgoing)
+        QuotaStatus::new(&self.quota).run(self.quota_limit(), now).map(uidm_infrastructure::quota::notice_message)
     }
 
     /// Pause everything when the download quota is reached, warn shortly
@@ -1433,7 +1218,8 @@ impl Daemon {
     /// `CheckQuota`). Runs with the scheduler.
     fn check_quota(&self) {
         let now = uidm_infrastructure::quota::now_minute();
-        let check = CheckQuota::new(&*self.store, &*self.store, self, self, &LocalClock, self, self);
+        let check =
+            CheckQuota::new(&*self.store, &*self.store, &self.run_book, self, &LocalClock, &self.chimes, &self.quota);
         match check.run(self.quota_limit(), now) {
             Some(QuotaEvent::Reached { used, limit }) => {
                 info!(used, limit, "quota reached")
@@ -1450,7 +1236,16 @@ impl Daemon {
 
     /// Start again what `pause_all` stopped, and every interrupted download.
     fn resume_all(&self) {
-        let resumed = ResumeAll::new(&*self.store, &*self.store, self, self, self, &LocalClock, self).run();
+        let resumed = ResumeAll::new(
+            &*self.store,
+            &*self.store,
+            &self.run_book,
+            self,
+            &self.pause_book,
+            &LocalClock,
+            &self.chimes,
+        )
+        .run();
         for (id, e) in resumed.failed {
             warn!(download_id = id, error = %e, "could not resume");
         }
@@ -1459,7 +1254,7 @@ impl Daemon {
     /// Handle one note: scan a finished download first when asked, then play
     /// the sound and notify.
     fn on_note(self: &Arc<Self>, note: Note) {
-        let settings = self.settings.lock().unwrap().clone();
+        let settings = self.settings.lock().clone();
         match note {
             Note::Finished(id) if settings.scan_after_download => {
                 let scanning = self.store.update(id, |e| {
@@ -1600,7 +1395,7 @@ impl Daemon {
     /// that dialog is off.
     fn add(self: &Arc<Self>, mut download: Download) -> (u64, String) {
         if let Some(old) = self.duplicate_of(&download) {
-            let choice = download.duplicate.unwrap_or(self.settings.lock().unwrap().if_duplicate);
+            let choice = download.duplicate.unwrap_or(self.settings.lock().if_duplicate);
             info!(url = %download.url, download_id = old.id, choice = ?choice, "already in the list");
             if choice == Duplicate::Ask {
                 return self.ask(download, Some(old.id));
@@ -1609,7 +1404,7 @@ impl Daemon {
                 return kept;
             }
         }
-        let settings = self.settings.lock().unwrap().clone();
+        let settings = self.settings.lock().clone();
         if download.start == Some(false) || (download.start.is_none() && settings.add_only) {
             return self.add_later(download);
         }
@@ -1678,7 +1473,7 @@ impl Daemon {
     /// later goes to, else the main one) without starting it or opening a
     /// connection.
     fn add_later(&self, download: Download) -> (u64, String) {
-        let later = self.settings.lock().unwrap().later_queue;
+        let later = self.settings.lock().later_queue;
         AddLater::new(&*self.store, &self.intake()).run(download, later)
     }
 
@@ -1697,7 +1492,7 @@ impl Daemon {
 
     /// `add_many`, answering with the new downloads' ids.
     fn add_many_ids(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (Vec<u64>, usize) {
-        let choice = self.settings.lock().unwrap().if_duplicate;
+        let choice = self.settings.lock().if_duplicate;
         let added =
             AddMany::new(&*self.store, &*self.store, &**self, &DiskFiles, &self.intake()).run(items, queue, choice);
         for (id, e) in added.not_replaced {
@@ -1783,7 +1578,7 @@ impl Daemon {
         queue: u64,
         first: bool,
     ) -> Vec<u64> {
-        let settings = self.settings.lock().unwrap().clone();
+        let settings = self.settings.lock().clone();
         let items = files.iter().filter_map(|f| grab::download_for(req, f, &settings, login)).collect();
         let (added, _) = self.add_many_ids(items, Some(queue));
         if first {
@@ -1812,7 +1607,7 @@ impl Daemon {
         stop: &AtomicBool,
         progress: impl FnMut(&grab::Outcome),
     ) -> grab::Outcome {
-        let settings = self.settings.lock().unwrap().clone();
+        let settings = self.settings.lock().clone();
         let start = Download { url: req.start.clone(), ..Download::default() };
         let mut net = self.net_for(&start, &settings);
         if let (Some(user), Ok(url)) =
@@ -2014,8 +1809,8 @@ impl Daemon {
     /// Ask GitHub (at `url`) for the latest release, through the settings'
     /// proxy, and note when that happened.
     fn check_update(&self, url: &str) -> Outgoing {
-        let github = GitHub { daemon: self, url };
-        match CheckForUpdate::new(&github, self, VERSION).run(uidm_infrastructure::state::unix_now()) {
+        let github = GitHub::new(Arc::clone(&self.settings), Arc::clone(&self.browser_proxy_retries), url);
+        match CheckForUpdate::new(&github, &*self.settings, VERSION).run(uidm_infrastructure::state::unix_now()) {
             Ok(newer) => Outgoing::Update { newer, error: None },
             Err(e) => Outgoing::Update { newer: None, error: Some(e.to_string()) },
         }
@@ -2025,8 +1820,12 @@ impl Daemon {
     /// list and quit with the windows, so Setup can replace the files.
     /// Setup closes whatever is left.
     fn install_update(&self) -> Result<(), String> {
-        let github = GitHub { daemon: self, url: uidm_infrastructure::update::LATEST_RELEASE };
-        let path = InstallUpdate::new(&github, self, VERSION)
+        let github = GitHub::new(
+            Arc::clone(&self.settings),
+            Arc::clone(&self.browser_proxy_retries),
+            uidm_infrastructure::update::LATEST_RELEASE,
+        );
+        let path = InstallUpdate::new(&github, &*self.settings, VERSION)
             .run(uidm_infrastructure::state::unix_now())
             .map_err(|e| e.to_string())?;
         info!(path = %path.display(), "started the update; quitting for it");
@@ -2039,7 +1838,7 @@ impl Daemon {
     /// Once a week, when a window connects, look for a newer release on
     /// another thread and tell the windows if there is one.
     fn weekly_update_check(self: &Arc<Self>) {
-        if !ClaimWeeklyCheck::new(&**self).run(uidm_infrastructure::state::unix_now()) {
+        if !ClaimWeeklyCheck::new(&*self.settings).run(uidm_infrastructure::state::unix_now()) {
             return;
         }
         let daemon = Arc::clone(self);
@@ -2302,7 +2101,7 @@ impl Daemon {
         let path = entry.as_ref().and_then(|e| e.path.as_deref()).map(PathBuf::from);
         let overwrite = {
             let asked = self.store.requests().get(&id).and_then(|d| d.file_exists);
-            asked.unwrap_or(self.settings.lock().unwrap().file_exists) == FileExists::Overwrite
+            asked.unwrap_or(self.settings.lock().file_exists) == FileExists::Overwrite
         };
         let mut kept = false;
         // Stopping it can land after its last byte was written and its file
@@ -2410,7 +2209,7 @@ impl Daemon {
     /// Start a `waiting` download now, or (with `start` false) have it wait
     /// in `queue`, the Download later queue, or the main one.
     fn start_or_wait(&self, id: u64, start: bool, queue: Option<u64>) -> Result<(), String> {
-        let later = self.settings.lock().unwrap().later_queue;
+        let later = self.settings.lock().later_queue;
         StartOrWait::new(&*self.store, &*self.store, self).run(id, start, queue, later).map_err(|e| e.to_string())
     }
 
@@ -2515,7 +2314,7 @@ impl Daemon {
     /// The engine request for `download`, with the settings' folder,
     /// connections and file-name policy, and its proxy and logins.
     fn request_for(&self, download: Download) -> DownloadRequest {
-        let settings = self.settings.lock().unwrap().clone();
+        let settings = self.settings.lock().clone();
         let net = self.net_for(&download, &settings);
         let folder = download.folder.as_deref().map(PathBuf::from).filter(|f| f.is_absolute());
         let mut req = to_request(download, &settings);
@@ -2542,7 +2341,7 @@ impl Daemon {
         let Some(url) = url else {
             return false;
         };
-        if !self.browser_proxy_retries.lock().unwrap().insert(url) {
+        if !self.browser_proxy_retries.insert(url) {
             return false;
         }
         match self.retry(id) {
@@ -2557,101 +2356,9 @@ impl Daemon {
         }
     }
 
-    /// The proxy and logins for `download`. A download from the browser uses
-    /// the browser's proxy when the settings say so: always, or once it
-    /// failed through UIDM's own setting.
+    /// The proxy and logins for `download` (see `connect::config_for`).
     fn net_for(&self, download: &Download, s: &Settings) -> NetConfig {
-        let browser_wanted = s.use_browser_proxy
-            && (!s.browser_proxy_after_errors || self.browser_proxy_retries.lock().unwrap().contains(&download.url));
-        // The browser's whole setting when it sent one (its direct
-        // connection too, as `Some(None)`), else the fixed proxy an older
-        // extension sends.
-        let browser = match (&download.browser_proxy, download.proxy.as_deref()) {
-            _ if !browser_wanted => None,
-            (Some(setting), _) => Some(net::browser_proxy_rules(setting)),
-            (None, Some(p)) => Some(Some(net::ProxyRules {
-                http: p.strip_prefix("http://").map(str::to_string),
-                https: p.strip_prefix("http://").map(str::to_string),
-                socks: p.starts_with("socks").then(|| p.to_string()),
-                ..net::ProxyRules::default()
-            })),
-            (None, None) => None,
-        };
-        let addr = |a: &str| (!a.trim().is_empty()).then(|| a.trim().to_string());
-        let proxy_login = |user: &str, kind: ProxyKind| {
-            if user.trim().is_empty() {
-                return ProxyLogin::default();
-            }
-            let password = net::proxy_password_path(kind).map(|p| net::load_proxy_password(&p)).unwrap_or_default();
-            ProxyLogin::new(user.trim(), &password)
-        };
-        let proxy = browser.unwrap_or_else(|| match s.proxy_mode {
-            ProxyMode::None => None,
-            ProxyMode::System => net::system_proxy(),
-            ProxyMode::Script => Some(net::ProxyRules {
-                pac: Some(uidm_infrastructure::pac::PacSource::Url(s.proxy_pac_url.trim().to_string())),
-                ..net::ProxyRules::default()
-            }),
-            ProxyMode::Manual => {
-                // An empty HTTPS proxy means the HTTP one, with its login.
-                let (https, https_login) = match addr(&s.proxy_https) {
-                    Some(a) => (Some(a), proxy_login(&s.proxy_https_username, ProxyKind::Https)),
-                    None => (addr(&s.proxy_http), proxy_login(&s.proxy_username, ProxyKind::Http)),
-                };
-                Some(net::ProxyRules {
-                    http: addr(&s.proxy_http),
-                    https,
-                    socks: addr(&s.proxy_socks5).map(|a| {
-                        let scheme = net::socks_scheme(s.proxy_socks_version == SocksVersion::V5, s.proxy_remote_dns);
-                        format!("{scheme}://{a}")
-                    }),
-                    // ftp:// goes through `NetConfig::ftp_proxy`, below.
-                    ftp: None,
-                    bypass: net::parse_bypass(&s.proxy_bypass),
-                    http_login: proxy_login(&s.proxy_username, ProxyKind::Http),
-                    https_login,
-                    socks_login: proxy_login(&s.proxy_socks_username, ProxyKind::Socks),
-                    socks_for_https: s.proxy_socks_https,
-                    socks_for_ftp: s.proxy_socks_ftp,
-                    pac: None,
-                })
-            }
-        });
-        let manual_ftp = (s.proxy_mode == ProxyMode::Manual).then(|| addr(&s.proxy_ftp)).flatten();
-        let mut logins: Vec<Login> = s
-            .site_logins
-            .iter()
-            .filter_map(|l| {
-                Some(Login {
-                    site: l.site.trim().to_string(),
-                    username: l.username.clone(),
-                    password: net::load_login_password(&l.site)?,
-                    plain: l.plain,
-                })
-            })
-            .collect();
-        // The download's own login takes the place of the site logins for
-        // its host, even those for one of its folders.
-        let host = url::Url::parse(&download.url).ok().and_then(|u| u.host_str().map(str::to_string));
-        if let (Some(l), Some(host)) = (&download.login, host) {
-            logins.retain(|s| !net::site_matches(net::split_login_pattern(&s.site).0, &host));
-            logins.push(Login {
-                site: host,
-                username: l.username.clone(),
-                password: l.password.clone().unwrap_or_default(),
-                // Typed for this download, so meant for its address.
-                plain: true,
-            });
-        }
-        NetConfig {
-            proxy,
-            logins,
-            ftp_active: s.ftp_active,
-            ftp_proxy_login: manual_ftp
-                .as_ref()
-                .map_or_else(ProxyLogin::default, |_| proxy_login(&s.proxy_ftp_username, ProxyKind::Ftp)),
-            ftp_proxy: manual_ftp,
-        }
+        config_for(download, s, &self.browser_proxy_retries)
     }
 
     /// Store the passwords a settings change carries (proxy: DPAPI; site
@@ -2676,7 +2383,7 @@ impl Daemon {
                     .map_err(|e| format!("could not save the password for {}: {e}", l.site))?;
             }
         }
-        let old = self.settings.lock().unwrap().site_logins.clone();
+        let old = self.settings.lock().site_logins.clone();
         for gone in old.iter().filter(|o| !new.site_logins.iter().any(|n| n.site.eq_ignore_ascii_case(&o.site))) {
             if let Err(e) = net::delete_login_password(&gone.site) {
                 warn!(site = %gone.site, error = %e, "could not forget the password");
@@ -2691,7 +2398,7 @@ impl Daemon {
     /// extension that is not UIDM's or a bug in it, must not point the virus
     /// scanner, ffmpeg, folders or proxy somewhere else.
     fn with_video_button(&self, asked: &Settings) -> Settings {
-        let mut settings = self.settings.lock().unwrap().clone();
+        let mut settings = self.settings.lock().clone();
         settings.video_button = asked.video_button;
         settings.video_button_excluded_sites = asked.video_button_excluded_sites.clone();
         settings
@@ -2700,20 +2407,20 @@ impl Daemon {
     fn set_settings(&self, mut new: Settings) -> Result<(), String> {
         settings::validate(&new)?;
         // Only the daemon notes update checks; a window's copy may be older.
-        new.last_update_check = new.last_update_check.max(self.settings.lock().unwrap().last_update_check);
+        new.last_update_check = new.last_update_check.max(self.settings.lock().last_update_check);
         let new = self.store_secrets(new)?;
-        let old_autostart = self.settings.lock().unwrap().start_with_windows;
+        let old_autostart = self.settings.lock().start_with_windows;
         if new.start_with_windows != old_autostart {
             uidm_infrastructure::autostart::set_autostart(new.start_with_windows)
                 .map_err(|e| format!("could not change starting at sign-in: {e}"))?;
         }
-        if let Some(path) = &self.paths.settings {
+        if let Some(path) = self.settings.path() {
             settings::save(&new, path).map_err(|e| format!("could not save settings to {}: {e}", path.display()))?;
         }
         self.engine.set_concurrency(new.max_concurrent);
         self.engine.set_speed_limit(new.speed_limit_bytes());
         self.engine.set_per_file_limit(new.per_file_limit_bytes());
-        *self.settings.lock().unwrap() = new.clone();
+        *self.settings.lock() = new.clone();
         self.clients.broadcast(&Outgoing::Settings { settings: new });
         Ok(())
     }
@@ -2824,7 +2531,7 @@ fn run() -> io::Result<()> {
             warn!(queue = %id, error = %e, "could not start the queue");
         }
     }
-    if daemon.settings.lock().unwrap().resume_at_startup {
+    if daemon.settings.lock().resume_at_startup {
         daemon.resume_interrupted();
     }
     spawn_awake_keeper(Arc::clone(&daemon));
@@ -3179,7 +2886,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             info!("resume all");
             daemon.resume_all();
         }
-        Incoming::GetSettings => send(&Outgoing::Settings { settings: daemon.settings.lock().unwrap().clone() }),
+        Incoming::GetSettings => send(&Outgoing::Settings { settings: daemon.settings.lock().clone() }),
         Incoming::SetSettings { settings } => {
             match daemon.set_settings(if daemon.clients.windows.lock().unwrap().contains(&client) {
                 settings
@@ -3365,17 +3072,6 @@ fn save_page(req: &GrabRequest, m: &grab::Mirror, page: &grab::Page) {
 }
 
 /// Sleep, hibernate or shut down now, unless a test asked for a dry run.
-fn power_off(action: WhenDone, force_close: bool) {
-    if std::env::var_os(POWER_DRY_RUN_ENV).is_some() {
-        info!(action = action.label(), "dry run: would do it");
-        return;
-    }
-    info!(action = action.label(), "power");
-    if let Err(e) = power::perform(action, force_close) {
-        warn!(action = action.label(), error = %e, "power action failed");
-    }
-}
-
 /// Open the program or file a queue names for the end of its run, as
 /// Explorer would on a double-click.
 fn open_after_run(file: &str) {
@@ -3416,7 +3112,7 @@ fn spawn_awake_keeper(daemon: Arc<Daemon>) {
     thread::spawn(move || {
         let mut held = false;
         loop {
-            let want = daemon.settings.lock().unwrap().keep_awake && daemon.is_working();
+            let want = daemon.settings.lock().keep_awake && daemon.is_working();
             if want != held {
                 power::keep_awake(want);
                 held = want;
@@ -3453,6 +3149,7 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use uidm_domain::download::DownloadLogin;
+    use uidm_domain::ports::QuotaState;
     use uidm_domain::quota::Usage;
 
     const BODY: &[u8] = b"the new bytes";
@@ -3553,7 +3250,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (daemon, ..) = Daemon::new(Paths { settings: None, store: StoreFiles::default() });
         {
-            let mut s = daemon.settings.lock().unwrap();
+            let mut s = daemon.settings.lock();
             s.download_dir = Some(dir.display().to_string());
             s.ask_where_to_save = false;
             s.if_duplicate = choice;
@@ -3901,7 +3598,7 @@ mod tests {
     fn properties_move_a_stopped_download_with_its_partial_file() {
         const LEN: usize = 1024 * 1024;
         let t = setup("props_move_partial", Duplicate::NewName);
-        t.daemon.settings.lock().unwrap().connections = 2;
+        t.daemon.settings.lock().connections = 2;
         let body: Arc<Vec<u8>> = Arc::new((0..LEN).map(|i| (i % 251) as u8).collect());
         let sent = Arc::new(AtomicU64::new(0));
         let id = t.add(&serve_ranges(Arc::clone(&body), Arc::clone(&sent)));
@@ -4007,51 +3704,10 @@ mod tests {
         let through = |s: &Settings| t.daemon.net_for(&d, s).proxy.and_then(|p| p.proxy_for(&d.url));
         let after = Settings { use_browser_proxy: true, browser_proxy_after_errors: true, ..Settings::default() };
         assert_eq!(through(&after), None, "not before it failed");
-        let always = Settings { browser_proxy_after_errors: false, ..after.clone() };
-        assert_eq!(through(&always).as_deref(), Some("http://bp:3128"));
-        t.daemon.browser_proxy_retries.lock().unwrap().insert(d.url.clone());
+        t.daemon.browser_proxy_retries.insert(d.url.clone());
         assert_eq!(through(&after).as_deref(), Some("http://bp:3128"), "once it failed");
         // A download that never failed is not retried through it.
         assert!(!t.daemon.retry_through_browser_proxy(999, &after));
-    }
-
-    #[test]
-    fn the_browsers_whole_proxy_setting_is_used() {
-        use uidm_domain::download::{BrowserProxy, BrowserProxyMode};
-        let t = setup("browser_proxy_setting", Duplicate::NewName);
-        let s = Settings {
-            use_browser_proxy: true,
-            proxy_mode: ProxyMode::Manual,
-            proxy_http: "uidm:8080".into(),
-            ..Settings::default()
-        };
-        let through = |setting: Option<BrowserProxy>, s: &Settings| {
-            let d = Download {
-                url: "http://x.net/a.zip".into(),
-                proxy: Some("http://old:1".into()),
-                browser_proxy: setting,
-                ..Download::default()
-            };
-            t.daemon.net_for(&d, s).proxy.and_then(|p| p.proxy_for(&d.url))
-        };
-        // The browser connects directly: so does the download, whatever
-        // UIDM's own setting and the older field say.
-        let direct = BrowserProxy::default();
-        assert_eq!(through(Some(direct.clone()), &s), None);
-        let fixed = BrowserProxy {
-            mode: BrowserProxyMode::Fixed,
-            http: Some("http://bp:3128".into()),
-            bypass: vec!["x.net".into()],
-            ..BrowserProxy::default()
-        };
-        assert_eq!(through(Some(fixed.clone()), &s), None, "the browser's bypass list");
-        let fixed = BrowserProxy { bypass: vec![], ..fixed };
-        assert_eq!(through(Some(fixed), &s).as_deref(), Some("http://bp:3128"));
-        // Older extensions send only the fixed proxy.
-        assert_eq!(through(None, &s).as_deref(), Some("http://old:1"));
-        // Without the option, UIDM's own setting applies.
-        let own = Settings { use_browser_proxy: false, ..s.clone() };
-        assert_eq!(through(Some(direct), &own).as_deref(), Some("http://uidm:8080"));
     }
 
     #[test]
@@ -4088,46 +3744,16 @@ mod tests {
     #[test]
     fn only_the_window_turns_on_capture_in_private_windows() {
         let t = setup("browser_private", Duplicate::NewName);
-        assert!(!t.daemon.settings.lock().unwrap().capture_private, "off by default");
-        let asked = Settings { capture_private: true, ..t.daemon.settings.lock().unwrap().clone() };
+        assert!(!t.daemon.settings.lock().capture_private, "off by default");
+        let asked = Settings { capture_private: true, ..t.daemon.settings.lock().clone() };
         // A browser client's set_settings keeps the setting as it was...
         t.daemon.set_settings(t.daemon.with_video_button(&asked)).unwrap();
-        assert!(!t.daemon.settings.lock().unwrap().capture_private);
+        assert!(!t.daemon.settings.lock().capture_private);
         // ...while the window's goes through.
         t.daemon.set_settings(asked).unwrap();
-        assert!(t.daemon.settings.lock().unwrap().capture_private);
+        assert!(t.daemon.settings.lock().capture_private);
         let off = Settings { capture_private: false, ..Settings::default() };
         assert!(t.daemon.with_video_button(&off).capture_private, "nor can the browser turn it off");
-    }
-
-    #[test]
-    fn manual_socks_can_carry_https_and_ftp() {
-        let t = setup("socks_schemes", Duplicate::NewName);
-        let s = Settings {
-            proxy_mode: ProxyMode::Manual,
-            proxy_http: "web:8080".into(),
-            proxy_socks5: "sock:1080".into(),
-            proxy_socks_https: true,
-            ..Settings::default()
-        };
-        let net = |url: &str, s: &Settings| t.daemon.net_for(&Download { url: url.into(), ..Download::default() }, s);
-        let via = |url: &str, s: &Settings| net(url, s).proxy.and_then(|p| p.proxy_for(url));
-        assert_eq!(via("http://x.net/a.zip", &s).as_deref(), Some("http://web:8080"));
-        assert_eq!(via("https://x.net/a.zip", &s).as_deref(), Some("socks5://sock:1080"));
-        let off = Settings { proxy_socks_https: false, ..s.clone() };
-        assert_eq!(
-            via("https://x.net/a.zip", &off).as_deref(),
-            Some("http://web:8080"),
-            "an empty HTTPS proxy is the HTTP one"
-        );
-
-        // ftp:// takes the SOCKS proxy (on by default) unless an FTP proxy
-        // is set, or it is turned off.
-        let ftp = |s: &Settings| net("ftp://x.net/a.zip", s).proxy.and_then(|p| p.socks_for_ftp("ftp://x.net/a.zip"));
-        assert_eq!(ftp(&s).map(|p| p.addr).as_deref(), Some("sock:1080"));
-        assert_eq!(ftp(&Settings { proxy_socks_ftp: false, ..s.clone() }), None);
-        let with_ftp_proxy = Settings { proxy_ftp: "ftpproxy:21".into(), ..s.clone() };
-        assert_eq!(net("ftp://x.net/a.zip", &with_ftp_proxy).ftp_proxy.as_deref(), Some("ftpproxy:21"));
     }
 
     #[test]
@@ -4192,7 +3818,7 @@ mod tests {
         assert_eq!(t.len(), 1, "still one row");
 
         let t = setup("again_overwrite", Duplicate::NewName);
-        t.daemon.settings.lock().unwrap().file_exists = FileExists::Overwrite;
+        t.daemon.settings.lock().file_exists = FileExists::Overwrite;
         let path = t.dir.join("f.bin");
         let id = t.finished(&url, &path);
         t.daemon.redownload(id).unwrap();
@@ -4278,7 +3904,7 @@ mod tests {
             };
             settings::save(&s, &path).unwrap();
             let (daemon, ..) = Daemon::new(Paths { settings: Some(path.clone()), store: StoreFiles::default() });
-            let s = daemon.settings.lock().unwrap().clone();
+            let s = daemon.settings.lock().clone();
             (s, daemon.engine.per_file_limit())
         };
         let (s, per_file) = start(false);
@@ -4294,7 +3920,7 @@ mod tests {
     #[test]
     fn the_limit_per_file_caps_each_download_without_its_own() {
         let t = setup("per_file", Duplicate::NewName);
-        let mut s = t.daemon.settings.lock().unwrap().clone();
+        let mut s = t.daemon.settings.lock().clone();
         s.speed_limit_enabled = true;
         s.speed_limit_kbps = 100_000;
         s.speed_limit_per_file_kbps = Some(32);
@@ -4348,7 +3974,7 @@ mod tests {
     #[test]
     fn the_save_as_folder_is_remembered_for_its_category() {
         let t = setup("remember_folder", Duplicate::NewName);
-        t.daemon.settings.lock().unwrap().categories[0].remember_folder = true;
+        t.daemon.settings.lock().categories[0].remember_folder = true;
         let (id, _) = t.daemon.add_later(Download { url: "https://x/a.zip".into(), ..Download::default() });
         let chosen = t.dir.join("chosen");
         t.daemon
@@ -4359,7 +3985,7 @@ mod tests {
                 ..Answer::start(id)
             })
             .unwrap();
-        let s = t.daemon.settings.lock().unwrap().clone();
+        let s = t.daemon.settings.lock().clone();
         assert_eq!(s.categories[0].last_folder.as_deref(), Some(chosen.display().to_string().as_str()));
         assert_eq!(s.folders(&uidm_infrastructure::settings::default_downloads_dir()).for_name("b.zip"), chosen);
     }
@@ -4395,7 +4021,7 @@ mod tests {
     #[test]
     fn the_save_as_dialog_keeps_a_category_and_description() {
         let t = setup("category", Duplicate::NewName);
-        t.daemon.settings.lock().unwrap().categories[2].remember_folder = true;
+        t.daemon.settings.lock().categories[2].remember_folder = true;
         let (id, _) = t.daemon.add_later(Download { url: "https://x/a.zip".into(), ..Download::default() });
         let chosen = t.dir.join("tunes");
         t.daemon
@@ -4412,7 +4038,7 @@ mod tests {
         assert_eq!(e.category.as_deref(), Some("Music"));
         assert_eq!(e.description.as_deref(), Some("the album"));
         // The chosen category, not the file's type, remembers the folder.
-        let s = t.daemon.settings.lock().unwrap().clone();
+        let s = t.daemon.settings.lock().clone();
         assert_eq!(s.categories[2].last_folder.as_deref(), Some(chosen.display().to_string().as_str()));
         assert_eq!(s.categories[0].last_folder, None);
         // A retry keeps both.
@@ -4466,7 +4092,7 @@ mod tests {
                 ..Answer::start(id)
             })
             .unwrap();
-        let s = t.daemon.settings.lock().unwrap().clone();
+        let s = t.daemon.settings.lock().clone();
         assert!(s.general_remember_folder);
         assert_eq!(s.folders(&uidm_infrastructure::settings::default_downloads_dir()).for_name("other.xyz"), chosen);
         assert_eq!(s.later_queue, Some(queue));
@@ -4482,14 +4108,14 @@ mod tests {
         t.daemon
             .confirm(Answer { duplicate: Some(Duplicate::NewName), remember_duplicate: true, ..Answer::start(again) })
             .unwrap();
-        assert_eq!(t.daemon.settings.lock().unwrap().if_duplicate, Duplicate::NewName);
+        assert_eq!(t.daemon.settings.lock().if_duplicate, Duplicate::NewName);
     }
 
     #[test]
     fn the_quota_pauses_downloads_and_lets_them_go_again() {
         let t = setup("quota", Duplicate::NewName);
         {
-            let mut s = t.daemon.settings.lock().unwrap();
+            let mut s = t.daemon.settings.lock();
             s.quota_enabled = true;
             s.quota_mb = 1;
             s.quota_hours = 1;
@@ -4504,16 +4130,17 @@ mod tests {
         }
         t.daemon.check_quota();
         assert!(t.window_got(|m| matches!(m, Outgoing::Quota { paused: true, resumes_at: Some(_), .. })));
-        assert!(t.daemon.quota_paused.lock().unwrap().is_some());
+        assert!(t.daemon.quota.paused());
         // A download started while paused is stopped on the next check.
         t.daemon.retry(id).unwrap();
         t.daemon.check_quota();
-        let held = t.daemon.quota_paused.lock().unwrap().clone().unwrap();
-        assert!(!held.1.is_empty(), "the new download is held too");
+        let (queues, downloads) = t.daemon.quota.release();
+        assert!(!downloads.is_empty(), "the new download is held too");
+        t.daemon.quota.hold(&queues, &downloads.into_iter().collect::<Vec<_>>());
 
         *t.daemon.store.quota() = Usage::default();
         t.daemon.check_quota();
-        assert!(t.daemon.quota_paused.lock().unwrap().is_none());
+        assert!(!t.daemon.quota.paused());
         assert!(t.window_got(|m| matches!(m, Outgoing::Quota { paused: false, .. })));
     }
 
@@ -4681,13 +4308,13 @@ mod tests {
         }
         assert!(matches!(t.daemon.check_update(&serve_tag("v0.0.1")), Outgoing::Update { newer: None, error: None }));
         assert!(matches!(t.daemon.check_update("http://127.0.0.1:1/none"), Outgoing::Update { error: Some(_), .. }));
-        assert!(t.daemon.settings.lock().unwrap().last_update_check > 0, "the check was noted");
+        assert!(t.daemon.settings.lock().last_update_check > 0, "the check was noted");
     }
 
     #[test]
     fn a_dropped_link_always_gets_the_save_as_dialog() {
         let t = setup("ask_flag", Duplicate::NewName);
-        assert!(!t.daemon.settings.lock().unwrap().ask_where_to_save);
+        assert!(!t.daemon.settings.lock().ask_where_to_save);
         let (id, _) = t.daemon.add(Download { url: serve(), ask: Some(true), ..Download::default() });
         t.wait(id, Status::Confirming);
     }
@@ -4696,14 +4323,14 @@ mod tests {
     fn some_types_start_without_the_dialog_and_add_only_waits() {
         let t = setup("auto_start", Duplicate::NewName);
         {
-            let mut s = t.daemon.settings.lock().unwrap();
+            let mut s = t.daemon.settings.lock();
             s.ask_where_to_save = true;
             s.auto_start_types = vec!["bin".into()];
         }
         let id = t.add(&serve());
         assert_eq!(t.wait(id, Status::Done).path.map(PathBuf::from), Some(t.dir.join("f.bin")));
 
-        t.daemon.settings.lock().unwrap().add_only = true;
+        t.daemon.settings.lock().add_only = true;
         let id = t.add(&serve());
         assert_eq!(t.daemon.status(id), Some(Status::Waiting));
         assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(MAIN_QUEUE));
@@ -4872,7 +4499,7 @@ mod tests {
 
         // Synchronizing: it is checked and downloaded again in its row, even
         // where a duplicate would get a new name.
-        t.daemon.settings.lock().unwrap().if_duplicate = Duplicate::NewName;
+        t.daemon.settings.lock().if_duplicate = Duplicate::NewName;
         project.kind = queue::QueueKind::Synchronize;
         t.daemon.run_scheduled_grab(&dir, project, 2);
         assert_eq!(t.len(), 1, "no new row");
@@ -4931,7 +4558,7 @@ mod tests {
         assert!(!main().running, "the queue stopped");
         assert_eq!(main().stop_at_once, None, "the stop time was for that run only");
         t.wait(id, Status::Waiting);
-        assert!(t.daemon.countdown.lock().unwrap().is_none(), "a stopped run does not do its when-done action");
+        assert!(t.daemon.power.running().is_none(), "a stopped run does not do its when-done action");
     }
 
     #[test]
@@ -4963,7 +4590,7 @@ mod tests {
     #[test]
     fn a_scheduled_project_force_closes_when_asked() {
         // Never really shut down, even if a check below fails.
-        std::env::set_var(POWER_DRY_RUN_ENV, "1");
+        std::env::set_var(uidm_infrastructure::power_control::POWER_DRY_RUN_ENV, "1");
         let t = setup("grab_force_close", Duplicate::NewName);
         let dir = t.dir.join("projects");
         let mut project: grab::Project = serde_json::from_value(serde_json::json!({
@@ -4976,7 +4603,7 @@ mod tests {
         .unwrap();
         assert!(project.force_close, "saved with the project");
         let countdown_forces = |t: &Setup| {
-            let forced = t.daemon.countdown.lock().unwrap().as_ref().map(|c| (c.request.action, c.request.force_close));
+            let forced = t.daemon.power.running().map(|r| (r.action, r.force_close));
             t.daemon.cancel_countdown();
             forced
         };
@@ -5015,7 +4642,7 @@ mod tests {
         for finish_first in [false, true] {
             let t = setup(if finish_first { "early_done" } else { "early" }, Duplicate::NewName);
             {
-                let mut s = t.daemon.settings.lock().unwrap();
+                let mut s = t.daemon.settings.lock();
                 s.ask_where_to_save = true;
                 s.start_while_asking = true;
                 s.connections = 2;
@@ -5091,7 +4718,7 @@ mod tests {
     fn canceling_the_dialog_drops_the_early_download() {
         let t = setup("early_cancel", Duplicate::NewName);
         {
-            let mut s = t.daemon.settings.lock().unwrap();
+            let mut s = t.daemon.settings.lock();
             s.ask_where_to_save = true;
             s.start_while_asking = true;
         }
@@ -5123,7 +4750,7 @@ mod tests {
         let t = setup("convert", Duplicate::NewName);
         let clip = t.dir.join("talk.mkv");
         let id = t.finished("https://x/talk.mkv", &clip);
-        let made = uidm_infrastructure::platform::no_window(&mut Command::new(&ffmpeg))
+        let made = uidm_infrastructure::platform::no_window(&mut std::process::Command::new(&ffmpeg))
             .args([
                 "-hide_banner",
                 "-loglevel",

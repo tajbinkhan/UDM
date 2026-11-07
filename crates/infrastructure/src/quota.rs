@@ -1,14 +1,25 @@
 //! Keeping the download quota's count in `%LOCALAPPDATA%\UIDM\quota.json`
 //! (the minutes of the longest window), so it survives a restart. The
 //! counting rules are `uidm_domain::quota`.
+//!
+//! `QuotaHold` is the adapter for `QuotaState`: it reads the count the
+//! download store keeps, remembers what the quota stopped, and tells the
+//! clients the quota's state.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use uidm_domain::ports::QuotaState;
+use uidm_domain::quota::QuotaNotice;
 pub use uidm_domain::quota::Usage;
 
+use crate::protocol::Outgoing;
 use crate::settings::write_atomic;
+use crate::store::{DownloadStore, StoreEvents};
 
 /// The count saved at `path`, or none when it is missing or unreadable.
 pub fn load(path: &Path) -> Usage {
@@ -31,9 +42,109 @@ pub fn now_minute() -> u64 {
     crate::state::unix_now() / 60
 }
 
+/// The `quota` message that tells the clients `notice`.
+pub fn notice_message(n: QuotaNotice) -> Outgoing {
+    Outgoing::Quota { used: n.used, limit: n.limit, paused: n.paused, resumes_at: n.resumes_at }
+}
+
+/// What the quota stopped (queues and downloads), while it holds them.
+type Held = Option<(Vec<u64>, HashSet<u64>)>;
+
+/// The quota's count, what it stopped, and whether it warned.
+pub struct QuotaHold {
+    store: Arc<DownloadStore>,
+    events: Arc<dyn StoreEvents>,
+    held: Mutex<Held>,
+    /// The nearly-reached warning was sent for the current window.
+    warned: AtomicBool,
+}
+
+impl QuotaHold {
+    /// A hold over `store`'s count that announces through `events`.
+    pub fn new(store: Arc<DownloadStore>, events: Arc<dyn StoreEvents>) -> Self {
+        QuotaHold { store, events, held: Mutex::new(None), warned: AtomicBool::new(false) }
+    }
+
+    /// Each change replaces or extends the held lists whole, so a lock
+    /// poisoned by a panicking thread still holds a usable value.
+    fn held(&self) -> MutexGuard<'_, Held> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl QuotaState for QuotaHold {
+    fn used(&self, now: u64, window: u64) -> u64 {
+        self.store.quota().used(now, window)
+    }
+
+    fn frees_at(&self, now: u64, window: u64, limit: u64) -> u64 {
+        self.store.quota().frees_at(now, window, limit)
+    }
+
+    fn paused(&self) -> bool {
+        self.held().is_some()
+    }
+
+    fn hold(&self, queues: &[u64], downloads: &[u64]) {
+        let mut held = self.held();
+        let (q, d) = held.get_or_insert_with(Default::default);
+        q.extend(queues);
+        d.extend(downloads);
+    }
+
+    fn release(&self) -> (Vec<u64>, HashSet<u64>) {
+        self.held().take().unwrap_or_default()
+    }
+
+    fn warned(&self) -> bool {
+        self.warned.load(Ordering::Relaxed)
+    }
+
+    fn set_warned(&self, warned: bool) {
+        self.warned.store(warned, Ordering::Relaxed);
+    }
+
+    fn announce(&self, notice: QuotaNotice) {
+        self.events.announce(&notice_message(notice));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::{Ended, StoreFiles};
+
+    #[derive(Default)]
+    struct Heard(Mutex<Vec<Outgoing>>);
+
+    impl StoreEvents for Heard {
+        fn announce(&self, event: &Outgoing) {
+            self.0.lock().unwrap().push(event.clone());
+        }
+        fn ended(&self, _: Ended) {}
+        fn wake(&self) {}
+    }
+
+    #[test]
+    fn the_hold_keeps_what_it_stopped_until_released() {
+        let heard = Arc::new(Heard::default());
+        let (store, ..) = DownloadStore::open(StoreFiles::default(), Arc::clone(&heard) as _);
+        let hold = QuotaHold::new(Arc::new(store), Arc::clone(&heard) as _);
+        assert!(!hold.paused());
+        hold.hold(&[1], &[10]);
+        hold.hold(&[2], &[10, 11]);
+        assert!(hold.paused());
+        assert_eq!(hold.release(), (vec![1, 2], HashSet::from([10, 11])));
+        assert!(!hold.paused());
+        assert_eq!(hold.release(), (vec![], HashSet::new()));
+        assert_eq!(hold.used(100, 60), 0);
+
+        hold.set_warned(true);
+        assert!(hold.warned());
+        hold.announce(QuotaNotice { used: 5, limit: 9, paused: true, resumes_at: Some(3) });
+        let said = heard.0.lock().unwrap().clone();
+        assert!(matches!(said.as_slice(), [Outgoing::Quota { used: 5, limit: 9, paused: true, resumes_at: Some(3) }]));
+    }
 
     #[test]
     fn survives_a_save_and_load() {

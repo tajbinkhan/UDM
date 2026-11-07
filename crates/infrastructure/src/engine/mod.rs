@@ -17,7 +17,7 @@ mod resume;
 mod segments;
 mod stream;
 #[cfg(test)]
-mod testserver;
+pub(crate) mod testserver;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
