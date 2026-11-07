@@ -195,6 +195,22 @@ pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Res
     Ok(Shown)
 }
 
+/// UIDM's icon, shown on its notifications.
+#[cfg(windows)]
+const ICON_PNG: &[u8] = include_bytes!("../../../extension/icons/128.png");
+
+/// Give UIDM's notifications a name and icon. Unpackaged apps need this
+/// registration before Windows shows their notifications. The icon is
+/// written next to the history file.
+#[cfg(windows)]
+pub fn register_app() -> std::io::Result<()> {
+    let icon = crate::history::history_path()?.with_file_name("uidm.png");
+    if std::fs::read(&icon).ok().as_deref() != Some(ICON_PNG) {
+        crate::settings::write_atomic(&icon, ICON_PNG)?;
+    }
+    crate::registry::register_app_id(&icon)
+}
+
 pub use uidm_domain::settings::Sound;
 
 #[cfg(windows)]

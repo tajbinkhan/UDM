@@ -27,9 +27,13 @@
 //! - `update`: checking GitHub for a newer release.
 //! - `package`: keeping the daemon out of an app package's copy of AppData.
 //! - `logging`: each program's log file in the data folder.
+//! - `server`: the daemon's listening socket, its clients and their handshake.
+//! - `background`: the daemon's background threads (scheduler, history
+//!   writer, notifications, awake keeper, idle exit).
 
 pub mod app;
 pub mod autostart;
+pub mod background;
 pub mod browsers;
 pub mod cli;
 pub mod clock;
@@ -65,6 +69,7 @@ pub mod recycle;
 #[cfg(windows)]
 pub mod registry;
 pub mod scan;
+pub mod server;
 pub mod settings;
 pub mod state;
 pub mod store;

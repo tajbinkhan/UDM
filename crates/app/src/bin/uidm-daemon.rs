@@ -3,8 +3,10 @@
 //! Clients (a host per browser connection, and the desktop window) connect over
 //! loopback TCP and speak the same length-prefixed JSON frames as the browser.
 //! Each connection starts with a mutual handshake over the token this daemon
-//! wrote at start (see `uidm_infrastructure::ipc`); until the client passes it, it gets no
-//! events and its requests are not read.
+//! wrote at start (see `uidm_infrastructure::ipc`); until the client passes
+//! it, it gets no events and its requests are not read. The listening socket,
+//! the handshake and the client list are `uidm_infrastructure::server`; the
+//! background threads are `uidm_infrastructure::background`.
 //!
 //! Replies to a request (`hello`, `pong`, `ack`, `downloads`, `added_many`,
 //! `media_info`, the site grabber's `grab_progress` and `grab_done`, `error`)
@@ -15,7 +17,7 @@
 //!
 //! Because downloads live here rather than in the host, they keep running when
 //! the browser closes. The daemon exits on its own once it has had no clients
-//! and no downloads for `IDLE_EXIT`.
+//! and no downloads for `background::IDLE_EXIT`.
 //!
 //! The list survives restarts: every change is written to the history file
 //! (debounced, and again on exit), and the requests that may still be retried
@@ -42,11 +44,10 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -71,7 +72,7 @@ use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
 };
 use uidm_domain::quota::QuotaLimit;
-use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
+use uidm_infrastructure::background;
 use uidm_infrastructure::clock::{LocalClock, StoppedClock};
 use uidm_infrastructure::connect::ProxyRetries;
 use uidm_infrastructure::conversions::Conversions;
@@ -81,28 +82,19 @@ use uidm_infrastructure::files::DiskFiles;
 use uidm_infrastructure::front::{self, AnswerWait, Front, Hook, Notifier, Windows};
 use uidm_infrastructure::grab::{self, GrabRequest};
 use uidm_infrastructure::history;
-use uidm_infrastructure::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST_LABEL};
 use uidm_infrastructure::live_settings::{LiveSettings, QueueChimes};
 use uidm_infrastructure::logging;
 use uidm_infrastructure::net::{self, Login};
-use uidm_infrastructure::power;
 use uidm_infrastructure::power_control::{self, PowerOff, RunEnds};
-use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
+use uidm_infrastructure::protocol::{CommandLine, Incoming, Outgoing};
 use uidm_infrastructure::queue_runs::{PauseBook, RunBook};
 use uidm_infrastructure::quota::QuotaHold;
-#[cfg(windows)]
-use uidm_infrastructure::registry;
 use uidm_infrastructure::scan;
+use uidm_infrastructure::server::{Clients, Handler, Reply, Server};
 use uidm_infrastructure::settings::{self, Duplicate, FileExists, Settings};
 use uidm_infrastructure::store::{check_body, DownloadStore, Ended, Intake, StoreEvents, StoreFiles};
 use uidm_infrastructure::transfers::{self, EarlyHandOver, GoOn, SyncChecker, Transfers};
 use uidm_infrastructure::update::GitHub;
-
-/// Exit after this long with no clients and no queued or running downloads.
-const IDLE_EXIT: Duration = Duration::from_secs(60);
-const IDLE_POLL: Duration = Duration::from_secs(5);
-/// Collect changes for this long before writing the history.
-const HISTORY_DEBOUNCE: Duration = Duration::from_secs(1);
 
 /// Links the link picker's probes ask about at once.
 const LINK_PROBES: usize = 4;
@@ -110,50 +102,17 @@ const LINK_PROBES: usize = 4;
 /// A failure is announced after this long, so a download the browser
 /// extension takes back (and removes) right away is not announced at all.
 const FAILED_GRACE: Duration = Duration::from_secs(1);
-/// The icon Windows shows on UIDM's notifications, written next to the
-/// history so the registry can point at it.
-#[cfg(windows)]
-const ICON_PNG: &[u8] = include_bytes!("../../../../extension/icons/128.png");
 /// The `client` a desktop window names in its `hello`.
 const WINDOW_CLIENT: &str = "window";
 
 /// How long a command line waits for the window its `uidm-gui` opens. One
 /// older than this belonged to a window that never connected.
 const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
-/// How often the scheduler looks at the clock when nothing wakes it.
-const SCHEDULER_POLL: Duration = Duration::from_secs(5);
-/// How often a running daemon moves logs over `logging::MAX_BYTES` aside.
-const LOG_TRIM_EVERY: Duration = Duration::from_secs(60 * 60);
-/// How often the keep-awake thread looks for running work.
-const AWAKE_POLL: Duration = Duration::from_secs(2);
 /// How the site grabber names itself to servers.
 const GRABBER_AGENT: &str = "Mozilla/5.0 (compatible; UIDM site grabber; obeys robots.txt)";
 
 /// This copy's version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
-
-/// The connected clients, and how the store's changes reach them: each
-/// change is framed and sent to every client, and endings go to the
-/// notification thread. Connections stay in the daemon until the protocol
-/// moves behind an adapter (#196).
-struct Clients {
-    /// Connected clients by id, each with a channel drained by its writer.
-    clients: Mutex<HashMap<u64, Sender<Vec<u8>>>>,
-    /// Clients that said they are a desktop window.
-    windows: Mutex<HashSet<u64>>,
-    /// Clients that said hello as the browser extension does, with no
-    /// `client` (the host strips any).
-    browsers: Mutex<HashSet<u64>>,
-    /// When a browser extension last connected or sent anything, in
-    /// seconds since 1970, for Options' link state.
-    browser_seen: Mutex<Option<u64>>,
-    /// Finished and failed downloads, for the notification thread.
-    notes: Sender<Note>,
-    /// Wakes the scheduler when a download ends or a queue changes.
-    wake: Sender<()>,
-}
 
 /// A page the browser rendered for a crawl: its HTML and its address then.
 /// A page the browser rendered: its HTML, its address, and the addresses
@@ -168,107 +127,6 @@ enum Note {
     Scanned(u64),
     /// A download stopped to ask about its taken file name.
     NameTaken(u64),
-}
-
-impl Windows for Clients {
-    fn window_open(&self) -> bool {
-        !self.windows().is_empty()
-    }
-}
-
-impl StoreEvents for Clients {
-    fn announce(&self, event: &Outgoing) {
-        self.broadcast(event);
-    }
-
-    fn ended(&self, how: Ended) {
-        let note = match how {
-            Ended::Finished(id) => Note::Finished(id),
-            Ended::Failed(id) => Note::Failed(id),
-            Ended::NameTaken(id) => Note::NameTaken(id),
-        };
-        let _ = self.notes.send(note);
-    }
-
-    fn wake(&self) {
-        let _ = self.wake.send(());
-    }
-}
-
-impl Clients {
-    /// The clients that are windows. Only single inserts and removals change
-    /// the set, so a lock poisoned by a panicking thread still holds a
-    /// usable one.
-    fn windows(&self) -> MutexGuard<'_, HashSet<u64>> {
-        self.windows.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Whether a client other than a window is connected: the browser
-    /// extension, through its host.
-    fn extension_connected(&self) -> bool {
-        let windows = self.windows().len();
-        self.clients.lock().unwrap().len() > windows
-    }
-
-    fn window_open(&self) -> bool {
-        !self.windows().is_empty()
-    }
-
-    /// Send `msg` to the desktop windows only.
-    fn to_windows(&self, msg: &Outgoing) {
-        let Ok(frame) = serde_json::to_vec(msg) else {
-            return;
-        };
-        let windows = self.windows();
-        for (_, tx) in self.clients.lock().unwrap().iter().filter(|(id, _)| windows.contains(id)) {
-            let _ = tx.send(frame.clone());
-        }
-    }
-
-    /// Whether a browser extension is connected, and when one last was.
-    fn browser_link(&self) -> Outgoing {
-        Outgoing::BrowserLink {
-            connected: !self.browsers.lock().unwrap().is_empty(),
-            last_seen: *self.browser_seen.lock().unwrap(),
-        }
-    }
-
-    /// Note that client `id` is a browser extension; the windows hear of
-    /// it when it is the only one.
-    fn browser_connected(&self, id: u64) {
-        *self.browser_seen.lock().unwrap() = Some(uidm_infrastructure::state::unix_now());
-        let first = {
-            let mut browsers = self.browsers.lock().unwrap();
-            browsers.insert(id) && browsers.len() == 1
-        };
-        if first {
-            self.to_windows(&self.browser_link());
-        }
-    }
-
-    /// Forget client `id`; when it was the last browser extension, the
-    /// windows hear when it went.
-    fn client_gone(&self, id: u64) {
-        self.clients.lock().unwrap().remove(&id);
-        self.windows().remove(&id);
-        let last = {
-            let mut browsers = self.browsers.lock().unwrap();
-            browsers.remove(&id) && browsers.is_empty()
-        };
-        if last {
-            *self.browser_seen.lock().unwrap() = Some(uidm_infrastructure::state::unix_now());
-            self.to_windows(&self.browser_link());
-        }
-    }
-
-    /// Send `msg` to every client.
-    fn broadcast(&self, msg: &Outgoing) {
-        let Ok(frame) = serde_json::to_vec(msg) else {
-            return;
-        };
-        // Dropping a client whose writer is gone keeps the map tidy.
-        self.clients.lock().unwrap().retain(|_, tx| tx.send(frame.clone()).is_ok());
-    }
 }
 
 /// Where the daemon keeps its files. A path is `None` when its environment
@@ -298,6 +156,10 @@ struct Daemon {
     /// The download list, the kept requests and the queues.
     store: Arc<DownloadStore>,
     clients: Arc<Clients>,
+    /// Finished and failed downloads, for the notification thread.
+    notes: Sender<Note>,
+    /// Wakes the scheduler when a download ends or a queue changes.
+    wake: Sender<()>,
     settings: Arc<LiveSettings>,
     /// Starts, stops and checks downloads, and applies settings.
     transfers: Arc<Transfers>,
@@ -378,14 +240,22 @@ impl Daemon {
         }
         let (notes, notes_rx) = channel();
         let (wake, wake_rx) = channel();
-        let clients = Arc::new(Clients {
-            clients: Mutex::new(HashMap::new()),
-            windows: Mutex::new(HashSet::new()),
-            browsers: Mutex::new(HashSet::new()),
-            browser_seen: Mutex::new(None),
-            notes,
-            wake,
-        });
+        let clients = {
+            let (notes, wake) = (notes.clone(), wake.clone());
+            Arc::new(Clients::new(
+                Box::new(move |how| {
+                    let note = match how {
+                        Ended::Finished(id) => Note::Finished(id),
+                        Ended::Failed(id) => Note::Failed(id),
+                        Ended::NameTaken(id) => Note::NameTaken(id),
+                    };
+                    let _ = notes.send(note);
+                }),
+                Box::new(move || {
+                    let _ = wake.send(());
+                }),
+            ))
+        };
         let (store, dirty_rx, next_id) = DownloadStore::open(paths.store.clone(), Arc::clone(&clients) as _);
         let store = Arc::new(store);
         let settings = Arc::new(LiveSettings::new(settings, paths.settings.clone()));
@@ -464,6 +334,8 @@ impl Daemon {
             engine,
             store,
             clients,
+            notes,
+            wake,
             settings,
             transfers,
             notifier,
@@ -620,7 +492,7 @@ impl Daemon {
             match self.start_queue(MAIN_QUEUE, None) {
                 Ok(()) => {
                     info!("start the main queue from the command line");
-                    let _ = self.clients.wake.send(());
+                    let _ = self.wake.send(());
                 }
                 Err(message) => self.clients.to_windows(&Outgoing::Error { message }),
             }
@@ -800,7 +672,7 @@ impl Daemon {
                         e.scan = Some(result);
                         Ok(())
                     });
-                    let _ = daemon.clients.notes.send(Note::Scanned(id));
+                    let _ = daemon.notes.send(Note::Scanned(id));
                 });
             }
             Note::Finished(id) | Note::Scanned(id) => {
@@ -936,20 +808,18 @@ impl Daemon {
 
     /// Read a stream's playlist on another thread and answer `reply` with
     /// what it offers.
-    fn probe_media(&self, request: u64, download: Download, reply: Sender<Vec<u8>>) {
+    fn probe_media(&self, request: u64, download: Download, reply: Reply) {
         let req = self.transfers.request_for(download);
         thread::spawn(move || {
             let info = engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref());
-            if let Ok(frame) = serde_json::to_vec(&Outgoing::MediaInfo { request, info }) {
-                let _ = reply.send(frame);
-            }
+            reply.send(&Outgoing::MediaInfo { request, info });
         });
     }
 
     /// Crawl a site for `client` on another thread, sending it progress and
     /// then what was found. With `download_found`, each file found goes to
     /// that queue at once, and the queue starts.
-    fn grab(self: &Arc<Self>, client: u64, req: GrabRequest, reply: Sender<Vec<u8>>) -> Result<(), String> {
+    fn grab(self: &Arc<Self>, client: u64, req: GrabRequest, reply: Reply) -> Result<(), String> {
         req.validate()?;
         let stop = Arc::new(AtomicBool::new(false));
         {
@@ -962,9 +832,7 @@ impl Daemon {
         let daemon = Arc::clone(self);
         thread::spawn(move || {
             let send = |msg: &Outgoing| {
-                if let Ok(frame) = serde_json::to_vec(msg) {
-                    let _ = reply.send(frame);
-                }
+                reply.send(msg);
             };
             info!(client, url = %req.start, "crawl");
             let mut handed = 0;
@@ -1090,7 +958,9 @@ impl Daemon {
                 body.truncate(grab::MAX_PAGE_BYTES as usize);
                 let page = grab::Page { url: at, content_type: Some("text/html".into()), body };
                 if let Some(m) = req.mirror.as_ref().filter(|m| m.pages) {
-                    save_page(req, m, &page);
+                    if let Err(e) = grab::save_page(req, m, &page) {
+                        warn!(error = %e, "could not save");
+                    }
                 }
                 return Ok(page);
             }
@@ -1098,7 +968,9 @@ impl Daemon {
                 .map(|f| grab::Page { url: f.url, content_type: f.content_type, body: f.body })
                 .map_err(|e| e.to_string())?;
             if let Some(m) = req.mirror.as_ref().filter(|m| m.pages) {
-                save_page(req, m, &page);
+                if let Err(e) = grab::save_page(req, m, &page) {
+                    warn!(error = %e, "could not save");
+                }
             }
             Ok(page)
         };
@@ -1293,13 +1165,11 @@ impl Daemon {
     /// List the files inside zip download `id` on another thread, reading
     /// the end of the archive with its own request (cookies and all), and
     /// answer `reply` with `zip_preview`.
-    fn preview_zip(&self, id: u64, reply: Sender<Vec<u8>>) {
+    fn preview_zip(&self, id: u64, reply: Reply) {
         let entry = self.entry(id);
         let download = self.store.requests().get(&id).cloned();
         let answer = move |entries: Vec<uidm_infrastructure::zip::ZipEntry>, error: Option<String>| {
-            if let Ok(frame) = serde_json::to_vec(&Outgoing::ZipPreview { id, entries, error }) {
-                let _ = reply.send(frame);
-            }
+            reply.send(&Outgoing::ZipPreview { id, entries, error });
         };
         let Some(entry) = entry else {
             return answer(Vec::new(), Some(format!("no download with id {id}")));
@@ -1380,7 +1250,7 @@ impl Daemon {
     /// long list neither waits on one slow server nor floods the sites, and
     /// each answer goes out as it comes. Any earlier probing for `client`
     /// stops.
-    fn probe_links(&self, client: u64, request: u64, links: Vec<Download>, reply: Sender<Vec<u8>>) {
+    fn probe_links(&self, client: u64, request: u64, links: Vec<Download>, reply: Reply) {
         let stop = Arc::new(AtomicBool::new(false));
         if let Some(old) = self.link_probes.lock().unwrap().insert(client, Arc::clone(&stop)) {
             old.store(true, Ordering::Relaxed);
@@ -1413,7 +1283,7 @@ impl Daemon {
                     },
                 };
                 // A send that fails means the client went.
-                if !serde_json::to_vec(&msg).is_ok_and(|frame| reply.send(frame).is_ok()) {
+                if !reply.send(&msg) {
                     return;
                 }
             });
@@ -1620,13 +1490,11 @@ impl Daemon {
 
     /// Send the whole list to one client, under the table lock so no event can
     /// slip between the snapshot and the client's next frame.
-    fn send_list(&self, reply: &Sender<Vec<u8>>) {
+    fn send_list(&self, reply: &Reply) {
         self.store.snapshot(|items, queues| {
             let refresh = Outgoing::RefreshWaiting { id: self.transfers.waiting_for_link() };
             for msg in [Outgoing::Downloads { items }, Outgoing::Queues { items: queues }, refresh] {
-                if let Ok(frame) = serde_json::to_vec(&msg) {
-                    let _ = reply.send(frame);
-                }
+                reply.send(&msg);
             }
         })
     }
@@ -1697,24 +1565,13 @@ fn main() {
 
 fn run() -> io::Result<()> {
     // Binding is the single-instance lock.
-    let addr = ipc::daemon_addr();
-    let listener = match TcpListener::bind(&addr) {
-        Ok(l) => l,
-        Err(e) => {
-            info!(addr = %addr, error = %e, "address unavailable; another daemon is likely running");
-            return Ok(());
-        }
+    let Some(server) = Server::bind()? else {
+        return Ok(());
     };
     // Only the daemon holding the bind moves the logs aside, so no two
     // programs move one at once.
     logging::trim();
-    info!(addr = %addr, version = VERSION, "listening");
-
-    // Publish the token only after winning the bind. A daemon that lost the
-    // bind must not overwrite the running daemon's token.
-    let token = ipc::new_token()?;
-    ipc::write_token(&token)?;
-    let token: Arc<str> = token.into();
+    info!(version = VERSION, "daemon started");
     match uidm_infrastructure::browsers::register_found() {
         Ok(names) if !names.is_empty() => info!(browsers = %names.join(", "), "registered with the browsers"),
         Ok(_) => {}
@@ -1724,11 +1581,24 @@ fn run() -> io::Result<()> {
     let (daemon, dirty, notes, wake) = Daemon::new(Paths::from_env());
     transfers::clean_early_folders(&daemon.store);
     let daemon = Arc::new(daemon);
-    spawn_scheduler(Arc::clone(&daemon), wake);
-    spawn_history_writer(Arc::clone(&daemon), dirty);
-    spawn_notifier(Arc::clone(&daemon), notes);
+    {
+        let daemon = Arc::clone(&daemon);
+        background::spawn_scheduler(wake, move || {
+            daemon.tick();
+            daemon.check_grab_schedules();
+            daemon.next_wake(uidm_infrastructure::clock::local_now())
+        });
+    }
+    {
+        let transfers = Arc::clone(&daemon.transfers);
+        background::spawn_debounced(dirty, move || transfers.save_history());
+    }
+    {
+        let daemon = Arc::clone(&daemon);
+        background::spawn_each(notes, move |note| daemon.on_note(note));
+    }
     #[cfg(windows)]
-    if let Err(e) = register_notifications() {
+    if let Err(e) = uidm_infrastructure::notify::register_app() {
         warn!(error = %e, "could not register for notifications");
     }
     // Queues set to start with UIDM.
@@ -1741,129 +1611,52 @@ fn run() -> io::Result<()> {
     if daemon.settings.lock().resume_at_startup {
         daemon.resume_interrupted();
     }
-    spawn_awake_keeper(Arc::clone(&daemon));
-    spawn_idle_monitor(Arc::clone(&daemon));
-
-    for conn in listener.incoming() {
-        match conn {
-            Ok(stream) => {
-                let daemon = Arc::clone(&daemon);
-                let token = Arc::clone(&token);
-                thread::spawn(move || handle_client(stream, &daemon, &token));
-            }
-            Err(e) => warn!(error = %e, "accept failed"),
-        }
+    {
+        // Hold Windows awake while anything downloads, a site grab runs or
+        // a video converts, when the "keep awake" option is on.
+        let daemon = Arc::clone(&daemon);
+        background::spawn_awake_keeper(move || daemon.settings.lock().keep_awake && daemon.is_working());
     }
+    {
+        let (idle, transfers) = (Arc::clone(&daemon), Arc::clone(&daemon.transfers));
+        background::spawn_idle_monitor(
+            move || idle.clients.is_empty() && idle.engine.active_count() == 0 && !idle.queues_need_daemon(),
+            move || transfers.save_history(),
+        );
+    }
+
+    let clients = Arc::clone(&daemon.clients);
+    server.serve(clients, Arc::new(Requests(daemon)));
     Ok(())
 }
 
-/// Serve one client until it disconnects. The client is registered for
-/// broadcasts only after it authenticates.
-fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
-    let id = NEXT_CLIENT.fetch_add(1, Ordering::Relaxed);
-    let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
-    if let Err(e) = authenticate(&mut stream, token) {
-        warn!(client = id, peer = %peer, error = %e, "client rejected");
-        return;
-    }
-    info!(client = id, peer = %peer, "client connected");
+/// The daemon's answers to its clients' requests.
+struct Requests(Arc<Daemon>);
 
-    let mut writer_stream = match stream.try_clone() {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(client = id, error = %e, "client error");
-            return;
-        }
-    };
-    let (tx, rx) = channel::<Vec<u8>>();
-    daemon.clients.clients.lock().unwrap().insert(id, tx.clone());
-
-    // One writer per client keeps its frames whole even when replies and
-    // broadcasts race.
-    let writer = thread::spawn(move || {
-        while let Ok(frame) = rx.recv() {
-            if write_frame(&mut writer_stream, &frame).is_err() {
-                break;
-            }
-        }
-    });
-
-    let mut reader = stream;
-    loop {
-        match read_message(&mut reader, MAX_MESSAGE_BYTES) {
-            Ok(Some(raw)) => dispatch(&raw, daemon, id, &tx),
-            Ok(None) => break, // clean disconnect
-            Err(e) => {
-                warn!(client = id, error = %e, "client read error");
-                break;
-            }
-        }
+impl Handler for Requests {
+    fn handle(&self, client: u64, msg: Incoming, reply: &Reply) {
+        dispatch(msg, &self.0, client, reply);
     }
 
-    // Removing the map's sender and dropping ours leaves the writer's channel
-    // with no senders, so it drains what is queued and ends. Downloads this
-    // client started keep running.
-    daemon.clients.client_gone(id);
-    daemon.stop_grab(id);
-    daemon.stop_probe_links(id);
-    drop(tx);
-    let _ = writer.join();
-    info!(client = id, "client disconnected");
-}
-
-/// Run the daemon side of the handshake described in `uidm_infrastructure::ipc`.
-fn authenticate(stream: &mut TcpStream, token: &str) -> io::Result<()> {
-    // The whole handshake gets AUTH_TIMEOUT, not each read of it.
-    let until = Instant::now() + AUTH_TIMEOUT;
-    let client_nonce = match ipc::recv_handshake(&mut ipc::Deadline::new(stream, until))? {
-        Handshake::AuthHello { client_nonce } => client_nonce,
-        _ => return Err(denied("first frame was not auth_hello")),
-    };
-    let server_nonce = ipc::new_nonce()?;
-    let proof = ipc::proof(token, DAEMON_LABEL, &client_nonce, &server_nonce);
-    ipc::send_handshake(stream, &Handshake::AuthChallenge { server_nonce: server_nonce.clone(), proof })?;
-
-    let expected = ipc::proof(token, HOST_LABEL, &client_nonce, &server_nonce);
-    match ipc::recv_handshake(&mut ipc::Deadline::new(stream, until))? {
-        Handshake::Auth { proof } if ipc::ct_eq(proof.as_bytes(), expected.as_bytes()) => {}
-        _ => return Err(denied("missing or wrong auth proof")),
+    fn gone(&self, client: u64) {
+        self.0.stop_grab(client);
+        self.0.stop_probe_links(client);
     }
-    ipc::send_handshake(stream, &Handshake::AuthOk)?;
-
-    stream.set_read_timeout(None)
 }
 
-fn denied(why: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::PermissionDenied, why.to_string())
-}
-
-/// Handle one request frame from client `client`, sending any direct reply to
-/// `reply`.
-fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8>>) {
+/// Handle request `incoming` from client `client`, sending any direct reply
+/// to `reply`.
+fn dispatch(incoming: Incoming, daemon: &Arc<Daemon>, client: u64, reply: &Reply) {
     let send = |msg: &Outgoing| {
-        if let Ok(frame) = serde_json::to_vec(msg) {
-            let _ = reply.send(frame);
-        }
+        reply.send(msg);
     };
-    let incoming: Incoming = match serde_json::from_slice(raw) {
-        Ok(msg) => msg,
-        Err(e) => {
-            send(&Outgoing::Error { message: format!("invalid message: {e}") });
-            return;
-        }
-    };
-
-    // Anything from the extension shows it is still there.
-    if daemon.clients.browsers.lock().unwrap().contains(&client) {
-        *daemon.clients.browser_seen.lock().unwrap() = Some(uidm_infrastructure::state::unix_now());
-    }
     match incoming {
         Incoming::Hello { client: kind, .. } => {
             if kind.is_none() {
                 daemon.clients.browser_connected(client);
             }
             if kind.as_deref() == Some(WINDOW_CLIENT) {
-                daemon.clients.windows().insert(client);
+                daemon.clients.add_window(client);
                 send(&daemon.clients.browser_link());
                 // A window that opens during a countdown shows it too.
                 if let Some(countdown) = daemon.countdown_message() {
@@ -1968,7 +1761,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         Incoming::StartQueue { id } => match daemon.start_queue(id, None) {
             Ok(()) => {
                 info!(queue = %id, "start queue");
-                let _ = daemon.clients.wake.send(());
+                let _ = daemon.wake.send(());
             }
             Err(message) => send(&Outgoing::Error { message }),
         },
@@ -2037,19 +1830,14 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
                 if let Err(error) = daemon.install_update() {
-                    if let Ok(frame) = serde_json::to_vec(&Outgoing::UpdateFailed { error }) {
-                        let _ = reply.send(frame);
-                    }
+                    reply.send(&Outgoing::UpdateFailed { error });
                 }
             });
         }
         Incoming::CheckUpdate => {
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
-                let msg = daemon.check_update(uidm_infrastructure::update::LATEST_RELEASE);
-                if let Ok(frame) = serde_json::to_vec(&msg) {
-                    let _ = reply.send(frame);
-                }
+                reply.send(&daemon.check_update(uidm_infrastructure::update::LATEST_RELEASE));
             });
         }
         Incoming::Rendered { request, html, url, popups } => {
@@ -2095,7 +1883,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::GetSettings => send(&Outgoing::Settings { settings: daemon.settings.lock().clone() }),
         Incoming::SetSettings { settings } => {
-            match daemon.transfers.set_settings(if daemon.clients.windows().contains(&client) {
+            match daemon.transfers.set_settings(if daemon.clients.is_window(client) {
                 settings
             } else {
                 daemon.with_video_button(&settings)
@@ -2107,151 +1895,15 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
     }
 }
 
-/// Run the queue scheduler: a pass whenever something wakes it (a download
-/// ended, a queue changed) and every few seconds for the clock.
-fn spawn_scheduler(daemon: Arc<Daemon>, wake: Receiver<()>) {
-    thread::spawn(move || {
-        // Wakes the computer for the next scheduled start; kept here so the
-        // handle lives as long as the scheduler.
-        let mut timer = power::WakeTimer::new();
-        // The daemon trimmed the logs as it won the bind; this keeps them
-        // bounded while it runs for days.
-        let mut trimmed = Instant::now();
-        loop {
-            match wake.recv_timeout(SCHEDULER_POLL) {
-                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    while wake.try_recv().is_ok() {}
-                    daemon.tick();
-                    if trimmed.elapsed() >= LOG_TRIM_EVERY {
-                        logging::trim();
-                        trimmed = Instant::now();
-                    }
-                    daemon.check_grab_schedules();
-                    let next = daemon.next_wake(uidm_infrastructure::clock::local_now());
-                    if next != timer.at() {
-                        match timer.set(next) {
-                            Ok(()) => match next {
-                                Some(at) => info!(at = %at.display(), "wake timer set"),
-                                None => info!("wake timer cleared"),
-                            },
-                            Err(e) => warn!(error = %e, "could not set the wake timer"),
-                        }
-                    }
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
-            }
-        }
-    });
-}
-
-/// Run notifications on their own thread, so a slow toast or a scan never
-/// holds up downloads.
-fn spawn_notifier(daemon: Arc<Daemon>, notes: Receiver<Note>) {
-    thread::spawn(move || {
-        while let Ok(note) = notes.recv() {
-            daemon.on_note(note);
-        }
-    });
-}
-
-/// Give UIDM's notifications a name and icon. Unpackaged apps need this
-/// registration before Windows shows their notifications.
-#[cfg(windows)]
-fn register_notifications() -> io::Result<()> {
-    let icon = history::history_path()?.with_file_name("uidm.png");
-    if std::fs::read(&icon).ok().as_deref() != Some(ICON_PNG) {
-        settings::write_atomic(&icon, ICON_PNG)?;
-    }
-    registry::register_app_id(&icon)
-}
-
-/// Keep a page a crawl read under its mirror folder, with its links to
-/// kept pages and files pointing at the local copies. Not robots.txt, and
-/// not pages that are not HTML.
-fn save_page(req: &GrabRequest, m: &grab::Mirror, page: &grab::Page) {
-    let html = page.content_type.as_deref().is_none_or(|t| t.to_ascii_lowercase().contains("html"));
-    let Ok(url) = url::Url::parse(&page.url) else {
-        return;
-    };
-    if !html || url.path() == "/robots.txt" {
-        return;
-    }
-    let root = Path::new(m.folder.trim());
-    let here = grab::mirror_path(root, &url, true);
-    if here.exists() && !m.overwrite {
-        return;
-    }
-    let text = String::from_utf8_lossy(&page.body);
-    let out = grab::rewrite_links(&text, &url, &here, root, |u| grab::kept_locally(req, u));
-    let written = here
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| uidm_infrastructure::settings::write_atomic(&here, out.as_bytes()));
-    if let Err(e) = written {
-        warn!(path = %here.display(), error = %e, "could not save");
-    }
-}
-
-/// Write the history shortly after it changes, batching bursts of events
-/// (progress, a cleared list) into one write.
-fn spawn_history_writer(daemon: Arc<Daemon>, dirty: Receiver<()>) {
-    thread::spawn(move || {
-        while dirty.recv().is_ok() {
-            thread::sleep(HISTORY_DEBOUNCE);
-            while dirty.try_recv().is_ok() {}
-            daemon.transfers.save_history();
-        }
-    });
-}
-
-/// Exit the process once it has been idle (no clients, no downloads) for
-/// `IDLE_EXIT`, so a daemon started by the browser does not linger forever.
-/// Hold Windows awake while anything downloads, a site grab runs or a
-/// video converts, when the "keep awake" option is on. One thread owns the
-/// request, since Windows ties it to the thread that made it.
-fn spawn_awake_keeper(daemon: Arc<Daemon>) {
-    thread::spawn(move || {
-        let mut held = false;
-        loop {
-            let want = daemon.settings.lock().keep_awake && daemon.is_working();
-            if want != held {
-                power::keep_awake(want);
-                held = want;
-            }
-            thread::sleep(AWAKE_POLL);
-        }
-    });
-}
-
-fn spawn_idle_monitor(daemon: Arc<Daemon>) {
-    thread::spawn(move || {
-        let mut idle_since: Option<Instant> = None;
-        loop {
-            thread::sleep(IDLE_POLL);
-            let idle = daemon.clients.clients.lock().unwrap().is_empty()
-                && daemon.engine.active_count() == 0
-                && !daemon.queues_need_daemon();
-            match (idle, idle_since) {
-                (true, None) => idle_since = Some(Instant::now()),
-                (true, Some(t)) if t.elapsed() >= IDLE_EXIT => {
-                    info!(seconds = IDLE_EXIT.as_secs(), "idle, exiting");
-                    daemon.transfers.save_history();
-                    std::process::exit(0);
-                }
-                (false, _) => idle_since = None,
-                _ => {}
-            }
-        }
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+    use std::net::TcpListener;
     use uidm_domain::download::DownloadLogin;
     use uidm_domain::ports::QuotaState;
     use uidm_domain::quota::Usage;
+    use uidm_infrastructure::server;
 
     const BODY: &[u8] = b"the new bytes";
 
@@ -2336,6 +1988,11 @@ mod tests {
         format!("http://{addr}/big.bin")
     }
 
+    /// Hand `raw` to the daemon as client `client` sent it.
+    fn send(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Reply) {
+        server::receive(&daemon.clients, &Requests(Arc::clone(daemon)), client, raw, reply);
+    }
+
     struct Setup {
         daemon: Arc<Daemon>,
         dir: PathBuf,
@@ -2356,9 +2013,9 @@ mod tests {
             s.ask_where_to_save = false;
             s.if_duplicate = choice;
         }
-        let (tx, window) = channel();
-        daemon.clients.clients.lock().unwrap().insert(1, tx);
-        daemon.clients.windows.lock().unwrap().insert(1);
+        let (tx, window) = Reply::channel();
+        daemon.clients.connect(1, tx);
+        daemon.clients.add_window(1);
         Setup { daemon: Arc::new(daemon), dir, window }
     }
 
@@ -2414,23 +2071,23 @@ mod tests {
         assert!(matches!(t.daemon.clients.browser_link(), Outgoing::BrowserLink { connected: false, last_seen: None }));
 
         // The extension says hello with no `client`.
-        let (tx, _browser) = channel();
-        t.daemon.clients.clients.lock().unwrap().insert(2, tx.clone());
-        dispatch(br#"{"op":"hello","version":"1"}"#, &t.daemon, 2, &tx);
+        let (tx, _browser) = Reply::channel();
+        t.daemon.clients.connect(2, tx.clone());
+        send(br#"{"op":"hello","version":"1"}"#, &t.daemon, 2, &tx);
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: true, .. })));
-        assert!(t.daemon.clients.browser_seen.lock().unwrap().is_some());
+        assert!(t.daemon.clients.browser_seen().is_some());
 
         // A second one is no news; the first going is none either.
-        let (tx3, _browser3) = channel();
-        t.daemon.clients.clients.lock().unwrap().insert(3, tx3.clone());
-        dispatch(br#"{"op":"hello"}"#, &t.daemon, 3, &tx3);
+        let (tx3, _browser3) = Reply::channel();
+        t.daemon.clients.connect(3, tx3.clone());
+        send(br#"{"op":"hello"}"#, &t.daemon, 3, &tx3);
         t.daemon.clients.client_gone(2);
         assert!(!t.window_got(|m| matches!(m, Outgoing::BrowserLink { .. })));
 
         // Anything it sends keeps it seen.
-        *t.daemon.clients.browser_seen.lock().unwrap() = Some(1);
-        dispatch(br#"{"op":"ping"}"#, &t.daemon, 3, &tx3);
-        assert!(t.daemon.clients.browser_seen.lock().unwrap().is_some_and(|s| s > 1));
+        t.daemon.clients.set_browser_seen(Some(1));
+        send(br#"{"op":"ping"}"#, &t.daemon, 3, &tx3);
+        assert!(t.daemon.clients.browser_seen().is_some_and(|s| s > 1));
 
         // The last one going is, with when.
         t.daemon.clients.client_gone(3);
@@ -2442,10 +2099,10 @@ mod tests {
         let t = setup("command_line", Duplicate::NewName);
         let entry = |url: &str| t.daemon.store.table().entries().find(|e| e.url == url).cloned();
         let ask = |url: &str| -> (Outgoing, Receiver<Vec<u8>>) {
-            let (tx, rx) = channel();
+            let (tx, rx) = Reply::channel();
             let msg =
                 format!(r#"{{"op":"command_line","download":{{"url":"{url}","start":false}},"quit_after":true}}"#);
-            dispatch(msg.as_bytes(), &t.daemon, 9, &tx);
+            send(msg.as_bytes(), &t.daemon, 9, &tx);
             let reply = rx.try_iter().filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok()).last().unwrap();
             (reply, rx)
         };
@@ -2459,22 +2116,22 @@ mod tests {
         assert_eq!(e.on_done, None);
 
         // No window: it waits for the one this call opens, then has /q.
-        t.daemon.clients.windows.lock().unwrap().clear();
+        t.daemon.clients.client_gone(1);
         let (reply, _) = ask("https://example.com/new.bin");
         assert!(matches!(reply, Outgoing::CommandLine { window_open: false }));
         assert!(entry("https://example.com/new.bin").is_none(), "held for the window");
-        let (tx, _rx) = channel();
-        dispatch(br#"{"op":"hello","client":"window"}"#, &t.daemon, 1, &tx);
+        let (tx, _rx) = Reply::channel();
+        send(br#"{"op":"hello","client":"window"}"#, &t.daemon, 1, &tx);
         let e = entry("https://example.com/new.bin").expect("added once the window says hello");
         assert_eq!(e.on_done.map(|o| o.then), Some(WhenDone::Exit));
 
         // One held too long belonged to a window that never came.
-        t.daemon.clients.windows.lock().unwrap().clear();
+        t.daemon.clients.client_gone(1);
         ask("https://example.com/stale.bin");
         let held = t.daemon.command_line.lock().unwrap().take().unwrap().0;
         let old = Instant::now().checked_sub(COMMAND_LINE_WAIT + Duration::from_secs(1)).unwrap();
         *t.daemon.command_line.lock().unwrap() = Some((held, old));
-        dispatch(br#"{"op":"hello","client":"window"}"#, &t.daemon, 1, &tx);
+        send(br#"{"op":"hello","client":"window"}"#, &t.daemon, 1, &tx);
         assert!(entry("https://example.com/stale.bin").is_none());
     }
 
@@ -2774,7 +2431,7 @@ mod tests {
         let t = setup("probe_links", Duplicate::NewName);
         let link = |url: String| Download { url, ..Download::default() };
         let links = vec![link(serve()), link("http://127.0.0.1:1/gone.zip".into()), link(serve())];
-        let (tx, rx) = channel();
+        let (tx, rx) = Reply::channel();
         t.daemon.probe_links(7, 42, links, tx);
         let mut heard = std::collections::BTreeMap::new();
         while heard.len() < 3 {
@@ -2791,7 +2448,7 @@ mod tests {
         assert!(heard[&1].2.is_some(), "a link that cannot be reached says why");
 
         // A new request stops the last; closing the picker stops the new one.
-        let (tx, _rx) = channel();
+        let (tx, _rx) = Reply::channel();
         let before = Arc::clone(&t.daemon.link_probes.lock().unwrap()[&7]);
         t.daemon.probe_links(7, 43, vec![link(serve())], tx);
         assert!(before.load(Ordering::Relaxed));
@@ -3251,8 +2908,8 @@ mod tests {
     fn a_crawl_asks_the_browser_for_its_cookies() {
         let t = setup("crawl_cookies", Duplicate::NewName);
         // The browser's extension is connected; without it nobody is asked.
-        let (extension, _from_daemon) = channel();
-        t.daemon.clients.clients.lock().unwrap().insert(2, extension);
+        let (extension, _from_daemon) = Reply::channel();
+        t.daemon.clients.connect(2, extension);
         let d = Arc::clone(&t.daemon);
         let asking = thread::spawn(move || d.browser_cookies("https://site.net/"));
         let request = loop {
@@ -3336,33 +2993,6 @@ mod tests {
         };
         t.daemon.run_scheduled_grab(&dir, checked, 3);
         assert_eq!(t.len(), 2, "only the ticked file was added");
-    }
-
-    #[test]
-    fn crawled_pages_are_saved_with_local_links() {
-        let dir = std::env::temp_dir().join(format!("uidm_save_page_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let mirror = grab::Mirror { folder: dir.display().to_string(), pages: true, overwrite: false };
-        let req = GrabRequest { start: "https://s/".into(), mirror: Some(mirror.clone()), ..GrabRequest::default() };
-        let page = grab::Page {
-            url: "https://s/docs/".into(),
-            content_type: Some("text/html".into()),
-            body: br#"<a href="guide.pdf">g</a>"#.to_vec(),
-        };
-        save_page(&req, &mirror, &page);
-        let saved = dir.join("s").join("docs").join("index.html");
-        assert_eq!(std::fs::read_to_string(&saved).unwrap(), r#"<a href="guide.pdf">g</a>"#);
-        std::fs::write(&saved, "mine").unwrap();
-        save_page(&req, &mirror, &page);
-        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "mine", "skipped, not replaced");
-        let robots = grab::Page {
-            url: "https://s/robots.txt".into(),
-            content_type: Some("text/plain".into()),
-            body: b"User-agent: *".to_vec(),
-        };
-        save_page(&req, &mirror, &robots);
-        assert!(!dir.join("s").join("robots.txt.html").exists());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
