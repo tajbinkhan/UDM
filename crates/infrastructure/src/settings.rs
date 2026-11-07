@@ -42,25 +42,45 @@ pub fn save(settings: &Settings, path: &Path) -> io::Result<()> {
     write_atomic(path, &bytes)
 }
 
+/// Why settings fail their checks.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CheckError {
+    #[error(transparent)]
+    Invalid(#[from] uidm_domain::settings::InvalidSettings),
+    #[error("{0} is a file, not a folder: {1}")]
+    FolderIsFile(SettingsField, String),
+    #[error("ffmpeg must be the full path of ffmpeg.exe: {0}")]
+    FfmpegIsFolder(String),
+}
+
+impl From<CheckError> for uidm_domain::ports::SettingsError {
+    fn from(e: CheckError) -> Self {
+        match e {
+            CheckError::Invalid(e) => uidm_domain::ports::SettingsError::Invalid(e),
+            other => uidm_domain::ports::SettingsError::Refused(other.to_string()),
+        }
+    }
+}
+
 /// The checks of [`Settings::validate`], then those that look at the disk:
 /// a folder setting must not name a file, and ffmpeg must not be a folder.
-pub fn validate(settings: &Settings) -> Result<(), String> {
-    settings.validate().map_err(|e| e.to_string())?;
-    let folders = settings.download_dir.iter().map(|dir| ("The download folder".to_string(), dir)).chain(
+pub fn validate(settings: &Settings) -> Result<(), CheckError> {
+    settings.validate()?;
+    let folders = settings.download_dir.iter().map(|dir| (SettingsField::DownloadFolder, dir)).chain(
         settings
             .categories
             .iter()
-            .filter_map(|c| c.folder.as_ref().map(|dir| (format!("The folder of \"{}\"", c.name.trim()), dir))),
+            .filter_map(|c| c.folder.as_ref().map(|dir| (SettingsField::CategoryFolder(c.name.trim().to_string()), dir))),
     );
     for (what, dir) in folders {
         let path = Path::new(dir);
         if path.exists() && !path.is_dir() {
-            return Err(format!("{what} is a file, not a folder: {dir}"));
+            return Err(CheckError::FolderIsFile(what, dir.clone()));
         }
     }
     let ffmpeg = settings.ffmpeg_path.trim();
     if !ffmpeg.is_empty() && Path::new(ffmpeg).is_dir() {
-        return Err(format!("ffmpeg must be the full path of ffmpeg.exe: {ffmpeg}"));
+        return Err(CheckError::FfmpegIsFolder(ffmpeg.to_string()));
     }
     Ok(())
 }
@@ -187,8 +207,7 @@ pub struct DiskChecks;
 
 impl uidm_application::window::SettingsChecks for DiskChecks {
     fn validate(&self, settings: &Settings) -> Result<(), uidm_domain::ports::SettingsError> {
-        settings.validate()?;
-        validate(settings).map_err(uidm_domain::ports::SettingsError::Refused)
+        Ok(validate(settings)?)
     }
 
     fn ffmpeg(&self, settings: &Settings) -> Option<PathBuf> {

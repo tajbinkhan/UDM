@@ -910,7 +910,7 @@ mod tests {
             .store
             .update(id, |e| {
                 e.path = Some(other.display().to_string());
-                Ok(())
+                true
             })
             .unwrap();
         let back = Properties { folder: Some(t.dir.join("again").display().to_string()), ..Properties::default() };
@@ -1054,7 +1054,7 @@ mod tests {
             .store
             .update(id, |e| {
                 e.path = Some(other.display().to_string());
-                Ok(())
+                true
             })
             .unwrap();
         t.daemon.remove(id, true).unwrap();
@@ -1214,7 +1214,7 @@ mod tests {
             .store
             .update(id, |e| {
                 e.status = Status::Done;
-                Ok(())
+                true
             })
             .unwrap();
         assert!(t.daemon.set_on_done(id, None).is_err(), "too late once finished");
@@ -1756,7 +1756,6 @@ mod tests {
             .store
             .update_queue(MAIN_QUEUE, |q| {
                 q.stop_at_once = Some(uidm_infrastructure::clock::local_now().total());
-                Ok(())
             })
             .unwrap();
         t.daemon.tick();

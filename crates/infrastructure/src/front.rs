@@ -343,7 +343,7 @@ mod tests {
         store.publish(&Outgoing::Added { id: 3, url: "http://x/a".into() });
         let _ = store.update(3, |e| {
             e.status = Status::Confirming;
-            Ok(())
+            true
         });
         let answered = Arc::new(Mutex::new(Vec::new()));
         let heard = Arc::clone(&answered);
@@ -374,7 +374,7 @@ mod tests {
             .update(4, |e| {
                 e.path = Some(std::env::temp_dir().join("a.zip").display().to_string());
                 e.total = Some(2048);
-                Ok(())
+                true
             })
             .unwrap();
         let done = toast_for(&e, false);
