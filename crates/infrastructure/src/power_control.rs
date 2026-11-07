@@ -13,6 +13,8 @@ use tracing::{info, warn};
 use uidm_domain::ports::{PowerControl, QueueFinish};
 use uidm_domain::queue::{PowerRequest, RunEnd, WhenDone};
 
+use uidm_application::daemon::Event;
+
 use crate::live_settings::LiveSettings;
 use crate::notify::{self, Sound};
 use crate::power;
@@ -66,14 +68,14 @@ impl PowerOff {
 
     /// The countdown still running, as the message a window joining now
     /// needs. Forgets a countdown that ran out or was stopped.
-    pub fn countdown_message(&self) -> Option<Outgoing> {
+    pub fn countdown_message(&self) -> Option<Event> {
         let mut slot = self.slot();
         let c = slot.as_ref()?;
         if c.canceled.load(Ordering::Relaxed) || Instant::now() >= c.deadline {
             *slot = None;
             return None;
         }
-        Some(Outgoing::Countdown {
+        Some(Event::Countdown {
             action: c.request.action,
             seconds: c.deadline.saturating_duration_since(Instant::now()).as_secs() as u32,
             queue: c.request.queue.clone(),
@@ -260,7 +262,7 @@ mod tests {
         assert_eq!(heard.shown.load(Ordering::Relaxed), 1);
         assert_eq!(heard.saves.load(Ordering::Relaxed), 1);
         assert_eq!(power.running().map(|r| r.action), Some(WhenDone::Sleep));
-        assert!(matches!(power.countdown_message(), Some(Outgoing::Countdown { action: WhenDone::Sleep, .. })));
+        assert!(matches!(power.countdown_message(), Some(Event::Countdown { action: WhenDone::Sleep, .. })));
 
         // A second countdown replaces the first.
         power.start_countdown(&request(WhenDone::ShutDown), 3600);

@@ -1,19 +1,22 @@
-//! What a client of the daemon (the desktop window) asks it to do, what it
-//! hears back, and the port it does both through.
+//! What a client of the daemon asks it to do (`Command`), what it hears back
+//! (`Event`), and the ports on each side: `DaemonClient` is the desktop
+//! window's connection, and `Requests` is what the daemon's server hands
+//! each client's commands to, with a `Reply` for the answers.
 //!
 //! These are plain values: how they travel (the framing, the JSON shapes,
-//! the handshake) is the `DaemonClient` adapter's business, in
-//! `uidm-infrastructure`.
+//! the handshake) is the adapters' business, in `uidm-infrastructure`.
 
 mod table;
 
 pub use table::{apply, change_of};
 
+use std::sync::Arc;
+
 use uidm_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
 };
 use uidm_domain::grab::{GrabFile, GrabRequest};
-use uidm_domain::media::Target;
+use uidm_domain::media::{MediaInfo, Target};
 use uidm_domain::queue::{Queue, WhenDone};
 use uidm_domain::settings::Settings;
 use uidm_domain::update::Release;
@@ -23,6 +26,41 @@ use uidm_domain::update::Release;
 // Each command lives only while it is sent, so boxing the big variants would add churn for no gain.
 #[allow(clippy::large_enum_variant)]
 pub enum Command {
+    /// A client introduces itself. The desktop window names itself
+    /// `window`; the browser extension, through its host, names nothing.
+    Hello {
+        version: Option<String>,
+        client: Option<String>,
+    },
+    /// Answered with `Pong`.
+    Ping,
+    /// A command line from `uidm-gui`; answered with `CommandLine`.
+    CommandLine(CommandLine),
+    /// Read a stream's playlist; answered with `MediaInfo`.
+    ProbeMedia {
+        request: u64,
+        download: Download,
+    },
+    /// Links from a page, for the link picker.
+    PickLinks {
+        page: String,
+        links: Vec<PageLink>,
+        user_agent: Option<String>,
+    },
+    /// The browser's answer to `RenderPage`: the page's HTML after its
+    /// scripts ran and its address then, or nothing, and the addresses its
+    /// scripts opened in new windows.
+    Rendered {
+        request: u64,
+        html: Option<String>,
+        url: Option<String>,
+        popups: Vec<String>,
+    },
+    /// The browser's answer to `CookiesWanted`.
+    Cookies {
+        request: u64,
+        cookies: Option<String>,
+    },
     /// A download to hand off to the engine.
     Add(Download),
     /// Many downloads at once, each added to wait in `queue` (the main
@@ -178,6 +216,38 @@ pub enum Event {
     Connected,
     /// The connection went; nothing more comes until `connect` again.
     Lost(Lost),
+    /// The daemon's answer to `Hello`.
+    Hello {
+        name: String,
+        version: String,
+    },
+    /// The answer to `Ping`.
+    Pong,
+    /// An `Add` or `Retry` was taken as download `id`.
+    Ack {
+        id: u64,
+        url: String,
+        status: String,
+    },
+    /// What a `ProbeMedia` stream offers.
+    MediaInfo {
+        request: u64,
+        info: MediaInfo,
+    },
+    /// Ask the browser for its cookies for `url`; answered with `Cookies`.
+    CookiesWanted {
+        request: u64,
+        url: String,
+    },
+    /// Ask the browser to render `url`; answered with `Rendered`.
+    RenderPage {
+        request: u64,
+        url: String,
+    },
+    /// The answer to a `CommandLine`: whether an open window ran it.
+    CommandLine {
+        window_open: bool,
+    },
     /// A download was queued.
     Added {
         id: u64,
@@ -373,4 +443,33 @@ pub trait DaemonClient: Send + Sync {
     /// starting the daemon if needed. `Ok(true)` means an open window ran
     /// it; `Ok(false)` that it waits for the window about to open.
     fn run_command_line(&self, command: CommandLine) -> Result<bool, DaemonError>;
+}
+
+/// Where the daemon's answers to one client go. Cloned freely, so work on
+/// other threads (a crawl, a probe) can answer when it is done.
+#[derive(Clone)]
+pub struct Reply(Arc<dyn Fn(Event) -> bool + Send + Sync>);
+
+impl Reply {
+    /// A reply that hands each event to `send`, which returns false once
+    /// the client is gone.
+    pub fn new(send: impl Fn(Event) -> bool + Send + Sync + 'static) -> Self {
+        Reply(Arc::new(send))
+    }
+
+    /// Send `event` to the client. False when the client is gone.
+    pub fn send(&self, event: Event) -> bool {
+        (self.0)(event)
+    }
+}
+
+/// What the daemon does with its clients' commands: the port its server
+/// drives.
+pub trait Requests: Send + Sync {
+    /// Handle `command` from client `client`; a direct answer goes to
+    /// `reply`.
+    fn handle(&self, client: u64, command: Command, reply: &Reply);
+
+    /// Client `client` disconnected.
+    fn gone(&self, client: u64);
 }

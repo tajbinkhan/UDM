@@ -19,6 +19,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use tracing::warn;
+use uidm_application::daemon::Event;
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::ports::{DownloadIntake, DownloadList, QueueStore};
 use uidm_domain::queue::Queue;
@@ -182,6 +183,14 @@ impl DownloadStore {
     /// Apply `msg` to the table and announce it. The table lock is held
     /// across the announcement, so the order listeners see matches the
     /// table's, and a snapshot taken under the same lock is never stale.
+    /// Apply `event` to the list and announce it, as `publish` does with a
+    /// wire message.
+    pub fn announce(&self, event: Event) {
+        if let Some(msg) = crate::wire::outgoing(event) {
+            self.publish(&msg);
+        }
+    }
+
     pub fn publish(&self, msg: &Outgoing) {
         let mut table = lock(&self.table);
         if let Outgoing::Canceled { id, .. } = msg {
