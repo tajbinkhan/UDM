@@ -78,7 +78,7 @@ mod win;
 #[path = "gui/win_other.rs"]
 mod win;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -410,6 +410,12 @@ struct App {
     confirm: Option<ConfirmDraft>,
     /// Many downloads waiting for answers before they are added.
     answers: Option<answers::Prompt>,
+    /// A batch's questions being worked out on a worker: the prompt, or
+    /// the downloads to add when nothing needs asking, with their queue
+    /// and whether to start it.
+    asking: Vec<Pending<AskedBatch>>,
+    /// Batch prompts waiting for the one on screen.
+    prompts: VecDeque<answers::Prompt>,
     /// The login prompt on screen.
     login: Option<login::LoginPrompt>,
     /// "Don't show this dialog again" in the completion dialog.
@@ -685,6 +691,11 @@ impl ProxyLoginDraft {
 /// An ffmpeg field's text and the ffmpeg found for it, if any.
 type FfmpegLookup = (String, Option<PathBuf>);
 
+/// A batch's questions, worked out on a worker: the prompt, or the
+/// downloads when nothing needs asking; then their queue and whether to
+/// start it.
+type AskedBatch = (Result<answers::Prompt, Vec<Download>>, u64, bool);
+
 /// What Save's worker did: each registration it made (the browser and
 /// whether it is now registered), and the settings to send, or why not.
 type SaveChecked = (Vec<(uidm_application::window::BrowserSlot, bool)>, Result<Settings, String>);
@@ -930,6 +941,8 @@ struct OptionsDraft {
     added_saved: Vec<uidm_domain::settings::AddedBrowser>,
     /// A picked browser program being identified on a worker.
     adding_browser: Pending<(PathBuf, Option<state::BrowserRow>)>,
+    /// Get System's read of the system's proxy, done on a worker.
+    system_proxy: Pending<Option<uidm_application::window::SystemProxy>>,
     /// Save's disk checks and browser registrations, done on a worker:
     /// the registrations made, and the settings to send or why not.
     checking: Pending<SaveChecked>,
@@ -1139,6 +1152,7 @@ impl OptionsDraft {
             added_saved: s.added_browsers.clone(),
             adding_browser: Pending::default(),
             checking: Pending::default(),
+            system_proxy: Pending::default(),
             chrome_readers: Vec::new(),
             browser_picked: Picked::default(),
             browser_note: None,
@@ -1475,6 +1489,8 @@ impl App {
             options: None,
             confirm: None,
             answers: None,
+            asking: Vec::new(),
+            prompts: VecDeque::new(),
             login: None,
             hide_completed: false,
             threat_prompt: None,
@@ -1561,6 +1577,32 @@ impl App {
                 state::apply(&mut self.state, UiMessage::Error(e));
             }
             None => {}
+        }
+    }
+
+    /// Go on with each batch whose questions a worker worked out: add it
+    /// when nothing needs asking, else queue its prompt; prompts show one
+    /// at a time, in order.
+    fn take_asked_batches(&mut self) {
+        let mut i = 0;
+        while i < self.asking.len() {
+            match self.asking[i].take() {
+                Some((Ok(prompt), _, _)) => {
+                    self.prompts.push_back(prompt);
+                    self.asking.remove(i);
+                }
+                Some((Err(items), queue, start_queue)) => {
+                    self.add_many(items, queue, start_queue);
+                    self.asking.remove(i);
+                }
+                None if self.asking[i].busy() => i += 1,
+                None => {
+                    self.asking.remove(i);
+                }
+            }
+        }
+        if self.answers.is_none() {
+            self.answers = self.prompts.pop_front();
         }
     }
 
@@ -1991,14 +2033,16 @@ impl App {
             Action::AddMany { items, queue, start_queue } => {
                 // Addresses in the list and taken names may need answers
                 // first, when Options says to ask.
+                // Which names are taken is read from disk, so on a worker.
                 let (rows, settings) = {
                     let s = &self.state;
                     (s.table.entries().cloned().collect::<Vec<_>>(), s.settings.clone().unwrap_or_default())
                 };
-                match answers::Prompt::new(items, queue, start_queue, &rows, &settings) {
-                    Ok(prompt) => self.answers = Some(prompt),
-                    Err(items) => self.add_many(items, queue, start_queue),
-                }
+                let mut asking = Pending::default();
+                asking.start(&self.ctx, move || {
+                    (answers::Prompt::new(items, queue, start_queue, &rows, &settings), queue, start_queue)
+                });
+                self.asking.push(asking);
             }
             Action::OpenBatch => self.batch = Some(tools::BatchDialog::new()),
             Action::BatchFromClipboard => {
@@ -2709,6 +2753,9 @@ impl App {
         take_picked(&draft.picked, &mut draft.folder);
         take_picked(&draft.temp_picked, &mut draft.temp_dir);
         draft.add_picked_browser(ctx);
+        if let Some(rules) = draft.system_proxy.take() {
+            use_system_proxy(draft, rules);
+        }
         if let Some((done, result)) = draft.checking.take() {
             draft.registered(done);
             match result {
@@ -3196,7 +3243,7 @@ fn connection_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                     .on_hover_text(tr("Fill in the proxies from the Windows proxy setting"))
                     .clicked()
                 {
-                    get_system_proxy(draft);
+                    draft.system_proxy.start(ui.ctx(), || crate::ports::ports().system.fixed_proxy());
                 }
             });
         });
@@ -3336,11 +3383,12 @@ fn connection_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
     }
 }
 
-/// Fill the manual proxies from the Windows proxy setting, as IDM's Get
-/// System does. Windows' SOCKS proxies speak SOCKS4. Its configuration
-/// script is not read: it picks a proxy per address.
-fn get_system_proxy(draft: &mut OptionsDraft) {
-    let Some(rules) = crate::ports::ports().system.fixed_proxy() else {
+/// Fill the manual proxies from the Windows proxy setting `rules`, which a
+/// worker read, as IDM's Get System does. Windows' SOCKS proxies speak
+/// SOCKS4. Its configuration script is not read: it picks a proxy per
+/// address.
+fn use_system_proxy(draft: &mut OptionsDraft, rules: Option<uidm_application::window::SystemProxy>) {
+    let Some(rules) = rules else {
         draft.error = Some(
             if cfg!(windows) {
                 tr("Windows has no proxy server turned on.")
@@ -4110,6 +4158,7 @@ impl eframe::App for App {
         self.drain_inbox();
         self.refresh_library();
         self.open_grab_project();
+        self.take_asked_batches();
         // Copy what this frame needs, then draw.
         let (link, rows, speeds, last_error, settings) = {
             let s = &self.state;
