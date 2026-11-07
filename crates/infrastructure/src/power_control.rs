@@ -158,10 +158,7 @@ pub type WhenDoneHook = Box<dyn Fn(WhenDone, &str, bool) + Send + Sync>;
 /// Open the program or file a queue names for the end of its run, as
 /// Explorer would on a double-click.
 pub fn open_after_run(file: &str) {
-    info!(file, "opening");
-    if let Err(e) = crate::platform::open(file.as_ref()) {
-        warn!(file, error = %e, "could not open");
-    }
+    uidm_domain::ports::FileOpener::open(&crate::platform::Desktop, file);
 }
 
 /// The end of a queue's run: its sound, the file it opens, and its

@@ -45,7 +45,7 @@ pub fn now_minute() -> u64 {
 
 /// The `quota` event that tells the clients `notice`.
 pub fn notice_event(n: QuotaNotice) -> Event {
-    crate::wire::event(notice_message(n))
+    Event::from(n)
 }
 
 /// The `quota` message that tells the clients `notice`.

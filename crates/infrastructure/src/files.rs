@@ -2,7 +2,7 @@
 //! or moves a download, recycling them when it is removed with its files,
 //! and the resume records kept beside partial files.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use uidm_domain::ports::{DownloadFiles, FilesError};
 
@@ -96,6 +96,16 @@ pub fn move_partial(from: &Path, to: &Path) -> Result<(), FilesError> {
         move_file(&sidecar, &new_sidecar)?;
     }
     Ok(())
+}
+
+impl uidm_domain::ports::SaveFolders for DiskFiles {
+    fn downloads_dir(&self) -> PathBuf {
+        crate::settings::default_downloads_dir()
+    }
+
+    fn can_write(&self, folder: &Path) -> bool {
+        crate::elevate::can_write(folder)
+    }
 }
 
 #[cfg(test)]

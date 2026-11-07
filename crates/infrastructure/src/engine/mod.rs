@@ -28,7 +28,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use uidm_domain::filename::{numbered_name, sanitize_filename};
+pub(crate) use uidm_domain::filename::name_from_url as derive_filename;
+use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename};
 
 use crate::media::MediaChoice;
 use crate::net::NetConfig;
@@ -1061,7 +1062,7 @@ impl Inspection {
     /// or the URL, and no size.
     pub fn unprobed(url: &str, filename: Option<&str>) -> Self {
         Inspection {
-            filename: filename.map(sanitize_filename).filter(|s| !s.is_empty()).unwrap_or_else(|| derive_filename(url)),
+            filename: proposed_name(url, filename),
             total: None,
             resumable: false,
             etag: None,
@@ -1773,18 +1774,6 @@ fn effective_connections(total: u64, requested: usize) -> usize {
     requested.clamp(1, MAX_CONNECTIONS).min(by_size)
 }
 
-/// Pull a filename out of a URL's path. Falls back to `download`.
-fn derive_filename(url: &str) -> String {
-    let no_query = url.split(['?', '#']).next().unwrap_or(url);
-    let tail = no_query.rsplit('/').next().unwrap_or("");
-    let name = sanitize_filename(tail);
-    if name.is_empty() {
-        "download".to_string()
-    } else {
-        name
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1795,13 +1784,6 @@ mod tests {
         assert_eq!(effective_connections(100 * 1024 * 1024, 8), 8);
         assert_eq!(effective_connections(100 * 1024 * 1024, 999), MAX_CONNECTIONS);
         assert_eq!(effective_connections(100 * 1024 * 1024, 0), 1);
-    }
-
-    #[test]
-    fn derive_filename_from_url() {
-        assert_eq!(derive_filename("https://x.com/a/b/movie.mp4"), "movie.mp4");
-        assert_eq!(derive_filename("https://x.com/file.zip?token=1"), "file.zip");
-        assert_eq!(derive_filename("https://x.com/"), "download");
     }
 
     #[test]

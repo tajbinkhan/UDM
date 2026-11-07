@@ -137,6 +137,15 @@ fn tail(output: &str) -> String {
     one_line.chars().skip(count.saturating_sub(DETAIL_CHARS)).collect()
 }
 
+/// The `VirusScanner` adapter: runs the scanner the settings name.
+pub struct Antivirus;
+
+impl uidm_domain::ports::VirusScanner for Antivirus {
+    fn scan(&self, settings: &uidm_domain::settings::Settings, path: &Path) -> Scan {
+        scan(settings.scanner, &settings.scanner_command, path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
