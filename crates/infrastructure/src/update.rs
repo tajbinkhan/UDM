@@ -1,7 +1,20 @@
 //! Checking GitHub for a newer UIDM release, and the Setup program attached
 //! to it. The window shows a notice with a link to the release page; Update
 //! now has the daemon download that Setup, check it against what GitHub
-//! says about it, and run it.
+//! says about it, and run it. `GitHub` is the adapter for `ReleaseSource`.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Arc;
+
+use tracing::info;
+use uidm_domain::download::Download;
+use uidm_domain::ports::ReleaseSource;
+use uidm_domain::update::UpdateError;
+
+use crate::connect::{config_for, ProxyRetries};
+use crate::engine;
+use crate::live_settings::LiveSettings;
 
 pub use uidm_domain::update::{is_newer, Release, SetupAsset, CHECK_EVERY_SECS};
 
@@ -69,9 +82,97 @@ pub fn parse_release(json: &[u8]) -> Result<Release, String> {
     })
 }
 
+/// This copy's version.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// GitHub's releases at `url`, reached through the settings' proxy.
+pub struct GitHub {
+    settings: Arc<LiveSettings>,
+    retries: Arc<ProxyRetries>,
+    url: String,
+}
+
+impl GitHub {
+    pub fn new(settings: Arc<LiveSettings>, retries: Arc<ProxyRetries>, url: &str) -> Self {
+        GitHub { settings, retries, url: url.to_string() }
+    }
+
+    /// Fetch `url` through the proxy the settings choose, up to `limit` bytes.
+    fn fetch(&self, url: &str, headers: &[(String, String)], limit: u64) -> Result<Vec<u8>, engine::EngineError> {
+        let settings = self.settings.get();
+        let net = config_for(&Download { url: url.to_string(), ..Download::default() }, &settings, &self.retries);
+        engine::fetch(url, headers, &net, limit).map(|page| page.body)
+    }
+}
+
+impl ReleaseSource for GitHub {
+    fn latest(&self) -> Result<Release, UpdateError> {
+        let headers = [
+            ("User-Agent".to_string(), format!("UIDM/{VERSION}")),
+            ("Accept".to_string(), "application/vnd.github+json".to_string()),
+        ];
+        let body = self.fetch(&self.url, &headers, 1024 * 1024).map_err(|e| UpdateError::Unreachable(e.to_string()))?;
+        let release = parse_release(&body).map_err(UpdateError::Answer)?;
+        // Only Windows has a Setup to run; elsewhere the page is shown.
+        Ok(Release { setup: release.setup.filter(|_| cfg!(windows)), ..release })
+    }
+
+    fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError> {
+        let headers = [("User-Agent".to_string(), format!("UIDM/{VERSION}"))];
+        info!(url = %setup.url, "downloading the update");
+        let body =
+            self.fetch(&setup.url, &headers, MAX_SETUP_BYTES).map_err(|e| UpdateError::Download(e.to_string()))?;
+        check_setup(setup, &body).map_err(UpdateError::BadSetup)?;
+        let path = std::env::temp_dir().join(&setup.name);
+        std::fs::write(&path, &body)
+            .map_err(|e| UpdateError::Save { path: path.display().to_string(), reason: e.to_string() })?;
+        Ok(path)
+    }
+
+    fn run_setup(&self, path: &Path) -> Result<(), UpdateError> {
+        // /fromuidm closes UIDM without asking: the user asked for this.
+        Command::new(path)
+            .arg("/fromuidm=yes")
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| UpdateError::Start { path: path.display().to_string(), reason: e.to_string() })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::testserver::TestServer;
+    use crate::settings::Settings;
+
+    fn github(url: &str) -> GitHub {
+        GitHub::new(Arc::new(LiveSettings::new(Settings::default(), None)), Arc::default(), url)
+    }
+
+    #[test]
+    fn the_latest_release_is_read_from_the_server() {
+        let answer = br#"{"tag_name":"v9.0.0","html_url":"https://github.com/tajbinkhan/uidm/releases/tag/v9.0.0"}"#;
+        let server = TestServer::start(answer.to_vec());
+        let release = github(&server.url).latest().unwrap();
+        assert_eq!(release.version, "9.0.0");
+        assert!(release.setup.is_none());
+    }
+
+    #[test]
+    fn a_server_that_is_not_there_is_unreachable() {
+        let gone = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}/latest", l.local_addr().unwrap())
+        };
+        assert!(matches!(github(&gone).latest(), Err(UpdateError::Unreachable(_))));
+    }
+
+    #[test]
+    fn a_setup_that_does_not_match_its_release_is_refused() {
+        let server = TestServer::start(b"not a program".to_vec());
+        let setup = SetupAsset { name: "UIDM-Setup-9.exe".into(), url: server.url.clone(), size: 13, sha256: None };
+        assert!(matches!(github(&server.url).fetch_setup(&setup), Err(UpdateError::BadSetup(_))));
+    }
 
     #[test]
     fn releases_are_read_from_githubs_answer() {
