@@ -743,7 +743,9 @@ pub fn load_project(dir: &Path, name: &str) -> io::Result<Project> {
 /// computer; read and checked as one from the projects folder is.
 pub fn load_project_file(path: &Path) -> io::Result<Project> {
     let bytes = fs::read(path)?;
-    let invalid = |e| io::Error::new(io::ErrorKind::InvalidData, e);
+    // A project holds its login's password and, once unsealed, its cookies;
+    // serde's message could quote either.
+    let invalid = |e: serde_json::Error| crate::logging::json_error(&e);
     let mut value: serde_json::Value = serde_json::from_slice(&bytes).map_err(invalid)?;
     if let Some(request) = value.get_mut("request") {
         unseal_cookies(request);
@@ -1221,6 +1223,11 @@ Crawl-delay: 2.5
         assert_eq!(loaded, Project { run: RunAction::ExploreAndDownload, ..p.clone() });
         fs::write(&elsewhere, b"{\"not\": \"a project\"}").unwrap();
         assert_eq!(load_project_file(&elsewhere).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        // serde would quote the value it choked on, which can be a secret.
+        fs::write(&elsewhere, br#"{"name": "p", "request": {"start": "https://s/", "depth": "password=hunter2"}}"#)
+            .unwrap();
+        let e = load_project_file(&elsewhere).unwrap_err();
+        assert!(!e.to_string().contains("hunter2"), "{e}");
         assert!(load_project_file(&dir.join("missing.json")).is_err());
 
         assert!(!name_is_unique(&dir, "Docs", None), "another project has it");

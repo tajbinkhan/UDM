@@ -890,7 +890,8 @@ mod credentials {
         match std::fs::read(path()?) {
             Ok(sealed) => {
                 let plain = crate::dpapi::unprotect(&sealed)?;
-                serde_json::from_slice(&plain).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+                // Passwords: serde's message could quote one.
+                serde_json::from_slice(&plain).map_err(|e| crate::logging::json_error(&e))
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeMap::new()),
             Err(e) => Err(e),

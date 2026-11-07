@@ -157,6 +157,8 @@ const WINDOW_CLIENT: &str = "window";
 const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
 /// How often the scheduler looks at the clock when nothing wakes it.
 const SCHEDULER_POLL: Duration = Duration::from_secs(5);
+/// How often a running daemon moves logs over `logging::MAX_BYTES` aside.
+const LOG_TRIM_EVERY: Duration = Duration::from_secs(60 * 60);
 /// How often the keep-awake thread looks for running work.
 const AWAKE_POLL: Duration = Duration::from_secs(2);
 /// How the site grabber names itself to servers.
@@ -3506,11 +3508,18 @@ fn spawn_scheduler(daemon: Arc<Daemon>, wake: Receiver<()>) {
         // Wakes the computer for the next scheduled start; kept here so the
         // handle lives as long as the scheduler.
         let mut timer = power::WakeTimer::new();
+        // The daemon trimmed the logs as it won the bind; this keeps them
+        // bounded while it runs for days.
+        let mut trimmed = Instant::now();
         loop {
             match wake.recv_timeout(SCHEDULER_POLL) {
                 Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     while wake.try_recv().is_ok() {}
                     daemon.tick();
+                    if trimmed.elapsed() >= LOG_TRIM_EVERY {
+                        logging::trim();
+                        trimmed = Instant::now();
+                    }
                     daemon.check_grab_schedules();
                     let next = daemon.next_wake(uidm_infrastructure::clock::local_now());
                     if next != timer.at() {

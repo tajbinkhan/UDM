@@ -10,14 +10,19 @@
 //!   for each port it opens), and their lines do not mix;
 //! - a file moved aside by [`trim`] is never written to again, and nothing
 //!   holds it open;
-//! - nothing goes to standard error, which the window and a detached daemon
-//!   do not have.
+//! - the window and a detached daemon need no standard error, which they do
+//!   not have.
+//!
+//! The host also writes warnings and errors to standard error: the browser
+//! reads it, so a host that cannot write its file still says why it failed,
+//! and its `download` and `send` modes show them on the terminal. It never
+//! logs to standard output, which carries the browser's messages.
 //!
 //! Each file is bounded: once it is larger than [`MAX_BYTES`], the daemon
-//! moves it to `<name>.old` as it starts, replacing the older one, so a
-//! program keeps at most about twice that. Only the daemon that won the
-//! single-instance bind does this, so two programs never move the same file
-//! at once. Nothing is truncated in place.
+//! moves it to `<name>.old` as it starts and then every hour, replacing the
+//! older one, so a program keeps at most about twice that. Only the daemon
+//! that won the single-instance bind does this, so two programs never move
+//! the same file at once. Nothing is truncated in place.
 //!
 //! Every line goes through [`redact`] before it is written, which hides the
 //! password of any `scheme://user:password@host` in it.
@@ -43,16 +48,29 @@
 //! - Settings: the daemon logs that they changed, not what they hold.
 //! - Grabber projects: names and counts; a project's login cookies stay in
 //!   its file.
+//! - Files that hold secrets and fail to parse: the saved requests
+//!   (`history::load_requests`, decrypted), the stored passwords
+//!   (`net`'s `credentials.bin`, decrypted), grabber project files
+//!   (`grab::load_project_file`, cookies decrypted) and `settings.json`
+//!   (older ones hold proxy passwords). serde's message quotes the value it
+//!   choked on, so these go through [`json_error`], which keeps only the kind
+//!   of error and where it is. The proxy password files and the sealed
+//!   cookies are decrypted into a string, never parsed, and a failure there
+//!   is fixed text.
 
 use std::borrow::Cow;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use serde_json::error::Category;
 use tracing::Subscriber;
+use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::{FormatTime, SystemTime};
 use tracing_subscriber::fmt::MakeWriter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::Layer;
 
 /// A log file larger than this is moved aside when the daemon starts.
 pub const MAX_BYTES: u64 = 5 * 1024 * 1024;
@@ -77,10 +95,12 @@ impl Program {
 }
 
 /// Send this process's `tracing` events at info level and above to
-/// `program`'s log, and log panics there too, as standard error may go
-/// nowhere. Does nothing if a subscriber is already set.
+/// `program`'s log, and for the host its warnings and errors to standard
+/// error too. Panics are logged as well, as standard error may go nowhere.
+/// Does nothing if a subscriber is already set.
 pub fn init(program: Program) {
-    if tracing::subscriber::set_global_default(subscriber(program.log_path())).is_err() {
+    let to_stderr = program == Program::Host;
+    if tracing::subscriber::set_global_default(subscriber(program.log_path(), to_stderr)).is_err() {
         return;
     }
     let default = std::panic::take_hook();
@@ -119,12 +139,37 @@ fn old_path(path: &Path) -> PathBuf {
     path.with_file_name(name)
 }
 
-fn subscriber(path: PathBuf) -> impl Subscriber + Send + Sync {
-    tracing_subscriber::fmt()
-        .with_writer(Appender { path })
+/// The error for JSON that would not parse, saying what kind of error it is
+/// and where, but not serde's message, which quotes the value it choked on.
+/// For files whose values can be secrets.
+pub fn json_error(e: &serde_json::Error) -> io::Error {
+    let kind = match e.classify() {
+        Category::Io => "could not be read",
+        Category::Syntax => "is not valid JSON",
+        Category::Data => "does not hold what UIDM expects",
+        Category::Eof => "ends too soon",
+    };
+    let text = match e.line() {
+        0 => format!("the file {kind}"),
+        line => format!("the file {kind} (line {line}, column {})", e.column()),
+    };
+    io::Error::new(io::ErrorKind::InvalidData, text)
+}
+
+/// Events at info level and above to the file at `path`, and with
+/// `to_stderr` warnings and errors to standard error as well.
+fn subscriber(path: PathBuf, to_stderr: bool) -> impl Subscriber + Send + Sync {
+    let file = tracing_subscriber::fmt::layer()
+        .with_writer(Appender(Sink::File(path)))
         .with_timer(TimeAndPid)
-        .with_max_level(tracing::Level::INFO)
-        .finish()
+        .with_filter(LevelFilter::INFO);
+    let stderr = to_stderr.then(|| {
+        tracing_subscriber::fmt::layer()
+            .with_writer(Appender(Sink::Stderr))
+            .with_timer(TimeAndPid)
+            .with_filter(LevelFilter::WARN)
+    });
+    tracing_subscriber::registry().with(file).with(stderr)
 }
 
 /// The time in UTC, then the process id, so the lines of the hosts sharing
@@ -138,22 +183,26 @@ impl FormatTime for TimeAndPid {
     }
 }
 
-/// Hands each event a [`Line`] that appends to `path` once it is done.
-struct Appender {
-    path: PathBuf,
+/// Where a [`Line`] goes.
+enum Sink {
+    File(PathBuf),
+    Stderr,
 }
+
+/// Hands each event a [`Line`] that goes to its sink once it is done.
+struct Appender(Sink);
 
 impl<'a> MakeWriter<'a> for Appender {
     type Writer = Line<'a>;
 
     fn make_writer(&'a self) -> Self::Writer {
-        Line { path: &self.path, text: Vec::new() }
+        Line { sink: &self.0, text: Vec::new() }
     }
 }
 
-/// One event's text, collected and then appended in a single write.
+/// One event's text, collected and then written in a single write.
 struct Line<'a> {
-    path: &'a Path,
+    sink: &'a Sink,
     text: Vec<u8>,
 }
 
@@ -174,9 +223,13 @@ impl Drop for Line<'_> {
             return;
         }
         let text = String::from_utf8_lossy(&self.text);
+        let text = redact(&text);
         // A line that cannot be written is lost: there is nowhere else to
-        // say so.
-        let _ = append(self.path, redact(&text).as_bytes());
+        // say so (the host's warnings also reach standard error).
+        let _ = match self.sink {
+            Sink::File(path) => append(path, text.as_bytes()),
+            Sink::Stderr => io::stderr().lock().write_all(text.as_bytes()),
+        };
     }
 }
 
@@ -274,13 +327,13 @@ mod tests {
     fn events_are_appended_with_passwords_hidden() {
         let dir = temp_dir("events");
         let path = dir.join("nested").join("uidm-test.log");
-        let first = subscriber(path.clone());
+        let first = subscriber(path.clone(), false);
         tracing::subscriber::with_default(first, || {
             tracing::info!(download_id = 7, url = "ftp://bob:hunter2@h/f", "add");
             tracing::debug!("below the level");
         });
         // A second process appends to the same file.
-        tracing::subscriber::with_default(subscriber(path.clone()), || tracing::warn!(error = "x", "second"));
+        tracing::subscriber::with_default(subscriber(path.clone(), true), || tracing::warn!(error = "x", "second"));
         let log = fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = log.lines().collect();
         assert_eq!(lines.len(), 2, "{log}");
@@ -289,6 +342,20 @@ mod tests {
         assert!(lines[0].contains("ftp://bob:***@h/f") && !log.contains("hunter2"), "{log}");
         assert!(lines[1].contains("WARN") && lines[1].contains("second"), "{log}");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn json_errors_do_not_quote_the_value() {
+        let secret = "SESSION=hunter2";
+        let typed = serde_json::from_str::<Vec<u64>>(&format!(r#"["{secret}"]"#)).unwrap_err();
+        assert!(typed.to_string().contains(secret), "serde quotes it: {typed}");
+        let e = json_error(&typed).to_string();
+        assert_eq!(e, "the file does not hold what UIDM expects (line 1, column 18)");
+        let cut = serde_json::from_str::<Vec<String>>(&format!(r#"["{secret}"#)).unwrap_err();
+        assert!(!json_error(&cut).to_string().contains(secret));
+        let value = serde_json::json!({ "a": secret });
+        let from_value = serde_json::from_value::<std::collections::HashMap<String, u64>>(value).unwrap_err();
+        assert_eq!(json_error(&from_value).to_string(), "the file does not hold what UIDM expects");
     }
 
     #[test]

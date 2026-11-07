@@ -114,8 +114,8 @@ pub fn load_requests(path: &Path) -> io::Result<HashMap<u64, Download>> {
         Err(e) => return Err(e),
     };
     let plain = dpapi::unprotect(&sealed)?;
-    let list: Vec<(u64, Download)> =
-        serde_json::from_slice(&plain).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    // The requests hold cookies and headers; serde's message could quote one.
+    let list: Vec<(u64, Download)> = serde_json::from_slice(&plain).map_err(|e| crate::logging::json_error(&e))?;
     Ok(list.into_iter().collect())
 }
 
@@ -309,6 +309,18 @@ mod tests {
         History { next_id: 1, items: vec![entry(41, Status::Done)], queues: Vec::new() }.save(&path).unwrap();
         assert_eq!(History::load(&path).unwrap().next_id, 42);
         fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_bad_sealed_request_does_not_show_its_secrets() {
+        let req_path = temp_path("bad-requests.bin");
+        let plain = br#"[[2, {"url": "https://x/2.zip", "headers": "Authorization: Bearer hunter2"}]]"#;
+        fs::write(&req_path, dpapi::protect(plain).unwrap()).unwrap();
+        let e = load_requests(&req_path).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+        assert!(!e.to_string().contains("hunter2"), "{e}");
+        assert!(e.to_string().contains("line 1"), "{e}");
+        fs::remove_file(&req_path).unwrap();
     }
 
     #[test]
