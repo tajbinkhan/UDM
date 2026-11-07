@@ -7,7 +7,6 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use eframe::egui;
 use serde::{Deserialize, Serialize};
@@ -228,7 +227,7 @@ impl Default for Layout {
 impl Layout {
     /// The saved layout, or the default one.
     pub fn load() -> Layout {
-        let saved = path().and_then(|p| std::fs::read(p).ok());
+        let saved = crate::ports::ports().window_files.read(LAYOUT_FILE);
         let mut layout: Layout = saved.and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         if layout.columns == Column::OLD_DEFAULT {
             layout.columns = Column::DEFAULT.to_vec();
@@ -237,14 +236,10 @@ impl Layout {
         layout
     }
 
+    /// Save the layout, on another thread.
     pub fn save(&self) {
-        let Some(path) = path() else {
-            return;
-        };
         if let Ok(bytes) = serde_json::to_vec_pretty(self) {
-            if let Err(e) = uidm_infrastructure::settings::write_atomic(&path, &bytes) {
-                tracing::warn!(path = %path.display(), error = %e, "could not save the window layout");
-            }
+            crate::ports::ports().window_files.save(LAYOUT_FILE, bytes);
         }
     }
 
@@ -299,10 +294,8 @@ impl Layout {
     }
 }
 
-/// `%LOCALAPPDATA%\UIDM\window.json`.
-fn path() -> Option<PathBuf> {
-    uidm_infrastructure::paths::window_dir().map(|dir| dir.join("window.json"))
-}
+/// The window file that holds the layout.
+const LAYOUT_FILE: &str = "window.json";
 
 fn compare(sort: Sort, a: &DownloadEntry, b: &DownloadEntry, speed: &impl Fn(u64) -> Option<f64>) -> Ordering {
     let down = sort.descending;
@@ -382,9 +375,9 @@ pub fn time_left(e: &DownloadEntry, bytes_per_sec: Option<f64>) -> Option<f64> {
 
 /// `2026-10-27 14:05` in local time.
 pub fn local_date(unix: u64) -> String {
-    let now = uidm_infrastructure::clock::local_now();
+    let now = crate::ports::ports().now();
     let local_now = now.day * 1440 + now.minute as i64;
-    let utc_now = uidm_infrastructure::state::unix_now() as i64 / 60;
+    let utc_now = crate::ports::ports().unix_now() as i64 / 60;
     // Round the offset to the quarter hour the clock reading straddles.
     let offset = ((local_now - utc_now) as f64 / 15.0).round() as i64 * 15;
     let minutes = unix as i64 / 60 + offset;

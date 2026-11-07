@@ -8,7 +8,6 @@
 //! open UIDM; right-click it to close it.
 
 use std::ffi::c_void;
-use std::path::PathBuf;
 use std::ptr;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -201,13 +200,11 @@ static ON_DROP: Mutex<Option<OnDrop>> = Mutex::new(None);
 /// What a double-click does.
 static ON_OPEN: Mutex<Option<Arc<dyn Fn() + Send + Sync>>> = Mutex::new(None);
 
-/// `%LOCALAPPDATA%\UIDM\droptarget.txt`: `x y` of the window.
-fn place_file() -> Option<PathBuf> {
-    uidm_infrastructure::paths::window_dir().map(|dir| dir.join("droptarget.txt"))
-}
+/// The window file that holds `x y` of the drop target.
+const PLACE_FILE: &str = "droptarget.txt";
 
 fn saved_place() -> Option<(i32, i32)> {
-    let text = std::fs::read_to_string(place_file()?).ok()?;
+    let text = String::from_utf8(crate::ports::ports().window_files.read(PLACE_FILE)?).ok()?;
     let mut parts = text.split_whitespace().map(|p| p.parse::<i32>().ok());
     Some((parts.next()??, parts.next()??))
 }
@@ -331,10 +328,7 @@ extern "system" fn window_proc(hwnd: Hwnd, msg: u32, wparam: usize, lparam: isiz
             WM_EXITSIZEMOVE => {
                 let mut r = Rect::default();
                 GetWindowRect(hwnd, &mut r);
-                if let Some(path) = place_file() {
-                    let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
-                    let _ = std::fs::write(path, format!("{} {}", r.left, r.top));
-                }
+                crate::ports::ports().window_files.save(PLACE_FILE, format!("{} {}", r.left, r.top).into_bytes());
                 0
             }
             WM_PAINT => {

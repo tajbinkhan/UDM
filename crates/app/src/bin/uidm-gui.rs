@@ -49,6 +49,8 @@ mod links;
 mod login;
 #[path = "gui/menubar.rs"]
 mod menubar;
+#[path = "gui/ports.rs"]
+mod ports;
 #[path = "gui/progress.rs"]
 mod progress;
 #[path = "gui/properties.rs"]
@@ -89,6 +91,7 @@ use uidm_domain::download::{
 };
 use uidm_domain::grab::{GrabFile, GrabRequest};
 use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
+use uidm_domain::settings::Sound;
 use uidm_domain::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
     SelectionButton, ServerLimit, Settings, SiteLogin, SocksVersion, BROWSER_MENU_ITEMS, CAPTURE_MIN_SIZE_MAX_KB,
@@ -98,7 +101,6 @@ use uidm_domain::settings::{
 use uidm_domain::table::DownloadTable;
 use uidm_infrastructure::daemon_client::IpcDaemonClient;
 use uidm_infrastructure::logging;
-use uidm_infrastructure::notify::Sound;
 
 /// The `client` this window names in its `hello`, so the daemon knows a
 /// window is open to show a save-as dialog.
@@ -121,6 +123,14 @@ const FAILED_GRACE: Duration = Duration::from_secs(1);
 
 fn main() -> eframe::Result {
     logging::init(logging::Program::Gui);
+    ports::install(ports::Ports {
+        clock: Arc::new(uidm_infrastructure::clock::LocalClock),
+        times: Arc::new(uidm_infrastructure::clock::LocalClock),
+        folders: Arc::new(uidm_infrastructure::files::DiskFiles),
+        files: Arc::new(uidm_infrastructure::files::DiskFiles),
+        opener: Arc::new(uidm_infrastructure::platform::Desktop),
+        window_files: Arc::new(uidm_infrastructure::window_files::WindowDir::new()),
+    });
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut minimized = args.iter().any(|a| a == "--minimized");
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -325,7 +335,7 @@ impl Shared {
     }
 
     fn apply(&mut self, msg: &Event) {
-        daemon::apply(&mut self.table, msg, uidm_infrastructure::state::unix_now());
+        daemon::apply(&mut self.table, msg, crate::ports::ports().unix_now());
         match msg {
             Event::Queues { items } => self.queues = items.clone(),
             Event::Countdown { action, seconds, queue, file } => {
@@ -517,7 +527,7 @@ enum Action {
     PreviewZip(u64),
     OpenConvert(u64),
     /// Convert a finished video, and maybe delete the original.
-    Convert(u64, uidm_infrastructure::media::convert::Target, bool),
+    Convert(u64, uidm_domain::media::Target, bool),
     OpenAbout,
     /// Look for a newer release now.
     CheckUpdate,
@@ -711,7 +721,7 @@ struct App {
     zip_preview: Option<ZipPreview>,
     /// The Convert dialog: the video, what it becomes, and whether the
     /// original goes.
-    convert: Option<(u64, uidm_infrastructure::media::convert::Target, bool)>,
+    convert: Option<(u64, uidm_domain::media::Target, bool)>,
     /// This window opened the drop target, so finding it closed means the
     /// user closed it.
     drop_shown: bool,
@@ -1920,9 +1930,7 @@ impl App {
             }
             Action::OpenWith(path) => win::open_with(&path),
             Action::OpenAbout => self.about = Some(false),
-            Action::OpenConvert(id) => {
-                self.convert = Some((id, uidm_infrastructure::media::convert::Target::Mp3, false))
-            }
+            Action::OpenConvert(id) => self.convert = Some((id, uidm_domain::media::Target::Mp3, false)),
             Action::Convert(id, to, delete_original) => {
                 self.daemon.send(Command::Convert { id, to, delete_original });
             }
@@ -1941,7 +1949,7 @@ impl App {
                 self.daemon.send(Command::PreviewZip { id });
             }
             Action::ShowInFolder(path) => {
-                let _ = uidm_infrastructure::platform::reveal(std::path::Path::new(&path));
+                crate::ports::ports().opener.reveal(&path);
             }
             Action::Reconnect => self.connect(),
             Action::RestartDaemon => {
@@ -2279,17 +2287,16 @@ impl App {
         if self.login.is_none() {
             let queued: Vec<u64> = self.shared.lock().unwrap().login_wanted.drain(..).collect();
             // Only those still failed for a login.
-            let waiting: Vec<(&DownloadEntry, uidm_infrastructure::engine::LoginWanted)> = queued
+            let waiting: Vec<(&DownloadEntry, uidm_domain::download::LoginWanted)> = queued
                 .iter()
                 .filter_map(|id| rows.iter().find(|e| e.id == *id && e.status == Status::Failed))
-                .filter_map(|e| e.error.as_deref().and_then(uidm_infrastructure::engine::login_wanted).map(|w| (e, w)))
+                .filter_map(|e| e.error.as_deref().and_then(uidm_domain::download::login_wanted).map(|w| (e, w)))
                 .collect();
             if let Some((first, wanted)) = waiting.first().cloned() {
                 let (same, other): (Vec<_>, Vec<_>) = waiting.iter().partition(|(_, w)| w.host == wanted.host);
                 self.shared.lock().unwrap().login_wanted.extend(other.iter().map(|(e, _)| e.id));
-                let own_site = same
-                    .iter()
-                    .all(|(e, _)| uidm_infrastructure::net::host_of(&e.url).eq_ignore_ascii_case(&wanted.host));
+                let own_site =
+                    same.iter().all(|(e, _)| uidm_domain::site::host_of(&e.url).eq_ignore_ascii_case(&wanted.host));
                 let username = settings
                     .as_ref()
                     .and_then(|s| s.site_logins.iter().find(|l| l.site.eq_ignore_ascii_case(&wanted.host)))
@@ -2408,8 +2415,7 @@ impl App {
         let denied = match &draft.write_check {
             Some((checked, denied)) if *checked == folder => *denied,
             _ => {
-                let denied =
-                    Path::new(&folder).is_absolute() && !uidm_infrastructure::elevate::can_write(Path::new(&folder));
+                let denied = Path::new(&folder).is_absolute() && !crate::ports::ports().can_write(Path::new(&folder));
                 draft.write_check = Some((folder, denied));
                 denied
             }
@@ -2481,7 +2487,7 @@ impl App {
                                 });
                             // Picking a category moves the file to its folder.
                             if draft.category != before {
-                                draft.folder = settings.category_folder(&draft.category, &uidm_infrastructure::settings::default_downloads_dir()).display().to_string();
+                                draft.folder = settings.category_folder(&draft.category, &crate::ports::ports().downloads_dir()).display().to_string();
                                 draft.remember_folder = settings.remembers_folder(&draft.category);
                             }
                             let add = ui
@@ -2778,10 +2784,8 @@ impl App {
             });
         if let Some(s) = added {
             draft.category = new.name.trim().to_string();
-            draft.folder = s
-                .category_folder(&draft.category, &uidm_infrastructure::settings::default_downloads_dir())
-                .display()
-                .to_string();
+            draft.folder =
+                s.category_folder(&draft.category, &crate::ports::ports().downloads_dir()).display().to_string();
             draft.remember_folder = false;
             actions.push(Action::QuickSettings(s));
             close = true;
@@ -2820,7 +2824,7 @@ impl App {
         let mut scanner = String::new();
         take_picked(&draft.scanner_picked, &mut scanner);
         if !scanner.is_empty() {
-            draft.scanner_command = uidm_infrastructure::scan::with_program(&scanner, &draft.scanner_command);
+            draft.scanner_command = uidm_domain::command::with_program(&scanner, &draft.scanner_command);
         }
         for (slot, file) in draft.sound_picked.iter().zip(draft.sound_files.iter_mut()) {
             take_picked(slot, file);
@@ -3649,7 +3653,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
         ui.vertical(|ui| {
             ui.weak(tr("Capture downloads from these browsers. Each needs UIDM's extension; restart a browser after a change."));
             if let Some((connected, last_seen)) = draft.browser_link {
-                ui.label(browser_link_text(connected, last_seen, uidm_infrastructure::state::unix_now()));
+                ui.label(browser_link_text(connected, last_seen, crate::ports::ports().unix_now()));
             }
             if draft.browsers.iter().all(|b| b.removed) {
                 ui.label(tr("No browser was found."));
@@ -3987,7 +3991,7 @@ fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Event) {
             Event::Downloads { items } => items.iter().any(|e| e.status == Status::Confirming),
             Event::NameTaken { .. } => true,
             // A site that wants a login gets the login prompt.
-            Event::Failed { id, error, .. } if uidm_infrastructure::engine::login_wanted(error).is_some() => {
+            Event::Failed { id, error, .. } if uidm_domain::download::login_wanted(error).is_some() => {
                 if !s.login_wanted.contains(id) {
                     s.login_wanted.push_back(*id);
                 }
@@ -4029,7 +4033,7 @@ fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Event) {
 
 /// Open a file with its program, as a double-click does.
 fn open_file(path: &str) {
-    let _ = uidm_infrastructure::platform::open(path.as_ref());
+    crate::ports::ports().opener.open(path);
 }
 
 /// An http, https or ftp address with no spaces.
@@ -4666,7 +4670,7 @@ impl App {
         connected: bool,
         actions: &mut Vec<Action>,
     ) {
-        use uidm_infrastructure::media::convert::Target;
+        use uidm_domain::media::Target;
         let Some((id, to, delete)) = self.convert.as_mut() else {
             return;
         };
@@ -5021,8 +5025,8 @@ impl App {
                 Ok(entries) => {
                     let total: u64 = entries.iter().map(|e| e.size).sum();
                     ui.label(trf!("{count} files, {size} unpacked", count = entries.len(), size = human_bytes(total)));
-                    if entries.len() == uidm_infrastructure::zip::MAX_ENTRIES {
-                        ui.weak(trf!("Showing the first {count}.", count = uidm_infrastructure::zip::MAX_ENTRIES));
+                    if entries.len() == uidm_domain::download::MAX_ZIP_ENTRIES {
+                        ui.weak(trf!("Showing the first {count}.", count = uidm_domain::download::MAX_ZIP_ENTRIES));
                     }
                     egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                         egui::Grid::new("zip_entries").striped(true).num_columns(2).spacing([16.0, 2.0]).show(

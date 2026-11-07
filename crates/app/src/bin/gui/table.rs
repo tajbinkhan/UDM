@@ -387,7 +387,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
         tr("Refresh download address..."),
         Action::OpenRefresh(e.id),
     );
-    if e.error.as_deref().and_then(uidm_infrastructure::engine::login_wanted).is_some() {
+    if e.error.as_deref().and_then(uidm_domain::download::login_wanted).is_some() {
         item(ui, on, tr("Log in..."), Action::OpenLogin(e.id));
     }
     let ids: Vec<u64> = if list.selected.contains(&e.id) {
@@ -422,7 +422,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
     }
     item(ui, true, tr("Connections..."), Action::OpenConnections(e.id));
     item(ui, on && !done, tr("Speed limit..."), Action::OpenSpeedLimit(e.id));
-    if e.path.as_deref().filter(|_| done).is_some_and(uidm_infrastructure::media::convert::is_video) {
+    if e.path.as_deref().filter(|_| done).is_some_and(uidm_domain::media::is_video) {
         item(ui, on, tr("Convert..."), Action::OpenConvert(e.id));
     }
     ui.separator();

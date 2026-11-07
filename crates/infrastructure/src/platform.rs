@@ -213,6 +213,12 @@ impl uidm_domain::ports::FileOpener for Desktop {
             tracing::warn!(file, error = %e, "could not open");
         }
     }
+
+    fn reveal(&self, path: &str) {
+        if let Err(e) = reveal(std::path::Path::new(path)) {
+            tracing::warn!(path, error = %e, "could not show the file");
+        }
+    }
 }
 
 #[cfg(test)]
