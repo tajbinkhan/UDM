@@ -1,14 +1,13 @@
-use uidm_domain::download::Status;
-use uidm_domain::ports::{
-    Clock, ControlError, DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueSounds, QueueStore,
-};
+use uidm_domain::download::{DownloadError, Status};
+use uidm_domain::ports::{Clock, DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueSounds, QueueStore};
 
+use super::RetryDownload;
 use crate::queues::StartQueue;
 
 /// What [`ResumeAll`] could not start again.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Resumed {
-    pub failed: Vec<(u64, ControlError)>,
+    pub failed: Vec<(u64, DownloadError)>,
 }
 
 /// Start again what [`PauseAll`](super::PauseAll) stopped, and every
@@ -56,7 +55,8 @@ where
         let ids = self
             .downloads
             .ids_where(|id, s| s == Status::Interrupted || (s == Status::Canceled && paused.contains(&id)));
-        let failed = ids.into_iter().filter_map(|id| self.control.resume(id).err().map(|e| (id, e))).collect();
+        let retry = RetryDownload::new(self.queues, self.downloads, self.control);
+        let failed = ids.into_iter().filter_map(|id| retry.run(id).err().map(|e| (id, e))).collect();
         Resumed { failed }
     }
 }
@@ -77,12 +77,14 @@ mod tests {
             (4, Status::Failed),
         ]);
         let (runs, paused, sounds) = (Runs::default(), Paused::default(), Sounds::default());
-        let control = Control::refusing(&[3]);
+        let control = Control::default();
         paused.remember(&[MAIN_QUEUE], &[1]);
         let resumed = ResumeAll::new(&queues, &downloads, &runs, &control, &paused, &FIXED_NOW, &sounds).run();
         assert!(queues.get(MAIN_QUEUE).running);
-        assert_eq!(control.resumed(), [1], "2 was canceled by hand, 4 failed");
-        assert_eq!(resumed.failed, [(3, ControlError("download 3 cannot resume".into()))]);
+        assert_eq!(control.restarted().len(), 2, "1 and 3; 2 was canceled by hand, 4 failed");
+        assert!(downloads.entry(1).is_none() && downloads.entry(3).is_none(), "each goes on as a new row");
+        assert!(downloads.entry(2).is_some() && downloads.entry(4).is_some());
+        assert!(resumed.failed.is_empty());
         assert_eq!(paused.take(), Default::default(), "it is forgotten");
     }
 }

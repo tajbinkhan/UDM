@@ -62,6 +62,15 @@ pub fn local_now() -> Moment {
     }
 }
 
+/// A clock stopped at one moment, for a pass that was given its time.
+pub struct StoppedClock(pub Moment);
+
+impl Clock for StoppedClock {
+    fn now(&self) -> Moment {
+        self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

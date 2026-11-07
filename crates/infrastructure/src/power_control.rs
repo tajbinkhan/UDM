@@ -1,6 +1,8 @@
 //! `PowerOff`, the adapter for `PowerControl`: closing UIDM, and the
 //! countdown before sleeping, hibernating or shutting down that the windows
 //! show and may stop. The power actions themselves are `power::perform`.
+//! `RunEnds` is the adapter for `QueueFinish`: what happens when a queue's
+//! run is done.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -8,9 +10,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tracing::{info, warn};
-use uidm_domain::ports::PowerControl;
-use uidm_domain::queue::{PowerRequest, WhenDone};
+use uidm_domain::ports::{PowerControl, QueueFinish};
+use uidm_domain::queue::{PowerRequest, RunEnd, WhenDone};
 
+use crate::live_settings::LiveSettings;
+use crate::notify::{self, Sound};
 use crate::power;
 use crate::protocol::Outgoing;
 use crate::store::StoreEvents;
@@ -144,6 +148,46 @@ impl PowerControl for PowerOff {
     }
 }
 
+/// Does what a finished queue, or one finished download, asks of the
+/// computer (through the use case): the action, what it is for (the
+/// queue's name), and whether a shutdown may close programs.
+pub type WhenDoneHook = Box<dyn Fn(WhenDone, &str, bool) + Send + Sync>;
+
+/// Open the program or file a queue names for the end of its run, as
+/// Explorer would on a double-click.
+pub fn open_after_run(file: &str) {
+    info!(file, "opening");
+    if let Err(e) = crate::platform::open(file.as_ref()) {
+        warn!(file, error = %e, "could not open");
+    }
+}
+
+/// The end of a queue's run: its sound, the file it opens, and its
+/// when-done action.
+pub struct RunEnds {
+    settings: Arc<LiveSettings>,
+    when_done: WhenDoneHook,
+}
+
+impl RunEnds {
+    pub fn new(settings: Arc<LiveSettings>, when_done: WhenDoneHook) -> Self {
+        RunEnds { settings, when_done }
+    }
+}
+
+impl QueueFinish for RunEnds {
+    fn run_ended(&self, queue: &str, end: &RunEnd) {
+        let settings = self.settings.get();
+        if settings.sound_on_queue_done {
+            notify::play(Sound::QueueDone, settings.sound_file(Sound::QueueDone).as_deref());
+        }
+        if let Some(file) = &end.open {
+            open_after_run(file);
+        }
+        (self.when_done)(end.action, queue, end.force_close);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +228,20 @@ mod tests {
 
     fn request(action: WhenDone) -> PowerRequest {
         PowerRequest { action, queue: "Main".into(), file: None, force_close: false }
+    }
+
+    #[test]
+    fn a_finished_run_does_what_it_asks() {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let heard = Arc::clone(&asked);
+        let settings = crate::settings::Settings { sound_on_queue_done: false, ..Default::default() };
+        let ends = RunEnds::new(
+            Arc::new(LiveSettings::new(settings, None)),
+            Box::new(move |action, queue: &str, force| heard.lock().unwrap().push((action, queue.to_string(), force))),
+        );
+        let end = RunEnd { action: WhenDone::Hibernate, open: None, force_close: true };
+        ends.run_ended("Main", &end);
+        assert_eq!(*asked.lock().unwrap(), [(WhenDone::Hibernate, "Main".to_string(), true)]);
     }
 
     #[test]
