@@ -182,6 +182,19 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }
 }
 
+/// The `SettingsChecks` adapter: `validate` and `ffmpeg` above.
+pub struct DiskChecks;
+
+impl uidm_application::window::SettingsChecks for DiskChecks {
+    fn validate(&self, settings: &Settings) -> Result<(), uidm_domain::ports::SettingsError> {
+        validate(settings).map_err(uidm_domain::ports::SettingsError)
+    }
+
+    fn ffmpeg(&self, settings: &Settings) -> Option<PathBuf> {
+        ffmpeg(settings)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

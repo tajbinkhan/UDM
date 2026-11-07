@@ -80,6 +80,7 @@ pub mod server;
 pub mod settings;
 pub mod state;
 pub mod store;
+pub mod system;
 pub mod transfers;
 pub mod update;
 pub mod window_files;

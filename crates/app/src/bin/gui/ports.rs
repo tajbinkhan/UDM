@@ -9,8 +9,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use uidm_application::window::WindowFiles;
-use uidm_domain::ports::{Clock, DownloadFiles, FileOpener, SaveFolders, Timestamps};
+use uidm_application::window::{GrabLibrary, ListFiles, SettingsChecks, SystemServices, WindowFiles};
+use uidm_domain::ports::{Clock, DownloadFiles, FileOpener, GrabDownloads, SaveFolders, Timestamps};
 use uidm_domain::queue::Moment;
 
 /// What the views reach through ports.
@@ -27,6 +27,18 @@ pub struct Ports {
     pub opener: Arc<dyn FileOpener>,
     /// The window's layout and drop target files.
     pub window_files: Arc<dyn WindowFiles>,
+    /// The grabber's projects, templates and filters, when their folder
+    /// can be found.
+    pub grab: Option<Arc<dyn GrabLibrary>>,
+    /// The downloads a crawl's finds become.
+    pub found: Arc<dyn GrabDownloads>,
+    /// Exporting and importing the download list.
+    pub lists: Arc<dyn ListFiles>,
+    /// The settings' checks that look at the disk.
+    pub checks: Arc<dyn SettingsChecks>,
+    /// The operating system: its proxy, wake timers, sounds and
+    /// credential store.
+    pub system: Arc<dyn SystemServices>,
 }
 
 impl Ports {
@@ -70,13 +82,18 @@ pub fn ports() -> &'static Ports {
 }
 
 /// Stand-ins for the tests: UTC as the local time, a Downloads folder in
-/// the temporary folder, every folder writable, and no files opened or
-/// saved.
+/// the temporary folder, every folder writable, no files opened or saved,
+/// no grabber library, empty lists and a system without proxies, wake
+/// timers or sounds.
 #[cfg(test)]
 mod fakes {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use uidm_domain::ports::FilesError;
+    use uidm_application::window::{ListError, ListFormat, SystemProxy};
+    use uidm_domain::download::{Download, DownloadEntry};
+    use uidm_domain::grab::{GrabFile, GrabRequest};
+    use uidm_domain::ports::{FilesError, SettingsError};
+    use uidm_domain::settings::{Settings, Sound};
 
     struct Utc;
 
@@ -139,6 +156,52 @@ mod fakes {
         fn save(&self, _: &str, _: Vec<u8>) {}
     }
 
+    impl GrabDownloads for Temp {
+        fn download_for(&self, _: &GrabRequest, f: &GrabFile, _: &Settings, _: Option<&str>) -> Option<Download> {
+            Some(Download { url: f.url.clone(), ..Download::default() })
+        }
+    }
+
+    impl ListFiles for Temp {
+        fn decode(&self, bytes: &[u8]) -> String {
+            String::from_utf8_lossy(bytes).into_owned()
+        }
+        fn import(&self, _: &str) -> Result<(Vec<Download>, usize), ListError> {
+            Ok((Vec::new(), 0))
+        }
+        fn export(&self, _: ListFormat, _: &[&DownloadEntry]) -> String {
+            String::new()
+        }
+    }
+
+    impl SettingsChecks for Temp {
+        fn validate(&self, settings: &Settings) -> Result<(), SettingsError> {
+            settings.validate().map_err(SettingsError)
+        }
+        fn ffmpeg(&self, _: &Settings) -> Option<PathBuf> {
+            None
+        }
+    }
+
+    impl SystemServices for Temp {
+        fn fixed_proxy(&self) -> Option<SystemProxy> {
+            None
+        }
+        fn wake_timers_allowed(&self) -> Option<(bool, bool)> {
+            None
+        }
+        fn can_elevate(&self) -> bool {
+            false
+        }
+        fn can_set_creation_time(&self) -> bool {
+            false
+        }
+        fn play(&self, _: Sound, _: Option<&Path>) {}
+        fn save_credential(&self, _: &str, _: &str, _: &str) -> Result<(), FilesError> {
+            Ok(())
+        }
+    }
+
     pub fn ports() -> Ports {
         Ports {
             clock: Arc::new(Utc),
@@ -147,6 +210,11 @@ mod fakes {
             files: Arc::new(Temp),
             opener: Arc::new(Temp),
             window_files: Arc::new(Temp),
+            grab: None,
+            found: Arc::new(Temp),
+            lists: Arc::new(Temp),
+            checks: Arc::new(Temp),
+            system: Arc::new(Temp),
         }
     }
 }

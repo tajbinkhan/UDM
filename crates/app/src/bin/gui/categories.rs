@@ -133,9 +133,7 @@ pub fn show(
 ) -> Outcome {
     let mut outcome = Outcome::default();
     if tree.projects_read.is_none_or(|t| t.elapsed() >= PROJECTS_EVERY) {
-        tree.projects = uidm_infrastructure::grab::projects_dir()
-            .map(|d| uidm_infrastructure::grab::recent_projects(&d))
-            .unwrap_or_default();
+        tree.projects = crate::ports::ports().grab.as_ref().map(|l| l.recent()).unwrap_or_default();
         tree.projects_read = Some(Instant::now());
     }
 

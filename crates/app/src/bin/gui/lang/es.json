@@ -436,6 +436,7 @@
   "Saved \"{name}\".": "Se guardó «{name}».",
   "Could not save it: {error}": "No se pudo guardar: {error}",
   "Could not open {name}: {error}": "No se pudo abrir {name}: {error}",
+  "There is no projects folder.": "No hay carpeta de proyectos.",
   "New": "Nuevo",
   "Save as template": "Guardar como plantilla",
   "Could not save the template: {error}": "No se pudo guardar la plantilla: {error}",

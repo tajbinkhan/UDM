@@ -7,12 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use eframe::egui;
+use uidm_application::window::{GrabLibrary, ListFormat};
 use uidm_domain::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
 use uidm_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
 use uidm_domain::grab::{GrabFile, GrabRequest, SaveTo};
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
-use uidm_infrastructure::grab;
-use uidm_infrastructure::listfile;
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::i18n::{tr, trf};
@@ -35,7 +34,7 @@ pub fn pick_text_file(ctx: &egui::Context, title: &'static str, slot: &Loaded) {
         };
         let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
         let read = std::fs::read(&path)
-            .map(|b| (name, uidm_infrastructure::listfile::decode(&b)))
+            .map(|b| (name, crate::ports::ports().lists.decode(&b)))
             .map_err(|e| trf!("Could not read {path}: {error}", path = path.display(), error = e));
         *slot.lock().unwrap() = Some(read);
         ctx.request_repaint();
@@ -512,9 +511,15 @@ pub fn export_dialog(
             ui.horizontal(|ui| {
                 if ui.add_enabled(!picked.is_empty(), egui::Button::new(tr("Save as..."))).clicked() {
                     let (text, ext, default) = match d.format {
-                        ExportFormat::Json => (listfile::export_json(&picked), "json", "downloads.json"),
-                        ExportFormat::Text => (listfile::export_text(&picked), "txt", "downloads.txt"),
-                        ExportFormat::Ef2 => (listfile::export_ef2(&picked), "ef2", "downloads.ef2"),
+                        ExportFormat::Json => {
+                            (crate::ports::ports().lists.export(ListFormat::Json, &picked), "json", "downloads.json")
+                        }
+                        ExportFormat::Text => {
+                            (crate::ports::ports().lists.export(ListFormat::Text, &picked), "txt", "downloads.txt")
+                        }
+                        ExportFormat::Ef2 => {
+                            (crate::ports::ports().lists.export(ListFormat::Ef2, &picked), "ef2", "downloads.ef2")
+                        }
                     };
                     let count = picked.len();
                     let (slot, ctx) = (Arc::clone(&d.result), ui.ctx().clone());
@@ -727,7 +732,7 @@ const MB: f64 = 1024.0 * 1024.0;
 impl GrabDialog {
     /// A new project, from the saved template.
     pub fn new() -> Self {
-        let template = grab::projects_dir().map(|d| grab::template(&d)).unwrap_or_default();
+        let template = crate::ports::ports().grab.as_ref().map(|l| l.template()).unwrap_or_default();
         Self::from_request(&template)
     }
 
@@ -855,9 +860,9 @@ impl GrabDialog {
     }
 
     /// Save the project in `dir`, with a new password first.
-    fn save_project(&mut self, dir: &std::path::Path) -> Result<(), String> {
+    fn save_project(&mut self, dir: &dyn GrabLibrary) -> Result<(), String> {
         let p = self.store_login().and_then(|()| self.project())?;
-        grab::save_project(&p, dir).map_err(|e| trf!("Could not save it: {error}", error = e))?;
+        dir.save(&p).map_err(|e| trf!("Could not save it: {error}", error = e))?;
         self.project_note = Some(trf!("Saved \"{name}\".", name = p.name));
         self.saved_as = Some(p.name.clone());
         self.saved = Some(p);
@@ -918,7 +923,7 @@ impl GrabDialog {
             .iter()
             .zip(checked.iter())
             .filter(|(_, c)| **c)
-            .filter_map(|(f, _)| grab::download_for(&req, f, settings, login))
+            .filter_map(|(f, _)| crate::ports::ports().found.download_for(&req, f, settings, login))
             .collect();
         if items.is_empty() {
             return false;
@@ -960,9 +965,11 @@ impl GrabDialog {
             link_text: d.link_text,
             skip_types: d.skip_types.join(", "),
             files_this_site: d.files_this_site,
-            filters: grab::projects_dir()
-                .map(|dir| grab::load_filters(&dir))
-                .unwrap_or_else(|_| uidm_domain::grab::default_filters()),
+            filters: crate::ports::ports()
+                .grab
+                .as_ref()
+                .map(|l| l.filters())
+                .unwrap_or_else(uidm_domain::grab::default_filters),
             filter_edit: None,
             save_choice: match d.save_to {
                 SaveTo::Categories => SaveChoice::Categories,
@@ -1087,7 +1094,9 @@ impl GrabDialog {
             return Ok(());
         }
         let target = uidm_domain::grab::project_login_target(&self.start, &self.login_user);
-        uidm_infrastructure::net::save_credential(&target, self.login_user.trim(), &self.login_password)
+        crate::ports::ports()
+            .system
+            .save_credential(&target, self.login_user.trim(), &self.login_password)
             .map_err(|e| trf!("Could not save the password: {error}", error = e))?;
         self.login_changed = false;
         self.login_password.clear();
@@ -1160,7 +1169,11 @@ pub fn grab_dialog(
     take_picked(&d.open_picked, &mut d.open_when_done);
     let file = d.file_picked.lock().unwrap().take();
     if let Some(path) = file {
-        match grab::load_project_file(&path) {
+        let opened = match crate::ports::ports().grab.as_ref() {
+            Some(l) => l.load_file(&path),
+            None => Err(uidm_domain::ports::FilesError(tr("There is no projects folder.").to_string())),
+        };
+        match opened {
             Ok(p) => d.switch_to(GrabDialog::open_file(p, &path)),
             Err(e) => d.project_note = Some(trf!("Could not open {name}: {error}", name = path.display(), error = e)),
         }
@@ -1222,14 +1235,13 @@ pub fn grab_dialog(
     if start {
         d.leave(Leave::Start);
     }
-    let dir = grab::projects_dir().ok();
+    let dir = crate::ports::ports().grab.as_deref();
     if d.leaving.is_some() && !d.asking {
         if !d.unsaved() {
             return go_on(d, queues, settings, connected, actions);
         }
-        let silent_dir = dir.as_deref().filter(|dir| {
-            settings.grab_save_unique_silently && grab::name_is_unique(dir, &d.project, d.saved_as.as_deref())
-        });
+        let silent_dir = dir
+            .filter(|dir| settings.grab_save_unique_silently && dir.name_is_unique(&d.project, d.saved_as.as_deref()));
         if let Some(dir) = silent_dir {
             match d.save_project(dir) {
                 Ok(()) => return go_on(d, queues, settings, connected, actions),
@@ -1240,7 +1252,7 @@ pub fn grab_dialog(
         d.dont_ask = settings.grab_save_unique_silently;
     }
     if d.asking {
-        match save_question(ctx, d, dir.as_deref(), settings, connected, actions) {
+        match save_question(ctx, d, dir, settings, connected, actions) {
             Some(true) => return go_on(d, queues, settings, connected, actions),
             Some(false) => {
                 d.leaving = None;
@@ -1287,7 +1299,7 @@ fn go_on(
 fn save_question(
     ctx: &egui::Context,
     d: &mut GrabDialog,
-    dir: Option<&std::path::Path>,
+    dir: Option<&dyn GrabLibrary>,
     settings: &uidm_domain::settings::Settings,
     connected: bool,
     actions: &mut Vec<Action>,
@@ -1310,7 +1322,7 @@ fn save_question(
                 );
             });
             let named = !d.project.trim().is_empty();
-            if named && dir.is_some_and(|dir| !grab::name_is_unique(dir, &d.project, d.saved_as.as_deref())) {
+            if named && dir.is_some_and(|dir| !dir.name_is_unique(&d.project, d.saved_as.as_deref())) {
                 ui.weak(tr("Another saved project has this name; saving replaces it."));
             }
             if ui.checkbox(&mut d.dont_ask, tr("Don't ask if the name is unique")).changed() && connected {
@@ -1350,25 +1362,25 @@ fn save_question(
 /// Returns the dialog to switch to when a project is opened or a new one
 /// started.
 fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
-    let dir = grab::projects_dir().ok();
+    let dir = crate::ports::ports().grab.as_deref();
     let mut next = None;
     ui.horizontal(|ui| {
         ui.label(tr("Project"));
         ui.add(egui::TextEdit::singleline(&mut d.project).hint_text(tr("Name, to save it")).desired_width(160.0));
         let named = !d.project.trim().is_empty();
         if ui.add_enabled(named && dir.is_some(), egui::Button::new(tr("Save"))).clicked() {
-            if let Some(dir) = &dir {
+            if let Some(dir) = dir {
                 if let Err(e) = d.save_project(dir) {
                     d.project_note = Some(e);
                 }
             }
         }
-        let recent = dir.as_deref().map(grab::recent_projects).unwrap_or_default();
+        let recent = dir.map(|l| l.recent()).unwrap_or_default();
         ui.menu_button(tr("Open"), |ui| {
             for name in &recent {
                 if ui.button(name).clicked() {
-                    if let Some(dir) = &dir {
-                        match grab::load_project(dir, name) {
+                    if let Some(dir) = dir {
+                        match dir.load(name) {
                             Ok(p) => next = Some(GrabDialog::open(p)),
                             Err(e) => {
                                 d.project_note = Some(trf!("Could not open {name}: {error}", name = name, error = e))
@@ -1387,7 +1399,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
                 .clicked()
             {
                 // The picker blocks, so it gets its own thread.
-                let (slot, ctx, start) = (Arc::clone(&d.file_picked), ui.ctx().clone(), dir.clone());
+                let (slot, ctx, start) = (Arc::clone(&d.file_picked), ui.ctx().clone(), dir.map(|l| l.folder()));
                 thread::spawn(move || {
                     let mut dialog = rfd::FileDialog::new()
                         .set_title(tr("Open a grabber project"))
@@ -1413,7 +1425,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
                 ui.close_menu();
             }
             ui.separator();
-            let templates = dir.as_deref().map(grab::templates).unwrap_or_else(uidm_domain::grab::built_in_templates);
+            let templates = dir.map(|l| l.templates()).unwrap_or_else(uidm_domain::grab::built_in_templates);
             for t in templates {
                 ui.horizontal(|ui| {
                     let label = uidm_domain::grab::BUILT_IN_TEMPLATES
@@ -1425,8 +1437,9 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
                         ui.close_menu();
                     }
                     if !t.built_in && ui.small_button("x").on_hover_text(tr("Delete this template")).clicked() {
-                        if let Some(dir) = &dir {
-                            d.project_note = grab::delete_template(dir, &t.name)
+                        if let Some(dir) = dir {
+                            d.project_note = dir
+                                .delete_template(&t.name)
                                 .err()
                                 .map(|e| trf!("Could not delete the template: {error}", error = e));
                         }
@@ -1450,12 +1463,11 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
                 ui.add(egui::TextEdit::singleline(name).hint_text(tr("Template name")).desired_width(120.0));
                 let ready = !name.trim().is_empty();
                 if ui.add_enabled(ready, egui::Button::new(tr("Keep"))).clicked() {
-                    if let Some(dir) = &dir {
+                    if let Some(dir) = dir {
                         let name = name.trim().to_string();
                         let req = d.request();
                         // The unnamed template New starts from follows too.
-                        let saved =
-                            grab::save_named_template(dir, &name, &req).and_then(|()| grab::save_template(dir, &req));
+                        let saved = dir.save_template(&name, &req);
                         d.project_note = Some(match saved {
                             Ok(()) => trf!("Saved the template \"{name}\".", name = name),
                             Err(e) => trf!("Could not save the template: {error}", error = e),
@@ -2163,8 +2175,8 @@ fn filter_editor(ui: &mut egui::Ui, d: &mut GrabDialog) {
 }
 
 fn save_filters(d: &mut GrabDialog) {
-    if let Ok(dir) = grab::projects_dir() {
-        if let Err(e) = grab::save_filters(&dir, &d.filters) {
+    if let Some(dir) = &crate::ports::ports().grab {
+        if let Err(e) = dir.save_filters(&d.filters) {
             d.project_note = Some(trf!("Could not save the filters: {error}", error = e));
         }
     }

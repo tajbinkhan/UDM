@@ -436,6 +436,7 @@
   "Saved \"{name}\".": "„{name}“ gespeichert.",
   "Could not save it: {error}": "Speichern nicht möglich: {error}",
   "Could not open {name}: {error}": "{name} konnte nicht geöffnet werden: {error}",
+  "There is no projects folder.": "Es gibt keinen Projektordner.",
   "New": "Neu",
   "Save as template": "Als Vorlage speichern",
   "Could not save the template: {error}": "Die Vorlage konnte nicht gespeichert werden: {error}",

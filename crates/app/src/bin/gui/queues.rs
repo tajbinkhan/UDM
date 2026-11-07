@@ -63,7 +63,7 @@ fn wake_timers_allowed() -> Option<(bool, bool)> {
     match *cache {
         Some((at, value)) if at.elapsed() < Duration::from_secs(10) => value,
         _ => {
-            let value = uidm_infrastructure::power::wake_timers_allowed();
+            let value = crate::ports::ports().system.wake_timers_allowed();
             *cache = Some((Instant::now(), value));
             value
         }

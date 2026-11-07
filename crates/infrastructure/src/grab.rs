@@ -839,6 +839,60 @@ impl uidm_domain::ports::GrabDownloads for FoundFiles {
     }
 }
 
+fn files_error(e: io::Error) -> uidm_domain::ports::FilesError {
+    uidm_domain::ports::FilesError(e.to_string())
+}
+
+impl uidm_application::window::GrabLibrary for ProjectFiles {
+    fn folder(&self) -> PathBuf {
+        self.0.clone()
+    }
+
+    fn recent(&self) -> Vec<String> {
+        recent_projects(&self.0)
+    }
+
+    fn load(&self, name: &str) -> Result<Project, uidm_domain::ports::FilesError> {
+        load_project(&self.0, name).map_err(files_error)
+    }
+
+    fn load_file(&self, path: &Path) -> Result<Project, uidm_domain::ports::FilesError> {
+        load_project_file(path).map_err(files_error)
+    }
+
+    fn save(&self, project: &Project) -> Result<(), uidm_domain::ports::FilesError> {
+        save_project(project, &self.0).map_err(files_error)
+    }
+
+    fn name_is_unique(&self, name: &str, own: Option<&str>) -> bool {
+        name_is_unique(&self.0, name, own)
+    }
+
+    fn template(&self) -> GrabRequest {
+        template(&self.0)
+    }
+
+    fn templates(&self) -> Vec<Template> {
+        templates(&self.0)
+    }
+
+    fn save_template(&self, name: &str, req: &GrabRequest) -> Result<(), uidm_domain::ports::FilesError> {
+        save_named_template(&self.0, name, req).and_then(|()| save_template(&self.0, req)).map_err(files_error)
+    }
+
+    fn delete_template(&self, name: &str) -> Result<(), uidm_domain::ports::FilesError> {
+        delete_template(&self.0, name).map_err(files_error)
+    }
+
+    fn filters(&self) -> Vec<Filter> {
+        load_filters(&self.0)
+    }
+
+    fn save_filters(&self, filters: &[Filter]) -> Result<(), uidm_domain::ports::FilesError> {
+        save_filters(&self.0, filters).map_err(files_error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

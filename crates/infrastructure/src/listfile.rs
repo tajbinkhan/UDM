@@ -263,6 +263,28 @@ fn safe_folder(folder: &Path) -> bool {
     })
 }
 
+/// The `ListFiles` adapter: the formats above.
+pub struct ListFormats;
+
+impl uidm_application::window::ListFiles for ListFormats {
+    fn decode(&self, bytes: &[u8]) -> String {
+        decode(bytes)
+    }
+
+    fn import(&self, text: &str) -> Result<(Vec<Download>, usize), uidm_application::window::ListError> {
+        import(text).map_err(uidm_application::window::ListError)
+    }
+
+    fn export(&self, format: uidm_application::window::ListFormat, entries: &[&DownloadEntry]) -> String {
+        use uidm_application::window::ListFormat;
+        match format {
+            ListFormat::Json => export_json(entries),
+            ListFormat::Text => export_text(entries),
+            ListFormat::Ef2 => export_ef2(entries),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
