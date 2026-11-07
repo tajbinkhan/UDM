@@ -4889,6 +4889,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trash",
+ "uidm-application",
  "uidm-domain",
  "url",
  "windows 0.61.3",

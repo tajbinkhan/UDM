@@ -1,6 +1,7 @@
 //! Use cases (add a download, pause, run a queue, ...) that coordinate the
 //! domain through its ports, one per file.
 
+pub mod daemon;
 pub mod downloads;
 pub mod grab;
 pub mod power;

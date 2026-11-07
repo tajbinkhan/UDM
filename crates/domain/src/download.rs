@@ -1084,6 +1084,30 @@ impl Download {
     }
 }
 
+/// IDM's command-line switches, parsed by `uidm_infrastructure::cli`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CommandLine {
+    /// The download `/d` names, with the folder, name and start choices of
+    /// `/p`, `/f`, `/a` and `/n`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download: Option<Download>,
+    /// `/s`: start the main queue.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub start_queue: bool,
+    /// `/q`: exit UIDM once the download finishes. Like IDM, only a call
+    /// that starts UIDM does this; one that finds it running does not.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quit_after: bool,
+}
+
+/// A file inside a zip archive, as the save-as dialog's Preview lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZipEntry {
+    pub name: String,
+    /// Its size once unpacked.
+    pub size: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

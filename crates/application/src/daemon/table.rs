@@ -1,0 +1,60 @@
+//! Applying the daemon's events to the download list
+//! (`uidm_domain::table`).
+
+use uidm_domain::table::{Change, DownloadTable};
+
+use super::Event;
+
+/// The change `event` makes to the download list, if it makes one.
+pub fn change_of(event: &Event) -> Option<Change<'_>> {
+    Some(match event {
+        Event::Added { id, url } => Change::Added { id: *id, url },
+        Event::Started { id, url, path, total, resumable, connections, partial, validator } => Change::Started {
+            id: *id,
+            url,
+            path,
+            total: *total,
+            resumable: *resumable,
+            connections: *connections,
+            partial: partial.as_deref(),
+            validator: validator.as_ref(),
+        },
+        Event::Progress { id, url, done, total, parts, .. } => {
+            Change::Progress { id: *id, url, done: *done, total: *total, parts: *parts }
+        }
+        Event::Done { id, url, path, note } => Change::Done { id: *id, url, path, note: note.as_deref() },
+        Event::Failed { id, url, error } => Change::Failed { id: *id, url, error },
+        Event::Canceled { id, url } => Change::Canceled { id: *id, url },
+        Event::NameTaken { id, url, path, total } => Change::NameTaken { id: *id, url, path, total: *total },
+        Event::Removed { id } => Change::Removed { id: *id },
+        Event::Updated { item } => Change::Updated(item),
+        Event::Downloads { items } => Change::Downloads(items),
+        _ => return None,
+    })
+}
+
+/// Fold `event` into `table`. `now` (seconds since 1970) dates a download
+/// that starts. Events that do not describe a download leave it alone.
+pub fn apply(table: &mut DownloadTable, event: &Event, now: u64) {
+    if let Some(change) = change_of(event) {
+        table.change(change, now);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_events_change_the_list_and_others_do_not() {
+        let mut t = DownloadTable::new();
+        apply(&mut t, &Event::Added { id: 1, url: "u".into() }, 0);
+        apply(&mut t, &Event::Error { message: "x".into() }, 0);
+        apply(&mut t, &Event::Show, 0);
+        assert_eq!(t.len(), 1);
+        apply(&mut t, &Event::Failed { id: 1, url: "u".into(), error: "timed out".into() }, 0);
+        assert_eq!(t.get(1).unwrap().error.as_deref(), Some("timed out"));
+        apply(&mut t, &Event::Removed { id: 1 }, 0);
+        assert!(t.is_empty());
+    }
+}

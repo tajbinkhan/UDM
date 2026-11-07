@@ -73,7 +73,6 @@ mod win;
 mod win;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -84,7 +83,10 @@ use eframe::egui;
 use i18n::{tr, trf};
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, SegmentInfo, Status};
+use uidm_application::daemon::{self, Command, DaemonClient, DaemonError, Event, Lost};
+use uidm_domain::download::{
+    Answer, CommandLine, Download, DownloadEntry, OnDone, Properties, Scan, SegmentInfo, Status,
+};
 use uidm_domain::grab::{GrabFile, GrabRequest};
 use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
 use uidm_domain::settings::{
@@ -93,13 +95,14 @@ use uidm_domain::settings::{
     CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE,
     SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
 };
-use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
-use uidm_infrastructure::ipc;
+use uidm_domain::table::DownloadTable;
+use uidm_infrastructure::daemon_client::IpcDaemonClient;
 use uidm_infrastructure::logging;
 use uidm_infrastructure::notify::Sound;
-use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
-use uidm_infrastructure::state::DownloadTable;
 
+/// The `client` this window names in its `hello`, so the daemon knows a
+/// window is open to show a save-as dialog.
+const WINDOW_CLIENT: &str = "window";
 /// Ignore speed samples closer together than this; they are too noisy.
 const SPEED_MIN_INTERVAL: Duration = Duration::from_millis(400);
 
@@ -130,7 +133,13 @@ fn main() -> eframe::Result {
             // It runs once this window connects; its dialogs bring the
             // window forward.
             Ok(false) => minimized = true,
-            Err(e) => startup_error = Some(trf!("Could not pass the command line to UIDM: {error}", error = e)),
+            Err(e) => {
+                let error = match e {
+                    DaemonError::Closed => tr("the daemon closed the connection").to_string(),
+                    DaemonError::Connect(why) | DaemonError::Refused(why) => why,
+                };
+                startup_error = Some(trf!("Could not pass the command line to UIDM: {error}", error = error));
+            }
         },
         Err(e) => startup_error = Some(e),
     }
@@ -193,27 +202,8 @@ fn main() -> eframe::Result {
 /// Hand the command line to the daemon, starting it if needed. `Ok(true)`
 /// means an open window ran it; `Ok(false)` that it waits for the window
 /// this process opens.
-fn send_command_line(cmd: CommandLine) -> std::io::Result<bool> {
-    use std::io::{Error, ErrorKind};
-    let mut stream = ipc::connect_or_spawn()?;
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let hello = Incoming::Hello {
-        version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        client: Some("command-line".to_string()),
-    };
-    for msg in [hello, Incoming::CommandLine(cmd)] {
-        write_frame(&mut stream, &serde_json::to_vec(&msg).map_err(Error::other)?)?;
-    }
-    loop {
-        let raw = read_message(&mut stream, MAX_MESSAGE_BYTES)?
-            .ok_or_else(|| Error::new(ErrorKind::UnexpectedEof, "the daemon closed the connection"))?;
-        match serde_json::from_slice::<Outgoing>(&raw) {
-            Ok(Outgoing::CommandLine { window_open }) => return Ok(window_open),
-            // A daemon older than this window does not know the message.
-            Ok(Outgoing::Error { message }) => return Err(Error::other(message)),
-            _ => {}
-        }
-    }
+fn send_command_line(cmd: CommandLine) -> Result<bool, DaemonError> {
+    IpcDaemonClient::new(WINDOW_CLIENT).run_command_line(cmd)
 }
 
 #[derive(Clone)]
@@ -294,7 +284,7 @@ struct Shared {
     installing: Option<Option<String>>,
     /// A zip preview the daemon sent: the download and its files, or why
     /// not.
-    zip_listed: Option<(u64, Result<Vec<uidm_infrastructure::zip::ZipEntry>, String>)>,
+    zip_listed: Option<(u64, Result<Vec<uidm_domain::download::ZipEntry>, String>)>,
     /// Downloads are paused for the quota.
     quota_paused: bool,
     /// Whether the browser extension is connected, and when one last was,
@@ -334,20 +324,20 @@ impl Shared {
         }
     }
 
-    fn apply(&mut self, msg: &Outgoing) {
-        self.table.apply(msg);
+    fn apply(&mut self, msg: &Event) {
+        daemon::apply(&mut self.table, msg, uidm_infrastructure::state::unix_now());
         match msg {
-            Outgoing::Queues { items } => self.queues = items.clone(),
-            Outgoing::Countdown { action, seconds, queue, file } => {
+            Event::Queues { items } => self.queues = items.clone(),
+            Event::Countdown { action, seconds, queue, file } => {
                 let deadline = Instant::now() + Duration::from_secs(*seconds as u64);
                 self.countdown = Some((*action, deadline, queue.clone(), file.clone()));
             }
-            Outgoing::CountdownCanceled => self.countdown = None,
-            Outgoing::RefreshWaiting { id } => self.refresh_waiting = *id,
-            Outgoing::RefreshMismatch { id, url, reason } => {
+            Event::CountdownCanceled => self.countdown = None,
+            Event::RefreshWaiting { id } => self.refresh_waiting = *id,
+            Event::RefreshMismatch { id, url, reason } => {
                 self.refresh_mismatch = Some((*id, url.clone(), reason.clone()));
             }
-            Outgoing::Settings { settings } => {
+            Event::Settings { settings } => {
                 self.settings = Some(settings.clone());
                 if self.saving {
                     self.saving = false;
@@ -356,7 +346,7 @@ impl Shared {
             }
             // An older daemon than this window cannot read its newer
             // requests; its parser's complaint means nothing to the user.
-            Outgoing::Error { message } if message.starts_with("invalid message: unknown variant") => {
+            Event::Error { message } if message.starts_with("invalid message: unknown variant") => {
                 self.saving = false;
                 self.stale_daemon = true;
                 self.last_error = Some(
@@ -364,22 +354,22 @@ impl Shared {
                         .into(),
                 );
             }
-            Outgoing::Error { message } if self.saving => {
+            Event::Error { message } if self.saving => {
                 self.saving = false;
                 self.save_result = Some(Err(message.clone()));
             }
-            Outgoing::Progress { id, done, segments, .. } => {
+            Event::Progress { id, done, segments, .. } => {
                 self.sample_speed(*id, *done);
                 if let Some(s) = segments {
                     self.segments.insert(*id, s.clone());
                 }
             }
-            Outgoing::BrowserLink { connected, last_seen } => self.browser_link = Some((*connected, *last_seen)),
-            Outgoing::Started { id, .. } => {
+            Event::BrowserLink { connected, last_seen } => self.browser_link = Some((*connected, *last_seen)),
+            Event::Started { id, .. } => {
                 self.segments.remove(id);
                 self.started.push((*id, progress::started_by_queue(&self.queues, *id)));
             }
-            Outgoing::Quota { used, limit, paused, resumes_at } => {
+            Event::Quota { used, limit, paused, resumes_at } => {
                 let amount = trf!("{used} of {limit}", used = human_bytes(*used), limit = human_bytes(*limit));
                 let was_paused = std::mem::replace(&mut self.quota_paused, *paused);
                 self.quota = if *paused {
@@ -403,10 +393,10 @@ impl Shared {
                     None
                 };
             }
-            Outgoing::UpdateFailed { error } => {
+            Event::UpdateFailed { error } => {
                 self.installing = Some(Some(error.clone()));
             }
-            Outgoing::Update { newer, error } => {
+            Event::Update { newer, error } => {
                 self.update = Some(match error {
                     Some(e) => Err(e.clone()),
                     None => Ok(newer.clone()),
@@ -415,24 +405,24 @@ impl Shared {
                     self.newer_release = newer.clone();
                 }
             }
-            Outgoing::ZipPreview { id, entries, error } => {
+            Event::ZipPreview { id, entries, error } => {
                 let result = match error {
                     Some(e) => Err(e.clone()),
                     None => Ok(entries.clone()),
                 };
                 self.zip_listed = Some((*id, result));
             }
-            Outgoing::PickLinks { page, links, user_agent } => {
+            Event::PickLinks { page, links, user_agent } => {
                 self.picked_links = Some(links::LinksDialog::new(page.clone(), links.clone(), user_agent.clone()));
             }
-            Outgoing::LinkInfo { request, index, total, content_type, error } => {
+            Event::LinkInfo { request, index, total, content_type, error } => {
                 let probed = match error {
                     Some(e) => links::Probed::Failed(e.clone()),
                     None => links::Probed::Found { total: *total, content_type: content_type.clone() },
                 };
                 self.link_info.push((*request, *index, probed));
             }
-            Outgoing::AddedMany { count, skipped } => {
+            Event::AddedMany { count, skipped } => {
                 let mut notice = match count {
                     1 => tr("Added 1 download, waiting in its queue.").to_string(),
                     n => trf!("Added {count} downloads, waiting in their queue.", count = n),
@@ -450,10 +440,10 @@ impl Shared {
                 }
                 self.notice = Some(notice);
             }
-            Outgoing::GrabProgress { pages, bytes, found, explored, added } => {
+            Event::GrabProgress { pages, bytes, found, explored, added } => {
                 self.grab_events.push_back(GrabEvent::Progress(*pages, *bytes, *found, *explored, added.clone()));
             }
-            Outgoing::GrabDone { files, pages, explored, stopped, login_cookies } => {
+            Event::GrabDone { files, pages, explored, stopped, login_cookies } => {
                 self.grab_events.push_back(GrabEvent::Done(
                     files.clone(),
                     *pages,
@@ -462,16 +452,13 @@ impl Shared {
                     login_cookies.clone(),
                 ));
             }
-            Outgoing::Done { id, .. }
-            | Outgoing::Failed { id, .. }
-            | Outgoing::Canceled { id, .. }
-            | Outgoing::Removed { id } => {
+            Event::Done { id, .. } | Event::Failed { id, .. } | Event::Canceled { id, .. } | Event::Removed { id } => {
                 self.speeds.remove(id);
-                if matches!(msg, Outgoing::Removed { .. }) {
+                if matches!(msg, Event::Removed { .. }) {
                     self.segments.remove(id);
                 }
             }
-            Outgoing::Error { message } | Outgoing::Rejected { message, .. } => self.last_error = Some(message.clone()),
+            Event::Error { message } | Event::Rejected { message, .. } => self.last_error = Some(message.clone()),
             _ => {}
         }
     }
@@ -641,8 +628,8 @@ enum Action {
 
 struct App {
     shared: Arc<Mutex<Shared>>,
-    /// The write half of the daemon connection, when connected.
-    writer: Arc<Mutex<Option<TcpStream>>>,
+    /// The connection to the daemon.
+    daemon: Arc<dyn DaemonClient>,
     ctx: egui::Context,
     /// Tasks > Add new download, while it is open.
     add_dialog: Option<addurl::AddDialog>,
@@ -754,7 +741,7 @@ struct LimitDialog {
 /// The files inside a zip download, once the daemon has listed them.
 struct ZipPreview {
     id: u64,
-    result: Option<Result<Vec<uidm_infrastructure::zip::ZipEntry>, String>>,
+    result: Option<Result<Vec<uidm_domain::download::ZipEntry>, String>>,
 }
 
 /// Downloads about to be removed, and the confirmation's boxes.
@@ -1651,7 +1638,7 @@ impl App {
                 quota_paused: false,
                 browser_link: None,
             })),
-            writer: Arc::new(Mutex::new(None)),
+            daemon: Arc::new(IpcDaemonClient::new(WINDOW_CLIENT)),
             ctx: ctx.clone(),
             add_dialog: None,
             options: None,
@@ -1710,7 +1697,7 @@ impl App {
     /// which costs nothing, and reads the text only when it changes.
     fn watch_clipboard(&self) {
         let shared = Arc::clone(&self.shared);
-        let writer = Arc::clone(&self.writer);
+        let daemon = Arc::clone(&self.daemon);
         let ctx = self.ctx.clone();
         thread::spawn(move || {
             let mut seen = win::clipboard_sequence();
@@ -1734,7 +1721,7 @@ impl App {
                 last_offered = Some(url.clone());
                 // Started at once, it goes the way a pasted link does, save-as
                 // dialog and all; only the offer is skipped.
-                if start && send(&writer, &Incoming::Add(Download { url: url.clone(), ..Download::default() })) {
+                if start && daemon.send(Command::Add(Download { url: url.clone(), ..Download::default() })) {
                     continue;
                 }
                 shared.lock().unwrap().clipboard = Some(url);
@@ -1748,7 +1735,7 @@ impl App {
     /// frame, since the window may be hidden.
     fn install_tray(&self) {
         let shared = Arc::clone(&self.shared);
-        let writer = Arc::clone(&self.writer);
+        let daemon = Arc::clone(&self.daemon);
         let ctx = self.ctx.clone();
         let on_command = Arc::new(move |command: tray::Command| {
             match command {
@@ -1757,7 +1744,7 @@ impl App {
                     let text = win::clipboard_text().unwrap_or_default();
                     let url = text.trim();
                     if is_download_url(url) {
-                        send(&writer, &Incoming::Add(Download { url: url.to_string(), ..Download::default() }));
+                        daemon.send(Command::Add(Download { url: url.to_string(), ..Download::default() }));
                     } else {
                         shared.lock().unwrap().last_error =
                             Some(tr("The clipboard holds no http or https link.").into());
@@ -1769,26 +1756,23 @@ impl App {
                     win::show();
                 }
                 tray::Command::PauseAll => {
-                    send(&writer, &Incoming::PauseAll);
+                    daemon.send(Command::PauseAll);
                 }
                 tray::Command::ResumeAll => {
-                    send(&writer, &Incoming::ResumeAll);
+                    daemon.send(Command::ResumeAll);
                 }
                 tray::Command::ToggleSpeedLimit => {
                     let settings = shared.lock().unwrap().settings.clone();
                     if let Some(s) = settings {
                         let on = !s.speed_limit_enabled;
                         tray::set_speed_limit_checked(on);
-                        send(&writer, &Incoming::SetSettings { settings: Settings { speed_limit_enabled: on, ..s } });
+                        daemon.send(Command::SetSettings { settings: Settings { speed_limit_enabled: on, ..s } });
                     }
                 }
                 tray::Command::ToggleDropTarget => {
                     let settings = shared.lock().unwrap().settings.clone();
                     if let Some(s) = settings {
-                        send(
-                            &writer,
-                            &Incoming::SetSettings { settings: Settings { drop_target: !s.drop_target, ..s } },
-                        );
+                        daemon.send(Command::SetSettings { settings: Settings { drop_target: !s.drop_target, ..s } });
                     }
                 }
                 // The daemon keeps downloading and exits on its own once idle.
@@ -1812,58 +1796,34 @@ impl App {
     /// Connect, first restarting the daemon if `restart`.
     fn connect_with(&self, restart: bool) {
         let shared = Arc::clone(&self.shared);
-        let writer = Arc::clone(&self.writer);
         let ctx = self.ctx.clone();
         shared.lock().unwrap().link = Link::Connecting;
-
-        thread::spawn(move || {
-            let set_link = |link: Link| {
-                shared.lock().unwrap().link = link;
-                ctx.request_repaint();
-            };
-            let stream = match if restart { ipc::restart_daemon() } else { ipc::connect_or_spawn() } {
-                Ok(s) => s,
-                Err(e) => return set_link(Link::Lost(e.to_string())),
-            };
-            let mut reader = match stream.try_clone() {
-                Ok(r) => r,
-                Err(e) => return set_link(Link::Lost(e.to_string())),
-            };
-            *writer.lock().unwrap() = Some(stream);
-            set_link(Link::Connected);
-            send(
-                &writer,
-                &Incoming::Hello {
-                    version: Some(env!("CARGO_PKG_VERSION").to_string()),
-                    client: Some("window".to_string()),
-                },
-            );
-            send(&writer, &Incoming::List);
-            send(&writer, &Incoming::GetSettings);
-
-            loop {
-                match read_message(&mut reader, MAX_MESSAGE_BYTES) {
-                    Ok(Some(raw)) => {
-                        if let Ok(msg) = serde_json::from_slice::<Outgoing>(&raw) {
-                            on_message(&shared, &ctx, &msg);
-                        }
+        self.daemon.connect(
+            restart,
+            Box::new(move |event| {
+                match &event {
+                    Event::Connected => shared.lock().unwrap().link = Link::Connected,
+                    Event::Lost(lost) => {
+                        let why = match lost {
+                            Lost::Closed => tr("the daemon closed the connection").to_string(),
+                            Lost::Failed(e) => e.clone(),
+                        };
+                        shared.lock().unwrap().link = Link::Lost(why);
                     }
-                    Ok(None) => break,
-                    Err(_) => break,
+                    _ => return on_message(&shared, &ctx, &event),
                 }
-            }
-            *writer.lock().unwrap() = None;
-            set_link(Link::Lost(tr("the daemon closed the connection").into()));
-        });
+                ctx.request_repaint();
+            }),
+        );
     }
 
     fn perform(&mut self, action: Action) {
         match action {
             Action::Add(url) => {
-                send(&self.writer, &Incoming::Add(Download { url, ..Download::default() }));
+                self.daemon.send(Command::Add(Download { url, ..Download::default() }));
             }
             Action::CancelSaveAs(id) => {
-                send(&self.writer, &Incoming::Cancel { id });
+                self.daemon.send(Command::Cancel { id });
                 let (entry, settings) = {
                     let s = self.shared.lock().unwrap();
                     (s.table.get(id).cloned(), s.settings.clone())
@@ -1897,18 +1857,18 @@ impl App {
                 self.perform(Action::QuickSettings(s));
             }
             Action::Cancel(id) => {
-                send(&self.writer, &Incoming::Cancel { id });
+                self.daemon.send(Command::Cancel { id });
             }
             Action::Retry(id) => {
-                send(&self.writer, &Incoming::Retry { id });
+                self.daemon.send(Command::Retry { id });
             }
             Action::Redownload(id) => {
-                send(&self.writer, &Incoming::Redownload { id });
+                self.daemon.send(Command::Redownload { id });
             }
             Action::Remove(ids) => self.ask_remove(ids),
             Action::RemoveNow { ids, delete_files, dont_ask } => {
                 for id in &ids {
-                    send(&self.writer, &Incoming::Remove { id: *id, delete_files });
+                    self.daemon.send(Command::Remove { id: *id, delete_files });
                     self.selected.remove(id);
                 }
                 let settings = self.shared.lock().unwrap().settings.clone();
@@ -1954,7 +1914,7 @@ impl App {
                     if let Some(mut settings) = s.settings.clone() {
                         settings.notify = Notify::Toast;
                         drop(s);
-                        send(&self.writer, &Incoming::SetSettings { settings });
+                        self.daemon.send(Command::SetSettings { settings });
                     }
                 }
             }
@@ -1964,21 +1924,21 @@ impl App {
                 self.convert = Some((id, uidm_infrastructure::media::convert::Target::Mp3, false))
             }
             Action::Convert(id, to, delete_original) => {
-                send(&self.writer, &Incoming::Convert { id, to, delete_original });
+                self.daemon.send(Command::Convert { id, to, delete_original });
             }
             Action::InstallUpdate => {
                 self.shared.lock().unwrap().installing = Some(None);
                 self.about = Some(true);
-                send(&self.writer, &Incoming::InstallUpdate);
+                self.daemon.send(Command::InstallUpdate);
             }
             Action::CheckUpdate => {
                 self.shared.lock().unwrap().update = None;
                 self.about = Some(true);
-                send(&self.writer, &Incoming::CheckUpdate);
+                self.daemon.send(Command::CheckUpdate);
             }
             Action::PreviewZip(id) => {
                 self.zip_preview = Some(ZipPreview { id, result: None });
-                send(&self.writer, &Incoming::PreviewZip { id });
+                self.daemon.send(Command::PreviewZip { id });
             }
             Action::ShowInFolder(path) => {
                 let _ = uidm_infrastructure::platform::reveal(std::path::Path::new(&path));
@@ -2003,7 +1963,7 @@ impl App {
                 }
             }
             Action::AddDownload(download) => {
-                send(&self.writer, &Incoming::Add(download));
+                self.daemon.send(Command::Add(download));
             }
             Action::SaveSettings(settings) => {
                 {
@@ -2011,14 +1971,14 @@ impl App {
                     s.saving = true;
                     s.save_result = None;
                 }
-                if !send(&self.writer, &Incoming::SetSettings { settings }) {
+                if !self.daemon.send(Command::SetSettings { settings }) {
                     let mut s = self.shared.lock().unwrap();
                     s.saving = false;
                     s.save_result = Some(Err(tr("not connected to the UIDM daemon").into()));
                 }
             }
             Action::QuickSettings(settings) => {
-                send(&self.writer, &Incoming::SetSettings { settings });
+                self.daemon.send(Command::SetSettings { settings });
             }
             Action::GrabOptions { add_on_close, save_unique_silently } => {
                 let settings = self.shared.lock().unwrap().settings.clone();
@@ -2031,31 +1991,31 @@ impl App {
                 }
             }
             Action::Confirm(answer) => {
-                send(&self.writer, &Incoming::Confirm(answer));
+                self.daemon.send(Command::Confirm(answer));
             }
             Action::StartQueue(id) => {
-                send(&self.writer, &Incoming::StartQueue { id });
+                self.daemon.send(Command::StartQueue { id });
             }
             Action::StopQueue(id) => {
-                send(&self.writer, &Incoming::StopQueue { id });
+                self.daemon.send(Command::StopQueue { id });
             }
             Action::SaveQueue(queue) => {
-                send(&self.writer, &Incoming::SaveQueue { queue });
+                self.daemon.send(Command::SaveQueue { queue });
             }
             Action::DeleteQueue(id) => {
                 if self.filter == Filter::Queue(id) {
                     self.filter = Filter::default();
                 }
-                send(&self.writer, &Incoming::DeleteQueue { id });
+                self.daemon.send(Command::DeleteQueue { id });
             }
             Action::MoveToQueue { id, queue, position } => {
-                send(&self.writer, &Incoming::MoveToQueue { id, queue, position });
+                self.daemon.send(Command::MoveToQueue { id, queue, position });
             }
             Action::RemoveFromQueue(id) => {
-                send(&self.writer, &Incoming::RemoveFromQueue { id });
+                self.daemon.send(Command::RemoveFromQueue { id });
             }
             Action::SetQueueOnce(id, when_done) => {
-                send(&self.writer, &Incoming::SetQueueOnce { id, when_done });
+                self.daemon.send(Command::SetQueueOnce { id, when_done });
             }
             Action::OpenProperties(id) => {
                 let entry = self.shared.lock().unwrap().table.get(id).cloned();
@@ -2096,7 +2056,7 @@ impl App {
                 }
             }
             Action::SetOnDone(id, on_done) => {
-                send(&self.writer, &Incoming::SetOnDone { id, on_done });
+                self.daemon.send(Command::SetOnDone { id, on_done });
             }
             Action::OpenSpeedLimit(id) => {
                 let entry = self.shared.lock().unwrap().table.get(id).cloned();
@@ -2113,10 +2073,10 @@ impl App {
                 }
             }
             Action::SetSpeedLimit(id, bytes_per_sec, remember) => {
-                send(&self.writer, &Incoming::SetSpeedLimit { id, bytes_per_sec, remember: Some(remember) });
+                self.daemon.send(Command::SetSpeedLimit { id, bytes_per_sec, remember: Some(remember) });
             }
             Action::SetProperties { id, changes } => {
-                send(&self.writer, &Incoming::SetProperties { id, changes });
+                self.daemon.send(Command::SetProperties { id, changes });
             }
             Action::OpenRefresh(id) => {
                 self.shared.lock().unwrap().refresh_mismatch = None;
@@ -2124,22 +2084,23 @@ impl App {
             }
             Action::RefreshWith { id, url, restart } => {
                 self.shared.lock().unwrap().refresh_mismatch = None;
-                send(
-                    &self.writer,
-                    &Incoming::RefreshLink { id, download: Some(Download { url, ..Download::default() }), restart },
-                );
+                self.daemon.send(Command::RefreshLink {
+                    id,
+                    download: Some(Download { url, ..Download::default() }),
+                    restart,
+                });
             }
             Action::RefreshFromBrowser(id) => {
-                send(&self.writer, &Incoming::RefreshLink { id, download: None, restart: false });
+                self.daemon.send(Command::RefreshLink { id, download: None, restart: false });
             }
             Action::CancelRefresh => {
-                send(&self.writer, &Incoming::CancelRefresh);
+                self.daemon.send(Command::CancelRefresh);
             }
             Action::CancelCountdown => {
-                send(&self.writer, &Incoming::CancelCountdown);
+                self.daemon.send(Command::CancelCountdown);
             }
             Action::CountdownNow => {
-                send(&self.writer, &Incoming::CountdownNow);
+                self.daemon.send(Command::CountdownNow);
             }
             Action::OpenQueues(select) => {
                 let list = self.shared.lock().unwrap().queues.clone();
@@ -2197,16 +2158,16 @@ impl App {
             }
             Action::Grab(req) => {
                 self.shared.lock().unwrap().grab_events.clear();
-                send(&self.writer, &Incoming::Grab(req));
+                self.daemon.send(Command::Grab(req));
             }
             Action::ProbeLinks { request, links } => {
-                send(&self.writer, &Incoming::ProbeLinks { request, links });
+                self.daemon.send(Command::ProbeLinks { request, links });
             }
             Action::StopProbeLinks => {
-                send(&self.writer, &Incoming::StopProbeLinks);
+                self.daemon.send(Command::StopProbeLinks);
             }
             Action::CancelGrab => {
-                send(&self.writer, &Incoming::CancelGrab);
+                self.daemon.send(Command::CancelGrab);
             }
             Action::Click { id, ctrl, shift } => {
                 let at = |x: u64| self.order.iter().position(|i| *i == x);
@@ -2353,10 +2314,10 @@ impl App {
         if items.is_empty() {
             return;
         }
-        send(&self.writer, &Incoming::AddMany { items, queue: Some(queue) });
+        self.daemon.send(Command::AddMany { items, queue: Some(queue) });
         // Sent after on the same connection, so it starts with them.
         if start_queue {
-            send(&self.writer, &Incoming::StartQueue { id: queue });
+            self.daemon.send(Command::StartQueue { id: queue });
         }
     }
 
@@ -3998,60 +3959,48 @@ fn file_exists_label(f: FileExists) -> &'static str {
     }
 }
 
-/// Send one request. Returns false when not connected or the write failed.
 /// How long the save-as dialog waits for the daemon to list a queue its "+"
 /// added before it gives up on it.
 const PENDING_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
-fn send(writer: &Arc<Mutex<Option<TcpStream>>>, msg: &Incoming) -> bool {
-    let mut guard = writer.lock().unwrap();
-    let Some(stream) = guard.as_mut() else {
-        return false;
-    };
-    match serde_json::to_vec(msg) {
-        Ok(frame) => write_frame(stream, &frame).is_ok(),
-        Err(_) => false,
-    }
-}
-
 /// Apply one daemon message, and wake the window when it needs the user: a
 /// save-as dialog, a completion dialog, or a notification click, which also
 /// brings the main window up.
-fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Outgoing) {
+fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Event) {
     let show = {
         let mut s = shared.lock().unwrap();
         s.apply(msg);
         match msg {
-            Outgoing::Show => true,
+            Event::Show => true,
             // A duplicate of a finished download shows its dialog again.
-            Outgoing::ShowDone { id } => {
+            Event::ShowDone { id } => {
                 s.completed.push_back((*id, false));
                 true
             }
-            Outgoing::Countdown { .. } => true,
+            Event::Countdown { .. } => true,
             // The download's own window opens when it starts.
-            Outgoing::Started { .. } => s.settings.as_ref().is_some_and(|x| x.progress_on_start),
-            Outgoing::Quit => std::process::exit(0),
-            Outgoing::Updated { item } => item.status == Status::Confirming,
+            Event::Started { .. } => s.settings.as_ref().is_some_and(|x| x.progress_on_start),
+            Event::Quit => std::process::exit(0),
+            Event::Updated { item } => item.status == Status::Confirming,
             // A window that connects late, or started in the tray, still
             // asks about a download already waiting for its save-as dialog.
-            Outgoing::Downloads { items } => items.iter().any(|e| e.status == Status::Confirming),
-            Outgoing::NameTaken { .. } => true,
+            Event::Downloads { items } => items.iter().any(|e| e.status == Status::Confirming),
+            Event::NameTaken { .. } => true,
             // A site that wants a login gets the login prompt.
-            Outgoing::Failed { id, error, .. } if uidm_infrastructure::engine::login_wanted(error).is_some() => {
+            Event::Failed { id, error, .. } if uidm_infrastructure::engine::login_wanted(error).is_some() => {
                 if !s.login_wanted.contains(id) {
                     s.login_wanted.push_back(*id);
                 }
                 true
             }
             // Options, or the download itself, can ask for the dialog.
-            Outgoing::Done { id, .. }
+            Event::Done { id, .. }
                 if s.dialog_mode() || s.table.get(*id).and_then(|e| e.on_done).is_some_and(|o| o.dialog) =>
             {
                 s.completed.push_back((*id, false));
                 true
             }
-            Outgoing::Failed { id, .. } if s.dialog_mode() => {
+            Event::Failed { id, .. } if s.dialog_mode() => {
                 let (shared, ctx, id) = (Arc::clone(shared), ctx.clone(), *id);
                 thread::spawn(move || {
                     thread::sleep(FAILED_GRACE);
@@ -4070,7 +4019,7 @@ fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Outgoing) 
     };
     // A click on a notification brings the window up; a dialog shows on
     // its own, without it.
-    if matches!(msg, Outgoing::Show) {
+    if matches!(msg, Event::Show) {
         win::show();
     } else if show {
         win::wake();
@@ -4862,10 +4811,10 @@ impl App {
             }
             C::RedownloadTicked => actions.extend(ticked(is_finished).into_iter().map(Action::Redownload)),
             C::PauseAll => {
-                send(&self.writer, &Incoming::PauseAll);
+                self.daemon.send(Command::PauseAll);
             }
             C::ResumeAll => {
-                send(&self.writer, &Incoming::ResumeAll);
+                self.daemon.send(Command::ResumeAll);
             }
             C::DeleteCompleted => actions.push(Action::ClearFinished),
             C::Find => self.find.get_or_insert_with(find::FindBar::new).focus = true,
@@ -4945,12 +4894,12 @@ impl App {
         tray::set_drop_target_checked(s.drop_target && open);
         match (s.drop_target, open, self.drop_shown) {
             (true, false, false) => {
-                let writer = Arc::clone(&self.writer);
+                let daemon = Arc::clone(&self.daemon);
                 let ctx = self.ctx.clone();
                 droptarget::open(
                     Arc::new(move |url: String| {
                         // Each dropped link goes through the save-as dialog.
-                        send(&writer, &Incoming::Add(Download { url, ask: Some(true), ..Download::default() }));
+                        daemon.send(Command::Add(Download { url, ask: Some(true), ..Download::default() }));
                         win::show();
                         ctx.request_repaint();
                     }),

@@ -3,15 +3,7 @@
 //! the end-of-central-directory record (and its ZIP64 form), then the
 //! central directory itself, through a function that fetches byte ranges.
 
-use serde::{Deserialize, Serialize};
-
-/// A file inside the archive.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ZipEntry {
-    pub name: String,
-    /// Its size once unpacked.
-    pub size: u64,
-}
+pub use uidm_domain::download::ZipEntry;
 
 /// The longest a zip comment can make the end record's search.
 const TAIL: u64 = 65_557;
