@@ -1,21 +1,19 @@
-//! A list of downloads kept current by applying daemon events.
+//! The daemon's download list, kept current by applying its wire messages.
 //!
-//! The daemon applies every event it broadcasts, so it can answer `list`. The
-//! desktop window applies the `list` snapshot and then the same events, so it
-//! shows the same list. Events can arrive out of order across threads (a
-//! download may report `started` before its `added` is applied), so each
-//! update creates the entry if it is missing and `added` never overwrites one.
+//! The daemon applies every event it broadcasts, so it can answer `list`. How
+//! an event changes the list is `uidm_domain::table`'s; this module maps the
+//! wire messages onto those changes.
 
-use std::collections::BTreeMap;
+use std::ops::{Deref, DerefMut};
 
 use crate::protocol::Outgoing;
 
-use uidm_domain::download::{DownloadEntry, Status};
+use uidm_domain::table::Change;
 
+/// The download list (`uidm_domain::table::DownloadTable`), fed with the
+/// daemon's wire messages.
 #[derive(Debug, Default, Clone)]
-pub struct DownloadTable {
-    entries: BTreeMap<u64, DownloadEntry>,
-}
+pub struct DownloadTable(uidm_domain::table::DownloadTable);
 
 impl DownloadTable {
     pub fn new() -> Self {
@@ -25,171 +23,79 @@ impl DownloadTable {
     /// Fold one daemon message into the table. Messages that do not describe a
     /// download (`hello`, `pong`, `ack`, `error`) are ignored.
     pub fn apply(&mut self, msg: &Outgoing) {
-        match msg {
-            Outgoing::Added { id, url } => {
-                self.entries.entry(*id).or_insert_with(|| blank(*id, url, Status::Queued));
-            }
-            Outgoing::Started { id, url, path, total, resumable, connections, partial, validator } => {
-                let e = self.entry(*id, url);
-                e.status = Status::Downloading;
-                e.path = Some(path.clone());
-                e.partial = partial.clone();
-                e.total = *total;
-                e.resumable = *resumable;
-                e.connections = *connections;
-                // A server that says nothing about the file keeps what an
-                // earlier check learned.
-                if validator.is_some() {
-                    e.validator = validator.clone();
-                }
-                e.error = None;
-                e.scan = None;
-                e.note = None;
-                e.last_try = Some(unix_now());
-            }
-            Outgoing::Progress { id, url, done, total, parts, .. } => {
-                let e = self.entry(*id, url);
-                // A late progress event must not revive a finished download.
-                if !e.status.is_terminal() {
-                    e.status = Status::Downloading;
-                }
-                e.done = *done;
-                if total.is_some() {
-                    e.total = *total;
-                }
-                if parts.is_some() {
-                    e.parts = *parts;
-                }
-            }
-            Outgoing::Done { id, url, path, note } => {
-                let e = self.entry(*id, url);
-                e.status = Status::Done;
-                e.path = Some(path.clone());
-                e.partial = None;
-                if let Some(t) = e.total {
-                    e.done = t;
-                }
-                if let Some([_, all]) = e.parts {
-                    e.parts = Some([all, all]);
-                }
-                e.error = None;
-                e.note = note.clone();
-            }
-            Outgoing::Failed { id, url, error } => {
-                let e = self.entry(*id, url);
-                e.status = Status::Failed;
-                e.error = Some(error.clone());
-            }
-            Outgoing::Canceled { id, url } => {
-                self.entry(*id, url).status = Status::Canceled;
-            }
-            Outgoing::NameTaken { id, url, path, total } => {
-                let e = self.entry(*id, url);
-                e.status = Status::Confirming;
-                e.path = Some(path.clone());
-                e.total = *total;
-                e.error = None;
-            }
-            Outgoing::Removed { id } => {
-                self.entries.remove(id);
-            }
-            Outgoing::Updated { item } => {
-                self.entries.insert(item.id, item.clone());
-            }
-            Outgoing::Downloads { items } => {
-                self.entries = items.iter().map(|e| (e.id, e.clone())).collect();
-            }
-            Outgoing::Hello { .. }
-            | Outgoing::Pong
-            | Outgoing::Ack { .. }
-            | Outgoing::Error { .. }
-            | Outgoing::CommandLine { .. }
-            | Outgoing::Rejected { .. }
-            | Outgoing::Settings { .. }
-            | Outgoing::Show
-            | Outgoing::ShowDone { .. }
-            | Outgoing::Queues { .. }
-            | Outgoing::Countdown { .. }
-            | Outgoing::CountdownCanceled
-            | Outgoing::Quit
-            | Outgoing::RefreshWaiting { .. }
-            | Outgoing::RefreshMismatch { .. }
-            | Outgoing::AddedMany { .. }
-            | Outgoing::MediaInfo { .. }
-            | Outgoing::LinkInfo { .. }
-            | Outgoing::PickLinks { .. }
-            | Outgoing::Quota { .. }
-            | Outgoing::BrowserLink { .. }
-            | Outgoing::CookiesWanted { .. }
-            | Outgoing::RenderPage { .. }
-            | Outgoing::ZipPreview { .. }
-            | Outgoing::Update { .. }
-            | Outgoing::UpdateFailed { .. }
-            | Outgoing::GrabProgress { .. }
-            | Outgoing::GrabDone { .. } => {}
+        if let Some(change) = change_of(msg) {
+            self.0.change(change, unix_now());
         }
-    }
-
-    pub fn get(&self, id: u64) -> Option<&DownloadEntry> {
-        self.entries.get(&id)
-    }
-
-    /// Every download, oldest first.
-    pub fn entries(&self) -> impl Iterator<Item = &DownloadEntry> {
-        self.entries.values()
-    }
-
-    /// A copy of every download, oldest first, for a `downloads` reply.
-    pub fn snapshot(&self) -> Vec<DownloadEntry> {
-        self.entries.values().cloned().collect()
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Largest id in the table, or 0 when empty.
-    pub fn max_id(&self) -> u64 {
-        self.entries.keys().next_back().copied().unwrap_or(0)
-    }
-
-    fn entry(&mut self, id: u64, url: &str) -> &mut DownloadEntry {
-        self.entries.entry(id).or_insert_with(|| blank(id, url, Status::Queued))
     }
 }
 
-fn blank(id: u64, url: &str, status: Status) -> DownloadEntry {
-    DownloadEntry {
-        id,
-        url: url.to_string(),
-        path: None,
-        total: None,
-        done: 0,
-        status,
-        error: None,
-        resumable: false,
-        connections: 0,
-        scan: None,
-        parts: None,
-        note: None,
-        duplicate_of: None,
-        referrer: None,
-        page: None,
-        last_try: None,
-        description: None,
-        category: None,
-        login_user: None,
-        speed_limit: None,
-        limit_remember: true,
-        partial: None,
-        from_browser: false,
-        on_done: None,
-        validator: None,
+impl Deref for DownloadTable {
+    type Target = uidm_domain::table::DownloadTable;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
+}
+
+impl DerefMut for DownloadTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+/// The change `msg` makes to the download list, if it makes one.
+fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
+    Some(match msg {
+        Outgoing::Added { id, url } => Change::Added { id: *id, url },
+        Outgoing::Started { id, url, path, total, resumable, connections, partial, validator } => Change::Started {
+            id: *id,
+            url,
+            path,
+            total: *total,
+            resumable: *resumable,
+            connections: *connections,
+            partial: partial.as_deref(),
+            validator: validator.as_ref(),
+        },
+        Outgoing::Progress { id, url, done, total, parts, .. } => {
+            Change::Progress { id: *id, url, done: *done, total: *total, parts: *parts }
+        }
+        Outgoing::Done { id, url, path, note } => Change::Done { id: *id, url, path, note: note.as_deref() },
+        Outgoing::Failed { id, url, error } => Change::Failed { id: *id, url, error },
+        Outgoing::Canceled { id, url } => Change::Canceled { id: *id, url },
+        Outgoing::NameTaken { id, url, path, total } => Change::NameTaken { id: *id, url, path, total: *total },
+        Outgoing::Removed { id } => Change::Removed { id: *id },
+        Outgoing::Updated { item } => Change::Updated(item),
+        Outgoing::Downloads { items } => Change::Downloads(items),
+        Outgoing::Hello { .. }
+        | Outgoing::Pong
+        | Outgoing::Ack { .. }
+        | Outgoing::Error { .. }
+        | Outgoing::CommandLine { .. }
+        | Outgoing::Rejected { .. }
+        | Outgoing::Settings { .. }
+        | Outgoing::Show
+        | Outgoing::ShowDone { .. }
+        | Outgoing::Queues { .. }
+        | Outgoing::Countdown { .. }
+        | Outgoing::CountdownCanceled
+        | Outgoing::Quit
+        | Outgoing::RefreshWaiting { .. }
+        | Outgoing::RefreshMismatch { .. }
+        | Outgoing::AddedMany { .. }
+        | Outgoing::MediaInfo { .. }
+        | Outgoing::LinkInfo { .. }
+        | Outgoing::PickLinks { .. }
+        | Outgoing::Quota { .. }
+        | Outgoing::BrowserLink { .. }
+        | Outgoing::CookiesWanted { .. }
+        | Outgoing::RenderPage { .. }
+        | Outgoing::ZipPreview { .. }
+        | Outgoing::Update { .. }
+        | Outgoing::UpdateFailed { .. }
+        | Outgoing::GrabProgress { .. }
+        | Outgoing::GrabDone { .. } => return None,
+    })
 }
 
 /// Seconds since 1970, by this computer's clock.
@@ -200,6 +106,7 @@ pub fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::download::Status;
 
     fn started(id: u64) -> Outgoing {
         Outgoing::Started {

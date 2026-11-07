@@ -240,22 +240,6 @@ pub enum Incoming {
     CommandLine(CommandLine),
 }
 
-/// IDM's command-line switches, parsed by `uidm::cli`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CommandLine {
-    /// The download `/d` names, with the folder, name and start choices of
-    /// `/p`, `/f`, `/a` and `/n`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub download: Option<Download>,
-    /// `/s`: start the main queue.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub start_queue: bool,
-    /// `/q`: exit UIDM once the download finishes. Like IDM, only a call
-    /// that starts UIDM does this; one that finds it running does not.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub quit_after: bool,
-}
-
 /// A message from the daemon to a client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]

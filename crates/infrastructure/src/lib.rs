@@ -33,6 +33,7 @@ pub mod autostart;
 pub mod browsers;
 pub mod cli;
 pub mod clock;
+pub mod daemon_client;
 pub mod dpapi;
 pub mod elevate;
 pub mod engine;

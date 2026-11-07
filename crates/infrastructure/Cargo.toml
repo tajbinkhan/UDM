@@ -9,6 +9,9 @@ license.workspace = true
 # next to its I/O; AGENTS.md section 16 tracks what moves out.
 [dependencies]
 uidm-domain.workspace = true
+# Only for the ports `uidm-application` defines (AGENTS.md section 3): the
+# window's daemon connection (`daemon_client`).
+uidm-application.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # OS randomness for the daemon's per-start auth token and handshake nonces.
