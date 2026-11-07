@@ -245,62 +245,88 @@ impl Default for GrabRequest {
     }
 }
 
+/// Why a grabber request cannot run. The window shows these, translated.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidGrab {
+    #[error("The start page must be a full web address.")]
+    StartNotAddress,
+    #[error("The start page must start with http:// or https://.")]
+    StartNotWeb,
+    #[error("The depth must be between {lo} and {hi}.", lo = DEPTH_RANGE.0, hi = DEPTH_RANGE.1)]
+    Depth,
+    #[error("Files at once must be between {lo} and {hi}.", lo = AT_ONCE_RANGE.0, hi = AT_ONCE_RANGE.1)]
+    AtOnce,
+    #[error("Choose the category to save the files in.")]
+    NoCategory,
+    #[error("The folder to save the files in must be a full path: {0}")]
+    FolderNotFull(String),
+    #[error("The page budget must be between {lo} and {hi}.", lo = MAX_PAGES_RANGE.0, hi = MAX_PAGES_RANGE.1)]
+    Pages,
+    #[error("The size budget must be between {lo} and {hi} MB.", lo = MAX_MB_RANGE.0, hi = MAX_MB_RANGE.1)]
+    Size,
+    #[error("The wait between pages must be between {lo} and {hi} ms.", lo = DELAY_MS_RANGE.0, hi = DELAY_MS_RANGE.1)]
+    Delay,
+    #[error("Choose at least one file type to keep.")]
+    NoTypes,
+    #[error("The login page must be a full web address.")]
+    LoginNotAddress,
+    #[error("The login page must start with http:// or https://.")]
+    LoginNotWeb,
+    #[error("The folder to keep the site in must be a full path: {0}")]
+    MirrorNotFull(String),
+    #[error("The smallest file size is larger than the largest.")]
+    SizesReversed,
+}
+
 impl GrabRequest {
-    pub fn validate(&self) -> Result<(), String> {
-        let start =
-            Url::parse(self.start.trim()).map_err(|_| "The start page must be a full web address.".to_string())?;
+    pub fn validate(&self) -> Result<(), InvalidGrab> {
+        let start = Url::parse(self.start.trim()).map_err(|_| InvalidGrab::StartNotAddress)?;
         if !matches!(start.scheme(), "http" | "https") {
-            return Err("The start page must start with http:// or https://.".into());
+            return Err(InvalidGrab::StartNotWeb);
         }
         let in_range = |v: u64, (lo, hi): (u64, u64)| (lo..=hi).contains(&v);
         let depth_range = (DEPTH_RANGE.0 as u64, DEPTH_RANGE.1 as u64);
         if !in_range(self.depth as u64, depth_range)
             || self.other_depth.is_some_and(|d| !in_range(d as u64, depth_range))
         {
-            return Err(format!("The depth must be between {} and {}.", DEPTH_RANGE.0, DEPTH_RANGE.1));
+            return Err(InvalidGrab::Depth);
         }
         let at_once = (AT_ONCE_RANGE.0 as u64, AT_ONCE_RANGE.1 as u64);
         if !in_range(self.explore_at_once as u64, at_once) || !in_range(self.download_at_once as u64, at_once) {
-            return Err(format!("Files at once must be between {} and {}.", AT_ONCE_RANGE.0, AT_ONCE_RANGE.1));
+            return Err(InvalidGrab::AtOnce);
         }
         match &self.save_to {
-            SaveTo::Category(name) if name.trim().is_empty() => {
-                return Err("Choose the category to save the files in.".into())
-            }
+            SaveTo::Category(name) if name.trim().is_empty() => return Err(InvalidGrab::NoCategory),
             SaveTo::Folder(folder) if !Path::new(folder.trim()).is_absolute() => {
-                return Err(format!("The folder to save the files in must be a full path: {folder}"));
+                return Err(InvalidGrab::FolderNotFull(folder.clone()));
             }
             _ => {}
         }
         if !in_range(self.max_pages, MAX_PAGES_RANGE) {
-            return Err(format!("The page budget must be between {} and {}.", MAX_PAGES_RANGE.0, MAX_PAGES_RANGE.1));
+            return Err(InvalidGrab::Pages);
         }
         let mb = self.max_bytes / (1024 * 1024);
         if !in_range(mb, MAX_MB_RANGE) {
-            return Err(format!("The size budget must be between {} and {} MB.", MAX_MB_RANGE.0, MAX_MB_RANGE.1));
+            return Err(InvalidGrab::Size);
         }
         if !in_range(self.delay_ms, DELAY_MS_RANGE) {
-            return Err(format!(
-                "The wait between pages must be between {} and {} ms.",
-                DELAY_MS_RANGE.0, DELAY_MS_RANGE.1
-            ));
+            return Err(InvalidGrab::Delay);
         }
         if self.types.is_empty() {
-            return Err("Choose at least one file type to keep.".into());
+            return Err(InvalidGrab::NoTypes);
         }
         if let Some(login) = &self.login_url {
-            let page =
-                Url::parse(login.trim()).map_err(|_| "The login page must be a full web address.".to_string())?;
+            let page = Url::parse(login.trim()).map_err(|_| InvalidGrab::LoginNotAddress)?;
             if !matches!(page.scheme(), "http" | "https") {
-                return Err("The login page must start with http:// or https://.".into());
+                return Err(InvalidGrab::LoginNotWeb);
             }
         }
         if let Some(m) = self.mirror.as_ref().filter(|m| !Path::new(m.folder.trim()).is_absolute()) {
-            return Err(format!("The folder to keep the site in must be a full path: {}", m.folder));
+            return Err(InvalidGrab::MirrorNotFull(m.folder.clone()));
         }
         if let (Some(lo), Some(hi)) = (self.min_size, self.max_size) {
             if lo > hi {
-                return Err("The smallest file size is larger than the largest.".into());
+                return Err(InvalidGrab::SizesReversed);
             }
         }
         Ok(())

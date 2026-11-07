@@ -306,13 +306,24 @@ pub fn iso639_2(tag: &str) -> Option<String> {
 pub const DRM_REFUSED: &str = "This video is protected by DRM (copy protection), so UIDM will not download it.";
 pub const LIVE_REFUSED: &str = "This is a live stream. UIDM downloads recorded videos, which have an end.";
 
+/// Why an address in a playlist or manifest cannot be fetched.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AddressError {
+    /// The address, and why it does not parse.
+    #[error("bad address {0}: {1}")]
+    Bad(String, String),
+    /// The scheme of an address that is not http or https.
+    #[error("{0}: addresses are not supported in a stream")]
+    Scheme(String),
+}
+
 /// `url` resolved against `base`, as a browser would.
-pub fn resolve(base: &str, url: &str) -> Result<String, String> {
-    let base = url::Url::parse(base).map_err(|e| format!("bad address {base}: {e}"))?;
-    let joined = base.join(url.trim()).map_err(|e| format!("bad address {url}: {e}"))?;
+pub fn resolve(base: &str, url: &str) -> Result<String, AddressError> {
+    let base_url = url::Url::parse(base).map_err(|e| AddressError::Bad(base.to_string(), e.to_string()))?;
+    let joined = base_url.join(url.trim()).map_err(|e| AddressError::Bad(url.to_string(), e.to_string()))?;
     match joined.scheme() {
         "http" | "https" => Ok(joined.to_string()),
-        other => Err(format!("{other}: addresses are not supported in a stream")),
+        other => Err(AddressError::Scheme(other.to_string())),
     }
 }
 

@@ -289,7 +289,7 @@ impl QueueDraft {
             repeat_minutes: repeat_value(self.repeat, self.repeat_hours, self.repeat_minutes),
             wake: self.wake,
         });
-        q.validate()?;
+        q.validate().map_err(|e| crate::errors::queue(&e))?;
         Ok(q)
     }
 }

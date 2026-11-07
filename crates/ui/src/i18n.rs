@@ -105,6 +105,7 @@ mod tests {
         include_str!("columns.rs"),
         include_str!("connections.rs"),
         include_str!("droptarget.rs"),
+        include_str!("errors.rs"),
         include_str!("find.rs"),
         include_str!("help.rs"),
         include_str!("links.rs"),

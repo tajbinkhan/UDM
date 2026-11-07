@@ -77,10 +77,15 @@ impl From<CaptureKey> for String {
     }
 }
 
-impl TryFrom<String> for CaptureKey {
-    type Error = String;
+/// A capture key setting naming a key UIDM does not know.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("\"{0}\" is not a key: use alt, ctrl, shift, insert or del")]
+pub struct UnknownKey(pub String);
 
-    fn try_from(text: String) -> Result<Self, String> {
+impl TryFrom<String> for CaptureKey {
+    type Error = UnknownKey;
+
+    fn try_from(text: String) -> Result<Self, UnknownKey> {
         let mut k = CaptureKey::NONE;
         for part in text.split('+').map(|p| p.trim().to_ascii_lowercase()) {
             match part.as_str() {
@@ -90,7 +95,7 @@ impl TryFrom<String> for CaptureKey {
                 "shift" => k.shift = true,
                 "insert" => k.insert = true,
                 "del" | "delete" => k.delete = true,
-                other => return Err(format!("\"{other}\" is not a key: use alt, ctrl, shift, insert or del")),
+                other => return Err(UnknownKey(other.to_string())),
             }
         }
         Ok(k)
@@ -913,96 +918,97 @@ impl Settings {
         Some(PathBuf::from(file.trim())).filter(|p| !p.as_os_str().is_empty())
     }
 
-    /// Check every value, returning a message fit to show the user.
-    pub fn validate(&self) -> Result<(), String> {
+    /// Check every value, returning why one is not valid.
+    pub fn validate(&self) -> Result<(), InvalidSettings> {
+        use InvalidSettings as E;
         if self.proxy_mode == ProxyMode::Script && !crate::batch::is_web_url(self.proxy_pac_url.trim()) {
-            return Err("The configuration script must be an http or https address.".into());
+            return Err(E::ScriptNotWeb);
         }
         if self.language.len() > 16 || !self.language.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-            return Err(format!("\"{}\" is not a language code, such as de or pt-BR.", self.language));
+            return Err(E::Language(self.language.clone()));
         }
         let (lo, hi) = TEXT_SIZE_RANGE;
         if !(lo..=hi).contains(&self.text_size) {
-            return Err(format!("The text size must be between {lo}% and {hi}%."));
+            return Err(E::TextSize);
         }
         let (lo, hi) = QUOTA_HOURS_RANGE;
         if !(lo..=hi).contains(&self.quota_hours) {
-            return Err(format!("The quota's window must be between {lo} and {hi} hours."));
+            return Err(E::QuotaHours);
         }
         if self.quota_mb == 0 {
-            return Err("The quota must be at least 1 MB.".into());
+            return Err(E::QuotaZero);
         }
         let (lo, hi) = SERVER_CONNECTIONS_RANGE;
         for l in &self.server_limits {
             if l.site.trim().is_empty() || l.site.contains(char::is_whitespace) {
-                return Err(format!("\"{}\" is not a server name, such as files.example.com.", l.site));
+                return Err(E::ServerName(l.site.clone()));
             }
             if !(lo..=hi).contains(&l.max) {
-                return Err(format!("The connections for {} must be between {lo} and {hi}.", l.site));
+                return Err(E::ServerConnections(l.site.clone()));
             }
         }
         if self.capture_skip_key == self.capture_force_key && !self.capture_skip_key.is_none() {
-            return Err("The keys that skip and force capture must differ.".into());
+            return Err(E::SameCaptureKeys);
         }
         if self.capture_skip_key.insert || self.capture_skip_key.delete {
-            return Err("Insert and Del can only force capture, not skip it.".into());
+            return Err(E::InsertDelSkip);
         }
         if let Some(dir) = self.temp_dir.as_deref().filter(|d| !Path::new(d).is_absolute()) {
-            return Err(format!("The temporary folder must be a full path: {dir}"));
+            return Err(E::TempNotFull(dir.to_string()));
         }
         if self.manual_user_agent.chars().any(char::is_control) {
-            return Err("The User-Agent must be one line of text.".into());
+            return Err(E::UserAgentLines);
         }
         let (lo, hi) = CONNECTIONS_RANGE;
         if !(lo..=hi).contains(&self.connections) {
-            return Err(format!("Connections per file must be between {lo} and {hi}."));
+            return Err(E::Connections);
         }
         let (lo, hi) = MAX_CONCURRENT_RANGE;
         if !(lo..=hi).contains(&self.max_concurrent) {
-            return Err(format!("Downloads at once must be between {lo} and {hi}."));
+            return Err(E::DownloadsAtOnce);
         }
         let (lo, hi) = SPEED_LIMIT_RANGE_KBPS;
         if !(lo..=hi).contains(&self.speed_limit_kbps) {
-            return Err(format!("The speed limit must be between {lo} and {hi} KB/s."));
+            return Err(E::SpeedLimit);
         }
         if self.speed_limit_per_file_kbps.is_some_and(|k| !(lo..=hi).contains(&k)) {
-            return Err(format!("The speed limit per file must be between {lo} and {hi} KB/s."));
+            return Err(E::SpeedLimitPerFile);
         }
         if let Some(dir) = &self.download_dir {
-            check_folder("The download folder", dir)?;
+            check_folder(SettingsField::DownloadFolder, dir)?;
         }
 
         let mut names: Vec<String> = Vec::new();
         for c in &self.categories {
             let name = c.name.trim();
             if name.is_empty() {
-                return Err("Every category needs a name.".to_string());
+                return Err(E::CategoryUnnamed);
             }
             if name.eq_ignore_ascii_case(GENERAL) {
-                return Err(format!("\"{GENERAL}\" is kept for files of every other type."));
+                return Err(E::GeneralName);
             }
             if names.contains(&name.to_lowercase()) {
-                return Err(format!("There are two categories named \"{name}\"."));
+                return Err(E::TwoCategories(name.to_string()));
             }
             names.push(name.to_lowercase());
             if c.extensions.is_empty() {
-                return Err(format!("The category \"{name}\" has no file types."));
+                return Err(E::NoFileTypes(name.to_string()));
             }
-            check_extensions(&format!("The category \"{name}\""), &c.extensions)?;
+            check_extensions(SettingsField::Category(name.to_string()), &c.extensions)?;
             if let Some(dir) = &c.folder {
-                check_folder(&format!("The folder of \"{name}\""), dir)?;
+                check_folder(SettingsField::CategoryFolder(name.to_string()), dir)?;
             }
         }
 
-        check_extensions(&format!("The category \"{GENERAL}\""), &self.general_extensions)?;
-        check_extensions("The captured file types", &self.capture_types)?;
-        check_extensions("The video types", &self.video_types)?;
+        check_extensions(SettingsField::Category(GENERAL.to_string()), &self.general_extensions)?;
+        check_extensions(SettingsField::CapturedTypes, &self.capture_types)?;
+        check_extensions(SettingsField::VideoTypes, &self.video_types)?;
         if self.video_min_size_kb > CAPTURE_MIN_SIZE_MAX_KB {
-            return Err("The minimum video size is too large.".to_string());
+            return Err(E::VideoMinSize);
         }
-        check_extensions("The types taken from web players", &self.video_auto_types)?;
+        check_extensions(SettingsField::PlayerTypes, &self.video_auto_types)?;
         if self.video_auto_capture && self.video_auto_types.is_empty() {
-            return Err("List the types to take from web players, such as mp4.".to_string());
+            return Err(E::NoPlayerTypes);
         }
         if let Some(item) = self
             .browser_menu_hidden_chromium
@@ -1010,33 +1016,33 @@ impl Settings {
             .chain(&self.browser_menu_hidden_firefox)
             .find(|i| !BROWSER_MENU_ITEMS.iter().any(|(id, _)| id == i))
         {
-            return Err(format!("\"{item}\" is not a context menu item."));
+            return Err(E::MenuItem(item.clone()));
         }
 
-        check_extensions("The file types that start without asking", &self.auto_start_types)?;
+        check_extensions(SettingsField::AutoStartTypes, &self.auto_start_types)?;
         if self.capture_min_size_kb > CAPTURE_MIN_SIZE_MAX_KB {
-            return Err("The minimum size to capture is too large.".to_string());
+            return Err(E::CaptureMinSize);
         }
         for site in self.capture_excluded_sites.iter().chain(&self.video_button_excluded_sites) {
             if !is_site(site) {
-                return Err(format!("\"{site}\" is not a site. Use a host name such as example.com or *.example.com."));
+                return Err(E::NotSite(site.clone()));
             }
         }
         let ffmpeg = self.ffmpeg_path.trim();
         if !ffmpeg.is_empty() {
             let path = Path::new(ffmpeg);
             if !path.is_absolute() {
-                return Err(format!("ffmpeg must be the full path of ffmpeg.exe: {ffmpeg}"));
+                return Err(E::FfmpegNotFull(ffmpeg.to_string()));
             }
         }
-        for (what, addr) in [
-            ("The HTTP proxy", &self.proxy_http),
-            ("The HTTPS proxy", &self.proxy_https),
-            ("The FTP proxy", &self.proxy_ftp),
-            ("The SOCKS proxy", &self.proxy_socks5),
+        for (which, addr) in [
+            (ProxyEntry::Http, &self.proxy_http),
+            (ProxyEntry::Https, &self.proxy_https),
+            (ProxyEntry::Ftp, &self.proxy_ftp),
+            (ProxyEntry::Socks, &self.proxy_socks5),
         ] {
             if !addr.trim().is_empty() && !is_host_port(addr.trim()) {
-                return Err(format!("{what} must be host:port, such as proxy.example.com:8080."));
+                return Err(E::ProxyNotHostPort(which));
             }
         }
         if self.proxy_mode == ProxyMode::Manual
@@ -1045,23 +1051,20 @@ impl Settings {
             && self.proxy_ftp.trim().is_empty()
             && self.proxy_socks5.trim().is_empty()
         {
-            return Err("Set at least one proxy, or choose another proxy option.".to_string());
+            return Err(E::NoProxy);
         }
         let mut sites: Vec<String> = Vec::new();
         for l in &self.site_logins {
             let site = l.site.trim().to_ascii_lowercase();
             let (host, path) = crate::site::split_login_pattern(&site);
             if !is_site(host) || host.ends_with(':') || path.contains(char::is_whitespace) {
-                return Err(format!(
-                    "\"{}\" is not a site. Use a host name such as example.com, or one with a folder such as example.com/private/*.",
-                    l.site
-                ));
+                return Err(E::NotLoginSite(l.site.clone()));
             }
             if l.username.trim().is_empty() {
-                return Err(format!("The login for {site} needs a user name."));
+                return Err(E::LoginNoUser(site));
             }
             if sites.contains(&site) {
-                return Err(format!("There are two logins for {site}."));
+                return Err(E::TwoLogins(site));
             }
             sites.push(site);
         }
@@ -1070,14 +1073,14 @@ impl Settings {
         {
             let f = file.trim();
             if !f.is_empty() && (!Path::new(f).is_absolute() || extension_of(f).as_deref() != Some("wav")) {
-                return Err(format!("A sound must be the full path of a .wav file: {f}"));
+                return Err(E::SoundNotWav(f.to_string()));
             }
         }
         if self.scan_after_download && self.scanner == Scanner::Custom {
             crate::command::parse_command(&self.scanner_command)?;
         }
         if self.scan_after_download && self.scanner == Scanner::Defender && !cfg!(windows) {
-            return Err("Microsoft Defender is only on Windows. Choose a scanner program such as clamscan.".into());
+            return Err(E::DefenderNotHere);
         }
         Ok(())
     }
@@ -1322,26 +1325,150 @@ fn is_site(site: &str) -> bool {
     !site.is_empty() && site.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '*' | ':'))
 }
 
-fn check_folder(what: &str, dir: &str) -> Result<(), String> {
+fn check_folder(what: SettingsField, dir: &str) -> Result<(), InvalidSettings> {
     if dir.trim().is_empty() {
-        return Err(format!("{what} is empty."));
+        return Err(InvalidSettings::FolderEmpty(what));
     }
     let path = Path::new(dir);
     if !path.is_absolute() {
-        return Err(format!("{what} must be a full path: {dir}"));
+        return Err(InvalidSettings::FolderNotFull(what, dir.to_string()));
     }
     Ok(())
 }
 
-fn check_extensions(what: &str, exts: &[String]) -> Result<(), String> {
+fn check_extensions(what: SettingsField, exts: &[String]) -> Result<(), InvalidSettings> {
     for e in exts {
         if e.is_empty() || !e.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()) {
-            return Err(format!(
-                "{what} has an invalid file type \"{e}\". Use letters and digits, such as zip or mp4."
-            ));
+            return Err(InvalidSettings::BadFileType(what, e.clone()));
         }
     }
     Ok(())
+}
+
+/// A part of the settings that a message names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsField {
+    DownloadFolder,
+    /// The folder of the category with this name.
+    CategoryFolder(String),
+    /// The category with this name, General included.
+    Category(String),
+    CapturedTypes,
+    VideoTypes,
+    PlayerTypes,
+    AutoStartTypes,
+}
+
+impl std::fmt::Display for SettingsField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SettingsField::DownloadFolder => f.write_str("The download folder"),
+            SettingsField::CategoryFolder(name) => write!(f, "The folder of \"{name}\""),
+            SettingsField::Category(name) => write!(f, "The category \"{name}\""),
+            SettingsField::CapturedTypes => f.write_str("The captured file types"),
+            SettingsField::VideoTypes => f.write_str("The video types"),
+            SettingsField::PlayerTypes => f.write_str("The types taken from web players"),
+            SettingsField::AutoStartTypes => f.write_str("The file types that start without asking"),
+        }
+    }
+}
+
+/// One of the manual proxies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProxyEntry {
+    Http,
+    Https,
+    Ftp,
+    Socks,
+}
+
+impl std::fmt::Display for ProxyEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ProxyEntry::Http => "The HTTP proxy",
+            ProxyEntry::Https => "The HTTPS proxy",
+            ProxyEntry::Ftp => "The FTP proxy",
+            ProxyEntry::Socks => "The SOCKS proxy",
+        })
+    }
+}
+
+/// Why settings are not valid (see [`Settings::validate`]). The window
+/// shows these, translated.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidSettings {
+    #[error("The configuration script must be an http or https address.")]
+    ScriptNotWeb,
+    #[error("\"{0}\" is not a language code, such as de or pt-BR.")]
+    Language(String),
+    #[error("The text size must be between {lo}% and {hi}%.", lo = TEXT_SIZE_RANGE.0, hi = TEXT_SIZE_RANGE.1)]
+    TextSize,
+    #[error("The quota's window must be between {lo} and {hi} hours.", lo = QUOTA_HOURS_RANGE.0, hi = QUOTA_HOURS_RANGE.1)]
+    QuotaHours,
+    #[error("The quota must be at least 1 MB.")]
+    QuotaZero,
+    #[error("\"{0}\" is not a server name, such as files.example.com.")]
+    ServerName(String),
+    #[error("The connections for {0} must be between {lo} and {hi}.", lo = SERVER_CONNECTIONS_RANGE.0, hi = SERVER_CONNECTIONS_RANGE.1)]
+    ServerConnections(String),
+    #[error("The keys that skip and force capture must differ.")]
+    SameCaptureKeys,
+    #[error("Insert and Del can only force capture, not skip it.")]
+    InsertDelSkip,
+    #[error("The temporary folder must be a full path: {0}")]
+    TempNotFull(String),
+    #[error("The User-Agent must be one line of text.")]
+    UserAgentLines,
+    #[error("Connections per file must be between {lo} and {hi}.", lo = CONNECTIONS_RANGE.0, hi = CONNECTIONS_RANGE.1)]
+    Connections,
+    #[error("Downloads at once must be between {lo} and {hi}.", lo = MAX_CONCURRENT_RANGE.0, hi = MAX_CONCURRENT_RANGE.1)]
+    DownloadsAtOnce,
+    #[error("The speed limit must be between {lo} and {hi} KB/s.", lo = SPEED_LIMIT_RANGE_KBPS.0, hi = SPEED_LIMIT_RANGE_KBPS.1)]
+    SpeedLimit,
+    #[error("The speed limit per file must be between {lo} and {hi} KB/s.", lo = SPEED_LIMIT_RANGE_KBPS.0, hi = SPEED_LIMIT_RANGE_KBPS.1)]
+    SpeedLimitPerFile,
+    #[error("{0} is empty.")]
+    FolderEmpty(SettingsField),
+    #[error("{0} must be a full path: {1}")]
+    FolderNotFull(SettingsField, String),
+    #[error("Every category needs a name.")]
+    CategoryUnnamed,
+    #[error("\"{name}\" is kept for files of every other type.", name = GENERAL)]
+    GeneralName,
+    #[error("There are two categories named \"{0}\".")]
+    TwoCategories(String),
+    #[error("The category \"{0}\" has no file types.")]
+    NoFileTypes(String),
+    #[error("{0} has an invalid file type \"{1}\". Use letters and digits, such as zip or mp4.")]
+    BadFileType(SettingsField, String),
+    #[error("The minimum video size is too large.")]
+    VideoMinSize,
+    #[error("List the types to take from web players, such as mp4.")]
+    NoPlayerTypes,
+    #[error("\"{0}\" is not a context menu item.")]
+    MenuItem(String),
+    #[error("The minimum size to capture is too large.")]
+    CaptureMinSize,
+    #[error("\"{0}\" is not a site. Use a host name such as example.com or *.example.com.")]
+    NotSite(String),
+    #[error("ffmpeg must be the full path of ffmpeg.exe: {0}")]
+    FfmpegNotFull(String),
+    #[error("{0} must be host:port, such as proxy.example.com:8080.")]
+    ProxyNotHostPort(ProxyEntry),
+    #[error("Set at least one proxy, or choose another proxy option.")]
+    NoProxy,
+    #[error("\"{0}\" is not a site. Use a host name such as example.com, or one with a folder such as example.com/private/*.")]
+    NotLoginSite(String),
+    #[error("The login for {0} needs a user name.")]
+    LoginNoUser(String),
+    #[error("There are two logins for {0}.")]
+    TwoLogins(String),
+    #[error("A sound must be the full path of a .wav file: {0}")]
+    SoundNotWav(String),
+    #[error(transparent)]
+    Scanner(#[from] crate::command::CommandError),
+    #[error("Microsoft Defender is only on Windows. Choose a scanner program such as clamscan.")]
+    DefenderNotHere,
 }
 
 /// `host:port` with a numeric port, or `[v6]:port`.

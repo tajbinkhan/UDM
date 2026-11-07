@@ -612,7 +612,7 @@ impl SettingsStore for Transfers {
     }
 
     fn save_settings(&self, settings: Settings) -> Result<(), SettingsError> {
-        self.set_settings(settings).map_err(SettingsError)
+        self.set_settings(settings).map_err(SettingsError::Refused)
     }
 }
 

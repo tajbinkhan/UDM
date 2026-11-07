@@ -289,23 +289,23 @@ impl Queue {
         self.stop_at_once = None;
     }
 
-    /// Check the parts a user edits, with a message fit to show them.
-    pub fn validate(&self) -> Result<(), String> {
+    /// Check the parts a user edits.
+    pub fn validate(&self) -> Result<(), InvalidQueue> {
         if self.name.trim().is_empty() {
-            return Err("A queue needs a name.".to_string());
+            return Err(InvalidQueue::NoName);
         }
         let (lo, hi) = QUEUE_CONCURRENCY_RANGE;
         if !(lo..=hi).contains(&self.max_concurrent) {
-            return Err(format!("A queue runs between {lo} and {hi} downloads at once."));
+            return Err(InvalidQueue::AtOnce);
         }
         if self.retries > QUEUE_RETRIES_MAX {
-            return Err(format!("A queue retries a download at most {QUEUE_RETRIES_MAX} times."));
+            return Err(InvalidQueue::Retries);
         }
         if let Some(s) = &self.schedule {
             s.validate()?;
         }
         if let Some(f) = self.open_when_done.as_deref().filter(|f| !std::path::Path::new(f.trim()).is_absolute()) {
-            return Err(format!("The file to open must be a full path: {f}"));
+            return Err(InvalidQueue::OpenNotFull(f.to_string()));
         }
         Ok(())
     }
@@ -462,31 +462,29 @@ pub fn parse_date(s: &str) -> Option<i64> {
 }
 
 impl Schedule {
-    pub fn validate(&self) -> Result<(), String> {
-        let start = parse_time(&self.start)
-            .ok_or_else(|| format!("\"{}\" is not a start time. Use HH:MM, such as 23:00.", self.start))?;
+    pub fn validate(&self) -> Result<(), InvalidQueue> {
+        let start = parse_time(&self.start).ok_or_else(|| InvalidQueue::StartTime(self.start.clone()))?;
         if let Some(stop) = &self.stop {
-            let stop_min =
-                parse_time(stop).ok_or_else(|| format!("\"{stop}\" is not a stop time. Use HH:MM, such as 07:00."))?;
+            let stop_min = parse_time(stop).ok_or_else(|| InvalidQueue::StopTime(stop.clone()))?;
             if stop_min == start {
-                return Err("The stop time must differ from the start time.".to_string());
+                return Err(InvalidQueue::SameTimes);
             }
         }
         if let Some(every) = self.repeat_minutes {
             if !(1..=REPEAT_MAX_MINUTES).contains(&every) {
-                return Err("Start again every 1 minute to 99 hours 59 minutes.".to_string());
+                return Err(InvalidQueue::Repeat);
             }
         }
         match &self.date {
             Some(date) => {
-                parse_date(date).ok_or_else(|| format!("\"{date}\" is not a date. Use YYYY-MM-DD."))?;
+                parse_date(date).ok_or_else(|| InvalidQueue::Date(date.clone()))?;
             }
             None => {
                 if self.days.is_empty() {
-                    return Err("Pick at least one day, or a date, for the schedule.".to_string());
+                    return Err(InvalidQueue::NoDays);
                 }
                 if self.days.iter().any(|d| *d > 6) {
-                    return Err("Days of the week run from 0 (Monday) to 6 (Sunday).".to_string());
+                    return Err(InvalidQueue::DayOfWeek);
                 }
             }
         }
@@ -568,6 +566,34 @@ impl Schedule {
     }
 }
 
+/// Why a queue's own settings or its schedule are not valid (see
+/// [`Queue::validate`]). The window shows these, translated.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidQueue {
+    #[error("A queue needs a name.")]
+    NoName,
+    #[error("A queue runs between {lo} and {hi} downloads at once.", lo = QUEUE_CONCURRENCY_RANGE.0, hi = QUEUE_CONCURRENCY_RANGE.1)]
+    AtOnce,
+    #[error("A queue retries a download at most {max} times.", max = QUEUE_RETRIES_MAX)]
+    Retries,
+    #[error("The file to open must be a full path: {0}")]
+    OpenNotFull(String),
+    #[error("\"{0}\" is not a start time. Use HH:MM, such as 23:00.")]
+    StartTime(String),
+    #[error("\"{0}\" is not a stop time. Use HH:MM, such as 07:00.")]
+    StopTime(String),
+    #[error("The stop time must differ from the start time.")]
+    SameTimes,
+    #[error("Start again every 1 minute to 99 hours 59 minutes.")]
+    Repeat,
+    #[error("\"{0}\" is not a date. Use YYYY-MM-DD.")]
+    Date(String),
+    #[error("Pick at least one day, or a date, for the schedule.")]
+    NoDays,
+    #[error("Days of the week run from 0 (Monday) to 6 (Sunday).")]
+    DayOfWeek,
+}
+
 /// Why a change to the queues was refused. The messages are shown to the
 /// user, translated by the window.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -585,8 +611,8 @@ pub enum QueueError {
     #[error("That download is not in a queue.")]
     NotQueued,
     /// The queue's own settings are not valid; see [`Queue::validate`].
-    #[error("{0}")]
-    Invalid(String),
+    #[error(transparent)]
+    Invalid(#[from] InvalidQueue),
 }
 
 /// Create a queue (`edited.id` 0) or change one, in `queues`, and return its

@@ -32,6 +32,7 @@ mod droptarget;
 #[cfg(not(windows))]
 #[path = "droptarget_other.rs"]
 mod droptarget;
+mod errors;
 mod find;
 mod help;
 mod i18n;
@@ -604,7 +605,7 @@ impl NewCategory {
             folder: (!folder.is_empty()).then(|| folder.to_string()),
             ..Category::new(self.name.trim(), &[])
         });
-        new.validate()?;
+        new.validate().map_err(|e| errors::settings(&e))?;
         Ok(new)
     }
 }
@@ -734,7 +735,7 @@ fn check_and_register(
 ) -> SaveChecked {
     let ports = crate::ports::ports();
     if let Err(e) = ports.checks.validate(&settings) {
-        return (Vec::new(), Err(e.0));
+        return (Vec::new(), Err(errors::settings_error(&e)));
     }
     let mut done = Vec::new();
     for (browser, name, on) in changes {

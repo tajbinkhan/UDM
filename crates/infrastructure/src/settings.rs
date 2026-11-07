@@ -45,7 +45,7 @@ pub fn save(settings: &Settings, path: &Path) -> io::Result<()> {
 /// The checks of [`Settings::validate`], then those that look at the disk:
 /// a folder setting must not name a file, and ffmpeg must not be a folder.
 pub fn validate(settings: &Settings) -> Result<(), String> {
-    settings.validate()?;
+    settings.validate().map_err(|e| e.to_string())?;
     let folders = settings.download_dir.iter().map(|dir| ("The download folder".to_string(), dir)).chain(
         settings
             .categories
@@ -187,7 +187,8 @@ pub struct DiskChecks;
 
 impl uidm_application::window::SettingsChecks for DiskChecks {
     fn validate(&self, settings: &Settings) -> Result<(), uidm_domain::ports::SettingsError> {
-        validate(settings).map_err(uidm_domain::ports::SettingsError)
+        settings.validate()?;
+        validate(settings).map_err(uidm_domain::ports::SettingsError::Refused)
     }
 
     fn ffmpeg(&self, settings: &Settings) -> Option<PathBuf> {

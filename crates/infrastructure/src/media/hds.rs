@@ -24,7 +24,8 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use base64::Engine as _;
 use roxmltree::{Document, Node};
 
-use uidm_domain::media::{resolve, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED};
+use super::resolve;
+use uidm_domain::media::{MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED};
 
 /// More fragments than this in one stream means a broken bootstrap.
 const MAX_FRAGMENTS: usize = 500_000;

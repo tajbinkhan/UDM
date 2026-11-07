@@ -39,7 +39,7 @@ pub fn command_for(scanner: Scanner, custom: &str, file: &Path) -> Result<(PathB
             Ok((exe, args.iter().map(|a| a.to_string()).collect()))
         }
         Scanner::Custom => {
-            let (program, args) = parse_command(custom)?;
+            let (program, args) = parse_command(custom).map_err(|e| e.to_string())?;
             let args = args.iter().map(|a| a.replace(PATH_TOKEN, &file)).collect();
             Ok((PathBuf::from(program), args))
         }
