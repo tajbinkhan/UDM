@@ -88,11 +88,23 @@ pub type Shown = ToastNotification;
 #[cfg(not(windows))]
 pub struct Shown;
 
+/// Why a notification could not be shown. It is logged.
+#[derive(Debug, thiserror::Error)]
+pub enum NotifyError {
+    #[cfg(windows)]
+    #[error(transparent)]
+    Windows(#[from] windows::core::Error),
+    /// The program that shows notifications here, and why it did not start.
+    #[cfg(unix)]
+    #[error("{0}: {1}")]
+    Helper(&'static str, #[source] std::io::Error),
+}
+
 /// Show `t`. `on_click` gets the argument of whatever was clicked. Keep the
 /// returned notification while its buttons should work.
 #[cfg(windows)]
-pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Result<Shown, String> {
-    show_toast(t, on_click).map_err(|e| e.to_string())
+pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Result<Shown, NotifyError> {
+    Ok(show_toast(t, on_click)?)
 }
 
 #[cfg(windows)]
@@ -141,7 +153,7 @@ fn notify_send_args(t: &Toast, actions: bool) -> Vec<String> {
 /// Show `t`. `on_click` gets the argument of whatever was clicked, while
 /// the notice is up.
 #[cfg(all(unix, not(target_os = "macos")))]
-pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Result<Shown, String> {
+pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Result<Shown, NotifyError> {
     use std::process::{Command, Stdio};
     let launch = t.launch.clone();
     let with_actions = notify_send_args(t, true);
@@ -152,7 +164,7 @@ pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Res
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
-    let child = child.map_err(|e| format!("notify-send: {e}"))?;
+    let child = child.map_err(|e| NotifyError::Helper("notify-send", e))?;
     std::thread::spawn(move || {
         let Ok(out) = child.wait_with_output() else {
             return;
@@ -181,14 +193,17 @@ fn applescript_string(s: &str) -> String {
 /// Show `t` in Notification Center. macOS gives scripts no buttons, so
 /// `on_click` is never called.
 #[cfg(target_os = "macos")]
-pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Result<Shown, String> {
+pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Result<Shown, NotifyError> {
     let _ = on_click;
     let script = format!(
         "display notification {} with title {}",
         applescript_string(&t.lines.iter().take(2).cloned().collect::<Vec<_>>().join(" — ")),
         applescript_string(&t.title)
     );
-    std::process::Command::new("osascript").args(["-e", &script]).spawn().map_err(|e| format!("osascript: {e}"))?;
+    std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .spawn()
+        .map_err(|e| NotifyError::Helper("osascript", e))?;
     Ok(Shown)
 }
 
