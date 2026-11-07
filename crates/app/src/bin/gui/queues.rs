@@ -52,22 +52,28 @@ pub fn named(queues: &[Queue], name: &str) -> Option<u64> {
     queues.iter().find(|q| q.name.eq_ignore_ascii_case(name)).map(|q| q.id)
 }
 
-/// The power plan's wake timer setting, read at most every ten seconds
-/// since the dialogs draw many times a second.
-fn wake_timers_allowed() -> Option<(bool, bool)> {
-    use std::sync::Mutex;
-    use std::time::{Duration, Instant};
-    type Cached = Option<(Instant, Option<(bool, bool)>)>;
-    static CACHE: Mutex<Cached> = Mutex::new(None);
-    let mut cache = CACHE.lock().unwrap();
-    match *cache {
-        Some((at, value)) if at.elapsed() < Duration::from_secs(10) => value,
-        _ => {
+/// The power plan's wake timer setting as a worker last read it, `None`
+/// until it has. A worker reads it again at most every ten seconds, since
+/// the dialogs draw many times a second and the read asks the system.
+fn wake_timers_allowed(ctx: &egui::Context) -> Option<(bool, bool)> {
+    use std::sync::{Mutex, PoisonError};
+    use std::time::Duration;
+    /// When a read was last started, and what the last one found.
+    type Cached = (Option<Instant>, Option<(bool, bool)>);
+    static CACHE: Mutex<Cached> = Mutex::new((None, None));
+    // The cache is two plain values that a panicking thread cannot leave
+    // half-changed.
+    let mut cache = CACHE.lock().unwrap_or_else(PoisonError::into_inner);
+    if cache.0.is_none_or(|at| at.elapsed() >= Duration::from_secs(10)) {
+        cache.0 = Some(Instant::now());
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
             let value = crate::ports::ports().system.wake_timers_allowed();
-            *cache = Some((Instant::now(), value));
-            value
-        }
+            CACHE.lock().unwrap_or_else(PoisonError::into_inner).1 = value;
+            ctx.request_repaint();
+        });
     }
+    cache.1
 }
 
 /// "Wake the computer to start" for a queue's or a grabber project's
@@ -78,7 +84,7 @@ pub fn wake_field(ui: &mut egui::Ui, wake: &mut bool) {
             .on_hover_text(tr("Wakes Windows from sleep or hibernation shortly before the start time. UIDM must be running."))
             .on_disabled_hover_text(tr("Only on Windows for now"));
         if *wake {
-            if let Some((ac, dc)) = wake_timers_allowed() {
+            if let Some((ac, dc)) = wake_timers_allowed(ui.ctx()) {
                 let off = match (ac, dc) {
                     (false, false) => Some(tr("Windows has wake timers turned off, so it will not wake up for this.")),
                     (false, true) => Some(tr("Windows has wake timers turned off on mains power.")),
