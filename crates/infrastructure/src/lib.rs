@@ -60,5 +60,6 @@ pub mod registry;
 pub mod scan;
 pub mod settings;
 pub mod state;
+pub mod store;
 pub mod update;
 pub mod zip;
