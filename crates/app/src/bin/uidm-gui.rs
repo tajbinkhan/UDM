@@ -112,6 +112,11 @@ const WINDOW_CLIENT: &str = "window";
 const ICON_RGBA: &[u8] = include_bytes!("../../../../assets/icon-64.rgba");
 const ICON_SIZE: u32 = 64;
 
+/// How often the grabber's projects and templates are read again, and how
+/// often while the grabber is open.
+const LIBRARY_EVERY: Duration = Duration::from_secs(5);
+const LIBRARY_OPEN_EVERY: Duration = Duration::from_secs(1);
+
 /// How often the clipboard's change counter is checked.
 const CLIPBOARD_POLL: Duration = Duration::from_millis(700);
 
@@ -389,6 +394,8 @@ struct App {
     watch: Arc<Mutex<Watch>>,
     /// The tray tooltip as the frame last made it, for the tray to read.
     tooltip_now: Arc<Mutex<String>>,
+    /// When the grabber's projects and templates were last asked for.
+    library_asked: Option<Instant>,
     /// The connection to the daemon.
     daemon: Arc<dyn DaemonClient>,
     ctx: egui::Context,
@@ -693,6 +700,35 @@ struct BrowserDraft {
     removed: bool,
 }
 
+/// What Options shows of the browsers, read on a worker: the browsers found
+/// or registered, then those the user `added`.
+fn read_browsers(added: &[uidm_domain::settings::AddedBrowser]) -> state::BrowsersRead {
+    let browsers = &crate::ports::ports().browsers;
+    let mut rows: Vec<state::BrowserRow> = browsers
+        .known()
+        .into_iter()
+        .map(|(b, registered)| state::BrowserRow {
+            name: b.name.clone(),
+            browser: b,
+            added: None,
+            known: true,
+            registered,
+        })
+        .collect();
+    rows.extend(added.iter().filter_map(|a| {
+        let target = browsers.identify(Path::new(&a.program))?;
+        let registered = browsers.registered(&target.browser);
+        Some(state::BrowserRow {
+            browser: target.browser,
+            name: a.name.clone(),
+            added: Some(a.clone()),
+            known: target.known,
+            registered,
+        })
+    }));
+    state::BrowsersRead { rows, chrome_readers: browsers.chrome_readers() }
+}
+
 impl BrowserDraft {
     /// The row for a browser added by its program, or `None` when UIDM
     /// cannot tell what browser it is.
@@ -869,8 +905,13 @@ struct OptionsDraft {
     /// Empty writes partial files in place.
     temp_dir: String,
     temp_picked: Picked,
-    /// The browsers found or registered, with their registration.
+    /// The browsers found or registered, with their registration, once a
+    /// worker read them.
     browsers: Vec<BrowserDraft>,
+    /// Whether that read came.
+    browsers_loaded: bool,
+    /// The added browsers as saved, kept while the read is awaited.
+    added_saved: Vec<uidm_domain::settings::AddedBrowser>,
     /// Browsers found that read Chrome's registration.
     chrome_readers: Vec<String>,
     /// A browser's program chosen with "Add browser...".
@@ -1071,25 +1112,11 @@ impl OptionsDraft {
             manual_user_agent: s.manual_user_agent.clone(),
             temp_dir: s.temp_dir.clone().unwrap_or_default(),
             temp_picked: Picked::default(),
-            browsers: {
-                let mut list: Vec<BrowserDraft> = crate::ports::ports()
-                    .browsers
-                    .known()
-                    .into_iter()
-                    .map(|(b, registered)| BrowserDraft {
-                        name: b.name.clone(),
-                        browser: b,
-                        added: None,
-                        known: true,
-                        was: registered,
-                        on: registered,
-                        removed: false,
-                    })
-                    .collect();
-                list.extend(s.added_browsers.iter().filter_map(|a| BrowserDraft::added(a.clone())));
-                list
-            },
-            chrome_readers: crate::ports::ports().browsers.chrome_readers(),
+            // A worker reads them; until then the added ones are kept as saved.
+            browsers: Vec::new(),
+            browsers_loaded: false,
+            added_saved: s.added_browsers.clone(),
+            chrome_readers: Vec::new(),
             browser_picked: Picked::default(),
             browser_note: None,
             restart_ask: None,
@@ -1241,7 +1268,11 @@ impl OptionsDraft {
             video_auto_types: parse_extensions(&self.video_auto_types),
             browser_menu_hidden_chromium: self.menu_items.iter().filter(|m| !m.2).map(|m| m.0.to_string()).collect(),
             browser_menu_hidden_firefox: self.menu_items.iter().filter(|m| !m.3).map(|m| m.0.to_string()).collect(),
-            added_browsers: self.browsers.iter().filter(|b| !b.removed).filter_map(|b| b.added.clone()).collect(),
+            added_browsers: if self.browsers_loaded {
+                self.browsers.iter().filter(|b| !b.removed).filter_map(|b| b.added.clone()).collect()
+            } else {
+                self.added_saved.clone()
+            },
             video_button_excluded_sites: sites(&self.video_button_excluded_sites),
             ffmpeg_path: self.ffmpeg_path.trim().to_string(),
             confirm_remove: self.confirm_remove,
@@ -1305,6 +1336,25 @@ impl OptionsDraft {
 
     /// Whether the browsers registering in row `i`'s place should be
     /// registered: when one of them still in the list is ticked.
+    /// Fill the browser list from a worker's read.
+    fn load_browsers(&mut self, read: state::BrowsersRead) {
+        self.browsers = read
+            .rows
+            .into_iter()
+            .map(|r| BrowserDraft {
+                browser: r.browser,
+                name: r.name,
+                added: r.added,
+                known: r.known,
+                was: r.registered,
+                on: r.registered,
+                removed: false,
+            })
+            .collect();
+        self.chrome_readers = read.chrome_readers;
+        self.browsers_loaded = true;
+    }
+
     fn wanted(&self, i: usize) -> bool {
         let place = &self.browsers[i].browser;
         self.browsers.iter().any(|b| !b.removed && b.on && b.browser.same_place(place))
@@ -1378,6 +1428,7 @@ impl App {
             outbox,
             watch: Arc::default(),
             tooltip_now: Arc::default(),
+            library_asked: None,
             daemon,
             ctx: ctx.clone(),
             add_dialog: None,
@@ -1430,6 +1481,25 @@ impl App {
         app.install_tray();
         app.watch_clipboard();
         app
+    }
+
+    /// Read the grabber's projects and templates again on a worker, every
+    /// few seconds, and every second while the grabber is open.
+    fn refresh_library(&mut self) {
+        let every = if self.grabber.is_some() { LIBRARY_OPEN_EVERY } else { LIBRARY_EVERY };
+        if self.library_asked.is_some_and(|t| t.elapsed() < every) {
+            return;
+        }
+        self.library_asked = Some(Instant::now());
+        let (outbox, ctx) = (self.outbox.clone(), self.ctx.clone());
+        thread::spawn(move || {
+            let library = crate::ports::ports().grab.as_ref();
+            let projects = library.map(|l| l.recent()).unwrap_or_default();
+            let templates = library.map(|l| l.templates()).unwrap_or_else(uidm_domain::grab::built_in_templates);
+            if outbox.send(UiMessage::GrabLibraryRead { projects, templates }).is_ok() {
+                ctx.request_repaint();
+            }
+        });
     }
 
     /// Apply what the threads outside the frame sent since the last frame.
@@ -1706,7 +1776,13 @@ impl App {
             }
             Action::OpenOptions => {
                 if let Some(settings) = &self.state.settings {
+                    let added = settings.added_browsers.clone();
                     self.options = Some(OptionsDraft::new(settings));
+                    let (outbox, ctx) = (self.outbox.clone(), self.ctx.clone());
+                    thread::spawn(move || {
+                        let _ = outbox.send(UiMessage::BrowsersRead(read_browsers(&added)));
+                        ctx.request_repaint();
+                    });
                 }
             }
             Action::OpenLogin(id) => {
@@ -1995,7 +2071,12 @@ impl App {
                 d.failed(tr("The connection to the UIDM daemon was lost.").into());
             }
             let settings = self.state.settings.clone().unwrap_or_default();
-            if !tools::grab_dialog(ctx, d, &queue_list, &settings, rows, connected, actions) {
+            let lists = tools::GrabLists {
+                queues: &queue_list,
+                projects: &self.state.grab_projects,
+                templates: &self.state.grab_templates,
+            };
+            if !tools::grab_dialog(ctx, d, &lists, &settings, rows, connected, actions) {
                 self.grabber = None;
             }
         }
@@ -2544,6 +2625,11 @@ impl App {
 
     /// Draw the Options dialog while it is open.
     fn options_window(&mut self, ctx: &egui::Context, connected: bool, actions: &mut Vec<Action>) {
+        if let Some(read) = state::take_browsers_read(&mut self.state) {
+            if let Some(draft) = self.options.as_mut() {
+                draft.load_browsers(read);
+            }
+        }
         // Pick up the daemon's answer to a save.
         let result = state::take_save_result(&mut self.state);
         let saving = self.state.saving;
@@ -3415,7 +3501,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
             if let Some((connected, last_seen)) = draft.browser_link {
                 ui.label(browser_link_text(connected, last_seen, crate::ports::ports().unix_now()));
             }
-            if draft.browsers.iter().all(|b| b.removed) {
+            if draft.browsers_loaded && draft.browsers.iter().all(|b| b.removed) {
                 ui.label(tr("No browser was found."));
             }
             let mut toggled = None;
@@ -3950,6 +4036,7 @@ fn scan_label(ui: &mut egui::Ui, scan: &Scan) {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_inbox();
+        self.refresh_library();
         // Copy what this frame needs, then draw.
         let (link, rows, speeds, last_error, settings) = {
             let s = &self.state;
@@ -4102,6 +4189,7 @@ impl eframe::App for App {
                 listed: &listed,
                 queues: &queue_list,
                 connected,
+                projects: &self.state.grab_projects,
             };
             let width = self.layout.categories_width.unwrap_or(categories::DEFAULT_WIDTH);
             let shown = egui::SidePanel::left("categories")

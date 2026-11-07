@@ -1158,12 +1158,13 @@ impl GrabDialog {
 pub fn grab_dialog(
     ctx: &egui::Context,
     d: &mut GrabDialog,
-    queues: &[Queue],
+    lists: &GrabLists,
     settings: &uidm_domain::settings::Settings,
     rows: &[DownloadEntry],
     connected: bool,
     actions: &mut Vec<Action>,
 ) -> bool {
+    let queues = lists.queues;
     take_picked(&d.mirror_picked, &mut d.mirror_folder);
     take_picked(&d.save_picked, &mut d.save_folder);
     take_picked(&d.open_picked, &mut d.open_when_done);
@@ -1195,7 +1196,7 @@ pub fn grab_dialog(
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             if !d.running() {
-                replace = project_bar(ui, d);
+                replace = project_bar(ui, d, lists);
                 ui.separator();
             }
             grab_body(
@@ -1361,7 +1362,15 @@ fn save_question(
 /// The project strip: its name, Save, Open, New and Save as template.
 /// Returns the dialog to switch to when a project is opened or a new one
 /// started.
-fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
+/// What the grabber picks from: the queues, and the saved projects and
+/// templates as a worker last read them.
+pub struct GrabLists<'a> {
+    pub queues: &'a [Queue],
+    pub projects: &'a [String],
+    pub templates: &'a [uidm_domain::grab::Template],
+}
+
+fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Option<GrabDialog> {
     let dir = crate::ports::ports().grab.as_deref();
     let mut next = None;
     ui.horizontal(|ui| {
@@ -1375,9 +1384,9 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
                 }
             }
         }
-        let recent = dir.map(|l| l.recent()).unwrap_or_default();
+        let recent = lists.projects;
         ui.menu_button(tr("Open"), |ui| {
-            for name in &recent {
+            for name in recent {
                 if ui.button(name).clicked() {
                     if let Some(dir) = dir {
                         match dir.load(name) {
@@ -1425,7 +1434,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog) -> Option<GrabDialog> {
                 ui.close_menu();
             }
             ui.separator();
-            let templates = dir.map(|l| l.templates()).unwrap_or_else(uidm_domain::grab::built_in_templates);
+            let templates = lists.templates;
             for t in templates {
                 ui.horizontal(|ui| {
                     let label = uidm_domain::grab::BUILT_IN_TEMPLATES

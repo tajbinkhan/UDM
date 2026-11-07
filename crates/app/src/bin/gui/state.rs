@@ -13,10 +13,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use uidm_application::daemon::{self, Event, Lost};
+use uidm_application::window::BrowserSlot;
 use uidm_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
-use uidm_domain::grab::GrabFile;
+use uidm_domain::grab::{GrabFile, Template};
 use uidm_domain::queue::{Queue, WhenDone};
-use uidm_domain::settings::{Notify, Settings};
+use uidm_domain::settings::{AddedBrowser, Notify, Settings};
 use uidm_domain::table::DownloadTable;
 
 use crate::i18n::{tr, trf};
@@ -110,6 +111,35 @@ pub struct AppState {
     /// Whether the browser extension is connected, and when one last was,
     /// as the daemon last said.
     pub browser_link: Option<(bool, Option<u64>)>,
+    /// The grabber's saved projects, the most recently used first, as a
+    /// worker last read them.
+    pub grab_projects: Vec<String>,
+    /// The grabber's templates, built-in and saved, as a worker last read
+    /// them.
+    pub grab_templates: Vec<Template>,
+    /// The browsers a worker found for Options, until Options takes them.
+    pub browsers_read: Option<BrowsersRead>,
+}
+
+/// A browser row for Options, as a worker read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserRow {
+    /// The browser whose registration it uses.
+    pub browser: BrowserSlot,
+    pub name: String,
+    /// The browser the user added by its program, if it is one.
+    pub added: Option<AddedBrowser>,
+    /// Whether its place is known rather than guessed from its family.
+    pub known: bool,
+    pub registered: bool,
+}
+
+/// What Options shows of the browsers: each one found, registered or
+/// added, and those that read Chrome's registration.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BrowsersRead {
+    pub rows: Vec<BrowserRow>,
+    pub chrome_readers: Vec<String>,
 }
 
 /// News of a site crawl.
@@ -333,6 +363,9 @@ impl Default for AppState {
             installing: None,
             quota_paused: false,
             browser_link: None,
+            grab_projects: Vec::new(),
+            grab_templates: uidm_domain::grab::built_in_templates(),
+            browsers_read: None,
         }
     }
 }
@@ -370,6 +403,10 @@ pub enum UiMessage {
     LoginsWaiting(Vec<u64>),
     /// Options' settings went to the daemon; its answer is awaited.
     SavingSettings,
+    /// A worker read the grabber's saved projects and templates.
+    GrabLibraryRead { projects: Vec<String>, templates: Vec<Template> },
+    /// A worker read the browsers for Options.
+    BrowsersRead(BrowsersRead),
     /// They could not be sent, and why.
     SaveFailed(String),
     /// The window is done with something: the state forgets it.
@@ -411,6 +448,7 @@ pub enum What {
     ZipListed,
     PickedLinks,
     LinkInfo,
+    BrowsersRead,
 }
 
 /// What [`apply`] hands over for a [`UiMessage::Take`].
@@ -423,6 +461,7 @@ pub enum Taken {
     ZipListed(Option<ZipListed>),
     PickedLinks(Option<Box<links::LinksDialog>>),
     LinkInfo(Vec<(u64, usize, links::Probed)>),
+    BrowsersRead(Option<BrowsersRead>),
 }
 
 /// A zip preview's download and its files, or why they could not be
@@ -482,6 +521,11 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
             }
         }
         UiMessage::LoginsWaiting(ids) => state.login_wanted.extend(ids),
+        UiMessage::GrabLibraryRead { projects, templates } => {
+            state.grab_projects = projects;
+            state.grab_templates = templates;
+        }
+        UiMessage::BrowsersRead(read) => state.browsers_read = Some(read),
         UiMessage::SavingSettings => {
             state.saving = true;
             state.save_result = None;
@@ -512,6 +556,7 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
                 What::ZipListed => Taken::ZipListed(state.zip_listed.take()),
                 What::PickedLinks => Taken::PickedLinks(state.picked_links.take().map(Box::new)),
                 What::LinkInfo => Taken::LinkInfo(std::mem::take(&mut state.link_info)),
+                What::BrowsersRead => Taken::BrowsersRead(state.browsers_read.take()),
             });
         }
     }
@@ -568,6 +613,14 @@ pub fn take_zip_listed(state: &mut AppState) -> Option<ZipListed> {
 pub fn take_picked_links(state: &mut AppState) -> Option<links::LinksDialog> {
     match apply(state, UiMessage::Take(What::PickedLinks)) {
         Some(Taken::PickedLinks(dialog)) => dialog.map(|d| *d),
+        _ => None,
+    }
+}
+
+/// The browsers a worker read for Options, once it has.
+pub fn take_browsers_read(state: &mut AppState) -> Option<BrowsersRead> {
+    match apply(state, UiMessage::Take(What::BrowsersRead)) {
+        Some(Taken::BrowsersRead(read)) => read,
         _ => None,
     }
 }
@@ -733,6 +786,21 @@ mod tests {
         assert_eq!(take_save_result(&mut s), Some(Ok(())));
         apply(&mut s, UiMessage::SaveFailed("not connected".into()));
         assert_eq!(take_save_result(&mut s), Some(Err("not connected".into())));
+    }
+
+    #[test]
+    fn what_the_workers_read_lands_in_the_state() {
+        let mut s = AppState::default();
+        assert!(!s.grab_templates.is_empty(), "the built-in templates until the first read");
+        let templates = uidm_domain::grab::built_in_templates();
+        apply(&mut s, UiMessage::GrabLibraryRead { projects: vec!["nightly".into()], templates: templates.clone() });
+        assert_eq!(s.grab_projects, ["nightly"]);
+        assert_eq!(s.grab_templates.len(), templates.len());
+        assert_eq!(take_browsers_read(&mut s), None, "not read yet");
+        let read = BrowsersRead { rows: Vec::new(), chrome_readers: vec!["Brave".into()] };
+        apply(&mut s, UiMessage::BrowsersRead(read.clone()));
+        assert_eq!(take_browsers_read(&mut s), Some(read));
+        assert_eq!(take_browsers_read(&mut s), None, "taken once");
     }
 
     #[test]

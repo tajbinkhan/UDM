@@ -5,7 +5,6 @@
 //! away, drawn from the last settings it sent.
 
 use std::collections::HashSet;
-use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use uidm_domain::download::{DownloadEntry, Status};
@@ -19,8 +18,6 @@ const ROW_HEIGHT: f32 = 18.0;
 const INDENT: f32 = 16.0;
 /// The panel's width until it is dragged.
 pub const DEFAULT_WIDTH: f32 = 150.0;
-/// How often the saved grabber projects are read again.
-const PROJECTS_EVERY: Duration = Duration::from_secs(5);
 
 /// Downloads by how far they got.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -97,13 +94,11 @@ impl ProgressKey {
 /// The tree's state between frames.
 pub struct Tree {
     open: HashSet<Branch>,
-    projects: Vec<String>,
-    projects_read: Option<Instant>,
 }
 
 impl Default for Tree {
     fn default() -> Self {
-        Tree { open: [Branch::Progress(ProgressKey::All)].into(), projects: Vec::new(), projects_read: None }
+        Tree { open: [Branch::Progress(ProgressKey::All)].into() }
     }
 }
 
@@ -115,6 +110,8 @@ pub struct Panel<'a> {
     pub listed: &'a [String],
     pub queues: &'a [Queue],
     pub connected: bool,
+    /// The grabber's saved projects, as a worker last read them.
+    pub projects: &'a [String],
 }
 
 /// What the tree asked for besides actions.
@@ -132,10 +129,6 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) -> Outcome {
     let mut outcome = Outcome::default();
-    if tree.projects_read.is_none_or(|t| t.elapsed() >= PROJECTS_EVERY) {
-        tree.projects = crate::ports::ports().grab.as_ref().map(|l| l.recent()).unwrap_or_default();
-        tree.projects_read = Some(Instant::now());
-    }
 
     ui.horizontal(|ui| {
         ui.label(tr("Categories"));
@@ -188,16 +181,16 @@ pub fn show(
         }
 
         let open = tree.open.contains(&Branch::Grabber);
-        let expander = (!tree.projects.is_empty()).then_some(open);
+        let expander = (!panel.projects.is_empty()).then_some(open);
         let r = row(ui, 0, expander, Icon::Grabber, tr("Grabber projects"), false);
         if r.toggle {
             toggle(&mut tree.open, Branch::Grabber);
         }
-        if r.pick && tree.projects.is_empty() {
+        if r.pick && panel.projects.is_empty() {
             actions.push(Action::OpenGrabber);
         }
         if open {
-            for name in &tree.projects {
+            for name in panel.projects {
                 let r = row(ui, 1, None, Icon::Project, name, false);
                 if r.pick {
                     actions.push(Action::OpenGrabProject(name.clone()));
