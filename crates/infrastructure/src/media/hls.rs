@@ -9,9 +9,8 @@
 //! (`SAMPLE-AES`, or any `KEYFORMAT` other than `identity`, such as FairPlay
 //! or Widevine) are DRM, and refused.
 
-use uidm_domain::media::{
-    resolve, MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED,
-};
+use super::resolve;
+use uidm_domain::media::{MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variant {

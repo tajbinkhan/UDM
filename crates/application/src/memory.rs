@@ -806,7 +806,7 @@ impl SettingsStore for Prefs {
 
     fn save_settings(&self, settings: Settings) -> Result<(), SettingsError> {
         if self.refuse {
-            return Err(SettingsError("the settings file is read-only".into()));
+            return Err(SettingsError::Refused("the settings file is read-only".into()));
         }
         *self.settings.lock().unwrap() = settings;
         self.saves.fetch_add(1, Ordering::SeqCst);

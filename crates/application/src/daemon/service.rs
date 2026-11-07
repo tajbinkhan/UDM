@@ -786,7 +786,7 @@ impl<W: Wiring> DaemonService<W> {
     /// then what was found. With `download_found`, each file found goes to
     /// that queue at once, and the queue starts.
     pub fn grab(self: &Arc<Self>, client: u64, req: GrabRequest, reply: Reply) -> Result<(), String> {
-        req.validate()?;
+        req.validate().map_err(|e| e.to_string())?;
         let stop = Arc::new(AtomicBool::new(false));
         {
             let mut grabs = lock(&self.grabs);

@@ -326,8 +326,15 @@ pub trait Converter: Send + Sync {
 /// Why the settings could not be saved. The message is shown to the user
 /// or logged.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{0}")]
-pub struct SettingsError(pub String);
+pub enum SettingsError {
+    /// A value breaks a rule of [`crate::settings::Settings::validate`].
+    #[error(transparent)]
+    Invalid(#[from] crate::settings::InvalidSettings),
+    /// A check that looks at the disk failed, or the file could not be
+    /// written.
+    #[error("{0}")]
+    Refused(String),
+}
 
 /// The user's settings, as the daemon keeps them.
 pub trait SettingsStore: Send + Sync {

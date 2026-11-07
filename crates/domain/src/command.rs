@@ -1,5 +1,16 @@
 //! The scanner command line typed in Options.
 
+/// Why a scanner command line cannot be run.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CommandError {
+    #[error("The scanner command has an unclosed quote.")]
+    UnclosedQuote,
+    #[error("The scanner command is empty.")]
+    Empty,
+    #[error("The scanner command must contain {token} where the file goes.", token = PATH_TOKEN)]
+    NoPath,
+}
+
 /// Where the file to scan goes in a custom scanner command.
 pub const PATH_TOKEN: &str = "{path}";
 
@@ -7,7 +18,7 @@ pub const PATH_TOKEN: &str = "{path}";
 /// separates arguments; double quotes group, so `"C:\Program Files\x.exe"` is
 /// one. Backslashes are literal, as in Windows paths. The command must name a
 /// program and contain `{path}`.
-pub fn parse_command(line: &str) -> Result<(String, Vec<String>), String> {
+pub fn parse_command(line: &str) -> Result<(String, Vec<String>), CommandError> {
     let mut parts: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
@@ -31,16 +42,16 @@ pub fn parse_command(line: &str) -> Result<(String, Vec<String>), String> {
         }
     }
     if quoted {
-        return Err("The scanner command has an unclosed quote.".to_string());
+        return Err(CommandError::UnclosedQuote);
     }
     if in_token {
         parts.push(current);
     }
     let mut parts = parts.into_iter();
-    let program = parts.next().filter(|p| !p.is_empty()).ok_or("The scanner command is empty.")?;
+    let program = parts.next().filter(|p| !p.is_empty()).ok_or(CommandError::Empty)?;
     let args: Vec<String> = parts.collect();
     if !args.iter().any(|a| a.contains(PATH_TOKEN)) {
-        return Err(format!("The scanner command must contain {PATH_TOKEN} where the file goes."));
+        return Err(CommandError::NoPath);
     }
     Ok((program, args))
 }

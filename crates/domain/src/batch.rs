@@ -22,6 +22,66 @@
 /// million downloads.
 pub const MAX_BATCH: usize = 10_000;
 
+/// Which end of an IDM-style range a value is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bound {
+    From,
+    To,
+}
+
+impl std::fmt::Display for Bound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Bound::From => "From",
+            Bound::To => "To",
+        })
+    }
+}
+
+/// Why a pattern, an IDM-style address or a list makes no downloads. The
+/// window shows these, translated.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum BatchError {
+    /// A number in the range `[{0}]` does not fit.
+    #[error("[{0}]: the number is too big")]
+    NumberTooBig(String),
+    #[error("[{0}]: the step is too big")]
+    StepTooBig(String),
+    #[error("[{0}]: the step must be at least 1")]
+    StepZero(String),
+    #[error("[{0}]: both letters must be the same case")]
+    MixedCaseRange(String),
+    #[error("The pattern must start with http://, https:// or ftp://.")]
+    PatternNotWeb,
+    #[error("The pattern makes {0} addresses; at most {max} can be added at once.", max = MAX_BATCH)]
+    PatternTooBig(u64),
+    #[error("The address must start with http://, https:// or ftp://.")]
+    AddressNotWeb,
+    #[error("The address must have a * where the numbers or letters go.")]
+    NoAsterisk,
+    #[error("The address may have only one *.")]
+    TwoAsterisks,
+    #[error("{0} must be a whole number.")]
+    NotWholeNumber(Bound),
+    #[error("{0} is too big.")]
+    BoundTooBig(Bound),
+    #[error("The wildcard size must be from 1 to {max}.", max = MAX_WILDCARD_SIZE)]
+    WildcardSize,
+    #[error("From ({0}) must not be greater than To ({1}).")]
+    NumbersReversed(u64, u64),
+    #[error("{0} must be one letter, a to z.")]
+    NotOneLetter(Bound),
+    #[error("From and To must be letters of the same case.")]
+    MixedCaseLetters,
+    #[error("From ({0}) must not be after To ({1}).")]
+    LettersReversed(char, char),
+    /// From, To and how many addresses they make.
+    #[error("From {0} to {1} makes {2} addresses; at most {max} can be added at once.", max = MAX_BATCH)]
+    RangeTooBig(String, String, u64),
+    #[error("The list has {0} addresses; at most {max} can be added at once.", max = MAX_BATCH)]
+    ListTooLong(usize),
+}
+
 /// One part of a pattern.
 #[derive(Debug, Clone, PartialEq)]
 enum Part {
@@ -56,7 +116,7 @@ impl Part {
 }
 
 /// Read the range inside one pair of brackets, or `None` if it is not one.
-fn parse_range(inner: &str) -> Result<Option<Part>, String> {
+fn parse_range(inner: &str) -> Result<Option<Part>, BatchError> {
     let (range, step) = match inner.split_once(':') {
         Some((r, s)) => (r, Some(s)),
         None => (inner, None),
@@ -66,15 +126,15 @@ fn parse_range(inner: &str) -> Result<Option<Part>, String> {
     };
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
     if digits(a) && digits(b) {
-        let from: u64 = a.parse().map_err(|_| format!("[{inner}]: the number is too big"))?;
-        let to: u64 = b.parse().map_err(|_| format!("[{inner}]: the number is too big"))?;
+        let from: u64 = a.parse().map_err(|_| BatchError::NumberTooBig(inner.to_string()))?;
+        let to: u64 = b.parse().map_err(|_| BatchError::NumberTooBig(inner.to_string()))?;
         let step = match step {
             None => 1,
-            Some(s) if digits(s) => s.parse().map_err(|_| format!("[{inner}]: the step is too big"))?,
+            Some(s) if digits(s) => s.parse().map_err(|_| BatchError::StepTooBig(inner.to_string()))?,
             Some(_) => return Ok(None),
         };
         if step == 0 {
-            return Err(format!("[{inner}]: the step must be at least 1"));
+            return Err(BatchError::StepZero(inner.to_string()));
         }
         let width = if a.len() > 1 && a.starts_with('0') { a.len() } else { 1 };
         return Ok(Some(Part::Numbers { from, to, step, width }));
@@ -88,14 +148,14 @@ fn parse_range(inner: &str) -> Result<Option<Part>, String> {
     };
     if let (Some(from), Some(to), None) = (letter(a), letter(b), step) {
         if from.is_ascii_lowercase() != to.is_ascii_lowercase() {
-            return Err(format!("[{inner}]: both letters must be the same case"));
+            return Err(BatchError::MixedCaseRange(inner.to_string()));
         }
         return Ok(Some(Part::Letters { from, to }));
     }
     Ok(None)
 }
 
-fn parse(pattern: &str) -> Result<Vec<Part>, String> {
+fn parse(pattern: &str) -> Result<Vec<Part>, BatchError> {
     let mut parts = Vec::new();
     let mut text = String::new();
     let mut rest = pattern;
@@ -126,21 +186,21 @@ fn parse(pattern: &str) -> Result<Vec<Part>, String> {
 }
 
 /// How many URLs `pattern` produces, without producing them.
-pub fn count(pattern: &str) -> Result<u64, String> {
+pub fn count(pattern: &str) -> Result<u64, BatchError> {
     Ok(parse(pattern.trim())?.iter().fold(1u64, |n, p| n.saturating_mul(p.count())))
 }
 
 /// Every URL `pattern` produces, in order. Fails when the pattern is not a
 /// web address or produces more than `MAX_BATCH`.
-pub fn expand(pattern: &str) -> Result<Vec<String>, String> {
+pub fn expand(pattern: &str) -> Result<Vec<String>, BatchError> {
     let pattern = pattern.trim();
     if !is_download_url(pattern) {
-        return Err("The pattern must start with http://, https:// or ftp://.".into());
+        return Err(BatchError::PatternNotWeb);
     }
     let parts = parse(pattern)?;
     let total = parts.iter().fold(1u64, |n, p| n.saturating_mul(p.count()));
     if total > MAX_BATCH as u64 {
-        return Err(format!("The pattern makes {total} addresses; at most {MAX_BATCH} can be added at once."));
+        return Err(BatchError::PatternTooBig(total));
     }
     let mut urls = Vec::with_capacity(total as usize);
     for mut i in 0..total {
@@ -182,56 +242,56 @@ pub fn expand_asterisk(
     from: &str,
     to: &str,
     size: usize,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, BatchError> {
     let address = address.trim();
     if !is_download_url(address) {
-        return Err("The address must start with http://, https:// or ftp://.".into());
+        return Err(BatchError::AddressNotWeb);
     }
     let Some((before, after)) = address.split_once('*') else {
-        return Err("The address must have a * where the numbers or letters go.".into());
+        return Err(BatchError::NoAsterisk);
     };
     if after.contains('*') {
-        return Err("The address may have only one *.".into());
+        return Err(BatchError::TwoAsterisks);
     }
     let (from, to) = (from.trim(), to.trim());
     let part = match kind {
         Wildcard::Numbers => {
-            let number = |s: &str, name: &str| {
+            let number = |s: &str, bound: Bound| {
                 if s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()) {
-                    return Err(format!("{name} must be a whole number."));
+                    return Err(BatchError::NotWholeNumber(bound));
                 }
-                s.parse::<u64>().map_err(|_| format!("{name} is too big."))
+                s.parse::<u64>().map_err(|_| BatchError::BoundTooBig(bound))
             };
-            let (a, b) = (number(from, "From")?, number(to, "To")?);
+            let (a, b) = (number(from, Bound::From)?, number(to, Bound::To)?);
             if !(1..=MAX_WILDCARD_SIZE).contains(&size) {
-                return Err(format!("The wildcard size must be from 1 to {MAX_WILDCARD_SIZE}."));
+                return Err(BatchError::WildcardSize);
             }
             if a > b {
-                return Err(format!("From ({a}) must not be greater than To ({b})."));
+                return Err(BatchError::NumbersReversed(a, b));
             }
             Part::Numbers { from: a, to: b, step: 1, width: size }
         }
         Wildcard::Letters => {
-            let letter = |s: &str, name: &str| {
+            let letter = |s: &str, bound: Bound| {
                 let mut chars = s.chars();
                 match (chars.next(), chars.next()) {
                     (Some(c), None) if c.is_ascii_alphabetic() => Ok(c),
-                    _ => Err(format!("{name} must be one letter, a to z.")),
+                    _ => Err(BatchError::NotOneLetter(bound)),
                 }
             };
-            let (a, b) = (letter(from, "From")?, letter(to, "To")?);
+            let (a, b) = (letter(from, Bound::From)?, letter(to, Bound::To)?);
             if a.is_ascii_lowercase() != b.is_ascii_lowercase() {
-                return Err("From and To must be letters of the same case.".into());
+                return Err(BatchError::MixedCaseLetters);
             }
             if a > b {
-                return Err(format!("From ({a}) must not be after To ({b})."));
+                return Err(BatchError::LettersReversed(a, b));
             }
             Part::Letters { from: a, to: b }
         }
     };
     let total = part.count();
     if total > MAX_BATCH as u64 {
-        return Err(format!("From {from} to {to} makes {total} addresses; at most {MAX_BATCH} can be added at once."));
+        return Err(BatchError::RangeTooBig(from.to_string(), to.to_string(), total));
     }
     Ok((0..total).map(|i| format!("{before}{}{after}", part.nth(i))).collect())
 }
@@ -239,7 +299,7 @@ pub fn expand_asterisk(
 /// The URLs in a pasted list or text file, one per line: blank lines,
 /// `#` comments and repeats are skipped. Also returns how many other lines
 /// were not web addresses. Fails when more than `MAX_BATCH` are left.
-pub fn parse_list(text: &str) -> Result<(Vec<String>, usize), String> {
+pub fn parse_list(text: &str) -> Result<(Vec<String>, usize), BatchError> {
     let mut seen = std::collections::HashSet::new();
     let mut urls = Vec::new();
     let mut rejected = 0;
@@ -257,7 +317,7 @@ pub fn parse_list(text: &str) -> Result<(Vec<String>, usize), String> {
         }
     }
     if urls.len() > MAX_BATCH {
-        return Err(format!("The list has {} addresses; at most {MAX_BATCH} can be added at once.", urls.len()));
+        return Err(BatchError::ListTooLong(urls.len()));
     }
     Ok((urls, rejected))
 }
@@ -408,8 +468,7 @@ mod tests {
     fn runaway_patterns_are_refused() {
         assert_eq!(count("http://x/[1-100]/[1-100]").unwrap(), 10_000);
         assert_eq!(expand("http://x/[1-100]/[1-100]").unwrap().len(), 10_000);
-        let err = expand("http://x/[1-100]/[1-101]").unwrap_err();
-        assert!(err.contains("10100"), "{err}");
+        assert_eq!(expand("http://x/[1-100]/[1-101]").unwrap_err(), BatchError::PatternTooBig(10_100));
         assert!(expand("http://x/[1-99999999999999999999]").is_err());
         assert!(count("http://x/[0-18446744073709551615]/[1-9]").unwrap() == u64::MAX);
         assert_eq!(expand("ftp://x/[1-2]").unwrap(), ["ftp://x/1", "ftp://x/2"]);
@@ -460,8 +519,16 @@ mod tests {
     #[test]
     fn asterisk_mistakes_are_refused() {
         let err = expand_asterisk("http://x/*", Wildcard::Numbers, "10", "1", 1).unwrap_err();
-        assert!(err.contains("must not be greater"), "{err}");
-        assert!(expand_asterisk("http://x/*", Wildcard::Letters, "c", "a", 1).unwrap_err().contains("after"));
+        assert_eq!(err, BatchError::NumbersReversed(10, 1));
+        assert_eq!(err.to_string(), "From (10) must not be greater than To (1).");
+        assert_eq!(
+            expand_asterisk("http://x/*", Wildcard::Letters, "c", "a", 1).unwrap_err(),
+            BatchError::LettersReversed('c', 'a')
+        );
+        assert_eq!(
+            expand_asterisk("http://x/*", Wildcard::Numbers, "", "2", 1).unwrap_err().to_string(),
+            "From must be a whole number."
+        );
         assert!(expand_asterisk("http://x/a", Wildcard::Numbers, "1", "2", 1).is_err());
         assert!(expand_asterisk("http://x/*/*", Wildcard::Numbers, "1", "2", 1).is_err());
         assert!(expand_asterisk("file://x/*", Wildcard::Numbers, "1", "2", 1).is_err());
@@ -473,7 +540,7 @@ mod tests {
         // The batch limit holds here too.
         assert_eq!(expand_asterisk("http://x/*", Wildcard::Numbers, "1", "10000", 1).unwrap().len(), MAX_BATCH);
         let err = expand_asterisk("http://x/*", Wildcard::Numbers, "0", "10000", 1).unwrap_err();
-        assert!(err.contains("10001"), "{err}");
+        assert_eq!(err.to_string(), "From 0 to 10000 makes 10001 addresses; at most 10000 can be added at once.");
     }
 
     #[test]

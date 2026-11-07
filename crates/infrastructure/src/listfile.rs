@@ -189,7 +189,7 @@ pub fn import(text: &str) -> Result<(Vec<Download>, usize), String> {
         return keep_valid(parse_ef2(trimmed));
     }
     if !trimmed.starts_with('{') {
-        let (urls, rejected) = batch::parse_list(text)?;
+        let (urls, rejected) = batch::parse_list(text).map_err(|e| e.to_string())?;
         let items = urls.into_iter().map(|url| Download { url, start: Some(false), ..Download::default() }).collect();
         return Ok((items, rejected));
     }

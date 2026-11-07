@@ -150,12 +150,12 @@ impl BatchDialog {
                     } else {
                         batch::expand(&self.pattern)
                     };
-                    self.expanded = Some((key, result));
+                    self.expanded = Some((key, result.map_err(|e| crate::errors::batch(&e))));
                 }
                 let (_, result) = self.expanded.as_ref().unwrap();
                 result.clone().map(|u| (u, 0))
             }
-            Source::List => batch::parse_list(&self.list),
+            Source::List => batch::parse_list(&self.list).map_err(|e| crate::errors::batch(&e)),
             Source::Imported => Ok((Vec::new(), 0)),
         }
     }
@@ -786,7 +786,7 @@ impl GrabDialog {
             wake: self.sched_wake,
         });
         if let Some(s) = &schedule {
-            s.validate()?;
+            s.validate().map_err(|e| crate::errors::queue(&e))?;
         }
         Ok(uidm_domain::grab::Project {
             name: self.project.trim().to_string(),
@@ -940,7 +940,7 @@ impl GrabDialog {
     fn start_crawl(&mut self, ctx: &egui::Context, queues: &[Queue], actions: &mut Vec<Action>) {
         let req = self.request();
         if let Err(e) = req.validate() {
-            self.error = Some(e);
+            self.error = Some(crate::errors::grab(&e));
             return;
         }
         match self.login_to_keep() {
@@ -1947,7 +1947,7 @@ fn grab_body(
                             d.error = None;
                             *start = true;
                         }
-                        Err(e) => d.error = Some(e),
+                        Err(e) => d.error = Some(crate::errors::grab(&e)),
                     }
                 }
                 if ui.button(tr("Cancel")).clicked() {

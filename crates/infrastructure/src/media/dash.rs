@@ -17,9 +17,8 @@
 
 use roxmltree::{Document, Node};
 
-use uidm_domain::media::{
-    resolve, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED,
-};
+use super::resolve;
+use uidm_domain::media::{MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED};
 
 /// More segments than this in one track means a broken manifest.
 const MAX_SEGMENTS: usize = 500_000;

@@ -187,7 +187,7 @@ mod fakes {
 
     impl SettingsChecks for Temp {
         fn validate(&self, settings: &Settings) -> Result<(), SettingsError> {
-            settings.validate().map_err(SettingsError)
+            Ok(settings.validate()?)
         }
         fn ffmpeg(&self, _: &Settings) -> Option<PathBuf> {
             None
