@@ -26,6 +26,7 @@
 //! - `zip`: listing a zip archive's files from its end, for a preview.
 //! - `update`: checking GitHub for a newer release.
 //! - `package`: keeping the daemon out of an app package's copy of AppData.
+//! - `logging`: each program's log file in the data folder.
 
 pub mod app;
 pub mod autostart;
@@ -40,6 +41,7 @@ pub mod grab;
 pub mod history;
 pub mod ipc;
 pub mod listfile;
+pub mod logging;
 pub mod media;
 pub mod net;
 pub mod notify;

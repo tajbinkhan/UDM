@@ -243,7 +243,7 @@ impl Layout {
         };
         if let Ok(bytes) = serde_json::to_vec_pretty(self) {
             if let Err(e) = uidm_infrastructure::settings::write_atomic(&path, &bytes) {
-                eprintln!("[uidm-gui] could not save {}: {e}", path.display());
+                tracing::warn!(path = %path.display(), error = %e, "could not save the window layout");
             }
         }
     }

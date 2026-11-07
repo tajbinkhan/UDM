@@ -51,6 +51,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use tracing::{error, info, warn};
 use uidm_application::downloads::{
     AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
     Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
@@ -85,6 +86,7 @@ use uidm_infrastructure::files::DiskFiles;
 use uidm_infrastructure::grab::{self, GrabRequest};
 use uidm_infrastructure::history::{self, History};
 use uidm_infrastructure::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST_LABEL};
+use uidm_infrastructure::logging;
 use uidm_infrastructure::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
 use uidm_infrastructure::notify::{self, Sound, Toast};
 use uidm_infrastructure::power;
@@ -774,7 +776,7 @@ impl ReleaseSource for GitHub<'_> {
         let settings = self.daemon.settings.lock().unwrap().clone();
         let net = self.daemon.net_for(&Download { url: setup.url.clone(), ..Download::default() }, &settings);
         let headers = [("User-Agent".to_string(), format!("UIDM/{VERSION}"))];
-        eprintln!("[uidm-daemon] downloading {}", setup.url);
+        info!(url = %setup.url, "downloading the update");
         let fetched = engine::fetch(&setup.url, &headers, &net, uidm_infrastructure::update::MAX_SETUP_BYTES)
             .map_err(|e| UpdateError::Download(e.to_string()))?;
         uidm_infrastructure::update::check_setup(setup, &fetched.body).map_err(UpdateError::BadSetup)?;
@@ -833,7 +835,7 @@ impl EarlyStarts for EarlyHandOver<'_> {
                 return;
             }
             if let Err(e) = daemon.start_or_wait(id, start, queue) {
-                eprintln!("[uidm-daemon] could not go on with #{id}: {e}");
+                warn!(download_id = id, error = %e, "could not go on with the download");
             }
         });
         true
@@ -966,7 +968,7 @@ impl Converter for Conversions<'_> {
                 Ok(()) => {
                     if c.delete_original {
                         if let Err(e) = daemon.remove(c.from, true) {
-                            eprintln!("[uidm-daemon] kept the original of #{}: {e}", c.from);
+                            warn!(download_id = c.from, error = %e, "kept the original of a converted download");
                         }
                     }
                     daemon.hub.publish(&Outgoing::Done {
@@ -1113,8 +1115,7 @@ struct Paths {
 
 impl Paths {
     fn from_env() -> Self {
-        let warn =
-            |what: &str, r: io::Result<PathBuf>| r.map_err(|e| eprintln!("[uidm-daemon] no {what} file: {e}")).ok();
+        let warn = |what: &str, r: io::Result<PathBuf>| r.map_err(|e| warn!(file = what, error = %e, "no file")).ok();
         Paths {
             settings: warn("settings", settings::settings_path()),
             history: warn("history", history::history_path()),
@@ -1191,7 +1192,7 @@ impl Daemon {
     fn new(paths: Paths) -> (Self, Receiver<()>, Receiver<Note>, Receiver<()>) {
         let mut settings = match &paths.settings {
             Some(path) => settings::load(path).unwrap_or_else(|e| {
-                eprintln!("[uidm-daemon] ignoring {}: {e}", path.display());
+                warn!(path = %path.display(), error = %e, "ignoring the settings file");
                 Settings::default()
             }),
             None => Settings::default(),
@@ -1203,7 +1204,7 @@ impl Daemon {
                 paths.settings.as_ref().map_or(Ok(()), |p| settings::save(&settings, p).map_err(|e| e.to_string()))
             });
             if let Err(e) = saved {
-                eprintln!("[uidm-daemon] could not give each proxy its own login: {e}");
+                warn!(error = %e, "could not give each proxy its own login");
             }
         }
         // IDM's "Always turn on Speed Limiter on startup": the limit is on
@@ -1216,7 +1217,7 @@ impl Daemon {
                 // Keep the unreadable file for inspection instead of
                 // overwriting it with an empty list.
                 let bad = path.with_extension("json.bad");
-                eprintln!("[uidm-daemon] could not read {}: {e}; moved to {}", path.display(), bad.display());
+                warn!(path = %path.display(), moved_to = %bad.display(), error = %e, "could not read the download list");
                 let _ = std::fs::rename(path, &bad);
                 History::default()
             }),
@@ -1224,7 +1225,7 @@ impl Daemon {
         };
         let mut requests = match &paths.requests {
             Some(path) => history::load_requests(path).unwrap_or_else(|e| {
-                eprintln!("[uidm-daemon] could not read saved requests: {e}");
+                warn!(error = %e, "could not read saved requests");
                 HashMap::new()
             }),
             None => HashMap::new(),
@@ -1404,16 +1405,16 @@ impl Daemon {
                 ScheduleStep::Stop(StopReason::ScheduleEnded) => "schedule stops",
                 ScheduleStep::Stop(StopReason::GrabberStopTime) => "the grabber project's stop time stops",
             };
-            eprintln!("[uidm-daemon] {why} queue {queue}");
+            info!(queue = %queue, why, "schedule step");
         }
 
         let events = RunQueues::new(&*self.hub, &*self.hub, &**self, &**self, &SyncCheck(self), &**self).run();
         for event in events {
             match event {
                 QueueEvent::Retried { queue, id, attempt, of } => {
-                    eprintln!("[uidm-daemon] queue {queue} retries #{id} ({attempt}/{of})")
+                    info!(queue = %queue, download_id = id, attempt, of, "queue retries a download")
                 }
-                QueueEvent::Finished { queue } => eprintln!("[uidm-daemon] queue {queue} is done"),
+                QueueEvent::Finished { queue } => info!(queue = %queue, "queue is done"),
             }
         }
     }
@@ -1434,7 +1435,7 @@ impl Daemon {
         let found = match found {
             Ok(found) => found,
             Err(e) => {
-                eprintln!("[uidm-daemon] could not check #{id} for changes: {e}");
+                warn!(download_id = id, error = %e, "could not check for changes");
                 let note = format!("Could not check the server for a newer copy: {e}");
                 let _ = self.hub.update(id, |e| {
                     if e.status != Status::Done {
@@ -1472,11 +1473,7 @@ impl Daemon {
             }
             Ok(())
         })?;
-        eprintln!(
-            "[uidm-daemon] #{id} {}: {}",
-            if changed { "changed on the server" } else { "is unchanged" },
-            entry.url
-        );
+        info!(download_id = id, changed, url = %entry.url, "checked the server for changes");
         Ok(changed)
     }
 
@@ -1519,7 +1516,7 @@ impl Daemon {
             .count();
         if changed > 0 && !self.hub.queues.lock().unwrap().iter().any(|q| q.id == queue && q.running) {
             if let Err(e) = self.start_queue(queue, None) {
-                eprintln!("[uidm-daemon] could not start queue {queue}: {e}");
+                warn!(queue = %queue, error = %e, "could not start the queue");
             }
         }
         (changed, listed)
@@ -1531,9 +1528,9 @@ impl Daemon {
         let request = PowerRequest { action, queue: queue.to_string(), file: file.map(str::to_string), force_close };
         match RunWhenDone::new(self).run(&request) {
             PowerStep::None => {}
-            PowerStep::Exit => eprintln!("[uidm-daemon] {} done: exiting", request.subject()),
+            PowerStep::Exit => info!(subject = %request.subject(), "done: exiting"),
             PowerStep::Countdown => {
-                eprintln!("[uidm-daemon] {} done: {} in {COUNTDOWN_SECS}s", request.subject(), action.label())
+                info!(subject = %request.subject(), action = action.label(), seconds = COUNTDOWN_SECS, "done: countdown")
             }
         }
     }
@@ -1552,18 +1549,18 @@ impl Daemon {
         if let Some(mut download) = cmd.download {
             download.limit_browser_request();
             let (id, url) = self.add(download);
-            eprintln!("[uidm-daemon] add #{id} from the command line: {url}");
+            info!(download_id = id, url = %url, "add from the command line");
             if cmd.quit_after && started {
                 let exit = OnDone { then: WhenDone::Exit, ..OnDone::default() };
                 if let Err(e) = self.set_on_done(id, Some(exit)) {
-                    eprintln!("[uidm-daemon] /q for #{id}: {e}");
+                    warn!(download_id = id, error = %e, "could not set /q");
                 }
             }
         }
         if cmd.start_queue {
             match self.start_queue(MAIN_QUEUE, None) {
                 Ok(()) => {
-                    eprintln!("[uidm-daemon] start the main queue from the command line");
+                    info!("start the main queue from the command line");
                     let _ = self.hub.wake.send(());
                 }
                 Err(message) => self.hub.to_windows(&Outgoing::Error { message }),
@@ -1583,7 +1580,7 @@ impl Daemon {
 
     fn cancel_countdown(&self) {
         if CancelCountdown::new(self).run() {
-            eprintln!("[uidm-daemon] countdown canceled");
+            info!("countdown canceled");
         }
     }
 
@@ -1666,7 +1663,7 @@ impl Daemon {
         if self.hub.window_open() {
             self.hub.broadcast(&Outgoing::Show);
         } else if let Err(e) = open_window() {
-            eprintln!("[uidm-daemon] could not open the window: {e}");
+            warn!(error = %e, "could not open the window");
         }
     }
 
@@ -1697,12 +1694,12 @@ impl Daemon {
         let check = CheckQuota::new(&*self.hub, &*self.hub, self, self, &LocalClock, self, self);
         match check.run(self.quota_limit(), now) {
             Some(QuotaEvent::Reached { used, limit }) => {
-                eprintln!("[uidm-daemon] quota reached: {used} of {limit} bytes")
+                info!(used, limit, "quota reached")
             }
             Some(QuotaEvent::Resumed { failed }) => {
-                eprintln!("[uidm-daemon] quota allows downloads again");
+                info!("quota allows downloads again");
                 for (id, e) in failed {
-                    eprintln!("[uidm-daemon] could not resume #{id}: {e}");
+                    warn!(download_id = id, error = %e, "could not resume");
                 }
             }
             None => {}
@@ -1713,7 +1710,7 @@ impl Daemon {
     fn resume_all(&self) {
         let resumed = ResumeAll::new(&*self.hub, &*self.hub, self, self, self, &LocalClock, self).run();
         for (id, e) in resumed.failed {
-            eprintln!("[uidm-daemon] could not resume #{id}: {e}");
+            warn!(download_id = id, error = %e, "could not resume");
         }
     }
 
@@ -1737,7 +1734,7 @@ impl Daemon {
                 thread::spawn(move || {
                     let path = PathBuf::from(entry.path.unwrap_or_default());
                     let result = scan::scan(settings.scanner, &settings.scanner_command, &path);
-                    eprintln!("[uidm-daemon] scan #{id}: {result:?}");
+                    info!(download_id = id, result = ?result, "scanned");
                     let _ = daemon.hub.update(id, |e| {
                         e.scan = Some(result);
                         Ok(())
@@ -1769,19 +1766,19 @@ impl Daemon {
     fn await_answer(self: &Arc<Self>, id: u64, fallback: Option<FileExists>) {
         if !self.hub.window_open() {
             if let Err(e) = open_window() {
-                eprintln!("[uidm-daemon] could not open the window: {e}");
+                warn!(error = %e, "could not open the window");
             }
         }
         let daemon = Arc::clone(self);
         thread::spawn(move || {
             thread::sleep(CONFIRM_FALLBACK);
             if daemon.status(id) == Some(Status::Confirming) && !daemon.hub.window_open() {
-                eprintln!("[uidm-daemon] no window to confirm #{id}; starting it as proposed");
+                info!(download_id = id, "no window to confirm; starting it as proposed");
                 // A "download later" asked only about a duplicate keeps waiting.
                 let request = daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap_or_default();
                 let answer = request.fallback_answer(id, fallback);
                 if let Err(e) = daemon.confirm(answer) {
-                    eprintln!("[uidm-daemon] could not start #{id}: {e}");
+                    warn!(download_id = id, error = %e, "could not start");
                 }
             }
         });
@@ -1819,7 +1816,7 @@ impl Daemon {
                     toasts.pop_front();
                 }
             }
-            Err(e) => eprintln!("[uidm-daemon] could not show a notification: {e}"),
+            Err(e) => warn!(error = %e, "could not show a notification"),
         }
     }
 
@@ -1845,7 +1842,7 @@ impl Daemon {
             ("retry", _) => {
                 if let Some(id) = id {
                     if let Err(e) = self.retry(id) {
-                        eprintln!("[uidm-daemon] retry from a notification: {e}");
+                        warn!(error = %e, "could not retry from a notification");
                     }
                 }
             }
@@ -1862,7 +1859,7 @@ impl Daemon {
     fn add(self: &Arc<Self>, mut download: Download) -> (u64, String) {
         if let Some(old) = self.duplicate_of(&download) {
             let choice = download.duplicate.unwrap_or(self.settings.lock().unwrap().if_duplicate);
-            eprintln!("[uidm-daemon] {} is already in the list as #{} ({choice:?})", download.url, old.id);
+            info!(url = %download.url, download_id = old.id, choice = ?choice, "already in the list");
             if choice == Duplicate::Ask {
                 return self.ask(download, Some(old.id));
             }
@@ -1914,7 +1911,7 @@ impl Daemon {
             DuplicateStep::UseExisting => self.use_existing(old),
             DuplicateStep::Replace => {
                 if let Err(e) = self.remove(old.id, false) {
-                    eprintln!("[uidm-daemon] could not remove #{}: {e}", old.id);
+                    warn!(download_id = old.id, error = %e, "could not remove");
                 }
                 None
             }
@@ -1929,7 +1926,7 @@ impl Daemon {
             Existing::Gone => None,
             Existing::Shown { id, url } | Existing::Resumed { id, url } => Some((id, url)),
             Existing::NotResumed { id, url, error } => {
-                eprintln!("[uidm-daemon] could not resume #{id}: {error}");
+                warn!(download_id = id, error = %error, "could not resume");
                 Some((id, url))
             }
         }
@@ -1983,7 +1980,7 @@ impl Daemon {
         let choice = self.settings.lock().unwrap().if_duplicate;
         let added = AddMany::new(&*self.hub, &*self.hub, &**self, &DiskFiles, &**self).run(items, queue, choice);
         for (id, e) in added.not_replaced {
-            eprintln!("[uidm-daemon] could not remove #{id}: {e}");
+            warn!(download_id = id, error = %e, "could not remove");
         }
         (added.ids, added.skipped)
     }
@@ -2020,7 +2017,7 @@ impl Daemon {
                     let _ = reply.send(frame);
                 }
             };
-            eprintln!("[uidm-daemon] client #{client} crawls {}", req.start);
+            info!(client, url = %req.start, "crawl");
             let mut handed = 0;
             let mut added = Vec::new();
             let login = daemon.login_cookies(&req);
@@ -2041,7 +2038,7 @@ impl Daemon {
                 })
             });
             daemon.grabs.lock().unwrap().remove(&client);
-            eprintln!("[uidm-daemon] crawl for #{client} read {} pages, found {} files", out.pages, out.files.len());
+            info!(client, pages = out.pages, files = out.files.len(), "crawl done");
             send(&Outgoing::GrabDone {
                 files: out.files,
                 pages: out.pages,
@@ -2077,7 +2074,7 @@ impl Daemon {
         }
         if !added.is_empty() && !self.hub.queues.lock().unwrap().iter().any(|q| q.id == queue && q.running) {
             if let Err(e) = self.start_queue(queue, None) {
-                eprintln!("[uidm-daemon] could not start the grabber's queue: {e}");
+                warn!(error = %e, "could not start the grabber's queue");
             }
         }
         added
@@ -2129,7 +2126,7 @@ impl Daemon {
             let rendered = rendering.then(|| self.render_in_browser(url)).flatten();
             // A browser that does not answer once is not asked again.
             if rendering && rendered.is_none() {
-                eprintln!("[uidm-daemon] the browser did not render {url}; reading pages as sent");
+                info!(url = %url, "the browser did not render the page; reading pages as sent");
                 render.store(false, Ordering::Relaxed);
             }
             if let Some((mut html, at, popups)) = rendered {
@@ -2190,7 +2187,7 @@ impl Daemon {
         let runs = ScheduledGrabs { daemon: self, dir: dir.clone() };
         for started in RunGrabSchedules::new(&grab::ProjectFiles(dir), &runs, &At(now)).run() {
             if let Some(e) = started.not_saved {
-                eprintln!("[uidm-daemon] could not save grabber project {}: {e}", started.project);
+                warn!(project = %started.project, error = %e, "could not save the grabber project");
             }
         }
     }
@@ -2202,7 +2199,7 @@ impl Daemon {
     /// queue's run too, and what the project asks when done (with its own
     /// force-close choice) happens after the crawl, or once the queue is done.
     fn run_scheduled_grab(self: &Arc<Self>, dir: &Path, mut project: grab::Project, day: i64) {
-        eprintln!("[uidm-daemon] schedule runs grabber project {} ({:?})", project.name, project.run);
+        info!(project = %project.name, run = ?project.run, "schedule runs a grabber project");
         let end = project.schedule.as_ref().filter(|s| s.stop.is_some()).and_then(|s| s.end_of_run(day));
         let resync;
         let login = self.login_cookies(&project.request);
@@ -2220,7 +2217,7 @@ impl Daemon {
                 });
                 resync = project.to_resync(&out.files);
                 let new = project.record_run(out.files);
-                eprintln!("[uidm-daemon] grabber project {} found {} new files", project.name, new.len());
+                info!(project = %project.name, files = new.len(), "grabber project found new files");
                 if run == grab::RunAction::ExploreAndDownload {
                     new
                 } else {
@@ -2229,7 +2226,7 @@ impl Daemon {
             }
         };
         if let Err(e) = grab::save_project(&project, dir) {
-            eprintln!("[uidm-daemon] could not save grabber project {}: {e}", project.name);
+            warn!(project = %project.name, error = %e, "could not save the grabber project");
         }
         // Set before the queue starts, so a run that ends at once still
         // does it. A queue already running is a run someone else started,
@@ -2257,7 +2254,7 @@ impl Daemon {
         } else {
             self.download_in_queue(&project.request, login.as_deref(), &to_download, project.queue, true).len()
         };
-        eprintln!("[uidm-daemon] grabber project {} added {added} files to its queue, {changed} changed", project.name);
+        info!(project = %project.name, added, changed, "grabber project queued files");
         let added = added + changed;
         if added == 0 {
             // Nothing to wait for: done now.
@@ -2289,7 +2286,7 @@ impl Daemon {
         let output = ConvertDownload::new(&*self.hub, &DiskFiles, &Conversions(self))
             .run(id, to, delete_original)
             .map_err(|e| e.to_string())?;
-        eprintln!("[uidm-daemon] converting #{id} to {}", output.display());
+        info!(download_id = id, output = %output.display(), "converting");
         Ok(())
     }
 
@@ -2311,7 +2308,7 @@ impl Daemon {
         let path = InstallUpdate::new(&github, self, VERSION)
             .run(uidm_infrastructure::state::unix_now())
             .map_err(|e| e.to_string())?;
-        eprintln!("[uidm-daemon] started {}; quitting for it", path.display());
+        info!(path = %path.display(), "started the update; quitting for it");
         self.pause_all();
         self.save_history();
         self.hub.broadcast(&Outgoing::Quit);
@@ -2407,7 +2404,7 @@ impl Daemon {
         self.hub.broadcast(&Outgoing::CookiesWanted { request, url: url.to_string() });
         let got = rx.recv_timeout(Duration::from_secs(5)).ok().flatten();
         self.cookie_waits.lock().unwrap().remove(&request);
-        eprintln!("[uidm-daemon] browser cookies for the crawl: {}", if got.is_some() { "found" } else { "none" });
+        info!(found = got.is_some(), "browser cookies for the crawl");
         got.filter(|c| !c.is_empty())
     }
 
@@ -2508,7 +2505,7 @@ impl Daemon {
             let (early, answers) = (EarlyHandOver(&daemon), AnswerWait(&daemon));
             let hold = HoldForAnswer::new(&*daemon.hub, &*daemon, &DiskFiles, &*daemon, &early, &answers);
             if let Held::Started(Err(e)) = hold.run(id, &download, probed, duplicate_of) {
-                eprintln!("[uidm-daemon] could not start #{id}: {e}");
+                warn!(download_id = id, error = %e, "could not start");
             }
         });
         (id, url)
@@ -2526,7 +2523,7 @@ impl Daemon {
         // A new folder each time: one that is already there, or a link in
         // its place, makes this fail rather than be written through.
         if let Err(e) = std::fs::create_dir_all(&root).and_then(|()| std::fs::create_dir(&dir)) {
-            eprintln!("[uidm-daemon] could not start #{id} early: {e}");
+            warn!(download_id = id, error = %e, "could not start early");
             return;
         }
         let mut req = self.request_for(download);
@@ -2542,7 +2539,7 @@ impl Daemon {
             .lock()
             .unwrap()
             .insert(shadow, Early { real: id, dir, file: None, target: None, total: None, end: None, discard: false });
-        eprintln!("[uidm-daemon] #{id} starts early while its dialog is open");
+        info!(download_id = id, "starts early while its dialog is open");
         self.engine.enqueue_as(shadow, req);
     }
 
@@ -2600,7 +2597,7 @@ impl Daemon {
                 let to = free_path(&path, overwrite);
                 match uidm_infrastructure::files::move_file(&finished, &to) {
                     Ok(()) => {
-                        eprintln!("[uidm-daemon] #{id} finished while its dialog was open");
+                        info!(download_id = id, "finished while its dialog was open");
                         self.hub.leave_queues(id);
                         self.hub.publish(&Outgoing::Done {
                             id,
@@ -2611,7 +2608,7 @@ impl Daemon {
                         let _ = std::fs::remove_dir_all(&early.dir);
                         return true;
                     }
-                    Err(err) => eprintln!("[uidm-daemon] could not keep #{id}'s early download: {err}"),
+                    Err(err) => warn!(download_id = id, error = %err, "could not keep the early download"),
                 }
             }
             (Some(_), Some(path), _, Some(partial))
@@ -2674,17 +2671,17 @@ impl Daemon {
         for w in warnings {
             match w {
                 ConfirmWarning::DuplicateNotRemembered(e) => {
-                    eprintln!("[uidm-daemon] could not remember the duplicate choice: {e}")
+                    warn!(error = %e, "could not remember the duplicate choice")
                 }
                 ConfirmWarning::ChoicesNotRemembered(e) => {
-                    eprintln!("[uidm-daemon] could not remember the dialog's choices: {e}")
+                    warn!(error = %e, "could not remember the dialog's choices")
                 }
-                ConfirmWarning::OldNotRemoved(old, e) => eprintln!("[uidm-daemon] could not remove #{old}: {e}"),
-                ConfirmWarning::OldNotResumed(old, e) => eprintln!("[uidm-daemon] could not resume #{old}: {e}"),
+                ConfirmWarning::OldNotRemoved(old, e) => warn!(download_id = old, error = %e, "could not remove"),
+                ConfirmWarning::OldNotResumed(old, e) => warn!(download_id = old, error = %e, "could not resume"),
             }
         }
         if let Confirmed::UsedExisting { old, kept } = done {
-            eprintln!("[uidm-daemon] #{id} duplicates #{old}; using #{kept} instead");
+            info!(download_id = id, duplicates = old, kept, "duplicate");
         }
         Ok(())
     }
@@ -2756,7 +2753,7 @@ impl Daemon {
     /// `Redownload`).
     fn redownload(&self, id: u64) -> Result<(), String> {
         let url = Redownload::new(&*self.hub, self, &DiskFiles).run(id).map_err(|e| e.to_string())?;
-        eprintln!("[uidm-daemon] downloading #{id} again: {url}");
+        info!(download_id = id, url = %url, "downloading again");
         Ok(())
     }
 
@@ -2767,7 +2764,7 @@ impl Daemon {
             Refreshed::Waiting => Ok(None),
             Refreshed::Mismatch(reason) => Ok(Some(reason)),
             Refreshed::NewLink(url) => {
-                eprintln!("[uidm-daemon] new link for #{id}: {url}");
+                info!(download_id = id, url = %url, "new link");
                 Ok(None)
             }
         }
@@ -2777,7 +2774,7 @@ impl Daemon {
     fn set_properties(&self, id: u64, p: Properties) -> Result<(), String> {
         let moved = SetProperties::new(&*self.hub, &DiskFiles).run(id, p).map_err(|e| e.to_string())?;
         if let Some(to) = moved {
-            eprintln!("[uidm-daemon] moved #{id} to {}", to.display());
+            info!(download_id = id, to = %to.display(), "moved");
         }
         Ok(())
     }
@@ -2828,11 +2825,11 @@ impl Daemon {
         }
         match self.retry(id) {
             Ok((new_id, _)) => {
-                eprintln!("[uidm-daemon] #{id} failed; retrying it as #{new_id} through the browser's proxy");
+                info!(download_id = id, new_id, "failed; retrying through the browser's proxy");
                 true
             }
             Err(e) => {
-                eprintln!("[uidm-daemon] could not retry #{id} through the browser's proxy: {e}");
+                warn!(download_id = id, error = %e, "could not retry through the browser's proxy");
                 false
             }
         }
@@ -2960,7 +2957,7 @@ impl Daemon {
         let old = self.settings.lock().unwrap().site_logins.clone();
         for gone in old.iter().filter(|o| !new.site_logins.iter().any(|n| n.site.eq_ignore_ascii_case(&o.site))) {
             if let Err(e) = net::delete_login_password(&gone.site) {
-                eprintln!("[uidm-daemon] could not forget the password for {}: {e}", gone.site);
+                warn!(site = %gone.site, error = %e, "could not forget the password");
             }
         }
         Ok(new)
@@ -3013,8 +3010,8 @@ impl Daemon {
             .collect();
         for id in ids {
             match self.retry(id) {
-                Ok((new_id, url)) => eprintln!("[uidm-daemon] resuming #{id} as #{new_id}: {url}"),
-                Err(e) => eprintln!("[uidm-daemon] could not resume #{id}: {e}"),
+                Ok((new_id, url)) => info!(download_id = id, new_id, url = %url, "resuming"),
+                Err(e) => warn!(download_id = id, error = %e, "could not resume"),
             }
         }
     }
@@ -3030,17 +3027,17 @@ impl Daemon {
         let requests = self.hub.requests.lock().unwrap().clone();
         if let Some(path) = &self.paths.quota {
             if let Err(e) = uidm_infrastructure::quota::save(&self.hub.quota.lock().unwrap(), path) {
-                eprintln!("[uidm-daemon] could not save {}: {e}", path.display());
+                warn!(path = %path.display(), error = %e, "could not save");
             }
         }
         if let Some(path) = &self.paths.history {
             if let Err(e) = history.save(path) {
-                eprintln!("[uidm-daemon] could not save {}: {e}", path.display());
+                warn!(path = %path.display(), error = %e, "could not save");
             }
         }
         if let Some(path) = &self.paths.requests {
             if let Err(e) = history::save_requests(path, &requests) {
-                eprintln!("[uidm-daemon] could not save {}: {e}", path.display());
+                warn!(path = %path.display(), error = %e, "could not save");
             }
         }
     }
@@ -3049,7 +3046,7 @@ impl Daemon {
     /// unless `delete_files`, which sends them to the Recycle Bin.
     fn remove(&self, id: u64, delete_files: bool) -> Result<(), String> {
         if delete_files {
-            eprintln!("[uidm-daemon] removing #{id} with its files");
+            info!(download_id = id, "removing with its files");
         }
         RemoveDownload::new(&*self.hub, &*self.hub, self, &DiskFiles).run(id, delete_files).map_err(|e| e.to_string())
     }
@@ -3070,28 +3067,21 @@ impl Daemon {
 }
 
 fn main() {
+    logging::init(logging::Program::Daemon);
     // Started by a download saved with administrator rights (see
     // `uidm_infrastructure::elevate`): move its finished file into place and exit.
     let args: Vec<String> = std::env::args().collect();
     if let [_, flag, from, to] = args.as_slice() {
         if flag == uidm_infrastructure::elevate::MOVE_ARG {
             if let Err(e) = uidm_infrastructure::elevate::move_file(Path::new(from), Path::new(to)) {
-                eprintln!("[uidm-daemon] could not move {from} to {to}: {e}");
+                error!(from = %from, to = %to, error = %e, "could not move the file");
                 std::process::exit(1);
             }
             return;
         }
     }
-    // Started through WMI, out of an app package's copy of AppData, the
-    // daemon opens its log itself.
-    #[cfg(windows)]
-    if std::env::args().any(|a| a == uidm_infrastructure::package::LOG_ARG) {
-        if let Err(e) = uidm_infrastructure::package::stderr_to(&ipc::daemon_log()) {
-            eprintln!("[uidm-daemon] could not open the log: {e}");
-        }
-    }
     if let Err(e) = run() {
-        eprintln!("[uidm-daemon] fatal: {e}");
+        error!(error = %e, "fatal");
         std::process::exit(1);
     }
 }
@@ -3102,11 +3092,14 @@ fn run() -> io::Result<()> {
     let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("[uidm-daemon] {addr} unavailable ({e}); another daemon is likely running");
+            info!(addr = %addr, error = %e, "address unavailable; another daemon is likely running");
             return Ok(());
         }
     };
-    eprintln!("[uidm-daemon] listening on {addr}");
+    // Only the daemon holding the bind moves the logs aside, so no two
+    // programs move one at once.
+    logging::trim();
+    info!(addr = %addr, version = VERSION, "listening");
 
     // Publish the token only after winning the bind. A daemon that lost the
     // bind must not overwrite the running daemon's token.
@@ -3114,9 +3107,9 @@ fn run() -> io::Result<()> {
     ipc::write_token(&token)?;
     let token: Arc<str> = token.into();
     match uidm_infrastructure::browsers::register_found() {
-        Ok(names) if !names.is_empty() => eprintln!("[uidm-daemon] registered with {}", names.join(", ")),
+        Ok(names) if !names.is_empty() => info!(browsers = %names.join(", "), "registered with the browsers"),
         Ok(_) => {}
-        Err(e) => eprintln!("[uidm-daemon] could not register with the browsers: {e}"),
+        Err(e) => warn!(error = %e, "could not register with the browsers"),
     }
 
     let (daemon, dirty, notes, wake) = Daemon::new(Paths::from_env());
@@ -3127,14 +3120,14 @@ fn run() -> io::Result<()> {
     spawn_notifier(Arc::clone(&daemon), notes);
     #[cfg(windows)]
     if let Err(e) = register_notifications() {
-        eprintln!("[uidm-daemon] could not register for notifications: {e}");
+        warn!(error = %e, "could not register for notifications");
     }
     // Queues set to start with UIDM.
     let launch: Vec<u64> =
         daemon.hub.queues.lock().unwrap().iter().filter(|q| q.start_on_launch).map(|q| q.id).collect();
     for id in launch {
         if let Err(e) = daemon.start_queue(id, None) {
-            eprintln!("[uidm-daemon] could not start queue {id}: {e}");
+            warn!(queue = %id, error = %e, "could not start the queue");
         }
     }
     if daemon.settings.lock().unwrap().resume_at_startup {
@@ -3150,7 +3143,7 @@ fn run() -> io::Result<()> {
                 let token = Arc::clone(&token);
                 thread::spawn(move || handle_client(stream, &daemon, &token));
             }
-            Err(e) => eprintln!("[uidm-daemon] accept failed: {e}"),
+            Err(e) => warn!(error = %e, "accept failed"),
         }
     }
     Ok(())
@@ -3162,15 +3155,15 @@ fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
     let id = NEXT_CLIENT.fetch_add(1, Ordering::Relaxed);
     let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
     if let Err(e) = authenticate(&mut stream, token) {
-        eprintln!("[uidm-daemon] client #{id} ({peer}) rejected: {e}");
+        warn!(client = id, peer = %peer, error = %e, "client rejected");
         return;
     }
-    eprintln!("[uidm-daemon] client #{id} connected ({peer})");
+    info!(client = id, peer = %peer, "client connected");
 
     let mut writer_stream = match stream.try_clone() {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[uidm-daemon] client #{id}: {e}");
+            warn!(client = id, error = %e, "client error");
             return;
         }
     };
@@ -3193,7 +3186,7 @@ fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
             Ok(Some(raw)) => dispatch(&raw, daemon, id, &tx),
             Ok(None) => break, // clean disconnect
             Err(e) => {
-                eprintln!("[uidm-daemon] client #{id} read error: {e}");
+                warn!(client = id, error = %e, "client read error");
                 break;
             }
         }
@@ -3207,7 +3200,7 @@ fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
     daemon.stop_probe_links(id);
     drop(tx);
     let _ = writer.join();
-    eprintln!("[uidm-daemon] client #{id} disconnected");
+    info!(client = id, "client disconnected");
 }
 
 /// Run the daemon side of the handshake described in `uidm_infrastructure::ipc`.
@@ -3301,12 +3294,12 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
                 return;
             }
             let (id, url) = daemon.add(download);
-            eprintln!("[uidm-daemon] add #{id}: {url}");
+            info!(download_id = id, url = %url, "add");
             send(&Outgoing::Ack { id, url, status: "accepted".to_string() });
         }
         Incoming::AddMany { items, queue } => {
             let (count, skipped) = daemon.add_many(items, queue);
-            eprintln!("[uidm-daemon] added {count} downloads to wait, skipped {skipped} already in the list");
+            info!(count, skipped, "added downloads to wait");
             send(&Outgoing::AddedMany { count, skipped });
         }
         Incoming::ProbeMedia { request, mut download } => {
@@ -3332,19 +3325,19 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::StopProbeLinks => daemon.stop_probe_links(client),
         Incoming::Cancel { id } => {
-            eprintln!("[uidm-daemon] cancel #{id}");
+            info!(download_id = id, "cancel");
             daemon.cancel(id);
         }
         Incoming::Confirm(answer) => {
             let (id, start) = (answer.id, answer.start);
             match daemon.confirm(answer) {
-                Ok(()) => eprintln!("[uidm-daemon] confirm #{id} (start: {start})"),
+                Ok(()) => info!(download_id = id, start, "confirm"),
                 Err(message) => send(&Outgoing::Error { message }),
             }
         }
         Incoming::Retry { id } => match daemon.retry(id) {
             Ok((new_id, url)) => {
-                eprintln!("[uidm-daemon] retry #{id} as #{new_id}");
+                info!(download_id = id, new_id, "retry");
                 send(&Outgoing::Ack { id: new_id, url, status: "accepted".to_string() });
             }
             Err(message) => send(&Outgoing::Error { message }),
@@ -3356,7 +3349,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::List => daemon.send_list(reply),
         Incoming::SaveQueue { queue } => match daemon.save_queue(queue) {
-            Ok(id) => eprintln!("[uidm-daemon] queue {id} saved"),
+            Ok(id) => info!(queue = %id, "queue saved"),
             Err(message) => send(&Outgoing::Error { message }),
         },
         Incoming::DeleteQueue { id } => {
@@ -3366,13 +3359,13 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::StartQueue { id } => match daemon.start_queue(id, None) {
             Ok(()) => {
-                eprintln!("[uidm-daemon] start queue {id}");
+                info!(queue = %id, "start queue");
                 let _ = daemon.hub.wake.send(());
             }
             Err(message) => send(&Outgoing::Error { message }),
         },
         Incoming::StopQueue { id } => match daemon.stop_queue(id) {
-            Ok(()) => eprintln!("[uidm-daemon] stop queue {id}"),
+            Ok(()) => info!(queue = %id, "stop queue"),
             Err(message) => send(&Outgoing::Error { message }),
         },
         Incoming::SetQueueOnce { id, when_done } => {
@@ -3416,7 +3409,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         Incoming::PickLinks { page, mut links, user_agent } => {
             links.retain(|l| uidm_domain::batch::is_web_url(&l.url));
             links.truncate(uidm_domain::batch::MAX_BATCH);
-            eprintln!("[uidm-daemon] {} links from {page} to pick from", links.len());
+            info!(links = links.len(), page = %page, "links to pick from");
             let msg = Outgoing::PickLinks { page, links, user_agent };
             if daemon.hub.window_open() {
                 daemon.hub.broadcast(&msg);
@@ -3485,11 +3478,11 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             }
         }
         Incoming::PauseAll => {
-            eprintln!("[uidm-daemon] pause all");
+            info!("pause all");
             daemon.pause_all();
         }
         Incoming::ResumeAll => {
-            eprintln!("[uidm-daemon] resume all");
+            info!("resume all");
             daemon.resume_all();
         }
         Incoming::GetSettings => send(&Outgoing::Settings { settings: daemon.settings.lock().unwrap().clone() }),
@@ -3499,7 +3492,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             } else {
                 daemon.with_video_button(&settings)
             }) {
-                Ok(()) => eprintln!("[uidm-daemon] settings changed"),
+                Ok(()) => info!("settings changed"),
                 Err(message) => send(&Outgoing::Error { message }),
             }
         }
@@ -3523,10 +3516,10 @@ fn spawn_scheduler(daemon: Arc<Daemon>, wake: Receiver<()>) {
                     if next != timer.at() {
                         match timer.set(next) {
                             Ok(()) => match next {
-                                Some(at) => eprintln!("[uidm-daemon] wake timer set for {}", at.display()),
-                                None => eprintln!("[uidm-daemon] wake timer cleared"),
+                                Some(at) => info!(at = %at.display(), "wake timer set"),
+                                None => info!("wake timer cleared"),
                             },
-                            Err(e) => eprintln!("[uidm-daemon] could not set the wake timer: {e}"),
+                            Err(e) => warn!(error = %e, "could not set the wake timer"),
                         }
                     }
                 }
@@ -3678,28 +3671,28 @@ fn save_page(req: &GrabRequest, m: &grab::Mirror, page: &grab::Page) {
         .map_or(Ok(()), std::fs::create_dir_all)
         .and_then(|()| uidm_infrastructure::settings::write_atomic(&here, out.as_bytes()));
     if let Err(e) = written {
-        eprintln!("[uidm-daemon] could not save {}: {e}", here.display());
+        warn!(path = %here.display(), error = %e, "could not save");
     }
 }
 
 /// Sleep, hibernate or shut down now, unless a test asked for a dry run.
 fn power_off(action: WhenDone, force_close: bool) {
     if std::env::var_os(POWER_DRY_RUN_ENV).is_some() {
-        eprintln!("[uidm-daemon] dry run: would {}", action.label());
+        info!(action = action.label(), "dry run: would do it");
         return;
     }
-    eprintln!("[uidm-daemon] {}", action.label());
+    info!(action = action.label(), "power");
     if let Err(e) = power::perform(action, force_close) {
-        eprintln!("[uidm-daemon] could not {}: {e}", action.label());
+        warn!(action = action.label(), error = %e, "power action failed");
     }
 }
 
 /// Open the program or file a queue names for the end of its run, as
 /// Explorer would on a double-click.
 fn open_after_run(file: &str) {
-    eprintln!("[uidm-daemon] opening {file}");
+    info!(file, "opening");
     if let Err(e) = uidm_infrastructure::platform::open(file.as_ref()) {
-        eprintln!("[uidm-daemon] could not open {file}: {e}");
+        warn!(file, error = %e, "could not open");
     }
 }
 
@@ -3755,7 +3748,7 @@ fn spawn_idle_monitor(daemon: Arc<Daemon>) {
             match (idle, idle_since) {
                 (true, None) => idle_since = Some(Instant::now()),
                 (true, Some(t)) if t.elapsed() >= IDLE_EXIT => {
-                    eprintln!("[uidm-daemon] idle for {}s, exiting", IDLE_EXIT.as_secs());
+                    info!(seconds = IDLE_EXIT.as_secs(), "idle, exiting");
                     daemon.save_history();
                     std::process::exit(0);
                 }

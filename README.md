@@ -770,7 +770,11 @@ desktop window (uidm-gui) ---------------+   (authenticated)   (owns downloads)
   clients and no queued or running downloads. It also shows the
   notifications, plays the sounds and runs the virus scans, since it is the
   one process running whenever a download ends. Its log is
-  `%TEMP%\uidm-daemon.log`. It keeps its files in:
+  `%LOCALAPPDATA%\UIDM\uidm-daemon.log`, beside the host's `uidm-host.log`
+  and the window's `uidm-gui.log` (`~/Library/Application Support/UIDM` on
+  macOS, `~/.local/share/uidm` on Linux). A log over 5 MB moves to `.old` when
+  the daemon starts. Passwords in addresses are hidden as `***`. It keeps its
+  files in:
   - `%APPDATA%\UIDM\settings.json`: the settings. A missing file or field
     means the default.
   - `%LOCALAPPDATA%\UIDM\history.json`: the download list and the next id,

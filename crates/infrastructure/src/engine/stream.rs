@@ -125,7 +125,7 @@ fn load_tracks(agent: &http::Client, req: &DownloadRequest, choice: &MediaChoice
                             segments: track.init.into_iter().chain(track.segments).collect(),
                         }),
                         Err(e) => {
-                            eprintln!("[uidm-engine] skipping subtitles {}: {e}", s.name);
+                            tracing::warn!(subtitles = %s.name, error = %e, "skipping subtitles");
                             None
                         }
                     })
@@ -367,11 +367,11 @@ pub(super) fn run(
         .filter_map(|(joined, range, sub)| match join_subtitle(&jobs[range], &joined) {
             Ok(true) => Some(Joined { path: joined, label: &sub.label, language: sub.language.as_deref() }),
             Ok(false) => {
-                eprintln!("[uidm-engine] skipping subtitles {}: not WebVTT", sub.label);
+                tracing::warn!(subtitles = %sub.label, "skipping subtitles: not WebVTT");
                 None
             }
             Err(e) => {
-                eprintln!("[uidm-engine] skipping subtitles {}: {e}", sub.label);
+                tracing::warn!(subtitles = %sub.label, error = %e, "skipping subtitles");
                 None
             }
         })

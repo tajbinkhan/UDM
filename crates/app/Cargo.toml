@@ -30,6 +30,8 @@ serde_json.workspace = true
 url.workspace = true
 base64.workspace = true
 percent-encoding.workspace = true
+# The binaries' log events; `uidm_infrastructure::logging` writes them.
+tracing.workspace = true
 # Immediate-mode GUI for the desktop window. Pure Rust; the default glow
 # backend renders through OpenGL.
 eframe = "0.31.1"

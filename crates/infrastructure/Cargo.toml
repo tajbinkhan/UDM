@@ -51,6 +51,13 @@ tower-service = "0.3"
 # other module reads APPDATA, LOCALAPPDATA or XDG_* (AGENTS.md section 6).
 # Its dirs-sys is already in the lockfile through another dependency.
 directories = "6"
+# The engine's log events (AGENTS.md section 11).
+tracing.workspace = true
+# The subscriber `logging` builds for each program's log file. Only the
+# plain-text formatter: no ANSI colors, no env filter (regex) and no bridge
+# from the `log` crate. `logging` appends to the files itself, so there is no
+# tracing-appender.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 # WinRT toast notifications from the daemon, DPAPI, the registry.
 [target.'cfg(windows)'.dependencies]

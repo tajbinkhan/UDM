@@ -23,7 +23,7 @@
 //! the port cannot answer step 2, so the host gives up before relaying any
 //! browser frame, and the squatter learns only a random nonce.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Read};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -320,25 +320,6 @@ pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// The daemon's log (see `paths::daemon_log`).
-pub fn daemon_log() -> PathBuf {
-    crate::paths::daemon_log()
-}
-
-/// Open the daemon's log for adding to its end, readable only by the user
-/// on Unix.
-pub fn open_daemon_log() -> io::Result<File> {
-    let log = daemon_log();
-    if let Some(dir) = log.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let mut options = fs::OpenOptions::new();
-    options.create(true).append(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(log)
-}
-
 /// A reader over a handshake that fails once `until` has passed, however
 /// slowly the bytes come: each read waits only for the time left. A plain
 /// read timeout starts again with every byte, so a client sending one byte
@@ -366,27 +347,23 @@ impl Read for Deadline<'_> {
 }
 
 /// Launch `uidm-daemon` from the host's own directory as a detached
-/// process, so it keeps running after the host and the browser exit. Its log
-/// goes to `uidm-daemon.log` in the temp folder, added to the end: a daemon
-/// that is already running keeps writing there too, and truncating the file
-/// under it would leave a run of NULs where its log was.
+/// process, so it keeps running after the host and the browser exit. It
+/// writes its own log (see `logging`), so its standard streams go nowhere.
 fn spawn_daemon() -> io::Result<()> {
     keep_stdio_private();
     // Started from where Windows keeps a package's copy of AppData, the
     // daemon would keep its files in that copy; it runs outside it instead.
     #[cfg(windows)]
     if crate::package::data_copy().is_some() {
-        let (program, mut args) = crate::platform::program("uidm-daemon")?;
-        args.push(crate::package::LOG_ARG.to_string());
+        let (program, args) = crate::platform::program("uidm-daemon")?;
         return crate::package::spawn_outside(&program, &args);
     }
-    let log = open_daemon_log()?;
     let mut daemon = crate::platform::program_command("uidm-daemon")?;
 
     crate::platform::detach(&mut daemon)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::from(log))
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| io::Error::new(e.kind(), format!("starting {:?}: {e}", daemon.get_program())))?;
     Ok(())
