@@ -301,9 +301,7 @@ const TEMPLATE_FILE: &str = "template.json";
 
 /// The file a project named `name` is kept in.
 fn project_file(dir: &Path, name: &str) -> PathBuf {
-    let safe: String =
-        name.trim().chars().map(|c| if c.is_alphanumeric() || " -_.()".contains(c) { c } else { '_' }).collect();
-    dir.join(format!("{}.project.json", safe.trim_matches('.')))
+    dir.join(format!("{}.project.json", project_file_stem(name)))
 }
 
 /// Whether saving a project named `name` in `dir` keeps every other saved

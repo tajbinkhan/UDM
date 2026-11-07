@@ -49,6 +49,8 @@ mod links;
 mod login;
 #[path = "gui/menubar.rs"]
 mod menubar;
+#[path = "gui/pending.rs"]
+mod pending;
 #[path = "gui/ports.rs"]
 mod ports;
 #[path = "gui/progress.rs"]
@@ -86,6 +88,7 @@ use std::time::{Duration, Instant};
 use categories::Filter;
 use eframe::egui;
 use i18n::{tr, trf};
+use pending::Pending;
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use state::{AppState, Forget, GrabEvent, Link, Need, UiMessage, Watch};
@@ -682,6 +685,10 @@ impl ProxyLoginDraft {
 /// An ffmpeg field's text and the ffmpeg found for it, if any.
 type FfmpegLookup = (String, Option<PathBuf>);
 
+/// What Save's worker did: each registration it made (the browser and
+/// whether it is now registered), and the settings to send, or why not.
+type SaveChecked = (Vec<(uidm_application::window::BrowserSlot, bool)>, Result<Settings, String>);
+
 /// A browser in Options' list: whether it was registered when the dialog
 /// opened, and whether it should be.
 struct BrowserDraft {
@@ -715,38 +722,47 @@ fn read_browsers(added: &[uidm_domain::settings::AddedBrowser]) -> state::Browse
             registered,
         })
         .collect();
-    rows.extend(added.iter().filter_map(|a| {
-        let target = browsers.identify(Path::new(&a.program))?;
-        let registered = browsers.registered(&target.browser);
-        Some(state::BrowserRow {
-            browser: target.browser,
-            name: a.name.clone(),
-            added: Some(a.clone()),
-            known: target.known,
-            registered,
-        })
-    }));
+    rows.extend(added.iter().filter_map(browser_row));
     state::BrowsersRead { rows, chrome_readers: browsers.chrome_readers() }
 }
 
-impl BrowserDraft {
-    /// The row for a browser added by its program, or `None` when UIDM
-    /// cannot tell what browser it is.
-    fn added(added: uidm_domain::settings::AddedBrowser) -> Option<Self> {
-        let browsers = &crate::ports::ports().browsers;
-        let target = browsers.identify(Path::new(&added.program))?;
-        let was = browsers.registered(&target.browser);
-        Some(BrowserDraft {
-            browser: target.browser,
-            name: added.name.clone(),
-            added: Some(added),
-            known: target.known,
-            was,
-            on: was,
-            removed: false,
-        })
-    }
+/// The row for a browser the user `added` by its program, or `None` when
+/// UIDM cannot tell what browser it is. Reads the disk: for workers.
+fn browser_row(added: &uidm_domain::settings::AddedBrowser) -> Option<state::BrowserRow> {
+    let browsers = &crate::ports::ports().browsers;
+    let target = browsers.identify(Path::new(&added.program))?;
+    let registered = browsers.registered(&target.browser);
+    Some(state::BrowserRow {
+        browser: target.browser,
+        name: added.name.clone(),
+        added: Some(added.clone()),
+        known: target.known,
+        registered,
+    })
+}
 
+/// Save's checks, on a worker: the settings' checks that look at the disk,
+/// then each browser registration that `changes` asks for, in order,
+/// stopping at the first that fails.
+fn check_and_register(
+    settings: Settings,
+    changes: Vec<(uidm_application::window::BrowserSlot, String, bool)>,
+) -> SaveChecked {
+    let ports = crate::ports::ports();
+    if let Err(e) = ports.checks.validate(&settings) {
+        return (Vec::new(), Err(e.0));
+    }
+    let mut done = Vec::new();
+    for (browser, name, on) in changes {
+        if let Err(e) = ports.browsers.set_registered(&browser, on) {
+            return (done, Err(trf!("Could not change {browser}: {error}", browser = name, error = e)));
+        }
+        done.push((browser, on));
+    }
+    (done, Ok(settings))
+}
+
+impl BrowserDraft {
     /// The program of a browser the user added.
     fn program(&self) -> Option<PathBuf> {
         self.added.as_ref().map(|a| PathBuf::from(&a.program))
@@ -912,6 +928,11 @@ struct OptionsDraft {
     browsers_loaded: bool,
     /// The added browsers as saved, kept while the read is awaited.
     added_saved: Vec<uidm_domain::settings::AddedBrowser>,
+    /// A picked browser program being identified on a worker.
+    adding_browser: Pending<(PathBuf, Option<state::BrowserRow>)>,
+    /// Save's disk checks and browser registrations, done on a worker:
+    /// the registrations made, and the settings to send or why not.
+    checking: Pending<SaveChecked>,
     /// Browsers found that read Chrome's registration.
     chrome_readers: Vec<String>,
     /// A browser's program chosen with "Add browser...".
@@ -1116,6 +1137,8 @@ impl OptionsDraft {
             browsers: Vec::new(),
             browsers_loaded: false,
             added_saved: s.added_browsers.clone(),
+            adding_browser: Pending::default(),
+            checking: Pending::default(),
             chrome_readers: Vec::new(),
             browser_picked: Picked::default(),
             browser_note: None,
@@ -1327,7 +1350,6 @@ impl OptionsDraft {
             // The daemon keeps its own.
             last_update_check: 0,
         };
-        crate::ports::ports().checks.validate(&settings).map_err(|e| e.0)?;
         if let Some(l) = self.logins.iter().find(|l| l.new && l.password.is_empty()) {
             return Err(trf!("The new login for {site} needs a password.", site = l.site.trim()));
         }
@@ -1360,52 +1382,70 @@ impl OptionsDraft {
         self.browsers.iter().any(|b| !b.removed && b.on && b.browser.same_place(place))
     }
 
-    /// Register or remove the browsers whose box changed, or that were
-    /// removed from the list, keeping the new state of those that worked.
-    /// Rows sharing a place (an added browser using Chrome's, say) change
-    /// together.
-    fn apply_browsers(&mut self) -> Result<(), String> {
-        let changed: Vec<usize> =
-            (0..self.browsers.len()).filter(|&i| self.wanted(i) != self.browsers[i].was).collect();
-        if changed.is_empty() {
-            return Ok(());
-        }
-        for i in changed {
+    /// The registrations Save makes: each browser whose box changed, or
+    /// that was removed from the list, with whether it is to be registered,
+    /// and its name for an error. Rows sharing a place (an added browser
+    /// using Chrome's, say) change together, so each place is listed once.
+    fn browser_changes(&self) -> Vec<(uidm_application::window::BrowserSlot, String, bool)> {
+        let mut changes: Vec<(uidm_application::window::BrowserSlot, String, bool)> = Vec::new();
+        for (i, b) in self.browsers.iter().enumerate() {
             let on = self.wanted(i);
-            if self.browsers[i].was == on {
-                continue; // done with a row sharing its place
-            }
-            let b = &self.browsers[i];
-            crate::ports::ports()
-                .browsers
-                .set_registered(&b.browser, on)
-                .map_err(|e| trf!("Could not change {browser}: {error}", browser = b.name, error = e))?;
-            let place = b.browser.clone();
-            for other in self.browsers.iter_mut().filter(|o| o.browser.same_place(&place)) {
-                other.was = on;
+            // A row sharing a place already listed changes with it.
+            if on != b.was && !changes.iter().any(|(place, _, _)| place.same_place(&b.browser)) {
+                changes.push((b.browser.clone(), b.name.clone(), on));
             }
         }
-        Ok(())
+        changes
     }
 
-    /// Add the browser whose program was picked, ticked to be registered
-    /// when Options is saved.
-    fn add_picked_browser(&mut self) {
-        let Some(program) = self.browser_picked.lock().unwrap().take() else {
-            return;
-        };
-        let added = uidm_domain::settings::AddedBrowser {
-            name: crate::ports::ports().browsers.display_name(&program),
-            program: program.display().to_string(),
-        };
-        let Some(mut row) = BrowserDraft::added(added) else {
+    /// Note the registrations Save's worker made, for every row sharing
+    /// each one's place.
+    fn registered(&mut self, done: Vec<(uidm_application::window::BrowserSlot, bool)>) {
+        for (place, on) in done {
+            for b in self.browsers.iter_mut().filter(|b| b.browser.same_place(&place)) {
+                b.was = on;
+            }
+        }
+    }
+
+    /// Start a picked browser program's identification on a worker, and
+    /// add it once that is done.
+    fn add_picked_browser(&mut self, ctx: &egui::Context) {
+        let picked = self.browser_picked.lock().unwrap().take();
+        if let Some(program) = picked {
+            self.adding_browser.start(ctx, move || {
+                let added = uidm_domain::settings::AddedBrowser {
+                    name: crate::ports::ports().browsers.display_name(&program),
+                    program: program.display().to_string(),
+                };
+                let row = browser_row(&added);
+                (program, row)
+            });
+        }
+        if let Some((program, row)) = self.adding_browser.take() {
+            self.add_browser(&program, row);
+        }
+    }
+
+    /// Add the browser at `program`, which a worker identified as `row`,
+    /// ticked to be registered when Options is saved.
+    fn add_browser(&mut self, program: &Path, row: Option<state::BrowserRow>) {
+        let Some(row) = row else {
             self.browser_note = Some(trf!(
                 "UIDM cannot tell what browser {program} is. Pick the program of a browser built on Chromium (such as Chrome, Edge, Brave, Vivaldi, Opera or Yandex) or on Firefox.",
                 program = program.display()
             ));
             return;
         };
-        row.on = true;
+        let row = BrowserDraft {
+            browser: row.browser,
+            name: row.name,
+            added: row.added,
+            known: row.known,
+            was: row.registered,
+            on: true,
+            removed: false,
+        };
         self.browser_note = Some(match (row.known, row.browser.name == row.name) {
             (true, true) => trf!("{browser} is added; it is registered when you save.", browser = row.name),
             (true, false) => trf!("{browser} is added; it reads {place}'s registration, written when you save.", browser = row.name, place = row.browser.name),
@@ -1494,12 +1534,34 @@ impl App {
         let (outbox, ctx) = (self.outbox.clone(), self.ctx.clone());
         thread::spawn(move || {
             let library = crate::ports::ports().grab.as_ref();
-            let projects = library.map(|l| l.recent()).unwrap_or_default();
-            let templates = library.map(|l| l.templates()).unwrap_or_else(uidm_domain::grab::built_in_templates);
-            if outbox.send(UiMessage::GrabLibraryRead { projects, templates }).is_ok() {
+            let read = state::GrabLibrary {
+                projects: library.map(|l| l.recent()).unwrap_or_default(),
+                templates: library.map(|l| l.templates()).unwrap_or_else(uidm_domain::grab::built_in_templates),
+                template: library.map(|l| l.template()).unwrap_or_default(),
+                filters: library.map(|l| l.filters()).unwrap_or_else(uidm_domain::grab::default_filters),
+            };
+            if outbox.send(UiMessage::GrabLibraryRead(read)).is_ok() {
                 ctx.request_repaint();
             }
         });
+    }
+
+    /// Open the project the category tree asked for, once a worker read
+    /// it. An open grabber asks to save its own project first.
+    fn open_grab_project(&mut self) {
+        match state::take_grab_opened(&mut self.state) {
+            Some(Ok(p)) => {
+                let d = tools::GrabDialog::open(p, self.state.grab_filters.clone());
+                match self.grabber.as_mut() {
+                    Some(open) => open.switch_to(d),
+                    None => self.grabber = Some(d),
+                }
+            }
+            Some(Err(e)) => {
+                state::apply(&mut self.state, UiMessage::Error(e));
+            }
+            None => {}
+        }
     }
 
     /// Apply what the threads outside the frame sent since the last frame.
@@ -1960,27 +2022,24 @@ impl App {
             }
             Action::OpenGrabber => {
                 if self.grabber.is_none() {
-                    self.grabber = Some(tools::GrabDialog::new());
+                    self.grabber =
+                        Some(tools::GrabDialog::new(&self.state.grab_template, self.state.grab_filters.clone()));
                 }
             }
             Action::OpenGrabProject(name) => {
-                let project = match crate::ports::ports().grab.as_ref() {
-                    Some(l) => l.load(&name),
-                    None => Err(uidm_domain::ports::FilesError(tr("There is no projects folder.").to_string())),
-                };
-                match project {
-                    // An open grabber asks to save its project first.
-                    Ok(p) => match self.grabber.as_mut() {
-                        Some(d) => d.switch_to(tools::GrabDialog::open(p)),
-                        None => self.grabber = Some(tools::GrabDialog::open(p)),
-                    },
-                    Err(e) => {
-                        state::apply(
-                            &mut self.state,
-                            UiMessage::Error(trf!("Could not open {name}: {error}", name = name, error = e)),
-                        );
+                // Read on a worker; `open_grab_project` opens it once it is.
+                let (outbox, ctx) = (self.outbox.clone(), self.ctx.clone());
+                thread::spawn(move || {
+                    let read = match crate::ports::ports().grab.as_deref() {
+                        Some(lib) => {
+                            lib.load(&name).map_err(|e| trf!("Could not open {name}: {error}", name = name, error = e))
+                        }
+                        None => Err(tr("There is no projects folder.").to_string()),
+                    };
+                    if outbox.send(UiMessage::GrabProjectRead(read)).is_ok() {
+                        ctx.request_repaint();
                     }
-                }
+                });
             }
             Action::Grab(req) => {
                 state::apply(&mut self.state, UiMessage::Forget(Forget::GrabEvents));
@@ -2075,6 +2134,8 @@ impl App {
                 queues: &queue_list,
                 projects: &self.state.grab_projects,
                 templates: &self.state.grab_templates,
+                template: &self.state.grab_template,
+                filters: &self.state.grab_filters,
             };
             if !tools::grab_dialog(ctx, d, &lists, &settings, rows, connected, actions) {
                 self.grabber = None;
@@ -2647,7 +2708,17 @@ impl App {
         }
         take_picked(&draft.picked, &mut draft.folder);
         take_picked(&draft.temp_picked, &mut draft.temp_dir);
-        draft.add_picked_browser();
+        draft.add_picked_browser(ctx);
+        if let Some((done, result)) = draft.checking.take() {
+            draft.registered(done);
+            match result {
+                Ok(settings) => {
+                    draft.error = None;
+                    actions.push(Action::SaveSettings(settings));
+                }
+                Err(e) => draft.error = Some(e),
+            }
+        }
         if let Some(note) = draft.restart_done.lock().unwrap().take() {
             draft.browser_note = Some(note);
         }
@@ -2709,12 +2780,13 @@ impl App {
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    let save = ui.add_enabled(connected && !saving, egui::Button::new(tr("Save")));
+                    let busy = saving || draft.checking.busy();
+                    let save = ui.add_enabled(connected && !busy, egui::Button::new(tr("Save")));
                     if save.clicked() {
-                        match draft.to_settings().and_then(|s| draft.apply_browsers().map(|()| s)) {
+                        match draft.to_settings() {
                             Ok(settings) => {
-                                draft.error = None;
-                                actions.push(Action::SaveSettings(settings));
+                                let changes = draft.browser_changes();
+                                draft.checking.start(ui.ctx(), move || check_and_register(settings, changes));
                             }
                             Err(e) => draft.error = Some(e),
                         }
@@ -4037,6 +4109,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain_inbox();
         self.refresh_library();
+        self.open_grab_project();
         // Copy what this frame needs, then draw.
         let (link, rows, speeds, last_error, settings) = {
             let s = &self.state;

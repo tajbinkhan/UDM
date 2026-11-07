@@ -908,9 +908,43 @@ pub struct Outcome {
     pub stopped: Option<String>,
 }
 
+/// The name a project's file is kept under, before `.project.json`: the
+/// project's name with each character a file name cannot hold made `_`.
+pub fn project_file_stem(name: &str) -> String {
+    let safe: String =
+        name.trim().chars().map(|c| if c.is_alphanumeric() || " -_.()".contains(c) { c } else { '_' }).collect();
+    safe.trim_matches('.').to_string()
+}
+
+/// Whether saving a project named `name` keeps every one of the saved
+/// `projects`: none has that name, or it is the project's own copy, saved
+/// as `own`. Names are compared as their files are, ignoring case as
+/// Windows does, so "a:b" and "a_b", or "Docs" and "docs", are one name.
+pub fn project_name_is_unique(projects: &[String], name: &str, own: Option<&str>) -> bool {
+    if name.trim().is_empty() {
+        return false;
+    }
+    let key = |n: &str| project_file_stem(n).to_lowercase();
+    let wanted = key(name);
+    if own.is_some_and(|own| key(own) == wanted) {
+        return true;
+    }
+    !projects.iter().any(|p| key(p) == wanted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_project_name_is_compared_as_its_file() {
+        let saved = vec!["Docs".to_string(), "a:b".to_string()];
+        assert!(!project_name_is_unique(&saved, "docs", None), "case does not matter");
+        assert!(!project_name_is_unique(&saved, "a_b", None), "a:b is kept as a_b");
+        assert!(project_name_is_unique(&saved, "docs", Some("Docs")), "its own copy");
+        assert!(project_name_is_unique(&saved, "Other", None));
+        assert!(!project_name_is_unique(&saved, "  ", None));
+    }
 
     fn request(depth: u32) -> GrabRequest {
         GrabRequest { start: "https://s/".into(), depth, ..GrabRequest::default() }
