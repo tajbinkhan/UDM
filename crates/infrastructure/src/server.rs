@@ -26,7 +26,7 @@ use std::time::Instant;
 
 use tracing::{info, warn};
 
-use uidm_application::daemon::{Event, Reply, Requests};
+use uidm_application::daemon::{ClientList, Event, Reply, Requests};
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::front::Windows;
@@ -207,6 +207,40 @@ impl Clients {
     #[doc(hidden)]
     pub fn set_browser_seen(&self, at: Option<u64>) {
         *lock(&self.browser_seen) = at;
+    }
+}
+
+impl ClientList for Clients {
+    fn is_empty(&self) -> bool {
+        Clients::is_empty(self)
+    }
+
+    fn window_open(&self) -> bool {
+        Clients::window_open(self)
+    }
+
+    fn is_window(&self, client: u64) -> bool {
+        Clients::is_window(self, client)
+    }
+
+    fn add_window(&self, client: u64) {
+        Clients::add_window(self, client);
+    }
+
+    fn browser_connected(&self, client: u64) {
+        Clients::browser_connected(self, client);
+    }
+
+    fn browser_link(&self) -> Event {
+        Clients::browser_link(self)
+    }
+
+    fn broadcast(&self, event: Event) {
+        Clients::broadcast(self, event);
+    }
+
+    fn to_windows(&self, event: Event) {
+        Clients::to_windows(self, event);
     }
 }
 

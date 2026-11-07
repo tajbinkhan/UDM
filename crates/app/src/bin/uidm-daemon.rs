@@ -52,7 +52,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tracing::{error, info, warn};
-use uidm_application::daemon::{Command, Event, Reply, Requests};
+use uidm_application::daemon::{ClientList, Command, Event, Reply, Requests};
 use uidm_application::downloads::{
     AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
     Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
@@ -71,7 +71,10 @@ use uidm_domain::download::Scan;
 use uidm_domain::download::ZipEntry;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status};
 use uidm_domain::grab::RenderedPage;
-use uidm_domain::ports::{Browser, DownloadControl, DownloadList, Probes, SiteCrawler};
+use uidm_domain::ports::{
+    Attention, Browser, Clock, DownloadControl, DownloadList, FileOpener, GrabProjects, Probes, SaveFolders,
+    SiteCrawler, Timestamps, VirusScanner,
+};
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
 };
@@ -82,7 +85,7 @@ use uidm_infrastructure::clock::{LocalClock, StoppedClock};
 use uidm_infrastructure::connect::ProxyRetries;
 use uidm_infrastructure::conversions::Conversions;
 use uidm_infrastructure::crawler::Crawler;
-use uidm_infrastructure::engine::{self, Engine};
+use uidm_infrastructure::engine::Engine;
 use uidm_infrastructure::files::DiskFiles;
 use uidm_infrastructure::front::{self, AnswerWait, Front, Hook, Notifier, Windows};
 use uidm_infrastructure::grab::{self, GrabRequest};
@@ -90,11 +93,12 @@ use uidm_infrastructure::history;
 use uidm_infrastructure::live_settings::{LiveSettings, QueueChimes};
 use uidm_infrastructure::logging;
 use uidm_infrastructure::net;
-use uidm_infrastructure::power_control::{self, PowerOff, RunEnds};
+use uidm_infrastructure::platform::Desktop;
+use uidm_infrastructure::power_control::{PowerOff, RunEnds};
 use uidm_infrastructure::probes::ServerProbes;
 use uidm_infrastructure::queue_runs::{PauseBook, RunBook};
 use uidm_infrastructure::quota::QuotaHold;
-use uidm_infrastructure::scan;
+use uidm_infrastructure::scan::Antivirus;
 use uidm_infrastructure::server::{Clients, Server};
 use uidm_infrastructure::settings::{self, Duplicate, FileExists, Settings};
 use uidm_infrastructure::store::{check_body, DownloadStore, Ended, Intake, StoreEvents, StoreFiles};
@@ -153,7 +157,22 @@ struct Daemon {
     engine: Arc<Engine>,
     /// The download list, the kept requests and the queues.
     store: Arc<DownloadStore>,
-    clients: Arc<Clients>,
+    /// The connected clients, for the use cases.
+    clients: Arc<dyn ClientList>,
+    /// The same list as the server keeps it, for wiring.
+    connections: Arc<Clients>,
+    /// The local time.
+    clock: LocalClock,
+    /// The grabber's saved projects, when their folder can be found.
+    projects: Option<Arc<grab::ProjectFiles>>,
+    /// Where downloads are saved.
+    folders: Arc<dyn SaveFolders>,
+    /// The virus scanner.
+    scanner: Arc<dyn VirusScanner>,
+    /// Opens the file a grabber project names for the end of its run.
+    opener: Arc<dyn FileOpener>,
+    /// Where the newest release is asked for.
+    release_url: String,
     /// Finished and failed downloads, for the notification thread.
     notes: Sender<Note>,
     /// Wakes the scheduler when a download ends or a queue changes.
@@ -337,7 +356,14 @@ impl Daemon {
         let daemon = Daemon {
             engine,
             store,
-            clients,
+            clients: Arc::clone(&clients) as _,
+            connections: clients,
+            clock: LocalClock,
+            projects: grab::projects_dir().ok().map(|dir| Arc::new(grab::ProjectFiles(dir))),
+            folders: Arc::new(DiskFiles),
+            scanner: Arc::new(Antivirus),
+            opener: Arc::new(Desktop),
+            release_url: uidm_infrastructure::update::LATEST_RELEASE.to_string(),
             notes,
             wake,
             settings,
@@ -395,7 +421,7 @@ impl Daemon {
     /// Start a queue: its waiting downloads run in order. `scheduled_day` is
     /// the day whose scheduled run this is, or `None` when started by hand.
     fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), String> {
-        StartQueue::new(&*self.store, &self.run_book, &LocalClock, &self.chimes)
+        StartQueue::new(&*self.store, &self.run_book, &self.clock, &self.chimes)
             .run(id, scheduled_day)
             .map_err(|e| e.to_string())
     }
@@ -413,7 +439,7 @@ impl Daemon {
         let _guard = self.tick_lock.lock().unwrap();
         self.check_quota();
         let scheduled =
-            RunSchedules::new(&*self.store, &*self.store, &self.run_book, &*self.transfers, &LocalClock, &self.chimes)
+            RunSchedules::new(&*self.store, &*self.store, &self.run_book, &*self.transfers, &self.clock, &self.chimes)
                 .run();
         for Scheduled { queue, step } in scheduled {
             let why = match step {
@@ -532,17 +558,13 @@ impl Daemon {
         let from_queues = queues.iter().filter(|q| !q.running).filter_map(|q| {
             q.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, q.last_scheduled_start))
         });
-        let projects = grab::projects_dir()
-            .map(|dir| {
-                grab::recent_projects(&dir)
-                    .iter()
-                    .filter_map(|name| grab::load_project(&dir, name).ok())
-                    .filter_map(|p| {
-                        p.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, p.last_scheduled_start))
-                    })
-                    .collect::<Vec<_>>()
+        let projects: Vec<queue::Moment> = self
+            .saved_projects()
+            .iter()
+            .filter_map(|p| {
+                p.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, p.last_scheduled_start))
             })
-            .unwrap_or_default();
+            .collect();
         from_queues.chain(projects).filter(|m| *m > now).min()
     }
 
@@ -558,18 +580,14 @@ impl Daemon {
     /// Whether the daemon must stay up for a queue: one is started, one has a
     /// schedule ahead, or a countdown runs.
     fn queues_need_daemon(&self) -> bool {
-        let now = uidm_infrastructure::clock::local_now();
+        let now = self.clock.now();
         let projects = || {
-            let Ok(dir) = grab::projects_dir() else {
-                return false;
-            };
             !self.grab_runs.lock().unwrap().is_empty()
-                || grab::recent_projects(&dir).iter().any(|name| {
-                    grab::load_project(&dir, name)
-                        .ok()
-                        .and_then(|p| p.schedule)
-                        .is_some_and(|s| s.next_start(now).is_some() || s.open_run(now).is_some())
-                })
+                || self
+                    .saved_projects()
+                    .into_iter()
+                    .filter_map(|p| p.schedule)
+                    .any(|s| s.next_start(now).is_some() || s.open_run(now).is_some())
         };
         self.countdown_message().is_some()
             || projects()
@@ -579,13 +597,21 @@ impl Daemon {
             })
     }
 
+    /// Every saved grabber project that can be read.
+    fn saved_projects(&self) -> Vec<grab::Project> {
+        let Some(projects) = &self.projects else {
+            return Vec::new();
+        };
+        projects.names().iter().filter_map(|name| projects.load(name)).collect()
+    }
+
     fn entry(&self, id: u64) -> Option<DownloadEntry> {
         self.store.table().get(id).cloned()
     }
 
     /// Bring the window forward: ask an open one to show itself, or start one.
     fn show_window(&self) {
-        front::show_window(&*self.clients);
+        self.front.show_window();
     }
 
     /// Stop every queued or running download, remembering them for
@@ -603,21 +629,21 @@ impl Daemon {
     /// The quota's state for a window that just connected, if downloads are
     /// paused for it or it is nearly reached.
     fn quota_message(&self) -> Option<Event> {
-        let now = uidm_infrastructure::quota::now_minute();
-        QuotaStatus::new(&self.quota).run(self.quota_limit(), now).map(uidm_infrastructure::quota::notice_event)
+        let now = self.clock.unix_now() / 60;
+        QuotaStatus::new(&self.quota).run(self.quota_limit(), now).map(Event::from)
     }
 
     /// Pause everything when the download quota is reached, warn shortly
     /// before, and resume what it stopped once the window allows (see
     /// `CheckQuota`). Runs with the scheduler.
     fn check_quota(&self) {
-        let now = uidm_infrastructure::quota::now_minute();
+        let now = self.clock.unix_now() / 60;
         let check = CheckQuota::new(
             &*self.store,
             &*self.store,
             &self.run_book,
             &*self.transfers,
-            &LocalClock,
+            &self.clock,
             &self.chimes,
             &self.quota,
         );
@@ -643,7 +669,7 @@ impl Daemon {
             &self.run_book,
             &*self.transfers,
             &self.pause_book,
-            &LocalClock,
+            &self.clock,
             &self.chimes,
         )
         .run();
@@ -671,7 +697,7 @@ impl Daemon {
                 let daemon = Arc::clone(self);
                 thread::spawn(move || {
                     let path = PathBuf::from(entry.path.unwrap_or_default());
-                    let result = scan::scan(settings.scanner, &settings.scanner_command, &path);
+                    let result = daemon.scanner.scan(&settings, &path);
                     info!(download_id = id, result = ?result, "scanned");
                     let _ = daemon.store.update(id, |e| {
                         e.scan = Some(result);
@@ -718,16 +744,14 @@ impl Daemon {
         if download.start == Some(false) || (download.start.is_none() && settings.add_only) {
             return self.add_later(download);
         }
-        let name = engine::Inspection::unprobed(&download.url, download.filename.as_deref()).filename;
+        let name = uidm_domain::filename::proposed_name(&download.url, download.filename.as_deref());
         // A folder UIDM may not write to asks first, so the dialog can offer
         // administrator rights or another folder.
         let folder = match download.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
             Some(f) => f.to_path_buf(),
-            None => settings
-                .folders_for(&download.url, &uidm_infrastructure::settings::default_downloads_dir())
-                .for_name(&name),
+            None => settings.folders_for(&download.url, &self.folders.downloads_dir()).for_name(&name),
         };
-        let denied = !download.elevate && !uidm_infrastructure::elevate::can_write(&folder);
+        let denied = !download.elevate && !self.folders.can_write(&folder);
         if denied || download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(&name)) {
             self.ask(download, None)
         } else {
@@ -911,23 +935,23 @@ impl Daemon {
             }
             *last = Some(Instant::now());
         }
-        self.run_grab_schedules(uidm_infrastructure::clock::local_now());
+        self.run_grab_schedules(self.clock.now());
     }
 
     /// Start the saved grabber projects whose scheduled run is due, each on
     /// its own thread. Runs with the scheduler.
     fn run_grab_schedules(self: &Arc<Self>, now: queue::Moment) {
-        let Ok(dir) = grab::projects_dir() else {
+        let Some(projects) = self.projects.clone() else {
             return;
         };
         let runs = {
-            let (daemon, dir) = (Arc::clone(self), dir.clone());
+            let (daemon, files) = (Arc::clone(self), Arc::clone(&projects));
             grab::ScheduledGrabs::new(
                 Arc::clone(&self.grab_runs),
-                Arc::new(move |project, day| daemon.run_scheduled_grab(&dir, project, day)),
+                Arc::new(move |project, day| daemon.run_scheduled_grab(&*files, project, day)),
             )
         };
-        for started in RunGrabSchedules::new(&grab::ProjectFiles(dir), &runs, &StoppedClock(now)).run() {
+        for started in RunGrabSchedules::new(&*projects, &runs, &StoppedClock(now)).run() {
             if let Some(e) = started.not_saved {
                 warn!(project = %started.project, error = %e, "could not save the grabber project");
             }
@@ -940,7 +964,7 @@ impl Daemon {
     /// only add the ticked files and start the queue. The stop time ends the
     /// queue's run too, and what the project asks when done (with its own
     /// force-close choice) happens after the crawl, or once the queue is done.
-    fn run_scheduled_grab(self: &Arc<Self>, dir: &Path, mut project: grab::Project, day: i64) {
+    fn run_scheduled_grab(self: &Arc<Self>, projects: &dyn GrabProjects, mut project: grab::Project, day: i64) {
         info!(project = %project.name, run = ?project.run, "schedule runs a grabber project");
         let end = project.schedule.as_ref().filter(|s| s.stop.is_some()).and_then(|s| s.end_of_run(day));
         let resync;
@@ -953,7 +977,7 @@ impl Daemon {
             run => {
                 let stop = AtomicBool::new(false);
                 let out = self.crawler.crawl(&project.request, login.as_deref(), &stop, &mut |_| {
-                    if end.is_some_and(|end| uidm_infrastructure::clock::local_now() >= end) {
+                    if end.is_some_and(|end| self.clock.now() >= end) {
                         stop.store(true, Ordering::Relaxed);
                     }
                 });
@@ -967,7 +991,7 @@ impl Daemon {
                 }
             }
         };
-        if let Err(e) = grab::save_project(&project, dir) {
+        if let Err(e) = projects.save(&project) {
             warn!(project = %project.name, error = %e, "could not save the grabber project");
         }
         // Set before the queue starts, so a run that ends at once still
@@ -1010,7 +1034,7 @@ impl Daemon {
                 });
             }
             if let Some(file) = &project.open_when_done {
-                power_control::open_after_run(file);
+                self.opener.open(file);
             }
             self.when_done(project.when_done, &project.name, None, project.force_close);
         }
@@ -1019,12 +1043,7 @@ impl Daemon {
     /// `ConvertDownload`). The new file is a row of its own: added and
     /// started now, with ffmpeg's progress, done with a note, or failed with
     /// ffmpeg's complaint.
-    fn convert(
-        self: &Arc<Self>,
-        id: u64,
-        to: uidm_infrastructure::media::convert::Target,
-        delete_original: bool,
-    ) -> Result<(), String> {
+    fn convert(self: &Arc<Self>, id: u64, to: uidm_domain::media::Target, delete_original: bool) -> Result<(), String> {
         let output = ConvertDownload::new(&*self.store, &DiskFiles, &self.conversions)
             .run(id, to, delete_original)
             .map_err(|e| e.to_string())?;
@@ -1036,7 +1055,7 @@ impl Daemon {
     /// proxy, and note when that happened.
     fn check_update(&self, url: &str) -> Event {
         let github = GitHub::new(Arc::clone(&self.settings), Arc::clone(&self.browser_proxy_retries), url);
-        match CheckForUpdate::new(&github, &*self.settings, VERSION).run(uidm_infrastructure::state::unix_now()) {
+        match CheckForUpdate::new(&github, &*self.settings, VERSION).run(self.clock.unix_now()) {
             Ok(newer) => Event::Update { newer, error: None },
             Err(e) => Event::Update { newer: None, error: Some(e.to_string()) },
         }
@@ -1046,13 +1065,10 @@ impl Daemon {
     /// list and quit with the windows, so Setup can replace the files.
     /// Setup closes whatever is left.
     fn install_update(&self) -> Result<(), String> {
-        let github = GitHub::new(
-            Arc::clone(&self.settings),
-            Arc::clone(&self.browser_proxy_retries),
-            uidm_infrastructure::update::LATEST_RELEASE,
-        );
+        let github =
+            GitHub::new(Arc::clone(&self.settings), Arc::clone(&self.browser_proxy_retries), &self.release_url);
         let path = InstallUpdate::new(&github, &*self.settings, VERSION)
-            .run(uidm_infrastructure::state::unix_now())
+            .run(self.clock.unix_now())
             .map_err(|e| e.to_string())?;
         info!(path = %path.display(), "started the update; quitting for it");
         self.pause_all();
@@ -1064,14 +1080,12 @@ impl Daemon {
     /// Once a week, when a window connects, look for a newer release on
     /// another thread and tell the windows if there is one.
     fn weekly_update_check(self: &Arc<Self>) {
-        if !ClaimWeeklyCheck::new(&*self.settings).run(uidm_infrastructure::state::unix_now()) {
+        if !ClaimWeeklyCheck::new(&*self.settings).run(self.clock.unix_now()) {
             return;
         }
         let daemon = Arc::clone(self);
         thread::spawn(move || {
-            if let msg @ Event::Update { newer: Some(_), .. } =
-                daemon.check_update(uidm_infrastructure::update::LATEST_RELEASE)
-            {
+            if let msg @ Event::Update { newer: Some(_), .. } = daemon.check_update(&daemon.release_url) {
                 daemon.clients.broadcast(msg);
             }
         });
@@ -1477,7 +1491,7 @@ fn run() -> io::Result<()> {
         );
     }
 
-    let clients = Arc::clone(&daemon.clients);
+    let clients = Arc::clone(&daemon.connections);
     server.serve(clients, Arc::new(Served(daemon)));
     Ok(())
 }
@@ -1689,7 +1703,7 @@ fn dispatch(incoming: Command, daemon: &Arc<Daemon>, client: u64, reply: &Reply)
         Command::CheckUpdate => {
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
-                reply.send(daemon.check_update(uidm_infrastructure::update::LATEST_RELEASE));
+                reply.send(daemon.check_update(&daemon.release_url));
             });
         }
         Command::Rendered { request, html, url, popups } => {
@@ -1751,6 +1765,7 @@ mod tests {
     use uidm_domain::download::DownloadLogin;
     use uidm_domain::ports::QuotaState;
     use uidm_domain::quota::Usage;
+    use uidm_infrastructure::engine;
     use uidm_infrastructure::protocol::Outgoing;
     use uidm_infrastructure::server;
 
@@ -1839,7 +1854,7 @@ mod tests {
 
     /// Hand `raw` to the daemon as client `client` sent it.
     fn send(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Reply) {
-        server::receive(&daemon.clients, &Served(Arc::clone(daemon)), client, raw, reply);
+        server::receive(&daemon.connections, &Served(Arc::clone(daemon)), client, raw, reply);
     }
 
     struct Setup {
@@ -1862,7 +1877,7 @@ mod tests {
             s.ask_where_to_save = false;
             s.if_duplicate = choice;
         }
-        let (_reply, window) = daemon.clients.connect(1);
+        let (_reply, window) = daemon.connections.connect(1);
         daemon.clients.add_window(1);
         Setup { daemon: Arc::new(daemon), dir, window }
     }
@@ -1919,24 +1934,24 @@ mod tests {
         assert!(matches!(t.daemon.clients.browser_link(), Event::BrowserLink { connected: false, last_seen: None }));
 
         // The extension says hello with no `client`.
-        let (tx, _browser) = t.daemon.clients.connect(2);
+        let (tx, _browser) = t.daemon.connections.connect(2);
         send(br#"{"op":"hello","version":"1"}"#, &t.daemon, 2, &tx);
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: true, .. })));
-        assert!(t.daemon.clients.browser_seen().is_some());
+        assert!(t.daemon.connections.browser_seen().is_some());
 
         // A second one is no news; the first going is none either.
-        let (tx3, _browser3) = t.daemon.clients.connect(3);
+        let (tx3, _browser3) = t.daemon.connections.connect(3);
         send(br#"{"op":"hello"}"#, &t.daemon, 3, &tx3);
-        t.daemon.clients.client_gone(2);
+        t.daemon.connections.client_gone(2);
         assert!(!t.window_got(|m| matches!(m, Outgoing::BrowserLink { .. })));
 
         // Anything it sends keeps it seen.
-        t.daemon.clients.set_browser_seen(Some(1));
+        t.daemon.connections.set_browser_seen(Some(1));
         send(br#"{"op":"ping"}"#, &t.daemon, 3, &tx3);
-        assert!(t.daemon.clients.browser_seen().is_some_and(|s| s > 1));
+        assert!(t.daemon.connections.browser_seen().is_some_and(|s| s > 1));
 
         // The last one going is, with when.
-        t.daemon.clients.client_gone(3);
+        t.daemon.connections.client_gone(3);
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: false, last_seen: Some(s) } if *s > 1)));
     }
 
@@ -1962,7 +1977,7 @@ mod tests {
         assert_eq!(e.on_done, None);
 
         // No window: it waits for the one this call opens, then has /q.
-        t.daemon.clients.client_gone(1);
+        t.daemon.connections.client_gone(1);
         let (reply, _) = ask("https://example.com/new.bin");
         assert!(matches!(reply, Outgoing::CommandLine { window_open: false }));
         assert!(entry("https://example.com/new.bin").is_none(), "held for the window");
@@ -1972,7 +1987,7 @@ mod tests {
         assert_eq!(e.on_done.map(|o| o.then), Some(WhenDone::Exit));
 
         // One held too long belonged to a window that never came.
-        t.daemon.clients.client_gone(1);
+        t.daemon.connections.client_gone(1);
         ask("https://example.com/stale.bin");
         let held = t.daemon.command_line.lock().unwrap().take().unwrap().0;
         let old = Instant::now().checked_sub(COMMAND_LINE_WAIT + Duration::from_secs(1)).unwrap();
@@ -2782,7 +2797,7 @@ mod tests {
         }))
         .unwrap();
         let dir = t.dir.join("projects");
-        t.daemon.run_scheduled_grab(&dir, project, 1);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), project, 1);
         let saved = grab::load_project(&dir, "nightly").unwrap();
         assert_eq!(saved.seen, [format!("http://{addr}/report.pdf")]);
         assert_eq!(t.len(), 1, "the new find was added");
@@ -2790,7 +2805,7 @@ mod tests {
             t.daemon.store.queues().iter().any(|q| q.id == MAIN_QUEUE && q.max_concurrent == 3),
             "the grabber's files at once"
         );
-        t.daemon.run_scheduled_grab(&dir, saved.clone(), 2);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), saved.clone(), 2);
         assert_eq!(t.len(), 1, "nothing new the second time");
 
         // Downloading the ticked files reads no page.
@@ -2817,7 +2832,7 @@ mod tests {
             checked: vec![true, false],
             ..saved
         };
-        t.daemon.run_scheduled_grab(&dir, checked, 3);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), checked, 3);
         assert_eq!(t.len(), 2, "only the ticked file was added");
     }
 
@@ -3033,7 +3048,7 @@ mod tests {
 
         // One-time: what is in the list already is not looked at.
         *file.lock().unwrap() = (b"manual 2!".to_vec(), Some("\"m2\"".to_string()));
-        t.daemon.run_scheduled_grab(&dir, project.clone(), 1);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), project.clone(), 1);
         assert_eq!(t.len(), 1);
         assert_eq!(t.daemon.transfers.status(id), Some(Status::Done));
         assert_eq!(std::fs::read(&path).unwrap(), b"manual 1");
@@ -3042,7 +3057,7 @@ mod tests {
         // where a duplicate would get a new name.
         t.daemon.settings.lock().if_duplicate = Duplicate::NewName;
         project.kind = queue::QueueKind::Synchronize;
-        t.daemon.run_scheduled_grab(&dir, project, 2);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), project, 2);
         assert_eq!(t.len(), 1, "no new row");
         let until = Instant::now() + Duration::from_secs(10);
         while std::fs::read(&path).unwrap() != b"manual 2!" {
@@ -3075,7 +3090,7 @@ mod tests {
         project.checked = vec![true];
         let dir = t.dir.join("projects");
         // Tomorrow's run, so its stop time is still ahead.
-        t.daemon.run_scheduled_grab(&dir, project, today + 1);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), project, today + 1);
         let main = || t.daemon.store.queues().iter().find(|q| q.id == MAIN_QUEUE).cloned().unwrap();
         assert_eq!(main().stop_at_once, Some((today + 1) * 1440 + 60), "the queue's run has the project's stop time");
         assert!(main().running);
@@ -3119,7 +3134,7 @@ mod tests {
             vec![grab::GrabFile { url, name: "joins.bin".into(), page: String::new(), size: None, text: None }];
         project.checked = vec![true];
         t.daemon.start_queue(MAIN_QUEUE, None).unwrap();
-        t.daemon.run_scheduled_grab(&t.dir.join("projects"), project, today + 1);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(t.dir.join("projects").clone()), project, today + 1);
         let main = t.daemon.store.queues().iter().find(|q| q.id == MAIN_QUEUE).cloned().unwrap();
         assert!(main.running);
         assert_eq!(main.order.len(), 1, "the project's file joined the run");
@@ -3150,7 +3165,7 @@ mod tests {
         };
 
         // Nothing to download: done at once.
-        t.daemon.run_scheduled_grab(&dir, project.clone(), 1);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), project.clone(), 1);
         assert_eq!(countdown_forces(&t), Some((WhenDone::ShutDown, true)));
 
         // Done once the queue is, which does not force on its own.
@@ -3158,7 +3173,7 @@ mod tests {
         let url = serve_versions(file);
         project.files = vec![grab::GrabFile { url, name: "d.bin".into(), page: String::new(), size: None, text: None }];
         project.checked = vec![true];
-        t.daemon.run_scheduled_grab(&dir, project, 2);
+        t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), project, 2);
         assert_eq!(t.daemon.store.queues()[0].force_close_once, Some(true));
         let until = Instant::now() + Duration::from_secs(10);
         while t.daemon.store.queues().iter().any(|q| q.id == MAIN_QUEUE && q.running) {

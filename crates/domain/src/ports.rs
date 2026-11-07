@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-use crate::download::{Download, DownloadEntry, Status, ZipEntry};
+use crate::download::{Download, DownloadEntry, Scan, Status, ZipEntry};
 use crate::grab::{GrabRequest, Outcome, Project, RenderedPage};
 use crate::media::{Conversion, MediaInfo};
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
@@ -470,4 +470,33 @@ pub trait SiteCrawler: Send + Sync {
 /// The computer's local date and time.
 pub trait Clock: Send + Sync {
     fn now(&self) -> Moment;
+}
+
+/// The time as seconds since 1970, for what is kept across restarts (the
+/// weekly update check, the download quota's minutes).
+pub trait Timestamps: Send + Sync {
+    fn unix_now(&self) -> u64;
+}
+
+/// Where downloads are saved.
+pub trait SaveFolders: Send + Sync {
+    /// The system's Downloads folder, which the settings' folders start
+    /// from.
+    fn downloads_dir(&self) -> PathBuf;
+
+    /// Whether UIDM may write in `folder`, or in the nearest folder above it
+    /// that exists. A folder it may not write to needs administrator rights.
+    fn can_write(&self, folder: &Path) -> bool;
+}
+
+/// The virus scanner the settings name.
+pub trait VirusScanner: Send + Sync {
+    /// Scan the file at `path` with `settings`' scanner, waiting for it.
+    fn scan(&self, settings: &Settings, path: &Path) -> Scan;
+}
+
+/// Opening files as the desktop would on a double-click.
+pub trait FileOpener: Send + Sync {
+    /// Open `file`, a program or a document. Failures are logged.
+    fn open(&self, file: &str);
 }

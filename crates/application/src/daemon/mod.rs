@@ -18,6 +18,7 @@ use uidm_domain::download::{
 use uidm_domain::grab::{GrabFile, GrabRequest};
 use uidm_domain::media::{MediaInfo, Target};
 use uidm_domain::queue::{Queue, WhenDone};
+use uidm_domain::quota::QuotaNotice;
 use uidm_domain::settings::Settings;
 use uidm_domain::update::Release;
 
@@ -417,6 +418,13 @@ pub enum Event {
     },
 }
 
+impl From<QuotaNotice> for Event {
+    /// The `Quota` event that tells the clients `notice`.
+    fn from(n: QuotaNotice) -> Self {
+        Event::Quota { used: n.used, limit: n.limit, paused: n.paused, resumes_at: n.resumes_at }
+    }
+}
+
 /// Why a one-off request to the daemon failed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DaemonError {
@@ -461,6 +469,35 @@ impl Reply {
     pub fn send(&self, event: Event) -> bool {
         (self.0)(event)
     }
+}
+
+/// The daemon's connected clients: which are windows and which the browser
+/// extension, and how an event reaches them.
+pub trait ClientList: Send + Sync {
+    /// Whether no client is connected.
+    fn is_empty(&self) -> bool;
+
+    /// Whether a desktop window is connected.
+    fn window_open(&self) -> bool;
+
+    /// Whether client `client` is a desktop window.
+    fn is_window(&self, client: u64) -> bool;
+
+    /// Note that client `client` is a desktop window.
+    fn add_window(&self, client: u64);
+
+    /// Note that client `client` is the browser extension; the windows
+    /// hear of it when it is the only one.
+    fn browser_connected(&self, client: u64);
+
+    /// Whether the browser extension is connected, and when one last was.
+    fn browser_link(&self) -> Event;
+
+    /// Send `event` to every client.
+    fn broadcast(&self, event: Event);
+
+    /// Send `event` to the desktop windows only.
+    fn to_windows(&self, event: Event);
 }
 
 /// What the daemon does with its clients' commands: the port its server

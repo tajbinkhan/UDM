@@ -203,6 +203,18 @@ fn zone_url(url: &str) -> Option<String> {
     Some(parsed.to_string().replace(['\r', '\n'], ""))
 }
 
+/// The `FileOpener` adapter: opens files with the desktop's default program.
+pub struct Desktop;
+
+impl uidm_domain::ports::FileOpener for Desktop {
+    fn open(&self, file: &str) {
+        tracing::info!(file, "opening");
+        if let Err(e) = open(file.as_ref()) {
+            tracing::warn!(file, error = %e, "could not open");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
