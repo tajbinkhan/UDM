@@ -88,7 +88,7 @@ use eframe::egui;
 use i18n::{tr, trf};
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use state::{AppState, GrabEvent, Link, Need, UiMessage, Watch};
+use state::{AppState, Forget, GrabEvent, Link, Need, UiMessage, Watch};
 use uidm_application::daemon::{Command, DaemonClient, DaemonError};
 use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, Status};
 use uidm_domain::grab::GrabRequest;
@@ -1665,13 +1665,12 @@ impl App {
                 open_file(&path);
             }
             Action::DismissCompleted => {
-                let s = &mut self.state;
-                s.completed.pop_front();
+                state::apply(&mut self.state, UiMessage::Forget(Forget::Completed));
                 // "Don't show this dialog again": Windows notifications from
                 // now on, and the dialogs still waiting go too.
                 if std::mem::take(&mut self.hide_completed) {
-                    s.completed.clear();
-                    if let Some(mut settings) = s.settings.clone() {
+                    state::apply(&mut self.state, UiMessage::Forget(Forget::AllCompleted));
+                    if let Some(mut settings) = self.state.settings.clone() {
                         settings.notify = Notify::Toast;
                         self.daemon.send(Command::SetSettings { settings });
                     }
@@ -1684,12 +1683,12 @@ impl App {
                 self.daemon.send(Command::Convert { id, to, delete_original });
             }
             Action::InstallUpdate => {
-                self.state.installing = Some(None);
+                state::apply(&mut self.state, UiMessage::InstallStarted);
                 self.about = Some(true);
                 self.daemon.send(Command::InstallUpdate);
             }
             Action::CheckUpdate => {
-                self.state.update = None;
+                state::apply(&mut self.state, UiMessage::UpdateCheckStarted);
                 self.about = Some(true);
                 self.daemon.send(Command::CheckUpdate);
             }
@@ -1702,9 +1701,7 @@ impl App {
             }
             Action::Reconnect => self.connect(),
             Action::RestartDaemon => {
-                let shared = &mut self.state;
-                shared.stale_daemon = false;
-                shared.last_error = None;
+                state::apply(&mut self.state, UiMessage::DaemonRestarting);
                 self.connect_with(true);
             }
             Action::OpenOptions => {
@@ -1713,24 +1710,15 @@ impl App {
                 }
             }
             Action::OpenLogin(id) => {
-                let s = &mut self.state;
-                if !s.login_wanted.contains(&id) {
-                    s.login_wanted.push_front(id);
-                }
+                state::apply(&mut self.state, UiMessage::LoginAsked(id));
             }
             Action::AddDownload(download) => {
                 self.daemon.send(Command::Add(download));
             }
             Action::SaveSettings(settings) => {
-                {
-                    let s = &mut self.state;
-                    s.saving = true;
-                    s.save_result = None;
-                }
+                state::apply(&mut self.state, UiMessage::SavingSettings);
                 if !self.daemon.send(Command::SetSettings { settings }) {
-                    let s = &mut self.state;
-                    s.saving = false;
-                    s.save_result = Some(Err(tr("not connected to the UIDM daemon").into()));
+                    state::apply(&mut self.state, UiMessage::SaveFailed(tr("not connected to the UIDM daemon").into()));
                 }
             }
             Action::QuickSettings(settings) => {
@@ -1835,11 +1823,11 @@ impl App {
                 self.daemon.send(Command::SetProperties { id, changes });
             }
             Action::OpenRefresh(id) => {
-                self.state.refresh_mismatch = None;
+                state::apply(&mut self.state, UiMessage::Forget(Forget::RefreshMismatch));
                 self.refresh = Some((id, String::new()));
             }
             Action::RefreshWith { id, url, restart } => {
-                self.state.refresh_mismatch = None;
+                state::apply(&mut self.state, UiMessage::Forget(Forget::RefreshMismatch));
                 self.daemon.send(Command::RefreshLink {
                     id,
                     download: Some(Download { url, ..Download::default() }),
@@ -1878,7 +1866,10 @@ impl App {
             Action::BatchFromClipboard => {
                 let links = uidm_domain::batch::links_in(&win::clipboard_text().unwrap_or_default());
                 if links.is_empty() {
-                    self.state.last_error = Some(tr("The clipboard holds no http, https or ftp links.").into());
+                    state::apply(
+                        &mut self.state,
+                        UiMessage::Error(tr("The clipboard holds no http, https or ftp links.").into()),
+                    );
                 } else {
                     self.batch = Some(tools::BatchDialog::with_list(&links));
                 }
@@ -1908,12 +1899,15 @@ impl App {
                         None => self.grabber = Some(tools::GrabDialog::open(p)),
                     },
                     Err(e) => {
-                        self.state.last_error = Some(trf!("Could not open {name}: {error}", name = name, error = e));
+                        state::apply(
+                            &mut self.state,
+                            UiMessage::Error(trf!("Could not open {name}: {error}", name = name, error = e)),
+                        );
                     }
                 }
             }
             Action::Grab(req) => {
-                self.state.grab_events.clear();
+                state::apply(&mut self.state, UiMessage::Forget(Forget::GrabEvents));
                 self.daemon.send(Command::Grab(req));
             }
             Action::ProbeLinks { request, links } => {
@@ -1968,7 +1962,9 @@ impl App {
             });
             match opened {
                 Ok(d) => self.batch = Some(d),
-                Err(e) => self.state.last_error = Some(e),
+                Err(e) => {
+                    state::apply(&mut self.state, UiMessage::Error(e));
+                }
             }
         }
         if let Some(d) = self.batch.as_mut() {
@@ -1983,7 +1979,7 @@ impl App {
                 self.export = None;
             }
         }
-        let events: Vec<GrabEvent> = self.state.grab_events.drain(..).collect();
+        let events: Vec<GrabEvent> = state::take_grab_events(&mut self.state);
         if let Some(d) = self.grabber.as_mut() {
             for event in events {
                 match event {
@@ -2003,7 +1999,7 @@ impl App {
                 self.grabber = None;
             }
         }
-        if std::mem::take(&mut self.state.clipboard_batch) {
+        if state::take_clipboard_batch(&mut self.state) {
             actions.push(Action::BatchFromClipboard);
         }
         if let Some(p) = self.answers.as_mut() {
@@ -2020,7 +2016,7 @@ impl App {
         let offer = self.state.clipboard.clone();
         if let Some(url) = offer {
             if !tools::clipboard_offer(ctx, &url, connected, actions) {
-                self.state.clipboard = None;
+                state::apply(&mut self.state, UiMessage::Forget(Forget::ClipboardOffer));
             }
         }
     }
@@ -2036,7 +2032,7 @@ impl App {
     ) {
         let settings = self.state.settings.clone();
         if self.login.is_none() {
-            let queued: Vec<u64> = self.state.login_wanted.drain(..).collect();
+            let queued: Vec<u64> = state::take_login_wanted(&mut self.state);
             // Only those still failed for a login.
             let waiting: Vec<(&DownloadEntry, uidm_domain::download::LoginWanted)> = queued
                 .iter()
@@ -2045,7 +2041,7 @@ impl App {
                 .collect();
             if let Some((first, wanted)) = waiting.first().cloned() {
                 let (same, other): (Vec<_>, Vec<_>) = waiting.iter().partition(|(_, w)| w.host == wanted.host);
-                self.state.login_wanted.extend(other.iter().map(|(e, _)| e.id));
+                state::apply(&mut self.state, UiMessage::LoginsWaiting(other.iter().map(|(e, _)| e.id).collect()));
                 let own_site =
                     same.iter().all(|(e, _)| uidm_domain::site::host_of(&e.url).eq_ignore_ascii_case(&wanted.host));
                 let username = settings
@@ -2549,7 +2545,7 @@ impl App {
     /// Draw the Options dialog while it is open.
     fn options_window(&mut self, ctx: &egui::Context, connected: bool, actions: &mut Vec<Action>) {
         // Pick up the daemon's answer to a save.
-        let result = self.state.save_result.take();
+        let result = state::take_save_result(&mut self.state);
         let saving = self.state.saving;
         let queues = self.state.queues.clone();
         let Some(draft) = self.options.as_mut() else {
@@ -3765,12 +3761,12 @@ impl App {
     /// The completion dialog for the oldest finished or failed download.
     fn completed_window(&mut self, ctx: &egui::Context, connected: bool, actions: &mut Vec<Action>) {
         let next = {
-            let s = &mut self.state;
             loop {
+                let s = &self.state;
                 match s.completed.front().copied() {
                     // Removed since: skip it.
                     Some((id, _)) if s.table.get(id).is_none() => {
-                        s.completed.pop_front();
+                        state::apply(&mut self.state, UiMessage::Forget(Forget::Completed));
                     }
                     Some((id, failed)) => break s.table.get(id).cloned().map(|e| (e, failed, s.completed.len())),
                     None => break None,
@@ -4066,12 +4062,11 @@ impl eframe::App for App {
                     d
                 })
                 .inner;
-            let sh = &mut self.state;
             if dismissed.error {
-                sh.last_error = None;
+                state::apply(&mut self.state, UiMessage::Forget(Forget::Error));
             }
             if dismissed.notice {
-                sh.notice = None;
+                state::apply(&mut self.state, UiMessage::Forget(Forget::Notice));
             }
             if let Some(r) = release.filter(|_| dismissed.release) {
                 self.layout.dismissed_release = Some(r.version);
@@ -4256,13 +4251,10 @@ impl eframe::App for App {
             }
         }
         self.convert_window(ctx, &rows, connected, &mut actions);
-        let link_info = {
-            let sh = &mut self.state;
-            if let Some(d) = sh.picked_links.take() {
-                self.links = Some(d);
-            }
-            std::mem::take(&mut sh.link_info)
-        };
+        if let Some(d) = state::take_picked_links(&mut self.state) {
+            self.links = Some(d);
+        }
+        let link_info = state::take_link_info(&mut self.state);
         if let Some(d) = self.links.as_mut() {
             for (request, index, probed) in link_info {
                 d.heard(request, index, probed);
@@ -4277,7 +4269,7 @@ impl eframe::App for App {
             let entry = rows.iter().find(|e| e.id == *id);
             connections::dialog(ctx, *id, entry, segments.get(id).map(Vec::as_slice))
         });
-        let started = std::mem::take(&mut self.state.started);
+        let started = state::take_started(&mut self.state);
         let can_hide = tray::shown();
         if settings.as_ref().is_some_and(|s| s.progress_on_start) {
             // A window that opens as its download starts stays behind the
@@ -4327,7 +4319,7 @@ impl eframe::App for App {
             if Instant::now() < deadline {
                 queues::countdown(ctx, action, deadline, &queue, file.as_deref(), connected, &mut actions);
             } else {
-                self.state.countdown = None;
+                state::apply(&mut self.state, UiMessage::Forget(Forget::Countdown));
             }
         }
         self.options_window(ctx, connected, &mut actions);
@@ -4706,7 +4698,7 @@ impl App {
 
     /// The files inside a zip download, once listed.
     fn zip_window(&mut self, ctx: &egui::Context, rows: &[DownloadEntry]) {
-        if let Some((id, result)) = self.state.zip_listed.take() {
+        if let Some((id, result)) = state::take_zip_listed(&mut self.state) {
             if let Some(p) = self.zip_preview.as_mut().filter(|p| p.id == id) {
                 p.result = Some(result);
             }
@@ -5026,7 +5018,7 @@ impl App {
             });
         if close {
             self.refresh = None;
-            self.state.refresh_mismatch = None;
+            state::apply(&mut self.state, UiMessage::Forget(Forget::RefreshMismatch));
         }
     }
 }
