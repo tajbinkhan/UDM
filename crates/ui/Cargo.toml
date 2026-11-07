@@ -10,6 +10,8 @@ license.workspace = true
 [dependencies]
 uidm-domain.workspace = true
 uidm-application.workspace = true
+# The window's error types (AGENTS.md section 9).
+thiserror.workspace = true
 # The column layout and tray style the window saves, and the translation
 # tables.
 serde.workspace = true

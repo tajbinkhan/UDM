@@ -17,6 +17,7 @@ use uidm_domain::queue::{Queue, MAIN_QUEUE};
 use uidm_domain::settings::{Settings, GENERAL};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
+use crate::errors::UiError;
 use crate::i18n::{tr, trf};
 
 /// Extensions of links that lead to another web page rather than a file.
@@ -249,7 +250,7 @@ impl LinksDialog {
     /// The ticked links in view, as downloads waiting to start, saved where
     /// the dialog says (`settings` giving a category's folder), and named
     /// by the rename pattern when there is one.
-    fn downloads(&self, settings: &Settings) -> Result<Vec<Download>, String> {
+    fn downloads(&self, settings: &Settings) -> Result<Vec<Download>, UiError> {
         let folder = self.folder.trim().to_string();
         let (folder, category) = match &self.target {
             Target::ByType => (None, None),
@@ -259,7 +260,7 @@ impl LinksDialog {
             ),
             Target::Folder if folder.is_empty() => return Err(tr("Choose the folder to save the files to.").into()),
             Target::Folder if !std::path::Path::new(&folder).is_absolute() => {
-                return Err(trf!("The folder must be a full path: {folder}", folder = folder));
+                return Err(trf!("The folder must be a full path: {folder}", folder = folder).into());
             }
             Target::Folder => (Some(folder), None),
         };
@@ -500,7 +501,7 @@ pub fn dialog(
                             actions.push(Action::AddMany { items, queue: d.queue, start_queue: d.start_queue });
                             close = true;
                         }
-                        Err(e) => d.error = Some(e),
+                        Err(e) => d.error = Some(e.to_string()),
                     }
                 }
                 if ui.button(tr("Cancel")).clicked() {

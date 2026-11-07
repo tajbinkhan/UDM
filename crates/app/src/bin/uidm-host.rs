@@ -88,16 +88,17 @@ fn main() {
         _ => {}
     }
     if let Err(e) = run_relay() {
-        tracing::error!(error = %e, "fatal");
+        tracing::error!(error = format!("{e:#}"), "fatal");
         std::process::exit(1);
     }
 }
 
 /// Relay frames between the browser (stdio) and the daemon (loopback TCP).
-fn run_relay() -> io::Result<()> {
-    let daemon = ipc::connect_or_spawn()?;
+fn run_relay() -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    let daemon = ipc::connect_or_spawn().context("could not reach the daemon")?;
     tracing::info!(addr = %ipc::daemon_addr(), "connected to the daemon");
-    let mut to_daemon = daemon.try_clone()?;
+    let mut to_daemon = daemon.try_clone().context("could not share the daemon connection")?;
     let mut from_daemon = daemon;
 
     // daemon -> browser
@@ -115,7 +116,7 @@ fn run_relay() -> io::Result<()> {
     let stdin = io::stdin();
     let mut input = stdin.lock();
     loop {
-        match read_message(&mut input, MAX_MESSAGE_BYTES)? {
+        match read_message(&mut input, MAX_MESSAGE_BYTES).context("could not read from the browser")? {
             Some(frame) => {
                 let Some(frame) = from_browser(&frame) else {
                     tracing::warn!("dropped a request the extension does not send");

@@ -124,6 +124,30 @@ fn with_tray(f: impl FnOnce(&Tray) + Send + 'static) {
     });
 }
 
+/// Why the tray icon could not be made. The window shows the message.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TrayError {
+    /// What tray-icon said about the menu.
+    #[error("{0}")]
+    Menu(String),
+    /// What tray-icon said about the icon's pixels.
+    #[error("{0}")]
+    Icon(String),
+    /// What tray-icon said about making the icon.
+    #[error("{0}")]
+    Build(String),
+    /// What GTK said.
+    #[cfg(target_os = "linux")]
+    #[error("GTK could not start: {0}")]
+    Gtk(String),
+    #[cfg(target_os = "linux")]
+    #[error("install libayatana-appindicator3 for the tray icon")]
+    NoIndicator,
+    #[cfg(target_os = "linux")]
+    #[error("the tray's thread stopped")]
+    ThreadStopped,
+}
+
 /// Create the tray icon. `on_command` runs menu choices and clicks on the
 /// icon; `tooltip` gives the text shown when the pointer rests on it. Call
 /// on the main thread once the window exists.
@@ -133,7 +157,7 @@ pub fn install(
     size: u32,
     on_command: Arc<dyn Fn(Command) + Send + Sync>,
     tooltip: Arc<dyn Fn() -> String + Send + Sync>,
-) -> Result<(), String> {
+) -> Result<(), TrayError> {
     build(rgba, size, on_command, tooltip)
 }
 
@@ -146,23 +170,23 @@ pub fn install(
     size: u32,
     on_command: Arc<dyn Fn(Command) + Send + Sync>,
     tooltip: Arc<dyn Fn() -> String + Send + Sync>,
-) -> Result<(), String> {
+) -> Result<(), TrayError> {
     let (done, made) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         if let Err(e) = gtk::init() {
-            let _ = done.send(Err(format!("GTK could not start: {e}")));
+            let _ = done.send(Err(TrayError::Gtk(e.to_string())));
             return;
         }
         // tray-icon panics when no AppIndicator library can be loaded.
         let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(rgba, size, on_command, tooltip)))
-            .unwrap_or_else(|_| Err("install libayatana-appindicator3 for the tray icon".to_string()));
+            .unwrap_or(Err(TrayError::NoIndicator));
         let ok = built.is_ok();
         let _ = done.send(built);
         if ok {
             gtk::main();
         }
     });
-    made.recv().unwrap_or_else(|_| Err("the tray's thread stopped".into()))
+    made.recv().unwrap_or(Err(TrayError::ThreadStopped))
 }
 
 /// Make the icon and its menu on this thread, and keep them in `TRAY`.
@@ -171,7 +195,7 @@ fn build(
     size: u32,
     on_command: Arc<dyn Fn(Command) + Send + Sync>,
     tooltip: Arc<dyn Fn() -> String + Send + Sync>,
-) -> Result<(), String> {
+) -> Result<(), TrayError> {
     let open = MenuItem::new(tr(OPEN), true, None);
     let add = MenuItem::new(tr(ADD), true, None);
     let add_batch = MenuItem::new(tr(ADD_BATCH), true, None);
@@ -200,7 +224,7 @@ fn build(
     } else {
         menu.append_items(&[&open, &add, &add_batch, &separator, &pause, &resume, &speed_limit, &separator2, &exit])
     }
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| TrayError::Menu(e.to_string()))?;
 
     let ids: Vec<(MenuId, Command)> = vec![
         (open.id().clone(), Command::Open),
@@ -236,9 +260,9 @@ fn build(
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
         .with_tooltip("UIDM")
-        .with_icon(Icon::from_rgba(rgba, size, size).map_err(|e| e.to_string())?)
+        .with_icon(Icon::from_rgba(rgba, size, size).map_err(|e| TrayError::Icon(e.to_string()))?)
         .build()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| TrayError::Build(e.to_string()))?;
     TRAY.with(|t| {
         *t.borrow_mut() = Some(Tray {
             icon,

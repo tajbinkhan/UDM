@@ -12,6 +12,7 @@ use uidm_domain::queue::{
 };
 
 use super::{take_picked, Action, Picked};
+use crate::errors::UiError;
 use crate::i18n::{tr, trf};
 
 const DAY_NAMES: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -33,13 +34,13 @@ pub fn next_run(q: &Queue) -> Option<String> {
 /// A new queue called `name`, added from outside the Queues dialog (the
 /// "+" by the save-as dialog's queue picker), checked as that dialog checks
 /// one before the daemon sees it, so a mistake shows next to the box.
-pub fn new_named(name: &str, queues: &[Queue]) -> Result<Queue, String> {
+pub fn new_named(name: &str, queues: &[Queue]) -> Result<Queue, UiError> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(tr("A queue needs a name.").to_string());
+        return Err(tr("A queue needs a name.").into());
     }
     if named(queues, name).is_some() {
-        return Err(trf!("There is already a queue named \"{name}\".", name = name));
+        return Err(trf!("There is already a queue named \"{name}\".", name = name).into());
     }
     // Id 0 asks the daemon to create it and pick the id.
     Ok(Queue::new(0, name))
@@ -272,7 +273,7 @@ impl QueueDraft {
     }
 
     /// The queue these fields describe, checked as the daemon checks it.
-    fn to_queue(&self) -> Result<Queue, String> {
+    fn to_queue(&self) -> Result<Queue, UiError> {
         let mut q = Queue::new(self.id, self.name.trim());
         q.max_concurrent = self.max_concurrent;
         q.retries = self.retries;
@@ -289,7 +290,7 @@ impl QueueDraft {
             repeat_minutes: repeat_value(self.repeat, self.repeat_hours, self.repeat_minutes),
             wake: self.wake,
         });
-        q.validate().map_err(|e| crate::errors::queue(&e))?;
+        q.validate()?;
         Ok(q)
     }
 }
@@ -536,7 +537,7 @@ fn form(
                         }
                         actions.push(Action::SaveQueue(q));
                     }
-                    Err(e) => draft.error = Some(e),
+                    Err(e) => draft.error = Some(e.to_string()),
                 }
             }
             let deletable = draft.id != 0 && draft.id != MAIN_QUEUE;

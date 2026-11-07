@@ -20,6 +20,7 @@ use uidm_domain::queue::{Queue, WhenDone};
 use uidm_domain::settings::{AddedBrowser, Notify, Settings};
 use uidm_domain::table::DownloadTable;
 
+use crate::errors::UiError;
 use crate::i18n::{tr, trf};
 use crate::{columns, links, progress};
 
@@ -57,7 +58,7 @@ pub struct AppState {
     /// `settings` or `error`.
     pub saving: bool,
     /// That answer, for the Options dialog to pick up.
-    pub save_result: Option<Result<(), String>>,
+    pub save_result: Option<Result<(), UiError>>,
     /// Downloads to show a completion dialog for, and whether each failed.
     pub completed: VecDeque<(u64, bool)>,
     /// The daemon's queues, the main queue first.
@@ -97,7 +98,7 @@ pub struct AppState {
     pub quota: Option<String>,
     /// The last update check's answer, for the About box: a newer release,
     /// none, or why it could not look.
-    pub update: Option<Result<Option<uidm_domain::update::Release>, String>>,
+    pub update: Option<Result<Option<uidm_domain::update::Release>, UiError>>,
     /// A newer release, for the status bar.
     pub newer_release: Option<uidm_domain::update::Release>,
     /// Update now is under way: `None` while the daemon downloads the
@@ -124,7 +125,7 @@ pub struct AppState {
     pub grab_filters: Vec<Filter>,
     /// A project the category tree asked to open, read on a worker, or why
     /// it could not be; until the window takes it.
-    pub grab_opened: Option<Result<Project, String>>,
+    pub grab_opened: Option<Result<Project, UiError>>,
     /// The browsers a worker found for Options, until Options takes them.
     pub browsers_read: Option<BrowsersRead>,
 }
@@ -226,7 +227,7 @@ impl AppState {
             }
             Event::Error { message } if self.saving => {
                 self.saving = false;
-                self.save_result = Some(Err(message.clone()));
+                self.save_result = Some(Err(UiError::new(message.clone())));
             }
             Event::Progress { id, done, segments, .. } => {
                 self.sample_speed(*id, *done);
@@ -269,7 +270,7 @@ impl AppState {
             }
             Event::Update { newer, error } => {
                 self.update = Some(match error {
-                    Some(e) => Err(e.clone()),
+                    Some(e) => Err(UiError::new(e.clone())),
                     None => Ok(newer.clone()),
                 });
                 if newer.is_some() {
@@ -281,7 +282,7 @@ impl AppState {
                     Some(e) => Err(e.clone()),
                     None => Ok(entries.clone()),
                 };
-                self.zip_listed = Some((*id, result));
+                self.zip_listed = Some((*id, result.map_err(UiError::from)));
             }
             Event::PickLinks { page, links, user_agent } => {
                 self.picked_links = Some(links::LinksDialog::new(page.clone(), links.clone(), user_agent.clone()));
@@ -427,7 +428,7 @@ pub enum UiMessage {
     /// template and filters.
     GrabLibraryRead(GrabLibrary),
     /// A worker read the project the category tree asked to open.
-    GrabProjectRead(Result<Project, String>),
+    GrabProjectRead(Result<Project, UiError>),
     /// A worker read the browsers for Options.
     BrowsersRead(BrowsersRead),
     /// They could not be sent, and why.
@@ -480,18 +481,18 @@ pub enum Taken {
     GrabEvents(Vec<GrabEvent>),
     ClipboardBatch(bool),
     LoginWanted(Vec<u64>),
-    SaveResult(Option<Result<(), String>>),
+    SaveResult(Option<Result<(), UiError>>),
     Started(Vec<(u64, bool)>),
     ZipListed(Option<ZipListed>),
     PickedLinks(Option<Box<links::LinksDialog>>),
     LinkInfo(Vec<(u64, usize, links::Probed)>),
     BrowsersRead(Option<BrowsersRead>),
-    GrabOpened(Option<Result<Box<Project>, String>>),
+    GrabOpened(Option<Result<Box<Project>, UiError>>),
 }
 
 /// A zip preview's download and its files, or why they could not be
 /// listed.
-pub type ZipListed = (u64, Result<Vec<uidm_domain::download::ZipEntry>, String>);
+pub type ZipListed = (u64, Result<Vec<uidm_domain::download::ZipEntry>, UiError>);
 
 /// Change `state` as `msg` says. The only place the window's state
 /// changes. A [`UiMessage::Take`] returns what was taken.
@@ -560,7 +561,7 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
         }
         UiMessage::SaveFailed(why) => {
             state.saving = false;
-            state.save_result = Some(Err(why));
+            state.save_result = Some(Err(UiError::new(why)));
         }
         UiMessage::Forget(what) => match what {
             Forget::Error => state.last_error = None,
@@ -614,7 +615,7 @@ pub fn take_login_wanted(state: &mut AppState) -> Vec<u64> {
 }
 
 /// The daemon's answer to Options' save, once it came.
-pub fn take_save_result(state: &mut AppState) -> Option<Result<(), String>> {
+pub fn take_save_result(state: &mut AppState) -> Option<Result<(), UiError>> {
     match apply(state, UiMessage::Take(What::SaveResult)) {
         Some(Taken::SaveResult(result)) => result,
         _ => None,
@@ -647,7 +648,7 @@ pub fn take_picked_links(state: &mut AppState) -> Option<links::LinksDialog> {
 }
 
 /// The project the category tree asked to open, once a worker read it.
-pub fn take_grab_opened(state: &mut AppState) -> Option<Result<Project, String>> {
+pub fn take_grab_opened(state: &mut AppState) -> Option<Result<Project, UiError>> {
     match apply(state, UiMessage::Take(What::GrabOpened)) {
         Some(Taken::GrabOpened(read)) => read.map(|r| r.map(|p| *p)),
         _ => None,

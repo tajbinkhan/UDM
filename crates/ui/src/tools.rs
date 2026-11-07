@@ -10,6 +10,7 @@ use std::thread;
 use eframe::egui;
 use uidm_application::window::{FileKind, GrabLibrary, ListFormat};
 
+use crate::errors::UiError;
 use crate::pending::Pending;
 use uidm_domain::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
 use uidm_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
@@ -20,7 +21,7 @@ use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::i18n::{tr, trf};
 
 /// Text read from a file on the picker's thread, or why it could not be.
-pub type Loaded = Arc<Mutex<Option<Result<(String, String), String>>>>;
+pub type Loaded = Arc<Mutex<Option<Result<(String, String), UiError>>>>;
 
 /// Ask for a text file on another thread (the picker blocks) and put its
 /// name and contents in `slot`.
@@ -38,7 +39,7 @@ pub fn pick_text_file(ctx: &egui::Context, title: &'static str, slot: &Loaded) {
             .read(&path)
             .map(|text| (name, text))
             .map_err(|e| trf!("Could not read {path}: {error}", path = path.display(), error = e));
-        *slot.lock().unwrap() = Some(read);
+        *slot.lock().unwrap() = Some(read.map_err(UiError::from));
         ctx.request_repaint();
     });
 }
@@ -73,7 +74,7 @@ pub struct BatchDialog {
     wild_size: usize,
     /// The settings last expanded (pattern and wildcard settings), and what
     /// they gave, so the list is not rebuilt every frame.
-    expanded: Option<(String, Result<Vec<String>, String>)>,
+    expanded: Option<(String, Result<Vec<String>, UiError>)>,
     list: String,
     /// An imported file's name, downloads and the entries left out.
     imported: Option<(String, Vec<Download>, usize)>,
@@ -122,7 +123,7 @@ impl BatchDialog {
     }
 
     /// The URLs to add, or why there are none.
-    fn urls(&mut self) -> Result<(Vec<String>, usize), String> {
+    fn urls(&mut self) -> Result<(Vec<String>, usize), UiError> {
         match self.source {
             Source::Pattern => {
                 // A `*` means IDM's form, so its settings count too.
@@ -150,12 +151,12 @@ impl BatchDialog {
                     } else {
                         batch::expand(&self.pattern)
                     };
-                    self.expanded = Some((key, result.map_err(|e| crate::errors::batch(&e))));
+                    self.expanded = Some((key, result.map_err(UiError::from)));
                 }
                 let (_, result) = self.expanded.as_ref().unwrap();
                 result.clone().map(|u| (u, 0))
             }
-            Source::List => batch::parse_list(&self.list).map_err(|e| crate::errors::batch(&e)),
+            Source::List => batch::parse_list(&self.list).map_err(UiError::from),
             Source::Imported => Ok((Vec::new(), 0)),
         }
     }
@@ -210,7 +211,7 @@ pub fn batch_dialog(
                 d.list = text;
                 d.error = None;
             }
-            Err(e) => d.error = Some(e),
+            Err(e) => d.error = Some(e.to_string()),
         }
     }
     let mut open = true;
@@ -424,8 +425,8 @@ pub struct ExportDialog {
     scope: ExportScope,
     queue: u64,
     format: ExportFormat,
-    result: Arc<Mutex<Option<Result<String, String>>>>,
-    message: Option<Result<String, String>>,
+    result: Arc<Mutex<Option<Result<String, UiError>>>>,
+    message: Option<Result<String, UiError>>,
 }
 
 impl ExportDialog {
@@ -536,7 +537,7 @@ pub fn export_dialog(
                             .write(&path, &text)
                             .map(|_| trf!("Saved {count} downloads to {path}.", count = count, path = path.display()))
                             .map_err(|e| trf!("Could not save {path}: {error}", path = path.display(), error = e));
-                        *slot.lock().unwrap() = Some(result);
+                        *slot.lock().unwrap() = Some(result.map_err(UiError::from));
                         ctx.request_repaint();
                     });
                 }
@@ -709,15 +710,15 @@ pub struct GrabDialog {
     /// with their scripts run; what that finds is added to it.
     updating: Option<(Vec<GrabFile>, Vec<bool>)>,
     /// The project being saved on a worker, and what waits on it.
-    saving: Pending<Result<uidm_domain::grab::Project, String>>,
+    saving: Pending<Result<uidm_domain::grab::Project, UiError>>,
     after_save: AfterSave,
     /// A project being read on a worker, with its file when it came from
     /// another folder.
-    opening: Pending<Result<(uidm_domain::grab::Project, Option<PathBuf>), String>>,
+    opening: Pending<Result<(uidm_domain::grab::Project, Option<PathBuf>), UiError>>,
     /// A template or the filters being saved, and what the note says after.
     noting: Pending<Note>,
     /// The project's new password being kept before its crawl starts.
-    keeping_login: Pending<Result<(), String>>,
+    keeping_login: Pending<Result<(), UiError>>,
 }
 
 /// What a project saved on a worker goes on to.
@@ -764,7 +765,7 @@ impl GrabDialog {
 
     /// The project these fields and the crawl's results make, or why the
     /// schedule is not valid.
-    fn project(&self) -> Result<uidm_domain::grab::Project, String> {
+    fn project(&self) -> Result<uidm_domain::grab::Project, UiError> {
         let (files, checked) = match &self.phase {
             GrabPhase::Review { files, checked, .. } => (files.clone(), checked.clone()),
             _ => (Vec::new(), Vec::new()),
@@ -786,7 +787,7 @@ impl GrabDialog {
             wake: self.sched_wake,
         });
         if let Some(s) = &schedule {
-            s.validate().map_err(|e| crate::errors::queue(&e))?;
+            s.validate()?;
         }
         Ok(uidm_domain::grab::Project {
             name: self.project.trim().to_string(),
@@ -892,9 +893,9 @@ impl GrabDialog {
     /// Save the project on a worker, with a new password first; `after`
     /// says what follows once it is saved. Fails at once when the project
     /// is not valid.
-    fn save_project(&mut self, ctx: &egui::Context, after: AfterSave) -> Result<(), String> {
+    fn save_project(&mut self, ctx: &egui::Context, after: AfterSave) -> Result<(), UiError> {
         let Some(lib) = crate::ports::ports().grab.as_deref() else {
-            return Err(tr("There is no projects folder.").to_string());
+            return Err(UiError::new(tr("There is no projects folder.").to_string()));
         };
         let p = self.project()?;
         let login = self.login_to_keep();
@@ -1233,14 +1234,14 @@ pub fn grab_dialog(
                 let req = d.request();
                 d.begin_crawl(req, queues, actions);
             }
-            Err(e) => d.error = Some(e),
+            Err(e) => d.error = Some(e.to_string()),
         }
     }
     if let Some(r) = d.opening.take() {
         match r {
             Ok((p, None)) => d.switch_to(GrabDialog::open(p, lists.filters.to_vec())),
             Ok((p, Some(path))) => d.switch_to(GrabDialog::open_file(p, &path, lists.filters.to_vec())),
-            Err(e) => d.project_note = Some(e),
+            Err(e) => d.project_note = Some(e.to_string()),
         }
     }
     if let Some(Note::Set(note)) = d.noting.take() {
@@ -1256,10 +1257,10 @@ pub fn grab_dialog(
                 }
             }
             Err(e) if after == AfterSave::GoOn => {
-                d.ask_error = Some(e);
+                d.ask_error = Some(e.to_string());
                 d.asking = true;
             }
-            Err(e) => d.project_note = Some(e),
+            Err(e) => d.project_note = Some(e.to_string()),
         }
     }
     take_picked(&d.mirror_picked, &mut d.mirror_folder);
@@ -1270,7 +1271,7 @@ pub fn grab_dialog(
         match crate::ports::ports().grab.as_deref() {
             Some(lib) => d.opening.start(ctx, move || match lib.load_file(&path) {
                 Ok(p) => Ok((p, Some(path))),
-                Err(e) => Err(trf!("Could not open {name}: {error}", name = path.display(), error = e)),
+                Err(e) => Err(trf!("Could not open {name}: {error}", name = path.display(), error = e).into()),
             }),
             None => d.project_note = Some(tr("There is no projects folder.").to_string()),
         }
@@ -1342,7 +1343,7 @@ pub fn grab_dialog(
             && uidm_domain::grab::project_name_is_unique(lists.projects, &d.project, d.saved_as.as_deref());
         if silent {
             if let Err(e) = d.save_project(ctx, AfterSave::GoOn) {
-                d.ask_error = Some(e);
+                d.ask_error = Some(e.to_string());
             }
         }
         if !d.saving.busy() {
@@ -1441,7 +1442,7 @@ fn save_question(
                 if ui.add_enabled(can_save, egui::Button::new(tr("Save"))).clicked() {
                     // Saved on a worker; the grabber goes on once it is.
                     if let Err(e) = d.save_project(ui.ctx(), AfterSave::GoOn) {
-                        d.ask_error = Some(e);
+                        d.ask_error = Some(e.to_string());
                     }
                 }
                 if ui.button(tr("Don't save")).clicked() {
@@ -1480,7 +1481,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
         let named = !d.project.trim().is_empty();
         if ui.add_enabled(named && dir.is_some() && !d.saving.busy(), egui::Button::new(tr("Save"))).clicked() {
             if let Err(e) = d.save_project(ui.ctx(), AfterSave::Stay) {
-                d.project_note = Some(e);
+                d.project_note = Some(e.to_string());
             }
         }
         let recent = lists.projects;
@@ -1491,7 +1492,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
                         let name = name.clone();
                         d.opening.start(ui.ctx(), move || match lib.load(&name) {
                             Ok(p) => Ok((p, None)),
-                            Err(e) => Err(trf!("Could not open {name}: {error}", name = name, error = e)),
+                            Err(e) => Err(trf!("Could not open {name}: {error}", name = name, error = e).into()),
                         });
                     }
                     ui.close_menu();
@@ -2294,11 +2295,12 @@ fn save_filters(ctx: &egui::Context, d: &mut GrabDialog) {
 }
 
 /// Keep a project's new password in the credential store.
-fn keep_password(target: &str, user: &str, password: &str) -> Result<(), String> {
+fn keep_password(target: &str, user: &str, password: &str) -> Result<(), UiError> {
     crate::ports::ports()
         .system
         .save_credential(target, user, password)
         .map_err(|e| trf!("Could not save the password: {error}", error = e))
+        .map_err(UiError::from)
 }
 
 /// Offer to download a copied link: Download or Ignore. Returns false once
