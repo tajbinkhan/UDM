@@ -324,7 +324,7 @@ impl Client {
         match build_on(&self.http, None) {
             Err(Failed::Status(401, resp)) => {
                 let asked = resp.get_url().to_string();
-                let host = net::host_of(&asked);
+                let host = uidm_domain::site::host_of(&asked);
                 let challenges = resp.all("www-authenticate");
                 let realm = net::realm(&challenges);
                 (*resp).drain();

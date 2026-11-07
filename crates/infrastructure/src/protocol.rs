@@ -9,12 +9,12 @@ use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
-use crate::grab::{GrabFile, GrabRequest};
-use crate::media::MediaInfo;
-use crate::settings::Settings;
+use uidm_domain::grab::{GrabFile, GrabRequest};
+use uidm_domain::media::MediaInfo;
 use uidm_domain::queue::{Queue, WhenDone};
+use uidm_domain::settings::Settings;
 
-pub use uidm_domain::download::*;
+use uidm_domain::download::*;
 
 /// A request from a client (the browser via the host, or the desktop window)
 /// to the daemon.
@@ -174,7 +174,7 @@ pub enum Incoming {
     /// progress; the original stays unless `delete_original`.
     Convert {
         id: u64,
-        to: crate::media::convert::Target,
+        to: uidm_domain::media::Target,
         #[serde(default)]
         delete_original: bool,
     },
@@ -447,7 +447,7 @@ pub enum Outgoing {
     /// that asked, and to every window when the weekly check finds one.
     Update {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        newer: Option<crate::update::Release>,
+        newer: Option<uidm_domain::update::Release>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
@@ -460,7 +460,7 @@ pub enum Outgoing {
     ZipPreview {
         id: u64,
         #[serde(default)]
-        entries: Vec<crate::zip::ZipEntry>,
+        entries: Vec<uidm_domain::download::ZipEntry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
@@ -578,8 +578,8 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buf: &mut [u8]) -> io::Result<bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::{Duplicate, FileExists};
     use std::io::Cursor;
+    use uidm_domain::settings::{Duplicate, FileExists};
 
     #[test]
     fn a_browser_download_carries_its_whole_request() {

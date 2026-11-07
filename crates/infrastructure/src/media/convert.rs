@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-pub use uidm_domain::media::Target;
+use uidm_domain::media::Target;
 
 /// The ffmpeg arguments between the input and the output: a copy of
 /// the streams first, then an encode.
@@ -148,11 +148,10 @@ pub fn convert(
     }
 }
 
-pub use uidm_domain::media::is_video;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::media::is_video;
 
     #[test]
     fn reads_ffmpegs_length_and_progress() {
@@ -188,7 +187,7 @@ mod tests {
     /// where ffmpeg is not installed.
     #[test]
     fn converts_a_real_clip_when_ffmpeg_is_there() {
-        let Some(ffmpeg) = crate::settings::ffmpeg(&crate::settings::Settings::default()) else {
+        let Some(ffmpeg) = crate::settings::ffmpeg(&uidm_domain::settings::Settings::default()) else {
             eprintln!("no ffmpeg; skipped");
             return;
         };

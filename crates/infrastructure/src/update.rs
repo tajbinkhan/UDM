@@ -16,7 +16,7 @@ use crate::connect::{config_for, ProxyRetries};
 use crate::engine;
 use crate::live_settings::LiveSettings;
 
-pub use uidm_domain::update::{is_newer, Release, SetupAsset, CHECK_EVERY_SECS};
+use uidm_domain::update::{Release, SetupAsset};
 
 /// The releases of UIDM's repository, newest first by GitHub's reckoning.
 pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/uidm/releases/latest";
@@ -143,7 +143,7 @@ impl ReleaseSource for GitHub {
 mod tests {
     use super::*;
     use crate::engine::testserver::TestServer;
-    use crate::settings::Settings;
+    use uidm_domain::settings::Settings;
 
     fn github(url: &str) -> GitHub {
         GitHub::new(Arc::new(LiveSettings::new(Settings::default(), None)), Arc::default(), url)

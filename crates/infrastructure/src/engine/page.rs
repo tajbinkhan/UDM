@@ -18,7 +18,7 @@ use super::{
     choose_output, http, stream, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved, Shared,
 };
 use crate::media::ytdlp::{self, DONE_TAG, PROGRESS_TEMPLATE};
-use crate::media::MediaChoice;
+use uidm_domain::media::MediaChoice;
 
 /// What yt-dlp's estimate of the whole download starts with.
 const SIZE_TAG: &str = "UIDM-SIZE ";
@@ -286,9 +286,9 @@ mod tests {
     #[ignore]
     fn downloads_a_youtube_video() {
         use super::super::Engine;
-        use crate::media::MediaKind;
-        use crate::settings::{FileExists, Folders, Settings};
         use std::sync::mpsc;
+        use uidm_domain::media::MediaKind;
+        use uidm_domain::settings::{FileExists, Folders, Settings};
 
         let url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
         let ffmpeg = crate::settings::ffmpeg(&Settings::default());

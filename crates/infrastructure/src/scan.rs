@@ -15,10 +15,10 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::settings::Scanner;
 use uidm_domain::download::Scan;
+use uidm_domain::settings::Scanner;
 
-pub use uidm_domain::command::{parse_command, with_program, PATH_TOKEN};
+use uidm_domain::command::{parse_command, PATH_TOKEN};
 /// A scan that runs longer than this is stopped and counts as failed.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const POLL: Duration = Duration::from_millis(200);
@@ -136,6 +136,7 @@ impl uidm_domain::ports::VirusScanner for Antivirus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::command::with_program;
 
     #[test]
     fn a_chosen_program_keeps_the_arguments() {

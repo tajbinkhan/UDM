@@ -27,8 +27,9 @@ use uidm_domain::queue::Queue;
 use crate::engine::{self, Engine};
 use crate::history::{self, History};
 use crate::protocol::Outgoing;
-use crate::quota::{self, Usage};
+use crate::quota;
 use crate::state::DownloadTable;
+use uidm_domain::quota::Usage;
 
 /// How a download ended, for the listener's notifications.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

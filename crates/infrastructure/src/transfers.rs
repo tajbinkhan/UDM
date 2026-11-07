@@ -23,8 +23,9 @@ use crate::engine::{self, DownloadRequest, Engine, Progress};
 use crate::live_settings::LiveSettings;
 use crate::net::{self, ProxyKind};
 use crate::protocol::Outgoing;
-use crate::settings::{self, FileExists, Folders, Settings};
+use crate::settings;
 use crate::store::{DownloadStore, StoreEvents};
+use uidm_domain::settings::{FileExists, Folders, Settings};
 
 /// How long answering a save-as dialog waits for the download it started
 /// early to stop, before starting over without its bytes.

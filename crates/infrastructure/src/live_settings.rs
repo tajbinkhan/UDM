@@ -11,8 +11,10 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tracing::warn;
 use uidm_domain::ports::{QueueSounds, UpdateChecks};
 
-use crate::notify::{self, Sound};
-use crate::settings::{self, Settings};
+use crate::notify;
+use crate::settings;
+use uidm_domain::settings::Settings;
+use uidm_domain::settings::Sound;
 
 /// The current settings, and where they are saved. With no path they live
 /// in memory only.

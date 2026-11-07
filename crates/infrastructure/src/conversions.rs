@@ -137,8 +137,8 @@ impl Converter for Conversions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::Settings;
     use crate::store::{Ended, StoreEvents, StoreFiles};
+    use uidm_domain::settings::Settings;
 
     struct Quiet;
 
@@ -166,7 +166,7 @@ mod tests {
             url: "http://x/a.webm".into(),
             input: dir.join("a.webm"),
             output: dir.join("a.mp4"),
-            target: crate::media::convert::Target::Mp4,
+            target: uidm_domain::media::Target::Mp4,
             delete_original: false,
         });
         assert_eq!(store.table().entries().count(), before, "no row without ffmpeg");

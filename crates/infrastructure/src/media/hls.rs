@@ -9,7 +9,9 @@
 //! (`SAMPLE-AES`, or any `KEYFORMAT` other than `identity`, such as FairPlay
 //! or Widevine) are DRM, and refused.
 
-use super::{resolve, MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED};
+use uidm_domain::media::{
+    resolve, MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variant {
@@ -286,10 +288,10 @@ pub fn describe(master: &Master, duration: Option<f64>) -> MediaInfo {
         .iter()
         .map(|v| MediaOption {
             id: v.url.clone(),
-            label: super::quality_label(v.height, v.bandwidth),
+            label: uidm_domain::media::quality_label(v.height, v.bandwidth),
             height: v.height,
             bandwidth: v.bandwidth,
-            size: super::estimate_size(v.bandwidth, duration),
+            size: uidm_domain::media::estimate_size(v.bandwidth, duration),
             ..MediaOption::default()
         })
         .collect();

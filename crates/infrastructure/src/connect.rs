@@ -7,7 +7,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use uidm_domain::download::Download;
 
 use crate::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
-use crate::settings::{ProxyMode, Settings, SocksVersion};
+use uidm_domain::settings::{ProxyMode, Settings, SocksVersion};
 
 /// Addresses retried through the browser's proxy after failing through
 /// UIDM's own proxy setting; they keep using it.
@@ -109,7 +109,7 @@ pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> 
     // its host, even those for one of its folders.
     let host = url::Url::parse(&download.url).ok().and_then(|u| u.host_str().map(str::to_string));
     if let (Some(l), Some(host)) = (&download.login, host) {
-        logins.retain(|s| !net::site_matches(net::split_login_pattern(&s.site).0, &host));
+        logins.retain(|s| !uidm_domain::site::site_matches(uidm_domain::site::split_login_pattern(&s.site).0, &host));
         logins.push(Login {
             site: host,
             username: l.username.clone(),

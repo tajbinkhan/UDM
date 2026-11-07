@@ -21,10 +21,11 @@ use uidm_domain::download::{Answer, DownloadEntry, Scan, Status};
 use uidm_domain::ports::{Answers, Attention};
 
 use crate::live_settings::LiveSettings;
-use crate::notify::{self, Sound, Toast};
+use crate::notify::{self, Toast};
 use crate::protocol::Outgoing;
-use crate::settings::{FileExists, Notify, Settings};
 use crate::store::{DownloadStore, StoreEvents};
+use uidm_domain::settings::Sound;
+use uidm_domain::settings::{FileExists, Notify, Settings};
 
 /// How long a download waits for a window to show its save-as dialog before
 /// it starts with the proposed name and folder.

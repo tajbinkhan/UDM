@@ -306,7 +306,7 @@ pub fn proxy_for(source: &PacSource, url: &str) -> Result<Option<String>, NoScri
             }
         }
     }
-    let key = (source.clone(), crate::net::host_of(url));
+    let key = (source.clone(), uidm_domain::site::host_of(url));
     if let Some((answer, at)) = CACHE.lock().unwrap().get_or_insert_with(HashMap::new).get(&key) {
         if at.elapsed() < CACHE_FOR {
             return answer.clone();

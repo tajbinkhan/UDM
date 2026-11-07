@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use crate::engine::{DownloadRequest, Progress};
 use crate::protocol::Outgoing;
-use crate::settings::Settings;
 use uidm_domain::download::Download;
+use uidm_domain::settings::Settings;
 
 /// Largest frame accepted on any channel. Chrome caps host messages at 1 MiB;
 /// a little headroom lets an oversized frame fail cleanly.
@@ -113,8 +113,6 @@ pub fn browser_request_headers(sent: &[(String, String)], already: &[(String, St
     }
     out
 }
-
-pub use uidm_domain::download::same_address;
 
 /// The decoded form body when `d` is a POST. A POST without a body sends an
 /// empty one.

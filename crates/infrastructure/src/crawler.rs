@@ -73,7 +73,7 @@ impl SiteCrawler for Crawler {
         // Each site's cookies go to that site's pages only.
         let page_headers = |url: &str| {
             let mut h = headers.to_vec();
-            if let Some(c) = grab::crawl_cookies(req, url, cookies.as_deref(), login) {
+            if let Some(c) = uidm_domain::grab::crawl_cookies(req, url, cookies.as_deref(), login) {
                 h.push(("Cookie".to_string(), c));
             }
             h
@@ -99,12 +99,12 @@ impl SiteCrawler for Crawler {
                     }
                 }
                 let mut body = shown.html.into_bytes();
-                body.truncate(grab::MAX_PAGE_BYTES as usize);
+                body.truncate(uidm_domain::grab::MAX_PAGE_BYTES as usize);
                 let page = Page { url: shown.url, content_type: Some("text/html".into()), body };
                 mirror(req, &page);
                 return Ok(page);
             }
-            let page = engine::fetch(url, &page_headers(url), &net, grab::MAX_PAGE_BYTES)
+            let page = engine::fetch(url, &page_headers(url), &net, uidm_domain::grab::MAX_PAGE_BYTES)
                 .map(|f| Page { url: f.url, content_type: f.content_type, body: f.body })
                 .map_err(|e| e.to_string())?;
             mirror(req, &page);
