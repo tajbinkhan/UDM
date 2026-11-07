@@ -18,25 +18,12 @@ use std::time::{Duration, Instant};
 use crate::settings::Scanner;
 use uidm_domain::download::Scan;
 
-pub use uidm_domain::command::{parse_command, PATH_TOKEN};
+pub use uidm_domain::command::{parse_command, with_program, PATH_TOKEN};
 /// A scan that runs longer than this is stopped and counts as failed.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const POLL: Duration = Duration::from_millis(200);
 /// Keep this much of the scanner's output as the result's detail.
 const DETAIL_CHARS: usize = 300;
-
-/// The scanner command line with `program` in place of the one in
-/// `command`, keeping its arguments, or with `{path}` alone when it had
-/// none.
-pub fn with_program(program: &str, command: &str) -> String {
-    let rest = match command.trim().strip_prefix('"') {
-        Some(quoted) => quoted.split_once('"').map_or("", |(_, rest)| rest),
-        None => command.trim().split_once(' ').map_or("", |(_, rest)| rest),
-    }
-    .trim();
-    let rest = if rest.is_empty() { "{path}" } else { rest };
-    format!("\"{program}\" {rest}")
-}
 
 /// The program and arguments that scan `file`.
 pub fn command_for(scanner: Scanner, custom: &str, file: &Path) -> Result<(PathBuf, Vec<String>), String> {

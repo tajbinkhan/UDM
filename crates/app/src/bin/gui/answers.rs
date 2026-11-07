@@ -39,7 +39,7 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
     let mut out = Vec::new();
     for (i, d) in items.iter().enumerate() {
         // Form posts and streams are never duplicates, as in the daemon.
-        let plain = uidm_infrastructure::app::post_body(d).is_none() && d.media.is_none();
+        let plain = d.may_be_duplicate();
         let duplicate = d.duplicate.unwrap_or(settings.if_duplicate) == Duplicate::Ask;
         if let (true, true, Some(old)) =
             (plain, duplicate, rows.iter().rev().find(|e| uidm_domain::download::same_address(&e.url, &d.url)))
@@ -47,12 +47,10 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
             out.push((i, Question::InList(crate::display_name(old))));
         }
         if d.file_exists.unwrap_or(settings.file_exists) == FileExists::Ask {
-            let name = uidm_infrastructure::engine::Inspection::unprobed(&d.url, d.filename.as_deref()).filename;
+            let name = uidm_domain::filename::proposed_name(&d.url, d.filename.as_deref());
             let folder = match d.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
                 Some(f) => f.to_path_buf(),
-                None => settings
-                    .folders_for(&d.url, &uidm_infrastructure::settings::default_downloads_dir())
-                    .for_name(&name),
+                None => settings.folders_for(&d.url, &crate::ports::ports().downloads_dir()).for_name(&name),
             };
             let path = folder.join(&name);
             if path.is_file() {

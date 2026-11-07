@@ -402,6 +402,15 @@ pub fn sniff_file(head: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// Whether a file name looks like a video ffmpeg can convert.
+pub fn is_video(name: &str) -> bool {
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    matches!(
+        ext.as_str(),
+        "mp4" | "mkv" | "webm" | "ts" | "avi" | "mov" | "flv" | "m4v" | "wmv" | "mpg" | "mpeg" | "3gp"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

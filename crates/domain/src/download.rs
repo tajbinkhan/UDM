@@ -1108,9 +1108,72 @@ pub struct ZipEntry {
     pub size: u64,
 }
 
+const NEEDS_LOGIN: &str = "This site needs a login: ";
+const LOGIN_FOR: &str = "The login for ";
+const LOGIN_REFUSED: &str = " was refused";
+const REALM: &str = " (realm: ";
+
+fn realm_suffix(realm: Option<&str>) -> String {
+    realm.map_or(String::new(), |r| format!("{REALM}{r})"))
+}
+
+/// The error of a download that `host` (and its `realm`) wants a login
+/// for. `login_wanted` reads it back.
+pub fn needs_login_error(host: &str, realm: Option<&str>) -> String {
+    format!("{NEEDS_LOGIN}{host}{}", realm_suffix(realm))
+}
+
+/// The error of a download whose login `host` (and its `realm`) refused.
+pub fn login_refused_error(host: &str, realm: Option<&str>) -> String {
+    format!("{LOGIN_FOR}{host}{LOGIN_REFUSED}{}", realm_suffix(realm))
+}
+
+/// A login a download failed for: the site that asked, the realm it named,
+/// and whether a login was sent and refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoginWanted {
+    pub host: String,
+    pub realm: Option<String>,
+    pub refused: bool,
+}
+
+/// The login a failed download's `error` says it needs, if that is why it
+/// failed.
+pub fn login_wanted(error: &str) -> Option<LoginWanted> {
+    let (rest, refused) = match error.strip_prefix(NEEDS_LOGIN) {
+        Some(rest) => (rest.to_string(), false),
+        None => {
+            let rest = error.strip_prefix(LOGIN_FOR)?;
+            let (host, after) = rest.split_once(LOGIN_REFUSED)?;
+            (format!("{host}{after}"), true)
+        }
+    };
+    let (host, realm) = match rest.split_once(REALM) {
+        Some((host, realm)) => (host.to_string(), realm.strip_suffix(')').map(str::to_string)),
+        None => (rest, None),
+    };
+    (!host.is_empty() && !host.contains(char::is_whitespace)).then_some(LoginWanted { host, realm, refused })
+}
+
+/// The most files a zip preview lists.
+pub const MAX_ZIP_ENTRIES: usize = 5000;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_login_error_reads_back_as_what_it_wants() {
+        let asked = needs_login_error("127.0.0.1", Some("files"));
+        assert_eq!(asked, "This site needs a login: 127.0.0.1 (realm: files)");
+        let wanted = LoginWanted { host: "127.0.0.1".into(), realm: Some("files".into()), refused: false };
+        assert_eq!(login_wanted(&asked), Some(wanted));
+        let refused = login_refused_error("127.0.0.1", Some("files"));
+        assert_eq!(refused, "The login for 127.0.0.1 was refused (realm: files)");
+        assert!(login_wanted(&refused).is_some_and(|w| w.refused && w.host == "127.0.0.1"));
+        assert_eq!(login_wanted("server returned HTTP 404"), None);
+        assert_eq!(login_wanted("This site needs a login: ftp.example.com").map(|w| w.realm), Some(None));
+    }
 
     fn v(size: Option<u64>, etag: Option<&str>, date: Option<&str>) -> Validator {
         Validator { size, etag: etag.map(str::to_string), last_modified: date.map(str::to_string) }

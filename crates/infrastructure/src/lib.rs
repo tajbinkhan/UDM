@@ -82,5 +82,6 @@ pub mod state;
 pub mod store;
 pub mod transfers;
 pub mod update;
+pub mod window_files;
 pub mod wire;
 pub mod zip;

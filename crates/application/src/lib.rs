@@ -8,6 +8,7 @@ pub mod power;
 pub mod queues;
 pub mod quota;
 pub mod update;
+pub mod window;
 
 #[cfg(test)]
 mod memory;

@@ -553,4 +553,8 @@ pub trait VirusScanner: Send + Sync {
 pub trait FileOpener: Send + Sync {
     /// Open `file`, a program or a document. Failures are logged.
     fn open(&self, file: &str);
+
+    /// Show `path` selected in its folder, in the file manager. Failures
+    /// are logged.
+    fn reveal(&self, path: &str);
 }

@@ -254,12 +254,7 @@ impl LinksDialog {
         let (folder, category) = match &self.target {
             Target::ByType => (None, None),
             Target::Category(name) => (
-                Some(
-                    settings
-                        .category_folder(name, &uidm_infrastructure::settings::default_downloads_dir())
-                        .display()
-                        .to_string(),
-                ),
+                Some(settings.category_folder(name, &crate::ports::ports().downloads_dir()).display().to_string()),
                 Some(name.clone()),
             ),
             Target::Folder if folder.is_empty() => return Err(tr("Choose the folder to save the files to.").into()),
@@ -454,7 +449,7 @@ pub fn dialog(
                             );
                             ui.weak(
                                 settings
-                                    .category_folder(name, &uidm_infrastructure::settings::default_downloads_dir())
+                                    .category_folder(name, &crate::ports::ports().downloads_dir())
                                     .display()
                                     .to_string(),
                             );

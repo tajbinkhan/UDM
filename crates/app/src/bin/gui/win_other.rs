@@ -74,7 +74,7 @@ pub fn hide() {
 /// picker to call on these systems, so the file is shown in its folder,
 /// whose menu has one.
 pub fn open_with(path: &str) {
-    let _ = uidm_infrastructure::platform::reveal(std::path::Path::new(path));
+    crate::ports::ports().opener.reveal(path);
 }
 
 /// Dragging a file out of the window is Windows-only for now, so a drag

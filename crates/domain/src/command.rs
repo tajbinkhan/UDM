@@ -45,6 +45,19 @@ pub fn parse_command(line: &str) -> Result<(String, Vec<String>), String> {
     Ok((program, args))
 }
 
+/// The scanner command line with `program` in place of the one in
+/// `command`, keeping its arguments, or with `{path}` alone when it had
+/// none.
+pub fn with_program(program: &str, command: &str) -> String {
+    let rest = match command.trim().strip_prefix('"') {
+        Some(quoted) => quoted.split_once('"').map_or("", |(_, rest)| rest),
+        None => command.trim().split_once(' ').map_or("", |(_, rest)| rest),
+    }
+    .trim();
+    let rest = if rest.is_empty() { "{path}" } else { rest };
+    format!("\"{program}\" {rest}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

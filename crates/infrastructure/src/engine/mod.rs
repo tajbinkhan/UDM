@@ -207,9 +207,11 @@ impl fmt::Display for EngineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EngineError::Status(code) => write!(f, "server returned HTTP {code}"),
-            EngineError::NeedsLogin(host, realm) => write!(f, "{NEEDS_LOGIN}{host}{}", realm_suffix(realm)),
+            EngineError::NeedsLogin(host, realm) => {
+                f.write_str(&uidm_domain::download::needs_login_error(host, realm.as_deref()))
+            }
             EngineError::LoginRejected(host, realm) => {
-                write!(f, "{LOGIN_FOR}{host}{LOGIN_REFUSED}{}", realm_suffix(realm))
+                f.write_str(&uidm_domain::download::login_refused_error(host, realm.as_deref()))
             }
             EngineError::Http(s) => write!(f, "http error: {s}"),
             EngineError::Tls(s) => write!(f, "tls error: {s}"),
@@ -236,43 +238,9 @@ impl fmt::Display for EngineError {
 
 impl std::error::Error for EngineError {}
 
-const NEEDS_LOGIN: &str = "This site needs a login: ";
 const NEEDS_ADMIN: &str = "Saving here needs administrator rights: ";
 
-const LOGIN_FOR: &str = "The login for ";
-const LOGIN_REFUSED: &str = " was refused";
-const REALM: &str = " (realm: ";
-
-fn realm_suffix(realm: &Option<String>) -> String {
-    realm.as_deref().map_or(String::new(), |r| format!("{REALM}{r})"))
-}
-
-/// A login a download failed for: the site that asked, the realm it named,
-/// and whether a login was sent and refused.
-#[derive(Debug, Clone, PartialEq)]
-pub struct LoginWanted {
-    pub host: String,
-    pub realm: Option<String>,
-    pub refused: bool,
-}
-
-/// The login a failed download's `error` says it needs, if that is why it
-/// failed.
-pub fn login_wanted(error: &str) -> Option<LoginWanted> {
-    let (rest, refused) = match error.strip_prefix(NEEDS_LOGIN) {
-        Some(rest) => (rest.to_string(), false),
-        None => {
-            let rest = error.strip_prefix(LOGIN_FOR)?;
-            let (host, after) = rest.split_once(LOGIN_REFUSED)?;
-            (format!("{host}{after}"), true)
-        }
-    };
-    let (host, realm) = match rest.split_once(REALM) {
-        Some((host, realm)) => (host.to_string(), realm.strip_suffix(')').map(str::to_string)),
-        None => (rest, None),
-    };
-    (!host.is_empty() && !host.contains(char::is_whitespace)).then_some(LoginWanted { host, realm, refused })
-}
+pub use uidm_domain::download::{login_wanted, LoginWanted};
 
 impl EngineError {
     /// Errors that trying again cannot fix.
