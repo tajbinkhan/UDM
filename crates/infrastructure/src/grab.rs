@@ -722,6 +722,32 @@ impl uidm_domain::ports::GrabProjects for ProjectFiles {
     }
 }
 
+/// Keep `page`, which a crawl for `req` read, under mirror `m`'s folder,
+/// with its links to kept pages and files pointing at the local copies.
+/// Not robots.txt, not pages that are not HTML, and not a page already
+/// there unless the mirror overwrites.
+pub fn save_page(req: &GrabRequest, m: &Mirror, page: &Page) -> io::Result<()> {
+    let html = page.content_type.as_deref().is_none_or(|t| t.to_ascii_lowercase().contains("html"));
+    let Ok(url) = Url::parse(&page.url) else {
+        return Ok(());
+    };
+    if !html || url.path() == "/robots.txt" {
+        return Ok(());
+    }
+    let root = Path::new(m.folder.trim());
+    let here = mirror_path(root, &url, true);
+    if here.exists() && !m.overwrite {
+        return Ok(());
+    }
+    let text = String::from_utf8_lossy(&page.body);
+    let out = rewrite_links(&text, &url, &here, root, |u| kept_locally(req, u));
+    let written = here
+        .parent()
+        .map_or(Ok(()), fs::create_dir_all)
+        .and_then(|()| crate::settings::write_atomic(&here, out.as_bytes()));
+    written.map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", here.display())))
+}
+
 /// Save project `p` in `dir`, its login cookies sealed.
 pub fn save_project(p: &Project, dir: &Path) -> io::Result<()> {
     if p.name.trim().is_empty() {
@@ -800,6 +826,33 @@ impl uidm_domain::ports::GrabRuns for ScheduledGrabs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crawled_pages_are_saved_with_local_links() {
+        let dir = std::env::temp_dir().join(format!("uidm_save_page_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mirror = Mirror { folder: dir.display().to_string(), pages: true, overwrite: false };
+        let req = GrabRequest { start: "https://s/".into(), mirror: Some(mirror.clone()), ..GrabRequest::default() };
+        let page = Page {
+            url: "https://s/docs/".into(),
+            content_type: Some("text/html".into()),
+            body: br#"<a href="guide.pdf">g</a>"#.to_vec(),
+        };
+        save_page(&req, &mirror, &page).unwrap();
+        let saved = dir.join("s").join("docs").join("index.html");
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), r#"<a href="guide.pdf">g</a>"#);
+        std::fs::write(&saved, "mine").unwrap();
+        save_page(&req, &mirror, &page).unwrap();
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "mine", "skipped, not replaced");
+        let robots = Page {
+            url: "https://s/robots.txt".into(),
+            content_type: Some("text/plain".into()),
+            body: b"User-agent: *".to_vec(),
+        };
+        save_page(&req, &mirror, &robots).unwrap();
+        assert!(!dir.join("s").join("robots.txt.html").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_project_runs_once_at_a_time() {
