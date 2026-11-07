@@ -913,6 +913,54 @@ mod tests {
         let _ = std::fs::remove_dir_all(&w.dir);
     }
 
+    /// The stop that answering the dialog sends can land after the early
+    /// download's last byte but before the engine saw it through: it is
+    /// reported stopped, with its resume file left. Its file is then kept as
+    /// the download's partial file, which carries on into the file chosen,
+    /// in a folder nothing has made yet.
+    #[test]
+    fn an_early_download_stopped_after_its_last_byte_finishes_in_a_new_folder() {
+        const LEN: usize = 64 * 1024;
+        let w = world("early_whole");
+        let body = engine::testserver::body(LEN);
+        let server = TestServer::start(body.clone());
+        let id = w.transfers.engine().reserve_id();
+        w.store.publish(&Outgoing::Added { id, url: server.url.clone() });
+        w.transfers.start_early(id, Download { url: server.url.clone(), ..Download::default() }, "big.bin");
+        let shadow = w.transfers.early().early_of(id).unwrap();
+        let until = Instant::now() + Duration::from_secs(10);
+        while w.transfers.early().runs()[&shadow].end.is_none() {
+            assert!(Instant::now() < until, "the early download never ended");
+            thread::sleep(Duration::from_millis(10));
+        }
+        let (file, dir) = {
+            let mut runs = w.transfers.early().runs();
+            let e = runs.get_mut(&shadow).unwrap();
+            assert!(matches!(e.end, Some(Some(_))), "it finished: {:?}", e.end);
+            e.end = Some(None);
+            (e.file.clone().unwrap(), e.dir.clone())
+        };
+        engine::leave_whole_sidecar(&file, &server.url, LEN as u64).unwrap();
+
+        let chosen = w.dir.join("chosen").join("big.bin");
+        w.store
+            .update(id, |e| {
+                e.path = Some(chosen.display().to_string());
+                e.status = Status::Waiting;
+                Ok(())
+            })
+            .unwrap();
+        assert!(!w.transfers.settle_early(id, shadow), "kept as its partial file");
+        assert_eq!(w.transfers.entry(id).unwrap().partial, Some(file.display().to_string()));
+        DownloadControl::dispatch(&*w.transfers, id).unwrap();
+        let done = wait_for(&w, id, Status::Done);
+        assert_eq!(done.path, Some(chosen.display().to_string()));
+        assert_eq!(std::fs::read(&chosen).unwrap(), body);
+        assert!(!file.exists() && !engine::sidecar_path(&file).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&w.dir);
+    }
+
     #[test]
     fn an_early_download_stopped_after_saving_counts_as_finished() {
         let dir = std::env::temp_dir().join(format!("uidm_early_late_{}", std::process::id()));
