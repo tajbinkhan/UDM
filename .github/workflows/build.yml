@@ -1,12 +1,14 @@
-# Builds UIDM and runs its tests on Windows, macOS and Linux on every push
-# and pull request. Nothing is stored: the installers are made by
-# release.yml, which attaches them to a GitHub Release.
+# Builds UIDM and runs its tests on Windows, macOS and Linux for every pull
+# request and every push to main. Other branches are built once they have a
+# pull request, so a push to a PR branch runs the matrix once, not twice.
+# Nothing is stored: the installers are made by release.yml, which attaches
+# them to a GitHub Release.
 
 name: Build
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

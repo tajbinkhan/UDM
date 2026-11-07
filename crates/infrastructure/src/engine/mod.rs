@@ -2179,7 +2179,7 @@ mod tests {
 
         /// Start a slow download, stop it partway, and return where its data
         /// went and the reported partial path.
-        fn stop_partway(server: &TestServer, req: DownloadRequest) -> (PathBuf, Option<PathBuf>) {
+        fn stop_partway(req: DownloadRequest) -> (PathBuf, Option<PathBuf>) {
             let (tx, rx) = mpsc::channel();
             let tx = Mutex::new(tx);
             let engine = Engine::new(
@@ -2194,8 +2194,15 @@ mod tests {
                     break (path, partial);
                 }
             };
-            while server.served.load(Ordering::Relaxed) < 512 * 1024 {
-                thread::sleep(Duration::from_millis(20));
+            // Wait for the engine's own count, not the server's: the server
+            // counts a chunk before sending it, so the fast ranges reach any
+            // threshold there before the engine has kept a byte of them.
+            loop {
+                if let Progress::Advanced { done, .. } = rx.recv_timeout(Duration::from_secs(10)).unwrap() {
+                    if done >= 512 * 1024 {
+                        break;
+                    }
+                }
             }
             engine.cancel(id);
             while !matches!(rx.recv_timeout(Duration::from_secs(10)).unwrap(), Progress::Canceled { .. }) {}
@@ -2216,7 +2223,7 @@ mod tests {
                 r.temp_dir = Some(temp.clone());
                 r
             };
-            let (path, partial) = stop_partway(&server, req());
+            let (path, partial) = stop_partway(req());
             let partial = partial.expect("the partial file is in the temporary folder");
             assert_eq!(partial.parent(), Some(temp.as_path()));
             assert!(partial.is_file() && Manifest::sidecar_path(&partial).is_file());
@@ -2240,7 +2247,7 @@ mod tests {
             let dir = temp_dir("temp_moved");
             let mut req = request(&server.url, &dir.join("out"), FileExists::Rename);
             req.temp_dir = Some(dir.join("old"));
-            let (path, partial) = stop_partway(&server, req);
+            let (path, partial) = stop_partway(req);
             let mut req = request(&server.url, &dir.join("out"), FileExists::Rename);
             let served = server.served.load(Ordering::Relaxed);
 
