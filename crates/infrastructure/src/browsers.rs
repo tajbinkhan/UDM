@@ -653,6 +653,89 @@ pub fn register_found() -> io::Result<Vec<&'static str>> {
     Ok(registered)
 }
 
+/// The `BrowserRegistry` adapter: the browsers above, registered for this
+/// user.
+pub struct Registry;
+
+fn slot(b: &Browser) -> uidm_application::window::BrowserSlot {
+    uidm_application::window::BrowserSlot { name: b.name.to_string(), place: b.hosts_key.to_string() }
+}
+
+/// The browser `slot` stands for.
+fn browser_of(slot: &uidm_application::window::BrowserSlot) -> Option<Browser> {
+    BROWSERS.iter().find(|b| b.hosts_key == slot.place).copied()
+}
+
+fn files_error(e: impl std::fmt::Display) -> uidm_domain::ports::FilesError {
+    uidm_domain::ports::FilesError(e.to_string())
+}
+
+/// How `slot`, or the added browser at `program`, restarts.
+fn plan_for(slot: &uidm_application::window::BrowserSlot, program: Option<&Path>) -> Option<RestartPlan> {
+    match program {
+        Some(p) => Some(restart_plan_for_program(p)),
+        None => browser_of(slot)?.restart_plan(),
+    }
+}
+
+impl uidm_application::window::BrowserRegistry for Registry {
+    fn known(&self) -> Vec<(uidm_application::window::BrowserSlot, bool)> {
+        let Ok(r) = Registrar::for_this_user() else {
+            return Vec::new();
+        };
+        BROWSERS
+            .iter()
+            .map(|b| (b, r.registered(b), r.installed(b)))
+            .filter(|(_, registered, installed)| *registered || *installed)
+            .map(|(b, registered, _)| (slot(b), registered))
+            .collect()
+    }
+
+    fn identify(&self, program: &Path) -> Option<uidm_application::window::IdentifiedBrowser> {
+        let t = target_of(program)?;
+        Some(uidm_application::window::IdentifiedBrowser { browser: slot(&t.browser), known: t.known })
+    }
+
+    fn registered(&self, browser: &uidm_application::window::BrowserSlot) -> bool {
+        let (Ok(r), Some(b)) = (Registrar::for_this_user(), browser_of(browser)) else {
+            return false;
+        };
+        r.registered(&b)
+    }
+
+    fn set_registered(
+        &self,
+        browser: &uidm_application::window::BrowserSlot,
+        on: bool,
+    ) -> Result<(), uidm_domain::ports::FilesError> {
+        let r = Registrar::for_this_user().map_err(files_error)?;
+        let b = browser_of(browser).ok_or_else(|| files_error(format!("UIDM does not know {}", browser.name)))?;
+        if on { r.register(&b) } else { r.unregister(&b) }.map_err(files_error)
+    }
+
+    fn display_name(&self, program: &Path) -> String {
+        display_name(program)
+    }
+
+    fn chrome_readers(&self) -> Vec<String> {
+        chrome_readers().into_iter().map(str::to_string).collect()
+    }
+
+    fn can_restart(&self, browser: &uidm_application::window::BrowserSlot, program: Option<&Path>) -> bool {
+        plan_for(browser, program).is_some()
+    }
+
+    fn restart(
+        &self,
+        browser: &uidm_application::window::BrowserSlot,
+        program: Option<&Path>,
+    ) -> Result<(), uidm_domain::ports::FilesError> {
+        let plan = plan_for(browser, program)
+            .ok_or_else(|| files_error(format!("UIDM does not know how to restart {}", browser.name)))?;
+        restart(&plan).map_err(files_error)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -86,9 +86,7 @@ use i18n::{tr, trf};
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use uidm_application::daemon::{self, Command, DaemonClient, DaemonError, Event, Lost};
-use uidm_domain::download::{
-    Answer, CommandLine, Download, DownloadEntry, OnDone, Properties, Scan, SegmentInfo, Status,
-};
+use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, SegmentInfo, Status};
 use uidm_domain::grab::{GrabFile, GrabRequest};
 use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
 use uidm_domain::settings::Sound;
@@ -137,14 +135,16 @@ fn main() -> eframe::Result {
         lists: Arc::new(uidm_infrastructure::listfile::ListFormats),
         checks: Arc::new(uidm_infrastructure::settings::DiskChecks),
         system: Arc::new(uidm_infrastructure::system::ThisSystem),
+        browsers: Arc::new(uidm_infrastructure::browsers::Registry),
     });
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut minimized = args.iter().any(|a| a == "--minimized");
     let cwd = std::env::current_dir().unwrap_or_default();
     let mut startup_error = None;
+    let daemon: Arc<dyn DaemonClient> = Arc::new(IpcDaemonClient::new(WINDOW_CLIENT));
     match uidm_infrastructure::cli::parse(&args, &cwd) {
         Ok(None) => {}
-        Ok(Some(cmd)) => match send_command_line(cmd) {
+        Ok(Some(cmd)) => match daemon.run_command_line(cmd) {
             // A window was open and took it; this copy has nothing to do.
             Ok(true) => return Ok(()),
             // It runs once this window connects; its dialogs bring the
@@ -201,7 +201,7 @@ fn main() -> eframe::Result {
             theme::apply(&cc.egui_ctx);
             // Until the settings arrive, follow Windows.
             i18n::set_language("");
-            let app = App::new(&cc.egui_ctx);
+            let app = App::new(&cc.egui_ctx, daemon);
             if startup_error.is_some() {
                 app.shared.lock().unwrap().last_error = startup_error;
             }
@@ -219,10 +219,6 @@ fn main() -> eframe::Result {
 /// Hand the command line to the daemon, starting it if needed. `Ok(true)`
 /// means an open window ran it; `Ok(false)` that it waits for the window
 /// this process opens.
-fn send_command_line(cmd: CommandLine) -> Result<bool, DaemonError> {
-    IpcDaemonClient::new(WINDOW_CLIENT).run_command_line(cmd)
-}
-
 #[derive(Clone)]
 enum Link {
     Connecting,
@@ -928,12 +924,15 @@ impl ProxyLoginDraft {
     }
 }
 
+/// An ffmpeg field's text and the ffmpeg found for it, if any.
+type FfmpegLookup = (String, Option<PathBuf>);
+
 /// A browser in Options' list: whether it was registered when the dialog
 /// opened, and whether it should be.
 struct BrowserDraft {
     /// The browser whose registration it uses: itself, or for an added
     /// browser the one its family reads.
-    browser: uidm_infrastructure::browsers::Browser,
+    browser: uidm_application::window::BrowserSlot,
     name: String,
     /// The browser the user added by its program, if it is one.
     added: Option<uidm_domain::settings::AddedBrowser>,
@@ -949,12 +948,10 @@ struct BrowserDraft {
 impl BrowserDraft {
     /// The row for a browser added by its program, or `None` when UIDM
     /// cannot tell what browser it is.
-    fn added(
-        added: uidm_domain::settings::AddedBrowser,
-        registrar: Option<&uidm_infrastructure::browsers::Registrar>,
-    ) -> Option<Self> {
-        let target = uidm_infrastructure::browsers::target_of(Path::new(&added.program))?;
-        let was = registrar.is_some_and(|r| r.registered(&target.browser));
+    fn added(added: uidm_domain::settings::AddedBrowser) -> Option<Self> {
+        let browsers = &crate::ports::ports().browsers;
+        let target = browsers.identify(Path::new(&added.program))?;
+        let was = browsers.registered(&target.browser);
         Some(BrowserDraft {
             browser: target.browser,
             name: added.name.clone(),
@@ -966,12 +963,14 @@ impl BrowserDraft {
         })
     }
 
-    /// How Options restarts it, if it can.
-    fn restart_plan(&self) -> Option<uidm_infrastructure::browsers::RestartPlan> {
-        match &self.added {
-            Some(a) => Some(uidm_infrastructure::browsers::restart_plan_for_program(Path::new(&a.program))),
-            None => self.browser.restart_plan(),
-        }
+    /// The program of a browser the user added.
+    fn program(&self) -> Option<PathBuf> {
+        self.added.as_ref().map(|a| PathBuf::from(&a.program))
+    }
+
+    /// Whether Options can restart it.
+    fn can_restart(&self) -> bool {
+        crate::ports::ports().browsers.can_restart(&self.browser, self.program().as_deref())
     }
 }
 
@@ -1109,6 +1108,10 @@ struct OptionsDraft {
     ffmpeg_path: String,
     /// ffmpeg.exe chosen with Browse.
     ffmpeg_picked: Picked,
+    /// The ffmpeg field as it was last looked up, and what the worker
+    /// thread found for it.
+    ffmpeg_asked: Option<String>,
+    ffmpeg_found: Arc<Mutex<Option<FfmpegLookup>>>,
     confirm_remove: bool,
     remove_deletes_files: bool,
     server_file_date: bool,
@@ -1121,7 +1124,7 @@ struct OptionsDraft {
     /// The browsers found or registered, with their registration.
     browsers: Vec<BrowserDraft>,
     /// Browsers found that read Chrome's registration.
-    chrome_readers: Vec<&'static str>,
+    chrome_readers: Vec<String>,
     /// A browser's program chosen with "Add browser...".
     browser_picked: Picked,
     /// What happened to the last browser added or restarted.
@@ -1310,6 +1313,8 @@ impl OptionsDraft {
             video_button_excluded_sites: s.video_button_excluded_sites.join("\n"),
             ffmpeg_path: s.ffmpeg_path.clone(),
             ffmpeg_picked: Picked::default(),
+            ffmpeg_asked: None,
+            ffmpeg_found: Arc::default(),
             confirm_remove: s.confirm_remove,
             remove_deletes_files: s.remove_deletes_files,
             server_file_date: s.server_file_date,
@@ -1319,29 +1324,24 @@ impl OptionsDraft {
             temp_dir: s.temp_dir.clone().unwrap_or_default(),
             temp_picked: Picked::default(),
             browsers: {
-                let registrar = uidm_infrastructure::browsers::Registrar::for_this_user().ok();
-                let mut list: Vec<BrowserDraft> = registrar
-                    .iter()
-                    .flat_map(|r| {
-                        uidm_infrastructure::browsers::BROWSERS
-                            .iter()
-                            .map(|b| (b, r.registered(b), r.installed(b)))
-                            .filter(|(_, registered, installed)| *registered || *installed)
-                            .map(|(b, registered, _)| BrowserDraft {
-                                browser: *b,
-                                name: b.name.to_string(),
-                                added: None,
-                                known: true,
-                                was: registered,
-                                on: registered,
-                                removed: false,
-                            })
+                let mut list: Vec<BrowserDraft> = crate::ports::ports()
+                    .browsers
+                    .known()
+                    .into_iter()
+                    .map(|(b, registered)| BrowserDraft {
+                        name: b.name.clone(),
+                        browser: b,
+                        added: None,
+                        known: true,
+                        was: registered,
+                        on: registered,
+                        removed: false,
                     })
                     .collect();
-                list.extend(s.added_browsers.iter().filter_map(|a| BrowserDraft::added(a.clone(), registrar.as_ref())));
+                list.extend(s.added_browsers.iter().filter_map(|a| BrowserDraft::added(a.clone())));
                 list
             },
-            chrome_readers: uidm_infrastructure::browsers::chrome_readers(),
+            chrome_readers: crate::ports::ports().browsers.chrome_readers(),
             browser_picked: Picked::default(),
             browser_note: None,
             restart_ask: None,
@@ -1572,16 +1572,17 @@ impl OptionsDraft {
         if changed.is_empty() {
             return Ok(());
         }
-        let registrar = uidm_infrastructure::browsers::Registrar::for_this_user().map_err(|e| e.to_string())?;
         for i in changed {
             let on = self.wanted(i);
             if self.browsers[i].was == on {
                 continue; // done with a row sharing its place
             }
             let b = &self.browsers[i];
-            let done = if on { registrar.register(&b.browser) } else { registrar.unregister(&b.browser) };
-            done.map_err(|e| trf!("Could not change {browser}: {error}", browser = b.name, error = e))?;
-            let place = b.browser;
+            crate::ports::ports()
+                .browsers
+                .set_registered(&b.browser, on)
+                .map_err(|e| trf!("Could not change {browser}: {error}", browser = b.name, error = e))?;
+            let place = b.browser.clone();
             for other in self.browsers.iter_mut().filter(|o| o.browser.same_place(&place)) {
                 other.was = on;
             }
@@ -1596,11 +1597,10 @@ impl OptionsDraft {
             return;
         };
         let added = uidm_domain::settings::AddedBrowser {
-            name: uidm_infrastructure::browsers::display_name(&program),
+            name: crate::ports::ports().browsers.display_name(&program),
             program: program.display().to_string(),
         };
-        let registrar = uidm_infrastructure::browsers::Registrar::for_this_user().ok();
-        let Some(mut row) = BrowserDraft::added(added, registrar.as_ref()) else {
+        let Some(mut row) = BrowserDraft::added(added) else {
             self.browser_note = Some(trf!(
                 "UIDM cannot tell what browser {program} is. Pick the program of a browser built on Chromium (such as Chrome, Edge, Brave, Vivaldi, Opera or Yandex) or on Firefox.",
                 program = program.display()
@@ -1622,7 +1622,7 @@ impl OptionsDraft {
 }
 
 impl App {
-    fn new(ctx: &egui::Context) -> Self {
+    fn new(ctx: &egui::Context, daemon: Arc<dyn DaemonClient>) -> Self {
         let app = App {
             shared: Arc::new(Mutex::new(Shared {
                 link: Link::Connecting,
@@ -1655,7 +1655,7 @@ impl App {
                 quota_paused: false,
                 browser_link: None,
             })),
-            daemon: Arc::new(IpcDaemonClient::new(WINDOW_CLIENT)),
+            daemon,
             ctx: ctx.clone(),
             add_dialog: None,
             options: None,
@@ -3253,14 +3253,27 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
                 );
                 browse_file_button(ui, tr("Where is ffmpeg.exe?"), "exe", &draft.ffmpeg_picked);
             });
-            let found = crate::ports::ports().checks.ffmpeg(&Settings {
-                ffmpeg_path: draft.ffmpeg_path.trim().to_string(),
-                ..Settings::default()
-            });
-            match found {
-                Some(path) => ui.weak(trf!("Using {path}", path = path.display())),
-                None => ui.colored_label(ui.visuals().warn_fg_color, tr("Not found.")),
-            };
+            let asked = draft.ffmpeg_path.trim().to_string();
+            if draft.ffmpeg_asked.as_deref() != Some(asked.as_str()) {
+                draft.ffmpeg_asked = Some(asked.clone());
+                let (slot, ctx) = (Arc::clone(&draft.ffmpeg_found), ui.ctx().clone());
+                thread::spawn(move || {
+                    let found = crate::ports::ports().checks.ffmpeg(&Settings { ffmpeg_path: asked.clone(), ..Settings::default() });
+                    *slot.lock().unwrap() = Some((asked, found));
+                    ctx.request_repaint();
+                });
+            }
+            let found = draft.ffmpeg_found.lock().unwrap().clone();
+            match found.filter(|(path, _)| draft.ffmpeg_asked.as_deref() == Some(path.as_str())) {
+                Some((_, Some(path))) => {
+                    ui.weak(trf!("Using {path}", path = path.display()));
+                }
+                Some((_, None)) => {
+                    ui.colored_label(ui.visuals().warn_fg_color, tr("Not found."));
+                }
+                // Still looking.
+                None => {}
+            }
             ui.weak(tr("Joins streamed videos into one .mp4. Without it they are saved as .ts, or as separate video and audio."));
         });
         ui.end_row();
@@ -3676,9 +3689,9 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                     if ui.checkbox(&mut b.on, &b.name).changed() {
                         toggled = Some(i);
                     }
-                    let plan = b.restart_plan();
-                    let restart = ui.add_enabled(plan.is_some(), egui::Button::new(tr("Restart")).small());
-                    let restart = if plan.is_some() {
+                    let can_restart = b.can_restart();
+                    let restart = ui.add_enabled(can_restart, egui::Button::new(tr("Restart")).small());
+                    let restart = if can_restart {
                         restart.on_hover_text(tr("Close this browser and start it again, so it sees a change"))
                     } else {
                         restart.on_disabled_hover_text(tr("UIDM does not know this browser's program; add it with Add browser... to restart it"))
@@ -3704,7 +3717,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
             // Browsers sharing a place are registered together, so their
             // boxes move together.
             if let Some(i) = toggled {
-                let (place, on) = (draft.browsers[i].browser, draft.browsers[i].on);
+                let (place, on) = (draft.browsers[i].browser.clone(), draft.browsers[i].on);
                 for b in draft.browsers.iter_mut().filter(|b| b.browser.same_place(&place)) {
                     b.on = on;
                 }
@@ -3727,11 +3740,13 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                     ui.label(trf!("Restart {browser}? Unsaved work in it may be lost.", browser = name));
                     if ui.button(tr("Restart")).clicked() {
                         draft.restart_ask = None;
-                        if let Some(plan) = draft.browsers[i].restart_plan() {
+                        if draft.browsers[i].can_restart() {
                             draft.browser_note = Some(trf!("Restarting {browser}...", browser = name));
                             let (done, ctx) = (Arc::clone(&draft.restart_done), ui.ctx().clone());
+                            let (slot, program) = (draft.browsers[i].browser.clone(), draft.browsers[i].program());
                             thread::spawn(move || {
-                                *done.lock().unwrap() = Some(match uidm_infrastructure::browsers::restart(&plan) {
+                                let restarted = crate::ports::ports().browsers.restart(&slot, program.as_deref());
+                                *done.lock().unwrap() = Some(match restarted {
                                     Ok(()) => trf!("{browser} was restarted.", browser = name),
                                     Err(e) => trf!("Could not restart {browser}: {error}", browser = name, error = e),
                                 });

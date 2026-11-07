@@ -143,3 +143,59 @@ pub trait SystemServices: Send + Sync {
     /// under `target`.
     fn save_credential(&self, target: &str, username: &str, password: &str) -> Result<(), FilesError>;
 }
+
+/// A browser UIDM can register with: its name, and the place it looks for
+/// programs like UIDM, which some browsers share.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserSlot {
+    pub name: String,
+    pub place: String,
+}
+
+impl BrowserSlot {
+    /// Whether `other` reads the same registration, so the two are
+    /// registered together.
+    pub fn same_place(&self, other: &BrowserSlot) -> bool {
+        self.place == other.place
+    }
+}
+
+/// The browser a program is, as far as UIDM can tell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentifiedBrowser {
+    /// The browser whose registration it reads.
+    pub browser: BrowserSlot,
+    /// Whether that is known, rather than guessed from its family.
+    pub known: bool,
+}
+
+/// Registering UIDM with the browsers, for Options.
+pub trait BrowserRegistry: Send + Sync {
+    /// The browsers UIDM knows that are installed for this user or
+    /// registered, each with whether it is registered.
+    fn known(&self) -> Vec<(BrowserSlot, bool)>;
+
+    /// The browser the program at `program` is, or `None` when UIDM cannot
+    /// tell.
+    fn identify(&self, program: &Path) -> Option<IdentifiedBrowser>;
+
+    /// Whether UIDM is registered with `browser`.
+    fn registered(&self, browser: &BrowserSlot) -> bool;
+
+    /// Register UIDM with `browser`, or with `on` false take it out.
+    fn set_registered(&self, browser: &BrowserSlot, on: bool) -> Result<(), FilesError>;
+
+    /// A name for the browser at `program`, from its file name.
+    fn display_name(&self, program: &Path) -> String;
+
+    /// The installed browsers that read Google Chrome's registration.
+    fn chrome_readers(&self) -> Vec<String>;
+
+    /// Whether `browser` can be restarted: one UIDM knows the program of,
+    /// or an added one, whose `program` is given.
+    fn can_restart(&self, browser: &BrowserSlot, program: Option<&Path>) -> bool;
+
+    /// Close `browser` (or the added one at `program`) and start it again,
+    /// waiting for it.
+    fn restart(&self, browser: &BrowserSlot, program: Option<&Path>) -> Result<(), FilesError>;
+}

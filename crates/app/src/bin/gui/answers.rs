@@ -53,7 +53,7 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
                 None => settings.folders_for(&d.url, &crate::ports::ports().downloads_dir()).for_name(&name),
             };
             let path = folder.join(&name);
-            if path.is_file() {
+            if crate::ports::ports().files.is_file(&path) {
                 out.push((i, Question::Exists(path.display().to_string())));
             }
         }
