@@ -104,7 +104,7 @@ pub struct AppState {
     pub installing: Option<Option<String>>,
     /// A zip preview the daemon sent: the download and its files, or why
     /// not.
-    pub zip_listed: Option<(u64, Result<Vec<uidm_domain::download::ZipEntry>, String>)>,
+    pub zip_listed: Option<ZipListed>,
     /// Downloads are paused for the quota.
     pub quota_paused: bool,
     /// Whether the browser extension is connected, and when one last was,
@@ -357,11 +357,81 @@ pub enum UiMessage {
     /// Download `id` failed a moment ago and is still failed: its dialog
     /// can show now.
     FailedSettled(u64),
+    /// Update now was chosen; its answer is awaited.
+    InstallStarted,
+    /// A new update check was asked for; its answer is awaited.
+    UpdateCheckStarted,
+    /// The daemon is being restarted to run the new one.
+    DaemonRestarting,
+    /// The user asked to give download `id` a login: it goes first.
+    LoginAsked(u64),
+    /// Downloads whose login prompt waits for another site's, to ask about
+    /// next.
+    LoginsWaiting(Vec<u64>),
+    /// Options' settings went to the daemon; its answer is awaited.
+    SavingSettings,
+    /// They could not be sent, and why.
+    SaveFailed(String),
+    /// The window is done with something: the state forgets it.
+    Forget(Forget),
+    /// The window takes something to show: [`apply`] hands it over as a
+    /// [`Taken`] and the state forgets it.
+    Take(What),
 }
 
+/// What the window is done with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Forget {
+    /// The message under the toolbar.
+    Error,
+    /// The passing notice in the status bar.
+    Notice,
+    /// The answer that a new link is for another file.
+    RefreshMismatch,
+    /// The offer to download a copied link.
+    ClipboardOffer,
+    /// A countdown that ran out.
+    Countdown,
+    /// The grabber's news, for a new crawl.
+    GrabEvents,
+    /// The completion dialog shown first.
+    Completed,
+    /// Every completion dialog waiting.
+    AllCompleted,
+}
+
+/// What the window takes from the state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum What {
+    GrabEvents,
+    ClipboardBatch,
+    LoginWanted,
+    SaveResult,
+    Started,
+    ZipListed,
+    PickedLinks,
+    LinkInfo,
+}
+
+/// What [`apply`] hands over for a [`UiMessage::Take`].
+pub enum Taken {
+    GrabEvents(Vec<GrabEvent>),
+    ClipboardBatch(bool),
+    LoginWanted(Vec<u64>),
+    SaveResult(Option<Result<(), String>>),
+    Started(Vec<(u64, bool)>),
+    ZipListed(Option<ZipListed>),
+    PickedLinks(Option<Box<links::LinksDialog>>),
+    LinkInfo(Vec<(u64, usize, links::Probed)>),
+}
+
+/// A zip preview's download and its files, or why they could not be
+/// listed.
+pub type ZipListed = (u64, Result<Vec<uidm_domain::download::ZipEntry>, String>);
+
 /// Change `state` as `msg` says. The only place the window's state
-/// changes.
-pub fn apply(state: &mut AppState, msg: UiMessage) {
+/// changes. A [`UiMessage::Take`] returns what was taken.
+pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
     match msg {
         UiMessage::Connecting => state.link = Link::Connecting,
         UiMessage::Daemon(Event::Connected) => state.link = Link::Connected,
@@ -400,6 +470,113 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
                 state.completed.push_back((id, true));
             }
         }
+        UiMessage::InstallStarted => state.installing = Some(None),
+        UiMessage::UpdateCheckStarted => state.update = None,
+        UiMessage::DaemonRestarting => {
+            state.stale_daemon = false;
+            state.last_error = None;
+        }
+        UiMessage::LoginAsked(id) => {
+            if !state.login_wanted.contains(&id) {
+                state.login_wanted.push_front(id);
+            }
+        }
+        UiMessage::LoginsWaiting(ids) => state.login_wanted.extend(ids),
+        UiMessage::SavingSettings => {
+            state.saving = true;
+            state.save_result = None;
+        }
+        UiMessage::SaveFailed(why) => {
+            state.saving = false;
+            state.save_result = Some(Err(why));
+        }
+        UiMessage::Forget(what) => match what {
+            Forget::Error => state.last_error = None,
+            Forget::Notice => state.notice = None,
+            Forget::RefreshMismatch => state.refresh_mismatch = None,
+            Forget::ClipboardOffer => state.clipboard = None,
+            Forget::Countdown => state.countdown = None,
+            Forget::GrabEvents => state.grab_events.clear(),
+            Forget::Completed => {
+                state.completed.pop_front();
+            }
+            Forget::AllCompleted => state.completed.clear(),
+        },
+        UiMessage::Take(what) => {
+            return Some(match what {
+                What::GrabEvents => Taken::GrabEvents(state.grab_events.drain(..).collect()),
+                What::ClipboardBatch => Taken::ClipboardBatch(std::mem::take(&mut state.clipboard_batch)),
+                What::LoginWanted => Taken::LoginWanted(state.login_wanted.drain(..).collect()),
+                What::SaveResult => Taken::SaveResult(state.save_result.take()),
+                What::Started => Taken::Started(std::mem::take(&mut state.started)),
+                What::ZipListed => Taken::ZipListed(state.zip_listed.take()),
+                What::PickedLinks => Taken::PickedLinks(state.picked_links.take().map(Box::new)),
+                What::LinkInfo => Taken::LinkInfo(std::mem::take(&mut state.link_info)),
+            });
+        }
+    }
+    None
+}
+
+/// The crawl's news since the last frame.
+pub fn take_grab_events(state: &mut AppState) -> Vec<GrabEvent> {
+    match apply(state, UiMessage::Take(What::GrabEvents)) {
+        Some(Taken::GrabEvents(events)) => events,
+        _ => Vec::new(),
+    }
+}
+
+/// Whether the tray asked for a batch from the clipboard.
+pub fn take_clipboard_batch(state: &mut AppState) -> bool {
+    matches!(apply(state, UiMessage::Take(What::ClipboardBatch)), Some(Taken::ClipboardBatch(true)))
+}
+
+/// The downloads waiting for a login prompt, the next first.
+pub fn take_login_wanted(state: &mut AppState) -> Vec<u64> {
+    match apply(state, UiMessage::Take(What::LoginWanted)) {
+        Some(Taken::LoginWanted(ids)) => ids,
+        _ => Vec::new(),
+    }
+}
+
+/// The daemon's answer to Options' save, once it came.
+pub fn take_save_result(state: &mut AppState) -> Option<Result<(), String>> {
+    match apply(state, UiMessage::Take(What::SaveResult)) {
+        Some(Taken::SaveResult(result)) => result,
+        _ => None,
+    }
+}
+
+/// The downloads that started since the last frame, and whether a queue
+/// started each.
+pub fn take_started(state: &mut AppState) -> Vec<(u64, bool)> {
+    match apply(state, UiMessage::Take(What::Started)) {
+        Some(Taken::Started(started)) => started,
+        _ => Vec::new(),
+    }
+}
+
+/// The zip preview the daemon sent, if one came.
+pub fn take_zip_listed(state: &mut AppState) -> Option<ZipListed> {
+    match apply(state, UiMessage::Take(What::ZipListed)) {
+        Some(Taken::ZipListed(listed)) => listed,
+        _ => None,
+    }
+}
+
+/// Links from a page for the link picker, if some came.
+pub fn take_picked_links(state: &mut AppState) -> Option<links::LinksDialog> {
+    match apply(state, UiMessage::Take(What::PickedLinks)) {
+        Some(Taken::PickedLinks(dialog)) => dialog.map(|d| *d),
+        _ => None,
+    }
+}
+
+/// The daemon's answers about the link picker's links.
+pub fn take_link_info(state: &mut AppState) -> Vec<(u64, usize, links::Probed)> {
+    match apply(state, UiMessage::Take(What::LinkInfo)) {
+        Some(Taken::LinkInfo(info)) => info,
+        _ => Vec::new(),
     }
 }
 
@@ -527,6 +704,53 @@ mod tests {
 
     fn daemon(state: &mut AppState, event: Event) {
         apply(state, UiMessage::Daemon(event));
+    }
+
+    #[test]
+    fn what_the_window_takes_is_handed_over_once() {
+        let mut s = AppState::default();
+        daemon(&mut s, Event::GrabProgress { pages: 1, bytes: 2, found: 3, explored: 4, added: vec![] });
+        apply(&mut s, UiMessage::ClipboardBatch);
+        assert_eq!(take_grab_events(&mut s).len(), 1);
+        assert!(take_grab_events(&mut s).is_empty(), "taken already");
+        assert!(take_clipboard_batch(&mut s));
+        assert!(!take_clipboard_batch(&mut s));
+        apply(&mut s, UiMessage::LoginAsked(7));
+        apply(&mut s, UiMessage::LoginAsked(7));
+        apply(&mut s, UiMessage::LoginsWaiting(vec![8]));
+        assert_eq!(take_login_wanted(&mut s), [7, 8]);
+        assert!(take_login_wanted(&mut s).is_empty());
+    }
+
+    #[test]
+    fn saving_settings_waits_for_the_daemons_answer() {
+        let mut s = AppState::default();
+        apply(&mut s, UiMessage::SavingSettings);
+        assert!(s.saving);
+        assert_eq!(take_save_result(&mut s), None, "no answer yet");
+        daemon(&mut s, Event::Settings { settings: Settings::default() });
+        assert!(!s.saving);
+        assert_eq!(take_save_result(&mut s), Some(Ok(())));
+        apply(&mut s, UiMessage::SaveFailed("not connected".into()));
+        assert_eq!(take_save_result(&mut s), Some(Err("not connected".into())));
+    }
+
+    #[test]
+    fn forgetting_clears_only_what_it_names() {
+        let mut s = AppState::default();
+        apply(&mut s, UiMessage::Error("e".into()));
+        daemon(&mut s, Event::AddedMany { count: 2, skipped: 0 });
+        apply(&mut s, UiMessage::Forget(Forget::Error));
+        assert_eq!(s.last_error, None);
+        assert!(s.notice.is_some());
+        s.completed.extend([(1, false), (2, true)]);
+        apply(&mut s, UiMessage::Forget(Forget::Completed));
+        assert_eq!(s.completed, [(2, true)]);
+        apply(&mut s, UiMessage::Forget(Forget::AllCompleted));
+        assert!(s.completed.is_empty());
+        apply(&mut s, UiMessage::Error("stale".into()));
+        apply(&mut s, UiMessage::DaemonRestarting);
+        assert_eq!(s.last_error, None);
     }
 
     #[test]
