@@ -267,8 +267,13 @@ fn safe_folder(folder: &Path) -> bool {
 pub struct ListFormats;
 
 impl uidm_application::window::ListFiles for ListFormats {
-    fn decode(&self, bytes: &[u8]) -> String {
-        decode(bytes)
+    fn read(&self, path: &std::path::Path) -> Result<String, uidm_application::window::ListError> {
+        std::fs::read(path).map(|b| decode(&b)).map_err(|e| uidm_application::window::ListError(e.to_string()))
+    }
+
+    fn write(&self, path: &std::path::Path, text: &str) -> Result<(), uidm_application::window::ListError> {
+        crate::settings::write_atomic(path, text.as_bytes())
+            .map_err(|e| uidm_application::window::ListError(e.to_string()))
     }
 
     fn import(&self, text: &str) -> Result<(Vec<Download>, usize), uidm_application::window::ListError> {

@@ -37,9 +37,6 @@ tracing.workspace = true
 eframe = "0.31.1"
 # The download list's table: resizable columns and whole-row selection.
 egui_extras = { version = "0.31.1", default-features = false }
-# Native folder picker for the Options dialog (IFileOpenDialog on Windows,
-# through windows-sys, so it builds on windows-gnu).
-rfd = { version = "0.15.4", default-features = false }
 # System tray icon and its menu (Win32 underneath, builds on windows-gnu;
 # GTK on Linux, without libxdo, which only menu shortcuts need).
 tray-icon = { version = "0.21", default-features = false }
@@ -54,8 +51,6 @@ windows.workspace = true
 [target.'cfg(unix)'.dependencies]
 arboard = { version = "3.7.0", default-features = false }
 
-# The folder picker's GTK backend on Linux (macOS uses its own panels), and
 # GTK's loop for the tray icon, which tray-icon builds on there.
 [target.'cfg(target_os = "linux")'.dependencies]
-rfd = { version = "0.15.4", default-features = false, features = ["gtk3"] }
 gtk = "0.18"

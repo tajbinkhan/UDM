@@ -145,6 +145,7 @@ fn main() -> eframe::Result {
         checks: Arc::new(uidm_infrastructure::settings::DiskChecks),
         system: Arc::new(uidm_infrastructure::system::ThisSystem),
         browsers: Arc::new(uidm_infrastructure::browsers::Registry),
+        pickers: Arc::new(uidm_infrastructure::pickers::NativePicker),
     });
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut minimized = args.iter().any(|a| a == "--minimized");
@@ -207,7 +208,7 @@ fn main() -> eframe::Result {
                     win::hide();
                 }
             }
-            theme::apply(&cc.egui_ctx);
+            theme::apply(&cc.egui_ctx, crate::ports::ports().system.fonts());
             // Until the settings arrive, follow Windows.
             i18n::set_language("");
             let mut app = App::new(&cc.egui_ctx, daemon);
@@ -539,11 +540,8 @@ fn browse_button(ui: &mut egui::Ui, title: &'static str, start: &str, slot: &Pic
         let ctx = ui.ctx().clone();
         let start = start.trim().to_string();
         thread::spawn(move || {
-            let mut dialog = rfd::FileDialog::new().set_title(title);
-            if !start.is_empty() {
-                dialog = dialog.set_directory(&start);
-            }
-            if let Some(folder) = dialog.pick_folder() {
+            let start = (!start.is_empty()).then(|| Path::new(&start));
+            if let Some(folder) = crate::ports::ports().pickers.pick_folder(title, start) {
                 *slot.lock().unwrap() = Some(folder);
                 ctx.request_repaint();
             }
@@ -557,7 +555,8 @@ fn browse_file_button(ui: &mut egui::Ui, title: &'static str, ext: &'static str,
     if ui.button(tr("Browse...")).clicked() {
         let (slot, ctx) = (Arc::clone(slot), ui.ctx().clone());
         thread::spawn(move || {
-            if let Some(file) = rfd::FileDialog::new().set_title(title).add_filter(ext, &[ext]).pick_file() {
+            let kinds = [uidm_application::window::FileKind::new(ext, &[ext])];
+            if let Some(file) = crate::ports::ports().pickers.pick_file(title, &kinds, None) {
                 *slot.lock().unwrap() = Some(file);
                 ctx.request_repaint();
             }
@@ -2341,7 +2340,10 @@ impl App {
         // Under Ask, a name taken by a file in the folder needs an answer,
         // unless the duplicate question already covers it.
         let name = uidm_domain::filename::sanitize_filename(draft.filename.trim());
-        let taken = ask && other.is_none() && !name.is_empty() && Path::new(draft.folder.trim()).join(&name).is_file();
+        let taken = ask
+            && other.is_none()
+            && !name.is_empty()
+            && crate::ports::ports().files.is_file(&Path::new(draft.folder.trim()).join(&name));
         // A folder UIDM may not write to needs administrator rights, or
         // another folder.
         let folder = draft.folder.trim().to_string();
@@ -3669,7 +3671,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
             if ui.button(tr("Add browser...")).on_hover_text(tr("Choose the program of a browser that is not in the list")).clicked() {
                 let (slot, ctx) = (Arc::clone(&draft.browser_picked), ui.ctx().clone());
                 thread::spawn(move || {
-                    if let Some(file) = rfd::FileDialog::new().set_title(tr("Add browser")).pick_file() {
+                    if let Some(file) = crate::ports::ports().pickers.pick_file(tr("Add browser"), &[], None) {
                         *slot.lock().unwrap() = Some(file);
                         ctx.request_repaint();
                     }
