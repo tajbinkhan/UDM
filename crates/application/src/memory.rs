@@ -720,6 +720,10 @@ impl Converter for Convert {
         self.stopped.lock().unwrap().push(id);
         true
     }
+
+    fn any_running(&self) -> bool {
+        !self.started.lock().unwrap().is_empty()
+    }
 }
 
 /// Stages downloads as rows in `list`, numbering them from 1000. Downloads
@@ -859,6 +863,10 @@ impl Waiting {
 
 impl Answers for Waiting {
     fn await_answer(&self, id: u64) {
+        self.0.lock().unwrap().push(id);
+    }
+
+    fn await_new_name(&self, id: u64) {
         self.0.lock().unwrap().push(id);
     }
 }

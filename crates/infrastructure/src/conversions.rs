@@ -57,6 +57,10 @@ impl Conversions {
 }
 
 impl Converter for Conversions {
+    fn any_running(&self) -> bool {
+        Conversions::any_running(self)
+    }
+
     fn available(&self) -> bool {
         settings::ffmpeg(&self.settings.lock()).is_some()
     }

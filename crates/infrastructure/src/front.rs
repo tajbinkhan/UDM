@@ -277,6 +277,19 @@ impl Answers for AnswerWait {
     fn await_answer(&self, id: u64) {
         self.wait(id, None);
     }
+
+    fn await_new_name(&self, id: u64) {
+        self.wait(id, Some(FileExists::Rename));
+    }
+}
+
+/// The `Notifications` adapter: the shared `Notifier`.
+pub struct Notices(pub Arc<Notifier>);
+
+impl uidm_domain::ports::Notifications for Notices {
+    fn notify(&self, id: u64, failed: bool, settings: &Settings) {
+        self.0.notify(id, failed, settings);
+    }
 }
 
 #[cfg(test)]

@@ -102,10 +102,6 @@ impl uidm_domain::ports::SaveFolders for DiskFiles {
     fn downloads_dir(&self) -> PathBuf {
         crate::settings::default_downloads_dir()
     }
-
-    fn can_write(&self, folder: &Path) -> bool {
-        crate::elevate::can_write(folder)
-    }
 }
 
 #[cfg(test)]

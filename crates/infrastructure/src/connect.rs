@@ -129,6 +129,12 @@ pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> 
     }
 }
 
+impl uidm_domain::ports::ProxyFallback for ProxyRetries {
+    fn claim_retry(&self, url: String) -> bool {
+        self.insert(url)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

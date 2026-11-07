@@ -823,6 +823,22 @@ impl uidm_domain::ports::GrabRuns for ScheduledGrabs {
     }
 }
 
+/// The `GrabDownloads` adapter: `download_for`, which looks in the mirror
+/// folder.
+pub struct FoundFiles;
+
+impl uidm_domain::ports::GrabDownloads for FoundFiles {
+    fn download_for(
+        &self,
+        req: &GrabRequest,
+        file: &GrabFile,
+        settings: &crate::settings::Settings,
+        login: Option<&str>,
+    ) -> Option<uidm_domain::download::Download> {
+        download_for(req, file, settings, login)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

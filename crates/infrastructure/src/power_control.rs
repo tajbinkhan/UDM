@@ -187,6 +187,12 @@ impl QueueFinish for RunEnds {
     }
 }
 
+impl uidm_application::daemon::Countdowns for PowerOff {
+    fn countdown(&self) -> Option<Event> {
+        self.countdown_message()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

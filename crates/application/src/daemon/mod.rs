@@ -6,6 +6,7 @@
 //! These are plain values: how they travel (the framing, the JSON shapes,
 //! the handshake) is the adapters' business, in `uidm-infrastructure`.
 
+pub mod service;
 mod table;
 
 pub use table::{apply, change_of};
@@ -498,6 +499,23 @@ pub trait ClientList: Send + Sync {
 
     /// Send `event` to the desktop windows only.
     fn to_windows(&self, event: Event);
+}
+
+/// The download list as the clients see it.
+pub trait DownloadFeed: Send + Sync {
+    /// Apply `event` to the list and tell every client.
+    fn announce(&self, event: Event);
+
+    /// Run `then` on the whole list and the queues, while no change can
+    /// slip in, so an answer built from them is followed by every later
+    /// change.
+    fn snapshot<T>(&self, then: impl FnOnce(Vec<DownloadEntry>, Vec<Queue>) -> T) -> T;
+}
+
+/// The countdown before a power action, for a window that joins during it.
+pub trait Countdowns: Send + Sync {
+    /// The countdown still running, as the event a joining window needs.
+    fn countdown(&self) -> Option<Event>;
 }
 
 /// What the daemon does with its clients' commands: the port its server

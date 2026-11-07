@@ -1,0 +1,1606 @@
+//! The daemon as a service: what it does with each client's command, its
+//! scheduler pass, and its notification thread's work, through the ports
+//! of `domain` and this crate. `uidm-daemon` wires adapters in through
+//! [`Wiring`], runs the server and the background threads, and hands each
+//! command to [`Served`].
+//!
+//! Work that waits on a server or a program (a crawl, a probe, a scan, an
+//! update check) runs on a thread of its own, and answers on the client's
+//! [`Reply`].
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use tracing::{info, warn};
+use uidm_domain::download::{
+    Answer, CommandLine, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Scan, Status, ZipEntry,
+};
+use uidm_domain::grab::{self, GrabRequest, RenderedPage};
+use uidm_domain::ports::{
+    Answers, Attention, Browser, Clock, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
+    EarlyStarts, FileOpener, GrabDownloads, GrabProjects, GrabRuns, Notifications, PausedDownloads, PowerControl,
+    Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SaveFolders,
+    SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine, UpdateChecks, VirusScanner,
+};
+use uidm_domain::queue::{
+    self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
+};
+use uidm_domain::quota::QuotaLimit;
+use uidm_domain::settings::{Duplicate, Settings};
+
+use super::{ClientList, Command, Countdowns, DownloadFeed, Event, Reply, Requests};
+use crate::downloads::{
+    AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
+    Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
+    RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit, UseExisting,
+};
+use crate::grab::RunGrabSchedules;
+use crate::power::{CancelCountdown, CountdownNow, RunWhenDone};
+use crate::queues::{
+    DeleteQueue, MoveToQueue, QueueEvent, RemoveFromQueue, RunQueues, RunSchedules, SaveQueue, Scheduled, StartQueue,
+    StopQueue,
+};
+use crate::quota::{CheckQuota, QuotaEvent, QuotaStatus};
+use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
+
+/// Links the link picker's probes ask about at once.
+const LINK_PROBES: usize = 4;
+
+/// A failure is announced after this long, so a download the browser
+/// extension takes back (and removes) right away is not announced at all.
+const FAILED_GRACE: Duration = Duration::from_secs(1);
+/// The `client` a desktop window names in its `hello`.
+const WINDOW_CLIENT: &str = "window";
+
+/// How long a command line waits for the window its `uidm-gui` opens. One
+/// older than this belonged to a window that never connected.
+pub const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
+
+/// Work for the notification thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Note {
+    Finished(u64),
+    Failed(u64),
+    /// A finished download's virus scan is done.
+    Scanned(u64),
+    /// A download stopped to ask about its taken file name.
+    NameTaken(u64),
+}
+
+/// Lock `m`. Every mutex here holds a map or set changed by single
+/// inserts and removals, or a plain value, so one a panicking thread left
+/// behind still holds a usable value.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A clock stopped at one moment, for a scheduler pass that looks at
+/// "now" more than once.
+struct StoppedAt(queue::Moment);
+
+impl Clock for StoppedAt {
+    fn now(&self) -> queue::Moment {
+        self.0
+    }
+}
+
+/// A scheduled grabber project's run: the project and the day it is for.
+pub type RunProject = Arc<dyn Fn(grab::Project, i64) + Send + Sync>;
+
+/// The adapters the service runs on, by the ports each must implement.
+/// One type may stand for several, as the download store does.
+pub trait Wiring: 'static {
+    /// The download list, the kept requests and the queues.
+    type Store: QueueStore + DownloadList + DownloadFeed + 'static;
+    /// New downloads going into the list.
+    type Intake: DownloadIntake + 'static;
+    /// Starts, stops and checks downloads, and keeps the settings.
+    type Transfers: DownloadControl + SettingsStore + TransferEngine + 'static;
+    /// The settings' record of update checks.
+    type Settings: UpdateChecks + 'static;
+    /// Each started queue's current run, and its retries.
+    type Runs: QueueRuns + 'static;
+    /// What `PauseAll` stopped.
+    type Paused: PausedDownloads + 'static;
+    type Clock: Clock + Timestamps + 'static;
+    type Chimes: QueueSounds + 'static;
+    type Sync: SyncChecks + 'static;
+    type RunEnds: QueueFinish + 'static;
+    type Quota: QuotaState + 'static;
+    type Power: PowerControl + Countdowns + 'static;
+    /// The downloads' files and the folders they are saved in.
+    type Files: DownloadFiles + SaveFolders + 'static;
+    type Front: Attention + 'static;
+    type Early: EarlyStarts + 'static;
+    type Answers: Answers + 'static;
+    type Converter: Converter + 'static;
+    type Releases: ReleaseSource + 'static;
+    type Projects: GrabProjects + 'static;
+    type GrabRuns: GrabRuns + 'static;
+    type Notifier: Notifications + 'static;
+    type Retries: ProxyFallback + 'static;
+    type Found: GrabDownloads + 'static;
+}
+
+/// Makes the update checker for a releases address.
+pub type ReleasesAt<R> = Box<dyn Fn(&str) -> R + Send + Sync>;
+
+/// Makes the grabber's scheduled runs from the set of projects whose run is
+/// going on and what one run does.
+pub type GrabRunsFor<G> = Box<dyn Fn(Arc<Mutex<HashSet<String>>>, RunProject) -> G + Send + Sync>;
+
+/// The adapters, as the wiring builds them.
+pub struct Parts<W: Wiring> {
+    pub store: Arc<W::Store>,
+    pub intake: W::Intake,
+    pub clients: Arc<dyn ClientList>,
+    pub clock: W::Clock,
+    /// The grabber's saved projects, when their folder can be found.
+    pub projects: Option<Arc<W::Projects>>,
+    pub files: Arc<W::Files>,
+    pub scanner: Arc<dyn VirusScanner>,
+    pub opener: Arc<dyn FileOpener>,
+    pub settings: Arc<W::Settings>,
+    pub transfers: Arc<W::Transfers>,
+    pub notifier: Arc<W::Notifier>,
+    pub front: Arc<W::Front>,
+    pub answers: W::Answers,
+    pub early: Arc<W::Early>,
+    pub conversions: W::Converter,
+    pub sync: W::Sync,
+    pub run_ends: W::RunEnds,
+    pub browser: Arc<dyn Browser>,
+    pub probes: Arc<dyn Probes>,
+    pub crawler: Arc<dyn SiteCrawler>,
+    pub found: W::Found,
+    pub browser_proxy_retries: Arc<W::Retries>,
+    pub run_book: W::Runs,
+    pub pause_book: W::Paused,
+    pub quota: W::Quota,
+    pub power: Arc<W::Power>,
+    pub chimes: W::Chimes,
+    pub releases: ReleasesAt<W::Releases>,
+    pub release_url: String,
+    pub grab_runs_for: GrabRunsFor<W::GrabRuns>,
+    /// Finished and failed downloads, for the notification thread.
+    pub notes: Sender<Note>,
+    /// Wakes the scheduler when a download ends or a queue changes.
+    pub wake: Sender<()>,
+    /// This copy's version.
+    pub version: &'static str,
+}
+
+/// The daemon's work. Its fields are the adapters it was wired with, and
+/// what it keeps between requests.
+pub struct DaemonService<W: Wiring> {
+    pub store: Arc<W::Store>,
+    pub intake: W::Intake,
+    pub clients: Arc<dyn ClientList>,
+    pub clock: W::Clock,
+    pub projects: Option<Arc<W::Projects>>,
+    pub files: Arc<W::Files>,
+    pub scanner: Arc<dyn VirusScanner>,
+    pub opener: Arc<dyn FileOpener>,
+    pub settings: Arc<W::Settings>,
+    pub transfers: Arc<W::Transfers>,
+    pub notifier: Arc<W::Notifier>,
+    pub front: Arc<W::Front>,
+    pub answers: W::Answers,
+    pub early: Arc<W::Early>,
+    pub conversions: W::Converter,
+    pub sync: W::Sync,
+    pub run_ends: W::RunEnds,
+    pub browser: Arc<dyn Browser>,
+    pub probes: Arc<dyn Probes>,
+    pub crawler: Arc<dyn SiteCrawler>,
+    pub found: W::Found,
+    pub browser_proxy_retries: Arc<W::Retries>,
+    pub run_book: W::Runs,
+    pub pause_book: W::Paused,
+    pub quota: W::Quota,
+    pub power: Arc<W::Power>,
+    pub chimes: W::Chimes,
+    releases: ReleasesAt<W::Releases>,
+    pub release_url: String,
+    grab_runs_for: GrabRunsFor<W::GrabRuns>,
+    pub notes: Sender<Note>,
+    pub wake: Sender<()>,
+    version: &'static str,
+    /// Keeps two scheduler passes from running at once.
+    tick_lock: Mutex<()>,
+    /// Each client's running site crawl, by its stop flag.
+    pub grabs: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    /// Each client's link picker probes, by their stop flag.
+    pub link_probes: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    /// Links from a page, held for the window that is being opened.
+    pub picked_links: Mutex<Option<Event>>,
+    /// A command line held for the window its `uidm-gui` is opening, and
+    /// when it came.
+    pub command_line: Mutex<Option<(CommandLine, Instant)>>,
+    /// Grabber projects whose scheduled run is going on, by name.
+    pub grab_runs: Arc<Mutex<HashSet<String>>>,
+    /// When the projects' schedules were last looked at.
+    grab_checked: Mutex<Option<Instant>>,
+}
+
+impl<W: Wiring> DaemonService<W> {
+    pub fn new(p: Parts<W>) -> Self {
+        DaemonService {
+            store: p.store,
+            intake: p.intake,
+            clients: p.clients,
+            clock: p.clock,
+            projects: p.projects,
+            files: p.files,
+            scanner: p.scanner,
+            opener: p.opener,
+            settings: p.settings,
+            transfers: p.transfers,
+            notifier: p.notifier,
+            front: p.front,
+            answers: p.answers,
+            early: p.early,
+            conversions: p.conversions,
+            sync: p.sync,
+            run_ends: p.run_ends,
+            browser: p.browser,
+            probes: p.probes,
+            crawler: p.crawler,
+            found: p.found,
+            browser_proxy_retries: p.browser_proxy_retries,
+            run_book: p.run_book,
+            pause_book: p.pause_book,
+            quota: p.quota,
+            power: p.power,
+            chimes: p.chimes,
+            releases: p.releases,
+            release_url: p.release_url,
+            grab_runs_for: p.grab_runs_for,
+            notes: p.notes,
+            wake: p.wake,
+            version: p.version,
+            tick_lock: Mutex::new(()),
+            grabs: Mutex::default(),
+            link_probes: Mutex::default(),
+            picked_links: Mutex::new(None),
+            command_line: Mutex::new(None),
+            grab_runs: Arc::default(),
+            grab_checked: Mutex::new(None),
+        }
+    }
+
+    /// The queues, the main queue first.
+    pub fn queues(&self) -> Vec<Queue> {
+        self.store.edit(|queues| queues.clone())
+    }
+
+    /// Change queue `id` with `f`, then save the queues and tell the
+    /// clients.
+    pub fn update_queue<T>(&self, id: u64, f: impl FnOnce(&mut Queue) -> Result<T, String>) -> Result<T, String> {
+        let result = self.store.edit(|queues| {
+            let q = queues.iter_mut().find(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
+            f(q)
+        })?;
+        self.store.queues_changed();
+        Ok(result)
+    }
+
+    /// Whether UIDM can send `download`'s request: a form body must be
+    /// readable.
+    fn check_body(&self, download: &Download) -> Result<(), String> {
+        if self.intake.sendable(download) {
+            Ok(())
+        } else {
+            Err(format!("the form body of {} is not valid base64", download.url))
+        }
+    }
+
+    /// The settings as they are now.
+    fn settings_now(&self) -> Settings {
+        self.transfers.settings()
+    }
+
+    /// What happens once at start: the queues set to start with UIDM
+    /// start, and with "resume at startup", every interrupted download
+    /// goes again.
+    pub fn start_up(&self) {
+        let launch: Vec<u64> = self.queues().iter().filter(|q| q.start_on_launch).map(|q| q.id).collect();
+        for id in launch {
+            if let Err(e) = self.start_queue(id, None) {
+                warn!(queue = %id, error = %e, "could not start the queue");
+            }
+        }
+        if self.settings_now().resume_at_startup {
+            self.resume_interrupted();
+        }
+    }
+
+    /// One scheduler pass: queues and their schedules, then the grabber's
+    /// schedules. Returns when the computer should wake for the next
+    /// scheduled start.
+    pub fn scheduler_pass(self: &Arc<Self>) -> Option<queue::Moment> {
+        self.tick();
+        self.check_grab_schedules();
+        self.next_wake(self.clock.now())
+    }
+
+    /// Whether the computer should stay awake: something is working and
+    /// the "keep awake" option is on.
+    pub fn wants_awake(&self) -> bool {
+        self.settings_now().keep_awake && self.is_working()
+    }
+
+    /// Whether the daemon has nothing to do: no clients, no downloads and
+    /// no queue that needs it.
+    pub fn idle(&self) -> bool {
+        self.clients.is_empty() && self.transfers.active_count() == 0 && !self.queues_need_daemon()
+    }
+
+    /// Put download `id` in queue `queue` at `position` (or at the end). A
+    /// download that is not running waits there.
+    pub fn move_to_queue(&self, id: u64, queue: u64, position: Option<usize>) -> Result<(), String> {
+        MoveToQueue::new(&*self.store, &*self.store).run(id, queue, position).map_err(|e| e.to_string())
+    }
+
+    /// Take download `id` out of its queue, keeping it in the list (see
+    /// `RemoveFromQueue`).
+    pub fn remove_from_queue(&self, id: u64) -> Result<(), String> {
+        RemoveFromQueue::new(&*self.store, &*self.store).run(id).map_err(|e| e.to_string())
+    }
+
+    /// Create a queue (id 0) or change one.
+    pub fn save_queue(&self, edited: Queue) -> Result<u64, String> {
+        SaveQueue::new(&*self.store, &*self.store).run(edited).map_err(|e| e.to_string())
+    }
+
+    /// Delete a queue. Its downloads move to the main queue; the running ones
+    /// keep running.
+    pub fn delete_queue(&self, id: u64) -> Result<(), String> {
+        DeleteQueue::new(&*self.store, &*self.store, &self.run_book).run(id).map_err(|e| e.to_string())
+    }
+
+    /// Start a queue: its waiting downloads run in order. `scheduled_day` is
+    /// the day whose scheduled run this is, or `None` when started by hand.
+    pub fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), String> {
+        StartQueue::new(&*self.store, &self.run_book, &self.clock, &self.chimes)
+            .run(id, scheduled_day)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Stop a queue. Its running downloads stop and wait in it again, with
+    /// their progress kept.
+    pub fn stop_queue(&self, id: u64) -> Result<(), String> {
+        StopQueue::new(&*self.store, &*self.store, &self.run_book, &*self.transfers).run(id).map_err(|e| e.to_string())
+    }
+
+    /// One pass of the scheduler: start and stop queues on their schedules,
+    /// start waiting downloads in started queues, retry failed ones, and end
+    /// the runs that are done.
+    pub fn tick(self: &Arc<Self>) {
+        let _guard = lock(&self.tick_lock);
+        self.check_quota();
+        let scheduled =
+            RunSchedules::new(&*self.store, &*self.store, &self.run_book, &*self.transfers, &self.clock, &self.chimes)
+                .run();
+        for Scheduled { queue, step } in scheduled {
+            let why = match step {
+                ScheduleStep::Start { .. } => "schedule starts",
+                ScheduleStep::Stop(StopReason::ScheduleEnded) => "schedule stops",
+                ScheduleStep::Stop(StopReason::GrabberStopTime) => "the grabber project's stop time stops",
+            };
+            info!(queue = %queue, why, "schedule step");
+        }
+
+        let events =
+            RunQueues::new(&*self.store, &*self.store, &self.run_book, &*self.transfers, &self.sync, &self.run_ends)
+                .run();
+        for event in events {
+            match event {
+                QueueEvent::Retried { queue, id, attempt, of } => {
+                    info!(queue = %queue, download_id = id, attempt, of, "queue retries a download")
+                }
+                QueueEvent::Finished { queue } => info!(queue = %queue, "queue is done"),
+            }
+        }
+    }
+
+    /// Check the finished downloads at `urls` for changes, and put those
+    /// whose server copy changed in `queue` to be downloaded again, starting
+    /// it. Returns how many changed, and the addresses it found finished in
+    /// the list (which need no new row).
+    pub fn resync(&self, urls: &[String], queue: u64) -> (usize, HashSet<String>) {
+        let urls: HashSet<&str> = urls.iter().map(String::as_str).collect();
+        let (ids, listed): (Vec<u64>, HashSet<String>) = self
+            .store
+            .ids_where(|_, status| status == Status::Done)
+            .into_iter()
+            .filter_map(|id| self.store.entry(id))
+            .filter(|e| urls.contains(e.url.as_str()))
+            .map(|e| (e.id, e.url))
+            .unzip();
+        let changed = ids
+            .into_iter()
+            .filter(|id| self.transfers.has_changed(*id) && self.move_to_queue(*id, queue, None).is_ok())
+            .count();
+        if changed > 0 && !self.queues().iter().any(|q| q.id == queue && q.running) {
+            if let Err(e) = self.start_queue(queue, None) {
+                warn!(queue = %queue, error = %e, "could not start the queue");
+            }
+        }
+        (changed, listed)
+    }
+
+    /// Do what a finished queue, or with `file` one finished download, asks
+    /// (see `RunWhenDone`).
+    pub fn when_done(&self, action: WhenDone, queue: &str, file: Option<&str>, force_close: bool) {
+        when_done(&*self.power, action, queue, file, force_close);
+    }
+
+    /// Run what download `id` asked to happen once it finished, then clear
+    /// it so downloading it again does not repeat it.
+    pub fn after_download(&self, id: u64) {
+        AfterDownload::new(&*self.store, &*self.power).run(id);
+    }
+
+    /// Do what `uidm-gui`'s command line asked. `/q` counts only when that
+    /// call opened the window (`started`), as in IDM, where it works only
+    /// for the first copy. Problems go to the windows, since the caller may
+    /// be gone.
+    pub fn run_command_line(self: &Arc<Self>, cmd: CommandLine, started: bool) {
+        if let Some(mut download) = cmd.download {
+            download.limit_browser_request();
+            let (id, url) = self.add(download);
+            info!(download_id = id, url = %url, "add from the command line");
+            if cmd.quit_after && started {
+                let exit = OnDone { then: WhenDone::Exit, ..OnDone::default() };
+                if let Err(e) = self.set_on_done(id, Some(exit)) {
+                    warn!(download_id = id, error = %e, "could not set /q");
+                }
+            }
+        }
+        if cmd.start_queue {
+            match self.start_queue(MAIN_QUEUE, None) {
+                Ok(()) => {
+                    info!("start the main queue from the command line");
+                    let _ = self.wake.send(());
+                }
+                Err(message) => self.clients.to_windows(Event::Error { message }),
+            }
+        }
+    }
+
+    /// Set or clear what download `id` does once it finishes.
+    pub fn set_on_done(&self, id: u64, on_done: Option<OnDone>) -> Result<(), String> {
+        SetOnDone::new(&*self.store).run(id, on_done).map_err(|e| e.to_string())
+    }
+
+    /// End the countdown early and carry out its action now.
+    pub fn countdown_now(&self) {
+        CountdownNow::new(&*self.power).run();
+    }
+
+    pub fn cancel_countdown(&self) {
+        if CancelCountdown::new(&*self.power).run() {
+            info!("countdown canceled");
+        }
+    }
+
+    /// The countdown still running, as the message a window joining now needs.
+    pub fn countdown_message(&self) -> Option<Event> {
+        self.power.countdown()
+    }
+
+    /// The next scheduled start, of a queue or a grabber project, whose
+    /// schedule asks to wake the computer.
+    pub fn next_wake(&self, now: queue::Moment) -> Option<queue::Moment> {
+        let queues = self.queues();
+        let from_queues = queues.iter().filter(|q| !q.running).filter_map(|q| {
+            q.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, q.last_scheduled_start))
+        });
+        let projects: Vec<queue::Moment> = self
+            .saved_projects()
+            .iter()
+            .filter_map(|p| {
+                p.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, p.last_scheduled_start))
+            })
+            .collect();
+        from_queues.chain(projects).filter(|m| *m > now).min()
+    }
+
+    /// Whether work is running that sleep would interrupt: a download, a
+    /// site grab or a conversion.
+    pub fn is_working(&self) -> bool {
+        self.transfers.active_count() > 0
+            || !lock(&self.grabs).is_empty()
+            || !lock(&self.grab_runs).is_empty()
+            || self.conversions.any_running()
+    }
+
+    /// Whether the daemon must stay up for a queue: one is started, one has a
+    /// schedule ahead, or a countdown runs.
+    pub fn queues_need_daemon(&self) -> bool {
+        let now = self.clock.now();
+        let projects = || {
+            !lock(&self.grab_runs).is_empty()
+                || self
+                    .saved_projects()
+                    .into_iter()
+                    .filter_map(|p| p.schedule)
+                    .any(|s| s.next_start(now).is_some() || s.open_run(now).is_some())
+        };
+        self.countdown_message().is_some()
+            || projects()
+            || self.queues().iter().any(|q| {
+                q.running
+                    || q.schedule.as_ref().is_some_and(|s| s.next_start(now).is_some() || s.open_run(now).is_some())
+            })
+    }
+
+    /// Every saved grabber project that can be read.
+    pub fn saved_projects(&self) -> Vec<grab::Project> {
+        let Some(projects) = &self.projects else {
+            return Vec::new();
+        };
+        projects.names().iter().filter_map(|name| projects.load(name)).collect()
+    }
+
+    pub fn entry(&self, id: u64) -> Option<DownloadEntry> {
+        self.store.entry(id)
+    }
+
+    /// Bring the window forward: ask an open one to show itself, or start one.
+    pub fn show_window(&self) {
+        self.front.show_window();
+    }
+
+    /// Stop every queued or running download, remembering them for
+    /// `resume_all`.
+    pub fn pause_all(&self) {
+        PauseAll::new(&*self.store, &*self.store, &self.run_book, &*self.transfers, &self.pause_book).run();
+    }
+
+    /// The quota the settings ask for, if it is on.
+    pub fn quota_limit(&self) -> Option<QuotaLimit> {
+        let s = self.settings_now();
+        s.quota().map(|(bytes, window)| QuotaLimit { bytes, window, warn: s.quota_warn })
+    }
+
+    /// The quota's state for a window that just connected, if downloads are
+    /// paused for it or it is nearly reached.
+    pub fn quota_message(&self) -> Option<Event> {
+        let now = self.clock.unix_now() / 60;
+        QuotaStatus::new(&self.quota).run(self.quota_limit(), now).map(Event::from)
+    }
+
+    /// Pause everything when the download quota is reached, warn shortly
+    /// before, and resume what it stopped once the window allows (see
+    /// `CheckQuota`). Runs with the scheduler.
+    pub fn check_quota(&self) {
+        let now = self.clock.unix_now() / 60;
+        let check = CheckQuota::new(
+            &*self.store,
+            &*self.store,
+            &self.run_book,
+            &*self.transfers,
+            &self.clock,
+            &self.chimes,
+            &self.quota,
+        );
+        match check.run(self.quota_limit(), now) {
+            Some(QuotaEvent::Reached { used, limit }) => {
+                info!(used, limit, "quota reached")
+            }
+            Some(QuotaEvent::Resumed { failed }) => {
+                info!("quota allows downloads again");
+                for (id, e) in failed {
+                    warn!(download_id = id, error = %e, "could not resume");
+                }
+            }
+            None => {}
+        }
+    }
+
+    /// Start again what `pause_all` stopped, and every interrupted download.
+    pub fn resume_all(&self) {
+        let resumed = ResumeAll::new(
+            &*self.store,
+            &*self.store,
+            &self.run_book,
+            &*self.transfers,
+            &self.pause_book,
+            &self.clock,
+            &self.chimes,
+        )
+        .run();
+        for (id, e) in resumed.failed {
+            warn!(download_id = id, error = %e, "could not resume");
+        }
+    }
+
+    /// Handle one note: scan a finished download first when asked, then play
+    /// the sound and notify.
+    pub fn on_note(self: &Arc<Self>, note: Note) {
+        let settings = self.settings_now();
+        match note {
+            Note::Finished(id) if settings.scan_after_download => {
+                let scanning = self.store.update(id, |e| {
+                    if e.status != Status::Done || e.path.is_none() {
+                        return false;
+                    }
+                    e.scan = Some(Scan::Scanning);
+                    true
+                });
+                let Some(entry) = scanning.filter(|ok| *ok).and_then(|_| self.store.entry(id)) else {
+                    return;
+                };
+                let daemon = Arc::clone(self);
+                thread::spawn(move || {
+                    let path = PathBuf::from(entry.path.unwrap_or_default());
+                    let result = daemon.scanner.scan(&settings, &path);
+                    info!(download_id = id, result = ?result, "scanned");
+                    let _ = daemon.store.update(id, |e| {
+                        e.scan = Some(result);
+                        true
+                    });
+                    let _ = daemon.notes.send(Note::Scanned(id));
+                });
+            }
+            Note::Finished(id) | Note::Scanned(id) => {
+                self.notifier.notify(id, false, &settings);
+                self.after_download(id);
+            }
+            Note::Failed(id) => {
+                thread::sleep(FAILED_GRACE);
+                if self.entry(id).is_some_and(|e| e.status == Status::Failed)
+                    && !self.retry_through_browser_proxy(id, &settings)
+                {
+                    self.notifier.notify(id, true, &settings);
+                }
+            }
+            // Without a window to ask, a taken name gets a new one.
+            Note::NameTaken(id) => self.answers.await_new_name(id),
+        }
+    }
+
+    /// Take a new download: ask where to save it when the settings say so
+    /// (unless its type starts without asking), otherwise queue it at once,
+    /// or only add it to the Download later queue when the settings say
+    /// that. If its address is already in the list, the duplicate setting
+    /// decides first, asking in the save-as dialog under `Ask` even when
+    /// that dialog is off.
+    pub fn add(self: &Arc<Self>, mut download: Download) -> (u64, String) {
+        if let Some(old) = self.duplicate_of(&download) {
+            let choice = download.duplicate.unwrap_or(self.settings_now().if_duplicate);
+            info!(url = %download.url, download_id = old.id, choice = ?choice, "already in the list");
+            if choice == Duplicate::Ask {
+                return self.ask(download, Some(old.id));
+            }
+            if let Some(kept) = self.settle_duplicate(&mut download, &old, choice) {
+                return kept;
+            }
+        }
+        let settings = self.settings_now();
+        if download.start == Some(false) || (download.start.is_none() && settings.add_only) {
+            return self.add_later(download);
+        }
+        let name = uidm_domain::filename::proposed_name(&download.url, download.filename.as_deref());
+        // A folder UIDM may not write to asks first, so the dialog can offer
+        // administrator rights or another folder.
+        let folder = match download.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
+            Some(f) => f.to_path_buf(),
+            None => settings.folders_for(&download.url, &self.files.downloads_dir()).for_name(&name),
+        };
+        let denied = !download.elevate && !self.files.can_write(&folder);
+        if denied || download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(&name)) {
+            self.ask(download, None)
+        } else {
+            self.start(download)
+        }
+    }
+
+    /// The newest download in the list with `download`'s address, unless it
+    /// cannot be a duplicate (a form post or a stream).
+    pub fn duplicate_of(&self, download: &Download) -> Option<DownloadEntry> {
+        if !download.may_be_duplicate() {
+            return None;
+        }
+        self.store.find_last(|e| uidm_domain::download::same_address(&e.url, &download.url))
+    }
+
+    /// Apply `choice` to `download`, whose address download `old` already
+    /// has. Returns the download to report when nothing new should be added;
+    /// otherwise `download` is ready to add.
+    pub fn settle_duplicate(
+        self: &Arc<Self>,
+        download: &mut Download,
+        old: &DownloadEntry,
+        choice: Duplicate,
+    ) -> Option<(u64, String)> {
+        match download.settle_duplicate(old, choice) {
+            DuplicateStep::Add => None,
+            DuplicateStep::UseExisting => self.use_existing(old),
+            DuplicateStep::Replace => {
+                if let Err(e) = self.remove(old.id, false) {
+                    warn!(download_id = old.id, error = %e, "could not remove");
+                }
+                None
+            }
+        }
+    }
+
+    /// Point the user at download `old` instead of adding its address again
+    /// (see `UseExisting`). `None` when the finished file is gone, so the new
+    /// download should be added after all.
+    pub fn use_existing(self: &Arc<Self>, old: &DownloadEntry) -> Option<(u64, String)> {
+        match UseExisting::new(&*self.store, &*self.store, &*self.transfers, &*self.files, &*self.front).run(old) {
+            Existing::Gone => None,
+            Existing::Shown { id, url } | Existing::Resumed { id, url } => Some((id, url)),
+            Existing::NotResumed { id, url, error } => {
+                warn!(download_id = id, error = %error, "could not resume");
+                Some((id, url))
+            }
+        }
+    }
+
+    /// Add `download` to a queue (the one it names, else the one Download
+    /// later goes to, else the main one) without starting it or opening a
+    /// connection.
+    pub fn add_later(&self, download: Download) -> (u64, String) {
+        let later = self.settings_now().later_queue;
+        AddLater::new(&*self.store, &self.intake).run(download, later)
+    }
+
+    /// Add `items` to wait in `queue` (see `AddMany`). Returns how many were
+    /// added and how many were skipped as duplicates.
+    pub fn add_many(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (usize, usize) {
+        let (ids, skipped) = self.add_many_ids(items, queue);
+        (ids.len(), skipped)
+    }
+
+    /// `add_many`, answering with the new downloads' ids.
+    pub fn add_many_ids(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (Vec<u64>, usize) {
+        let choice = self.settings_now().if_duplicate;
+        let added = AddMany::new(&*self.store, &*self.store, &*self.transfers, &*self.files, &self.intake)
+            .run(items, queue, choice);
+        for (id, e) in added.not_replaced {
+            warn!(download_id = id, error = %e, "could not remove");
+        }
+        (added.ids, added.skipped)
+    }
+
+    /// Read a stream's playlist on another thread and answer `reply` with
+    /// what it offers.
+    pub fn probe_media(&self, request: u64, download: Download, reply: Reply) {
+        let probes = Arc::clone(&self.probes);
+        thread::spawn(move || {
+            reply.send(Event::MediaInfo { request, info: probes.media(&download) });
+        });
+    }
+
+    /// Crawl a site for `client` on another thread, sending it progress and
+    /// then what was found. With `download_found`, each file found goes to
+    /// that queue at once, and the queue starts.
+    pub fn grab(self: &Arc<Self>, client: u64, req: GrabRequest, reply: Reply) -> Result<(), String> {
+        req.validate()?;
+        let stop = Arc::new(AtomicBool::new(false));
+        {
+            let mut grabs = lock(&self.grabs);
+            if grabs.contains_key(&client) {
+                return Err("A site crawl is already running.".into());
+            }
+            grabs.insert(client, Arc::clone(&stop));
+        }
+        let daemon = Arc::clone(self);
+        thread::spawn(move || {
+            let send = |event: Event| {
+                reply.send(event);
+            };
+            info!(client, url = %req.start, "crawl");
+            let mut handed = 0;
+            let mut added = Vec::new();
+            let login = daemon.login_cookies(&req);
+            let out = daemon.crawler.crawl(&req, login.as_deref(), &stop, &mut |o| {
+                if let Some(queue) = req.download_found {
+                    let fresh = &o.files[handed..];
+                    if !fresh.is_empty() {
+                        added.extend(daemon.download_in_queue(&req, login.as_deref(), fresh, queue, handed == 0));
+                    }
+                    handed = o.files.len();
+                }
+                send(Event::GrabProgress {
+                    pages: o.pages,
+                    bytes: o.bytes,
+                    found: o.files.len(),
+                    explored: o.explored,
+                    added: added.clone(),
+                })
+            });
+            lock(&daemon.grabs).remove(&client);
+            info!(client, pages = out.pages, files = out.files.len(), "crawl done");
+            send(Event::GrabDone {
+                files: out.files,
+                pages: out.pages,
+                explored: out.explored,
+                stopped: out.stopped,
+                login_cookies: login,
+            });
+        });
+        Ok(())
+    }
+
+    /// Add `files` a crawl for `req` found to `queue` and start it; with
+    /// `first`, also set how many it downloads at once to the request's.
+    /// Files on the login page's site carry `login` (its cookies).
+    /// Returns the new downloads' ids.
+    pub fn download_in_queue(
+        self: &Arc<Self>,
+        req: &GrabRequest,
+        login: Option<&str>,
+        files: &[grab::GrabFile],
+        queue: u64,
+        first: bool,
+    ) -> Vec<u64> {
+        let settings = self.settings_now();
+        let items = files.iter().filter_map(|f| self.found.download_for(req, f, &settings, login)).collect();
+        let (added, _) = self.add_many_ids(items, Some(queue));
+        if first {
+            let at_once = req.download_at_once as usize;
+            let _ = self.update_queue(queue, |q| {
+                q.max_concurrent = at_once;
+                Ok(())
+            });
+        }
+        if !added.is_empty() && !self.queues().iter().any(|q| q.id == queue && q.running) {
+            if let Err(e) = self.start_queue(queue, None) {
+                warn!(error = %e, "could not start the grabber's queue");
+            }
+        }
+        added
+    }
+
+    /// Look for due grabber projects at most every half minute: the
+    /// scheduler wakes on every download event, and this reads files.
+    pub fn check_grab_schedules(self: &Arc<Self>) {
+        {
+            let mut last = lock(&self.grab_checked);
+            if last.is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
+                return;
+            }
+            *last = Some(Instant::now());
+        }
+        self.run_grab_schedules(self.clock.now());
+    }
+
+    /// Start the saved grabber projects whose scheduled run is due, each on
+    /// its own thread. Runs with the scheduler.
+    pub fn run_grab_schedules(self: &Arc<Self>, now: queue::Moment) {
+        let Some(projects) = self.projects.clone() else {
+            return;
+        };
+        let runs = {
+            let (daemon, files) = (Arc::clone(self), Arc::clone(&projects));
+            (self.grab_runs_for)(
+                Arc::clone(&self.grab_runs),
+                Arc::new(move |project, day| daemon.run_scheduled_grab(&*files, project, day)),
+            )
+        };
+        for started in RunGrabSchedules::new(&*projects, &runs, &StoppedAt(now)).run() {
+            if let Some(e) = started.not_saved {
+                warn!(project = %started.project, error = %e, "could not save the grabber project");
+            }
+        }
+    }
+
+    /// One scheduled run of a grabber project, as its `run` says: crawl
+    /// until done or until the schedule's stop time and keep what it found,
+    /// then maybe add the new finds to the project's queue and start it; or
+    /// only add the ticked files and start the queue. The stop time ends the
+    /// queue's run too, and what the project asks when done (with its own
+    /// force-close choice) happens after the crawl, or once the queue is done.
+    pub fn run_scheduled_grab(self: &Arc<Self>, projects: &dyn GrabProjects, mut project: grab::Project, day: i64) {
+        info!(project = %project.name, run = ?project.run, "schedule runs a grabber project");
+        let end = project.schedule.as_ref().filter(|s| s.stop.is_some()).and_then(|s| s.end_of_run(day));
+        let resync;
+        let login = self.login_cookies(&project.request);
+        let to_download = match project.run {
+            grab::RunAction::DownloadChecked => {
+                resync = project.to_resync(&[]);
+                project.checked_files()
+            }
+            run => {
+                let stop = AtomicBool::new(false);
+                let out = self.crawler.crawl(&project.request, login.as_deref(), &stop, &mut |_| {
+                    if end.is_some_and(|end| self.clock.now() >= end) {
+                        stop.store(true, Ordering::Relaxed);
+                    }
+                });
+                resync = project.to_resync(&out.files);
+                let new = project.record_run(out.files);
+                info!(project = %project.name, files = new.len(), "grabber project found new files");
+                if run == grab::RunAction::ExploreAndDownload {
+                    new
+                } else {
+                    Vec::new()
+                }
+            }
+        };
+        if let Err(e) = projects.save(&project) {
+            warn!(project = %project.name, error = %e, "could not save the grabber project");
+        }
+        // Set before the queue starts, so a run that ends at once still
+        // does it. A queue already running is a run someone else started,
+        // such as the user: the project's files join it, but its stop time
+        // and when-done action stay that run's own.
+        let mut owns_run = false;
+        let _ = self.update_queue(project.queue, |q| {
+            if q.running {
+                return Ok(());
+            }
+            owns_run = true;
+            q.when_done_once = Some(project.when_done);
+            q.open_when_done_once = project.open_when_done.clone();
+            q.force_close_once = Some(project.force_close);
+            q.stop_at_once = end.map(queue::Moment::total);
+            Ok(())
+        });
+        // A synchronizing project downloads again what earlier runs got and
+        // the server has since changed.
+        let (changed, listed) = self.resync(&resync, project.queue);
+        let to_download: Vec<grab::GrabFile> = to_download.into_iter().filter(|f| !listed.contains(&f.url)).collect();
+        // Through the usual path, which skips addresses already in the list.
+        let added = if to_download.is_empty() {
+            0
+        } else {
+            self.download_in_queue(&project.request, login.as_deref(), &to_download, project.queue, true).len()
+        };
+        info!(project = %project.name, added, changed, "grabber project queued files");
+        let added = added + changed;
+        if added == 0 {
+            // Nothing to wait for: done now.
+            if owns_run {
+                let _ = self.update_queue(project.queue, |q| {
+                    q.when_done_once = None;
+                    q.open_when_done_once = None;
+                    q.force_close_once = None;
+                    q.stop_at_once = None;
+                    Ok(())
+                });
+            }
+            if let Some(file) = &project.open_when_done {
+                self.opener.open(file);
+            }
+            self.when_done(project.when_done, &project.name, None, project.force_close);
+        }
+    }
+    /// Convert finished download `id` on another thread (see
+    /// `ConvertDownload`). The new file is a row of its own: added and
+    /// started now, with ffmpeg's progress, done with a note, or failed with
+    /// ffmpeg's complaint.
+    pub fn convert(
+        self: &Arc<Self>,
+        id: u64,
+        to: uidm_domain::media::Target,
+        delete_original: bool,
+    ) -> Result<(), String> {
+        let output = ConvertDownload::new(&*self.store, &*self.files, &self.conversions)
+            .run(id, to, delete_original)
+            .map_err(|e| e.to_string())?;
+        info!(download_id = id, output = %output.display(), "converting");
+        Ok(())
+    }
+
+    /// Ask GitHub (at `url`) for the latest release, through the settings'
+    /// proxy, and note when that happened.
+    pub fn check_update(&self, url: &str) -> Event {
+        let github = (self.releases)(url);
+        match CheckForUpdate::new(&github, &*self.settings, self.version).run(self.clock.unix_now()) {
+            Ok(newer) => Event::Update { newer, error: None },
+            Err(e) => Event::Update { newer: None, error: Some(e.to_string()) },
+        }
+    }
+
+    /// Update now (see `InstallUpdate`), then stop the downloads, save the
+    /// list and quit with the windows, so Setup can replace the files.
+    /// Setup closes whatever is left.
+    pub fn install_update(&self) -> Result<(), String> {
+        let github = (self.releases)(&self.release_url);
+        let path = InstallUpdate::new(&github, &*self.settings, self.version)
+            .run(self.clock.unix_now())
+            .map_err(|e| e.to_string())?;
+        info!(path = %path.display(), "started the update; quitting for it");
+        self.pause_all();
+        self.transfers.save_history();
+        self.clients.broadcast(Event::Quit);
+        Ok(())
+    }
+
+    /// Once a week, when a window connects, look for a newer release on
+    /// another thread and tell the windows if there is one.
+    pub fn weekly_update_check(self: &Arc<Self>) {
+        if !ClaimWeeklyCheck::new(&*self.settings).run(self.clock.unix_now()) {
+            return;
+        }
+        let daemon = Arc::clone(self);
+        thread::spawn(move || {
+            if let msg @ Event::Update { newer: Some(_), .. } = daemon.check_update(&daemon.release_url) {
+                daemon.clients.broadcast(msg);
+            }
+        });
+    }
+
+    /// List the files inside zip download `id` on another thread, reading
+    /// the end of the archive with its own request (cookies and all), and
+    /// answer `reply` with `zip_preview`.
+    pub fn preview_zip(&self, id: u64, reply: Reply) {
+        let entry = self.entry(id);
+        let download = self.store.request(id);
+        let answer = move |entries: Vec<ZipEntry>, error: Option<String>| {
+            reply.send(Event::ZipPreview { id, entries, error });
+        };
+        let Some(entry) = entry else {
+            return answer(Vec::new(), Some(format!("no download with id {id}")));
+        };
+        let download = download.unwrap_or_else(|| Download { url: entry.url.clone(), ..Download::default() });
+        let probes = Arc::clone(&self.probes);
+        thread::spawn(move || match probes.zip(&download, entry.total) {
+            Ok(entries) => answer(entries, None),
+            Err(e) => answer(Vec::new(), Some(e.0)),
+        });
+    }
+
+    /// The cookies for `req`'s login page's site: the browser's, where the
+    /// user signed in after Open, else the ones the user pasted. `None`
+    /// without a login page.
+    pub fn login_cookies(&self, req: &GrabRequest) -> Option<String> {
+        let login = req.login_url.as_deref()?;
+        self.browser.cookies(login).or_else(|| req.login_cookies.as_deref().and_then(grab::clean_cookies))
+    }
+
+    /// Stop `client`'s crawl, if it has one.
+    pub fn stop_grab(&self, client: u64) {
+        if let Some(stop) = lock(&self.grabs).get(&client) {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Ask the server of each of `links` for its size and type, the way a
+    /// download of it would (its cookies, referrer, proxy and login), for
+    /// `client`'s link picker. `LINK_PROBES` links are asked at a time, so a
+    /// long list neither waits on one slow server nor floods the sites, and
+    /// each answer goes out as it comes. Any earlier probing for `client`
+    /// stops.
+    pub fn probe_links(&self, client: u64, request: u64, links: Vec<Download>, reply: Reply) {
+        let stop = Arc::new(AtomicBool::new(false));
+        if let Some(old) = lock(&self.link_probes).insert(client, Arc::clone(&stop)) {
+            old.store(true, Ordering::Relaxed);
+        }
+        let links = Arc::new(links);
+        let next = Arc::new(AtomicUsize::new(0));
+        for _ in 0..LINK_PROBES.min(links.len()) {
+            let (links, next, stop, reply) = (Arc::clone(&links), Arc::clone(&next), Arc::clone(&stop), reply.clone());
+            let probes = Arc::clone(&self.probes);
+            thread::spawn(move || loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some(link) = links.get(index).filter(|_| !stop.load(Ordering::Relaxed)) else {
+                    return;
+                };
+                let found = probes.link(link);
+                // Stopped while asking: the picker is gone, or asked anew.
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                let msg = match found {
+                    Ok(i) => {
+                        Event::LinkInfo { request, index, total: i.total, content_type: i.content_type, error: None }
+                    }
+                    Err(e) => {
+                        Event::LinkInfo { request, index, total: None, content_type: None, error: Some(e.to_string()) }
+                    }
+                };
+                // A send that fails means the client went.
+                if !reply.send(msg) {
+                    return;
+                }
+            });
+        }
+    }
+
+    /// Stop `client`'s link probes, if it has any.
+    pub fn stop_probe_links(&self, client: u64) {
+        if let Some(stop) = lock(&self.link_probes).remove(&client) {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Announce `download` as queued, probe it on another thread, then hold it
+    /// as `confirming` with the proposed file until a window answers.
+    /// `duplicate_of` is another download with the same address, for the
+    /// dialog to ask about.
+    pub fn ask(self: &Arc<Self>, download: Download, duplicate_of: Option<u64>) -> (u64, String) {
+        let url = download.url.clone();
+        let id = self.transfers.reserve_id();
+        self.store.keep_request(id, download.clone());
+        self.store.announce(Event::Added { id, url: url.clone() });
+
+        let daemon = Arc::clone(self);
+        thread::spawn(move || {
+            let found = match daemon.probes.file(&download) {
+                Ok(found) => found,
+                Err(e) => {
+                    // Same as a download that fails to start, so the browser
+                    // can take it back.
+                    daemon.store.announce(Event::Failed { id, url: download.url, error: e.to_string() });
+                    return;
+                }
+            };
+            let probed =
+                Probed { filename: found.filename, path: found.path, total: found.total, resumable: found.resumable };
+            let hold = HoldForAnswer::new(
+                &*daemon.store,
+                &*daemon.transfers,
+                &*daemon.files,
+                &*daemon.transfers,
+                &*daemon.early,
+                &daemon.answers,
+            );
+            if let Held::Started(Err(e)) = hold.run(id, &download, probed, duplicate_of) {
+                warn!(download_id = id, error = %e, "could not start");
+            }
+        });
+        (id, url)
+    }
+
+    /// Answer the save-as dialog of a `confirming` download, or start a
+    /// `waiting` one. Missing names and folders keep the proposed ones. With
+    /// `start` false it waits in `queue` (the main queue by default).
+    /// `file_exists`, when given, decides what happens if the name is taken,
+    /// now and on later starts. For a download asked about as a duplicate,
+    /// `duplicate` decides what happens to the other download first (a new
+    /// name when missing). A category and description, when given, are kept
+    /// with it. The dialog's "remember" boxes change the settings.
+    pub fn confirm(&self, answer: Answer) -> Result<(), String> {
+        confirm_answer::<W>(&self.store, &self.transfers, &self.files, &self.front, &self.early, answer)
+    }
+
+    /// Cancel a download, whether it waits for its dialog or is in the engine.
+    pub fn cancel(self: &Arc<Self>, id: u64) {
+        CancelDownload::new(&*self.store, &*self.transfers, &self.conversions).run(id);
+    }
+
+    /// Queue `download`, remember it for retries, and announce it.
+    /// `reuse_path` is a partial file an earlier attempt left behind.
+    pub fn start(&self, download: Download) -> (u64, String) {
+        self.transfers.start(download)
+    }
+
+    /// Re-queue a failed, canceled or interrupted download from its stored
+    /// request, or from its URL alone when the request was not kept (see
+    /// `RetryDownload`).
+    pub fn retry(&self, id: u64) -> Result<(u64, String), String> {
+        RetryDownload::new(&*self.store, &*self.store, &*self.transfers).run(id).map_err(|e| e.to_string())
+    }
+
+    /// Set or clear download `id`'s own speed limit (see `SetSpeedLimit`).
+    pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) -> Result<(), String> {
+        SetSpeedLimit::new(&*self.store, &*self.transfers).run(id, bytes_per_sec).map_err(|e| e.to_string())
+    }
+
+    /// Set whether download `id` keeps its own speed limit when it is
+    /// stopped and resumed.
+    pub fn set_limit_remember(&self, id: u64, remember: bool) -> Result<(), String> {
+        SetLimitRemember::new(&*self.store).run(id, remember).map_err(|e| e.to_string())
+    }
+
+    /// Start download `id` again from the first byte, under the same id (see
+    /// `Redownload`).
+    pub fn redownload(&self, id: u64) -> Result<(), String> {
+        let url = Redownload::new(&*self.store, &*self.transfers, &*self.files).run(id).map_err(|e| e.to_string())?;
+        info!(download_id = id, url = %url, "downloading again");
+        Ok(())
+    }
+
+    /// Give download `id` a new link, or wait for the browser's next one (see
+    /// `RefreshLink`). Returns why the new link was refused, if it was.
+    pub fn refresh_link(&self, id: u64, download: Option<Download>, restart: bool) -> Result<Option<String>, String> {
+        match RefreshLink::new(&*self.store, &*self.store, &*self.transfers)
+            .run(id, download, restart)
+            .map_err(|e| e.to_string())?
+        {
+            Refreshed::Waiting => Ok(None),
+            Refreshed::Mismatch(reason) => Ok(Some(reason)),
+            Refreshed::NewLink(url) => {
+                info!(download_id = id, url = %url, "new link");
+                Ok(None)
+            }
+        }
+    }
+
+    /// Change a stopped or finished download's details (see `SetProperties`).
+    pub fn set_properties(&self, id: u64, p: Properties) -> Result<(), String> {
+        let moved = SetProperties::new(&*self.store, &*self.files).run(id, p).map_err(|e| e.to_string())?;
+        if let Some(to) = moved {
+            info!(download_id = id, to = %to.display(), "moved");
+        }
+        Ok(())
+    }
+
+    /// Under "the browser's proxy only after download errors", retry failed
+    /// download `id` once, through the proxy its browser reported. Returns
+    /// whether it did.
+    pub fn retry_through_browser_proxy(&self, id: u64, s: &Settings) -> bool {
+        if !(s.use_browser_proxy && s.browser_proxy_after_errors) {
+            return false;
+        }
+        let url = self.store.request(id).filter(|d| d.proxy.is_some() || d.browser_proxy.is_some()).map(|d| d.url);
+        let Some(url) = url else {
+            return false;
+        };
+        if !self.browser_proxy_retries.claim_retry(url) {
+            return false;
+        }
+        match self.retry(id) {
+            Ok((new_id, _)) => {
+                info!(download_id = id, new_id, "failed; retrying through the browser's proxy");
+                true
+            }
+            Err(e) => {
+                warn!(download_id = id, error = %e, "could not retry through the browser's proxy");
+                false
+            }
+        }
+    }
+
+    /// The settings as they are, with only the video button's fields taken
+    /// from `asked`. The browser extension changes nothing else, and only
+    /// the window changes settings at large: a browser connection, from an
+    /// extension that is not UIDM's or a bug in it, must not point the virus
+    /// scanner, ffmpeg, folders or proxy somewhere else.
+    pub fn with_video_button(&self, asked: &Settings) -> Settings {
+        let mut settings = self.settings_now();
+        settings.video_button = asked.video_button;
+        settings.video_button_excluded_sites = asked.video_button_excluded_sites.clone();
+        settings
+    }
+
+    /// Queue every interrupted download again (the "resume at startup"
+    /// option).
+    pub fn resume_interrupted(&self) {
+        let ids = self.store.ids_where(|_, status| status == Status::Interrupted);
+        for id in ids {
+            match self.retry(id) {
+                Ok((new_id, url)) => info!(download_id = id, new_id, url = %url, "resuming"),
+                Err(e) => warn!(download_id = id, error = %e, "could not resume"),
+            }
+        }
+    }
+
+    /// Forget a download that is no longer running. Its files stay on disk
+    /// unless `delete_files`, which sends them to the Recycle Bin.
+    pub fn remove(&self, id: u64, delete_files: bool) -> Result<(), String> {
+        if delete_files {
+            info!(download_id = id, "removing with its files");
+        }
+        RemoveDownload::new(&*self.store, &*self.store, &*self.transfers, &*self.files)
+            .run(id, delete_files)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Send the whole list to one client, under the table lock so no event can
+    /// slip between the snapshot and the client's next frame.
+    pub fn send_list(&self, reply: &Reply) {
+        self.store.snapshot(|items, queues| {
+            let refresh = Event::RefreshWaiting { id: self.transfers.waiting_for_link() };
+            for msg in [Event::Downloads { items }, Event::Queues { items: queues }, refresh] {
+                reply.send(msg);
+            }
+        })
+    }
+}
+
+/// Do what a finished queue, or with `file` one finished download, asks
+/// (see `RunWhenDone`).
+pub fn when_done(power: &impl PowerControl, action: WhenDone, queue: &str, file: Option<&str>, force_close: bool) {
+    let request = PowerRequest { action, queue: queue.to_string(), file: file.map(str::to_string), force_close };
+    match RunWhenDone::new(power).run(&request) {
+        PowerStep::None => {}
+        PowerStep::Exit => info!(subject = %request.subject(), "done: exiting"),
+        PowerStep::Countdown => {
+            info!(subject = %request.subject(), action = action.label(), seconds = COUNTDOWN_SECS, "done: countdown")
+        }
+    }
+}
+
+/// Answer a save-as dialog (see `ConfirmAnswer`), logging what could not
+/// be done alongside.
+pub fn confirm_answer<W: Wiring>(
+    store: &W::Store,
+    transfers: &W::Transfers,
+    files: &W::Files,
+    front: &W::Front,
+    early: &W::Early,
+    answer: Answer,
+) -> Result<(), String> {
+    let id = answer.id;
+    let confirm = ConfirmAnswer::new(store, store, transfers, files, front, transfers, early);
+    let (done, warnings) = confirm.run(answer).map_err(|e| e.to_string())?;
+    for w in warnings {
+        match w {
+            ConfirmWarning::DuplicateNotRemembered(e) => {
+                warn!(error = %e, "could not remember the duplicate choice")
+            }
+            ConfirmWarning::ChoicesNotRemembered(e) => {
+                warn!(error = %e, "could not remember the dialog's choices")
+            }
+            ConfirmWarning::OldNotRemoved(old, e) => warn!(download_id = old, error = %e, "could not remove"),
+            ConfirmWarning::OldNotResumed(old, e) => warn!(download_id = old, error = %e, "could not resume"),
+        }
+    }
+    if let Confirmed::UsedExisting { old, kept } = done {
+        info!(download_id = id, duplicates = old, kept, "duplicate");
+    }
+    Ok(())
+}
+
+/// The daemon's answers to its clients' requests: the `Requests` port its
+/// server drives.
+pub struct Served<W: Wiring>(pub Arc<DaemonService<W>>);
+
+impl<W: Wiring> Requests for Served<W> {
+    fn handle(&self, client: u64, command: Command, reply: &Reply) {
+        dispatch(command, &self.0, client, reply);
+    }
+
+    fn gone(&self, client: u64) {
+        self.0.stop_grab(client);
+        self.0.stop_probe_links(client);
+    }
+}
+
+/// Handle request `incoming` from client `client`, sending any direct reply
+/// to `reply`.
+pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, client: u64, reply: &Reply) {
+    let send = |event: Event| {
+        reply.send(event);
+    };
+    match incoming {
+        Command::Hello { client: kind, .. } => {
+            if kind.is_none() {
+                daemon.clients.browser_connected(client);
+            }
+            if kind.as_deref() == Some(WINDOW_CLIENT) {
+                daemon.clients.add_window(client);
+                send(daemon.clients.browser_link());
+                // A window that opens during a countdown shows it too.
+                if let Some(countdown) = daemon.countdown_message() {
+                    send(countdown);
+                }
+                if let Some(quota) = daemon.quota_message() {
+                    send(quota);
+                }
+                daemon.weekly_update_check();
+                // Links picked from a page while no window was open.
+                if let Some(links) = lock(&daemon.picked_links).take() {
+                    send(links);
+                }
+                // The command line of the `uidm-gui` that opened this window.
+                let held = lock(&daemon.command_line).take();
+                if let Some((cmd, _)) = held.filter(|(_, at)| at.elapsed() < COMMAND_LINE_WAIT) {
+                    daemon.run_command_line(cmd, true);
+                }
+            }
+            send(Event::Hello { name: "uidm-daemon".to_string(), version: env!("CARGO_PKG_VERSION").to_string() })
+        }
+        Command::Ping => send(Event::Pong),
+        Command::CommandLine(cmd) => {
+            let window_open = daemon.clients.window_open();
+            if window_open {
+                daemon.run_command_line(cmd, false);
+            } else {
+                *lock(&daemon.command_line) = Some((cmd, Instant::now()));
+            }
+            send(Event::CommandLine { window_open });
+        }
+        Command::Add(mut download) => {
+            download.limit_browser_request();
+            if let Err(message) = daemon.check_body(&download) {
+                send(Event::Rejected { url: download.url, message });
+                return;
+            }
+            let (id, url) = daemon.add(download);
+            info!(download_id = id, url = %url, "add");
+            send(Event::Ack { id, url, status: "accepted".to_string() });
+        }
+        Command::AddMany { items, queue } => {
+            let (count, skipped) = daemon.add_many(items, queue);
+            info!(count, skipped, "added downloads to wait");
+            send(Event::AddedMany { count, skipped });
+        }
+        Command::ProbeMedia { request, mut download } => {
+            download.limit_browser_request();
+            if let Err(message) = daemon.check_body(&download) {
+                send(Event::Error { message });
+                return;
+            }
+            daemon.probe_media(request, download, reply.clone());
+        }
+        Command::Grab(req) => {
+            if let Err(message) = daemon.grab(client, req, reply.clone()) {
+                send(Event::Error { message });
+            }
+        }
+        Command::CancelGrab => daemon.stop_grab(client),
+        Command::ProbeLinks { request, links } => {
+            if let Some(message) = links.iter().find_map(|d| daemon.check_body(d).err()) {
+                send(Event::Error { message });
+                return;
+            }
+            daemon.probe_links(client, request, links, reply.clone());
+        }
+        Command::StopProbeLinks => daemon.stop_probe_links(client),
+        Command::Cancel { id } => {
+            info!(download_id = id, "cancel");
+            daemon.cancel(id);
+        }
+        Command::Confirm(answer) => {
+            let (id, start) = (answer.id, answer.start);
+            match daemon.confirm(answer) {
+                Ok(()) => info!(download_id = id, start, "confirm"),
+                Err(message) => send(Event::Error { message }),
+            }
+        }
+        Command::Retry { id } => match daemon.retry(id) {
+            Ok((new_id, url)) => {
+                info!(download_id = id, new_id, "retry");
+                send(Event::Ack { id: new_id, url, status: "accepted".to_string() });
+            }
+            Err(message) => send(Event::Error { message }),
+        },
+        Command::Remove { id, delete_files } => {
+            if let Err(message) = daemon.remove(id, delete_files) {
+                send(Event::Error { message });
+            }
+        }
+        Command::List => daemon.send_list(reply),
+        Command::SaveQueue { queue } => match daemon.save_queue(queue) {
+            Ok(id) => info!(queue = %id, "queue saved"),
+            Err(message) => send(Event::Error { message }),
+        },
+        Command::DeleteQueue { id } => {
+            if let Err(message) = daemon.delete_queue(id) {
+                send(Event::Error { message });
+            }
+        }
+        Command::StartQueue { id } => match daemon.start_queue(id, None) {
+            Ok(()) => {
+                info!(queue = %id, "start queue");
+                let _ = daemon.wake.send(());
+            }
+            Err(message) => send(Event::Error { message }),
+        },
+        Command::StopQueue { id } => match daemon.stop_queue(id) {
+            Ok(()) => info!(queue = %id, "stop queue"),
+            Err(message) => send(Event::Error { message }),
+        },
+        Command::SetQueueOnce { id, when_done } => {
+            if let Err(message) = daemon.update_queue(id, |q| {
+                q.when_done_once = when_done;
+                Ok(())
+            }) {
+                send(Event::Error { message });
+            }
+        }
+        Command::MoveToQueue { id, queue, position } => {
+            if let Err(message) = daemon.move_to_queue(id, queue, position) {
+                send(Event::Error { message });
+            }
+        }
+        Command::RemoveFromQueue { id } => {
+            if let Err(message) = daemon.remove_from_queue(id) {
+                send(Event::Error { message });
+            }
+        }
+        Command::CancelCountdown => daemon.cancel_countdown(),
+        Command::CountdownNow => daemon.countdown_now(),
+        Command::RefreshLink { id, mut download, restart } => {
+            if let Some(d) = &mut download {
+                d.limit_browser_request();
+            }
+            let url = download.as_ref().map(|d| d.url.clone()).unwrap_or_default();
+            if let Some(d) = &download {
+                if let Err(message) = daemon.check_body(d) {
+                    send(Event::Error { message });
+                    return;
+                }
+            }
+            match daemon.refresh_link(id, download, restart) {
+                Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason }),
+                Ok(None) => {}
+                Err(message) => send(Event::Error { message }),
+            }
+        }
+        Command::CancelRefresh => daemon.transfers.wait_for_link(None),
+        Command::PickLinks { page, mut links, user_agent } => {
+            links.retain(|l| uidm_domain::batch::is_web_url(&l.url));
+            links.truncate(uidm_domain::batch::MAX_BATCH);
+            info!(links = links.len(), page = %page, "links to pick from");
+            let msg = Event::PickLinks { page, links, user_agent };
+            if daemon.clients.window_open() {
+                daemon.clients.broadcast(msg);
+                daemon.clients.broadcast(Event::Show);
+            } else {
+                *lock(&daemon.picked_links) = Some(msg);
+                daemon.show_window();
+            }
+        }
+        Command::PreviewZip { id } => daemon.preview_zip(id, reply.clone()),
+        Command::Convert { id, to, delete_original } => {
+            if let Err(message) = daemon.convert(id, to, delete_original) {
+                send(Event::Error { message });
+            }
+        }
+        Command::InstallUpdate => {
+            let (daemon, reply) = (Arc::clone(daemon), reply.clone());
+            thread::spawn(move || {
+                if let Err(error) = daemon.install_update() {
+                    reply.send(Event::UpdateFailed { error });
+                }
+            });
+        }
+        Command::CheckUpdate => {
+            let (daemon, reply) = (Arc::clone(daemon), reply.clone());
+            thread::spawn(move || {
+                reply.send(daemon.check_update(&daemon.release_url));
+            });
+        }
+        Command::Rendered { request, html, url, popups } => {
+            let page = html.zip(url).map(|(html, url)| RenderedPage { html, url, popups });
+            daemon.browser.answered_render(request, page);
+        }
+        Command::Cookies { request, cookies } => daemon.browser.answered_cookies(request, cookies),
+        Command::SetSpeedLimit { id, bytes_per_sec, remember } => {
+            let set = daemon
+                .set_download_limit(id, bytes_per_sec)
+                .and_then(|()| remember.map_or(Ok(()), |r| daemon.set_limit_remember(id, r)));
+            if let Err(message) = set {
+                send(Event::Error { message });
+            }
+        }
+        Command::SetOnDone { id, on_done } => {
+            if let Err(message) = daemon.set_on_done(id, on_done) {
+                send(Event::Error { message });
+            }
+        }
+        Command::Redownload { id } => {
+            if let Err(message) = daemon.redownload(id) {
+                send(Event::Error { message });
+            }
+        }
+        Command::SetProperties { id, changes } => {
+            if let Err(message) = daemon.set_properties(id, changes) {
+                send(Event::Error { message });
+            }
+        }
+        Command::PauseAll => {
+            info!("pause all");
+            daemon.pause_all();
+        }
+        Command::ResumeAll => {
+            info!("resume all");
+            daemon.resume_all();
+        }
+        Command::GetSettings => send(Event::Settings { settings: daemon.settings_now() }),
+        Command::SetSettings { settings } => {
+            let settings =
+                if daemon.clients.is_window(client) { settings } else { daemon.with_video_button(&settings) };
+            match daemon.transfers.save_settings(settings).map_err(|e| e.to_string()) {
+                Ok(()) => info!("settings changed"),
+                Err(message) => send(Event::Error { message }),
+            }
+        }
+    }
+}
