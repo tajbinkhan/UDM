@@ -3,11 +3,9 @@
 # suggests code changes. Owners and collaborators can run it again by
 # commenting /review, /describe, /improve or /ask "<question>" on the PR.
 #
-# The model is reached through OpenCode Zen's OpenAI-compatible endpoint. Add
-# an OpenCode Zen API key as the repository secret OPENCODE_KEY. Zen's free
-# models answer only the OpenCode client, so this uses a paid one. The model
-# must be one Zen serves on /openai/v1/chat/completions; LiteLLM does not know
-# Zen's model IDs, so CUSTOM_MODEL_MAX_TOKENS gives PR-Agent the context size.
+# The model is reached through OpenRouter. Add an OpenRouter API key as the
+# repository secret OPENROUTER_KEY. "openrouter/free" lets OpenRouter pick one
+# of its free models for each request, so it needs no token limit setting.
 
 name: PR Agent
 
@@ -26,7 +24,7 @@ jobs:
   pr_agent:
     # Skip bots (PR-Agent's own comments included), comments on plain issues,
     # and commands from people without write access, so strangers cannot
-    # spend the OpenCode Zen balance.
+    # spend the OpenRouter quota.
     if: >-
       github.event.sender.type != 'Bot' &&
       (github.event_name == 'pull_request' ||
@@ -46,12 +44,9 @@ jobs:
         uses: docker://pragent/pr-agent@sha256:b1ed6e8de56eb4d6e4169ee0d5c209bb5ed1ef071a01c0c042c64b80192a785c
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI__KEY: ${{ secrets.OPENCODE_KEY }}
-          OPENAI__API_BASE: https://opencode.ai/inference/openai/v1
-          # "openai/" sends LiteLLM down the OpenAI-compatible route.
-          CONFIG__MODEL: openai/deepseek-v4.1-flash
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_KEY }}
+          CONFIG__MODEL: openrouter/free
           CONFIG__FALLBACK_MODELS: "[]"
-          CONFIG__CUSTOM_MODEL_MAX_TOKENS: "128000"
           # Describe, review and suggest only when a PR is opened, reopened or
           # marked ready, not on every push. Comment a command to rerun it.
           github_action_config.auto_describe: "true"
