@@ -57,6 +57,8 @@ mod progress;
 mod properties;
 #[path = "gui/queues.rs"]
 mod queues;
+#[path = "gui/state.rs"]
+mod state;
 #[path = "gui/table.rs"]
 mod table;
 #[path = "gui/theme.rs"]
@@ -74,9 +76,10 @@ mod win;
 #[path = "gui/win_other.rs"]
 mod win;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -85,9 +88,10 @@ use eframe::egui;
 use i18n::{tr, trf};
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use uidm_application::daemon::{self, Command, DaemonClient, DaemonError, Event, Lost};
-use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, SegmentInfo, Status};
-use uidm_domain::grab::{GrabFile, GrabRequest};
+use state::{AppState, GrabEvent, Link, Need, UiMessage, Watch};
+use uidm_application::daemon::{Command, DaemonClient, DaemonError};
+use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, Status};
+use uidm_domain::grab::GrabRequest;
 use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
 use uidm_domain::settings::Sound;
 use uidm_domain::settings::{
@@ -96,15 +100,12 @@ use uidm_domain::settings::{
     CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE,
     SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
 };
-use uidm_domain::table::DownloadTable;
 use uidm_infrastructure::daemon_client::IpcDaemonClient;
 use uidm_infrastructure::logging;
 
 /// The `client` this window names in its `hello`, so the daemon knows a
 /// window is open to show a save-as dialog.
 const WINDOW_CLIENT: &str = "window";
-/// Ignore speed samples closer together than this; they are too noisy.
-const SPEED_MIN_INTERVAL: Duration = Duration::from_millis(400);
 
 /// The window icon as raw 64x64 RGBA, made from assets/icon-1024.png so no
 /// image decoder is needed at run time.
@@ -201,9 +202,11 @@ fn main() -> eframe::Result {
             theme::apply(&cc.egui_ctx);
             // Until the settings arrive, follow Windows.
             i18n::set_language("");
-            let app = App::new(&cc.egui_ctx, daemon);
+            let mut app = App::new(&cc.egui_ctx, daemon);
             if startup_error.is_some() {
-                app.shared.lock().unwrap().last_error = startup_error;
+                if let Some(e) = startup_error {
+                    state::apply(&mut app.state, UiMessage::Error(e));
+                }
             }
             menubar::init(&cc.egui_ctx);
             // Without a tray icon there would be no way back to a hidden
@@ -219,278 +222,14 @@ fn main() -> eframe::Result {
 /// Hand the command line to the daemon, starting it if needed. `Ok(true)`
 /// means an open window ran it; `Ok(false)` that it waits for the window
 /// this process opens.
-#[derive(Clone)]
-enum Link {
-    Connecting,
-    Connected,
-    Lost(String),
+/// Lock `m`. The window's mutexes hold plain values (a picked file, the
+/// tooltip, the threads' `Watch`) that a panicking thread cannot leave
+/// half-changed.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Bytes per second, smoothed across progress events.
-struct Speed {
-    at: Instant,
-    done: u64,
-    bytes_per_sec: f64,
-}
-
-/// State the connection thread writes and the window reads.
-struct Shared {
-    link: Link,
-    table: DownloadTable,
-    speeds: HashMap<u64, Speed>,
-    /// The daemon's most recent `error` reply, shown under the toolbar.
-    last_error: Option<String>,
-    /// The daemon did not know a request this window sent: it is an older
-    /// build than the window.
-    stale_daemon: bool,
-    /// The daemon's settings, once it has sent them.
-    settings: Option<Settings>,
-    /// True from sending `set_settings` until the daemon answers with
-    /// `settings` or `error`.
-    saving: bool,
-    /// That answer, for the Options dialog to pick up.
-    save_result: Option<Result<(), String>>,
-    /// Downloads to show a completion dialog for, and whether each failed.
-    completed: VecDeque<(u64, bool)>,
-    /// The daemon's queues, the main queue first.
-    queues: Vec<Queue>,
-    /// A countdown before a finished queue or download sleeps or shuts down:
-    /// the action, when it happens, the queue's name, and the download's
-    /// file name when one download asked for it.
-    countdown: Option<(WhenDone, Instant, String, Option<String>)>,
-    /// The download waiting for a new link from the browser, if any.
-    refresh_waiting: Option<u64>,
-    /// The daemon's answer that a new link is for another file: the
-    /// download, the link and why.
-    refresh_mismatch: Option<(u64, String, String)>,
-    /// A passing message for the status bar, such as how many downloads a
-    /// batch added.
-    notice: Option<String>,
-    /// The site crawl's news, for the grabber dialog to pick up.
-    grab_events: VecDeque<GrabEvent>,
-    /// A copied link to offer to download.
-    clipboard: Option<String>,
-    /// The tray asked for a batch from the clipboard's links.
-    clipboard_batch: bool,
-    /// Downloads that failed for want of a login, to ask for one.
-    login_wanted: VecDeque<u64>,
-    /// Each download's connections, from its latest progress.
-    segments: HashMap<u64, Vec<SegmentInfo>>,
-    /// Downloads that started since the last frame, and whether a queue
-    /// started each.
-    started: Vec<(u64, bool)>,
-    /// Links from a page for the link picker, until the window opens it.
-    picked_links: Option<links::LinksDialog>,
-    /// The daemon's answers about the link picker's links, until the
-    /// picker takes them: the request, the link's place in it, and what
-    /// its server said.
-    link_info: Vec<(u64, usize, links::Probed)>,
-    /// The quota's warning for the status bar, while it matters.
-    quota: Option<String>,
-    /// The last update check's answer, for the About box: a newer release,
-    /// none, or why it could not look.
-    update: Option<Result<Option<uidm_domain::update::Release>, String>>,
-    /// A newer release, for the status bar.
-    newer_release: Option<uidm_domain::update::Release>,
-    /// Update now is under way: `None` while the daemon downloads the
-    /// update, or why it failed.
-    installing: Option<Option<String>>,
-    /// A zip preview the daemon sent: the download and its files, or why
-    /// not.
-    zip_listed: Option<(u64, Result<Vec<uidm_domain::download::ZipEntry>, String>)>,
-    /// Downloads are paused for the quota.
-    quota_paused: bool,
-    /// Whether the browser extension is connected, and when one last was,
-    /// as the daemon last said.
-    browser_link: Option<(bool, Option<u64>)>,
-}
-
-/// News of a site crawl.
-enum GrabEvent {
-    /// Pages read, bytes read, files kept, file links looked at, and the
-    /// downloads added to a queue so far.
-    Progress(u64, u64, usize, u64, Vec<u64>),
-    /// The files kept, pages read, file links looked at, why it stopped,
-    /// and the login page site's cookies it used.
-    Done(Vec<GrabFile>, u64, u64, Option<String>, Option<String>),
-}
-
-impl Shared {
-    fn dialog_mode(&self) -> bool {
-        self.settings.as_ref().is_some_and(|s| s.notify == Notify::Dialog)
-    }
-
-    /// The tray icon's tooltip: how many downloads run, and how fast.
-    fn tooltip(&self) -> String {
-        let active = self.table.entries().filter(|e| e.status == Status::Downloading).count();
-        let queued = self.table.entries().filter(|e| e.status == Status::Queued).count();
-        let speed: f64 = self
-            .speeds
-            .iter()
-            .filter(|(id, _)| self.table.get(**id).is_some_and(|e| e.status == Status::Downloading))
-            .map(|(_, s)| s.bytes_per_sec)
-            .sum();
-        match (active, queued) {
-            (0, 0) => tr("UIDM: no active downloads").to_string(),
-            (0, q) => trf!("UIDM: {queued} queued", queued = q),
-            (a, _) => trf!("UIDM: {active} downloading at {speed}/s", active = a, speed = human_bytes(speed as u64)),
-        }
-    }
-
-    fn apply(&mut self, msg: &Event) {
-        daemon::apply(&mut self.table, msg, crate::ports::ports().unix_now());
-        match msg {
-            Event::Queues { items } => self.queues = items.clone(),
-            Event::Countdown { action, seconds, queue, file } => {
-                let deadline = Instant::now() + Duration::from_secs(*seconds as u64);
-                self.countdown = Some((*action, deadline, queue.clone(), file.clone()));
-            }
-            Event::CountdownCanceled => self.countdown = None,
-            Event::RefreshWaiting { id } => self.refresh_waiting = *id,
-            Event::RefreshMismatch { id, url, reason } => {
-                self.refresh_mismatch = Some((*id, url.clone(), reason.clone()));
-            }
-            Event::Settings { settings } => {
-                self.settings = Some(settings.clone());
-                if self.saving {
-                    self.saving = false;
-                    self.save_result = Some(Ok(()));
-                }
-            }
-            // An older daemon than this window cannot read its newer
-            // requests; its parser's complaint means nothing to the user.
-            Event::Error { message } if message.starts_with("invalid message: unknown variant") => {
-                self.saving = false;
-                self.stale_daemon = true;
-                self.last_error = Some(
-                    tr("The running UIDM daemon is older than this window, so it did not understand a request. Restart the daemon to run the new one.")
-                        .into(),
-                );
-            }
-            Event::Error { message } if self.saving => {
-                self.saving = false;
-                self.save_result = Some(Err(message.clone()));
-            }
-            Event::Progress { id, done, segments, .. } => {
-                self.sample_speed(*id, *done);
-                if let Some(s) = segments {
-                    self.segments.insert(*id, s.clone());
-                }
-            }
-            Event::BrowserLink { connected, last_seen } => self.browser_link = Some((*connected, *last_seen)),
-            Event::Started { id, .. } => {
-                self.segments.remove(id);
-                self.started.push((*id, progress::started_by_queue(&self.queues, *id)));
-            }
-            Event::Quota { used, limit, paused, resumes_at } => {
-                let amount = trf!("{used} of {limit}", used = human_bytes(*used), limit = human_bytes(*limit));
-                let was_paused = std::mem::replace(&mut self.quota_paused, *paused);
-                self.quota = if *paused {
-                    Some(match *resumes_at {
-                        Some(t) => trf!(
-                            "Download quota reached ({amount}); downloads are paused. They resume around {time}.",
-                            amount = amount,
-                            time = columns::local_date(t)
-                        ),
-                        None => trf!("Download quota reached ({amount}); downloads are paused.", amount = amount),
-                    })
-                } else if was_paused {
-                    self.notice = Some(tr("The download quota allows downloads again; paused ones resumed.").into());
-                    None
-                } else if *used >= *limit / 10 * 9 {
-                    Some(trf!(
-                        "Download quota nearly used: {amount}. Downloads pause when it runs out.",
-                        amount = amount
-                    ))
-                } else {
-                    None
-                };
-            }
-            Event::UpdateFailed { error } => {
-                self.installing = Some(Some(error.clone()));
-            }
-            Event::Update { newer, error } => {
-                self.update = Some(match error {
-                    Some(e) => Err(e.clone()),
-                    None => Ok(newer.clone()),
-                });
-                if newer.is_some() {
-                    self.newer_release = newer.clone();
-                }
-            }
-            Event::ZipPreview { id, entries, error } => {
-                let result = match error {
-                    Some(e) => Err(e.clone()),
-                    None => Ok(entries.clone()),
-                };
-                self.zip_listed = Some((*id, result));
-            }
-            Event::PickLinks { page, links, user_agent } => {
-                self.picked_links = Some(links::LinksDialog::new(page.clone(), links.clone(), user_agent.clone()));
-            }
-            Event::LinkInfo { request, index, total, content_type, error } => {
-                let probed = match error {
-                    Some(e) => links::Probed::Failed(e.clone()),
-                    None => links::Probed::Found { total: *total, content_type: content_type.clone() },
-                };
-                self.link_info.push((*request, *index, probed));
-            }
-            Event::AddedMany { count, skipped } => {
-                let mut notice = match count {
-                    1 => tr("Added 1 download, waiting in its queue.").to_string(),
-                    n => trf!("Added {count} downloads, waiting in their queue.", count = n),
-                };
-                match skipped {
-                    0 => {}
-                    1 => {
-                        notice.push(' ');
-                        notice.push_str(tr("Skipped 1 already in the list."));
-                    }
-                    n => {
-                        notice.push(' ');
-                        notice.push_str(&trf!("Skipped {count} already in the list.", count = n));
-                    }
-                }
-                self.notice = Some(notice);
-            }
-            Event::GrabProgress { pages, bytes, found, explored, added } => {
-                self.grab_events.push_back(GrabEvent::Progress(*pages, *bytes, *found, *explored, added.clone()));
-            }
-            Event::GrabDone { files, pages, explored, stopped, login_cookies } => {
-                self.grab_events.push_back(GrabEvent::Done(
-                    files.clone(),
-                    *pages,
-                    *explored,
-                    stopped.clone(),
-                    login_cookies.clone(),
-                ));
-            }
-            Event::Done { id, .. } | Event::Failed { id, .. } | Event::Canceled { id, .. } | Event::Removed { id } => {
-                self.speeds.remove(id);
-                if matches!(msg, Event::Removed { .. }) {
-                    self.segments.remove(id);
-                }
-            }
-            Event::Error { message } | Event::Rejected { message, .. } => self.last_error = Some(message.clone()),
-            _ => {}
-        }
-    }
-
-    fn sample_speed(&mut self, id: u64, done: u64) {
-        let now = Instant::now();
-        let s = self.speeds.entry(id).or_insert(Speed { at: now, done, bytes_per_sec: 0.0 });
-        let dt = now.duration_since(s.at);
-        if dt < SPEED_MIN_INTERVAL || done < s.done {
-            return;
-        }
-        let instant = (done - s.done) as f64 / dt.as_secs_f64();
-        s.bytes_per_sec = if s.bytes_per_sec == 0.0 { instant } else { 0.7 * s.bytes_per_sec + 0.3 * instant };
-        s.at = now;
-        s.done = done;
-    }
-}
-
-/// What a click asked for, applied after drawing so no lock is held then.
+/// What a click asked for, applied after drawing.
 enum Action {
     Add(String),
     Cancel(u64),
@@ -640,7 +379,16 @@ enum Action {
 }
 
 struct App {
-    shared: Arc<Mutex<Shared>>,
+    /// What the window draws from; only `state::apply` changes it.
+    state: AppState,
+    /// Messages from the threads outside the frame, drained each frame.
+    inbox: Receiver<UiMessage>,
+    /// Where those threads send them.
+    outbox: Sender<UiMessage>,
+    /// What those threads keep from the daemon's events.
+    watch: Arc<Mutex<Watch>>,
+    /// The tray tooltip as the frame last made it, for the tray to read.
+    tooltip_now: Arc<Mutex<String>>,
     /// The connection to the daemon.
     daemon: Arc<dyn DaemonClient>,
     ctx: egui::Context,
@@ -1623,38 +1371,13 @@ impl OptionsDraft {
 
 impl App {
     fn new(ctx: &egui::Context, daemon: Arc<dyn DaemonClient>) -> Self {
-        let app = App {
-            shared: Arc::new(Mutex::new(Shared {
-                link: Link::Connecting,
-                table: DownloadTable::new(),
-                speeds: HashMap::new(),
-                last_error: None,
-                stale_daemon: false,
-                settings: None,
-                saving: false,
-                save_result: None,
-                completed: VecDeque::new(),
-                queues: Vec::new(),
-                countdown: None,
-                refresh_waiting: None,
-                refresh_mismatch: None,
-                notice: None,
-                grab_events: VecDeque::new(),
-                clipboard: None,
-                clipboard_batch: false,
-                login_wanted: VecDeque::new(),
-                segments: HashMap::new(),
-                started: Vec::new(),
-                picked_links: None,
-                link_info: Vec::new(),
-                quota: None,
-                zip_listed: None,
-                update: None,
-                newer_release: None,
-                installing: None,
-                quota_paused: false,
-                browser_link: None,
-            })),
+        let (outbox, inbox) = channel();
+        let mut app = App {
+            state: AppState::default(),
+            inbox,
+            outbox,
+            watch: Arc::default(),
+            tooltip_now: Arc::default(),
             daemon,
             ctx: ctx.clone(),
             add_dialog: None,
@@ -1709,11 +1432,18 @@ impl App {
         app
     }
 
+    /// Apply what the threads outside the frame sent since the last frame.
+    fn drain_inbox(&mut self) {
+        while let Ok(msg) = self.inbox.try_recv() {
+            state::apply(&mut self.state, msg);
+        }
+    }
+
     /// Watch the clipboard for download links while Options asks for it,
     /// and offer each new one once. Polls the clipboard's change counter,
     /// which costs nothing, and reads the text only when it changes.
     fn watch_clipboard(&self) {
-        let shared = Arc::clone(&self.shared);
+        let (watch, outbox) = (Arc::clone(&self.watch), self.outbox.clone());
         let daemon = Arc::clone(&self.daemon);
         let ctx = self.ctx.clone();
         thread::spawn(move || {
@@ -1726,7 +1456,8 @@ impl App {
                     continue;
                 }
                 seen = now;
-                let (types, start) = match &shared.lock().unwrap().settings {
+                let settings = lock(&watch).settings.clone();
+                let (types, start) = match &settings {
                     Some(s) if s.clipboard_monitor => (s.capture_types.clone(), s.clipboard_start),
                     _ => continue,
                 };
@@ -1741,7 +1472,7 @@ impl App {
                 if start && daemon.send(Command::Add(Download { url: url.clone(), ..Download::default() })) {
                     continue;
                 }
-                shared.lock().unwrap().clipboard = Some(url);
+                let _ = outbox.send(UiMessage::ClipboardOffer(url));
                 win::show();
                 ctx.request_repaint();
             }
@@ -1750,8 +1481,8 @@ impl App {
 
     /// Put UIDM in the tray. Its menu acts at once, without waiting for a
     /// frame, since the window may be hidden.
-    fn install_tray(&self) {
-        let shared = Arc::clone(&self.shared);
+    fn install_tray(&mut self) {
+        let (watch, outbox) = (Arc::clone(&self.watch), self.outbox.clone());
         let daemon = Arc::clone(&self.daemon);
         let ctx = self.ctx.clone();
         let on_command = Arc::new(move |command: tray::Command| {
@@ -1763,13 +1494,12 @@ impl App {
                     if is_download_url(url) {
                         daemon.send(Command::Add(Download { url: url.to_string(), ..Download::default() }));
                     } else {
-                        shared.lock().unwrap().last_error =
-                            Some(tr("The clipboard holds no http or https link.").into());
+                        let _ = outbox.send(UiMessage::Error(tr("The clipboard holds no http or https link.").into()));
                         win::show();
                     }
                 }
                 tray::Command::BatchFromClipboard => {
-                    shared.lock().unwrap().clipboard_batch = true;
+                    let _ = outbox.send(UiMessage::ClipboardBatch);
                     win::show();
                 }
                 tray::Command::PauseAll => {
@@ -1779,7 +1509,7 @@ impl App {
                     daemon.send(Command::ResumeAll);
                 }
                 tray::Command::ToggleSpeedLimit => {
-                    let settings = shared.lock().unwrap().settings.clone();
+                    let settings = lock(&watch).settings.clone();
                     if let Some(s) = settings {
                         let on = !s.speed_limit_enabled;
                         tray::set_speed_limit_checked(on);
@@ -1787,7 +1517,7 @@ impl App {
                     }
                 }
                 tray::Command::ToggleDropTarget => {
-                    let settings = shared.lock().unwrap().settings.clone();
+                    let settings = lock(&watch).settings.clone();
                     if let Some(s) = settings {
                         daemon.send(Command::SetSettings { settings: Settings { drop_target: !s.drop_target, ..s } });
                     }
@@ -1797,37 +1527,50 @@ impl App {
             }
             ctx.request_repaint();
         });
-        let shared = Arc::clone(&self.shared);
-        let tooltip = Arc::new(move || shared.lock().unwrap().tooltip());
+        let shown = Arc::clone(&self.tooltip_now);
+        let tooltip = Arc::new(move || lock(&shown).clone());
         let rgba = self.layout.tray_style.apply(ICON_RGBA);
         if let Err(e) = tray::install(rgba, ICON_SIZE, on_command, tooltip) {
-            self.shared.lock().unwrap().last_error = Some(trf!("No tray icon: {error}", error = e));
+            state::apply(&mut self.state, UiMessage::Error(trf!("No tray icon: {error}", error = e)));
         }
     }
 
     /// Connect on a background thread, then read events until the daemon goes.
-    fn connect(&self) {
+    fn connect(&mut self) {
         self.connect_with(false);
     }
 
     /// Connect, first restarting the daemon if `restart`.
-    fn connect_with(&self, restart: bool) {
-        let shared = Arc::clone(&self.shared);
-        let ctx = self.ctx.clone();
-        shared.lock().unwrap().link = Link::Connecting;
+    fn connect_with(&mut self, restart: bool) {
+        let (watch, outbox, ctx) = (Arc::clone(&self.watch), self.outbox.clone(), self.ctx.clone());
+        state::apply(&mut self.state, UiMessage::Connecting);
         self.daemon.connect(
             restart,
             Box::new(move |event| {
-                match &event {
-                    Event::Connected => shared.lock().unwrap().link = Link::Connected,
-                    Event::Lost(lost) => {
-                        let why = match lost {
-                            Lost::Closed => tr("the daemon closed the connection").to_string(),
-                            Lost::Failed(e) => e.clone(),
-                        };
-                        shared.lock().unwrap().link = Link::Lost(why);
+                let need = {
+                    let mut w = lock(&watch);
+                    w.observe(&event);
+                    w.need(&event)
+                };
+                let _ = outbox.send(UiMessage::Daemon(event));
+                match need {
+                    Need::Nothing => {}
+                    // A click on a notification brings the window up; a
+                    // dialog shows on its own, without it.
+                    Need::Show => win::show(),
+                    Need::Wake => win::wake(),
+                    Need::Quit => std::process::exit(0),
+                    Need::WakeIfStillFailed(id) => {
+                        let (watch, outbox, ctx) = (Arc::clone(&watch), outbox.clone(), ctx.clone());
+                        thread::spawn(move || {
+                            thread::sleep(FAILED_GRACE);
+                            if lock(&watch).still_failed(id) {
+                                let _ = outbox.send(UiMessage::FailedSettled(id));
+                                win::wake();
+                                ctx.request_repaint();
+                            }
+                        });
                     }
-                    _ => return on_message(&shared, &ctx, &event),
                 }
                 ctx.request_repaint();
             }),
@@ -1842,7 +1585,7 @@ impl App {
             Action::CancelSaveAs(id) => {
                 self.daemon.send(Command::Cancel { id });
                 let (entry, settings) = {
-                    let s = self.shared.lock().unwrap();
+                    let s = &self.state;
                     (s.table.get(id).cloned(), s.settings.clone())
                 };
                 let offer = settings.is_some_and(|s| s.offer_exceptions);
@@ -1854,7 +1597,7 @@ impl App {
                 }
             }
             Action::Exception { url, add, stop_offering } => {
-                let settings = self.shared.lock().unwrap().settings.clone();
+                let settings = self.state.settings.clone();
                 let Some(mut s) = settings else {
                     return;
                 };
@@ -1888,7 +1631,7 @@ impl App {
                     self.daemon.send(Command::Remove { id: *id, delete_files });
                     self.selected.remove(id);
                 }
-                let settings = self.shared.lock().unwrap().settings.clone();
+                let settings = self.state.settings.clone();
                 if let Some(s) = settings.filter(|_| dont_ask) {
                     self.perform(Action::QuickSettings(Settings {
                         confirm_remove: false,
@@ -1899,13 +1642,13 @@ impl App {
             }
             Action::ClearFinished => {
                 let done: Vec<u64> = {
-                    let s = self.shared.lock().unwrap();
+                    let s = &self.state;
                     s.table.entries().filter(|e| e.status == Status::Done).map(|e| e.id).collect()
                 };
                 self.ask_remove(done);
             }
             Action::Open(id) => {
-                let entry = self.shared.lock().unwrap().table.get(id).cloned();
+                let entry = self.state.table.get(id).cloned();
                 if let Some(e) = entry {
                     if let Some(path) = e.path.clone() {
                         match &e.scan {
@@ -1922,7 +1665,7 @@ impl App {
                 open_file(&path);
             }
             Action::DismissCompleted => {
-                let mut s = self.shared.lock().unwrap();
+                let s = &mut self.state;
                 s.completed.pop_front();
                 // "Don't show this dialog again": Windows notifications from
                 // now on, and the dialogs still waiting go too.
@@ -1930,7 +1673,6 @@ impl App {
                     s.completed.clear();
                     if let Some(mut settings) = s.settings.clone() {
                         settings.notify = Notify::Toast;
-                        drop(s);
                         self.daemon.send(Command::SetSettings { settings });
                     }
                 }
@@ -1942,12 +1684,12 @@ impl App {
                 self.daemon.send(Command::Convert { id, to, delete_original });
             }
             Action::InstallUpdate => {
-                self.shared.lock().unwrap().installing = Some(None);
+                self.state.installing = Some(None);
                 self.about = Some(true);
                 self.daemon.send(Command::InstallUpdate);
             }
             Action::CheckUpdate => {
-                self.shared.lock().unwrap().update = None;
+                self.state.update = None;
                 self.about = Some(true);
                 self.daemon.send(Command::CheckUpdate);
             }
@@ -1960,19 +1702,18 @@ impl App {
             }
             Action::Reconnect => self.connect(),
             Action::RestartDaemon => {
-                let mut shared = self.shared.lock().unwrap();
+                let shared = &mut self.state;
                 shared.stale_daemon = false;
                 shared.last_error = None;
-                drop(shared);
                 self.connect_with(true);
             }
             Action::OpenOptions => {
-                if let Some(settings) = &self.shared.lock().unwrap().settings {
+                if let Some(settings) = &self.state.settings {
                     self.options = Some(OptionsDraft::new(settings));
                 }
             }
             Action::OpenLogin(id) => {
-                let mut s = self.shared.lock().unwrap();
+                let s = &mut self.state;
                 if !s.login_wanted.contains(&id) {
                     s.login_wanted.push_front(id);
                 }
@@ -1982,12 +1723,12 @@ impl App {
             }
             Action::SaveSettings(settings) => {
                 {
-                    let mut s = self.shared.lock().unwrap();
+                    let s = &mut self.state;
                     s.saving = true;
                     s.save_result = None;
                 }
                 if !self.daemon.send(Command::SetSettings { settings }) {
-                    let mut s = self.shared.lock().unwrap();
+                    let s = &mut self.state;
                     s.saving = false;
                     s.save_result = Some(Err(tr("not connected to the UIDM daemon").into()));
                 }
@@ -1996,7 +1737,7 @@ impl App {
                 self.daemon.send(Command::SetSettings { settings });
             }
             Action::GrabOptions { add_on_close, save_unique_silently } => {
-                let settings = self.shared.lock().unwrap().settings.clone();
+                let settings = self.state.settings.clone();
                 if let Some(s) = settings {
                     self.perform(Action::QuickSettings(Settings {
                         grab_add_on_close: add_on_close,
@@ -2033,7 +1774,7 @@ impl App {
                 self.daemon.send(Command::SetQueueOnce { id, when_done });
             }
             Action::OpenProperties(id) => {
-                let entry = self.shared.lock().unwrap().table.get(id).cloned();
+                let entry = self.state.table.get(id).cloned();
                 if let Some(e) = entry.filter(|_| !self.properties.iter().any(|d| d.id == id)) {
                     self.properties.push(properties::PropertiesDialog::new(&e));
                 }
@@ -2054,7 +1795,7 @@ impl App {
                 }
             }
             Action::HideProgressTab(tab) => {
-                let settings = self.shared.lock().unwrap().settings.clone();
+                let settings = self.state.settings.clone();
                 if let Some(mut s) = settings {
                     match tab {
                         progress::Tab::SpeedLimit => s.progress_speed_tab = false,
@@ -2065,7 +1806,7 @@ impl App {
                 }
             }
             Action::HideScheduleNote => {
-                let settings = self.shared.lock().unwrap().settings.clone();
+                let settings = self.state.settings.clone();
                 if let Some(s) = settings {
                     self.perform(Action::QuickSettings(Settings { schedule_note_hidden: true, ..s }));
                 }
@@ -2074,7 +1815,7 @@ impl App {
                 self.daemon.send(Command::SetOnDone { id, on_done });
             }
             Action::OpenSpeedLimit(id) => {
-                let entry = self.shared.lock().unwrap().table.get(id).cloned();
+                let entry = self.state.table.get(id).cloned();
                 if let Some(e) = entry {
                     let kbps = e.speed_limit.map_or(512, |b| (b / 1024).max(1));
                     let unit = if kbps >= 1024 && kbps.is_multiple_of(1024) { SpeedUnit::Mb } else { SpeedUnit::Kb };
@@ -2094,11 +1835,11 @@ impl App {
                 self.daemon.send(Command::SetProperties { id, changes });
             }
             Action::OpenRefresh(id) => {
-                self.shared.lock().unwrap().refresh_mismatch = None;
+                self.state.refresh_mismatch = None;
                 self.refresh = Some((id, String::new()));
             }
             Action::RefreshWith { id, url, restart } => {
-                self.shared.lock().unwrap().refresh_mismatch = None;
+                self.state.refresh_mismatch = None;
                 self.daemon.send(Command::RefreshLink {
                     id,
                     download: Some(Download { url, ..Download::default() }),
@@ -2118,14 +1859,14 @@ impl App {
                 self.daemon.send(Command::CountdownNow);
             }
             Action::OpenQueues(select) => {
-                let list = self.shared.lock().unwrap().queues.clone();
+                let list = self.state.queues.clone();
                 self.queues_dialog = Some(queues::QueuesDialog::open(&list, select));
             }
             Action::AddMany { items, queue, start_queue } => {
                 // Addresses in the list and taken names may need answers
                 // first, when Options says to ask.
                 let (rows, settings) = {
-                    let s = self.shared.lock().unwrap();
+                    let s = &self.state;
                     (s.table.entries().cloned().collect::<Vec<_>>(), s.settings.clone().unwrap_or_default())
                 };
                 match answers::Prompt::new(items, queue, start_queue, &rows, &settings) {
@@ -2137,8 +1878,7 @@ impl App {
             Action::BatchFromClipboard => {
                 let links = uidm_domain::batch::links_in(&win::clipboard_text().unwrap_or_default());
                 if links.is_empty() {
-                    self.shared.lock().unwrap().last_error =
-                        Some(tr("The clipboard holds no http, https or ftp links.").into());
+                    self.state.last_error = Some(tr("The clipboard holds no http, https or ftp links.").into());
                 } else {
                     self.batch = Some(tools::BatchDialog::with_list(&links));
                 }
@@ -2168,13 +1908,12 @@ impl App {
                         None => self.grabber = Some(tools::GrabDialog::open(p)),
                     },
                     Err(e) => {
-                        self.shared.lock().unwrap().last_error =
-                            Some(trf!("Could not open {name}: {error}", name = name, error = e));
+                        self.state.last_error = Some(trf!("Could not open {name}: {error}", name = name, error = e));
                     }
                 }
             }
             Action::Grab(req) => {
-                self.shared.lock().unwrap().grab_events.clear();
+                self.state.grab_events.clear();
                 self.daemon.send(Command::Grab(req));
             }
             Action::ProbeLinks { request, links } => {
@@ -2218,7 +1957,7 @@ impl App {
         connected: bool,
         actions: &mut Vec<Action>,
     ) {
-        let queue_list = self.shared.lock().unwrap().queues.clone();
+        let queue_list = self.state.queues.clone();
         if let Some(read) = self.import.lock().unwrap().take() {
             let opened = read.and_then(|(name, text)| {
                 crate::ports::ports()
@@ -2229,11 +1968,11 @@ impl App {
             });
             match opened {
                 Ok(d) => self.batch = Some(d),
-                Err(e) => self.shared.lock().unwrap().last_error = Some(e),
+                Err(e) => self.state.last_error = Some(e),
             }
         }
         if let Some(d) = self.batch.as_mut() {
-            let queue_panel = self.shared.lock().unwrap().settings.as_ref().is_none_or(|s| s.list_queue_panel);
+            let queue_panel = self.state.settings.as_ref().is_none_or(|s| s.list_queue_panel);
             if !tools::batch_dialog(ctx, d, &queue_list, queue_panel, connected, actions) {
                 self.batch = None;
             }
@@ -2244,7 +1983,7 @@ impl App {
                 self.export = None;
             }
         }
-        let events: Vec<GrabEvent> = self.shared.lock().unwrap().grab_events.drain(..).collect();
+        let events: Vec<GrabEvent> = self.state.grab_events.drain(..).collect();
         if let Some(d) = self.grabber.as_mut() {
             for event in events {
                 match event {
@@ -2259,12 +1998,12 @@ impl App {
             if !connected && d.running() {
                 d.failed(tr("The connection to the UIDM daemon was lost.").into());
             }
-            let settings = self.shared.lock().unwrap().settings.clone().unwrap_or_default();
+            let settings = self.state.settings.clone().unwrap_or_default();
             if !tools::grab_dialog(ctx, d, &queue_list, &settings, rows, connected, actions) {
                 self.grabber = None;
             }
         }
-        if std::mem::take(&mut self.shared.lock().unwrap().clipboard_batch) {
+        if std::mem::take(&mut self.state.clipboard_batch) {
             actions.push(Action::BatchFromClipboard);
         }
         if let Some(p) = self.answers.as_mut() {
@@ -2278,10 +2017,10 @@ impl App {
                 None => {}
             }
         }
-        let offer = self.shared.lock().unwrap().clipboard.clone();
+        let offer = self.state.clipboard.clone();
         if let Some(url) = offer {
             if !tools::clipboard_offer(ctx, &url, connected, actions) {
-                self.shared.lock().unwrap().clipboard = None;
+                self.state.clipboard = None;
             }
         }
     }
@@ -2295,9 +2034,9 @@ impl App {
         connected: bool,
         actions: &mut Vec<Action>,
     ) {
-        let settings = self.shared.lock().unwrap().settings.clone();
+        let settings = self.state.settings.clone();
         if self.login.is_none() {
-            let queued: Vec<u64> = self.shared.lock().unwrap().login_wanted.drain(..).collect();
+            let queued: Vec<u64> = self.state.login_wanted.drain(..).collect();
             // Only those still failed for a login.
             let waiting: Vec<(&DownloadEntry, uidm_domain::download::LoginWanted)> = queued
                 .iter()
@@ -2306,7 +2045,7 @@ impl App {
                 .collect();
             if let Some((first, wanted)) = waiting.first().cloned() {
                 let (same, other): (Vec<_>, Vec<_>) = waiting.iter().partition(|(_, w)| w.host == wanted.host);
-                self.shared.lock().unwrap().login_wanted.extend(other.iter().map(|(e, _)| e.id));
+                self.state.login_wanted.extend(other.iter().map(|(e, _)| e.id));
                 let own_site =
                     same.iter().all(|(e, _)| uidm_domain::site::host_of(&e.url).eq_ignore_ascii_case(&wanted.host));
                 let username = settings
@@ -2354,7 +2093,7 @@ impl App {
             return;
         };
         let (queue_list, loaded) = {
-            let s = self.shared.lock().unwrap();
+            let s = &self.state;
             (s.queues.clone(), s.settings.clone())
         };
         let settings = loaded.clone().unwrap_or_default();
@@ -2810,9 +2549,9 @@ impl App {
     /// Draw the Options dialog while it is open.
     fn options_window(&mut self, ctx: &egui::Context, connected: bool, actions: &mut Vec<Action>) {
         // Pick up the daemon's answer to a save.
-        let result = self.shared.lock().unwrap().save_result.take();
-        let saving = self.shared.lock().unwrap().saving;
-        let queues = self.shared.lock().unwrap().queues.clone();
+        let result = self.state.save_result.take();
+        let saving = self.state.saving;
+        let queues = self.state.queues.clone();
         let Some(draft) = self.options.as_mut() else {
             return;
         };
@@ -2830,7 +2569,7 @@ impl App {
         if let Some(note) = draft.restart_done.lock().unwrap().take() {
             draft.browser_note = Some(note);
         }
-        draft.browser_link = self.shared.lock().unwrap().browser_link;
+        draft.browser_link = self.state.browser_link;
         take_picked(&draft.ffmpeg_picked, &mut draft.ffmpeg_path);
         // A picked scanner keeps the arguments typed after the program.
         let mut scanner = String::new();
@@ -3997,67 +3736,6 @@ const PENDING_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_secs(5
 /// Apply one daemon message, and wake the window when it needs the user: a
 /// save-as dialog, a completion dialog, or a notification click, which also
 /// brings the main window up.
-fn on_message(shared: &Arc<Mutex<Shared>>, ctx: &egui::Context, msg: &Event) {
-    let show = {
-        let mut s = shared.lock().unwrap();
-        s.apply(msg);
-        match msg {
-            Event::Show => true,
-            // A duplicate of a finished download shows its dialog again.
-            Event::ShowDone { id } => {
-                s.completed.push_back((*id, false));
-                true
-            }
-            Event::Countdown { .. } => true,
-            // The download's own window opens when it starts.
-            Event::Started { .. } => s.settings.as_ref().is_some_and(|x| x.progress_on_start),
-            Event::Quit => std::process::exit(0),
-            Event::Updated { item } => item.status == Status::Confirming,
-            // A window that connects late, or started in the tray, still
-            // asks about a download already waiting for its save-as dialog.
-            Event::Downloads { items } => items.iter().any(|e| e.status == Status::Confirming),
-            Event::NameTaken { .. } => true,
-            // A site that wants a login gets the login prompt.
-            Event::Failed { id, error, .. } if uidm_domain::download::login_wanted(error).is_some() => {
-                if !s.login_wanted.contains(id) {
-                    s.login_wanted.push_back(*id);
-                }
-                true
-            }
-            // Options, or the download itself, can ask for the dialog.
-            Event::Done { id, .. }
-                if s.dialog_mode() || s.table.get(*id).and_then(|e| e.on_done).is_some_and(|o| o.dialog) =>
-            {
-                s.completed.push_back((*id, false));
-                true
-            }
-            Event::Failed { id, .. } if s.dialog_mode() => {
-                let (shared, ctx, id) = (Arc::clone(shared), ctx.clone(), *id);
-                thread::spawn(move || {
-                    thread::sleep(FAILED_GRACE);
-                    let mut s = shared.lock().unwrap();
-                    if s.table.get(id).is_some_and(|e| e.status == Status::Failed) {
-                        s.completed.push_back((id, true));
-                        drop(s);
-                        win::wake();
-                        ctx.request_repaint();
-                    }
-                });
-                false
-            }
-            _ => false,
-        }
-    };
-    // A click on a notification brings the window up; a dialog shows on
-    // its own, without it.
-    if matches!(msg, Event::Show) {
-        win::show();
-    } else if show {
-        win::wake();
-    }
-    ctx.request_repaint();
-}
-
 /// Open a file with its program, as a double-click does.
 fn open_file(path: &str) {
     crate::ports::ports().opener.open(path);
@@ -4087,7 +3765,7 @@ impl App {
     /// The completion dialog for the oldest finished or failed download.
     fn completed_window(&mut self, ctx: &egui::Context, connected: bool, actions: &mut Vec<Action>) {
         let next = {
-            let mut s = self.shared.lock().unwrap();
+            let s = &mut self.state;
             loop {
                 match s.completed.front().copied() {
                     // Removed since: skip it.
@@ -4275,9 +3953,10 @@ fn scan_label(ui: &mut egui::Ui, scan: &Scan) {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Copy what this frame needs, then draw without holding the lock.
+        self.drain_inbox();
+        // Copy what this frame needs, then draw.
         let (link, rows, speeds, last_error, settings) = {
-            let s = self.shared.lock().unwrap();
+            let s = &self.state;
             let speeds: HashMap<u64, f64> = s.speeds.iter().map(|(id, sp)| (*id, sp.bytes_per_sec)).collect();
             (
                 s.link.clone(),
@@ -4322,9 +4001,10 @@ impl eframe::App for App {
             win::hide();
         }
         self.was_minimized = minimized;
-        let tooltip = self.shared.lock().unwrap().tooltip();
+        let tooltip = self.state.tooltip();
         if tooltip != self.tooltip {
             tray::set_tooltip(tooltip.clone());
+            *lock(&self.tooltip_now) = tooltip.clone();
             self.tooltip = tooltip;
         }
         if let Some(s) = &settings {
@@ -4355,7 +4035,7 @@ impl eframe::App for App {
 
         // What the window has to say, under the toolbar.
         let (refreshing, notice, quota, release) = {
-            let sh = self.shared.lock().unwrap();
+            let sh = &self.state;
             (sh.refresh_waiting, sh.notice.clone(), sh.quota.clone(), sh.newer_release.clone())
         };
         let notes = banner::Notes {
@@ -4366,7 +4046,7 @@ impl eframe::App for App {
             },
             refreshing: refreshing.and_then(|id| rows.iter().find(|e| e.id == id)).map(display_name),
             error: last_error.as_deref(),
-            stale_daemon: self.shared.lock().unwrap().stale_daemon,
+            stale_daemon: self.state.stale_daemon,
             notice: notice.as_deref(),
             quota: quota.as_deref(),
             // Closed for this version, it stays closed until a newer one.
@@ -4386,14 +4066,13 @@ impl eframe::App for App {
                     d
                 })
                 .inner;
-            let mut sh = self.shared.lock().unwrap();
+            let sh = &mut self.state;
             if dismissed.error {
                 sh.last_error = None;
             }
             if dismissed.notice {
                 sh.notice = None;
             }
-            drop(sh);
             if let Some(r) = release.filter(|_| dismissed.release) {
                 self.layout.dismissed_release = Some(r.version);
                 self.layout_unsaved = true;
@@ -4407,7 +4086,7 @@ impl eframe::App for App {
             .iter()
             .map(|e| shown_settings.listed_under(e.category.as_deref(), &display_name(e), &e.url).to_string())
             .collect();
-        let queue_list = self.shared.lock().unwrap().queues.clone();
+        let queue_list = self.state.queues.clone();
         // With the panel hidden, nothing is left to pick another view with.
         if !shown_settings.categories_panel {
             self.filter = Filter::default();
@@ -4578,7 +4257,7 @@ impl eframe::App for App {
         }
         self.convert_window(ctx, &rows, connected, &mut actions);
         let link_info = {
-            let mut sh = self.shared.lock().unwrap();
+            let sh = &mut self.state;
             if let Some(d) = sh.picked_links.take() {
                 self.links = Some(d);
             }
@@ -4593,12 +4272,12 @@ impl eframe::App for App {
                 self.links = None;
             }
         }
-        let segments = self.shared.lock().unwrap().segments.clone();
+        let segments = self.state.segments.clone();
         self.connection_dialogs.retain(|id| {
             let entry = rows.iter().find(|e| e.id == *id);
             connections::dialog(ctx, *id, entry, segments.get(id).map(Vec::as_slice))
         });
-        let started = std::mem::take(&mut self.shared.lock().unwrap().started);
+        let started = std::mem::take(&mut self.state.started);
         let can_hide = tray::shown();
         if settings.as_ref().is_some_and(|s| s.progress_on_start) {
             // A window that opens as its download starts stays behind the
@@ -4643,12 +4322,12 @@ impl eframe::App for App {
                 self.queues_dialog = None;
             }
         }
-        let countdown = self.shared.lock().unwrap().countdown.clone();
+        let countdown = self.state.countdown.clone();
         if let Some((action, deadline, queue, file)) = countdown {
             if Instant::now() < deadline {
                 queues::countdown(ctx, action, deadline, &queue, file.as_deref(), connected, &mut actions);
             } else {
-                self.shared.lock().unwrap().countdown = None;
+                self.state.countdown = None;
             }
         }
         self.options_window(ctx, connected, &mut actions);
@@ -4753,7 +4432,7 @@ impl App {
         settings: Option<&Settings>,
         actions: &mut Vec<Action>,
     ) {
-        let queues = self.shared.lock().unwrap().queues.clone();
+        let queues = self.state.queues.clone();
         let ticked: Vec<Status> = rows.iter().filter(|e| self.selected.contains(&e.id)).map(|e| e.status).collect();
         let state = menubar::State {
             connected,
@@ -4913,9 +4592,9 @@ impl App {
         if self.progress_windows.iter().any(|w| w.id == id) {
             return;
         }
-        let entry = self.shared.lock().unwrap().table.get(id).cloned();
+        let entry = self.state.table.get(id).cloned();
         if let Some(e) = entry.filter(|e| e.status != Status::Done) {
-            let settings = self.shared.lock().unwrap().settings.clone().unwrap_or_default();
+            let settings = self.state.settings.clone().unwrap_or_default();
             self.progress_windows.push(progress::ProgressWindow::new(&e, &settings, focus, hidden));
         }
     }
@@ -4957,7 +4636,7 @@ impl App {
         let Some(checking) = self.about else {
             return;
         };
-        let answer = self.shared.lock().unwrap().update.clone();
+        let answer = self.state.update.clone();
         let mut open = true;
         crate::dialog::Window::new(tr("About UIDM"))
             .id(egui::Id::new("about"))
@@ -4990,7 +4669,7 @@ impl App {
                             ui.label(trf!("UIDM {version} is available.", version = r.version));
                             ui.hyperlink_to(tr("Open the release page"), &r.url);
                             if r.setup.is_some() {
-                                let installing = self.shared.lock().unwrap().installing.clone();
+                                let installing = self.state.installing.clone();
                                 ui.horizontal(|ui| {
                                     let busy = matches!(installing, Some(None));
                                     if ui
@@ -5027,7 +4706,7 @@ impl App {
 
     /// The files inside a zip download, once listed.
     fn zip_window(&mut self, ctx: &egui::Context, rows: &[DownloadEntry]) {
-        if let Some((id, result)) = self.shared.lock().unwrap().zip_listed.take() {
+        if let Some((id, result)) = self.state.zip_listed.take() {
             if let Some(p) = self.zip_preview.as_mut().filter(|p| p.id == id) {
                 p.result = Some(result);
             }
@@ -5190,7 +4869,7 @@ impl App {
         if ids.is_empty() {
             return;
         }
-        let settings = self.shared.lock().unwrap().settings.clone().unwrap_or_default();
+        let settings = self.state.settings.clone().unwrap_or_default();
         if settings.confirm_remove {
             self.remove_prompt =
                 Some(RemovePrompt { ids, delete_files: settings.remove_deletes_files, dont_ask: false });
@@ -5284,7 +4963,7 @@ impl App {
         };
         let id = *id;
         let (waiting, mismatch) = {
-            let s = self.shared.lock().unwrap();
+            let s = &self.state;
             (s.refresh_waiting == Some(id), s.refresh_mismatch.clone().filter(|m| m.0 == id))
         };
         // Retrying replaces the entry; a waiting download keeps it with a new
@@ -5347,7 +5026,7 @@ impl App {
             });
         if close {
             self.refresh = None;
-            self.shared.lock().unwrap().refresh_mismatch = None;
+            self.state.refresh_mismatch = None;
         }
     }
 }
