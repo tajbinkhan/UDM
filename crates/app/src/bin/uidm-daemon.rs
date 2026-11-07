@@ -10,8 +10,8 @@
 //! `media_info`, the site grabber's `grab_progress` and `grab_done`, `error`)
 //! go to the client that asked. Download events (`added`, `started`, `progress`, `done`,
 //! `failed`, `canceled`, `removed`) go to every connected client. The daemon
-//! also applies each event to a `DownloadTable`, so a client that connects late
-//! can ask for the whole list.
+//! also applies each event to its download store (`uidm_infrastructure::store`),
+//! so a client that connects late can ask for the whole list.
 //!
 //! Because downloads live here rather than in the host, they keep running when
 //! the browser closes. The daemon exits on its own once it has had no clients
@@ -69,9 +69,9 @@ use uidm_domain::download::Scan;
 use uidm_domain::download::{Answer, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Status, Validator};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
-    Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadIntake, DownloadList, EarlyStarts,
-    GrabRuns, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
-    ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
+    Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadList, EarlyStarts, GrabRuns,
+    PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QuotaState, ReleaseSource, SettingsError,
+    SettingsStore, SyncChecks, UpdateChecks,
 };
 use uidm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, RunEnd, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -84,21 +84,20 @@ use uidm_infrastructure::engine::DownloadRequest;
 use uidm_infrastructure::engine::{self, Engine, Progress};
 use uidm_infrastructure::files::DiskFiles;
 use uidm_infrastructure::grab::{self, GrabRequest};
-use uidm_infrastructure::history::{self, History};
+use uidm_infrastructure::history;
 use uidm_infrastructure::ipc::{self, Handshake, AUTH_TIMEOUT, DAEMON_LABEL, HOST_LABEL};
 use uidm_infrastructure::logging;
 use uidm_infrastructure::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
 use uidm_infrastructure::notify::{self, Sound, Toast};
 use uidm_infrastructure::power;
 use uidm_infrastructure::protocol::{read_message, write_frame, CommandLine, Incoming, Outgoing};
-use uidm_infrastructure::quota::Usage;
 #[cfg(windows)]
 use uidm_infrastructure::registry;
 use uidm_infrastructure::scan;
 use uidm_infrastructure::settings::Notify;
 use uidm_infrastructure::settings::{self, Duplicate, FileExists, Folders, Settings};
 use uidm_infrastructure::settings::{ProxyMode, SocksVersion};
-use uidm_infrastructure::state::DownloadTable;
+use uidm_infrastructure::store::{check_body, DownloadStore, Ended, Intake, StoreEvents, StoreFiles};
 
 /// Exit after this long with no clients and no queued or running downloads.
 const IDLE_EXIT: Duration = Duration::from_secs(60);
@@ -169,19 +168,13 @@ const POWER_DRY_RUN_ENV: &str = "UIDM_POWER_DRY_RUN";
 
 static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
 
-/// Everything the engine's progress callback needs, so it can exist before the
-/// engine does.
-struct Hub {
+/// The connected clients, and how the store's changes reach them: each
+/// change is framed and sent to every client, and endings go to the
+/// notification thread. Connections stay in the daemon until the protocol
+/// moves behind an adapter (#196).
+struct Clients {
     /// Connected clients by id, each with a channel drained by its writer.
     clients: Mutex<HashMap<u64, Sender<Vec<u8>>>>,
-    /// Every download this daemon has seen, kept current from its events.
-    table: Mutex<DownloadTable>,
-    /// The original request for each download that may still be retried. It
-    /// holds the browser's cookies, so it is dropped once a download is done or
-    /// removed, and saved only encrypted.
-    requests: Mutex<HashMap<u64, Download>>,
-    /// Wakes the history writer after every change.
-    dirty: Sender<()>,
     /// Clients that said they are a desktop window.
     windows: Mutex<HashSet<u64>>,
     /// Clients that said hello as the browser extension does, with no
@@ -192,21 +185,15 @@ struct Hub {
     browser_seen: Mutex<Option<u64>>,
     /// Finished and failed downloads, for the notification thread.
     notes: Sender<Note>,
-    /// The queues, the main queue first. Lock after `table`, never before.
-    queues: Mutex<Vec<Queue>>,
-    /// Downloads being stopped to wait in their queue again: their
-    /// `canceled` event becomes `waiting`.
-    held: Mutex<HashSet<u64>>,
     /// Wakes the scheduler when a download ends or a queue changes.
     wake: Sender<()>,
-    /// Bytes received lately, for the download quota.
-    quota: Mutex<Usage>,
-    /// Rows that are conversions, not downloads: their progress is not
-    /// received bytes.
-    uncounted: Mutex<HashSet<u64>>,
-    /// Downloads started while their save-as dialog is open, by the engine
-    /// id they run under, which clients never see.
-    early: Mutex<HashMap<u64, Early>>,
+}
+
+/// Downloads started while their save-as dialog is open, by the engine id
+/// they run under, which clients never see.
+#[derive(Default)]
+struct EarlyRuns {
+    runs: Mutex<HashMap<u64, Early>>,
 }
 
 /// A download started while its save-as dialog is open, into a folder of
@@ -242,129 +229,31 @@ enum Note {
     NameTaken(u64),
 }
 
-impl Hub {
-    /// Apply `msg` to the table and send it to every client. The table lock is
-    /// held across the send, so the order clients see matches the table's, and
-    /// a `downloads` snapshot (taken under the same lock) is never stale.
-    fn publish(&self, msg: &Outgoing) {
-        let mut table = self.table.lock().unwrap();
-        if let Outgoing::Canceled { id, .. } = msg {
-            if self.held.lock().unwrap().remove(id) {
-                if let Some(mut item) = table.get(*id).cloned() {
-                    item.status = Status::Waiting;
-                    // Stopping its queue stops it; starting the queue again
-                    // resumes it, without its own limit unless remembered.
-                    if !item.limit_remember {
-                        item.speed_limit = None;
-                    }
-                    let waiting = Outgoing::Updated { item };
-                    table.apply(&waiting);
-                    let _ = self.dirty.send(());
-                    let _ = self.wake.send(());
-                    self.broadcast(&waiting);
-                    return;
-                }
-            }
-        }
-        match msg {
-            // Bytes a resumed download already had do not count again.
-            Outgoing::Started { id, .. } => {
-                let done = table.get(*id).map_or(0, |e| e.done);
-                self.quota.lock().unwrap().started(*id, done);
-            }
-            Outgoing::Progress { id, done, .. } if !self.uncounted.lock().unwrap().contains(id) => {
-                self.quota.lock().unwrap().progress(*id, *done, uidm_infrastructure::quota::now_minute());
-            }
-            Outgoing::Done { id, .. } | Outgoing::Failed { id, .. } | Outgoing::Canceled { id, .. } => {
-                self.quota.lock().unwrap().ended(*id);
-            }
-            _ => {}
-        }
-        table.apply(msg);
-        if let Outgoing::Done { id, .. } | Outgoing::Failed { id, .. } = msg {
-            // It ended before the stop reached it; nothing to hold.
-            self.held.lock().unwrap().remove(id);
-        }
-        // A one-time queue holds what is still to do: a finished download
-        // leaves it. A synchronizing queue keeps it, to check next run.
-        if let Outgoing::Done { id, .. } = msg {
-            if self.leave_queues_where(*id, |q| !q.kind.is_sync()) {
-                self.publish_queues();
-            }
-        }
-        if matches!(
-            msg,
-            Outgoing::Done { .. } | Outgoing::Failed { .. } | Outgoing::Canceled { .. } | Outgoing::NameTaken { .. }
-        ) {
-            let _ = self.wake.send(());
-        }
-        match msg {
-            Outgoing::Done { id, url, path, .. } => {
-                let referrer = table.get(*id).and_then(|e| e.referrer.clone());
-                uidm_infrastructure::platform::mark_from_internet(Path::new(path), url, referrer.as_deref());
-                self.requests.lock().unwrap().remove(id);
-                let _ = self.notes.send(Note::Finished(*id));
-            }
-            Outgoing::Failed { id, .. } => {
-                let _ = self.notes.send(Note::Failed(*id));
-            }
-            Outgoing::NameTaken { id, .. } => {
-                let _ = self.notes.send(Note::NameTaken(*id));
-            }
-            _ => {}
-        }
-        let _ = self.dirty.send(());
-        self.broadcast(msg);
-        // The list shows a new download's page, description and login name
-        // from its request.
-        if let Outgoing::Added { id, .. } = msg {
-            drop(table);
-            let request = self.requests.lock().unwrap().get(id).cloned();
-            if let Some(d) = request {
-                let _ = self.update(*id, |e| {
-                    let before = e.clone();
-                    // A source that knows no page apart from the referrer
-                    // (a list file, the batch dialog) found the link there.
-                    e.page = e.page.take().or(d.page).or_else(|| d.referrer.clone());
-                    e.referrer = e.referrer.take().or(d.referrer);
-                    e.description = e.description.take().or(d.description);
-                    e.category = e.category.take().or(d.category);
-                    e.login_user = e.login_user.take().or(d.login.map(|l| l.username));
-                    e.speed_limit = e.speed_limit.or(d.speed_limit);
-                    e.from_browser = e.from_browser || d.user_agent.is_some();
-                    if *e == before {
-                        return Err("nothing new".into());
-                    }
-                    Ok(())
-                });
-            }
-        }
+impl StoreEvents for Clients {
+    fn announce(&self, event: &Outgoing) {
+        self.broadcast(event);
     }
 
-    /// Change download `id` with `f` and announce the new entry, all under the
-    /// table lock, so the check `f` makes cannot race another change. `f`
-    /// returns an error to leave the entry alone.
-    fn update(
-        &self,
-        id: u64,
-        f: impl FnOnce(&mut DownloadEntry) -> Result<(), String>,
-    ) -> Result<DownloadEntry, String> {
-        let mut table = self.table.lock().unwrap();
-        let mut item = table.get(id).cloned().ok_or_else(|| format!("no download with id {id}"))?;
-        f(&mut item)?;
-        let msg = Outgoing::Updated { item: item.clone() };
-        table.apply(&msg);
-        let _ = self.dirty.send(());
-        self.broadcast(&msg);
-        Ok(item)
+    fn ended(&self, how: Ended) {
+        let note = match how {
+            Ended::Finished(id) => Note::Finished(id),
+            Ended::Failed(id) => Note::Failed(id),
+            Ended::NameTaken(id) => Note::NameTaken(id),
+        };
+        let _ = self.notes.send(note);
     }
 
-    /// Whether a client other than a window is connected: the browser
-    /// extension, through its host.
+    fn wake(&self) {
+        let _ = self.wake.send(());
+    }
+}
+
+impl EarlyRuns {
     /// Keep the events of an early download (one started while its save-as
     /// dialog is open) from the clients: its progress shows on the download
-    /// waiting in the dialog instead. Returns whether `p` was one.
-    fn early_event(&self, p: &Progress) -> bool {
+    /// waiting in the dialog, in `store`, instead. Returns whether `p` was
+    /// one.
+    fn event(&self, store: &DownloadStore, p: &Progress) -> bool {
         let id = match p {
             Progress::Started { id, .. }
             | Progress::Advanced { id, .. }
@@ -373,7 +262,7 @@ impl Hub {
             | Progress::Canceled { id, .. }
             | Progress::NameTaken { id, .. } => *id,
         };
-        let mut early = self.early.lock().unwrap();
+        let mut early = self.runs.lock().unwrap();
         let Some(e) = early.get_mut(&id) else {
             return false;
         };
@@ -401,7 +290,7 @@ impl Hub {
         }
         drop(early);
         if let Some((done, total)) = shown {
-            let _ = self.update(real, |e| {
+            let _ = store.update(real, |e| {
                 if e.status != Status::Confirming {
                     return Err("answered".into());
                 }
@@ -415,9 +304,13 @@ impl Hub {
 
     /// The engine id of download `real`'s early download, if it has one.
     fn early_of(&self, real: u64) -> Option<u64> {
-        self.early.lock().unwrap().iter().find(|(_, e)| e.real == real).map(|(id, _)| *id)
+        self.runs.lock().unwrap().iter().find(|(_, e)| e.real == real).map(|(id, _)| *id)
     }
+}
 
+impl Clients {
+    /// Whether a client other than a window is connected: the browser
+    /// extension, through its host.
     fn extension_connected(&self) -> bool {
         let windows = self.windows.lock().unwrap().len();
         self.clients.lock().unwrap().len() > windows
@@ -474,41 +367,6 @@ impl Hub {
         }
     }
 
-    /// Send every queue to every client, and save them.
-    fn publish_queues(&self) {
-        let items = self.queues.lock().unwrap().clone();
-        let _ = self.dirty.send(());
-        self.broadcast(&Outgoing::Queues { items });
-    }
-
-    /// Change queue `id` with `f`, then announce the queues.
-    fn update_queue<T>(&self, id: u64, f: impl FnOnce(&mut Queue) -> Result<T, String>) -> Result<T, String> {
-        let result = {
-            let mut queues = self.queues.lock().unwrap();
-            let q = queues.iter_mut().find(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
-            f(q)?
-        };
-        self.publish_queues();
-        let _ = self.wake.send(());
-        Ok(result)
-    }
-
-    /// Take download `id` out of whatever queue holds it.
-    fn leave_queues(&self, id: u64) -> bool {
-        self.leave_queues_where(id, |_| true)
-    }
-
-    /// Take download `id` out of the queues `which` picks.
-    fn leave_queues_where(&self, id: u64, which: impl Fn(&Queue) -> bool) -> bool {
-        let mut changed = false;
-        for q in self.queues.lock().unwrap().iter_mut().filter(|q| which(q)) {
-            let before = q.order.len();
-            q.order.retain(|x| *x != id);
-            changed |= q.order.len() != before;
-        }
-        changed
-    }
-
     /// Send `msg` to every client.
     fn broadcast(&self, msg: &Outgoing) {
         let Ok(frame) = serde_json::to_vec(msg) else {
@@ -516,82 +374,6 @@ impl Hub {
         };
         // Dropping a client whose writer is gone keeps the map tidy.
         self.clients.lock().unwrap().retain(|_, tx| tx.send(frame.clone()).is_ok());
-    }
-}
-
-// The hub keeps the queues and the download list in memory, so it is the
-// adapter for the queue use cases' ports until that state moves to
-// uidm-infrastructure (AGENTS.md section 16).
-impl QueueStore for Hub {
-    fn edit<T>(&self, f: impl FnOnce(&mut Vec<Queue>) -> T) -> T {
-        f(&mut self.queues.lock().unwrap())
-    }
-
-    fn queues_changed(&self) {
-        self.publish_queues();
-        let _ = self.wake.send(());
-    }
-}
-
-impl DownloadList for Hub {
-    fn status(&self, id: u64) -> Option<Status> {
-        self.table.lock().unwrap().get(id).map(|e| e.status)
-    }
-
-    fn finished(&self) -> HashSet<u64> {
-        let table = self.table.lock().unwrap();
-        table.entries().filter(|e| e.status == Status::Done).map(|e| e.id).collect()
-    }
-
-    fn set_waiting(&self, id: u64) -> bool {
-        self.update(id, |e| {
-            e.status = Status::Waiting;
-            Ok(())
-        })
-        .is_ok()
-    }
-
-    fn find_last(&self, keep: impl Fn(&DownloadEntry) -> bool) -> Option<DownloadEntry> {
-        self.table.lock().unwrap().entries().filter(|e| keep(e)).last().cloned()
-    }
-
-    fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64> {
-        self.table.lock().unwrap().entries().filter(|e| keep(e.id, e.status)).map(|e| e.id).collect()
-    }
-
-    fn entry(&self, id: u64) -> Option<DownloadEntry> {
-        self.table.lock().unwrap().get(id).cloned()
-    }
-
-    fn take_request(&self, id: u64) -> Option<Download> {
-        self.requests.lock().unwrap().remove(&id)
-    }
-
-    fn drop_row(&self, id: u64) {
-        self.publish(&Outgoing::Removed { id });
-    }
-
-    fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool> {
-        // `f` refusing is an empty error; a missing download names itself.
-        match Hub::update(self, id, |e| if f(e) { Ok(()) } else { Err(String::new()) }) {
-            Ok(_) => Some(true),
-            Err(e) if e.is_empty() => Some(false),
-            Err(_) => None,
-        }
-    }
-
-    fn request(&self, id: u64) -> Option<Download> {
-        self.requests.lock().unwrap().get(&id).cloned()
-    }
-
-    fn keep_request(&self, id: u64, download: Download) {
-        self.requests.lock().unwrap().insert(id, download);
-    }
-
-    fn edit_request(&self, id: u64, f: impl FnOnce(&mut Download)) {
-        if let Some(d) = self.requests.lock().unwrap().get_mut(&id) {
-            f(d);
-        }
     }
 }
 
@@ -646,11 +428,11 @@ impl QueueFinish for Daemon {
 
 impl QuotaState for Daemon {
     fn used(&self, now: u64, window: u64) -> u64 {
-        self.hub.quota.lock().unwrap().used(now, window)
+        self.store.quota().used(now, window)
     }
 
     fn frees_at(&self, now: u64, window: u64, limit: u64) -> u64 {
-        self.hub.quota.lock().unwrap().frees_at(now, window, limit)
+        self.store.quota().frees_at(now, window, limit)
     }
 
     fn paused(&self) -> bool {
@@ -677,13 +459,13 @@ impl QuotaState for Daemon {
     }
 
     fn announce(&self, notice: QuotaNotice) {
-        self.hub.broadcast(&quota_outgoing(notice));
+        self.clients.broadcast(&quota_outgoing(notice));
     }
 }
 
 impl PowerControl for Daemon {
     fn exit(&self) {
-        self.hub.broadcast(&Outgoing::Quit);
+        self.clients.broadcast(&Outgoing::Quit);
         self.save_history();
         // Other downloads may still run; the idle monitor ends the daemon
         // once they are done and every window has closed.
@@ -696,7 +478,7 @@ impl PowerControl for Daemon {
         if let Some(old) = self.countdown.lock().unwrap().replace(countdown) {
             old.canceled.store(true, Ordering::Relaxed);
         }
-        self.hub.broadcast(&Outgoing::Countdown {
+        self.clients.broadcast(&Outgoing::Countdown {
             action: request.action,
             seconds,
             queue: request.queue.clone(),
@@ -727,7 +509,7 @@ impl PowerControl for Daemon {
     }
 
     fn countdown_canceled(&self) {
-        self.hub.broadcast(&Outgoing::CountdownCanceled);
+        self.clients.broadcast(&Outgoing::CountdownCanceled);
     }
 
     fn power_off(&self, action: WhenDone, force_close: bool) {
@@ -798,16 +580,6 @@ impl ReleaseSource for GitHub<'_> {
     }
 }
 
-impl DownloadIntake for Daemon {
-    fn sendable(&self, download: &Download) -> bool {
-        check_body(download).is_ok()
-    }
-
-    fn stage(&self, download: Download) -> (u64, String) {
-        Daemon::stage(self, download)
-    }
-}
-
 impl SettingsStore for Daemon {
     fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
@@ -828,7 +600,7 @@ impl EarlyStarts for EarlyHandOver<'_> {
     }
 
     fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool {
-        let Some(shadow) = self.0.hub.early_of(id) else {
+        let Some(shadow) = self.0.early.early_of(id) else {
             return false;
         };
         let daemon = Arc::clone(self.0);
@@ -890,8 +662,8 @@ struct Front<'a>(&'a Arc<Daemon>);
 
 impl Attention for Front<'_> {
     fn show_done(&self, id: u64) {
-        if self.0.hub.window_open() {
-            self.0.hub.broadcast(&Outgoing::ShowDone { id });
+        if self.0.clients.window_open() {
+            self.0.clients.broadcast(&Outgoing::ShowDone { id });
         } else {
             // Without a window, a notification stands in for the dialog,
             // whatever the notification setting.
@@ -933,10 +705,10 @@ impl Converter for Conversions<'_> {
         };
         let size = std::fs::metadata(&c.input).map(|m| m.len()).unwrap_or(0);
         let new_id = daemon.engine.reserve_id();
-        daemon.hub.uncounted.lock().unwrap().insert(new_id);
+        daemon.store.uncount(new_id);
         let url = c.url.clone();
-        daemon.hub.publish(&Outgoing::Added { id: new_id, url: url.clone() });
-        daemon.hub.publish(&Outgoing::Started {
+        daemon.store.publish(&Outgoing::Added { id: new_id, url: url.clone() });
+        daemon.store.publish(&Outgoing::Started {
             id: new_id,
             url: url.clone(),
             path: c.output.display().to_string(),
@@ -954,7 +726,7 @@ impl Converter for Conversions<'_> {
                 uidm_infrastructure::media::convert::convert(&ffmpeg, &c.input, &c.output, c.target, &stop, |f| {
                     if last.elapsed() >= Duration::from_millis(500) {
                         last = Instant::now();
-                        daemon.hub.publish(&Outgoing::Progress {
+                        daemon.store.publish(&Outgoing::Progress {
                             id: new_id,
                             url: url.clone(),
                             done: (f * size as f64) as u64,
@@ -973,15 +745,15 @@ impl Converter for Conversions<'_> {
                             warn!(download_id = c.from, error = %e, "kept the original of a converted download");
                         }
                     }
-                    daemon.hub.publish(&Outgoing::Done {
+                    daemon.store.publish(&Outgoing::Done {
                         id: new_id,
                         url,
                         path: c.output.display().to_string(),
                         note: Some(format!("Converted from {from}")),
                     });
                 }
-                Err(e) if e == "canceled" => daemon.hub.publish(&Outgoing::Canceled { id: new_id, url }),
-                Err(error) => daemon.hub.publish(&Outgoing::Failed { id: new_id, url, error }),
+                Err(e) if e == "canceled" => daemon.store.publish(&Outgoing::Canceled { id: new_id, url }),
+                Err(error) => daemon.store.publish(&Outgoing::Failed { id: new_id, url, error }),
             }
         });
     }
@@ -1007,7 +779,7 @@ impl SyncChecks for SyncCheck<'_> {
         thread::spawn(move || {
             let _ = daemon.check_for_change(id);
             daemon.checking.lock().unwrap().remove(&id);
-            let _ = daemon.hub.wake.send(());
+            let _ = daemon.clients.wake.send(());
         });
     }
 }
@@ -1023,7 +795,7 @@ impl QueueSounds for Daemon {
 
 impl DownloadControl for Daemon {
     fn hold(&self, id: u64) {
-        self.hub.held.lock().unwrap().insert(id);
+        self.store.hold(id);
         self.engine.cancel(id);
     }
 
@@ -1050,9 +822,9 @@ impl DownloadControl for Daemon {
 
     fn cancel_waiting(&self, id: u64) {
         self.discard_early(id);
-        let url = self.hub.table.lock().unwrap().get(id).map(|e| e.url.clone());
+        let url = self.store.table().get(id).map(|e| e.url.clone());
         if let Some(url) = url {
-            self.hub.publish(&Outgoing::Canceled { id, url });
+            self.store.publish(&Outgoing::Canceled { id, url });
         }
     }
 
@@ -1073,11 +845,11 @@ impl DownloadControl for Daemon {
     }
 
     fn forget(&self, id: u64) {
-        self.hub.requests.lock().unwrap().remove(&id);
+        self.store.requests().remove(&id);
         if self.refresh_waiting.lock().unwrap().is_some_and(|w| w == id) {
             self.set_refresh_waiting(None);
         }
-        self.hub.drop_row(id);
+        self.store.drop_row(id);
     }
 
     fn restart(
@@ -1110,9 +882,7 @@ impl PausedDownloads for Daemon {
 /// variable is missing; that data then lives in memory only.
 struct Paths {
     settings: Option<PathBuf>,
-    history: Option<PathBuf>,
-    requests: Option<PathBuf>,
-    quota: Option<PathBuf>,
+    store: StoreFiles,
 }
 
 impl Paths {
@@ -1120,20 +890,23 @@ impl Paths {
         let warn = |what: &str, r: io::Result<PathBuf>| r.map_err(|e| warn!(file = what, error = %e, "no file")).ok();
         Paths {
             settings: warn("settings", settings::settings_path()),
-            history: warn("history", history::history_path()),
-            requests: warn("saved requests", history::requests_path()),
-            quota: warn("quota", uidm_infrastructure::quota::quota_path()),
+            store: StoreFiles {
+                history: warn("history", history::history_path()),
+                requests: warn("saved requests", history::requests_path()),
+                quota: warn("quota", uidm_infrastructure::quota::quota_path()),
+            },
         }
     }
 }
 
 struct Daemon {
     engine: Engine,
-    hub: Arc<Hub>,
+    /// The download list, the kept requests and the queues.
+    store: Arc<DownloadStore>,
+    clients: Arc<Clients>,
+    early: Arc<EarlyRuns>,
     settings: Mutex<Settings>,
     paths: Paths,
-    /// Keeps the history writer and the exit flush from writing at once.
-    save_lock: Mutex<()>,
     /// Downloads stopped by `pause_all`, for `resume_all`.
     paused: Mutex<HashSet<u64>>,
     /// Recent notifications; dropping one can stop its buttons working.
@@ -1214,56 +987,23 @@ impl Daemon {
         if settings.speed_limit_on_startup {
             settings.speed_limit_enabled = true;
         }
-        let history = match &paths.history {
-            Some(path) => History::load(path).unwrap_or_else(|e| {
-                // Keep the unreadable file for inspection instead of
-                // overwriting it with an empty list.
-                let bad = path.with_extension("json.bad");
-                warn!(path = %path.display(), moved_to = %bad.display(), error = %e, "could not read the download list");
-                let _ = std::fs::rename(path, &bad);
-                History::default()
-            }),
-            None => History::default(),
-        };
-        let mut requests = match &paths.requests {
-            Some(path) => history::load_requests(path).unwrap_or_else(|e| {
-                warn!(error = %e, "could not read saved requests");
-                HashMap::new()
-            }),
-            None => HashMap::new(),
-        };
-
-        let mut table = DownloadTable::new();
-        let mut queues = history.queues;
-        if queues.is_empty() {
-            queues.push(Queue::main());
-        }
-        table.apply(&Outgoing::Downloads { items: history.items });
-        requests.retain(|id, _| table.get(*id).is_some_and(|e| e.status.is_retryable()));
-
-        let (dirty, dirty_rx) = channel();
         let (notes, notes_rx) = channel();
         let (wake, wake_rx) = channel();
-        let hub = Arc::new(Hub {
+        let clients = Arc::new(Clients {
             clients: Mutex::new(HashMap::new()),
-            table: Mutex::new(table),
-            requests: Mutex::new(requests),
-            dirty,
             windows: Mutex::new(HashSet::new()),
             browsers: Mutex::new(HashSet::new()),
             browser_seen: Mutex::new(None),
             notes,
-            queues: Mutex::new(queues),
-            held: Mutex::new(HashSet::new()),
-            quota: Mutex::new(paths.quota.as_deref().map(uidm_infrastructure::quota::load).unwrap_or_default()),
-            uncounted: Mutex::new(HashSet::new()),
-            early: Mutex::new(HashMap::new()),
             wake,
         });
-        let events = Arc::clone(&hub);
+        let (store, dirty_rx, next_id) = DownloadStore::open(paths.store.clone(), Arc::clone(&clients) as _);
+        let store = Arc::new(store);
+        let early = Arc::new(EarlyRuns::default());
+        let (events, shadows) = (Arc::clone(&store), Arc::clone(&early));
         let engine = Engine::new(
             Arc::new(move |p: Progress| {
-                if !events.early_event(&p) {
+                if !shadows.event(&events, &p) {
                     events.publish(&progress_to_outgoing(p));
                 }
             }),
@@ -1271,15 +1011,15 @@ impl Daemon {
         );
         engine.set_speed_limit(settings.speed_limit_bytes());
         engine.set_per_file_limit(settings.per_file_limit_bytes());
-        let max_id = hub.table.lock().unwrap().max_id();
-        engine.set_next_id(history.next_id.max(max_id + 1));
+        engine.set_next_id(next_id);
 
         let daemon = Daemon {
             engine,
-            hub,
+            store,
+            clients,
+            early,
             settings: Mutex::new(settings),
             paths,
-            save_lock: Mutex::new(()),
             paused: Mutex::new(HashSet::new()),
             toasts: Mutex::new(VecDeque::new()),
             paused_queues: Mutex::new(HashSet::new()),
@@ -1309,9 +1049,9 @@ impl Daemon {
     /// before resumes its own file; one that never ran goes to the file chosen
     /// for it, if any.
     fn dispatch(&self, id: u64) -> Result<(), String> {
-        let download = self.hub.requests.lock().unwrap().get(&id).cloned();
+        let download = self.store.requests().get(&id).cloned();
         let mut plan = (None, false);
-        let item = self.hub.update(id, |e| {
+        let item = self.store.update(id, |e| {
             if !matches!(e.status, Status::Waiting | Status::Confirming) {
                 return Err(format!("download {id} is not waiting to be started"));
             }
@@ -1362,36 +1102,36 @@ impl Daemon {
     /// Put download `id` in queue `queue` at `position` (or at the end). A
     /// download that is not running waits there.
     fn move_to_queue(&self, id: u64, queue: u64, position: Option<usize>) -> Result<(), String> {
-        MoveToQueue::new(&*self.hub, &*self.hub).run(id, queue, position).map_err(|e| e.to_string())
+        MoveToQueue::new(&*self.store, &*self.store).run(id, queue, position).map_err(|e| e.to_string())
     }
 
     /// Take download `id` out of its queue, keeping it in the list (see
     /// `RemoveFromQueue`).
     fn remove_from_queue(&self, id: u64) -> Result<(), String> {
-        RemoveFromQueue::new(&*self.hub, &*self.hub).run(id).map_err(|e| e.to_string())
+        RemoveFromQueue::new(&*self.store, &*self.store).run(id).map_err(|e| e.to_string())
     }
 
     /// Create a queue (id 0) or change one.
     fn save_queue(&self, edited: Queue) -> Result<u64, String> {
-        SaveQueue::new(&*self.hub, &*self.hub).run(edited).map_err(|e| e.to_string())
+        SaveQueue::new(&*self.store, &*self.store).run(edited).map_err(|e| e.to_string())
     }
 
     /// Delete a queue. Its downloads move to the main queue; the running ones
     /// keep running.
     fn delete_queue(&self, id: u64) -> Result<(), String> {
-        DeleteQueue::new(&*self.hub, &*self.hub, self).run(id).map_err(|e| e.to_string())
+        DeleteQueue::new(&*self.store, &*self.store, self).run(id).map_err(|e| e.to_string())
     }
 
     /// Start a queue: its waiting downloads run in order. `scheduled_day` is
     /// the day whose scheduled run this is, or `None` when started by hand.
     fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), String> {
-        StartQueue::new(&*self.hub, self, &LocalClock, self).run(id, scheduled_day).map_err(|e| e.to_string())
+        StartQueue::new(&*self.store, self, &LocalClock, self).run(id, scheduled_day).map_err(|e| e.to_string())
     }
 
     /// Stop a queue. Its running downloads stop and wait in it again, with
     /// their progress kept.
     fn stop_queue(&self, id: u64) -> Result<(), String> {
-        StopQueue::new(&*self.hub, &*self.hub, self, self).run(id).map_err(|e| e.to_string())
+        StopQueue::new(&*self.store, &*self.store, self, self).run(id).map_err(|e| e.to_string())
     }
 
     /// One pass of the scheduler: start and stop queues on their schedules,
@@ -1400,7 +1140,7 @@ impl Daemon {
     fn tick(self: &Arc<Self>) {
         let _guard = self.tick_lock.lock().unwrap();
         self.check_quota();
-        let scheduled = RunSchedules::new(&*self.hub, &*self.hub, &**self, &**self, &LocalClock, &**self).run();
+        let scheduled = RunSchedules::new(&*self.store, &*self.store, &**self, &**self, &LocalClock, &**self).run();
         for Scheduled { queue, step } in scheduled {
             let why = match step {
                 ScheduleStep::Start { .. } => "schedule starts",
@@ -1410,7 +1150,7 @@ impl Daemon {
             info!(queue = %queue, why, "schedule step");
         }
 
-        let events = RunQueues::new(&*self.hub, &*self.hub, &**self, &**self, &SyncCheck(self), &**self).run();
+        let events = RunQueues::new(&*self.store, &*self.store, &**self, &**self, &SyncCheck(self), &**self).run();
         for event in events {
             match event {
                 QueueEvent::Retried { queue, id, attempt, of } => {
@@ -1439,7 +1179,7 @@ impl Daemon {
             Err(e) => {
                 warn!(download_id = id, error = %e, "could not check for changes");
                 let note = format!("Could not check the server for a newer copy: {e}");
-                let _ = self.hub.update(id, |e| {
+                let _ = self.store.update(id, |e| {
                     if e.status != Status::Done {
                         return Err("started meanwhile".into());
                     }
@@ -1452,7 +1192,7 @@ impl Daemon {
         let known = entry.validator.clone().unwrap_or(Validator { size: entry.total, ..Validator::default() });
         let gone = !entry.path.as_deref().is_some_and(|p| Path::new(p).is_file());
         let changed = gone || known.changed(&found);
-        self.hub.update(id, |e| {
+        self.store.update(id, |e| {
             if e.status != Status::Done {
                 return Err("The download started again in the meantime.".into());
             }
@@ -1484,7 +1224,7 @@ impl Daemon {
         if entry.path.is_none() {
             return Err("it has no file".into());
         }
-        let download = self.hub.requests.lock().unwrap().get(&entry.id).cloned().unwrap_or_else(|| Download {
+        let download = self.store.requests().get(&entry.id).cloned().unwrap_or_else(|| Download {
             url: entry.url.clone(),
             referrer: entry.referrer.clone(),
             page: entry.page.clone(),
@@ -1505,7 +1245,7 @@ impl Daemon {
     fn resync(&self, urls: &[String], queue: u64) -> (usize, HashSet<String>) {
         let urls: HashSet<&str> = urls.iter().map(String::as_str).collect();
         let (ids, listed): (Vec<u64>, HashSet<String>) = {
-            let table = self.hub.table.lock().unwrap();
+            let table = self.store.table();
             table
                 .entries()
                 .filter(|e| e.status == Status::Done && urls.contains(e.url.as_str()))
@@ -1516,7 +1256,7 @@ impl Daemon {
             .into_iter()
             .filter(|id| matches!(self.check_for_change(*id), Ok(true)) && self.move_to_queue(*id, queue, None).is_ok())
             .count();
-        if changed > 0 && !self.hub.queues.lock().unwrap().iter().any(|q| q.id == queue && q.running) {
+        if changed > 0 && !self.store.queues().iter().any(|q| q.id == queue && q.running) {
             if let Err(e) = self.start_queue(queue, None) {
                 warn!(queue = %queue, error = %e, "could not start the queue");
             }
@@ -1540,7 +1280,7 @@ impl Daemon {
     /// Run what download `id` asked to happen once it finished, then clear
     /// it so downloading it again does not repeat it.
     fn after_download(&self, id: u64) {
-        AfterDownload::new(&*self.hub, self).run(id);
+        AfterDownload::new(&*self.store, self).run(id);
     }
 
     /// Do what `uidm-gui`'s command line asked. `/q` counts only when that
@@ -1563,16 +1303,16 @@ impl Daemon {
             match self.start_queue(MAIN_QUEUE, None) {
                 Ok(()) => {
                     info!("start the main queue from the command line");
-                    let _ = self.hub.wake.send(());
+                    let _ = self.clients.wake.send(());
                 }
-                Err(message) => self.hub.to_windows(&Outgoing::Error { message }),
+                Err(message) => self.clients.to_windows(&Outgoing::Error { message }),
             }
         }
     }
 
     /// Set or clear what download `id` does once it finishes.
     fn set_on_done(&self, id: u64, on_done: Option<OnDone>) -> Result<(), String> {
-        SetOnDone::new(&*self.hub).run(id, on_done).map_err(|e| e.to_string())
+        SetOnDone::new(&*self.store).run(id, on_done).map_err(|e| e.to_string())
     }
 
     /// End the countdown early and carry out its action now.
@@ -1605,7 +1345,7 @@ impl Daemon {
     /// The next scheduled start, of a queue or a grabber project, whose
     /// schedule asks to wake the computer.
     fn next_wake(&self, now: queue::Moment) -> Option<queue::Moment> {
-        let queues = self.hub.queues.lock().unwrap().clone();
+        let queues = self.store.queues().clone();
         let from_queues = queues.iter().filter(|q| !q.running).filter_map(|q| {
             q.schedule.as_ref().filter(|s| s.wake).and_then(|s| s.next_run(now, q.last_scheduled_start))
         });
@@ -1650,20 +1390,20 @@ impl Daemon {
         };
         self.countdown_message().is_some()
             || projects()
-            || self.hub.queues.lock().unwrap().iter().any(|q| {
+            || self.store.queues().iter().any(|q| {
                 q.running
                     || q.schedule.as_ref().is_some_and(|s| s.next_start(now).is_some() || s.open_run(now).is_some())
             })
     }
 
     fn entry(&self, id: u64) -> Option<DownloadEntry> {
-        self.hub.table.lock().unwrap().get(id).cloned()
+        self.store.table().get(id).cloned()
     }
 
     /// Bring the window forward: ask an open one to show itself, or start one.
     fn show_window(&self) {
-        if self.hub.window_open() {
-            self.hub.broadcast(&Outgoing::Show);
+        if self.clients.window_open() {
+            self.clients.broadcast(&Outgoing::Show);
         } else if let Err(e) = open_window() {
             warn!(error = %e, "could not open the window");
         }
@@ -1672,7 +1412,7 @@ impl Daemon {
     /// Stop every queued or running download, remembering them for
     /// `resume_all`.
     fn pause_all(&self) {
-        PauseAll::new(&*self.hub, &*self.hub, self, self, self).run();
+        PauseAll::new(&*self.store, &*self.store, self, self, self).run();
     }
 
     /// The quota the settings ask for, if it is on.
@@ -1693,7 +1433,7 @@ impl Daemon {
     /// `CheckQuota`). Runs with the scheduler.
     fn check_quota(&self) {
         let now = uidm_infrastructure::quota::now_minute();
-        let check = CheckQuota::new(&*self.hub, &*self.hub, self, self, &LocalClock, self, self);
+        let check = CheckQuota::new(&*self.store, &*self.store, self, self, &LocalClock, self, self);
         match check.run(self.quota_limit(), now) {
             Some(QuotaEvent::Reached { used, limit }) => {
                 info!(used, limit, "quota reached")
@@ -1710,7 +1450,7 @@ impl Daemon {
 
     /// Start again what `pause_all` stopped, and every interrupted download.
     fn resume_all(&self) {
-        let resumed = ResumeAll::new(&*self.hub, &*self.hub, self, self, self, &LocalClock, self).run();
+        let resumed = ResumeAll::new(&*self.store, &*self.store, self, self, self, &LocalClock, self).run();
         for (id, e) in resumed.failed {
             warn!(download_id = id, error = %e, "could not resume");
         }
@@ -1722,7 +1462,7 @@ impl Daemon {
         let settings = self.settings.lock().unwrap().clone();
         match note {
             Note::Finished(id) if settings.scan_after_download => {
-                let scanning = self.hub.update(id, |e| {
+                let scanning = self.store.update(id, |e| {
                     if e.status != Status::Done || e.path.is_none() {
                         return Err("not a finished file".into());
                     }
@@ -1737,11 +1477,11 @@ impl Daemon {
                     let path = PathBuf::from(entry.path.unwrap_or_default());
                     let result = scan::scan(settings.scanner, &settings.scanner_command, &path);
                     info!(download_id = id, result = ?result, "scanned");
-                    let _ = daemon.hub.update(id, |e| {
+                    let _ = daemon.store.update(id, |e| {
                         e.scan = Some(result);
                         Ok(())
                     });
-                    let _ = daemon.hub.notes.send(Note::Scanned(id));
+                    let _ = daemon.clients.notes.send(Note::Scanned(id));
                 });
             }
             Note::Finished(id) | Note::Scanned(id) => {
@@ -1766,7 +1506,7 @@ impl Daemon {
     /// download starts as proposed: `fallback` decides what happens if its
     /// name is taken, `None` leaving that to the setting.
     fn await_answer(self: &Arc<Self>, id: u64, fallback: Option<FileExists>) {
-        if !self.hub.window_open() {
+        if !self.clients.window_open() {
             if let Err(e) = open_window() {
                 warn!(error = %e, "could not open the window");
             }
@@ -1774,10 +1514,10 @@ impl Daemon {
         let daemon = Arc::clone(self);
         thread::spawn(move || {
             thread::sleep(CONFIRM_FALLBACK);
-            if daemon.status(id) == Some(Status::Confirming) && !daemon.hub.window_open() {
+            if daemon.status(id) == Some(Status::Confirming) && !daemon.clients.window_open() {
                 info!(download_id = id, "no window to confirm; starting it as proposed");
                 // A "download later" asked only about a duplicate keeps waiting.
-                let request = daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap_or_default();
+                let request = daemon.store.requests().get(&id).cloned().unwrap_or_default();
                 let answer = request.fallback_answer(id, fallback);
                 if let Err(e) = daemon.confirm(answer) {
                     warn!(download_id = id, error = %e, "could not start");
@@ -1800,11 +1540,11 @@ impl Daemon {
         // notification in its place when no window is open.
         let dialog = !failed && entry.on_done.is_some_and(|o| o.dialog);
         let toast = match settings.notify {
-            _ if dialog => !self.hub.window_open(),
+            _ if dialog => !self.clients.window_open(),
             Notify::Off => false,
             Notify::Toast => true,
             // An open window shows its own dialog.
-            Notify::Dialog => !self.hub.window_open(),
+            Notify::Dialog => !self.clients.window_open(),
         };
         if !toast {
             return;
@@ -1896,7 +1636,7 @@ impl Daemon {
         if !download.may_be_duplicate() {
             return None;
         }
-        self.hub.find_last(|e| uidm_domain::download::same_address(&e.url, &download.url))
+        self.store.find_last(|e| uidm_domain::download::same_address(&e.url, &download.url))
     }
 
     /// Apply `choice` to `download`, whose address download `old` already
@@ -1924,7 +1664,7 @@ impl Daemon {
     /// (see `UseExisting`). `None` when the finished file is gone, so the new
     /// download should be added after all.
     fn use_existing(self: &Arc<Self>, old: &DownloadEntry) -> Option<(u64, String)> {
-        match UseExisting::new(&*self.hub, &*self.hub, &**self, &DiskFiles, &Front(self)).run(old) {
+        match UseExisting::new(&*self.store, &*self.store, &**self, &DiskFiles, &Front(self)).run(old) {
             Existing::Gone => None,
             Existing::Shown { id, url } | Existing::Resumed { id, url } => Some((id, url)),
             Existing::NotResumed { id, url, error } => {
@@ -1939,35 +1679,13 @@ impl Daemon {
     /// connection.
     fn add_later(&self, download: Download) -> (u64, String) {
         let later = self.settings.lock().unwrap().later_queue;
-        AddLater::new(&*self.hub, self).run(download, later)
+        AddLater::new(&*self.store, &self.intake()).run(download, later)
     }
 
-    /// Announce `download` as waiting, not yet in any queue. A full-path
-    /// `folder` fixes where it will be saved.
-    fn stage(&self, download: Download) -> (u64, String) {
-        let url = download.url.clone();
-        let path = download
-            .folder
-            .as_deref()
-            .map(PathBuf::from)
-            .filter(|f| f.is_absolute())
-            .map(|f| f.join(engine::Inspection::unprobed(&url, download.filename.as_deref()).filename));
-        // The size the browser's response gave, until the server is asked.
-        let size = download.size;
-        let id = self.engine.reserve_id();
-        self.hub.requests.lock().unwrap().insert(id, download);
-        self.hub.publish(&Outgoing::Added { id, url: url.clone() });
-        let _ = self.hub.update(id, |e| {
-            e.status = Status::Waiting;
-            if e.total.is_none() {
-                e.total = size;
-            }
-            if let Some(p) = &path {
-                e.path = Some(p.display().to_string());
-            }
-            Ok(())
-        });
-        (id, url)
+    /// The adapter new downloads go into the list through: waiting, in no
+    /// queue yet.
+    fn intake(&self) -> Intake<'_> {
+        Intake { store: &self.store, engine: &self.engine }
     }
 
     /// Add `items` to wait in `queue` (see `AddMany`). Returns how many were
@@ -1980,7 +1698,8 @@ impl Daemon {
     /// `add_many`, answering with the new downloads' ids.
     fn add_many_ids(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (Vec<u64>, usize) {
         let choice = self.settings.lock().unwrap().if_duplicate;
-        let added = AddMany::new(&*self.hub, &*self.hub, &**self, &DiskFiles, &**self).run(items, queue, choice);
+        let added =
+            AddMany::new(&*self.store, &*self.store, &**self, &DiskFiles, &self.intake()).run(items, queue, choice);
         for (id, e) in added.not_replaced {
             warn!(download_id = id, error = %e, "could not remove");
         }
@@ -2069,12 +1788,12 @@ impl Daemon {
         let (added, _) = self.add_many_ids(items, Some(queue));
         if first {
             let at_once = req.download_at_once as usize;
-            let _ = self.hub.update_queue(queue, |q| {
+            let _ = self.store.update_queue(queue, |q| {
                 q.max_concurrent = at_once;
                 Ok(())
             });
         }
-        if !added.is_empty() && !self.hub.queues.lock().unwrap().iter().any(|q| q.id == queue && q.running) {
+        if !added.is_empty() && !self.store.queues().iter().any(|q| q.id == queue && q.running) {
             if let Err(e) = self.start_queue(queue, None) {
                 warn!(error = %e, "could not start the grabber's queue");
             }
@@ -2120,7 +1839,7 @@ impl Daemon {
             h
         };
         // Rendering needs the browser extension connected.
-        let render = AtomicBool::new(req.render_scripts && self.hub.extension_connected());
+        let render = AtomicBool::new(req.render_scripts && self.clients.extension_connected());
         let fetch = |url: &str| {
             // A page as the browser shows it, when asked and the browser
             // can; otherwise as the server sends it.
@@ -2235,7 +1954,7 @@ impl Daemon {
         // such as the user: the project's files join it, but its stop time
         // and when-done action stay that run's own.
         let mut owns_run = false;
-        let _ = self.hub.update_queue(project.queue, |q| {
+        let _ = self.store.update_queue(project.queue, |q| {
             if q.running {
                 return Ok(());
             }
@@ -2261,7 +1980,7 @@ impl Daemon {
         if added == 0 {
             // Nothing to wait for: done now.
             if owns_run {
-                let _ = self.hub.update_queue(project.queue, |q| {
+                let _ = self.store.update_queue(project.queue, |q| {
                     q.when_done_once = None;
                     q.open_when_done_once = None;
                     q.force_close_once = None;
@@ -2285,7 +2004,7 @@ impl Daemon {
         to: uidm_infrastructure::media::convert::Target,
         delete_original: bool,
     ) -> Result<(), String> {
-        let output = ConvertDownload::new(&*self.hub, &DiskFiles, &Conversions(self))
+        let output = ConvertDownload::new(&*self.store, &DiskFiles, &Conversions(self))
             .run(id, to, delete_original)
             .map_err(|e| e.to_string())?;
         info!(download_id = id, output = %output.display(), "converting");
@@ -2313,7 +2032,7 @@ impl Daemon {
         info!(path = %path.display(), "started the update; quitting for it");
         self.pause_all();
         self.save_history();
-        self.hub.broadcast(&Outgoing::Quit);
+        self.clients.broadcast(&Outgoing::Quit);
         Ok(())
     }
 
@@ -2328,7 +2047,7 @@ impl Daemon {
             if let msg @ Outgoing::Update { newer: Some(_), .. } =
                 daemon.check_update(uidm_infrastructure::update::LATEST_RELEASE)
             {
-                daemon.hub.broadcast(&msg);
+                daemon.clients.broadcast(&msg);
             }
         });
     }
@@ -2338,7 +2057,7 @@ impl Daemon {
     /// answer `reply` with `zip_preview`.
     fn preview_zip(&self, id: u64, reply: Sender<Vec<u8>>) {
         let entry = self.entry(id);
-        let download = self.hub.requests.lock().unwrap().get(&id).cloned();
+        let download = self.store.requests().get(&id).cloned();
         let answer = move |entries: Vec<uidm_infrastructure::zip::ZipEntry>, error: Option<String>| {
             if let Ok(frame) = serde_json::to_vec(&Outgoing::ZipPreview { id, entries, error }) {
                 let _ = reply.send(frame);
@@ -2377,7 +2096,7 @@ impl Daemon {
         let request = NEXT.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.render_waits.lock().unwrap().insert(request, tx);
-        self.hub.broadcast(&Outgoing::RenderPage { request, url: url.to_string() });
+        self.clients.broadcast(&Outgoing::RenderPage { request, url: url.to_string() });
         // The extension gives up on a page after 30 seconds itself.
         let got = rx.recv_timeout(Duration::from_secs(40)).ok().flatten();
         self.render_waits.lock().unwrap().remove(&request);
@@ -2396,14 +2115,14 @@ impl Daemon {
     /// seconds for the answer. `None` without an extension or cookies.
     fn browser_cookies(&self, url: &str) -> Option<String> {
         // Without the extension nobody answers: no need to wait.
-        if !self.hub.extension_connected() {
+        if !self.clients.extension_connected() {
             return None;
         }
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let request = NEXT.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = channel();
         self.cookie_waits.lock().unwrap().insert(request, tx);
-        self.hub.broadcast(&Outgoing::CookiesWanted { request, url: url.to_string() });
+        self.clients.broadcast(&Outgoing::CookiesWanted { request, url: url.to_string() });
         let got = rx.recv_timeout(Duration::from_secs(5)).ok().flatten();
         self.cookie_waits.lock().unwrap().remove(&request);
         info!(found = got.is_some(), "browser cookies for the crawl");
@@ -2476,8 +2195,8 @@ impl Daemon {
     fn ask(self: &Arc<Self>, download: Download, duplicate_of: Option<u64>) -> (u64, String) {
         let url = download.url.clone();
         let id = self.engine.reserve_id();
-        self.hub.requests.lock().unwrap().insert(id, download.clone());
-        self.hub.publish(&Outgoing::Added { id, url: url.clone() });
+        self.store.requests().insert(id, download.clone());
+        self.store.publish(&Outgoing::Added { id, url: url.clone() });
 
         let daemon = Arc::clone(self);
         thread::spawn(move || {
@@ -2498,14 +2217,14 @@ impl Daemon {
                 Err(e) => {
                     // Same as a download that fails to start, so the browser
                     // can take it back.
-                    daemon.hub.publish(&Outgoing::Failed { id, url: download.url, error: e.to_string() });
+                    daemon.store.publish(&Outgoing::Failed { id, url: download.url, error: e.to_string() });
                     return;
                 }
             };
             let path = req.folders.for_name(&found.filename).join(&found.filename);
             let probed = Probed { filename: found.filename, path, total: found.total, resumable: found.resumable };
             let (early, answers) = (EarlyHandOver(&daemon), AnswerWait(&daemon));
-            let hold = HoldForAnswer::new(&*daemon.hub, &*daemon, &DiskFiles, &*daemon, &early, &answers);
+            let hold = HoldForAnswer::new(&*daemon.store, &*daemon, &DiskFiles, &*daemon, &early, &answers);
             if let Held::Started(Err(e)) = hold.run(id, &download, probed, duplicate_of) {
                 warn!(download_id = id, error = %e, "could not start");
             }
@@ -2536,8 +2255,8 @@ impl Daemon {
         // The server's date stays as the settings say: the engine sets it
         // only on a finished file, and moving that file into place keeps it.
         let shadow = self.engine.reserve_id();
-        self.hub
-            .early
+        self.early
+            .runs
             .lock()
             .unwrap()
             .insert(shadow, Early { real: id, dir, file: None, target: None, total: None, end: None, discard: false });
@@ -2553,7 +2272,7 @@ impl Daemon {
         let deadline = Instant::now() + EARLY_STOP_WAIT;
         loop {
             {
-                let mut early = self.hub.early.lock().unwrap();
+                let mut early = self.early.runs.lock().unwrap();
                 if early.get(&shadow).is_some_and(|e| e.end.is_some()) {
                     return early.remove(&shadow);
                 }
@@ -2582,7 +2301,7 @@ impl Daemon {
         let entry = self.entry(id);
         let path = entry.as_ref().and_then(|e| e.path.as_deref()).map(PathBuf::from);
         let overwrite = {
-            let asked = self.hub.requests.lock().unwrap().get(&id).and_then(|d| d.file_exists);
+            let asked = self.store.requests().get(&id).and_then(|d| d.file_exists);
             asked.unwrap_or(self.settings.lock().unwrap().file_exists) == FileExists::Overwrite
         };
         let mut kept = false;
@@ -2600,8 +2319,8 @@ impl Daemon {
                 match uidm_infrastructure::files::move_file(&finished, &to) {
                     Ok(()) => {
                         info!(download_id = id, "finished while its dialog was open");
-                        self.hub.leave_queues(id);
-                        self.hub.publish(&Outgoing::Done {
+                        self.store.leave_queues(id);
+                        self.store.publish(&Outgoing::Done {
                             id,
                             url: e.url,
                             path: to.display().to_string(),
@@ -2618,7 +2337,7 @@ impl Daemon {
             {
                 let to = free_path(&path, overwrite);
                 kept = self
-                    .hub
+                    .store
                     .update(id, |e| {
                         e.path = Some(to.display().to_string());
                         e.partial = Some(partial.display().to_string());
@@ -2638,10 +2357,10 @@ impl Daemon {
     /// Stop download `id`'s early download, if it has one, and drop what it
     /// fetched once it has stopped.
     fn discard_early(&self, id: u64) {
-        let Some(shadow) = self.hub.early_of(id) else {
+        let Some(shadow) = self.early.early_of(id) else {
             return;
         };
-        let mut early = self.hub.early.lock().unwrap();
+        let mut early = self.early.runs.lock().unwrap();
         let ended = early.get(&shadow).is_some_and(|e| e.end.is_some());
         if ended {
             if let Some(gone) = early.remove(&shadow) {
@@ -2668,7 +2387,7 @@ impl Daemon {
     fn confirm(self: &Arc<Self>, answer: Answer) -> Result<(), String> {
         let id = answer.id;
         let (front, early) = (Front(self), EarlyHandOver(self));
-        let confirm = ConfirmAnswer::new(&*self.hub, &*self.hub, &**self, &DiskFiles, &front, &**self, &early);
+        let confirm = ConfirmAnswer::new(&*self.store, &*self.store, &**self, &DiskFiles, &front, &**self, &early);
         let (done, warnings) = confirm.run(answer).map_err(|e| e.to_string())?;
         for w in warnings {
             match w {
@@ -2692,12 +2411,12 @@ impl Daemon {
     /// in `queue`, the Download later queue, or the main one.
     fn start_or_wait(&self, id: u64, start: bool, queue: Option<u64>) -> Result<(), String> {
         let later = self.settings.lock().unwrap().later_queue;
-        StartOrWait::new(&*self.hub, &*self.hub, self).run(id, start, queue, later).map_err(|e| e.to_string())
+        StartOrWait::new(&*self.store, &*self.store, self).run(id, start, queue, later).map_err(|e| e.to_string())
     }
 
     /// Cancel a download, whether it waits for its dialog or is in the engine.
     fn cancel(self: &Arc<Self>, id: u64) {
-        CancelDownload::new(&*self.hub, &**self, &Conversions(self)).run(id);
+        CancelDownload::new(&*self.store, &**self, &Conversions(self)).run(id);
     }
 
     /// Queue `download`, remember it for retries, and announce it.
@@ -2719,42 +2438,42 @@ impl Daemon {
         req.reuse_path = reuse_path;
         req.reuse_partial = reuse_partial;
         let id = self.engine.enqueue(req);
-        self.hub.requests.lock().unwrap().insert(id, download);
+        self.store.requests().insert(id, download);
         // A very fast download can finish before its request is stored; drop
         // the request (and its cookies) in that case too.
         if self.status(id) == Some(Status::Done) {
-            self.hub.requests.lock().unwrap().remove(&id);
+            self.store.requests().remove(&id);
         }
-        self.hub.publish(&Outgoing::Added { id, url: url.clone() });
+        self.store.publish(&Outgoing::Added { id, url: url.clone() });
         (id, url)
     }
 
     fn status(&self, id: u64) -> Option<Status> {
-        self.hub.table.lock().unwrap().get(id).map(|e| e.status)
+        self.store.table().get(id).map(|e| e.status)
     }
 
     /// Re-queue a failed, canceled or interrupted download from its stored
     /// request, or from its URL alone when the request was not kept (see
     /// `RetryDownload`).
     fn retry(&self, id: u64) -> Result<(u64, String), String> {
-        RetryDownload::new(&*self.hub, &*self.hub, self).run(id).map_err(|e| e.to_string())
+        RetryDownload::new(&*self.store, &*self.store, self).run(id).map_err(|e| e.to_string())
     }
 
     /// Set or clear download `id`'s own speed limit (see `SetSpeedLimit`).
     fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) -> Result<(), String> {
-        SetSpeedLimit::new(&*self.hub, self).run(id, bytes_per_sec).map_err(|e| e.to_string())
+        SetSpeedLimit::new(&*self.store, self).run(id, bytes_per_sec).map_err(|e| e.to_string())
     }
 
     /// Set whether download `id` keeps its own speed limit when it is
     /// stopped and resumed.
     fn set_limit_remember(&self, id: u64, remember: bool) -> Result<(), String> {
-        SetLimitRemember::new(&*self.hub).run(id, remember).map_err(|e| e.to_string())
+        SetLimitRemember::new(&*self.store).run(id, remember).map_err(|e| e.to_string())
     }
 
     /// Start download `id` again from the first byte, under the same id (see
     /// `Redownload`).
     fn redownload(&self, id: u64) -> Result<(), String> {
-        let url = Redownload::new(&*self.hub, self, &DiskFiles).run(id).map_err(|e| e.to_string())?;
+        let url = Redownload::new(&*self.store, self, &DiskFiles).run(id).map_err(|e| e.to_string())?;
         info!(download_id = id, url = %url, "downloading again");
         Ok(())
     }
@@ -2762,7 +2481,10 @@ impl Daemon {
     /// Give download `id` a new link, or wait for the browser's next one (see
     /// `RefreshLink`). Returns why the new link was refused, if it was.
     fn refresh_link(&self, id: u64, download: Option<Download>, restart: bool) -> Result<Option<String>, String> {
-        match RefreshLink::new(&*self.hub, &*self.hub, self).run(id, download, restart).map_err(|e| e.to_string())? {
+        match RefreshLink::new(&*self.store, &*self.store, self)
+            .run(id, download, restart)
+            .map_err(|e| e.to_string())?
+        {
             Refreshed::Waiting => Ok(None),
             Refreshed::Mismatch(reason) => Ok(Some(reason)),
             Refreshed::NewLink(url) => {
@@ -2774,7 +2496,7 @@ impl Daemon {
 
     /// Change a stopped or finished download's details (see `SetProperties`).
     fn set_properties(&self, id: u64, p: Properties) -> Result<(), String> {
-        let moved = SetProperties::new(&*self.hub, &DiskFiles).run(id, p).map_err(|e| e.to_string())?;
+        let moved = SetProperties::new(&*self.store, &DiskFiles).run(id, p).map_err(|e| e.to_string())?;
         if let Some(to) = moved {
             info!(download_id = id, to = %to.display(), "moved");
         }
@@ -2785,7 +2507,7 @@ impl Daemon {
     /// every client.
     fn set_refresh_waiting(&self, id: Option<u64>) {
         *self.refresh_waiting.lock().unwrap() = id;
-        self.hub.broadcast(&Outgoing::RefreshWaiting { id });
+        self.clients.broadcast(&Outgoing::RefreshWaiting { id });
     }
 
     /// Validate, save and apply new settings, then tell every client. Running
@@ -2812,10 +2534,8 @@ impl Daemon {
             return false;
         }
         let url = self
-            .hub
-            .requests
-            .lock()
-            .unwrap()
+            .store
+            .requests()
             .get(&id)
             .filter(|d| d.proxy.is_some() || d.browser_proxy.is_some())
             .map(|d| d.url.clone());
@@ -2994,22 +2714,15 @@ impl Daemon {
         self.engine.set_speed_limit(new.speed_limit_bytes());
         self.engine.set_per_file_limit(new.per_file_limit_bytes());
         *self.settings.lock().unwrap() = new.clone();
-        self.hub.broadcast(&Outgoing::Settings { settings: new });
+        self.clients.broadcast(&Outgoing::Settings { settings: new });
         Ok(())
     }
 
     /// Queue every interrupted download again (the "resume at startup"
     /// option).
     fn resume_interrupted(&self) {
-        let ids: Vec<u64> = self
-            .hub
-            .table
-            .lock()
-            .unwrap()
-            .entries()
-            .filter(|e| e.status == Status::Interrupted)
-            .map(|e| e.id)
-            .collect();
+        let ids: Vec<u64> =
+            self.store.table().entries().filter(|e| e.status == Status::Interrupted).map(|e| e.id).collect();
         for id in ids {
             match self.retry(id) {
                 Ok((new_id, url)) => info!(download_id = id, new_id, url = %url, "resuming"),
@@ -3020,28 +2733,7 @@ impl Daemon {
 
     /// Write the history and the saved requests now.
     fn save_history(&self) {
-        let _guard = self.save_lock.lock().unwrap();
-        let history = History {
-            next_id: self.engine.next_id(),
-            items: self.hub.table.lock().unwrap().snapshot(),
-            queues: self.hub.queues.lock().unwrap().clone(),
-        };
-        let requests = self.hub.requests.lock().unwrap().clone();
-        if let Some(path) = &self.paths.quota {
-            if let Err(e) = uidm_infrastructure::quota::save(&self.hub.quota.lock().unwrap(), path) {
-                warn!(path = %path.display(), error = %e, "could not save");
-            }
-        }
-        if let Some(path) = &self.paths.history {
-            if let Err(e) = history.save(path) {
-                warn!(path = %path.display(), error = %e, "could not save");
-            }
-        }
-        if let Some(path) = &self.paths.requests {
-            if let Err(e) = history::save_requests(path, &requests) {
-                warn!(path = %path.display(), error = %e, "could not save");
-            }
-        }
+        self.store.save(self.engine.next_id());
     }
 
     /// Forget a download that is no longer running. Its files stay on disk
@@ -3050,21 +2742,22 @@ impl Daemon {
         if delete_files {
             info!(download_id = id, "removing with its files");
         }
-        RemoveDownload::new(&*self.hub, &*self.hub, self, &DiskFiles).run(id, delete_files).map_err(|e| e.to_string())
+        RemoveDownload::new(&*self.store, &*self.store, self, &DiskFiles)
+            .run(id, delete_files)
+            .map_err(|e| e.to_string())
     }
 
     /// Send the whole list to one client, under the table lock so no event can
     /// slip between the snapshot and the client's next frame.
     fn send_list(&self, reply: &Sender<Vec<u8>>) {
-        let table = self.hub.table.lock().unwrap();
-        let msg = Outgoing::Downloads { items: table.snapshot() };
-        let queues = Outgoing::Queues { items: self.hub.queues.lock().unwrap().clone() };
-        let refresh = Outgoing::RefreshWaiting { id: *self.refresh_waiting.lock().unwrap() };
-        for msg in [msg, queues, refresh] {
-            if let Ok(frame) = serde_json::to_vec(&msg) {
-                let _ = reply.send(frame);
+        self.store.snapshot(|items, queues| {
+            let refresh = Outgoing::RefreshWaiting { id: *self.refresh_waiting.lock().unwrap() };
+            for msg in [Outgoing::Downloads { items }, Outgoing::Queues { items: queues }, refresh] {
+                if let Ok(frame) = serde_json::to_vec(&msg) {
+                    let _ = reply.send(frame);
+                }
             }
-        }
+        })
     }
 }
 
@@ -3125,8 +2818,7 @@ fn run() -> io::Result<()> {
         warn!(error = %e, "could not register for notifications");
     }
     // Queues set to start with UIDM.
-    let launch: Vec<u64> =
-        daemon.hub.queues.lock().unwrap().iter().filter(|q| q.start_on_launch).map(|q| q.id).collect();
+    let launch: Vec<u64> = daemon.store.queues().iter().filter(|q| q.start_on_launch).map(|q| q.id).collect();
     for id in launch {
         if let Err(e) = daemon.start_queue(id, None) {
             warn!(queue = %id, error = %e, "could not start the queue");
@@ -3170,7 +2862,7 @@ fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
         }
     };
     let (tx, rx) = channel::<Vec<u8>>();
-    daemon.hub.clients.lock().unwrap().insert(id, tx.clone());
+    daemon.clients.clients.lock().unwrap().insert(id, tx.clone());
 
     // One writer per client keeps its frames whole even when replies and
     // broadcasts race.
@@ -3197,7 +2889,7 @@ fn handle_client(mut stream: TcpStream, daemon: &Arc<Daemon>, token: &str) {
     // Removing the map's sender and dropping ours leaves the writer's channel
     // with no senders, so it drains what is queued and ends. Downloads this
     // client started keep running.
-    daemon.hub.client_gone(id);
+    daemon.clients.client_gone(id);
     daemon.stop_grab(id);
     daemon.stop_probe_links(id);
     drop(tx);
@@ -3248,17 +2940,17 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
     };
 
     // Anything from the extension shows it is still there.
-    if daemon.hub.browsers.lock().unwrap().contains(&client) {
-        *daemon.hub.browser_seen.lock().unwrap() = Some(uidm_infrastructure::state::unix_now());
+    if daemon.clients.browsers.lock().unwrap().contains(&client) {
+        *daemon.clients.browser_seen.lock().unwrap() = Some(uidm_infrastructure::state::unix_now());
     }
     match incoming {
         Incoming::Hello { client: kind, .. } => {
             if kind.is_none() {
-                daemon.hub.browser_connected(client);
+                daemon.clients.browser_connected(client);
             }
             if kind.as_deref() == Some(WINDOW_CLIENT) {
-                daemon.hub.windows.lock().unwrap().insert(client);
-                send(&daemon.hub.browser_link());
+                daemon.clients.windows.lock().unwrap().insert(client);
+                send(&daemon.clients.browser_link());
                 // A window that opens during a countdown shows it too.
                 if let Some(countdown) = daemon.countdown_message() {
                     send(&countdown);
@@ -3281,7 +2973,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::Ping => send(&Outgoing::Pong),
         Incoming::CommandLine(cmd) => {
-            let window_open = daemon.hub.window_open();
+            let window_open = daemon.clients.window_open();
             if window_open {
                 daemon.run_command_line(cmd, false);
             } else {
@@ -3362,7 +3054,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         Incoming::StartQueue { id } => match daemon.start_queue(id, None) {
             Ok(()) => {
                 info!(queue = %id, "start queue");
-                let _ = daemon.hub.wake.send(());
+                let _ = daemon.clients.wake.send(());
             }
             Err(message) => send(&Outgoing::Error { message }),
         },
@@ -3371,7 +3063,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             Err(message) => send(&Outgoing::Error { message }),
         },
         Incoming::SetQueueOnce { id, when_done } => {
-            if let Err(message) = daemon.hub.update_queue(id, |q| {
+            if let Err(message) = daemon.store.update_queue(id, |q| {
                 q.when_done_once = when_done;
                 Ok(())
             }) {
@@ -3413,9 +3105,9 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
             links.truncate(uidm_domain::batch::MAX_BATCH);
             info!(links = links.len(), page = %page, "links to pick from");
             let msg = Outgoing::PickLinks { page, links, user_agent };
-            if daemon.hub.window_open() {
-                daemon.hub.broadcast(&msg);
-                daemon.hub.broadcast(&Outgoing::Show);
+            if daemon.clients.window_open() {
+                daemon.clients.broadcast(&msg);
+                daemon.clients.broadcast(&Outgoing::Show);
             } else {
                 *daemon.picked_links.lock().unwrap() = Some(msg);
                 daemon.show_window();
@@ -3489,7 +3181,7 @@ fn dispatch(raw: &[u8], daemon: &Arc<Daemon>, client: u64, reply: &Sender<Vec<u8
         }
         Incoming::GetSettings => send(&Outgoing::Settings { settings: daemon.settings.lock().unwrap().clone() }),
         Incoming::SetSettings { settings } => {
-            match daemon.set_settings(if daemon.hub.windows.lock().unwrap().contains(&client) {
+            match daemon.set_settings(if daemon.clients.windows.lock().unwrap().contains(&client) {
                 settings
             } else {
                 daemon.with_video_button(&settings)
@@ -3611,18 +3303,6 @@ fn human_bytes(n: u64) -> String {
     }
 }
 
-/// Refuse a POST whose body is not valid base64, rather than send another
-/// body than the form's.
-fn check_body(d: &Download) -> Result<(), String> {
-    use base64::Engine as _;
-    match &d.body {
-        Some(body) if base64::engine::general_purpose::STANDARD.decode(body).is_err() => {
-            Err(format!("the form body of {} is not valid base64", d.url))
-        }
-        _ => Ok(()),
-    }
-}
-
 /// `path`, or when a file is there, the first free numbered name next to
 /// it (`name (1).ext`, ...), unless `overwrite` says to remove that file.
 fn free_path(path: &Path, overwrite: bool) -> PathBuf {
@@ -3649,7 +3329,7 @@ fn clean_early_folders(daemon: &Daemon) {
         return;
     };
     let partials: Vec<PathBuf> =
-        daemon.hub.table.lock().unwrap().entries().filter_map(|e| e.partial.as_deref().map(PathBuf::from)).collect();
+        daemon.store.table().entries().filter_map(|e| e.partial.as_deref().map(PathBuf::from)).collect();
     for dir in dirs.flatten().map(|d| d.path()) {
         if !partials.iter().any(|p| p.starts_with(&dir)) {
             let _ = std::fs::remove_dir_all(&dir);
@@ -3751,7 +3431,7 @@ fn spawn_idle_monitor(daemon: Arc<Daemon>) {
         let mut idle_since: Option<Instant> = None;
         loop {
             thread::sleep(IDLE_POLL);
-            let idle = daemon.hub.clients.lock().unwrap().is_empty()
+            let idle = daemon.clients.clients.lock().unwrap().is_empty()
                 && daemon.engine.active_count() == 0
                 && !daemon.queues_need_daemon();
             match (idle, idle_since) {
@@ -3773,6 +3453,7 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use uidm_domain::download::DownloadLogin;
+    use uidm_domain::quota::Usage;
 
     const BODY: &[u8] = b"the new bytes";
 
@@ -3870,7 +3551,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("uidm_dup_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let (daemon, ..) = Daemon::new(Paths { settings: None, history: None, requests: None, quota: None });
+        let (daemon, ..) = Daemon::new(Paths { settings: None, store: StoreFiles::default() });
         {
             let mut s = daemon.settings.lock().unwrap();
             s.download_dir = Some(dir.display().to_string());
@@ -3878,8 +3559,8 @@ mod tests {
             s.if_duplicate = choice;
         }
         let (tx, window) = channel();
-        daemon.hub.clients.lock().unwrap().insert(1, tx);
-        daemon.hub.windows.lock().unwrap().insert(1);
+        daemon.clients.clients.lock().unwrap().insert(1, tx);
+        daemon.clients.windows.lock().unwrap().insert(1);
         Setup { daemon: Arc::new(daemon), dir, window }
     }
 
@@ -3891,16 +3572,16 @@ mod tests {
             std::fs::write(path, b"old").unwrap();
             let id = self.daemon.engine.reserve_id();
             let url = url.to_string();
-            self.daemon.hub.publish(&Outgoing::Added { id, url: url.clone() });
-            self.daemon.hub.publish(&Outgoing::Done { id, url, path: path.display().to_string(), note: None });
+            self.daemon.store.publish(&Outgoing::Added { id, url: url.clone() });
+            self.daemon.store.publish(&Outgoing::Done { id, url, path: path.display().to_string(), note: None });
             id
         }
 
         fn failed(&self, url: &str) -> u64 {
             let id = self.daemon.engine.reserve_id();
             let url = url.to_string();
-            self.daemon.hub.publish(&Outgoing::Added { id, url: url.clone() });
-            self.daemon.hub.publish(&Outgoing::Failed { id, url, error: "gone".into() });
+            self.daemon.store.publish(&Outgoing::Added { id, url: url.clone() });
+            self.daemon.store.publish(&Outgoing::Failed { id, url, error: "gone".into() });
             id
         }
 
@@ -3909,7 +3590,7 @@ mod tests {
         }
 
         fn len(&self) -> usize {
-            self.daemon.hub.table.lock().unwrap().len()
+            self.daemon.store.table().len()
         }
 
         /// Wait for download `id` to reach `status`, and return it.
@@ -3932,36 +3613,36 @@ mod tests {
     #[test]
     fn the_windows_hear_when_the_browser_extension_connects_and_goes() {
         let t = setup("browser_link", Duplicate::Ask);
-        assert!(matches!(t.daemon.hub.browser_link(), Outgoing::BrowserLink { connected: false, last_seen: None }));
+        assert!(matches!(t.daemon.clients.browser_link(), Outgoing::BrowserLink { connected: false, last_seen: None }));
 
         // The extension says hello with no `client`.
         let (tx, _browser) = channel();
-        t.daemon.hub.clients.lock().unwrap().insert(2, tx.clone());
+        t.daemon.clients.clients.lock().unwrap().insert(2, tx.clone());
         dispatch(br#"{"op":"hello","version":"1"}"#, &t.daemon, 2, &tx);
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: true, .. })));
-        assert!(t.daemon.hub.browser_seen.lock().unwrap().is_some());
+        assert!(t.daemon.clients.browser_seen.lock().unwrap().is_some());
 
         // A second one is no news; the first going is none either.
         let (tx3, _browser3) = channel();
-        t.daemon.hub.clients.lock().unwrap().insert(3, tx3.clone());
+        t.daemon.clients.clients.lock().unwrap().insert(3, tx3.clone());
         dispatch(br#"{"op":"hello"}"#, &t.daemon, 3, &tx3);
-        t.daemon.hub.client_gone(2);
+        t.daemon.clients.client_gone(2);
         assert!(!t.window_got(|m| matches!(m, Outgoing::BrowserLink { .. })));
 
         // Anything it sends keeps it seen.
-        *t.daemon.hub.browser_seen.lock().unwrap() = Some(1);
+        *t.daemon.clients.browser_seen.lock().unwrap() = Some(1);
         dispatch(br#"{"op":"ping"}"#, &t.daemon, 3, &tx3);
-        assert!(t.daemon.hub.browser_seen.lock().unwrap().is_some_and(|s| s > 1));
+        assert!(t.daemon.clients.browser_seen.lock().unwrap().is_some_and(|s| s > 1));
 
         // The last one going is, with when.
-        t.daemon.hub.client_gone(3);
+        t.daemon.clients.client_gone(3);
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: false, last_seen: Some(s) } if *s > 1)));
     }
 
     #[test]
     fn a_command_line_runs_in_the_open_window_or_waits_for_the_new_one() {
         let t = setup("command_line", Duplicate::NewName);
-        let entry = |url: &str| t.daemon.hub.table.lock().unwrap().entries().find(|e| e.url == url).cloned();
+        let entry = |url: &str| t.daemon.store.table().entries().find(|e| e.url == url).cloned();
         let ask = |url: &str| -> (Outgoing, Receiver<Vec<u8>>) {
             let (tx, rx) = channel();
             let msg =
@@ -3980,7 +3661,7 @@ mod tests {
         assert_eq!(e.on_done, None);
 
         // No window: it waits for the one this call opens, then has /q.
-        t.daemon.hub.windows.lock().unwrap().clear();
+        t.daemon.clients.windows.lock().unwrap().clear();
         let (reply, _) = ask("https://example.com/new.bin");
         assert!(matches!(reply, Outgoing::CommandLine { window_open: false }));
         assert!(entry("https://example.com/new.bin").is_none(), "held for the window");
@@ -3990,7 +3671,7 @@ mod tests {
         assert_eq!(e.on_done.map(|o| o.then), Some(WhenDone::Exit));
 
         // One held too long belonged to a window that never came.
-        t.daemon.hub.windows.lock().unwrap().clear();
+        t.daemon.clients.windows.lock().unwrap().clear();
         ask("https://example.com/stale.bin");
         let held = t.daemon.command_line.lock().unwrap().take().unwrap().0;
         let old = Instant::now().checked_sub(COMMAND_LINE_WAIT + Duration::from_secs(1)).unwrap();
@@ -4031,7 +3712,7 @@ mod tests {
         let t = setup("overwrite_running", Duplicate::Overwrite);
         let url = serve();
         let old = t.daemon.engine.reserve_id();
-        t.daemon.hub.publish(&Outgoing::Added { id: old, url: url.clone() });
+        t.daemon.store.publish(&Outgoing::Added { id: old, url: url.clone() });
         assert_eq!(t.daemon.status(old), Some(Status::Queued));
         assert_eq!(t.add(&url), old);
         assert_eq!(t.len(), 1);
@@ -4189,7 +3870,7 @@ mod tests {
         assert_eq!(e.url, "https://y/new.bin");
         assert_eq!(e.referrer.as_deref(), Some("https://y/page"));
         assert_eq!(e.login_user.as_deref(), Some("me"));
-        let req = t.daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap();
+        let req = t.daemon.store.requests().get(&id).cloned().unwrap();
         assert_eq!(req.url, "https://y/new.bin");
         assert_eq!(req.referrer.as_deref(), Some("https://y/page"));
 
@@ -4199,7 +3880,7 @@ mod tests {
             ..Properties::default()
         };
         t.daemon.set_properties(id, rename).unwrap();
-        let req = t.daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap();
+        let req = t.daemon.store.requests().get(&id).cloned().unwrap();
         let login = req.login.clone().unwrap();
         assert_eq!((login.username.as_str(), login.password.as_deref()), ("other", Some("pw")));
         let net = t.daemon.net_for(&req, &Settings::default());
@@ -4210,7 +3891,7 @@ mod tests {
         let clear = Properties { login: Some(DownloadLogin::default()), ..Properties::default() };
         t.daemon.set_properties(id, clear).unwrap();
         assert_eq!(t.daemon.entry(id).unwrap().login_user, None);
-        assert!(t.daemon.hub.requests.lock().unwrap()[&id].login.is_none());
+        assert!(t.daemon.store.requests()[&id].login.is_none());
     }
 
     /// A stopped download moved to another folder takes its partial file
@@ -4264,7 +3945,7 @@ mod tests {
         let elsewhere = t.dir.join("later");
         let changes = Properties { folder: Some(elsewhere.display().to_string()), ..Properties::default() };
         t.daemon.set_properties(id, changes).unwrap();
-        let req = t.daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap();
+        let req = t.daemon.store.requests().get(&id).cloned().unwrap();
         assert_eq!(req.folder.map(PathBuf::from), Some(elsewhere.clone()), "the next attempt saves there");
 
         // A proposed file that was never started may be somebody else's: it
@@ -4272,7 +3953,7 @@ mod tests {
         let other = t.dir.join("theirs.bin");
         std::fs::write(&other, b"theirs").unwrap();
         t.daemon
-            .hub
+            .store
             .update(id, |e| {
                 e.path = Some(other.display().to_string());
                 Ok(())
@@ -4453,7 +4134,7 @@ mod tests {
     fn properties_refuse_running_downloads_and_bad_links() {
         let t = setup("props_refuse", Duplicate::NewName);
         let running = t.daemon.engine.reserve_id();
-        t.daemon.hub.publish(&Outgoing::Added { id: running, url: "https://x/a".into() });
+        t.daemon.store.publish(&Outgoing::Added { id: running, url: "https://x/a".into() });
         let describe = Properties { description: Some("x".into()), ..Properties::default() };
         assert!(t.daemon.set_properties(running, describe).is_err());
         let failed = t.failed("https://x/b");
@@ -4484,7 +4165,7 @@ mod tests {
         std::fs::write(&other, b"theirs").unwrap();
         let id = t.failed("https://x/someone_elses.bin");
         t.daemon
-            .hub
+            .store
             .update(id, |e| {
                 e.path = Some(other.display().to_string());
                 Ok(())
@@ -4524,7 +4205,7 @@ mod tests {
     fn only_stopped_downloads_go_again() {
         let t = setup("again_refuse", Duplicate::NewName);
         let id = t.daemon.engine.reserve_id();
-        t.daemon.hub.publish(&Outgoing::Added { id, url: "https://x/a".into() });
+        t.daemon.store.publish(&Outgoing::Added { id, url: "https://x/a".into() });
         assert!(t.daemon.redownload(id).is_err());
         assert!(t.daemon.redownload(999).is_err());
     }
@@ -4564,21 +4245,21 @@ mod tests {
 
         // Stopping its queue and starting it again is a stop and resume too.
         let id = t.daemon.engine.reserve_id();
-        t.daemon.hub.publish(&Outgoing::Added { id, url: "https://x/q.bin".into() });
+        t.daemon.store.publish(&Outgoing::Added { id, url: "https://x/q.bin".into() });
         t.daemon.set_download_limit(id, Some(64 * 1024)).unwrap();
         t.daemon.set_limit_remember(id, false).unwrap();
-        t.daemon.hub.held.lock().unwrap().insert(id);
-        t.daemon.hub.publish(&Outgoing::Canceled { id, url: "https://x/q.bin".into() });
+        t.daemon.store.hold(id);
+        t.daemon.store.publish(&Outgoing::Canceled { id, url: "https://x/q.bin".into() });
         let e = t.daemon.entry(id).unwrap();
         assert_eq!(e.status, Status::Waiting);
         assert_eq!(e.speed_limit, None);
 
         // Remembered, it stays.
         let id = t.daemon.engine.reserve_id();
-        t.daemon.hub.publish(&Outgoing::Added { id, url: "https://x/r.bin".into() });
+        t.daemon.store.publish(&Outgoing::Added { id, url: "https://x/r.bin".into() });
         t.daemon.set_download_limit(id, Some(64 * 1024)).unwrap();
-        t.daemon.hub.held.lock().unwrap().insert(id);
-        t.daemon.hub.publish(&Outgoing::Canceled { id, url: "https://x/r.bin".into() });
+        t.daemon.store.hold(id);
+        t.daemon.store.publish(&Outgoing::Canceled { id, url: "https://x/r.bin".into() });
         assert_eq!(t.daemon.entry(id).unwrap().speed_limit, Some(64 * 1024));
     }
 
@@ -4596,8 +4277,7 @@ mod tests {
                 ..Settings::default()
             };
             settings::save(&s, &path).unwrap();
-            let (daemon, ..) =
-                Daemon::new(Paths { settings: Some(path.clone()), history: None, requests: None, quota: None });
+            let (daemon, ..) = Daemon::new(Paths { settings: Some(path.clone()), store: StoreFiles::default() });
             let s = daemon.settings.lock().unwrap().clone();
             (s, daemon.engine.per_file_limit())
         };
@@ -4645,7 +4325,7 @@ mod tests {
         assert_eq!(t.daemon.entry(id).unwrap().on_done, Some(asked), "a failed download keeps it for its retry");
 
         t.daemon
-            .hub
+            .store
             .update(id, |e| {
                 e.status = Status::Done;
                 Ok(())
@@ -4697,7 +4377,7 @@ mod tests {
         assert_eq!(e.referrer.as_deref(), Some("https://x/frame"));
         assert_eq!(e.page.as_deref(), Some("https://x/article"));
         // Only the referrer goes to the server.
-        let req = t.daemon.hub.requests.lock().unwrap().get(&id).cloned().unwrap();
+        let req = t.daemon.store.requests().get(&id).cloned().unwrap();
         let headers = t.daemon.request_for(req).headers;
         let sent: Vec<&str> = headers.iter().filter(|(k, _)| k == "Referer").map(|(_, v)| v.as_str()).collect();
         assert_eq!(sent, ["https://x/frame"]);
@@ -4749,7 +4429,7 @@ mod tests {
             .daemon
             .save_queue(Queue { when_done: WhenDone::ShutDown, force_close: true, ..Queue::new(0, "Night") })
             .unwrap();
-        let saved = |t: &Setup| t.daemon.hub.queues.lock().unwrap().iter().find(|q| q.id == id).cloned().unwrap();
+        let saved = |t: &Setup| t.daemon.store.queues().iter().find(|q| q.id == id).cloned().unwrap();
         assert!(saved(&t).force_close, "a new queue keeps it");
 
         let mut edited = saved(&t);
@@ -4792,7 +4472,7 @@ mod tests {
         assert_eq!(s.later_queue, Some(queue));
         // Download later now goes to that queue without being told.
         let (later, _) = t.daemon.add_later(Download { url: "https://x/more.xyz".into(), ..Download::default() });
-        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), later), Some(queue));
+        assert_eq!(queue::queue_of(&t.daemon.store.queues(), later), Some(queue));
 
         // "Remember my selection" for an address already in the list.
         let url = serve();
@@ -4818,7 +4498,7 @@ mod tests {
         let id = t.failed(&url);
         // 2 MB came in this minute.
         {
-            let mut q = t.daemon.hub.quota.lock().unwrap();
+            let mut q = t.daemon.store.quota();
             q.started(99, 0);
             q.progress(99, 2 << 20, uidm_infrastructure::quota::now_minute());
         }
@@ -4831,7 +4511,7 @@ mod tests {
         let held = t.daemon.quota_paused.lock().unwrap().clone().unwrap();
         assert!(!held.1.is_empty(), "the new download is held too");
 
-        *t.daemon.hub.quota.lock().unwrap() = Usage::default();
+        *t.daemon.store.quota() = Usage::default();
         t.daemon.check_quota();
         assert!(t.daemon.quota_paused.lock().unwrap().is_none());
         assert!(t.window_got(|m| matches!(m, Outgoing::Quota { paused: false, .. })));
@@ -4842,7 +4522,7 @@ mod tests {
         let t = setup("crawl_cookies", Duplicate::NewName);
         // The browser's extension is connected; without it nobody is asked.
         let (extension, _from_daemon) = channel();
-        t.daemon.hub.clients.lock().unwrap().insert(2, extension);
+        t.daemon.clients.clients.lock().unwrap().insert(2, extension);
         let d = Arc::clone(&t.daemon);
         let asking = thread::spawn(move || d.browser_cookies("https://site.net/"));
         let request = loop {
@@ -4894,7 +4574,7 @@ mod tests {
         assert_eq!(saved.seen, [format!("http://{addr}/report.pdf")]);
         assert_eq!(t.len(), 1, "the new find was added");
         assert!(
-            t.daemon.hub.queues.lock().unwrap().iter().any(|q| q.id == MAIN_QUEUE && q.max_concurrent == 3),
+            t.daemon.store.queues().iter().any(|q| q.id == MAIN_QUEUE && q.max_concurrent == 3),
             "the grabber's files at once"
         );
         t.daemon.run_scheduled_grab(&dir, saved.clone(), 2);
@@ -4958,7 +4638,7 @@ mod tests {
     #[test]
     fn a_crawl_can_have_the_browser_render_a_page() {
         let t = setup("render_page", Duplicate::NewName);
-        assert!(!t.daemon.hub.extension_connected(), "only a window is connected");
+        assert!(!t.daemon.clients.extension_connected(), "only a window is connected");
         let d = Arc::clone(&t.daemon);
         let asking = thread::spawn(move || d.render_in_browser("https://site.net/app"));
         let request = loop {
@@ -5026,7 +4706,7 @@ mod tests {
         t.daemon.settings.lock().unwrap().add_only = true;
         let id = t.add(&serve());
         assert_eq!(t.daemon.status(id), Some(Status::Waiting));
-        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), Some(MAIN_QUEUE));
+        assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(MAIN_QUEUE));
     }
 
     #[test]
@@ -5034,10 +4714,10 @@ mod tests {
         let t = setup("remove_from_queue", Duplicate::NewName);
         let (id, _) = t.daemon.add_later(Download { url: serve(), ..Download::default() });
         let (kept, _) = t.daemon.add_later(Download { url: format!("{}#kept", serve()), ..Download::default() });
-        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), Some(MAIN_QUEUE));
+        assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(MAIN_QUEUE));
 
         t.daemon.remove_from_queue(id).unwrap();
-        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), None, "it left the queue");
+        assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), None, "it left the queue");
         assert_eq!(t.daemon.status(id), Some(Status::Waiting), "and still waits in the list");
         assert!(t.daemon.remove_from_queue(id).is_err(), "it is in no queue now");
 
@@ -5050,7 +4730,7 @@ mod tests {
 
         // Move to queue puts it back.
         t.daemon.move_to_queue(id, MAIN_QUEUE, None).unwrap();
-        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), Some(MAIN_QUEUE));
+        assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(MAIN_QUEUE));
         t.daemon.remove_from_queue(id).unwrap();
 
         // Starting it by hand still works.
@@ -5100,7 +4780,7 @@ mod tests {
         fn run_queue(&self, q: u64) {
             self.daemon.start_queue(q, None).unwrap();
             let until = Instant::now() + Duration::from_secs(10);
-            while self.daemon.hub.queues.lock().unwrap().iter().any(|x| x.id == q && x.running) {
+            while self.daemon.store.queues().iter().any(|x| x.id == q && x.running) {
                 assert!(Instant::now() < until, "the run never ended");
                 self.daemon.tick();
                 thread::sleep(Duration::from_millis(20));
@@ -5130,11 +4810,7 @@ mod tests {
         t.run_queue(q);
         assert_eq!(t.daemon.status(id), Some(Status::Done));
         assert_eq!(std::fs::read(&path).unwrap(), b"version 1");
-        assert_eq!(
-            queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id),
-            Some(q),
-            "a finished download stays in its queue"
-        );
+        assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(q), "a finished download stays in its queue");
 
         // Same size, new ETag: downloaded again over the same file, in the
         // same row.
@@ -5145,7 +4821,7 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"version 2");
         assert_eq!(again.validator.as_ref().and_then(|v| v.etag.as_deref()), Some("\"v2\""));
         assert_eq!(std::fs::read_dir(&t.dir).unwrap().count(), 1, "no second copy or leftover");
-        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), Some(q), "and it stays in the queue");
+        assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(q), "and it stays in the queue");
 
         // A check that fails keeps the file.
         file.lock().unwrap().1 = None;
@@ -5165,7 +4841,7 @@ mod tests {
         mirror.id = q;
         mirror.kind = queue::QueueKind::OneTime;
         t.daemon.save_queue(mirror).unwrap();
-        assert_eq!(queue::queue_of(&t.daemon.hub.queues.lock().unwrap(), id), None);
+        assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), None);
     }
 
     #[test]
@@ -5232,7 +4908,7 @@ mod tests {
         let dir = t.dir.join("projects");
         // Tomorrow's run, so its stop time is still ahead.
         t.daemon.run_scheduled_grab(&dir, project, today + 1);
-        let main = || t.daemon.hub.queues.lock().unwrap().iter().find(|q| q.id == MAIN_QUEUE).cloned().unwrap();
+        let main = || t.daemon.store.queues().iter().find(|q| q.id == MAIN_QUEUE).cloned().unwrap();
         assert_eq!(main().stop_at_once, Some((today + 1) * 1440 + 60), "the queue's run has the project's stop time");
         assert!(main().running);
         let id = *main().order.first().unwrap();
@@ -5245,7 +4921,7 @@ mod tests {
 
         // The stop time comes: the queue stops, its download waits again.
         t.daemon
-            .hub
+            .store
             .update_queue(MAIN_QUEUE, |q| {
                 q.stop_at_once = Some(uidm_infrastructure::clock::local_now().total());
                 Ok(())
@@ -5276,7 +4952,7 @@ mod tests {
         project.checked = vec![true];
         t.daemon.start_queue(MAIN_QUEUE, None).unwrap();
         t.daemon.run_scheduled_grab(&t.dir.join("projects"), project, today + 1);
-        let main = t.daemon.hub.queues.lock().unwrap().iter().find(|q| q.id == MAIN_QUEUE).cloned().unwrap();
+        let main = t.daemon.store.queues().iter().find(|q| q.id == MAIN_QUEUE).cloned().unwrap();
         assert!(main.running);
         assert_eq!(main.order.len(), 1, "the project's file joined the run");
         assert_eq!(main.stop_at_once, None, "the user's run keeps going past the project's stop time");
@@ -5315,15 +4991,15 @@ mod tests {
         project.files = vec![grab::GrabFile { url, name: "d.bin".into(), page: String::new(), size: None, text: None }];
         project.checked = vec![true];
         t.daemon.run_scheduled_grab(&dir, project, 2);
-        assert_eq!(t.daemon.hub.queues.lock().unwrap()[0].force_close_once, Some(true));
+        assert_eq!(t.daemon.store.queues()[0].force_close_once, Some(true));
         let until = Instant::now() + Duration::from_secs(10);
-        while t.daemon.hub.queues.lock().unwrap().iter().any(|q| q.id == MAIN_QUEUE && q.running) {
+        while t.daemon.store.queues().iter().any(|q| q.id == MAIN_QUEUE && q.running) {
             assert!(Instant::now() < until, "the run never ended");
             t.daemon.tick();
             thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(countdown_forces(&t), Some((WhenDone::ShutDown, true)));
-        let main = t.daemon.hub.queues.lock().unwrap()[0].clone();
+        let main = t.daemon.store.queues()[0].clone();
         assert!(
             !main.force_close && main.force_close_once.is_none(),
             "the queue's own choice is back for its next run"
@@ -5423,16 +5099,16 @@ mod tests {
         let id = t.add(&serve_ranges(body, Arc::new(AtomicU64::new(0))));
         t.wait(id, Status::Confirming);
         let until = Instant::now() + Duration::from_secs(30);
-        while t.daemon.hub.early_of(id).is_none_or(|s| t.daemon.hub.early.lock().unwrap()[&s].file.is_none()) {
+        while t.daemon.early.early_of(id).is_none_or(|s| t.daemon.early.runs.lock().unwrap()[&s].file.is_none()) {
             assert!(Instant::now() < until, "the early download never started");
             thread::sleep(Duration::from_millis(20));
         }
-        let shadow = t.daemon.hub.early_of(id).unwrap();
-        let dir = t.daemon.hub.early.lock().unwrap()[&shadow].dir.clone();
+        let shadow = t.daemon.early.early_of(id).unwrap();
+        let dir = t.daemon.early.runs.lock().unwrap()[&shadow].dir.clone();
         t.daemon.cancel(id);
         t.wait(id, Status::Canceled);
         let until = Instant::now() + Duration::from_secs(10);
-        while dir.exists() || t.daemon.hub.early.lock().unwrap().contains_key(&shadow) {
+        while dir.exists() || t.daemon.early.runs.lock().unwrap().contains_key(&shadow) {
             assert!(Instant::now() < until, "the early download was not dropped");
             thread::sleep(Duration::from_millis(20));
         }
@@ -5464,7 +5140,7 @@ mod tests {
             .unwrap();
         assert!(made.success());
         t.daemon.convert(id, uidm_infrastructure::media::convert::Target::M4a, true).unwrap();
-        let new = t.daemon.hub.table.lock().unwrap().max_id();
+        let new = t.daemon.store.table().max_id();
         let done = t.wait(new, Status::Done);
         let out = PathBuf::from(done.path.unwrap());
         assert_eq!(out, t.dir.join("talk.m4a"));
@@ -5554,7 +5230,7 @@ mod tests {
             queue::MAIN_QUEUE,
             false,
         );
-        let requests = t.daemon.hub.requests.lock().unwrap();
+        let requests = t.daemon.store.requests();
         let cookies: Vec<_> = ids.iter().map(|id| requests.get(id).and_then(|d| d.cookies.clone())).collect();
         assert_eq!(cookies, [Some("session=abc".to_string()), None]);
     }
