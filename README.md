@@ -1555,7 +1555,10 @@ once the time passes.
 Windows only shows notifications from an app it knows, so at start the daemon
 registers the app id `UIDM.DownloadManager` under
 `HKCU\Software\Classes\AppUserModelId` with UIDM's name and an icon it writes
-to `%LOCALAPPDATA%\UIDM\uidm.png`. Each button carries an argument such as
+to `%LOCALAPPDATA%\UIDM\uidm.png`. A copy started with `UIDM_INSTANCE=test`
+registers `UIDM.DownloadManager.test` with the name `UIDM (test)` and the icon
+in its own data folder instead, so it leaves the installed copy's entry alone.
+Each button carries an argument such as
 `open:12`, which the daemon acts on while it runs. A failure is announced one
 second late, and only if the download is still failed then, so a download the
 extension hands back to the browser is not announced. A file with a threat

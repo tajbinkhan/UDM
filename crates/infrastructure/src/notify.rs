@@ -24,9 +24,6 @@ use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 #[cfg(windows)]
 use windows::UI::Notifications::{ToastActivatedEventArgs, ToastNotification, ToastNotificationManager};
 
-#[cfg(windows)]
-use crate::registry::APP_ID;
-
 /// What a toast says and offers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Toast {
@@ -119,7 +116,7 @@ fn show_toast(
         }
         Ok(())
     }))?;
-    ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?.Show(&toast)?;
+    ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(crate::registry::app_id()))?.Show(&toast)?;
     Ok(toast)
 }
 

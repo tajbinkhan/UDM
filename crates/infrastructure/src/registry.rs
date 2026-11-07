@@ -4,7 +4,9 @@
 //! - `Software\Microsoft\Windows\CurrentVersion\Run`, value `UIDM`: starts
 //!   the window hidden in the tray at sign-in ("Start with Windows").
 //! - `Software\Classes\AppUserModelId\UIDM.DownloadManager`: the name and
-//!   icon Windows shows on UIDM's notifications.
+//!   icon Windows shows on UIDM's notifications. A named copy (see
+//!   `paths::instance`) uses `UIDM.DownloadManager.<name>`, so a test copy
+//!   does not overwrite the installed copy's name and icon.
 //! - Each browser's `NativeMessagingHosts\com.uidm.host` (see `browsers`).
 
 use std::io;
@@ -51,8 +53,32 @@ extern "system" {
 
 pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 pub const RUN_VALUE: &str = "UIDM";
-/// The AppUserModelID UIDM's notifications are shown under.
+/// The AppUserModelID the usual copy's notifications are shown under. The
+/// installer and `install-host.ps1` remove this key on uninstall.
 pub const APP_ID: &str = "UIDM.DownloadManager";
+
+/// The AppUserModelID this copy's notifications are shown under.
+pub fn app_id() -> String {
+    app_id_for(crate::paths::instance().as_deref())
+}
+
+/// The AppUserModelID for instance `name`: [`APP_ID`], or
+/// `UIDM.DownloadManager.<name>` for a named copy.
+fn app_id_for(name: Option<&str>) -> String {
+    match name {
+        Some(name) => format!("{APP_ID}.{name}"),
+        None => APP_ID.to_string(),
+    }
+}
+
+/// The name Windows shows on instance `name`'s notifications: `UIDM`, or
+/// `UIDM (<name>)` as the window title has it.
+fn display_name_for(name: Option<&str>) -> String {
+    match name {
+        Some(name) => format!("UIDM ({name})"),
+        None => "UIDM".to_string(),
+    }
+}
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -221,10 +247,11 @@ pub fn set_autostart(enabled: bool, gui: &Path) -> io::Result<()> {
     }
 }
 
-/// Register the name and icon Windows shows on UIDM's notifications.
+/// Register the name and icon Windows shows on this copy's notifications.
 pub fn register_app_id(icon: &Path) -> io::Result<()> {
-    let key = format!(r"Software\Classes\AppUserModelId\{APP_ID}");
-    set_string(&key, "DisplayName", "UIDM")?;
+    let name = crate::paths::instance();
+    let key = format!(r"Software\Classes\AppUserModelId\{}", app_id_for(name.as_deref()));
+    set_string(&key, "DisplayName", &display_name_for(name.as_deref()))?;
     set_string(&key, "IconUri", &icon.display().to_string())
 }
 
@@ -258,5 +285,14 @@ mod tests {
     fn autostart_command_quotes_the_path() {
         let gui = Path::new(r"C:\Program Files\UIDM\uidm-gui.exe");
         assert_eq!(autostart_command(gui), r#""C:\Program Files\UIDM\uidm-gui.exe" --minimized"#);
+    }
+
+    #[test]
+    fn each_named_copy_has_its_own_app_id_and_name() {
+        assert_eq!(app_id_for(None), "UIDM.DownloadManager");
+        assert_eq!(display_name_for(None), "UIDM");
+        assert_eq!(app_id_for(Some("claude-check")), "UIDM.DownloadManager.claude-check");
+        assert_eq!(display_name_for(Some("claude-check")), "UIDM (claude-check)");
+        assert_ne!(app_id_for(Some("a")), app_id_for(Some("b")));
     }
 }
