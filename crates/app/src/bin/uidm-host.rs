@@ -33,12 +33,13 @@ use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
 /// After the browser closes, how long to wait for the daemon to deliver
 /// replies already in flight before giving up on them.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+use uidm_domain::settings::{FileExists, Folders, DEFAULT_CONNECTIONS};
 use uidm_infrastructure::cli::Sent;
 use uidm_infrastructure::engine::{self, DownloadRequest, Progress};
 use uidm_infrastructure::ipc;
 use uidm_infrastructure::logging;
 use uidm_infrastructure::protocol::{read_message, write_frame, Incoming, Outgoing};
-use uidm_infrastructure::settings::{default_downloads_dir, FileExists, Folders, DEFAULT_CONNECTIONS};
+use uidm_infrastructure::settings::default_downloads_dir;
 
 /// The requests UIDM's browser extension sends. The host passes only these
 /// on: anything else from the browser, which an extension that is not

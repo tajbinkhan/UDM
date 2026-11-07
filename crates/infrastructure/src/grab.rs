@@ -22,7 +22,7 @@ use scraper::{Html, Selector};
 
 use url::Url;
 
-pub use uidm_domain::grab::*;
+use uidm_domain::grab::*;
 
 /// The saved password of the grabber login `user` on the site of `start`,
 /// or the site's one saved by an older version.
@@ -84,7 +84,7 @@ pub fn rewrite_links(html: &str, page: &Url, here: &Path, root: &Path, local: im
 pub fn download_for(
     req: &GrabRequest,
     f: &GrabFile,
-    settings: &crate::settings::Settings,
+    settings: &uidm_domain::settings::Settings,
     login_cookies: Option<&str>,
 ) -> Option<uidm_domain::download::Download> {
     let mut d = uidm_domain::download::Download {
@@ -114,9 +114,9 @@ pub fn download_for(
         d.filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
         d.folder = path.parent().map(|p| p.display().to_string());
         d.file_exists = Some(if m.overwrite {
-            crate::settings::FileExists::Overwrite
+            uidm_domain::settings::FileExists::Overwrite
         } else {
-            crate::settings::FileExists::Rename
+            uidm_domain::settings::FileExists::Rename
         });
     } else if let Ok(url) = Url::parse(&f.url) {
         // The site's folders under the chosen folder, or under the
@@ -132,7 +132,7 @@ pub fn download_for(
             d.folder = Some(base.join(sub).display().to_string());
         }
         if req.overwrite {
-            d.file_exists = Some(crate::settings::FileExists::Overwrite);
+            d.file_exists = Some(uidm_domain::settings::FileExists::Overwrite);
         }
     }
     // The project's own login goes to the start site's files.
@@ -830,7 +830,7 @@ impl uidm_domain::ports::GrabDownloads for FoundFiles {
         &self,
         req: &GrabRequest,
         file: &GrabFile,
-        settings: &crate::settings::Settings,
+        settings: &uidm_domain::settings::Settings,
         login: Option<&str>,
     ) -> Option<uidm_domain::download::Download> {
         download_for(req, file, settings, login)
@@ -1201,9 +1201,9 @@ Crawl-delay: 2.5
             size: None,
             text: Some("The manual".into()),
         };
-        let settings = crate::settings::Settings {
+        let settings = uidm_domain::settings::Settings {
             download_dir: Some(std::env::temp_dir().join("uidm-grab-dl").display().to_string()),
-            ..crate::settings::Settings::default()
+            ..uidm_domain::settings::Settings::default()
         };
         let d = download_for(&request(1), &file, &settings, None).unwrap();
         assert_eq!((d.referrer.as_deref(), d.page.as_deref()), (Some("https://s/a/"), Some("https://s/a/")));
@@ -1557,7 +1557,7 @@ Crawl-delay: 2.5
             size: None,
             text: None,
         };
-        let settings = crate::settings::Settings::default();
+        let settings = uidm_domain::settings::Settings::default();
         let dir = std::env::temp_dir().join(format!("uidm_mirror_{}", std::process::id()));
         let mirrored = GrabRequest {
             mirror: Some(Mirror { folder: dir.display().to_string(), pages: true, overwrite: false }),
@@ -1622,9 +1622,9 @@ Crawl-delay: 2.5
         );
         assert_eq!(at("https://cdn.net/x/a.pdf"), Path::new("cdn.net").join("x"));
         let root = std::env::temp_dir().join("uidm-grab-sub");
-        let settings = crate::settings::Settings {
+        let settings = uidm_domain::settings::Settings {
             download_dir: Some(root.display().to_string()),
-            ..crate::settings::Settings::default()
+            ..uidm_domain::settings::Settings::default()
         };
         let file = GrabFile {
             url: "https://s/docs/v1/a.pdf".into(),
@@ -1644,7 +1644,7 @@ Crawl-delay: 2.5
         let req = GrabRequest { subfolders: true, overwrite: true, ..req };
         let d = download_for(&req, &file, &settings, None).unwrap();
         assert_eq!(d.folder, Some(folder.join("v1").display().to_string()));
-        assert_eq!(d.file_exists, Some(crate::settings::FileExists::Overwrite));
+        assert_eq!(d.file_exists, Some(uidm_domain::settings::FileExists::Overwrite));
         // By category: under the folder the file's category has.
         let req = GrabRequest { save_to: SaveTo::Categories, ..req };
         let d = download_for(&req, &file, &settings, None).unwrap();
@@ -1657,7 +1657,7 @@ Crawl-delay: 2.5
 
     #[test]
     fn found_files_on_the_login_site_carry_its_cookies() {
-        let settings = crate::settings::Settings::default();
+        let settings = uidm_domain::settings::Settings::default();
         let req = GrabRequest {
             start: "https://docs.example.com/".into(),
             login_url: Some("https://example.com/login".into()),

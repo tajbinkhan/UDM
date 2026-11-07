@@ -28,7 +28,7 @@ use crate::dpapi;
 #[cfg(windows)]
 use crate::registry;
 use uidm_domain::site::glob;
-pub use uidm_domain::site::{host_of, site_matches, split_login_pattern};
+use uidm_domain::site::{host_of, site_matches, split_login_pattern};
 
 /// Where the Windows Internet settings keep the system proxy.
 #[cfg(windows)]

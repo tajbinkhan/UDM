@@ -16,10 +16,11 @@ use uidm_domain::queue::{PowerRequest, RunEnd, WhenDone};
 use uidm_application::daemon::Event;
 
 use crate::live_settings::LiveSettings;
-use crate::notify::{self, Sound};
+use crate::notify;
 use crate::power;
 use crate::protocol::Outgoing;
 use crate::store::StoreEvents;
+use uidm_domain::settings::Sound;
 
 /// Set to make sleep, hibernate and shut down only log what they would do
 /// (for testing the countdown without losing the machine).
@@ -239,7 +240,7 @@ mod tests {
     fn a_finished_run_does_what_it_asks() {
         let asked = Arc::new(Mutex::new(Vec::new()));
         let heard = Arc::clone(&asked);
-        let settings = crate::settings::Settings { sound_on_queue_done: false, ..Default::default() };
+        let settings = uidm_domain::settings::Settings { sound_on_queue_done: false, ..Default::default() };
         let ends = RunEnds::new(
             Arc::new(LiveSettings::new(settings, None)),
             Box::new(move |action, queue: &str, force| heard.lock().unwrap().push((action, queue.to_string(), force))),

@@ -79,8 +79,8 @@ mod tests {
 
     use crate::engine::testserver::{self, TestServer};
     use crate::live_settings::LiveSettings;
-    use crate::settings::Settings;
     use crate::store::{DownloadStore, Ended, StoreEvents, StoreFiles};
+    use uidm_domain::settings::Settings;
 
     struct Quiet;
 

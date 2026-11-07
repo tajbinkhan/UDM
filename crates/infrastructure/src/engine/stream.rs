@@ -29,14 +29,14 @@ use super::limit::Throttle;
 use uidm_domain::filename::{numbered_name, sanitize_filename};
 
 use super::{
-    backoff, choose_output, derive_filename, fetch_with, http, CancelToken, DownloadRequest, EngineError, Progress,
-    Reporter, Saved, Shared, BUF_SIZE, MAX_CONNECTIONS, MAX_RETRIES,
+    backoff, choose_output, fetch_with, http, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved,
+    Shared, BUF_SIZE, MAX_CONNECTIONS, MAX_RETRIES,
 };
-use crate::media::{
-    dash, hds, hls, sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track,
-    DRM_REFUSED,
-};
+use crate::media::{dash, hds, hls};
 use crate::net::NetConfig;
+use uidm_domain::media::{
+    sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED,
+};
 
 /// Most bytes read of a playlist or manifest.
 const MAX_PLAYLIST_BYTES: u64 = 16 * 1024 * 1024;
@@ -186,7 +186,7 @@ fn read_playlist(
     let mut body = Vec::new();
     (&mut reader).take(SNIFF_BYTES).read_to_end(&mut body)?;
     if sniff(&String::from_utf8_lossy(&body)).is_none() {
-        if let Some(ext) = crate::media::sniff_file(&body) {
+        if let Some(ext) = uidm_domain::media::sniff_file(&body) {
             return Ok(Err(MediaInfo { file: Some(MediaFile { ext: ext.into(), size }), ..MediaInfo::default() }));
         }
         return Ok(Err(MediaInfo { not_stream: true, ..MediaInfo::failed(None, NOT_A_STREAM.into()) }));
@@ -256,7 +256,7 @@ pub(super) fn stem(req: &DownloadRequest) -> String {
         .as_deref()
         .map(sanitize_filename)
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| derive_filename(&req.url));
+        .unwrap_or_else(|| uidm_domain::filename::name_from_url(&req.url));
     let stem = Path::new(&name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or(name);
     if stem.is_empty() {
         "video".into()
@@ -407,14 +407,14 @@ fn join_subtitle(jobs: &[Job], joined: &Path) -> Result<bool, EngineError> {
         }
         parts.push(text);
     }
-    fs::write(joined, crate::media::join_webvtt(&parts))?;
+    fs::write(joined, uidm_domain::media::join_webvtt(&parts))?;
     Ok(true)
 }
 
 /// Where a subtitle track goes beside a video saved without ffmpeg:
 /// `<stem>.<language>.vtt`, or a number when it has no language.
 fn subtitle_name(stem: &str, sub: &Joined, n: usize) -> String {
-    let tag = sub.language.and_then(crate::media::language_code).unwrap_or_else(|| (n + 1).to_string());
+    let tag = sub.language.and_then(uidm_domain::media::language_code).unwrap_or_else(|| (n + 1).to_string());
     format!("{stem}.{tag}.vtt")
 }
 
@@ -452,7 +452,7 @@ fn finish(
             let webm = output.extension().is_some_and(|e| e == "webm");
             cmd.args(["-c:s", if webm { "webvtt" } else { "mov_text" }]);
             for (i, sub) in subs.iter().enumerate() {
-                let lang = if webm { crate::media::language_code } else { crate::media::iso639_2 };
+                let lang = if webm { uidm_domain::media::language_code } else { uidm_domain::media::iso639_2 };
                 if let Some(lang) = sub.language.and_then(lang) {
                     cmd.arg(format!("-metadata:s:s:{i}")).arg(format!("language={lang}"));
                 }
@@ -773,10 +773,10 @@ mod tests {
         use super::super::super::testserver::TestServer;
         use super::super::super::{Engine, Progress};
         use super::*;
-        use crate::media::MediaKind;
-        use crate::settings::{FileExists, Folders};
         use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
         use std::sync::mpsc;
+        use uidm_domain::media::MediaKind;
+        use uidm_domain::settings::{FileExists, Folders};
 
         fn temp_dir(name: &str) -> PathBuf {
             let dir = std::env::temp_dir().join(format!("uidm_stream_{}_{name}", std::process::id()));
@@ -908,7 +908,7 @@ mod tests {
                 kind: Some(MediaKind::Hls),
                 video: None,
                 audio: None,
-                audio_only: Some(crate::media::convert::Target::Mp3),
+                audio_only: Some(uidm_domain::media::Target::Mp3),
                 subtitles: None,
             };
             // Refused before anything is fetched, so no server is needed.
@@ -1196,7 +1196,7 @@ mod tests {
             assert_eq!(path, dir.join("Movie night.flv"));
             let saved = fs::read(&path).unwrap();
             assert_eq!(saved, flv, "the FLV header, the metadata, then each fragment's tags");
-            assert_eq!(crate::media::sniff_file(&saved), Some("flv"));
+            assert_eq!(uidm_domain::media::sniff_file(&saved), Some("flv"));
             assert!(note.unwrap().contains(".flv"));
             assert_eq!(parts.last(), Some(&[2, 2]));
             assert!(!parts_dir(&path).exists());

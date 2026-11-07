@@ -13,7 +13,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-use super::{estimate_size, quality_label, MediaChoice, MediaInfo, MediaKind, MediaOption, LIVE_REFUSED};
+use uidm_domain::media::{estimate_size, quality_label, MediaChoice, MediaInfo, MediaKind, MediaOption, LIVE_REFUSED};
 
 /// Why a page cannot be read without yt-dlp, in words for the user.
 pub const MISSING: &str =
@@ -240,7 +240,7 @@ pub fn describe(v: &Value) -> MediaInfo {
         v.get("formats").and_then(Value::as_array).into_iter().flatten().filter_map(Format::read).collect();
     if all.is_empty() {
         let drm = v.get("formats").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
-        let error = if drm { super::DRM_REFUSED } else { "yt-dlp found no video on this page." };
+        let error = if drm { uidm_domain::media::DRM_REFUSED } else { "yt-dlp found no video on this page." };
         return MediaInfo { drm, ..MediaInfo::failed(page, error.into()) };
     }
 
@@ -487,7 +487,7 @@ mod tests {
             "137+140-1/137+bestaudio/137/bestvideo*+bestaudio/best"
         );
         assert_eq!(format_spec(&pick(Some("137"), None), false), "best[ext=mp4]/best");
-        let sound = MediaChoice { audio_only: Some(super::super::convert::Target::Mp3), ..pick(None, Some("140")) };
+        let sound = MediaChoice { audio_only: Some(uidm_domain::media::Target::Mp3), ..pick(None, Some("140")) };
         assert_eq!(format_spec(&sound, true), "140/bestaudio[ext=m4a]/bestaudio/best");
     }
 

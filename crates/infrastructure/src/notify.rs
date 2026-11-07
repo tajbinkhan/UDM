@@ -208,7 +208,7 @@ pub fn register_app() -> std::io::Result<()> {
     crate::registry::register_app_id(&icon)
 }
 
-pub use uidm_domain::settings::Sound;
+use uidm_domain::settings::Sound;
 
 #[cfg(windows)]
 const MB_OK: u32 = 0;

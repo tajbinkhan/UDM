@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use uidm_application::daemon::Event;
 use uidm_domain::ports::QuotaState;
 use uidm_domain::quota::QuotaNotice;
-pub use uidm_domain::quota::Usage;
+use uidm_domain::quota::Usage;
 
 use crate::protocol::Outgoing;
 use crate::settings::write_atomic;

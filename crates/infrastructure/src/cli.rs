@@ -23,10 +23,10 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::protocol::CommandLine;
+use uidm_domain::download::CommandLine;
 
-use crate::settings::{Duplicate, FileExists};
 use uidm_domain::download::{Download, DownloadLogin, PageLink};
+use uidm_domain::settings::{Duplicate, FileExists};
 
 /// Read `args` (without the program name). `Ok(None)` means no switch asks
 /// for anything, so the window opens as usual. `cwd` resolves a relative

@@ -24,7 +24,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use base64::Engine as _;
 use roxmltree::{Document, Node};
 
-use super::{resolve, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED};
+use uidm_domain::media::{resolve, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED};
 
 /// More fragments than this in one stream means a broken bootstrap.
 const MAX_FRAGMENTS: usize = 500_000;
@@ -104,8 +104,6 @@ fn with_query(url: &str, query: Option<&str>) -> String {
         _ => url.to_string(),
     }
 }
-
-pub use uidm_domain::media::sniff_hds as sniff;
 
 /// Read a manifest fetched from `url`.
 pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
@@ -207,10 +205,10 @@ pub fn describe(m: &Manifest) -> MediaInfo {
         .iter()
         .map(|media| MediaOption {
             id: media.id.clone(),
-            label: super::quality_label(media.height, media.bitrate),
+            label: uidm_domain::media::quality_label(media.height, media.bitrate),
             height: media.height,
             bandwidth: media.bitrate,
-            size: super::estimate_size(media.bitrate, m.duration),
+            size: uidm_domain::media::estimate_size(media.bitrate, m.duration),
             ..MediaOption::default()
         })
         .collect();
@@ -488,6 +486,7 @@ pub fn track(media: &Media, bootstrap: &[u8], duration: Option<f64>) -> Result<T
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use uidm_domain::media::sniff_hds as sniff;
 
     const URL: &str = "https://cdn.x/z/movie/manifest.f4m?hdnea=st=1~exp=2~hmac=abc";
 
@@ -711,7 +710,7 @@ pub(crate) mod tests {
     fn writes_flv_headers() {
         let bare = flv_header(None);
         assert_eq!(bare, b"FLV\x01\x05\x00\x00\x00\x09\x00\x00\x00\x00");
-        assert_eq!(super::super::sniff_file(&bare), Some("flv"));
+        assert_eq!(uidm_domain::media::sniff_file(&bare), Some("flv"));
         let meta = flv_header(Some(b"AMF!"));
         assert_eq!(&meta[13..24], &[0x12, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(&meta[24..28], b"AMF!");

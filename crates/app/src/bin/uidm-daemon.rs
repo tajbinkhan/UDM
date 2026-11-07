@@ -54,6 +54,7 @@ use uidm_application::daemon::service::{
 use uidm_application::downloads::{RemoveDownload, RetryDownload, StartOrWait};
 use uidm_domain::download::Answer;
 use uidm_domain::ports::{Browser, Probes, SiteCrawler};
+use uidm_domain::settings::Settings;
 use uidm_infrastructure::background;
 use uidm_infrastructure::browser_bridge::BrowserBridge;
 use uidm_infrastructure::clock::LocalClock;
@@ -74,7 +75,7 @@ use uidm_infrastructure::queue_runs::{PauseBook, RunBook};
 use uidm_infrastructure::quota::QuotaHold;
 use uidm_infrastructure::scan::Antivirus;
 use uidm_infrastructure::server::{Clients, Server};
-use uidm_infrastructure::settings::{self, Settings};
+use uidm_infrastructure::settings;
 use uidm_infrastructure::store::{DownloadStore, Ended, StoreEvents, StoreFiles, StoreIntake};
 use uidm_infrastructure::transfers::{self, EarlyHandOver, GoOn, SyncChecker, Transfers};
 use uidm_infrastructure::update::{GitHub, LATEST_RELEASE};
@@ -986,7 +987,10 @@ mod tests {
             video_button_excluded_sites: vec!["v.net".into()],
             video_auto_capture: true,
             browser_menu_hidden_firefox: vec!["download".into()],
-            capture_force_key: settings::CaptureKey { delete: true, ..settings::CaptureKey::NONE },
+            capture_force_key: uidm_domain::settings::CaptureKey {
+                delete: true,
+                ..uidm_domain::settings::CaptureKey::NONE
+            },
             ..Settings::default()
         };
         let kept = t.daemon.with_video_button(&asked);
@@ -994,7 +998,7 @@ mod tests {
         assert_eq!(kept.video_button_excluded_sites, ["v.net"]);
         assert!(!kept.video_auto_capture, "web players' files are the window's to turn on");
         assert!(kept.browser_menu_hidden_firefox.is_empty());
-        assert_eq!(kept.capture_force_key, settings::CaptureKey::CTRL);
+        assert_eq!(kept.capture_force_key, uidm_domain::settings::CaptureKey::CTRL);
     }
 
     #[test]
@@ -1425,7 +1429,7 @@ mod tests {
         });
         let request =
             GrabRequest { start: format!("http://{addr}/"), depth: 0, delay_ms: 200, ..GrabRequest::default() };
-        let project: grab::Project = serde_json::from_value(serde_json::json!({
+        let project: uidm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "nightly",
             "request": request,
             "run": "explore_and_download",
@@ -1444,19 +1448,19 @@ mod tests {
         assert_eq!(t.len(), 1, "nothing new the second time");
 
         // Downloading the ticked files reads no page.
-        let checked = grab::Project {
+        let checked = uidm_domain::grab::Project {
             name: "ticked".into(),
-            run: grab::RunAction::DownloadChecked,
+            run: uidm_domain::grab::RunAction::DownloadChecked,
             request: GrabRequest { start: "http://127.0.0.1:1/".into(), ..request },
             files: vec![
-                grab::GrabFile {
+                uidm_domain::grab::GrabFile {
                     url: format!("http://{addr}/a.pdf"),
                     name: "a.pdf".into(),
                     page: String::new(),
                     size: None,
                     text: None,
                 },
-                grab::GrabFile {
+                uidm_domain::grab::GrabFile {
                     url: format!("http://{addr}/b.pdf"),
                     name: "b.pdf".into(),
                     page: String::new(),
@@ -1669,9 +1673,14 @@ mod tests {
         let url = serve_versions(Arc::clone(&file));
         let id = t.add(&url);
         let path = PathBuf::from(t.wait(id, Status::Done).path.unwrap());
-        let found =
-            grab::GrabFile { url: url.clone(), name: "mirror.bin".into(), page: String::new(), size: None, text: None };
-        let mut project: grab::Project = serde_json::from_value(serde_json::json!({
+        let found = uidm_domain::grab::GrabFile {
+            url: url.clone(),
+            name: "mirror.bin".into(),
+            page: String::new(),
+            size: None,
+            text: None,
+        };
+        let mut project: uidm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "manuals",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
             "run": "download_checked",
@@ -1713,15 +1722,20 @@ mod tests {
         let t = setup("grab_stop_time", Duplicate::NewName);
         let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
         let today = uidm_infrastructure::clock::local_now().day;
-        let mut project: grab::Project = serde_json::from_value(serde_json::json!({
+        let mut project: uidm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "slow",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
             "run": "download_checked",
             "schedule": { "start": "00:00", "stop": "01:00" },
         }))
         .unwrap();
-        project.files =
-            vec![grab::GrabFile { url, name: "slow.bin".into(), page: String::new(), size: None, text: None }];
+        project.files = vec![uidm_domain::grab::GrabFile {
+            url,
+            name: "slow.bin".into(),
+            page: String::new(),
+            size: None,
+            text: None,
+        }];
         project.checked = vec![true];
         let dir = t.dir.join("projects");
         // Tomorrow's run, so its stop time is still ahead.
@@ -1757,7 +1771,7 @@ mod tests {
         let t = setup("grab_user_run", Duplicate::NewName);
         let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
         let today = uidm_infrastructure::clock::local_now().day;
-        let mut project: grab::Project = serde_json::from_value(serde_json::json!({
+        let mut project: uidm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "joins",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
             "run": "download_checked",
@@ -1765,8 +1779,13 @@ mod tests {
             "force_close": true,
         }))
         .unwrap();
-        project.files =
-            vec![grab::GrabFile { url, name: "joins.bin".into(), page: String::new(), size: None, text: None }];
+        project.files = vec![uidm_domain::grab::GrabFile {
+            url,
+            name: "joins.bin".into(),
+            page: String::new(),
+            size: None,
+            text: None,
+        }];
         project.checked = vec![true];
         t.daemon.start_queue(MAIN_QUEUE, None).unwrap();
         t.daemon.run_scheduled_grab(&grab::ProjectFiles(t.dir.join("projects").clone()), project, today + 1);
@@ -1784,7 +1803,7 @@ mod tests {
         std::env::set_var(uidm_infrastructure::power_control::POWER_DRY_RUN_ENV, "1");
         let t = setup("grab_force_close", Duplicate::NewName);
         let dir = t.dir.join("projects");
-        let mut project: grab::Project = serde_json::from_value(serde_json::json!({
+        let mut project: uidm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "shutdown",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
             "run": "download_checked",
@@ -1806,7 +1825,13 @@ mod tests {
         // Done once the queue is, which does not force on its own.
         let file = Arc::new(Mutex::new((b"data".to_vec(), Some("\"d1\"".to_string()))));
         let url = serve_versions(file);
-        project.files = vec![grab::GrabFile { url, name: "d.bin".into(), page: String::new(), size: None, text: None }];
+        project.files = vec![uidm_domain::grab::GrabFile {
+            url,
+            name: "d.bin".into(),
+            page: String::new(),
+            size: None,
+            text: None,
+        }];
         project.checked = vec![true];
         t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), project, 2);
         assert_eq!(t.daemon.store.queues()[0].force_close_once, Some(true));
@@ -1925,7 +1950,7 @@ mod tests {
             .status()
             .unwrap();
         assert!(made.success());
-        t.daemon.convert(id, uidm_infrastructure::media::convert::Target::M4a, true).unwrap();
+        t.daemon.convert(id, uidm_domain::media::Target::M4a, true).unwrap();
         let new = t.daemon.store.table().max_id();
         let done = t.wait(new, Status::Done);
         let out = PathBuf::from(done.path.unwrap());
@@ -1933,7 +1958,7 @@ mod tests {
         assert!(std::fs::metadata(&out).unwrap().len() > 0);
         assert_eq!(done.note.as_deref(), Some("Converted from talk.mkv"));
         assert!(t.daemon.entry(id).is_none() && !clip.exists(), "the original went, as asked");
-        assert!(t.daemon.convert(new + 100, uidm_infrastructure::media::convert::Target::Mp3, false).is_err());
+        assert!(t.daemon.convert(new + 100, uidm_domain::media::Target::Mp3, false).is_err());
     }
 
     /// Each request's path and the Cookie header it brought.
@@ -2008,7 +2033,8 @@ mod tests {
         assert!(other_seen.iter().any(|(p, _)| p == "/elsewhere"), "the other site was read: {other_seen:?}");
         assert!(other_seen.iter().all(|(_, c)| c.is_none()), "no cookies to another host: {other_seen:?}");
         // The files it adds carry them on the login site only.
-        let elsewhere = grab::GrabFile { url: format!("http://localhost:{other}/b.pdf"), ..out.files[0].clone() };
+        let elsewhere =
+            uidm_domain::grab::GrabFile { url: format!("http://localhost:{other}/b.pdf"), ..out.files[0].clone() };
         let ids = t.daemon.download_in_queue(
             &req,
             login.as_deref(),

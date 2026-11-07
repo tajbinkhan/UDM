@@ -17,7 +17,9 @@
 
 use roxmltree::{Document, Node};
 
-use super::{resolve, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED};
+use uidm_domain::media::{
+    resolve, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED,
+};
 
 /// More segments than this in one track means a broken manifest.
 const MAX_SEGMENTS: usize = 500_000;
@@ -346,12 +348,14 @@ fn options(reps: &[Representation], duration: Option<f64>) -> Vec<MediaOption> {
         .map(|r| MediaOption {
             id: r.id.clone(),
             label: match (&r.language, r.content) {
-                (Some(lang), Content::Audio) => format!("{lang}, {}", super::quality_label(None, r.bandwidth)),
-                _ => super::quality_label(r.height, r.bandwidth),
+                (Some(lang), Content::Audio) => {
+                    format!("{lang}, {}", uidm_domain::media::quality_label(None, r.bandwidth))
+                }
+                _ => uidm_domain::media::quality_label(r.height, r.bandwidth),
             },
             height: r.height,
             bandwidth: r.bandwidth,
-            size: super::estimate_size(r.bandwidth, duration),
+            size: uidm_domain::media::estimate_size(r.bandwidth, duration),
             ..MediaOption::default()
         })
         .collect()

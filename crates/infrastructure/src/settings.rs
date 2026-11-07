@@ -11,7 +11,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-pub use uidm_domain::settings::*;
+use uidm_domain::settings::*;
 
 /// Read settings from `path`. A missing file gives the defaults; an
 /// unreadable or invalid one is an error, so the caller can say so instead

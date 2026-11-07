@@ -28,16 +28,16 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-pub(crate) use uidm_domain::filename::name_from_url as derive_filename;
+use uidm_domain::filename::name_from_url;
 use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename};
 
-use crate::media::MediaChoice;
 use crate::net::NetConfig;
-use crate::settings::{FileExists, Folders};
 use limit::{RateLimiter, Throttle};
 use resume::Manifest;
 use segments::split;
 use uidm_domain::download::{SegmentInfo, SegmentState, Validator};
+use uidm_domain::media::MediaChoice;
+use uidm_domain::settings::{FileExists, Folders};
 
 /// Smallest file worth splitting; below this, one connection is used.
 const MIN_SEGMENT_BYTES: u64 = 256 * 1024;
@@ -239,8 +239,6 @@ impl fmt::Display for EngineError {
 impl std::error::Error for EngineError {}
 
 const NEEDS_ADMIN: &str = "Saving here needs administrator rights: ";
-
-pub use uidm_domain::download::{login_wanted, LoginWanted};
 
 impl EngineError {
     /// Errors that trying again cannot fix.
@@ -744,7 +742,7 @@ fn run_inner(
     shared: &Shared,
 ) -> Result<Saved, EngineError> {
     let agent = http::Client::new(&req.net, &req.url)?;
-    if let Some(choice) = req.media.as_ref().filter(|c| c.kind == Some(crate::media::MediaKind::Page)) {
+    if let Some(choice) = req.media.as_ref().filter(|c| c.kind == Some(uidm_domain::media::MediaKind::Page)) {
         return page::run(id, token, req, choice, reporter, shared);
     }
     if let Some(choice) = &req.media {
@@ -948,7 +946,7 @@ fn pick_filename(requested: Option<&str>, probe: &http::Probe) -> String {
         .map(sanitize_filename)
         .filter(|s| !s.is_empty())
         .or_else(|| probe.suggested_filename.as_deref().map(sanitize_filename).filter(|s| !s.is_empty()))
-        .unwrap_or_else(|| derive_filename(&probe.final_url))
+        .unwrap_or_else(|| name_from_url(&probe.final_url))
 }
 
 /// A fetched page or small file.
@@ -1001,8 +999,9 @@ pub fn probe_media(
     headers: &[(String, String)],
     net: &NetConfig,
     ffmpeg: Option<&Path>,
-) -> crate::media::MediaInfo {
-    use crate::media::{ytdlp, MediaInfo, MediaKind};
+) -> uidm_domain::media::MediaInfo {
+    use crate::media::ytdlp;
+    use uidm_domain::media::{MediaInfo, MediaKind};
     if !ytdlp::supports(url) {
         return stream::probe(url, headers, net);
     }
@@ -1767,6 +1766,7 @@ fn effective_connections(total: u64, requested: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::download::{login_wanted, LoginWanted};
 
     #[test]
     fn effective_connections_bounds() {
@@ -2706,9 +2706,9 @@ mod tests {
         fn downloads_go_to_their_category_folder() {
             let server = TestServer::start(body(LEN));
             let dir = temp_dir("categories");
-            let settings = crate::settings::Settings {
+            let settings = uidm_domain::settings::Settings {
                 download_dir: Some(dir.display().to_string()),
-                ..crate::settings::Settings::default()
+                ..uidm_domain::settings::Settings::default()
             };
             let mut req = request(&server.url, &dir, FileExists::Rename);
             req.folders = settings.folders(&crate::settings::default_downloads_dir());
