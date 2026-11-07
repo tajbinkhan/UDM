@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use uidm_application::daemon::{self, Event, Lost};
 use uidm_application::window::BrowserSlot;
 use uidm_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
-use uidm_domain::grab::{GrabFile, Template};
+use uidm_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
 use uidm_domain::queue::{Queue, WhenDone};
 use uidm_domain::settings::{AddedBrowser, Notify, Settings};
 use uidm_domain::table::DownloadTable;
@@ -117,8 +117,25 @@ pub struct AppState {
     /// The grabber's templates, built-in and saved, as a worker last read
     /// them.
     pub grab_templates: Vec<Template>,
+    /// The request a new project starts from, as a worker last read it.
+    pub grab_template: GrabRequest,
+    /// The file-type filters the grabber offers, as a worker last read
+    /// them.
+    pub grab_filters: Vec<Filter>,
+    /// A project the category tree asked to open, read on a worker, or why
+    /// it could not be; until the window takes it.
+    pub grab_opened: Option<Result<Project, String>>,
     /// The browsers a worker found for Options, until Options takes them.
     pub browsers_read: Option<BrowsersRead>,
+}
+
+/// The grabber's saved lists, as a worker reads them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GrabLibrary {
+    pub projects: Vec<String>,
+    pub templates: Vec<Template>,
+    pub template: GrabRequest,
+    pub filters: Vec<Filter>,
 }
 
 /// A browser row for Options, as a worker read it.
@@ -365,6 +382,9 @@ impl Default for AppState {
             browser_link: None,
             grab_projects: Vec::new(),
             grab_templates: uidm_domain::grab::built_in_templates(),
+            grab_template: GrabRequest::default(),
+            grab_filters: uidm_domain::grab::default_filters(),
+            grab_opened: None,
             browsers_read: None,
         }
     }
@@ -403,8 +423,11 @@ pub enum UiMessage {
     LoginsWaiting(Vec<u64>),
     /// Options' settings went to the daemon; its answer is awaited.
     SavingSettings,
-    /// A worker read the grabber's saved projects and templates.
-    GrabLibraryRead { projects: Vec<String>, templates: Vec<Template> },
+    /// A worker read the grabber's saved projects, templates, default
+    /// template and filters.
+    GrabLibraryRead(GrabLibrary),
+    /// A worker read the project the category tree asked to open.
+    GrabProjectRead(Result<Project, String>),
     /// A worker read the browsers for Options.
     BrowsersRead(BrowsersRead),
     /// They could not be sent, and why.
@@ -449,6 +472,7 @@ pub enum What {
     PickedLinks,
     LinkInfo,
     BrowsersRead,
+    GrabOpened,
 }
 
 /// What [`apply`] hands over for a [`UiMessage::Take`].
@@ -462,6 +486,7 @@ pub enum Taken {
     PickedLinks(Option<Box<links::LinksDialog>>),
     LinkInfo(Vec<(u64, usize, links::Probed)>),
     BrowsersRead(Option<BrowsersRead>),
+    GrabOpened(Option<Result<Box<Project>, String>>),
 }
 
 /// A zip preview's download and its files, or why they could not be
@@ -521,10 +546,13 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
             }
         }
         UiMessage::LoginsWaiting(ids) => state.login_wanted.extend(ids),
-        UiMessage::GrabLibraryRead { projects, templates } => {
-            state.grab_projects = projects;
-            state.grab_templates = templates;
+        UiMessage::GrabLibraryRead(read) => {
+            state.grab_projects = read.projects;
+            state.grab_templates = read.templates;
+            state.grab_template = read.template;
+            state.grab_filters = read.filters;
         }
+        UiMessage::GrabProjectRead(read) => state.grab_opened = Some(read),
         UiMessage::BrowsersRead(read) => state.browsers_read = Some(read),
         UiMessage::SavingSettings => {
             state.saving = true;
@@ -557,6 +585,7 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
                 What::PickedLinks => Taken::PickedLinks(state.picked_links.take().map(Box::new)),
                 What::LinkInfo => Taken::LinkInfo(std::mem::take(&mut state.link_info)),
                 What::BrowsersRead => Taken::BrowsersRead(state.browsers_read.take()),
+                What::GrabOpened => Taken::GrabOpened(state.grab_opened.take().map(|r| r.map(Box::new))),
             });
         }
     }
@@ -613,6 +642,14 @@ pub fn take_zip_listed(state: &mut AppState) -> Option<ZipListed> {
 pub fn take_picked_links(state: &mut AppState) -> Option<links::LinksDialog> {
     match apply(state, UiMessage::Take(What::PickedLinks)) {
         Some(Taken::PickedLinks(dialog)) => dialog.map(|d| *d),
+        _ => None,
+    }
+}
+
+/// The project the category tree asked to open, once a worker read it.
+pub fn take_grab_opened(state: &mut AppState) -> Option<Result<Project, String>> {
+    match apply(state, UiMessage::Take(What::GrabOpened)) {
+        Some(Taken::GrabOpened(read)) => read.map(|r| r.map(|p| *p)),
         _ => None,
     }
 }
@@ -793,7 +830,14 @@ mod tests {
         let mut s = AppState::default();
         assert!(!s.grab_templates.is_empty(), "the built-in templates until the first read");
         let templates = uidm_domain::grab::built_in_templates();
-        apply(&mut s, UiMessage::GrabLibraryRead { projects: vec!["nightly".into()], templates: templates.clone() });
+        let read = GrabLibrary {
+            projects: vec!["nightly".into()],
+            templates: templates.clone(),
+            template: GrabRequest::default(),
+            filters: Vec::new(),
+        };
+        apply(&mut s, UiMessage::GrabLibraryRead(read));
+        assert!(s.grab_filters.is_empty());
         assert_eq!(s.grab_projects, ["nightly"]);
         assert_eq!(s.grab_templates.len(), templates.len());
         assert_eq!(take_browsers_read(&mut s), None, "not read yet");

@@ -3,11 +3,14 @@
 //! list, the site grabber, and the clipboard offer.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use eframe::egui;
 use uidm_application::window::{GrabLibrary, ListFormat};
+
+use crate::pending::Pending;
 use uidm_domain::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
 use uidm_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
 use uidm_domain::grab::{GrabFile, GrabRequest, SaveTo};
@@ -708,6 +711,33 @@ pub struct GrabDialog {
     /// The list and its ticks while Update all explores the pages again
     /// with their scripts run; what that finds is added to it.
     updating: Option<(Vec<GrabFile>, Vec<bool>)>,
+    /// The project being saved on a worker, and what waits on it.
+    saving: Pending<Result<uidm_domain::grab::Project, String>>,
+    after_save: AfterSave,
+    /// A project being read on a worker, with its file when it came from
+    /// another folder.
+    opening: Pending<Result<(uidm_domain::grab::Project, Option<PathBuf>), String>>,
+    /// A template or the filters being saved, and what the note says after.
+    noting: Pending<Note>,
+    /// The project's new password being kept before its crawl starts.
+    keeping_login: Pending<Result<(), String>>,
+}
+
+/// What a project saved on a worker goes on to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AfterSave {
+    /// Stay on the project (its Save button).
+    Stay,
+    /// Do what waited on the save question.
+    GoOn,
+}
+
+/// What a save done on a worker leaves under the project strip.
+enum Note {
+    /// The note as it is.
+    Keep,
+    /// This note, or none.
+    Set(Option<String>),
 }
 
 /// What closing or leaving a project goes on to do once the save question
@@ -730,10 +760,9 @@ fn pattern_list(text: &str) -> Vec<String> {
 const MB: f64 = 1024.0 * 1024.0;
 
 impl GrabDialog {
-    /// A new project, from the saved template.
-    pub fn new() -> Self {
-        let template = crate::ports::ports().grab.as_ref().map(|l| l.template()).unwrap_or_default();
-        Self::from_request(&template)
+    /// A new project, from the saved `template`, offering `filters`.
+    pub fn new(template: &GrabRequest, filters: Vec<uidm_domain::grab::Filter>) -> Self {
+        Self::from_request(template, filters)
     }
 
     /// The project these fields and the crawl's results make, or why the
@@ -782,8 +811,8 @@ impl GrabDialog {
     }
 
     /// The form and results of a saved project.
-    pub fn open(p: uidm_domain::grab::Project) -> Self {
-        let mut d = Self::from_request(&p.request);
+    pub fn open(p: uidm_domain::grab::Project, filters: Vec<uidm_domain::grab::Filter>) -> Self {
+        let mut d = Self::from_request(&p.request, filters);
         d.project = p.name.clone();
         if let Some(s) = &p.schedule {
             d.sched = true;
@@ -829,8 +858,12 @@ impl GrabDialog {
 
     /// A project read from a file outside the projects folder. Saving puts
     /// it in the folder with the others.
-    fn open_file(p: uidm_domain::grab::Project, path: &std::path::Path) -> Self {
-        let mut d = Self::open(p);
+    fn open_file(
+        p: uidm_domain::grab::Project,
+        path: &std::path::Path,
+        filters: Vec<uidm_domain::grab::Filter>,
+    ) -> Self {
+        let mut d = Self::open(p, filters);
         d.saved_as = None;
         // Not with the others yet, so closing it asks to save it there.
         d.saved = None;
@@ -859,27 +892,45 @@ impl GrabDialog {
         }
     }
 
-    /// Save the project in `dir`, with a new password first.
-    fn save_project(&mut self, dir: &dyn GrabLibrary) -> Result<(), String> {
-        let p = self.store_login().and_then(|()| self.project())?;
-        dir.save(&p).map_err(|e| trf!("Could not save it: {error}", error = e))?;
+    /// Save the project on a worker, with a new password first; `after`
+    /// says what follows once it is saved. Fails at once when the project
+    /// is not valid.
+    fn save_project(&mut self, ctx: &egui::Context, after: AfterSave) -> Result<(), String> {
+        let Some(lib) = crate::ports::ports().grab.as_deref() else {
+            return Err(tr("There is no projects folder.").to_string());
+        };
+        let p = self.project()?;
+        let login = self.login_to_keep();
+        self.after_save = after;
+        self.saving.start(ctx, move || {
+            if let Some((target, user, password)) = login {
+                keep_password(&target, &user, &password)?;
+            }
+            lib.save(&p).map_err(|e| trf!("Could not save it: {error}", error = e))?;
+            Ok(p)
+        });
+        Ok(())
+    }
+
+    /// Note that `p` was saved.
+    fn saved_project(&mut self, p: uidm_domain::grab::Project) {
+        self.login_kept();
         self.project_note = Some(trf!("Saved \"{name}\".", name = p.name));
         self.saved_as = Some(p.name.clone());
         self.saved = Some(p);
-        Ok(())
     }
 
     /// IDM's Update all: explore the site again with page scripts run, as
     /// pages explored without them may hide links, keeping the list and its
     /// ticks and adding what the new crawl finds.
-    fn update_all(&mut self, queues: &[Queue], actions: &mut Vec<Action>) {
+    fn update_all(&mut self, ctx: &egui::Context, queues: &[Queue], actions: &mut Vec<Action>) {
         let GrabPhase::Review { files, checked, .. } = &self.phase else {
             return;
         };
         self.updating = Some((files.clone(), checked.clone()));
         self.render_scripts = true;
-        self.start_crawl(queues, actions);
-        if !self.running() {
+        self.start_crawl(ctx, queues, actions);
+        if !self.running() && !self.keeping_login.busy() {
             // The form did not validate: back to the list as it was.
             if let Some((files, checked)) = self.updating.take() {
                 self.phase = GrabPhase::Review { files, checked, pages: 0, explored: 0, stopped: self.error.clone() };
@@ -887,21 +938,31 @@ impl GrabDialog {
         }
     }
 
-    /// Start the crawl the form describes.
-    fn start_crawl(&mut self, queues: &[Queue], actions: &mut Vec<Action>) {
+    /// Start the crawl the form describes, keeping a new password first on
+    /// a worker.
+    fn start_crawl(&mut self, ctx: &egui::Context, queues: &[Queue], actions: &mut Vec<Action>) {
         let req = self.request();
-        match req.validate().and_then(|()| self.store_login()) {
-            Ok(()) => {
-                self.error = None;
-                self.phase = GrabPhase::Running { pages: 0, bytes: 0, found: 0, explored: 0, added: Vec::new() };
-                if let Some(q) = req.download_found.and_then(|id| queues.iter().find(|q| q.id == id)) {
-                    actions
-                        .push(Action::SaveQueue(Queue { max_concurrent: req.download_at_once as usize, ..q.clone() }));
-                }
-                actions.push(Action::Grab(req));
-            }
-            Err(e) => self.error = Some(e),
+        if let Err(e) = req.validate() {
+            self.error = Some(e);
+            return;
         }
+        match self.login_to_keep() {
+            Some((target, user, password)) => {
+                self.error = None;
+                self.keeping_login.start(ctx, move || keep_password(&target, &user, &password));
+            }
+            None => self.begin_crawl(req, queues, actions),
+        }
+    }
+
+    /// Start the crawl for `req`, which is valid.
+    fn begin_crawl(&mut self, req: GrabRequest, queues: &[Queue], actions: &mut Vec<Action>) {
+        self.error = None;
+        self.phase = GrabPhase::Running { pages: 0, bytes: 0, found: 0, explored: 0, added: Vec::new() };
+        if let Some(q) = req.download_found.and_then(|id| queues.iter().find(|q| q.id == id)) {
+            actions.push(Action::SaveQueue(Queue { max_concurrent: req.download_at_once as usize, ..q.clone() }));
+        }
+        actions.push(Action::Grab(req));
     }
 
     /// Add the ticked results to the list in the chosen queue. Returns
@@ -938,7 +999,7 @@ impl GrabDialog {
     }
 
     /// The form filled from `d`.
-    pub fn from_request(d: &GrabRequest) -> Self {
+    pub fn from_request(d: &GrabRequest, filters: Vec<uidm_domain::grab::Filter>) -> Self {
         GrabDialog {
             phase: GrabPhase::Form,
             start: d.start.clone(),
@@ -965,11 +1026,7 @@ impl GrabDialog {
             link_text: d.link_text,
             skip_types: d.skip_types.join(", "),
             files_this_site: d.files_this_site,
-            filters: crate::ports::ports()
-                .grab
-                .as_ref()
-                .map(|l| l.filters())
-                .unwrap_or_else(uidm_domain::grab::default_filters),
+            filters,
             filter_edit: None,
             save_choice: match d.save_to {
                 SaveTo::Categories => SaveChoice::Categories,
@@ -1036,6 +1093,11 @@ impl GrabDialog {
             ask_error: None,
             updating: None,
             file_picked: Picked::default(),
+            saving: Pending::default(),
+            after_save: AfterSave::Stay,
+            opening: Pending::default(),
+            noting: Pending::default(),
+            keeping_login: Pending::default(),
         }
     }
 
@@ -1087,20 +1149,22 @@ impl GrabDialog {
         }
     }
 
-    /// Keep a new project password in Credential Manager, for the start
-    /// site and user name.
-    fn store_login(&mut self) -> Result<(), String> {
+    /// The new project password to keep in Credential Manager, for the
+    /// start site and user name: the target, the user and the password.
+    fn login_to_keep(&self) -> Option<(String, String, String)> {
         if !self.login_on || !self.login_changed {
-            return Ok(());
+            return None;
         }
         let target = uidm_domain::grab::project_login_target(&self.start, &self.login_user);
-        crate::ports::ports()
-            .system
-            .save_credential(&target, self.login_user.trim(), &self.login_password)
-            .map_err(|e| trf!("Could not save the password: {error}", error = e))?;
-        self.login_changed = false;
-        self.login_password.clear();
-        Ok(())
+        Some((target, self.login_user.trim().to_string(), self.login_password.clone()))
+    }
+
+    /// The new password was kept: it is not shown or kept again.
+    fn login_kept(&mut self) {
+        if self.login_on {
+            self.login_changed = false;
+            self.login_password.clear();
+        }
     }
 
     /// The daemon's report of the crawl.
@@ -1165,18 +1229,53 @@ pub fn grab_dialog(
     actions: &mut Vec<Action>,
 ) -> bool {
     let queues = lists.queues;
+    if let Some(r) = d.keeping_login.take() {
+        match r {
+            Ok(()) => {
+                d.login_kept();
+                let req = d.request();
+                d.begin_crawl(req, queues, actions);
+            }
+            Err(e) => d.error = Some(e),
+        }
+    }
+    if let Some(r) = d.opening.take() {
+        match r {
+            Ok((p, None)) => d.switch_to(GrabDialog::open(p, lists.filters.to_vec())),
+            Ok((p, Some(path))) => d.switch_to(GrabDialog::open_file(p, &path, lists.filters.to_vec())),
+            Err(e) => d.project_note = Some(e),
+        }
+    }
+    if let Some(Note::Set(note)) = d.noting.take() {
+        d.project_note = note;
+    }
+    if let Some(r) = d.saving.take() {
+        let after = d.after_save;
+        match r {
+            Ok(p) => {
+                d.saved_project(p);
+                if after == AfterSave::GoOn {
+                    return go_on(ctx, d, queues, settings, connected, actions);
+                }
+            }
+            Err(e) if after == AfterSave::GoOn => {
+                d.ask_error = Some(e);
+                d.asking = true;
+            }
+            Err(e) => d.project_note = Some(e),
+        }
+    }
     take_picked(&d.mirror_picked, &mut d.mirror_folder);
     take_picked(&d.save_picked, &mut d.save_folder);
     take_picked(&d.open_picked, &mut d.open_when_done);
     let file = d.file_picked.lock().unwrap().take();
     if let Some(path) = file {
-        let opened = match crate::ports::ports().grab.as_ref() {
-            Some(l) => l.load_file(&path),
-            None => Err(uidm_domain::ports::FilesError(tr("There is no projects folder.").to_string())),
-        };
-        match opened {
-            Ok(p) => d.switch_to(GrabDialog::open_file(p, &path)),
-            Err(e) => d.project_note = Some(trf!("Could not open {name}: {error}", name = path.display(), error = e)),
+        match crate::ports::ports().grab.as_deref() {
+            Some(lib) => d.opening.start(ctx, move || match lib.load_file(&path) {
+                Ok(p) => Ok((p, Some(path))),
+                Err(e) => Err(trf!("Could not open {name}: {error}", name = path.display(), error = e)),
+            }),
+            None => d.project_note = Some(tr("There is no projects folder.").to_string()),
         }
     }
     let mut open = true;
@@ -1215,7 +1314,7 @@ pub fn grab_dialog(
             );
         });
     if update {
-        d.update_all(queues, actions);
+        d.update_all(ctx, queues, actions);
     }
     if let Some(next) = replace {
         d.switch_to(next);
@@ -1237,24 +1336,26 @@ pub fn grab_dialog(
         d.leave(Leave::Start);
     }
     let dir = crate::ports::ports().grab.as_deref();
-    if d.leaving.is_some() && !d.asking {
+    if d.leaving.is_some() && !d.asking && !d.saving.busy() {
         if !d.unsaved() {
-            return go_on(d, queues, settings, connected, actions);
+            return go_on(ctx, d, queues, settings, connected, actions);
         }
-        let silent_dir = dir
-            .filter(|dir| settings.grab_save_unique_silently && dir.name_is_unique(&d.project, d.saved_as.as_deref()));
-        if let Some(dir) = silent_dir {
-            match d.save_project(dir) {
-                Ok(()) => return go_on(d, queues, settings, connected, actions),
-                Err(e) => d.ask_error = Some(e),
+        let silent = dir.is_some()
+            && settings.grab_save_unique_silently
+            && uidm_domain::grab::project_name_is_unique(lists.projects, &d.project, d.saved_as.as_deref());
+        if silent {
+            if let Err(e) = d.save_project(ctx, AfterSave::GoOn) {
+                d.ask_error = Some(e);
             }
         }
-        d.asking = true;
-        d.dont_ask = settings.grab_save_unique_silently;
+        if !d.saving.busy() {
+            d.asking = true;
+            d.dont_ask = settings.grab_save_unique_silently;
+        }
     }
     if d.asking {
-        match save_question(ctx, d, dir, settings, connected, actions) {
-            Some(true) => return go_on(d, queues, settings, connected, actions),
+        match save_question(ctx, d, dir, lists.projects, settings, connected, actions) {
+            Some(true) => return go_on(ctx, d, queues, settings, connected, actions),
             Some(false) => {
                 d.leaving = None;
                 d.asking = false;
@@ -1268,6 +1369,7 @@ pub fn grab_dialog(
 /// Do what waited on the save question. Returns false when that closes the
 /// grabber.
 fn go_on(
+    ctx: &egui::Context,
     d: &mut GrabDialog,
     queues: &[Queue],
     settings: &uidm_domain::settings::Settings,
@@ -1283,7 +1385,7 @@ fn go_on(
             false
         }
         Some(Leave::Start) => {
-            d.start_crawl(queues, actions);
+            d.start_crawl(ctx, queues, actions);
             true
         }
         Some(Leave::Replace(next)) => {
@@ -1301,6 +1403,7 @@ fn save_question(
     ctx: &egui::Context,
     d: &mut GrabDialog,
     dir: Option<&dyn GrabLibrary>,
+    projects: &[String],
     settings: &uidm_domain::settings::Settings,
     connected: bool,
     actions: &mut Vec<Action>,
@@ -1323,7 +1426,7 @@ fn save_question(
                 );
             });
             let named = !d.project.trim().is_empty();
-            if named && dir.is_some_and(|dir| !dir.name_is_unique(&d.project, d.saved_as.as_deref())) {
+            if named && !uidm_domain::grab::project_name_is_unique(projects, &d.project, d.saved_as.as_deref()) {
                 ui.weak(tr("Another saved project has this name; saving replaces it."));
             }
             if ui.checkbox(&mut d.dont_ask, tr("Don't ask if the name is unique")).changed() && connected {
@@ -1337,12 +1440,11 @@ fn save_question(
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.add_enabled(named && dir.is_some(), egui::Button::new(tr("Save"))).clicked() {
-                    if let Some(dir) = dir {
-                        match d.save_project(dir) {
-                            Ok(()) => answer = Some(true),
-                            Err(e) => d.ask_error = Some(e),
-                        }
+                let can_save = named && dir.is_some() && !d.saving.busy();
+                if ui.add_enabled(can_save, egui::Button::new(tr("Save"))).clicked() {
+                    // Saved on a worker; the grabber goes on once it is.
+                    if let Err(e) = d.save_project(ui.ctx(), AfterSave::GoOn) {
+                        d.ask_error = Some(e);
                     }
                 }
                 if ui.button(tr("Don't save")).clicked() {
@@ -1359,17 +1461,19 @@ fn save_question(
     answer
 }
 
-/// The project strip: its name, Save, Open, New and Save as template.
-/// Returns the dialog to switch to when a project is opened or a new one
-/// started.
-/// What the grabber picks from: the queues, and the saved projects and
-/// templates as a worker last read them.
+/// What the grabber picks from: the queues, and the saved projects,
+/// templates, default template and filters as a worker last read them.
 pub struct GrabLists<'a> {
     pub queues: &'a [Queue],
     pub projects: &'a [String],
     pub templates: &'a [uidm_domain::grab::Template],
+    pub template: &'a GrabRequest,
+    pub filters: &'a [uidm_domain::grab::Filter],
 }
 
+/// The project strip: its name, Save, Open, New and Save as template.
+/// Returns the dialog to switch to when a new project is started; an opened
+/// one is read on a worker first.
 fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Option<GrabDialog> {
     let dir = crate::ports::ports().grab.as_deref();
     let mut next = None;
@@ -1377,24 +1481,21 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
         ui.label(tr("Project"));
         ui.add(egui::TextEdit::singleline(&mut d.project).hint_text(tr("Name, to save it")).desired_width(160.0));
         let named = !d.project.trim().is_empty();
-        if ui.add_enabled(named && dir.is_some(), egui::Button::new(tr("Save"))).clicked() {
-            if let Some(dir) = dir {
-                if let Err(e) = d.save_project(dir) {
-                    d.project_note = Some(e);
-                }
+        if ui.add_enabled(named && dir.is_some() && !d.saving.busy(), egui::Button::new(tr("Save"))).clicked() {
+            if let Err(e) = d.save_project(ui.ctx(), AfterSave::Stay) {
+                d.project_note = Some(e);
             }
         }
         let recent = lists.projects;
         ui.menu_button(tr("Open"), |ui| {
             for name in recent {
                 if ui.button(name).clicked() {
-                    if let Some(dir) = dir {
-                        match dir.load(name) {
-                            Ok(p) => next = Some(GrabDialog::open(p)),
-                            Err(e) => {
-                                d.project_note = Some(trf!("Could not open {name}: {error}", name = name, error = e))
-                            }
-                        }
+                    if let Some(lib) = dir {
+                        let name = name.clone();
+                        d.opening.start(ui.ctx(), move || match lib.load(&name) {
+                            Ok(p) => Ok((p, None)),
+                            Err(e) => Err(trf!("Could not open {name}: {error}", name = name, error = e)),
+                        });
                     }
                     ui.close_menu();
                 }
@@ -1430,7 +1531,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
                 .on_hover_text(tr("The settings saved with Save as template, or the defaults"))
                 .clicked()
             {
-                next = Some(GrabDialog::new());
+                next = Some(GrabDialog::new(lists.template, lists.filters.to_vec()));
                 ui.close_menu();
             }
             ui.separator();
@@ -1442,15 +1543,19 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
                         .find(|(n, _, _)| *n == t.name)
                         .map_or_else(|| t.name.clone(), |(n, _, _)| tr(n).to_string());
                     if ui.button(label).clicked() {
-                        next = Some(GrabDialog::from_request(&t.request));
+                        next = Some(GrabDialog::from_request(&t.request, lists.filters.to_vec()));
                         ui.close_menu();
                     }
                     if !t.built_in && ui.small_button("x").on_hover_text(tr("Delete this template")).clicked() {
-                        if let Some(dir) = dir {
-                            d.project_note = dir
-                                .delete_template(&t.name)
-                                .err()
-                                .map(|e| trf!("Could not delete the template: {error}", error = e));
+                        if let Some(lib) = dir {
+                            let name = t.name.clone();
+                            d.noting.start(ui.ctx(), move || {
+                                Note::Set(
+                                    lib.delete_template(&name)
+                                        .err()
+                                        .map(|e| trf!("Could not delete the template: {error}", error = e)),
+                                )
+                            });
                         }
                     }
                 });
@@ -1472,14 +1577,15 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
                 ui.add(egui::TextEdit::singleline(name).hint_text(tr("Template name")).desired_width(120.0));
                 let ready = !name.trim().is_empty();
                 if ui.add_enabled(ready, egui::Button::new(tr("Keep"))).clicked() {
-                    if let Some(dir) = dir {
+                    if let Some(lib) = dir {
                         let name = name.trim().to_string();
                         let req = d.request();
                         // The unnamed template New starts from follows too.
-                        let saved = dir.save_template(&name, &req);
-                        d.project_note = Some(match saved {
-                            Ok(()) => trf!("Saved the template \"{name}\".", name = name),
-                            Err(e) => trf!("Could not save the template: {error}", error = e),
+                        d.noting.start(ui.ctx(), move || {
+                            Note::Set(Some(match lib.save_template(&name, &req) {
+                                Ok(()) => trf!("Saved the template \"{name}\".", name = name),
+                                Err(e) => trf!("Could not save the template: {error}", error = e),
+                            }))
                         });
                     }
                     d.template_name = None;
@@ -2141,7 +2247,7 @@ fn filter_menu_inner(ui: &mut egui::Ui, d: &mut GrabDialog, skip: bool) {
         }
         if let Some(i) = gone {
             d.filters.remove(i);
-            save_filters(d);
+            save_filters(ui.ctx(), d);
         }
         ui.separator();
         if ui.button(tr("Add filter...")).clicked() {
@@ -2179,16 +2285,27 @@ fn filter_editor(ui: &mut egui::Ui, d: &mut GrabDialog) {
     }
     if finished {
         d.filter_edit = None;
-        save_filters(d);
+        save_filters(ui.ctx(), d);
     }
 }
 
-fn save_filters(d: &mut GrabDialog) {
-    if let Some(dir) = &crate::ports::ports().grab {
-        if let Err(e) = dir.save_filters(&d.filters) {
-            d.project_note = Some(trf!("Could not save the filters: {error}", error = e));
-        }
+/// Save the filters on a worker.
+fn save_filters(ctx: &egui::Context, d: &mut GrabDialog) {
+    if let Some(lib) = crate::ports::ports().grab.as_deref() {
+        let filters = d.filters.clone();
+        d.noting.start(ctx, move || match lib.save_filters(&filters) {
+            Ok(()) => Note::Keep,
+            Err(e) => Note::Set(Some(trf!("Could not save the filters: {error}", error = e))),
+        });
     }
+}
+
+/// Keep a project's new password in the credential store.
+fn keep_password(target: &str, user: &str, password: &str) -> Result<(), String> {
+    crate::ports::ports()
+        .system
+        .save_credential(target, user, password)
+        .map_err(|e| trf!("Could not save the password: {error}", error = e))
 }
 
 /// Offer to download a copied link: Download or Ignore. Returns false once
@@ -2309,16 +2426,16 @@ mod tests {
             overwrite: true,
             ..GrabRequest::default()
         };
-        assert_eq!(GrabDialog::from_request(&req).request(), req);
+        assert_eq!(GrabDialog::from_request(&req, uidm_domain::grab::default_filters()).request(), req);
         // An older project's mirror choice to replace files carries over.
         let old = GrabRequest {
             mirror: Some(uidm_domain::grab::Mirror { folder: "/m".into(), pages: false, overwrite: true }),
             ..GrabRequest::default()
         };
-        let back = GrabDialog::from_request(&old).request();
+        let back = GrabDialog::from_request(&old, uidm_domain::grab::default_filters()).request();
         assert!(back.overwrite && back.mirror.is_some_and(|m| m.overwrite));
         // Cookies without a login page are not kept.
-        let mut d = GrabDialog::from_request(&req);
+        let mut d = GrabDialog::from_request(&req, uidm_domain::grab::default_filters());
         d.login_page.clear();
         assert_eq!((d.request().login_url, d.request().login_cookies), (None, None));
     }
