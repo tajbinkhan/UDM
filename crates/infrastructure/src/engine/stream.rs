@@ -50,8 +50,10 @@ fn parts_dir(output: &Path) -> PathBuf {
     output.with_file_name(name)
 }
 
-fn refused(e: String) -> EngineError {
-    EngineError::Refused(e)
+/// UIDM will not download this stream, for the reason `why`, which the
+/// user sees.
+fn refused(why: impl std::fmt::Display) -> EngineError {
+    EngineError::Refused(why.to_string())
 }
 
 /// The largest encrypted segment decrypted in memory. Real HLS segments are
@@ -86,9 +88,9 @@ type Tracks = (Track, Option<Track>, Vec<Subtitle>);
 
 fn load_tracks(agent: &http::Client, req: &DownloadRequest, choice: &MediaChoice) -> Result<Tracks, EngineError> {
     let (base, text) = get_text(agent, &req.url, &req.headers)?;
-    let kind = choice.kind.or_else(|| sniff(&text)).ok_or_else(|| refused(NOT_A_STREAM.into()))?;
+    let kind = choice.kind.or_else(|| sniff(&text)).ok_or_else(|| refused(NOT_A_STREAM))?;
     match kind {
-        MediaKind::Page => Err(refused("A video page is not an HLS playlist or a DASH manifest.".into())),
+        MediaKind::Page => Err(refused("A video page is not an HLS playlist or a DASH manifest.")),
         MediaKind::Hds => Ok((hds_track(agent, req, &text, &base, choice.video.as_deref())?, None, Vec::new())),
         MediaKind::Dash => {
             let manifest = dash::parse(&text, &base).map_err(refused)?;
@@ -100,14 +102,14 @@ fn load_tracks(agent: &http::Client, req: &DownloadRequest, choice: &MediaChoice
             hls::Playlist::Media(track) => Ok((track, None, Vec::new())),
             hls::Playlist::Master(master) => {
                 if master.drm {
-                    return Err(refused(DRM_REFUSED.into()));
+                    return Err(refused(DRM_REFUSED));
                 }
                 let variant = hls::pick_variant(&master, choice.video.as_deref());
                 let media = |url: &str, audio: bool| -> Result<Track, EngineError> {
                     let (base, text) = get_text(agent, url, &headers_for(&req.url, &req.headers, url))?;
                     match hls::parse(&text, &base, audio).map_err(refused)? {
                         hls::Playlist::Media(track) => Ok(track),
-                        hls::Playlist::Master(_) => Err(refused("A quality's playlist lists more playlists.".into())),
+                        hls::Playlist::Master(_) => Err(refused("A quality's playlist lists more playlists.")),
                     }
                 };
                 let video = media(&variant.url, false)?;
@@ -160,7 +162,7 @@ fn hds_track(
         hds::Source::Fragments { bootstrap: hds::Bootstrap::Url(url), .. } => {
             fetch_with(agent, url, &headers_for(&req.url, &req.headers, url), MAX_PLAYLIST_BYTES)?.body
         }
-        hds::Source::Manifest(_) => return Err(refused("A quality's manifest lists more manifests.".into())),
+        hds::Source::Manifest(_) => return Err(refused("A quality's manifest lists more manifests.")),
     };
     hds::track(&media, &bootstrap, duration).map_err(refused)
 }
@@ -211,14 +213,18 @@ pub fn probe(url: &str, headers: &[(String, String)], net: &NetConfig) -> MediaI
         Some(MediaKind::Page) => unreachable!("sniff finds only streams"),
         Some(MediaKind::Dash) => match dash::parse(&text, &base) {
             Ok(m) => dash::describe(&m),
-            Err(e) => MediaInfo::failed(Some(MediaKind::Dash), e),
+            Err(e) => MediaInfo::failed(Some(MediaKind::Dash), e.to_string()),
         },
         Some(MediaKind::Hds) => match hds::parse(&text, &base) {
             Ok(m) => hds::describe(&m),
-            Err(e) => MediaInfo { drm: e == DRM_REFUSED, ..MediaInfo::failed(Some(MediaKind::Hds), e) },
+            Err(e) => {
+                MediaInfo { drm: e == hds::HdsError::Drm, ..MediaInfo::failed(Some(MediaKind::Hds), e.to_string()) }
+            }
         },
         Some(MediaKind::Hls) => match hls::parse(&text, &base, false) {
-            Err(e) => MediaInfo { drm: e == DRM_REFUSED, ..MediaInfo::failed(Some(MediaKind::Hls), e) },
+            Err(e) => {
+                MediaInfo { drm: e == hls::HlsError::Drm, ..MediaInfo::failed(Some(MediaKind::Hls), e.to_string()) }
+            }
             Ok(hls::Playlist::Media(track)) => MediaInfo {
                 kind: Some(MediaKind::Hls),
                 video: vec![MediaOption { id: String::new(), label: "Default".into(), ..MediaOption::default() }],
@@ -231,7 +237,7 @@ pub fn probe(url: &str, headers: &[(String, String)], net: &NetConfig) -> MediaI
                 let best = &master.variants[0].url;
                 let first = get_text(&agent, best, &headers_for(url, headers, best))
                     .map_err(|e| e.to_string())
-                    .and_then(|(b, t)| hls::parse(&t, &b, false));
+                    .and_then(|(b, t)| hls::parse(&t, &b, false).map_err(|e| e.to_string()));
                 match first {
                     Err(e) if e == DRM_REFUSED => MediaInfo { drm: true, ..MediaInfo::failed(Some(MediaKind::Hls), e) },
                     Ok(hls::Playlist::Media(t)) => hls::describe(&master, t.duration),
@@ -276,9 +282,7 @@ pub(super) fn run(
     shared: &Shared,
 ) -> Result<Saved, EngineError> {
     if choice.audio_only.is_some() && req.ffmpeg.is_none() {
-        return Err(refused(
-            "Saving only the sound needs ffmpeg. Install it, or choose it in Options > General.".into(),
-        ));
+        return Err(refused("Saving only the sound needs ffmpeg. Install it, or choose it in Options > General."));
     }
     let (main, extra, subtitles) = load_tracks(agent, req, choice)?;
     // For the sound alone, a separate audio track is all that is fetched.
@@ -379,7 +383,7 @@ pub(super) fn run(
     let note = match (choice.audio_only, &req.ffmpeg) {
         (Some(target), Some(ffmpeg)) => {
             crate::media::convert::convert(ffmpeg, &tracks[0].0, &output, target, token, |_| {})
-                .map_err(EngineError::Io)?;
+                .map_err(|e| EngineError::Io(e.to_string()))?;
             None
         }
         _ => finish(req, &tracks, &subs, &output, &stem)?,
@@ -810,7 +814,11 @@ mod tests {
         }
 
         /// Where a download was saved and its note, or its error.
-        type Outcome = Result<(PathBuf, Option<String>), String>;
+        type Outcome = Result<(PathBuf, Option<String>), Failed>;
+
+        /// A download's failure, as its progress reported it.
+        #[derive(Debug, PartialEq)]
+        struct Failed(String);
 
         /// Run a download; the result and the segment counts it reported.
         fn run(req: DownloadRequest) -> (Outcome, Vec<[u64; 2]>) {
@@ -828,7 +836,7 @@ mod tests {
                 match rx.recv_timeout(Duration::from_secs(30)).expect("download timed out") {
                     Progress::Advanced { parts: Some(p), .. } => parts.push(p),
                     Progress::Finished { path, note, .. } => return (Ok((path, note)), parts),
-                    Progress::Failed { error, .. } => return (Err(error), parts),
+                    Progress::Failed { error, .. } => return (Err(Failed(error)), parts),
                     Progress::Canceled { .. } => panic!("canceled"),
                     _ => {}
                 }
@@ -913,7 +921,7 @@ mod tests {
             };
             // Refused before anything is fetched, so no server is needed.
             let (result, _) = run(request("http://127.0.0.1:1/master.m3u8".into(), &dir, choice));
-            let err = result.unwrap_err();
+            let Failed(err) = result.unwrap_err();
             assert!(err.contains("ffmpeg"), "{err}");
             fs::remove_dir_all(&dir).ok();
         }
@@ -1067,7 +1075,7 @@ mod tests {
             let dir = temp_dir("drm");
             let url = format!("{}/d/master.m3u8", server.url);
             let (result, _) = run(request(url.clone(), &dir, MediaChoice::default()));
-            assert_eq!(result.unwrap_err(), DRM_REFUSED);
+            assert_eq!(result.unwrap_err(), Failed(DRM_REFUSED.into()));
             let info = probe(&url, &[], &NetConfig::default());
             assert!(info.drm);
             assert_eq!(info.error.as_deref(), Some(DRM_REFUSED));
@@ -1373,7 +1381,7 @@ mod tests {
             let mut req = request(format!("{}/m/manifest.mpd", server.url), &dir, MediaChoice::default());
             req.ffmpeg = Some(fake_ffmpeg(&tools, true));
             let (result, _) = run(req);
-            let error = result.unwrap_err();
+            let Failed(error) = result.unwrap_err();
             assert!(error.contains("ffmpeg could not make the video: Invalid data"), "{error}");
             assert!(parts_dir(&dir.join("Movie night (1).mp4")).join("v-000000").exists());
             fs::remove_dir_all(&dir).ok();

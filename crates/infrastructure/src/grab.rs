@@ -436,7 +436,7 @@ struct Queued {
 /// goes after each page. `cancel` stops the crawl between requests.
 pub fn crawl(
     req: &GrabRequest,
-    fetch: impl Fn(&str) -> Result<Page, String> + Sync,
+    fetch: impl Fn(&str) -> Option<Page> + Sync,
     mut size: impl FnMut(&str) -> Option<u64>,
     mut wait: impl FnMut(Duration),
     cancel: &AtomicBool,
@@ -509,8 +509,8 @@ pub fn crawl(
                     break 'crawl;
                 }
                 let rules = match fetch(&format!("{origin}/robots.txt")) {
-                    Ok(page) => Robots::parse(&String::from_utf8_lossy(&page.body), USER_AGENT),
-                    Err(_) => Robots::default(),
+                    Some(page) => Robots::parse(&String::from_utf8_lossy(&page.body), USER_AGENT),
+                    None => Robots::default(),
                 };
                 robots.insert(origin.clone(), rules);
             }
@@ -533,21 +533,18 @@ pub fn crawl(
             out.stopped = Some("Stopped.".into());
             break;
         }
-        let fetched: Vec<Result<Page, String>> = if batch.len() == 1 {
+        let fetched: Vec<Option<Page>> = if batch.len() == 1 {
             vec![fetch(batch[0].url.as_str())]
         } else {
             std::thread::scope(|s| {
                 let fetch = &fetch;
                 let reading: Vec<_> = batch.iter().map(|q| s.spawn(move || fetch(q.url.as_str()))).collect();
-                reading
-                    .into_iter()
-                    .map(|r| r.join().unwrap_or_else(|_| Err("the page could not be read".into())))
-                    .collect()
+                reading.into_iter().map(|r| r.join().ok().flatten()).collect()
             })
         };
 
         for (Queued { url, depth, off_site }, page) in batch.into_iter().zip(fetched) {
-            let Ok(page) = page else { continue };
+            let Some(page) = page else { continue };
             out.pages += 1;
             out.bytes += page.body.len() as u64;
             let html = page.content_type.as_deref().is_none_or(|t| t.to_ascii_lowercase().contains("html"));
@@ -1031,16 +1028,16 @@ Crawl-delay: 2.5
 
     /// A small site: `/` links to two sections, each to files and deeper
     /// pages.
-    fn site(url: &str) -> Result<Page, String> {
+    fn site(url: &str) -> Option<Page> {
         let html = |body: &str| {
-            Ok(Page {
+            Some(Page {
                 url: url.to_string(),
                 content_type: Some("text/html; charset=utf-8".into()),
                 body: body.as_bytes().to_vec(),
             })
         };
         match url {
-            "https://s/robots.txt" => Ok(Page {
+            "https://s/robots.txt" => Some(Page {
                 url: url.into(),
                 content_type: Some("text/plain".into()),
                 body: b"User-agent: *\nDisallow: /secret/\n".to_vec(),
@@ -1055,7 +1052,7 @@ Crawl-delay: 2.5
             "https://s/a/deep/" => html(r#"<a href="four.pdf">4</a>"#),
             "https://s/secret/" => html(r#"<a href="hidden.pdf">h</a>"#),
             "https://elsewhere/" => html(r#"<a href="far.pdf">f</a>"#),
-            _ => Err("404".into()),
+            _ => None,
         }
     }
 
@@ -1309,12 +1306,12 @@ Crawl-delay: 2.5
         assert_eq!(names, ["one.pdf", "three x.pdf"], "unknown sizes stay");
 
         // The same name and size at two addresses shows once.
-        let twice = |url: &str| -> Result<Page, String> {
+        let twice = |url: &str| -> Option<Page> {
             let body = match url {
                 "https://s/" => r#"<a href="/x/a.pdf">1</a><a href="/y/a.pdf">2</a><a href="/z/a.pdf">3</a>"#,
-                _ => return Err("404".into()),
+                _ => return None,
             };
-            Ok(Page { url: url.into(), content_type: Some("text/html".into()), body: body.as_bytes().to_vec() })
+            Some(Page { url: url.into(), content_type: Some("text/html".into()), body: body.as_bytes().to_vec() })
         };
         let size = |u: &str| Some(if u.contains("/z/") { 9 } else { 7 });
         let out = crawl(&request(0), twice, size, |_| {}, &none, |_| {});
@@ -1328,7 +1325,7 @@ Crawl-delay: 2.5
             &request(1),
             |u| {
                 if u == "https://s/" {
-                    Ok(Page {
+                    Some(Page {
                         url: u.into(),
                         content_type: Some("text/html".into()),
                         body: br#"<a href="/account/logout">out</a><a href="/a/">a</a>"#.to_vec(),

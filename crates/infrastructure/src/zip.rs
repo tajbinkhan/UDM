@@ -24,10 +24,27 @@ fn u64_at(b: &[u8], at: usize) -> Option<u64> {
     Some(u64::from_le_bytes(b.get(at..at + 8)?.try_into().ok()?))
 }
 
+/// Why an archive's files cannot be listed. The window shows the message.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ZipError {
+    #[error("This is not a zip archive, or its end could not be read.")]
+    NotZip,
+    #[error("This archive lists too many files to preview.")]
+    TooManyFiles,
+    #[error("The archive's list of files is damaged.")]
+    Damaged,
+    /// Part of the archive could not be read; the reader says why.
+    #[error("{0}")]
+    Unread(String),
+}
+
 /// The files in a zip archive of `total` bytes. `read(start, end)` fetches
 /// the inclusive byte range. The message says why when it cannot be read.
-pub fn list(total: u64, mut read: impl FnMut(u64, u64) -> Result<Vec<u8>, String>) -> Result<Vec<ZipEntry>, String> {
-    let not_zip = || "This is not a zip archive, or its end could not be read.".to_string();
+pub fn list(
+    total: u64,
+    mut read: impl FnMut(u64, u64) -> Result<Vec<u8>, ZipError>,
+) -> Result<Vec<ZipEntry>, ZipError> {
+    let not_zip = || ZipError::NotZip;
     if total < 22 {
         return Err(not_zip());
     }
@@ -54,7 +71,7 @@ pub fn list(total: u64, mut read: impl FnMut(u64, u64) -> Result<Vec<u8>, String
         }
     }
     if size > MAX_DIRECTORY {
-        return Err("This archive lists too many files to preview.".into());
+        return Err(ZipError::TooManyFiles);
     }
     if offset.checked_add(size).is_none_or(|end| end > total) {
         return Err(not_zip());
@@ -73,8 +90,8 @@ pub fn list(total: u64, mut read: impl FnMut(u64, u64) -> Result<Vec<u8>, String
 }
 
 /// The entries of a central directory.
-fn parse_directory(dir: &[u8], count: u64) -> Result<Vec<ZipEntry>, String> {
-    let bad = || "The archive's list of files is damaged.".to_string();
+fn parse_directory(dir: &[u8], count: u64) -> Result<Vec<ZipEntry>, ZipError> {
+    let bad = || ZipError::Damaged;
     let mut entries = Vec::new();
     let mut at = 0usize;
     for _ in 0..count.min(MAX_ENTRIES as u64) {
@@ -161,7 +178,7 @@ mod tests {
         z
     }
 
-    fn reader(z: &[u8]) -> impl FnMut(u64, u64) -> Result<Vec<u8>, String> + '_ {
+    fn reader(z: &[u8]) -> impl FnMut(u64, u64) -> Result<Vec<u8>, ZipError> + '_ {
         |a, b| Ok(z[a as usize..=b as usize].to_vec())
     }
 
@@ -195,7 +212,7 @@ mod tests {
         let not = vec![7u8; 5000];
         assert!(list(not.len() as u64, reader(&not)).is_err());
         assert!(list(10, |_, _| Ok(Vec::new())).is_err());
-        let failing = list(100_000, |_, _| Err("the server would not send a range".to_string()));
-        assert_eq!(failing.unwrap_err(), "the server would not send a range");
+        let failing = list(100_000, |_, _| Err(ZipError::Unread("the server would not send a range".to_string())));
+        assert_eq!(failing.unwrap_err().to_string(), "the server would not send a range");
     }
 }

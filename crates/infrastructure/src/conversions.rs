@@ -14,6 +14,7 @@ use uidm_domain::ports::Converter;
 use crate::engine::Engine;
 use crate::front::Hook;
 use crate::live_settings::LiveSettings;
+use crate::media::convert::FfmpegError;
 use crate::protocol::Outgoing;
 use crate::settings;
 use crate::store::DownloadStore;
@@ -127,8 +128,8 @@ impl Converter for Conversions {
                         note: Some(format!("Converted from {from}")),
                     });
                 }
-                Err(e) if e == "canceled" => store.publish(&Outgoing::Canceled { id: new_id, url }),
-                Err(error) => store.publish(&Outgoing::Failed { id: new_id, url, error }),
+                Err(FfmpegError::Canceled) => store.publish(&Outgoing::Canceled { id: new_id, url }),
+                Err(e) => store.publish(&Outgoing::Failed { id: new_id, url, error: e.to_string() }),
             }
         });
     }

@@ -28,10 +28,42 @@ use uidm_domain::download::CommandLine;
 use uidm_domain::download::{Download, DownloadLogin, PageLink};
 use uidm_domain::settings::{Duplicate, FileExists};
 
+/// Why a command line or a sent link cannot be used. `uidm-host send`
+/// prints the message; the window shows it.
+#[derive(Debug, thiserror::Error)]
+pub enum CliError {
+    /// The switch, and what it needs after it.
+    #[error("{0} needs {1}")]
+    NeedsValue(String, &'static str),
+    #[error("Unknown command-line argument {0}")]
+    Unknown(String),
+    #[error("{0} is not an http, https or ftp address")]
+    NotDownloadAddress(String),
+    /// The name, and how the caller gives the folder instead.
+    #[error("{0} is not a file name; give the folder with {1}")]
+    NotFileName(String, &'static str),
+    #[error("not valid JSON: {0}")]
+    NotJson(#[source] serde_json::Error),
+    #[error("expected a JSON object with \"url\" or \"links\"")]
+    NotObject,
+    #[error("bad link list: {0}")]
+    BadList(#[source] serde_json::Error),
+    #[error("bad link: {0}")]
+    BadLink(#[source] serde_json::Error),
+    #[error("a password needs a user")]
+    PasswordWithoutUser,
+    #[error("the link list is empty")]
+    EmptyList,
+    #[error("{0} is not an http or https address")]
+    NotWebAddress(String),
+    #[error("too many links: {0}, at most {max}", max = uidm_domain::batch::MAX_BATCH)]
+    TooManyLinks(usize),
+}
+
 /// Read `args` (without the program name). `Ok(None)` means no switch asks
 /// for anything, so the window opens as usual. `cwd` resolves a relative
 /// `/p` folder.
-pub fn parse<I, S>(args: I, cwd: &Path) -> Result<Option<CommandLine>, String>
+pub fn parse<I, S>(args: I, cwd: &Path) -> Result<Option<CommandLine>, CliError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -44,11 +76,11 @@ where
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         let arg = arg.as_ref();
-        let mut value = |what: &str| {
+        let mut value = |what: &'static str| {
             args.next()
                 .map(|v| v.as_ref().to_string())
                 .filter(|v| !v.is_empty())
-                .ok_or_else(|| format!("{arg} needs {what}"))
+                .ok_or_else(|| CliError::NeedsValue(arg.to_string(), what))
         };
         match switch(arg) {
             Some('d') => url = Some(value("an address")?),
@@ -60,7 +92,7 @@ where
             Some('a') => add = true,
             Some('s') => start_queue = true,
             Some('m') => {}
-            _ => return Err(format!("Unknown command-line argument {arg}")),
+            _ => return Err(CliError::Unknown(arg.to_string())),
         }
     }
 
@@ -86,10 +118,10 @@ fn download(
     silent: bool,
     add: bool,
     cwd: &Path,
-    folder_hint: &str,
-) -> Result<Download, String> {
+    folder_hint: &'static str,
+) -> Result<Download, CliError> {
     if !is_download_url(&url) {
-        return Err(format!("{url} is not an http, https or ftp address"));
+        return Err(CliError::NotDownloadAddress(url));
     }
     let folder = folder.map(|f| {
         let f = Path::new(&f);
@@ -101,7 +133,7 @@ fn download(
     });
     if let Some(name) = &filename {
         if name.contains(['/', '\\']) || name == "." || name == ".." {
-            return Err(format!("{name} is not a file name; give the folder with {folder_hint}"));
+            return Err(CliError::NotFileName(name.clone(), folder_hint));
         }
     }
     Ok(Download {
@@ -204,16 +236,16 @@ const FORM_TYPE: &str = "application/x-www-form-urlencoded";
 /// for one link, or with `links` for the picker. `cwd` resolves a relative
 /// folder. An empty string counts as a missing field, as IDM's COM calls
 /// pass empty strings for what they leave out.
-pub fn parse_sent(json: &str, cwd: &Path) -> Result<Sent, String> {
-    let value: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("not valid JSON: {e}"))?;
+pub fn parse_sent(json: &str, cwd: &Path) -> Result<Sent, CliError> {
+    let value: serde_json::Value = serde_json::from_str(json).map_err(CliError::NotJson)?;
     if !value.is_object() {
-        return Err("expected a JSON object with \"url\" or \"links\"".into());
+        return Err(CliError::NotObject);
     }
     if value.get("links").is_some() {
-        let list: LinkList = serde_json::from_value(value).map_err(|e| format!("bad link list: {e}"))?;
+        let list: LinkList = serde_json::from_value(value).map_err(CliError::BadList)?;
         return many(list);
     }
-    let one: OneLink = serde_json::from_value(value).map_err(|e| format!("bad link: {e}"))?;
+    let one: OneLink = serde_json::from_value(value).map_err(CliError::BadLink)?;
     one_link(one, cwd)
 }
 
@@ -221,7 +253,7 @@ fn given(s: Option<String>) -> Option<String> {
     s.filter(|s| !s.trim().is_empty())
 }
 
-fn one_link(l: OneLink, cwd: &Path) -> Result<Sent, String> {
+fn one_link(l: OneLink, cwd: &Path) -> Result<Sent, CliError> {
     let silent = l.silent || l.flags & FLAG_SILENT != 0;
     let add = l.add_only || l.flags & FLAG_ADD_ONLY != 0;
     let mut d = download(l.url.trim().to_string(), given(l.folder), given(l.filename), silent, add, cwd, "\"folder\"")?;
@@ -239,15 +271,15 @@ fn one_link(l: OneLink, cwd: &Path) -> Result<Sent, String> {
         (Some(username), password) => {
             d.login = Some(DownloadLogin { username, password: Some(password.unwrap_or_default()) })
         }
-        (None, Some(p)) if !p.is_empty() => return Err("a password needs a user".into()),
+        (None, Some(p)) if !p.is_empty() => return Err(CliError::PasswordWithoutUser),
         (None, _) => {}
     }
     Ok(Sent::One(d))
 }
 
-fn many(list: LinkList) -> Result<Sent, String> {
+fn many(list: LinkList) -> Result<Sent, CliError> {
     if list.links.is_empty() {
-        return Err("the link list is empty".into());
+        return Err(CliError::EmptyList);
     }
     let links = list
         .links
@@ -259,13 +291,13 @@ fn many(list: LinkList) -> Result<Sent, String> {
             };
             let url = link.url.trim().to_string();
             if !uidm_domain::batch::is_web_url(&url) || url::Url::parse(&url).is_err() {
-                return Err(format!("{url} is not an http or https address"));
+                return Err(CliError::NotWebAddress(url));
             }
             Ok(PageLink { url, ..link })
         })
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect::<Result<Vec<_>, CliError>>()?;
     if links.len() > uidm_domain::batch::MAX_BATCH {
-        return Err(format!("too many links: {}, at most {}", links.len(), uidm_domain::batch::MAX_BATCH));
+        return Err(CliError::TooManyLinks(links.len()));
     }
     Ok(Sent::Many { referer: given(list.referer).unwrap_or_default(), links })
 }
@@ -310,7 +342,7 @@ mod tests {
         std::env::temp_dir()
     }
 
-    fn run(args: &[&str]) -> Result<Option<CommandLine>, String> {
+    fn run(args: &[&str]) -> Result<Option<CommandLine>, CliError> {
         parse(args, &cwd())
     }
 
@@ -389,7 +421,7 @@ mod tests {
         assert!(run(&["https://example.com/a"]).is_err(), "a bare address");
     }
 
-    fn sent(json: &str) -> Result<Sent, String> {
+    fn sent(json: &str) -> Result<Sent, CliError> {
         parse_sent(json, &cwd())
     }
 

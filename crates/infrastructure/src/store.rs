@@ -22,7 +22,7 @@ use tracing::warn;
 use uidm_application::daemon::Event;
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::ports::{DownloadIntake, DownloadList, QueueStore};
-use uidm_domain::queue::Queue;
+use uidm_domain::queue::{Queue, QueueError};
 
 use crate::engine::{self, Engine};
 use crate::history::{self, History};
@@ -275,9 +275,9 @@ impl DownloadStore {
                     e.speed_limit = e.speed_limit.or(d.speed_limit);
                     e.from_browser = e.from_browser || d.user_agent.is_some();
                     if *e == before {
-                        return Err("nothing new".into());
+                        return false;
                     }
-                    Ok(())
+                    true
                 });
             }
         }
@@ -285,15 +285,13 @@ impl DownloadStore {
 
     /// Change download `id` with `f` and announce the new entry, all under
     /// the table lock, so the check `f` makes cannot race another change.
-    /// `f` returns an error to leave the entry alone.
-    pub fn update(
-        &self,
-        id: u64,
-        f: impl FnOnce(&mut DownloadEntry) -> Result<(), String>,
-    ) -> Result<DownloadEntry, String> {
+    /// `f` returns false to leave the entry alone.
+    pub fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Result<DownloadEntry, EditError> {
         let mut table = lock(&self.table);
-        let mut item = table.get(id).cloned().ok_or_else(|| format!("no download with id {id}"))?;
-        f(&mut item)?;
+        let mut item = table.get(id).cloned().ok_or(EditError::NoDownload(id))?;
+        if !f(&mut item) {
+            return Err(EditError::Refused);
+        }
         let msg = Outgoing::Updated { item: item.clone() };
         table.apply(&msg);
         let _ = self.dirty.send(());
@@ -309,11 +307,10 @@ impl DownloadStore {
     }
 
     /// Change queue `id` with `f`, then announce the queues.
-    pub fn update_queue<T>(&self, id: u64, f: impl FnOnce(&mut Queue) -> Result<T, String>) -> Result<T, String> {
+    pub fn update_queue<T>(&self, id: u64, f: impl FnOnce(&mut Queue) -> T) -> Result<T, QueueError> {
         let result = {
             let mut queues = lock(&self.queues);
-            let q = queues.iter_mut().find(|q| q.id == id).ok_or_else(|| format!("no queue with id {id}"))?;
-            f(q)?
+            queues.iter_mut().find(|q| q.id == id).map(f).ok_or(QueueError::NoQueue(id))?
         };
         self.publish_queues();
         self.events.wake();
@@ -392,7 +389,7 @@ impl DownloadStore {
             if let Some(p) = &path {
                 e.path = Some(p.display().to_string());
             }
-            Ok(())
+            true
         });
         url
     }
@@ -421,7 +418,7 @@ impl DownloadList for DownloadStore {
     fn set_waiting(&self, id: u64) -> bool {
         DownloadStore::update(self, id, |e| {
             e.status = Status::Waiting;
-            Ok(())
+            true
         })
         .is_ok()
     }
@@ -447,11 +444,10 @@ impl DownloadList for DownloadStore {
     }
 
     fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool> {
-        // `f` refusing is an empty error; a missing download names itself.
-        match DownloadStore::update(self, id, |e| if f(e) { Ok(()) } else { Err(String::new()) }) {
+        match DownloadStore::update(self, id, f) {
             Ok(_) => Some(true),
-            Err(e) if e.is_empty() => Some(false),
-            Err(_) => None,
+            Err(EditError::Refused) => Some(false),
+            Err(EditError::NoDownload(_)) => None,
         }
     }
 
@@ -470,16 +466,23 @@ impl DownloadList for DownloadStore {
     }
 }
 
-/// Refuse a POST whose body is not valid base64, rather than send another
-/// body than the form's.
-pub fn check_body(d: &Download) -> Result<(), String> {
+/// Whether `d` can be sent: a POST whose body is not valid base64 is
+/// refused, rather than send another body than the form's.
+pub fn body_is_sendable(d: &Download) -> bool {
     use base64::Engine as _;
     match &d.body {
-        Some(body) if base64::engine::general_purpose::STANDARD.decode(body).is_err() => {
-            Err(format!("the form body of {} is not valid base64", d.url))
-        }
-        _ => Ok(()),
+        Some(body) => base64::engine::general_purpose::STANDARD.decode(body).is_ok(),
+        None => true,
     }
+}
+
+/// Why [`DownloadStore::update`] left a download alone.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum EditError {
+    #[error("no download with id {0}")]
+    NoDownload(u64),
+    #[error("the change was refused")]
+    Refused,
 }
 
 /// The adapter for `DownloadIntake`: new downloads go into `store` under ids
@@ -491,7 +494,7 @@ pub struct Intake<'a> {
 
 impl DownloadIntake for Intake<'_> {
     fn sendable(&self, download: &Download) -> bool {
-        check_body(download).is_ok()
+        body_is_sendable(download)
     }
 
     fn stage(&self, download: Download) -> (u64, String) {
@@ -635,7 +638,7 @@ mod tests {
     #[test]
     fn updating_a_missing_download_names_it() {
         let (store, ..) = store(StoreFiles::default());
-        assert_eq!(DownloadStore::update(&store, 9, |_| Ok(())).unwrap_err(), "no download with id 9");
+        assert_eq!(DownloadStore::update(&store, 9, |_| true).unwrap_err(), EditError::NoDownload(9));
         assert_eq!(DownloadList::update(&store, 9, |_| true), None);
     }
 
@@ -669,8 +672,8 @@ mod tests {
     #[test]
     fn a_form_body_must_be_base64() {
         let mut d = Download { url: "http://x/f".into(), body: Some("not base64!".into()), ..Download::default() };
-        assert!(check_body(&d).is_err());
+        assert!(!body_is_sendable(&d));
         d.body = Some("aGk=".into());
-        assert!(check_body(&d).is_ok());
+        assert!(body_is_sendable(&d));
     }
 }

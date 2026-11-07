@@ -24,7 +24,7 @@ use crate::live_settings::LiveSettings;
 use crate::net::{self, ProxyKind};
 use crate::protocol::Outgoing;
 use crate::settings;
-use crate::store::{DownloadStore, StoreEvents};
+use crate::store::{DownloadStore, EditError, StoreEvents};
 use uidm_domain::settings::{FileExists, Folders, Settings};
 
 /// How long answering a save-as dialog waits for the download it started
@@ -130,11 +130,11 @@ impl EarlyRuns {
         if let Some((done, total)) = shown {
             let _ = store.update(real, |e| {
                 if e.status != Status::Confirming {
-                    return Err("answered".into());
+                    return false;
                 }
                 e.done = done;
                 e.total = total.or(e.total);
-                Ok(())
+                true
             });
         }
         true
@@ -229,17 +229,22 @@ impl Transfers {
     /// Start a `waiting` (or `confirming`) download now. A download that ran
     /// before resumes its own file; one that never ran goes to the file chosen
     /// for it, if any.
-    pub fn dispatch(&self, id: u64) -> Result<(), String> {
+    pub fn dispatch(&self, id: u64) -> Result<(), TransferError> {
         let download = self.store.requests().get(&id).cloned();
         let mut plan = (None, false);
         let item = self.store.update(id, |e| {
             if !matches!(e.status, Status::Waiting | Status::Confirming) {
-                return Err(format!("download {id} is not waiting to be started"));
+                return false;
             }
             plan = (e.path.clone(), e.connections > 0);
             e.status = Status::Queued;
-            Ok(())
-        })?;
+            true
+        });
+        let item = match item {
+            Ok(item) => item,
+            Err(EditError::NoDownload(id)) => return Err(TransferError::NoDownload(id)),
+            Err(EditError::Refused) => return Err(TransferError::NotWaiting(id)),
+        };
         let download = download.unwrap_or_else(|| Download {
             url: item.url.clone(),
             referrer: item.referrer.clone(),
@@ -287,10 +292,10 @@ impl Transfers {
     /// replaces only once the new copy is complete. Returns whether it
     /// changed. A check that fails leaves the download and its file alone,
     /// with a note saying why.
-    pub fn check_for_change(&self, id: u64) -> Result<bool, String> {
-        let entry = self.entry(id).ok_or_else(|| format!("no download with id {id}"))?;
+    pub fn check_for_change(&self, id: u64) -> Result<bool, TransferError> {
+        let entry = self.entry(id).ok_or(TransferError::NoDownload(id))?;
         if entry.status != Status::Done {
-            return Err(format!("download {id} has not finished"));
+            return Err(TransferError::NotFinished(id));
         }
         let found = self.probe_finished(&entry);
         let found = match found {
@@ -300,10 +305,10 @@ impl Transfers {
                 let note = format!("Could not check the server for a newer copy: {e}");
                 let _ = self.store.update(id, |e| {
                     if e.status != Status::Done {
-                        return Err("started meanwhile".into());
+                        return false;
                     }
                     e.note = Some(note);
-                    Ok(())
+                    true
                 });
                 return Err(e);
             }
@@ -311,37 +316,42 @@ impl Transfers {
         let known = entry.validator.clone().unwrap_or(Validator { size: entry.total, ..Validator::default() });
         let gone = !entry.path.as_deref().is_some_and(|p| Path::new(p).is_file());
         let changed = gone || known.changed(&found);
-        self.store.update(id, |e| {
-            if e.status != Status::Done {
-                return Err("The download started again in the meantime.".into());
-            }
-            e.note = None;
-            if changed {
-                // Its own file, to download over (see `dispatch`). The
-                // validator stays the old one until the new copy starts, so
-                // a download that fails is found changed again next time.
-                e.status = Status::Waiting;
-                e.done = 0;
-                e.parts = None;
-                e.error = None;
-                e.scan = None;
-                e.partial = None;
-                e.connections = e.connections.max(1);
-            } else {
-                // Learn what the server says now, such as an ETag it did
-                // not send before.
-                e.validator = Some(found);
-            }
-            Ok(())
-        })?;
+        self.store
+            .update(id, |e| {
+                if e.status != Status::Done {
+                    return false;
+                }
+                e.note = None;
+                if changed {
+                    // Its own file, to download over (see `dispatch`). The
+                    // validator stays the old one until the new copy starts, so
+                    // a download that fails is found changed again next time.
+                    e.status = Status::Waiting;
+                    e.done = 0;
+                    e.parts = None;
+                    e.error = None;
+                    e.scan = None;
+                    e.partial = None;
+                    e.connections = e.connections.max(1);
+                } else {
+                    // Learn what the server says now, such as an ETag it did
+                    // not send before.
+                    e.validator = Some(found);
+                }
+                true
+            })
+            .map_err(|e| match e {
+                EditError::NoDownload(id) => TransferError::NoDownload(id),
+                EditError::Refused => TransferError::StartedAgain,
+            })?;
         info!(download_id = id, changed, url = %entry.url, "checked the server for changes");
         Ok(changed)
     }
 
     /// What the server says now about finished download `entry`'s file.
-    fn probe_finished(&self, entry: &DownloadEntry) -> Result<Validator, String> {
+    fn probe_finished(&self, entry: &DownloadEntry) -> Result<Validator, TransferError> {
         if entry.path.is_none() {
-            return Err("it has no file".into());
+            return Err(TransferError::NoFile);
         }
         let download = self.store.requests().get(&entry.id).cloned().unwrap_or_else(|| Download {
             url: entry.url.clone(),
@@ -350,10 +360,11 @@ impl Transfers {
             ..Download::default()
         });
         if entry.parts.is_some() || download.media.is_some() || download.body.is_some() {
-            return Err("a stream or a form's answer cannot be checked".into());
+            return Err(TransferError::NotCheckable);
         }
         let req = self.request_for(download);
-        let found = engine::inspect(&req.url, None, &req.headers, &req.net).map_err(|e| e.to_string())?;
+        let found =
+            engine::inspect(&req.url, None, &req.headers, &req.net).map_err(|e| TransferError::Probe(e.to_string()))?;
         Ok(Validator { size: found.total, etag: found.etag, last_modified: found.last_modified })
     }
 
@@ -465,7 +476,7 @@ impl Transfers {
                         e.path = Some(to.display().to_string());
                         e.partial = Some(partial.display().to_string());
                         e.connections = e.connections.max(1);
-                        Ok(())
+                        true
                     })
                     .is_ok();
             }
@@ -547,7 +558,7 @@ impl Transfers {
     /// Store the passwords a settings change carries (proxy: DPAPI; site
     /// logins: Credential Manager), forget those of removed logins, and return
     /// the settings without them.
-    fn store_secrets(&self, mut new: Settings) -> Result<Settings, String> {
+    fn store_secrets(&self, mut new: Settings) -> Result<Settings, SaveError> {
         for (kind, password) in [
             (ProxyKind::Http, new.proxy_password.take()),
             (ProxyKind::Https, new.proxy_https_password.take()),
@@ -555,15 +566,15 @@ impl Transfers {
             (ProxyKind::Socks, new.proxy_socks_password.take()),
         ] {
             if let Some(pw) = password {
-                let path = net::proxy_password_path(kind).map_err(|e| e.to_string())?;
-                net::save_proxy_password(&path, &pw).map_err(|e| format!("could not save the proxy password: {e}"))?;
+                let path = net::proxy_password_path(kind).map_err(SaveError::ProxyPassword)?;
+                net::save_proxy_password(&path, &pw).map_err(SaveError::ProxyPassword)?;
             }
         }
 
         for l in &mut new.site_logins {
             if let Some(pw) = l.password.take() {
                 net::save_login_password(&l.site, &l.username, &pw)
-                    .map_err(|e| format!("could not save the password for {}: {e}", l.site))?;
+                    .map_err(|source| SaveError::LoginPassword { site: l.site.clone(), source })?;
             }
         }
         let old = self.settings.lock().site_logins.clone();
@@ -577,18 +588,17 @@ impl Transfers {
 
     /// Validate, save and apply new settings, then tell every client. Running
     /// downloads keep going; new ones use the new values.
-    pub fn set_settings(&self, mut new: Settings) -> Result<(), String> {
+    pub fn set_settings(&self, mut new: Settings) -> Result<(), SaveError> {
         settings::validate(&new)?;
         // Only the daemon notes update checks; a window's copy may be older.
         new.last_update_check = new.last_update_check.max(self.settings.lock().last_update_check);
         let new = self.store_secrets(new)?;
         let old_autostart = self.settings.lock().start_with_windows;
         if new.start_with_windows != old_autostart {
-            crate::autostart::set_autostart(new.start_with_windows)
-                .map_err(|e| format!("could not change starting at sign-in: {e}"))?;
+            crate::autostart::set_autostart(new.start_with_windows).map_err(SaveError::Autostart)?;
         }
         if let Some(path) = self.settings.path() {
-            settings::save(&new, path).map_err(|e| format!("could not save settings to {}: {e}", path.display()))?;
+            settings::save(&new, path).map_err(|source| SaveError::File { path: path.to_path_buf(), source })?;
         }
         self.engine.set_concurrency(new.max_concurrent);
         self.engine.set_speed_limit(new.speed_limit_bytes());
@@ -612,7 +622,10 @@ impl SettingsStore for Transfers {
     }
 
     fn save_settings(&self, settings: Settings) -> Result<(), SettingsError> {
-        self.set_settings(settings).map_err(SettingsError::Refused)
+        self.set_settings(settings).map_err(|e| match e {
+            SaveError::Check(e) => e.into(),
+            other => SettingsError::Refused(other.to_string()),
+        })
     }
 }
 
@@ -636,7 +649,7 @@ impl DownloadControl for Transfers {
     }
 
     fn dispatch(&self, id: u64) -> Result<(), ControlError> {
-        Transfers::dispatch(self, id).map_err(ControlError)
+        Transfers::dispatch(self, id).map_err(|e| ControlError(e.to_string()))
     }
 
     fn cancel_waiting(&self, id: u64) {
@@ -660,7 +673,7 @@ impl DownloadControl for Transfers {
         let found =
             engine::inspect(&download.url, None, &req.headers, &req.net).map_err(|e| ControlError(e.to_string()))?;
         let ignore_date = self.settings.lock().resume_ignores_date;
-        Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err())
+        Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err().map(|e| e.to_string()))
     }
 
     fn forget(&self, id: u64) {
@@ -682,11 +695,46 @@ impl DownloadControl for Transfers {
         if !remember_limit {
             let _ = self.store.update(id, |e| {
                 e.limit_remember = false;
-                Ok(())
+                true
             });
         }
         (id, url)
     }
+}
+
+/// Why a download could not be started or checked.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TransferError {
+    #[error("no download with id {0}")]
+    NoDownload(u64),
+    #[error("download {0} is not waiting to be started")]
+    NotWaiting(u64),
+    #[error("download {0} has not finished")]
+    NotFinished(u64),
+    #[error("The download started again in the meantime.")]
+    StartedAgain,
+    #[error("it has no file")]
+    NoFile,
+    #[error("a stream or a form's answer cannot be checked")]
+    NotCheckable,
+    /// What the engine said about asking the server.
+    #[error("{0}")]
+    Probe(String),
+}
+
+/// Why new settings were not saved.
+#[derive(Debug, thiserror::Error)]
+pub enum SaveError {
+    #[error(transparent)]
+    Check(#[from] settings::CheckError),
+    #[error("could not save the proxy password: {0}")]
+    ProxyPassword(#[source] std::io::Error),
+    #[error("could not save the password for {site}: {source}")]
+    LoginPassword { site: String, source: std::io::Error },
+    #[error("could not change starting at sign-in: {0}")]
+    Autostart(#[source] std::io::Error),
+    #[error("could not save settings to {}: {source}", path.display())]
+    File { path: PathBuf, source: std::io::Error },
 }
 
 /// Only single inserts and removals change the set, so a poisoned lock
@@ -948,7 +996,7 @@ mod tests {
             .update(id, |e| {
                 e.path = Some(chosen.display().to_string());
                 e.status = Status::Waiting;
-                Ok(())
+                true
             })
             .unwrap();
         assert!(!w.transfers.settle_early(id, shadow), "kept as its partial file");

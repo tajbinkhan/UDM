@@ -24,11 +24,54 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use base64::Engine as _;
 use roxmltree::{Document, Node};
 
-use super::resolve;
-use uidm_domain::media::{MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED};
+use uidm_domain::media::{
+    resolve, AddressError, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED,
+};
 
 /// More fragments than this in one stream means a broken bootstrap.
 const MAX_FRAGMENTS: usize = 500_000;
+
+/// Why a manifest or its bootstrap information cannot be downloaded. The
+/// message is shown to the user as the download's failure.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum HdsError {
+    /// What the XML parser said.
+    #[error("The manifest is not valid XML: {0}")]
+    NotXml(String),
+    #[error("This is not an HDS manifest.")]
+    NotManifest,
+    #[error("{}", LIVE_REFUSED)]
+    Live,
+    #[error("{}", DRM_REFUSED)]
+    Drm,
+    /// What the decoder said.
+    #[error("The manifest has bad base64 in it: {0}")]
+    BadBase64(String),
+    #[error("A quality in the manifest has no address.")]
+    NoAddress,
+    #[error("A quality in the manifest names no bootstrap information.")]
+    NoBootstrap,
+    #[error("The manifest has no video.")]
+    NoVideo,
+    #[error("A quality's manifest lists more manifests.")]
+    Nested,
+    #[error("The stream's bootstrap information is cut short.")]
+    Truncated,
+    #[error("The stream's bootstrap information has a bad box.")]
+    BadBox,
+    #[error("The stream's bootstrap information is not an abst box.")]
+    NotAbst,
+    #[error("The stream's bootstrap information lists no segments.")]
+    NoSegments,
+    #[error("The stream lists too many segments.")]
+    TooManySegments,
+    #[error("The stream lists too many fragments.")]
+    TooManyFragments,
+    #[error(transparent)]
+    Address(#[from] AddressError),
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
+}
 
 /// Where a media's bootstrap info is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,11 +131,9 @@ fn text_in<'a>(node: Option<Node<'a, '_>>) -> Option<&'a str> {
     node.and_then(|n| n.text()).map(str::trim).filter(|t| !t.is_empty())
 }
 
-fn base64(text: &str) -> Result<Vec<u8>, String> {
+fn base64(text: &str) -> Result<Vec<u8>, HdsError> {
     let clean: String = text.chars().filter(|c| !c.is_whitespace()).collect();
-    base64::engine::general_purpose::STANDARD
-        .decode(clean)
-        .map_err(|e| format!("The manifest has bad base64 in it: {e}"))
+    base64::engine::general_purpose::STANDARD.decode(clean).map_err(|e| HdsError::BadBase64(e.to_string()))
 }
 
 /// `url` with `query` added to its own query string.
@@ -107,15 +148,14 @@ fn with_query(url: &str, query: Option<&str>) -> String {
 }
 
 /// Read a manifest fetched from `url`.
-pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
-    let doc = Document::parse(text.trim_start_matches('\u{feff}'))
-        .map_err(|e| format!("The manifest is not valid XML: {e}"))?;
+pub fn parse(text: &str, url: &str) -> Result<Manifest, HdsError> {
+    let doc = Document::parse(text.trim_start_matches('\u{feff}')).map_err(|e| HdsError::NotXml(e.to_string()))?;
     let root = doc.root_element();
     if root.tag_name().name() != "manifest" {
-        return Err("This is not an HDS manifest.".into());
+        return Err(HdsError::NotManifest);
     }
     if text_of(root, "streamType") == Some("live") {
-        return Err(LIVE_REFUSED.into());
+        return Err(HdsError::Live);
     }
     // The manifest's own query is Akamai's signature, which every address
     // in the stream needs.
@@ -154,8 +194,8 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
         let (name, source) = if let Some(href) = m.attribute("href") {
             (href, Source::Manifest(with_query(&resolve(&base, href)?, manifest_query.as_deref())))
         } else {
-            let name = m.attribute("url").ok_or("A quality in the manifest has no address.")?;
-            let resolved = url::Url::parse(&resolve(&base, name)?).map_err(|e| e.to_string())?;
+            let name = m.attribute("url").ok_or(HdsError::NoAddress)?;
+            let resolved = url::Url::parse(&resolve(&base, name)?)?;
             let query: Vec<String> = [resolved.query().map(str::to_string), manifest_query.clone(), pv.clone()]
                 .into_iter()
                 .flatten()
@@ -174,7 +214,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
                 None => bootstraps.first(),
             }
             .map(|(_, b)| b.clone())
-            .ok_or("A quality in the manifest names no bootstrap information.")?;
+            .ok_or(HdsError::NoBootstrap)?;
             let metadata = text_in(child(m, "metadata")).map(base64).transpose()?;
             let source = Source::Fragments {
                 url: bare.to_string(),
@@ -189,7 +229,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
         manifest.media.push(Media { id, bitrate, height, source });
     }
     if manifest.media.is_empty() {
-        return Err(if drm { DRM_REFUSED.into() } else { "The manifest has no video.".into() });
+        return Err(if drm { HdsError::Drm } else { HdsError::NoVideo });
     }
     manifest.media.sort_by_key(|m| std::cmp::Reverse((m.height.unwrap_or(0), m.bitrate.unwrap_or(0))));
     Ok(manifest)
@@ -251,33 +291,31 @@ struct Reader<'a> {
     at: usize,
 }
 
-const TRUNCATED: &str = "The stream's bootstrap information is cut short.";
-
 impl<'a> Reader<'a> {
-    fn bytes(&mut self, n: usize) -> Result<&'a [u8], String> {
-        let end = self.at.checked_add(n).filter(|e| *e <= self.data.len()).ok_or(TRUNCATED)?;
+    fn bytes(&mut self, n: usize) -> Result<&'a [u8], HdsError> {
+        let end = self.at.checked_add(n).filter(|e| *e <= self.data.len()).ok_or(HdsError::Truncated)?;
         let out = &self.data[self.at..end];
         self.at = end;
         Ok(out)
     }
-    fn u8(&mut self) -> Result<u8, String> {
+    fn u8(&mut self) -> Result<u8, HdsError> {
         Ok(self.bytes(1)?[0])
     }
-    fn u32(&mut self) -> Result<u32, String> {
+    fn u32(&mut self) -> Result<u32, HdsError> {
         Ok(u32::from_be_bytes(self.bytes(4)?.try_into().unwrap()))
     }
-    fn u64(&mut self) -> Result<u64, String> {
+    fn u64(&mut self) -> Result<u64, HdsError> {
         Ok(u64::from_be_bytes(self.bytes(8)?.try_into().unwrap()))
     }
     /// A NUL-terminated string.
-    fn string(&mut self) -> Result<&'a [u8], String> {
-        let len = self.data[self.at..].iter().position(|b| *b == 0).ok_or(TRUNCATED)?;
+    fn string(&mut self) -> Result<&'a [u8], HdsError> {
+        let len = self.data[self.at..].iter().position(|b| *b == 0).ok_or(HdsError::Truncated)?;
         let s = self.bytes(len)?;
         self.at += 1;
         Ok(s)
     }
     /// A box: its type and its body.
-    fn boxed(&mut self) -> Result<([u8; 4], &'a [u8]), String> {
+    fn boxed(&mut self) -> Result<([u8; 4], &'a [u8]), HdsError> {
         let size = self.u32()? as u64;
         let kind: [u8; 4] = self.bytes(4)?.try_into().unwrap();
         let (size, header) = match size {
@@ -285,16 +323,16 @@ impl<'a> Reader<'a> {
             0 => ((self.data.len() - self.at + 8) as u64, 8),
             s => (s, 8),
         };
-        let body = size.checked_sub(header).ok_or("The stream's bootstrap information has a bad box.")?;
-        Ok((kind, self.bytes(usize::try_from(body).map_err(|_| TRUNCATED)?)?))
+        let body = size.checked_sub(header).ok_or(HdsError::BadBox)?;
+        Ok((kind, self.bytes(usize::try_from(body).map_err(|_| HdsError::Truncated)?)?))
     }
 }
 
 /// Read a bootstrap info (`abst`) box.
-pub fn parse_bootstrap(data: &[u8]) -> Result<BootstrapInfo, String> {
+pub fn parse_bootstrap(data: &[u8]) -> Result<BootstrapInfo, HdsError> {
     let (kind, body) = Reader { data, at: 0 }.boxed()?;
     if &kind != b"abst" {
-        return Err("The stream's bootstrap information is not an abst box.".into());
+        return Err(HdsError::NotAbst);
     }
     let mut r = Reader { data: body, at: 0 };
     r.bytes(4)?; // version and flags
@@ -331,7 +369,7 @@ pub fn parse_bootstrap(data: &[u8]) -> Result<BootstrapInfo, String> {
         for _ in 0..s.u32()? {
             let entry = (s.u32()?, s.u32()?);
             if info.segments.len() >= MAX_FRAGMENTS {
-                return Err("The stream lists too many segments.".into());
+                return Err(HdsError::TooManySegments);
             }
             info.segments.push(entry);
         }
@@ -353,7 +391,7 @@ pub fn parse_bootstrap(data: &[u8]) -> Result<BootstrapInfo, String> {
             let duration = f.u32()?;
             let discontinuity = if duration == 0 { Some(f.u8()?) } else { None };
             if info.fragments.len() >= MAX_FRAGMENTS {
-                return Err("The stream lists too many fragments.".into());
+                return Err(HdsError::TooManyFragments);
             }
             info.fragments.push(FragmentRun { first, timestamp, duration, discontinuity });
         }
@@ -365,9 +403,9 @@ pub fn parse_bootstrap(data: &[u8]) -> Result<BootstrapInfo, String> {
 /// `i` covers the segments from its first up to the next run's first, each
 /// with its count of fragments; the last run covers one segment. Fragments
 /// are numbered on from the fragment run table's first.
-pub fn fragments(info: &BootstrapInfo) -> Result<Vec<(u32, u32)>, String> {
+pub fn fragments(info: &BootstrapInfo) -> Result<Vec<(u32, u32)>, HdsError> {
     if info.segments.is_empty() {
-        return Err("The stream's bootstrap information lists no segments.".into());
+        return Err(HdsError::NoSegments);
     }
     let mut next = info.fragments.iter().find(|r| r.duration > 0).map_or(1, |r| r.first);
     let mut out = Vec::new();
@@ -375,11 +413,11 @@ pub fn fragments(info: &BootstrapInfo) -> Result<Vec<(u32, u32)>, String> {
         let last = info.segments.get(i + 1).map_or(first, |(n, _)| n.saturating_sub(1).max(first));
         for segment in first..=last {
             if out.len() + per as usize > MAX_FRAGMENTS {
-                return Err("The stream lists too many fragments.".into());
+                return Err(HdsError::TooManyFragments);
             }
             for _ in 0..per {
                 out.push((segment, next));
-                next = next.checked_add(1).ok_or("The stream lists too many fragments.")?;
+                next = next.checked_add(1).ok_or(HdsError::TooManyFragments)?;
             }
         }
     }
@@ -463,13 +501,13 @@ pub fn copy_mdat<R: Read + Seek, W: Write>(fragment: &mut R, out: &mut W) -> io:
 
 /// The track of `media` (a `Source::Fragments`), from its bootstrap info
 /// `bootstrap`. `duration` is the manifest's, when it says.
-pub fn track(media: &Media, bootstrap: &[u8], duration: Option<f64>) -> Result<Track, String> {
+pub fn track(media: &Media, bootstrap: &[u8], duration: Option<f64>) -> Result<Track, HdsError> {
     let Source::Fragments { url, query, metadata, .. } = &media.source else {
-        return Err("A quality's manifest lists more manifests.".into());
+        return Err(HdsError::Nested);
     };
     let info = parse_bootstrap(bootstrap)?;
     if info.live {
-        return Err(LIVE_REFUSED.into());
+        return Err(HdsError::Live);
     }
     let segments =
         fragments(&info)?.into_iter().map(|(s, f)| Segment::whole(fragment_url(url, query.as_deref(), s, f))).collect();
@@ -673,11 +711,11 @@ pub(crate) mod tests {
           <drmAdditionalHeader id="d">AAAA</drmAdditionalHeader>
           <bootstrapInfo id="b">AAAA</bootstrapInfo>
           <media url="v" bootstrapInfoId="b" drmAdditionalHeaderId="d"/></manifest>"#;
-        assert_eq!(parse(drm, URL).unwrap_err(), DRM_REFUSED);
+        assert_eq!(parse(drm, URL).unwrap_err(), HdsError::Drm);
         let live = r#"<manifest xmlns="http://ns.adobe.com/f4m/1.0"><streamType>live</streamType></manifest>"#;
-        assert_eq!(parse(live, URL).unwrap_err(), LIVE_REFUSED);
+        assert_eq!(parse(live, URL).unwrap_err(), HdsError::Live);
         let m = parse(&v1(), URL).unwrap();
-        assert_eq!(track(&m.media[1], &abst(true, &[(1, 1)], 1), None).unwrap_err(), LIVE_REFUSED);
+        assert_eq!(track(&m.media[1], &abst(true, &[(1, 1)], 1), None).unwrap_err(), HdsError::Live);
         assert!(parse("<MPD/>", URL).is_err());
         assert!(!sniff("<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\">"));
         assert!(!sniff("<manifest><media/></manifest>"), "not Adobe's namespace");

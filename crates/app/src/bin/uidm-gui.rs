@@ -31,7 +31,7 @@ fn main() -> eframe::Result {
         ports,
         daemon: Arc::new(infra::daemon_client::IpcDaemonClient::new(uidm_ui::WINDOW_CLIENT)),
         minimized: args.iter().any(|a| a == "--minimized"),
-        command_line: infra::cli::parse(&args, &cwd).transpose(),
+        command_line: infra::cli::parse(&args, &cwd).map_err(|e| e.to_string()).transpose(),
         instance: infra::paths::instance(),
     })
 }

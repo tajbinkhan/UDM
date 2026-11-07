@@ -17,11 +17,51 @@
 
 use roxmltree::{Document, Node};
 
-use super::resolve;
-use uidm_domain::media::{MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED};
+use uidm_domain::media::{
+    resolve, AddressError, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED,
+};
 
 /// More segments than this in one track means a broken manifest.
 const MAX_SEGMENTS: usize = 500_000;
+
+/// Why a manifest, or one of its tracks, cannot be downloaded. The message
+/// is shown to the user as the download's failure.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DashError {
+    /// What the XML parser said.
+    #[error("The manifest is not valid XML: {0}")]
+    NotXml(String),
+    #[error("This is not a DASH manifest.")]
+    NotManifest,
+    #[error("{}", LIVE_REFUSED)]
+    Live,
+    #[error("{}", DRM_REFUSED)]
+    Drm,
+    #[error("The manifest has no periods.")]
+    NoPeriods,
+    #[error("The video is split into {0} periods (often ads between parts), which UIDM cannot join.")]
+    Periods(usize),
+    #[error("The manifest has no video or audio.")]
+    NoTracks,
+    #[error("Nothing in this manifest can be downloaded.")]
+    NothingUsable,
+    #[error("a segment template has no media pattern")]
+    NoMediaPattern,
+    #[error("a timeline entry has no duration")]
+    NoEntryDuration,
+    #[error("a timeline repeats to the end, but the length is unknown")]
+    OpenRepeat,
+    #[error("the manifest lists too many segments")]
+    TooManySegments,
+    #[error("a segment template has neither a duration nor a timeline")]
+    NoSegmentDuration,
+    #[error("the manifest does not say how long the video is")]
+    NoLength,
+    #[error("a segment list is empty")]
+    EmptyList,
+    #[error(transparent)]
+    Address(#[from] AddressError),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Content {
@@ -45,7 +85,7 @@ pub struct Representation {
     pub default: bool,
     pub drm: bool,
     /// Its segments, or why they could not be worked out.
-    pub track: Result<Track, String>,
+    pub track: Result<Track, DashError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -155,15 +195,15 @@ struct Context<'a> {
 fn template_track<'a>(
     levels: &[Option<Node<'a, '_>>],
     cx: &Context,
-) -> Result<(Option<Segment>, Vec<Segment>), String> {
-    let media = inherited(levels, "media").ok_or("a segment template has no media pattern")?;
+) -> Result<(Option<Segment>, Vec<Segment>), DashError> {
+    let media = inherited(levels, "media").ok_or(DashError::NoMediaPattern)?;
     let timescale: u64 = inherited(levels, "timescale").and_then(|t| t.parse().ok()).unwrap_or(1).max(1);
     let start_number: u64 = inherited(levels, "startNumber").and_then(|n| n.parse().ok()).unwrap_or(1);
     let init = inherited(levels, "initialization")
         .map(|i| resolve(&cx.base, &fill(i, cx.id, start_number, 0, cx.bandwidth)))
         .transpose()?
         .map(Segment::whole);
-    let make = |number: u64, time: u64| -> Result<Segment, String> {
+    let make = |number: u64, time: u64| -> Result<Segment, DashError> {
         Ok(Segment::whole(resolve(&cx.base, &fill(media, cx.id, number, time, cx.bandwidth))?))
     };
     let mut segments = Vec::new();
@@ -176,20 +216,20 @@ fn template_track<'a>(
             if let Some(start) = s.attribute("t").and_then(|v| v.parse().ok()) {
                 t = start;
             }
-            let d: u64 = s.attribute("d").and_then(|v| v.parse().ok()).ok_or("a timeline entry has no duration")?;
+            let d: u64 = s.attribute("d").and_then(|v| v.parse().ok()).ok_or(DashError::NoEntryDuration)?;
             if d == 0 {
-                return Err("a timeline entry has no duration".into());
+                return Err(DashError::NoEntryDuration);
             }
             let r: i64 = s.attribute("r").and_then(|v| v.parse().ok()).unwrap_or(0);
             let repeats = if r < 0 {
-                let end = end.ok_or("a timeline repeats to the end, but the length is unknown")?;
+                let end = end.ok_or(DashError::OpenRepeat)?;
                 end.saturating_sub(t).div_ceil(d).saturating_sub(1)
             } else {
                 r as u64
             };
             for _ in 0..=repeats {
                 if segments.len() >= MAX_SEGMENTS {
-                    return Err("the manifest lists too many segments".into());
+                    return Err(DashError::TooManySegments);
                 }
                 segments.push(make(number, t)?);
                 t += d;
@@ -200,11 +240,11 @@ fn template_track<'a>(
         let d: u64 = inherited(levels, "duration")
             .and_then(|v| v.parse().ok())
             .filter(|d| *d > 0)
-            .ok_or("a segment template has neither a duration nor a timeline")?;
-        let total = cx.duration.ok_or("the manifest does not say how long the video is")?;
+            .ok_or(DashError::NoSegmentDuration)?;
+        let total = cx.duration.ok_or(DashError::NoLength)?;
         let count = ((total * timescale as f64) / d as f64).ceil() as u64;
         if count as usize > MAX_SEGMENTS {
-            return Err("the manifest lists too many segments".into());
+            return Err(DashError::TooManySegments);
         }
         for i in 0..count {
             segments.push(make(start_number + i, i * d)?);
@@ -213,9 +253,9 @@ fn template_track<'a>(
     Ok((init, segments))
 }
 
-fn list_track(list: Node, cx: &Context) -> Result<(Option<Segment>, Vec<Segment>), String> {
+fn list_track(list: Node, cx: &Context) -> Result<(Option<Segment>, Vec<Segment>), DashError> {
     let init = child(list, "Initialization")
-        .map(|i| -> Result<Segment, String> {
+        .map(|i| -> Result<Segment, DashError> {
             Ok(Segment {
                 url: resolve(&cx.base, i.attribute("sourceURL").unwrap_or(""))?,
                 range: i.attribute("range").and_then(parse_range),
@@ -231,42 +271,36 @@ fn list_track(list: Node, cx: &Context) -> Result<(Option<Segment>, Vec<Segment>
                 key: None,
             })
         })
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect::<Result<Vec<_>, DashError>>()?;
     if segments.is_empty() {
-        return Err("a segment list is empty".into());
+        return Err(DashError::EmptyList);
     }
     Ok((init, segments))
 }
 
 /// The `BaseURL` of `node` resolved against `base`.
-fn base_of(node: Node, base: &str) -> Result<String, String> {
+fn base_of(node: Node, base: &str) -> Result<String, DashError> {
     match child(node, "BaseURL").and_then(|b| b.text()) {
-        Some(url) => resolve(base, url),
+        Some(url) => Ok(resolve(base, url)?),
         None => Ok(base.to_string()),
     }
 }
 
 /// Read a manifest fetched from `url`.
-pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
-    let doc = Document::parse(text.trim_start_matches('\u{feff}'))
-        .map_err(|e| format!("The manifest is not valid XML: {e}"))?;
+pub fn parse(text: &str, url: &str) -> Result<Manifest, DashError> {
+    let doc = Document::parse(text.trim_start_matches('\u{feff}')).map_err(|e| DashError::NotXml(e.to_string()))?;
     let mpd = doc.root_element();
     if mpd.tag_name().name() != "MPD" {
-        return Err("This is not a DASH manifest.".into());
+        return Err(DashError::NotManifest);
     }
     if mpd.attribute("type") == Some("dynamic") {
-        return Err(LIVE_REFUSED.into());
+        return Err(DashError::Live);
     }
     let periods: Vec<Node> = children(mpd, "Period").collect();
     let period = match periods.as_slice() {
         [one] => *one,
-        [] => return Err("The manifest has no periods.".into()),
-        _ => {
-            return Err(format!(
-                "The video is split into {} periods (often ads between parts), which UIDM cannot join.",
-                periods.len()
-            ))
-        }
+        [] => return Err(DashError::NoPeriods),
+        _ => return Err(DashError::Periods(periods.len())),
     };
     let total = mpd.attribute("mediaPresentationDuration").and_then(parse_duration);
     let duration = period.attribute("duration").and_then(parse_duration).or_else(|| {
@@ -333,7 +367,7 @@ pub fn parse(text: &str, url: &str) -> Result<Manifest, String> {
         }
     }
     if manifest.video.is_empty() && manifest.audio.is_empty() {
-        return Err("The manifest has no video or audio.".into());
+        return Err(DashError::NoTracks);
     }
     let best = |r: &Representation| std::cmp::Reverse((r.height.unwrap_or(0), r.bandwidth.unwrap_or(0)));
     manifest.video.sort_by_key(best);
@@ -409,10 +443,8 @@ pub fn describe(m: &Manifest) -> MediaInfo {
     let error = if drm {
         Some(DRM_REFUSED.to_string())
     } else if video.is_empty() && audio.is_empty() {
-        all.filter_map(|r| r.track.as_ref().err())
-            .next()
-            .cloned()
-            .or(Some("Nothing in this manifest can be downloaded.".into()))
+        let why = all.filter_map(|r| r.track.as_ref().err()).next().unwrap_or(&DashError::NothingUsable);
+        Some(why.to_string())
     } else {
         None
     };
@@ -432,12 +464,12 @@ pub fn describe(m: &Manifest) -> MediaInfo {
 /// The tracks to fetch for `video` and `audio` (option ids, or the best):
 /// the video and, apart from it, the audio. A stream with no video gives its
 /// audio alone.
-pub fn pick(m: &Manifest, video: Option<&str>, audio: Option<&str>) -> Result<(Track, Option<Track>), String> {
-    let usable = |reps: &[Representation], id: Option<&str>| -> Result<Option<Track>, String> {
+pub fn pick(m: &Manifest, video: Option<&str>, audio: Option<&str>) -> Result<(Track, Option<Track>), DashError> {
+    let usable = |reps: &[Representation], id: Option<&str>| -> Result<Option<Track>, DashError> {
         let ok: Vec<&Representation> = reps.iter().filter(|r| !r.drm && r.track.is_ok()).collect();
         if ok.is_empty() {
             if reps.iter().any(|r| r.drm) {
-                return Err(DRM_REFUSED.into());
+                return Err(DashError::Drm);
             }
             if let Some(Err(e)) = reps.first().map(|r| &r.track) {
                 return Err(e.clone());
@@ -452,7 +484,7 @@ pub fn pick(m: &Manifest, video: Option<&str>, audio: Option<&str>) -> Result<(T
     match (v, a) {
         (Some(v), a) => Ok((v, a)),
         (None, Some(a)) => Ok((a, None)),
-        (None, None) => Err("Nothing in this manifest can be downloaded.".into()),
+        (None, None) => Err(DashError::NothingUsable),
     }
 }
 
@@ -605,12 +637,12 @@ mod tests {
         let info = describe(&m);
         assert!(info.drm);
         assert_eq!(info.error.as_deref(), Some(DRM_REFUSED));
-        assert_eq!(pick(&m, None, None).unwrap_err(), DRM_REFUSED);
+        assert_eq!(pick(&m, None, None).unwrap_err(), DashError::Drm);
 
         let live = r#"<MPD type="dynamic"><Period/></MPD>"#;
-        assert_eq!(parse(live, URL).unwrap_err(), LIVE_REFUSED);
+        assert_eq!(parse(live, URL).unwrap_err(), DashError::Live);
         let two = r#"<MPD type="static"><Period/><Period/></MPD>"#;
-        assert!(parse(two, URL).unwrap_err().contains("2 periods"));
+        assert_eq!(parse(two, URL).unwrap_err(), DashError::Periods(2));
         assert!(parse("<html/>", URL).is_err());
         assert!(parse("not xml", URL).is_err());
     }

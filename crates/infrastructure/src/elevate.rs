@@ -63,11 +63,13 @@ pub fn move_file(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 /// Why a move with administrator rights did not happen.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum MoveError {
     /// The user said No to the UAC prompt.
+    #[error("administrator rights were refused")]
     Refused,
     /// The helper did not start, or failed; the text says why.
+    #[error("{0}")]
     Failed(String),
 }
 

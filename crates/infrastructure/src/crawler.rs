@@ -102,13 +102,13 @@ impl SiteCrawler for Crawler {
                 body.truncate(uidm_domain::grab::MAX_PAGE_BYTES as usize);
                 let page = Page { url: shown.url, content_type: Some("text/html".into()), body };
                 mirror(req, &page);
-                return Ok(page);
+                return Some(page);
             }
             let page = engine::fetch(url, &page_headers(url), &net, uidm_domain::grab::MAX_PAGE_BYTES)
                 .map(|f| Page { url: f.url, content_type: f.content_type, body: f.body })
-                .map_err(|e| e.to_string())?;
+                .ok()?;
             mirror(req, &page);
-            Ok(page)
+            Some(page)
         };
         // Wait in short steps, so stopping is quick.
         let wait = |d: Duration| {

@@ -14,12 +14,6 @@
 //! or M4A, with ffmpeg. `ytdlp` reads video pages that name no stream at
 //! all (YouTube, Facebook, Instagram, Vimeo) with yt-dlp.
 
-/// [`uidm_domain::media::resolve`], with its error as text, which the
-/// playlist and manifest readers still report.
-pub(crate) fn resolve(base: &str, url: &str) -> Result<String, String> {
-    uidm_domain::media::resolve(base, url).map_err(|e| e.to_string())
-}
-
 pub mod convert;
 pub mod dash;
 pub mod hds;
