@@ -67,6 +67,9 @@ pub enum ServiceError {
     /// The address of a download whose form body cannot be sent.
     #[error("the form body of {0} is not valid base64")]
     BadBody(String),
+    /// An address that is not http, https or ftp, such as `javascript:`.
+    #[error("{0} is not an http, https or ftp address")]
+    NotDownloadAddress(String),
 }
 
 /// Links the link picker's probes ask about at once.
@@ -314,10 +317,13 @@ impl<W: Wiring> DaemonService<W> {
         Ok(result)
     }
 
-    /// Whether UIDM can send `download`'s request: a form body must be
-    /// readable.
-    fn check_body(&self, download: &Download) -> Result<(), ServiceError> {
-        if self.intake.sendable(download) {
+    /// Whether UIDM can send `download`'s request: its address must be
+    /// http, https or ftp, as the command line's must, and a form body must
+    /// be readable.
+    fn check_download(&self, download: &Download) -> Result<(), ServiceError> {
+        if !uidm_domain::batch::is_download_url(&download.url) {
+            Err(ServiceError::NotDownloadAddress(download.url.clone()))
+        } else if self.intake.sendable(download) {
             Ok(())
         } else {
             Err(ServiceError::BadBody(download.url.clone()))
@@ -1418,16 +1424,20 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::Ping => send(Event::Pong),
         Command::CommandLine(cmd) => {
             let window_open = daemon.clients.window_open();
-            if window_open {
+            if window_open && cmd.is_empty() {
+                // Starting UIDM again brings the open window forward, as in
+                // IDM, instead of opening a second one.
+                daemon.clients.to_windows(Event::Show);
+            } else if window_open {
                 daemon.run_command_line(cmd, false);
-            } else {
+            } else if !cmd.is_empty() {
                 *lock(&daemon.command_line) = Some((cmd, Instant::now()));
             }
             send(Event::CommandLine { window_open });
         }
         Command::Add(mut download) => {
             download.limit_browser_request();
-            if let Err(message) = daemon.check_body(&download) {
+            if let Err(message) = daemon.check_download(&download) {
                 send(Event::Rejected { url: download.url, message: message.to_string() });
                 return;
             }
@@ -1442,7 +1452,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         }
         Command::ProbeMedia { request, mut download } => {
             download.limit_browser_request();
-            if let Err(message) = daemon.check_body(&download) {
+            if let Err(message) = daemon.check_download(&download) {
                 send(Event::Error { message: message.to_string() });
                 return;
             }
@@ -1455,7 +1465,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         }
         Command::CancelGrab => daemon.stop_grab(client),
         Command::ProbeLinks { request, links } => {
-            if let Some(message) = links.iter().find_map(|d| daemon.check_body(d).err()) {
+            if let Some(message) = links.iter().find_map(|d| daemon.check_download(d).err()) {
                 send(Event::Error { message: message.to_string() });
                 return;
             }
@@ -1531,7 +1541,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
             }
             let url = download.as_ref().map(|d| d.url.clone()).unwrap_or_default();
             if let Some(d) = &download {
-                if let Err(message) = daemon.check_body(d) {
+                if let Err(message) = daemon.check_download(d) {
                     send(Event::Error { message: message.to_string() });
                     return;
                 }

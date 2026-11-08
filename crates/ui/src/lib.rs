@@ -125,14 +125,22 @@ pub struct Start {
     pub instance: Option<String>,
 }
 
-/// Open the window and run it until it quits. A command line that a window
-/// already open takes ends this copy without a window.
+/// Open the window and run it until it quits. With a window already open,
+/// this copy hands it its command line (or, with none, brings it forward)
+/// and ends without a window of its own.
 pub fn run(start: Start) -> eframe::Result {
     let Start { ports, daemon, mut minimized, command_line, instance } = start;
     ports::install(ports);
     let mut startup_error = None;
     match command_line {
-        None => {}
+        // Started again while a window is open: the daemon brings that one
+        // forward, and this copy opens no second window. When the daemon
+        // cannot be asked, this window opens and reports it once connected.
+        None => {
+            if daemon.run_command_line(CommandLine::default()) == Ok(true) {
+                return Ok(());
+            }
+        }
         Some(Ok(cmd)) => match daemon.run_command_line(cmd) {
             // A window was open and took it; this copy has nothing to do.
             Ok(true) => return Ok(()),

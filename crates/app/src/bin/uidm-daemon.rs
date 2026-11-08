@@ -634,6 +634,40 @@ mod tests {
     }
 
     #[test]
+    fn starting_uidm_again_brings_the_open_window_forward() {
+        let t = setup("again", Duplicate::NewName);
+        let ask = || -> Outgoing {
+            let (tx, rx) = server::reply_channel();
+            send(br#"{"op":"command_line"}"#, &t, 9, &tx);
+            rx.try_iter().filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok()).last().unwrap()
+        };
+
+        // A window is open: it comes forward, and the new copy ends.
+        assert!(matches!(ask(), Outgoing::CommandLine { window_open: true }));
+        assert!(t.window_got(|m| matches!(m, Outgoing::Show)));
+
+        // None is: the new copy opens one, and nothing waits for it.
+        t.connections.client_gone(1);
+        assert!(matches!(ask(), Outgoing::CommandLine { window_open: false }));
+        assert!(t.daemon.command_line.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn only_http_https_and_ftp_addresses_are_added() {
+        let t = setup("schemes", Duplicate::NewName);
+        for url in ["javascript:alert(1)", "file:///etc/passwd", "data:text/plain,hi"] {
+            let (tx, rx) = server::reply_channel();
+            send(format!(r#"{{"op":"add","url":"{url}"}}"#).as_bytes(), &t, 2, &tx);
+            let reply = rx.try_iter().filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok()).last().unwrap();
+            assert!(
+                matches!(&reply, Outgoing::Rejected { url: u, message } if u == url && message.contains("is not an http, https or ftp address")),
+                "{url}: {reply:?}"
+            );
+        }
+        assert_eq!(t.len(), 0, "nothing was added");
+    }
+
+    #[test]
     fn new_name_keeps_the_old_file() {
         let t = setup("new_name", Duplicate::NewName);
         let url = serve();

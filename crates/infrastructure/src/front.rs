@@ -45,12 +45,9 @@ pub trait Windows: StoreEvents {
 
 /// Start the desktop window from this program's folder.
 pub fn open_window() -> io::Result<()> {
-    crate::platform::program_command("uidm-gui")?
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
+    crate::platform::spawn_reaped(
+        crate::platform::program_command("uidm-gui")?.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()),
+    )
 }
 
 /// Bring the window forward: ask an open one to show itself, or start one.
