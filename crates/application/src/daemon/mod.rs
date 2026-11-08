@@ -450,7 +450,8 @@ pub trait DaemonClient: Send + Sync {
 
     /// Hand a command line to the daemon on a connection of its own,
     /// starting the daemon if needed. `Ok(true)` means an open window ran
-    /// it; `Ok(false)` that it waits for the window about to open.
+    /// it; `Ok(false)` that it waits for the window about to open. An empty
+    /// one asks an open window to come forward.
     fn run_command_line(&self, command: CommandLine) -> Result<bool, DaemonError>;
 }
 

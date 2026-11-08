@@ -200,9 +200,7 @@ pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Res
         applescript_string(&t.lines.iter().take(2).cloned().collect::<Vec<_>>().join(" — ")),
         applescript_string(&t.title)
     );
-    std::process::Command::new("osascript")
-        .args(["-e", &script])
-        .spawn()
+    crate::platform::spawn_reaped(std::process::Command::new("osascript").args(["-e", &script]))
         .map_err(|e| NotifyError::Helper("osascript", e))?;
     Ok(Shown)
 }

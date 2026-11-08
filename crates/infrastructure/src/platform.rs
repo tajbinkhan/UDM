@@ -46,6 +46,20 @@ pub fn program_command(name: &str) -> io::Result<Command> {
     Ok(cmd)
 }
 
+/// Start `cmd` and wait for it on a thread of its own, for a program UIDM
+/// starts and does not watch (a file's viewer, the window, the daemon).
+/// Unix keeps an ended child as a zombie until its parent waits for it, and
+/// the window and the daemon live long enough to collect many.
+pub fn spawn_reaped(cmd: &mut Command) -> io::Result<()> {
+    let mut child = cmd.spawn()?;
+    // The program runs either way; without the thread it is only left
+    // unwaited, as before.
+    let _ = std::thread::Builder::new().name("reap-child".into()).spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 /// Start `cmd` without a console window flashing up (Windows); elsewhere
 /// programs started from a window get none anyway.
 pub fn no_window(cmd: &mut Command) -> &mut Command {
@@ -110,7 +124,7 @@ pub fn open(target: &std::ffi::OsStr) -> io::Result<()> {
         c
     };
     cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    no_window(&mut cmd).spawn().map(|_| ())
+    spawn_reaped(no_window(&mut cmd))
 }
 
 /// Show `path` selected in the file manager: Explorer, the Finder, or on
@@ -121,10 +135,10 @@ pub fn reveal(path: &std::path::Path) -> io::Result<()> {
         use std::os::windows::process::CommandExt;
         // Explorer parses /select itself, so pass the argument raw with the
         // path quoted. Windows paths cannot contain a double quote.
-        no_window(Command::new("explorer").raw_arg(format!("/select,\"{}\"", path.display()))).spawn().map(|_| ())
+        spawn_reaped(no_window(Command::new("explorer").raw_arg(format!("/select,\"{}\"", path.display()))))
     }
     #[cfg(target_os = "macos")]
-    return Command::new("open").arg("-R").arg(path).spawn().map(|_| ());
+    return spawn_reaped(Command::new("open").arg("-R").arg(path));
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let uri = url::Url::from_file_path(path)
@@ -224,6 +238,45 @@ impl uidm_domain::ports::FileOpener for Desktop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// This process's ended children that nobody waited for, named `comm`.
+    #[cfg(target_os = "linux")]
+    fn zombies(comm: &str) -> usize {
+        let me = std::process::id().to_string();
+        let Ok(dir) = std::fs::read_dir("/proc") else { return 0 };
+        dir.filter_map(|e| std::fs::read_to_string(e.ok()?.path().join("stat")).ok())
+            .filter(|stat| {
+                // pid (comm) state ppid ...
+                let Some((name, rest)) = stat.split_once(") ") else { return false };
+                let fields: Vec<&str> = rest.split_whitespace().collect();
+                name.ends_with(&format!("({comm}"))
+                    && fields.first() == Some(&"Z")
+                    && fields.get(1) == Some(&me.as_str())
+            })
+            .count()
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_program_started_and_forgotten_is_waited_for() {
+        // `true` is not otherwise started by these tests.
+        for _ in 0..3 {
+            spawn_reaped(&mut Command::new("true")).unwrap();
+        }
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while zombies("true") > 0 {
+            assert!(std::time::Instant::now() < until, "ended programs left as zombies");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // A child nobody has waited for yet does show: the check can see one.
+        let mut unwaited = Command::new("true").spawn().unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while zombies("true") == 0 {
+            assert!(std::time::Instant::now() < until, "the zombie check sees nothing");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        unwaited.wait().unwrap();
+    }
 
     #[cfg(windows)]
     #[test]

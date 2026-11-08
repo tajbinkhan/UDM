@@ -360,13 +360,11 @@ fn spawn_daemon() -> io::Result<()> {
     }
     let mut daemon = crate::platform::program_command("uidm-daemon")?;
 
-    crate::platform::detach(&mut daemon)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| io::Error::new(e.kind(), format!("starting {:?}: {e}", daemon.get_program())))?;
-    Ok(())
+    let program = daemon.get_program().to_owned();
+    crate::platform::spawn_reaped(
+        crate::platform::detach(&mut daemon).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()),
+    )
+    .map_err(|e| io::Error::new(e.kind(), format!("starting {program:?}: {e}")))
 }
 
 /// Clear the inherit flag on this process's stdin, stdout and stderr.

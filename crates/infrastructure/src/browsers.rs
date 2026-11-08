@@ -474,7 +474,7 @@ pub fn restart(plan: &RestartPlan) -> io::Result<()> {
     }
     let mut launch = command(&plan.launch);
     launch.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    crate::platform::detach(&mut launch).spawn().map(drop)
+    crate::platform::spawn_reaped(crate::platform::detach(&mut launch))
 }
 
 /// Where registrations go: on Windows the registry keys under `root`
@@ -633,8 +633,12 @@ impl Registrar {
 /// data folder, so one the user turns off in Options stays off), and point
 /// registrations at this copy of the host when UIDM has moved, as an
 /// AppImage does. Returns the browsers registered.
+///
+/// A copy named by `UIDM_INSTANCE` registers nothing: every copy shares the
+/// browsers' one `com.uidm.host` manifest, so a test build would take the
+/// browsers away from the installed UIDM. Options can still register it.
 pub fn register_found() -> io::Result<Vec<&'static str>> {
-    if cfg!(windows) {
+    if !registers_found(cfg!(windows), crate::paths::instance().as_deref()) {
         return Ok(Vec::new());
     }
     let registrar = Registrar::for_this_user()?;
@@ -651,6 +655,12 @@ pub fn register_found() -> io::Result<Vec<&'static str>> {
         crate::settings::write_atomic(&done, b"")?;
     }
     Ok(registered)
+}
+
+/// Whether `register_found` registers anything: not on Windows, where Setup
+/// does, and not for the copy named `instance`.
+fn registers_found(windows: bool, instance: Option<&str>) -> bool {
+    !windows && instance.is_none()
 }
 
 /// The `BrowserRegistry` adapter: the browsers above, registered for this
@@ -739,6 +749,13 @@ impl uidm_application::window::BrowserRegistry for Registry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_usual_copy_registers_the_browsers_it_finds() {
+        assert!(registers_found(false, None));
+        assert!(!registers_found(false, Some("test")), "a named copy leaves the installed one's browsers alone");
+        assert!(!registers_found(true, None), "Setup registers on Windows");
+    }
 
     #[test]
     fn a_program_tells_its_family_and_where_it_registers() {

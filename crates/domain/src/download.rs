@@ -1100,6 +1100,14 @@ pub struct CommandLine {
     pub quit_after: bool,
 }
 
+impl CommandLine {
+    /// Whether it asks for nothing: `uidm-gui` started with no switches,
+    /// which only brings an open window forward.
+    pub fn is_empty(&self) -> bool {
+        self.download.is_none() && !self.start_queue
+    }
+}
+
 /// A file inside a zip archive, as the save-as dialog's Preview lists it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ZipEntry {
