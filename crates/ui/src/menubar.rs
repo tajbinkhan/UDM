@@ -7,7 +7,7 @@
 //! the window's thread through muda's event handler, is queued here, and the
 //! window takes it on its next frame (`take`).
 
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Arc, Mutex, Once};
 
 use eframe::egui;
 use tray_icon::menu::{MenuEvent, MenuId};
@@ -296,8 +296,6 @@ pub fn model(s: &State) -> Vec<Node> {
 static PENDING: Mutex<Vec<Command>> = Mutex::new(Vec::new());
 /// The native items' IDs and what each one does.
 static IDS: Mutex<Vec<(MenuId, Command)>> = Mutex::new(Vec::new());
-/// For waking the window when a choice arrives.
-static CONTEXT: OnceLock<egui::Context> = OnceLock::new();
 
 type Handler = Arc<dyn Fn(&MenuId) -> bool + Send + Sync>;
 static HANDLERS: Mutex<Vec<Handler>> = Mutex::new(Vec::new());
@@ -320,16 +318,13 @@ pub fn on_menu_event(handler: impl Fn(&MenuId) -> bool + Send + Sync + 'static) 
     });
 }
 
-/// Get ready to take choices from the native bar.
-pub fn init(ctx: &egui::Context) {
-    let _ = CONTEXT.set(ctx.clone());
+/// Get ready to take choices from the native bar. Call once.
+pub fn init() {
     on_menu_event(|id| {
         let command = IDS.lock().unwrap().iter().find(|(i, _)| i == id).map(|(_, c)| c.clone());
         let Some(command) = command else { return false };
         PENDING.lock().unwrap().push(command);
-        if let Some(ctx) = CONTEXT.get() {
-            ctx.request_repaint();
-        }
+        crate::reopen::repaint();
         true
     });
 }

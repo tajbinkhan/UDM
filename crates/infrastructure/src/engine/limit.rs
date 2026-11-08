@@ -202,7 +202,11 @@ mod tests {
         }
         let secs = start.elapsed().as_secs_f64();
         let expected = total as f64 / rate as f64;
-        assert!((secs - expected).abs() / expected < 0.10, "took {secs:.2}s, expected about {expected:.2}s");
+        // Never faster than the limit allows. Slower only means a busy
+        // machine overslept (a shared CI runner took 1.66s once), so that
+        // side gets room enough to still catch a limiter that stalls.
+        assert!(secs > expected * 0.9, "took {secs:.2}s, faster than the limit's {expected:.2}s");
+        assert!(secs < expected * 1.5, "took {secs:.2}s, far slower than the limit's {expected:.2}s");
     }
 
     #[test]

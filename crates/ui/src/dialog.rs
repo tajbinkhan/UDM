@@ -203,6 +203,7 @@ impl<'o> Window<'o> {
         place.pass = pass;
         let first = Vec2::new(width, FIRST_HEIGHT);
         let builder = ViewportBuilder::default()
+            .with_app_id(crate::APP_ID)
             .with_title(&self.title)
             .with_inner_size(first)
             .with_position(place.center - first / 2.0)

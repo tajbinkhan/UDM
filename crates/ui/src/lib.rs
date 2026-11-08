@@ -13,7 +13,7 @@
 //! connection.
 //!
 //! It also puts an icon in the tray. Closing the window hides it there (unless
-//! Options says to quit), and `--minimized` starts it hidden, which is how
+//! Options says to quit; on Linux it closes, and `reopen` opens it again), and `--minimized` starts it hidden, which is how
 //! "Start with Windows" runs it. Hiding cloaks the window rather than
 //! hiding it, since a hidden window gets no frames and every dialog is drawn
 //! in its frame: a save-as or download window opens on its own while the
@@ -47,6 +47,7 @@ pub use ports::Ports;
 mod progress;
 mod properties;
 mod queues;
+mod reopen;
 mod state;
 mod table;
 mod theme;
@@ -59,8 +60,10 @@ mod win;
 #[path = "win_other.rs"]
 mod win;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -125,6 +128,12 @@ pub struct Start {
     pub instance: Option<String>,
 }
 
+/// The id every UIDM window carries: the Wayland app id, and the X11 window
+/// class, by which the desktop finds `uidm.desktop` and its icon for the
+/// dock, the taskbar and the window switcher. It must match that file's
+/// name and its `StartupWMClass`.
+pub const APP_ID: &str = "uidm";
+
 /// Open the window and run it until it quits. With a window already open,
 /// this copy hands it its command line (or, with none, brings it forward)
 /// and ends without a window of its own.
@@ -157,13 +166,15 @@ pub fn run(start: Start) -> eframe::Result {
         },
         Some(Err(e)) => startup_error = Some(e.to_string()),
     }
-    let options = eframe::NativeOptions {
+    // A named copy says so, to tell it from the installed one.
+    let title = match instance {
+        Some(name) => format!("UIDM ({name})"),
+        None => "UIDM".to_string(),
+    };
+    let options = |minimized: bool| eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            // A named copy says so, to tell it from the installed one.
-            .with_title(match instance {
-                Some(name) => format!("UIDM ({name})"),
-                None => "UIDM".to_string(),
-            })
+            .with_app_id(APP_ID)
+            .with_title(&title)
             // Elsewhere "hidden" is minimized, which needs a visible window.
             .with_visible(!minimized || !cfg!(windows))
             .with_icon(egui::IconData { rgba: ICON_RGBA.to_vec(), width: ICON_SIZE, height: ICON_SIZE })
@@ -171,48 +182,102 @@ pub fn run(start: Start) -> eframe::Result {
             .with_min_inner_size([860.0, 320.0]),
         ..Default::default()
     };
-    eframe::run_native(
-        "UIDM",
-        options,
-        Box::new(move |cc| {
-            #[cfg(windows)]
-            if let Ok(handle) = cc.window_handle() {
-                if let RawWindowHandle::Win32(h) = handle.as_raw() {
-                    win::set_window(h.hwnd.get());
-                    menubar::attach(h.hwnd.get());
-                    // Started in the tray: made hidden (cloaked) rather than
-                    // left invisible, so its dialogs can open.
-                    if minimized {
-                        win::hide();
+    // The window's state outlives the window: on Linux, closing it to the
+    // tray closes it, and this loop opens a new one when something asks for
+    // it (see `reopen`).
+    let app: Rc<RefCell<Option<App>>> = Rc::default();
+    let mut startup = Some((daemon, startup_error));
+    loop {
+        let first = startup.take();
+        let opening = first.is_some();
+        let shared = Rc::clone(&app);
+        eframe::run_native(
+            "UIDM",
+            options(opening && minimized),
+            Box::new(move |cc| {
+                reopen::opened(&cc.egui_ctx);
+                theme::apply(&cc.egui_ctx, crate::ports::ports().system.fonts());
+                {
+                    let mut slot = shared.borrow_mut();
+                    match (slot.as_mut(), first) {
+                        (Some(app), _) => app.reopened(&cc.egui_ctx),
+                        (None, Some((daemon, startup_error))) => {
+                            *slot = Some(open(cc, daemon, minimized, startup_error))
+                        }
+                        (None, None) => return Err("the window's state is gone".into()),
                     }
                 }
+                Ok(Box::new(Shared(shared)))
+            }),
+        )?;
+        if !reopen::parked() {
+            return Ok(());
+        }
+        // In the tray: take the daemon's news as it comes, so it does not
+        // pile up, until something wants the window again.
+        while !reopen::wait(PARKED_POLL) {
+            if let Some(app) = app.borrow_mut().as_mut() {
+                app.drain_inbox();
             }
-            #[cfg(not(windows))]
-            {
-                win::set_context(&cc.egui_ctx);
-                // Started hidden in the tray: minimized here (see win_other).
-                if minimized {
-                    win::hide();
-                }
+        }
+    }
+}
+
+/// How often a window closed to the tray takes the daemon's news.
+const PARKED_POLL: Duration = Duration::from_millis(250);
+
+/// The window's `App`, kept across windows (see `reopen`).
+struct Shared(Rc<RefCell<Option<App>>>);
+
+impl eframe::App for Shared {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if let Some(app) = self.0.borrow_mut().as_mut() {
+            eframe::App::update(app, ctx, frame);
+        }
+    }
+}
+
+/// Set up the first window and its `App`: the platform's hooks, the
+/// connection to the daemon and the tray icon.
+fn open(
+    cc: &eframe::CreationContext<'_>,
+    daemon: Arc<dyn DaemonClient>,
+    minimized: bool,
+    startup_error: Option<String>,
+) -> App {
+    #[cfg(windows)]
+    if let Ok(handle) = cc.window_handle() {
+        if let RawWindowHandle::Win32(h) = handle.as_raw() {
+            win::set_window(h.hwnd.get());
+            menubar::attach(h.hwnd.get());
+            // Started in the tray: made hidden (cloaked) rather than
+            // left invisible, so its dialogs can open.
+            if minimized {
+                win::hide();
             }
-            theme::apply(&cc.egui_ctx, crate::ports::ports().system.fonts());
-            // Until the settings arrive, follow Windows.
-            i18n::set_language("");
-            let mut app = App::new(&cc.egui_ctx, daemon);
-            if startup_error.is_some() {
-                if let Some(e) = startup_error {
-                    state::apply(&mut app.state, UiMessage::Error(e.to_string()));
-                }
-            }
-            menubar::init(&cc.egui_ctx);
-            // Without a tray icon there would be no way back to a hidden
-            // window.
-            if !tray::installed() {
-                win::show();
-            }
-            Ok(Box::new(app))
-        }),
-    )
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        win::set_context(&cc.egui_ctx);
+        // Started hidden in the tray: minimized here (see win_other).
+        if minimized {
+            win::hide();
+        }
+    }
+    // Until the settings arrive, follow Windows.
+    i18n::set_language("");
+    let mut app = App::new(&cc.egui_ctx, daemon);
+    if let Some(e) = startup_error {
+        state::apply(&mut app.state, UiMessage::Error(e));
+    }
+    menubar::init();
+    // Without a tray icon there would be no way back to a hidden
+    // window.
+    if !tray::installed() {
+        win::show();
+    }
+    app
 }
 
 /// Lock `m`. The window's mutexes hold plain values (a picked file, the
@@ -1522,6 +1587,15 @@ impl App {
         app
     }
 
+    /// The window opened again with `ctx` after closing to the tray: the
+    /// daemon connection, the tray and the state carry on, and the new
+    /// window takes the look the settings give.
+    fn reopened(&mut self, ctx: &egui::Context) {
+        self.ctx = ctx.clone();
+        self.appearance = None;
+        self.was_minimized = false;
+    }
+
     /// Read the grabber's projects and templates again on a worker, every
     /// few seconds, and every second while the grabber is open.
     fn refresh_library(&mut self) {
@@ -1602,7 +1676,6 @@ impl App {
     fn watch_clipboard(&self) {
         let (watch, outbox) = (Arc::clone(&self.watch), self.outbox.clone());
         let daemon = Arc::clone(&self.daemon);
-        let ctx = self.ctx.clone();
         thread::spawn(move || {
             let mut seen = win::clipboard_sequence();
             let mut last_offered: Option<String> = None;
@@ -1631,7 +1704,7 @@ impl App {
                 }
                 let _ = outbox.send(UiMessage::ClipboardOffer(url));
                 win::show();
-                ctx.request_repaint();
+                reopen::repaint();
             }
         });
     }
@@ -1641,7 +1714,6 @@ impl App {
     fn install_tray(&mut self) {
         let (watch, outbox) = (Arc::clone(&self.watch), self.outbox.clone());
         let daemon = Arc::clone(&self.daemon);
-        let ctx = self.ctx.clone();
         let on_command = Arc::new(move |command: tray::Command| {
             match command {
                 tray::Command::Open => win::show(),
@@ -1682,7 +1754,7 @@ impl App {
                 // The daemon keeps downloading and exits on its own once idle.
                 tray::Command::Exit => std::process::exit(0),
             }
-            ctx.request_repaint();
+            reopen::repaint();
         });
         let shown = Arc::clone(&self.tooltip_now);
         let tooltip = Arc::new(move || lock(&shown).clone());
@@ -1699,7 +1771,7 @@ impl App {
 
     /// Connect, first restarting the daemon if `restart`.
     fn connect_with(&mut self, restart: bool) {
-        let (watch, outbox, ctx) = (Arc::clone(&self.watch), self.outbox.clone(), self.ctx.clone());
+        let (watch, outbox) = (Arc::clone(&self.watch), self.outbox.clone());
         state::apply(&mut self.state, UiMessage::Connecting);
         self.daemon.connect(
             restart,
@@ -1718,18 +1790,20 @@ impl App {
                     Need::Wake => win::wake(),
                     Need::Quit => std::process::exit(0),
                     Need::WakeIfStillFailed(id) => {
-                        let (watch, outbox, ctx) = (Arc::clone(&watch), outbox.clone(), ctx.clone());
+                        let (watch, outbox) = (Arc::clone(&watch), outbox.clone());
                         thread::spawn(move || {
                             thread::sleep(FAILED_GRACE);
                             if lock(&watch).still_failed(id) {
                                 let _ = outbox.send(UiMessage::FailedSettled(id));
                                 win::wake();
-                                ctx.request_repaint();
+                                reopen::repaint();
                             }
                         });
                     }
                 }
-                ctx.request_repaint();
+                // The connection outlives a window closed to the tray, so it
+                // wakes whichever window is open.
+                reopen::repaint();
             }),
         );
     }
@@ -4172,13 +4246,19 @@ impl eframe::App for App {
                 self.tray_shown = Some(s.tray_icon);
             }
         }
-        // Close keeps UIDM in the tray unless Options says to quit.
+        // Close keeps UIDM in the tray unless Options says to quit. Where a
+        // window cannot be hidden, it closes and UIDM waits in the tray for
+        // something to open it again (see `reopen`).
         if ctx.input(|i| i.viewport().close_requested())
             && tray::shown()
             && settings.as_ref().is_none_or(|s| s.close_to_tray)
         {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            win::hide();
+            if reopen::CLOSES_TO_TRAY {
+                reopen::park();
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                win::hide();
+            }
         }
         // Minimizing hides it in the tray too, as IDM does; showing it again
         // restores it. Elsewhere hiding is minimizing, so there is nothing to
@@ -4500,7 +4580,7 @@ impl eframe::App for App {
         let in_tray: Vec<(u64, String)> =
             self.progress_windows.iter().filter(|w| w.hidden).map(|w| (w.id, w.title.clone())).collect();
         if in_tray != self.hidden_windows {
-            tray::set_hidden_windows(in_tray.clone(), ctx);
+            tray::set_hidden_windows(in_tray.clone());
             self.hidden_windows = in_tray;
         }
         self.refresh_window(ctx, &rows, connected, &mut actions);

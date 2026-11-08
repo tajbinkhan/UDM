@@ -348,14 +348,13 @@ fn on_tray_thread(f: impl FnOnce() + Send + 'static) {
 
 /// List the download windows hidden in the tray, as `(download, title)`, in
 /// the downloads tray icon's menu, adding the icon for the first and taking
-/// it away after the last. `ctx` is woken when one (or Show all) is picked;
-/// see `take_restored`.
-pub fn set_hidden_windows(windows: Vec<(u64, String)>, ctx: &eframe::egui::Context) {
+/// it away after the last. The window is woken (or opened again) when one,
+/// or Show all, is picked; see `take_restored`.
+pub fn set_hidden_windows(windows: Vec<(u64, String)>) {
     if !installed() {
         return;
     }
     static HANDLER: Once = Once::new();
-    let wake = ctx.clone();
     HANDLER.call_once(move || {
         crate::menubar::on_menu_event(move |id| {
             let ids = HIDDEN_IDS.lock().unwrap();
@@ -369,7 +368,10 @@ pub fn set_hidden_windows(windows: Vec<(u64, String)>, ctx: &eframe::egui::Conte
                 return false;
             }
             RESTORE.lock().unwrap().extend(picked);
-            wake.request_repaint();
+            // The window that draws them, opened again if it was closed.
+            if !crate::reopen::want() {
+                crate::reopen::repaint();
+            }
             true
         });
     });

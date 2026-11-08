@@ -6,25 +6,27 @@
 //! "Hiding" minimizes the window here: a hidden window gets no frames on
 //! every desktop (and Wayland has no hidden windows at all), so it could not
 //! be brought back, while a minimized one always can, from the Dock or the
-//! taskbar too.
+//! taskbar too. On Linux, closing the window to the tray closes it for real,
+//! and showing it opens a new one (see `reopen`).
 
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 
 use eframe::egui;
 
-/// The window's egui context, once eframe has made it.
-static CTX: OnceLock<egui::Context> = OnceLock::new();
-
-/// Keep `ctx`, so other threads can show and hide the window.
+/// Keep `ctx`, the window that just opened, so other threads can show and
+/// hide it.
 pub fn set_context(ctx: &egui::Context) {
-    let _ = CTX.set(ctx.clone());
+    crate::reopen::opened(ctx);
 }
 
-/// Show the window, restore it if minimized, and bring it to the front.
-/// Safe to call from any thread.
+/// Show the window, restore it if minimized, and bring it to the front; a
+/// window closed to the tray opens again. Safe to call from any thread.
 pub fn show() {
-    if let Some(ctx) = CTX.get() {
+    if crate::reopen::want() {
+        return;
+    }
+    if let Some(ctx) = crate::reopen::context() {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -64,7 +66,7 @@ pub fn screen_center() -> Option<(f32, f32)> {
 
 /// Put the window away; it lives on in the tray (and the Dock or taskbar).
 pub fn hide() {
-    if let Some(ctx) = CTX.get() {
+    if let Some(ctx) = crate::reopen::context() {
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         ctx.request_repaint();
     }
