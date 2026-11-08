@@ -8,4 +8,4 @@ Icon=uidm
 Terminal=false
 Categories=Network;FileTransfer;
 Keywords=download;manager;accelerator;
-StartupWMClass=uidm-gui
+StartupWMClass=uidm

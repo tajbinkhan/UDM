@@ -2014,7 +2014,10 @@ arguments; no real ffmpeg was run on real video.
 - On macOS and Linux: the drop target and proxy configuration scripts
   (PAC and WPAD) are Windows-only; the system proxy comes from the
   `http_proxy`, `https_proxy`, `ftp_proxy`, `all_proxy` and `no_proxy`
-  variables. Closing to the tray minimizes the window rather than hiding it.
+  variables. On macOS closing to the tray minimizes the window rather than
+  hiding it. On Linux the window closes and UIDM stays in the tray; a
+  caught download's save-as dialog or download window opens the main
+  window with it.
   macOS notifications have no buttons. Passwords and saved requests are
   sealed with a key in UIDM's data folder that only your user can read,
   rather than the Keychain or the Secret Service. **Update now** opens the
