@@ -188,6 +188,11 @@ pub trait SystemServices: Send + Sync {
     /// Keep `password` for `username` in the system's credential store
     /// under `target`.
     fn save_credential(&self, target: &str, username: &str, password: &str) -> Result<(), FilesError>;
+
+    /// Start another copy of the window that waits in the tray, with no
+    /// window until one is wanted. The window does this as it closes to the
+    /// tray where a window cannot be hidden (Linux).
+    fn start_window_in_tray(&self) -> Result<(), FilesError>;
 }
 
 /// A browser UIDM can register with: its name, and the place it looks for

@@ -1,12 +1,15 @@
-//! The window that closes to the tray and opens again (Linux).
+//! A copy of the window that waits in the tray with no window (Linux).
 //!
 //! Linux cannot hide a window: Wayland has no hidden windows, and a hidden
 //! X11 window gets no frames, which every dialog needs. So closing the
-//! window with "Closing the window keeps UIDM in the tray" on really closes
-//! it there, while this process stays with its tray icon and its daemon
-//! connection, and `run` opens a new window when something asks for it
-//! (`win::show`, `win::wake`). Each window has an egui context of its own,
-//! so the threads that outlive one window reach the current one here.
+//! window with "Closing the window keeps UIDM in the tray" on starts a new
+//! copy with `--in-tray` and ends this one, which takes its window off the
+//! screen. (Wayland keeps a dropped window until the event loop runs again,
+//! so the same process cannot simply wait.) The new copy, or one started at
+//! login with `--minimized`, connects to the daemon and shows its tray icon
+//! with no window; `run` waits here until something asks for the window
+//! (`win::show`, `win::wake`), then opens it. Threads started before the
+//! window reach its egui context here once it exists.
 //!
 //! Windows cloaks its window instead (see `win.rs`), and macOS keeps the
 //! window minimized, since its tray icon needs the main thread's loop.

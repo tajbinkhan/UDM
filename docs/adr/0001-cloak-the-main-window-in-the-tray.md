@@ -9,4 +9,4 @@ Every UIDM dialog and download window is drawn during the main window's frame, a
 
 ## Consequences
 
-Code that asks Windows whether the main window is visible gets "yes" while it is in the tray. Only Windows 8 and later can cloak a window; on macOS "hidden" stays "minimized" (see `win_other.rs`). On Linux closing to the tray closes the window and keeps the process, its tray icon and its daemon connection, and a new window opens when something asks for it (see `reopen.rs`); the dialogs still need that window, so it comes up with them.
+Code that asks Windows whether the main window is visible gets "yes" while it is in the tray. Only Windows 8 and later can cloak a window; on macOS "hidden" stays "minimized" (see `win_other.rs`). On Linux closing to the tray starts a new copy with `--in-tray`, which waits in the tray with its daemon connection and no window, and ends the old one, which takes its window off the screen (Wayland keeps a dropped window until the event loop runs again, so the same process cannot wait). The new copy opens its window when something asks for it (see `reopen.rs`); the dialogs still need that window, so it comes up with them.

@@ -13,7 +13,8 @@
 //! connection.
 //!
 //! It also puts an icon in the tray. Closing the window hides it there (unless
-//! Options says to quit; on Linux it closes, and `reopen` opens it again), and `--minimized` starts it hidden, which is how
+//! Options says to quit; on Linux it closes, and a new copy waits there, see
+//! `reopen`), and `--minimized` starts it hidden, which is how
 //! "Start with Windows" runs it. Hiding cloaks the window rather than
 //! hiding it, since a hidden window gets no frames and every dialog is drawn
 //! in its frame: a save-as or download window opens on its own while the
@@ -60,10 +61,8 @@ mod win;
 #[path = "win_other.rs"]
 mod win;
 
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
@@ -121,6 +120,9 @@ pub struct Start {
     /// Start hidden in the tray (`--minimized`), as "Start with Windows"
     /// does.
     pub minimized: bool,
+    /// Started by a window closing to the tray (`--in-tray`): wait there
+    /// with no window, and do not hand over to the window that is going.
+    pub in_tray: bool,
     /// A command line to run, such as a download to add, or why it could
     /// not be read.
     pub command_line: Option<Result<CommandLine, UiError>>,
@@ -138,10 +140,13 @@ pub const APP_ID: &str = "uidm";
 /// this copy hands it its command line (or, with none, brings it forward)
 /// and ends without a window of its own.
 pub fn run(start: Start) -> eframe::Result {
-    let Start { ports, daemon, mut minimized, command_line, instance } = start;
+    let Start { ports, daemon, mut minimized, in_tray, command_line, instance } = start;
     ports::install(ports);
     let mut startup_error = None;
     match command_line {
+        // A copy a closing window started is that window's successor, so it
+        // does not hand itself to the window that is going.
+        _ if in_tray => {}
         // Started again while a window is open: the daemon brings that one
         // forward, and this copy opens no second window. When the daemon
         // cannot be asked, this window opens and reports it once connected.
@@ -171,7 +176,32 @@ pub fn run(start: Start) -> eframe::Result {
         Some(name) => format!("UIDM ({name})"),
         None => "UIDM".to_string(),
     };
-    let options = |minimized: bool| eframe::NativeOptions {
+    // Where a window cannot be hidden, a copy started in the tray waits
+    // there with no window until something wants one (see `reopen`).
+    let wait_in_tray = reopen::CLOSES_TO_TRAY && (in_tray || minimized);
+    let mut waited = None;
+    if wait_in_tray {
+        // Waiting from before the connection starts, so a request for the
+        // window that comes at once (a download waiting for its save-as
+        // dialog) is not lost.
+        reopen::park();
+        i18n::set_language("");
+        let mut app = App::new(&egui::Context::default(), Arc::clone(&daemon));
+        if let Some(e) = startup_error.take() {
+            state::apply(&mut app.state, UiMessage::Error(e));
+        }
+        menubar::init();
+        // Without a tray icon there is nothing to wait in.
+        if tray::installed() {
+            // Take the daemon's news as it comes, so it does not pile up.
+            while !reopen::wait(TRAY_POLL) {
+                app.drain_inbox();
+            }
+        }
+        waited = Some(app);
+    }
+    let minimized = minimized && !wait_in_tray;
+    let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_app_id(APP_ID)
             .with_title(&title)
@@ -182,60 +212,34 @@ pub fn run(start: Start) -> eframe::Result {
             .with_min_inner_size([860.0, 320.0]),
         ..Default::default()
     };
-    // The window's state outlives the window: on Linux, closing it to the
-    // tray closes it, and this loop opens a new one when something asks for
-    // it (see `reopen`).
-    let app: Rc<RefCell<Option<App>>> = Rc::default();
-    let mut startup = Some((daemon, startup_error));
-    loop {
-        let first = startup.take();
-        let opening = first.is_some();
-        let shared = Rc::clone(&app);
-        eframe::run_native(
-            "UIDM",
-            options(opening && minimized),
-            Box::new(move |cc| {
-                reopen::opened(&cc.egui_ctx);
-                theme::apply(&cc.egui_ctx, crate::ports::ports().system.fonts());
-                {
-                    let mut slot = shared.borrow_mut();
-                    match (slot.as_mut(), first) {
-                        (Some(app), _) => app.reopened(&cc.egui_ctx),
-                        (None, Some((daemon, startup_error))) => {
-                            *slot = Some(open(cc, daemon, minimized, startup_error))
-                        }
-                        (None, None) => return Err("the window's state is gone".into()),
-                    }
+    eframe::run_native(
+        "UIDM",
+        options,
+        Box::new(move |cc| {
+            reopen::opened(&cc.egui_ctx);
+            theme::apply(&cc.egui_ctx, crate::ports::ports().system.fonts());
+            let app = match waited {
+                Some(mut app) => {
+                    app.reopened(&cc.egui_ctx);
+                    app
                 }
-                Ok(Box::new(Shared(shared)))
-            }),
-        )?;
-        if !reopen::parked() {
-            return Ok(());
-        }
-        // In the tray: take the daemon's news as it comes, so it does not
-        // pile up, until something wants the window again.
-        while !reopen::wait(PARKED_POLL) {
-            if let Some(app) = app.borrow_mut().as_mut() {
-                app.drain_inbox();
-            }
-        }
+                None => open(cc, daemon, minimized, startup_error),
+            };
+            Ok(Box::new(app))
+        }),
+    )?;
+    // Closed to the tray: a new copy waits there, and this one ends, which
+    // takes its window off the screen on every desktop. (Wayland would keep
+    // a dropped window until the event loop ran again.) If the new copy
+    // cannot start, UIDM leaves the tray; downloads go on in the daemon.
+    if reopen::parked() {
+        let _ = crate::ports::ports().system.start_window_in_tray();
     }
+    Ok(())
 }
 
-/// How often a window closed to the tray takes the daemon's news.
-const PARKED_POLL: Duration = Duration::from_millis(250);
-
-/// The window's `App`, kept across windows (see `reopen`).
-struct Shared(Rc<RefCell<Option<App>>>);
-
-impl eframe::App for Shared {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if let Some(app) = self.0.borrow_mut().as_mut() {
-            eframe::App::update(app, ctx, frame);
-        }
-    }
-}
+/// How often a copy waiting in the tray takes the daemon's news.
+const TRAY_POLL: Duration = Duration::from_millis(250);
 
 /// Set up the first window and its `App`: the platform's hooks, the
 /// connection to the daemon and the tray icon.
@@ -1587,8 +1591,8 @@ impl App {
         app
     }
 
-    /// The window opened again with `ctx` after closing to the tray: the
-    /// daemon connection, the tray and the state carry on, and the new
+    /// The window opened with `ctx` after this copy waited in the tray with
+    /// none: the daemon connection, the tray and the state carry on, and the
     /// window takes the look the settings give.
     fn reopened(&mut self, ctx: &egui::Context) {
         self.ctx = ctx.clone();

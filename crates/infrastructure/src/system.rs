@@ -48,4 +48,15 @@ impl SystemServices for ThisSystem {
     fn save_credential(&self, target: &str, username: &str, password: &str) -> Result<(), FilesError> {
         crate::net::save_credential(target, username, password).map_err(|e| FilesError(e.to_string()))
     }
+
+    fn start_window_in_tray(&self) -> Result<(), FilesError> {
+        let mut cmd = crate::platform::program_command("uidm-gui").map_err(|e| FilesError(e.to_string()))?;
+        cmd.arg(crate::cli::IN_TRAY)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        // Its own process group, as the daemon has: this copy is about to
+        // exit, and the new one outlives it.
+        crate::platform::spawn_reaped(crate::platform::detach(&mut cmd)).map_err(|e| FilesError(e.to_string()))
+    }
 }

@@ -259,22 +259,22 @@ impl<'o> Window<'o> {
 
             // Fit the window to what it shows: always for a fixed-size
             // dialog, the first time for one the user can resize.
-            let inner = ctx.input(|i| i.viewport().inner_rect).map(|r| r.size());
+            // Wayland tells no window its position, so egui leaves
+            // `inner_rect` empty there; the screen rect is the same size.
+            let inner = ctx.input(|i| i.viewport().inner_rect.unwrap_or(i.screen_rect)).size();
             let wanted = Vec2::new(
                 (content.x + 2.0 * MARGIN as f32).max(width).ceil(),
                 (content.y + 2.0 * MARGIN as f32).ceil(),
             );
-            if let Some(inner) = inner {
-                let off = (wanted - inner).abs();
-                if (!resizable || !place.fitted) && (off.x > 1.0 || off.y > 1.0) {
-                    ctx.send_viewport_cmd(ViewportCommand::InnerSize(wanted));
-                    if !place.fitted {
-                        // Centered again at its real size.
-                        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(place.center - wanted / 2.0));
-                    }
+            let off = (wanted - inner).abs();
+            if (!resizable || !place.fitted) && (off.x > 1.0 || off.y > 1.0) {
+                ctx.send_viewport_cmd(ViewportCommand::InnerSize(wanted));
+                if !place.fitted {
+                    // Centered again at its real size.
+                    ctx.send_viewport_cmd(ViewportCommand::OuterPosition(place.center - wanted / 2.0));
                 }
-                place.fitted = true;
             }
+            place.fitted = true;
             // A dialog the user opens comes to the front with the focus,
             // even while another program had it. One that opens on its own
             // is made to stay on top (or not) by its builder instead.

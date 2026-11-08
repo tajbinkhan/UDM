@@ -211,6 +211,9 @@ mod fakes {
             false
         }
         fn play(&self, _: Sound, _: Option<&Path>) {}
+        fn start_window_in_tray(&self) -> Result<(), FilesError> {
+            Ok(())
+        }
         fn save_credential(&self, _: &str, _: &str, _: &str) -> Result<(), FilesError> {
             Ok(())
         }
