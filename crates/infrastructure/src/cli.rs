@@ -91,7 +91,7 @@ where
             Some('n') => silent = true,
             Some('a') => add = true,
             Some('s') => start_queue = true,
-            Some('m') => {}
+            Some('m' | 't') => {}
             _ => return Err(CliError::Unknown(arg.to_string())),
         }
     }
@@ -302,8 +302,14 @@ fn many(list: LinkList) -> Result<Sent, CliError> {
     Ok(Sent::Many { referer: given(list.referer).unwrap_or_default(), links })
 }
 
+/// The flag that starts the window in the tray, with no window until one is
+/// wanted; the window starts a new copy of itself with it when it closes to
+/// the tray on Linux.
+pub const IN_TRAY: &str = "--in-tray";
+
 /// The letter of an IDM switch: `/d`, `/D`, `-d` and `--download` are all
-/// `d`. `--minimized`, the autostart flag, is `m`.
+/// `d`. `--minimized`, the autostart flag, is `m`, and `--in-tray`, which
+/// the window starts itself with when it closes to the tray, is `t`.
 fn switch(arg: &str) -> Option<char> {
     let long = match arg {
         "--download" => 'd',
@@ -315,6 +321,7 @@ fn switch(arg: &str) -> Option<char> {
         "--add" => 'a',
         "--start-queue" => 's',
         "--minimized" => 'm',
+        IN_TRAY => 't',
         _ => {
             let mut chars = arg.chars();
             let (Some('/' | '-'), Some(c), None) = (chars.next(), chars.next(), chars.next()) else {
@@ -350,6 +357,7 @@ mod tests {
     fn no_switches_open_the_window_as_usual() {
         assert!(run(&[]).unwrap().is_none());
         assert!(run(&["--minimized"]).unwrap().is_none());
+        assert!(run(&[IN_TRAY]).unwrap().is_none());
     }
 
     #[test]
