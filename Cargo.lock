@@ -4827,7 +4827,7 @@ dependencies = [
 
 [[package]]
 name = "uidm-app"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "eframe",
@@ -4842,7 +4842,7 @@ dependencies = [
 
 [[package]]
 name = "uidm-application"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "serde_json",
  "thiserror 2.0.21",
@@ -4852,7 +4852,7 @@ dependencies = [
 
 [[package]]
 name = "uidm-domain"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "percent-encoding",
  "serde",
@@ -4863,7 +4863,7 @@ dependencies = [
 
 [[package]]
 name = "uidm-infrastructure"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -4898,7 +4898,7 @@ dependencies = [
 
 [[package]]
 name = "uidm-ui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "arboard",
  "eframe",
