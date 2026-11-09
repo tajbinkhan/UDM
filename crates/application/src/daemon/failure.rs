@@ -61,13 +61,14 @@ impl From<ProbeError> for Failure {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::id::QueueId;
     use uidm_domain::settings::InvalidSettings;
 
     /// Clients that read only the text hear what they heard before.
     #[test]
     fn messages_read_as_the_errors_they_carry() {
-        let queue = Failure::from(QueueError::NoQueue(7));
-        assert_eq!(queue, Failure::Service(ServiceError::Queue(QueueError::NoQueue(7))));
+        let queue = Failure::from(QueueError::NoQueue(QueueId::new(7)));
+        assert_eq!(queue, Failure::Service(ServiceError::Queue(QueueError::NoQueue(QueueId::new(7)))));
         assert_eq!(queue.to_string(), "no queue with id 7");
         let update = Failure::from(UpdateError::NewestAlready);
         assert_eq!(update, Failure::Service(ServiceError::Update(UpdateError::NewestAlready)));

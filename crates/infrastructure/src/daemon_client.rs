@@ -155,6 +155,7 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::mpsc::{channel, Receiver};
     use uidm_application::daemon::Failure;
+    use uidm_domain::id::DownloadId;
 
     /// A pretend daemon on a local port: it hands each accepted
     /// connection to `serve`.
@@ -204,9 +205,9 @@ mod tests {
             for _ in 0..3 {
                 let _ = lock(&got_tx).send(read(&mut stream));
             }
-            send(&mut stream, &Outgoing::Added { id: 4, url: "http://x/f".into() });
+            send(&mut stream, &Outgoing::Added { id: DownloadId::new(4), url: "http://x/f".into() });
             send(&mut stream, &Outgoing::Pong);
-            send(&mut stream, &Outgoing::Removed { id: 4 });
+            send(&mut stream, &Outgoing::Removed { id: DownloadId::new(4) });
             let _ = lock(&got_tx).send(read(&mut stream));
         });
         let client = IpcDaemonClient::with_connector("window", connector);
@@ -216,11 +217,13 @@ mod tests {
         assert!(matches!(hello, Some(Incoming::Hello { client: Some(ref c), .. }) if c == "window"));
         assert!(matches!(got.recv().unwrap(), Some(Incoming::List)));
         assert!(matches!(got.recv().unwrap(), Some(Incoming::GetSettings)));
-        assert_eq!(next(&rx), Event::Added { id: 4, url: "http://x/f".into() });
+        assert_eq!(next(&rx), Event::Added { id: DownloadId::new(4), url: "http://x/f".into() });
         // `pong` is not for a window.
-        assert_eq!(next(&rx), Event::Removed { id: 4 });
-        assert!(client.send(Command::Cancel { id: 4 }));
-        assert!(matches!(got.recv_timeout(Duration::from_secs(5)).unwrap(), Some(Incoming::Cancel { id: 4 })));
+        assert_eq!(next(&rx), Event::Removed { id: DownloadId::new(4) });
+        assert!(client.send(Command::Cancel { id: DownloadId::new(4) }));
+        assert!(
+            matches!(got.recv_timeout(Duration::from_secs(5)).unwrap(), Some(Incoming::Cancel { id }) if id == DownloadId::new(4))
+        );
         // The pretend daemon hangs up after that.
         assert_eq!(next(&rx), Event::Lost(Lost::Closed));
         assert!(!client.send(Command::List));

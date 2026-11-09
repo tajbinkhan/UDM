@@ -435,6 +435,7 @@ fn update(e: &UpdateError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::id::{DownloadId, QueueId};
     use uidm_domain::ports::ControlError;
 
     /// `?` turns the domain's errors into the window's, in the user's words.
@@ -501,13 +502,14 @@ mod tests {
             ServiceError::NotDownloadAddress("file:///x".into()).into(),
             ServiceError::Grab(InvalidGrab::Depth).into(),
             ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
-            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(4)))).into(),
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(QueueId::new(4)))))
+                .into(),
             ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
             QueueError::NameTaken("Night".into()).into(),
             QueueError::Invalid(InvalidQueue::NoName).into(),
             QueueError::NotQueued.into(),
-            DownloadError::NoDownload(3).into(),
-            DownloadError::StillRunning(3).into(),
+            DownloadError::NoDownload(DownloadId::new(3)).into(),
+            DownloadError::StillRunning(DownloadId::new(3)).into(),
             DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
             DownloadError::NotDownloadLink("javascript:".into()).into(),
             DownloadError::Exists("/d/f.zip".into()).into(),

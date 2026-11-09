@@ -37,6 +37,7 @@ use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
 /// After the browser closes, how long to wait for the daemon to deliver
 /// replies already in flight before giving up on them.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+use uidm_domain::id::DownloadId;
 use uidm_domain::settings::{FileExists, Folders, DEFAULT_CONNECTIONS};
 use uidm_infrastructure::cli::Sent;
 use uidm_infrastructure::engine::{self, DownloadRequest, Progress};
@@ -215,7 +216,7 @@ fn read_input(source: &str) -> io::Result<String> {
 
 /// Give `sent` to the daemon and wait for its answer: the new download's id
 /// for one link, `None` once a list has reached the picker.
-fn send(sent: Sent) -> io::Result<Option<u64>> {
+fn send(sent: Sent) -> io::Result<Option<DownloadId>> {
     let mut daemon = ipc::connect_or_spawn()?;
     daemon.set_read_timeout(Some(SEND_TIMEOUT))?;
     let hello =

@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::id::DownloadId;
 use serde::{Deserialize, Serialize};
 
 /// Bytes received, by minute since 1970.
@@ -14,18 +15,18 @@ pub struct Usage {
     /// Each running download's progress at its last report, so only new
     /// bytes count. Not saved: a restart starts every download afresh.
     #[serde(skip)]
-    last: HashMap<u64, u64>,
+    last: HashMap<DownloadId, u64>,
 }
 
 impl Usage {
     /// A download (re)started with `done` bytes already in hand; those do
     /// not count again.
-    pub fn started(&mut self, id: u64, done: u64) {
+    pub fn started(&mut self, id: DownloadId, done: u64) {
         self.last.insert(id, done);
     }
 
     /// Download `id` reports `done` bytes at minute `now`: count what is new.
-    pub fn progress(&mut self, id: u64, done: u64, now: u64) {
+    pub fn progress(&mut self, id: DownloadId, done: u64, now: u64) {
         let before = self.last.insert(id, done).unwrap_or(done);
         let new = done.saturating_sub(before);
         if new == 0 {
@@ -38,7 +39,7 @@ impl Usage {
     }
 
     /// The download stopped; forget its progress.
-    pub fn ended(&mut self, id: u64) {
+    pub fn ended(&mut self, id: DownloadId) {
         self.last.remove(&id);
     }
 
@@ -146,11 +147,11 @@ mod tests {
     #[test]
     fn counts_only_new_bytes_in_the_window() {
         let mut u = Usage::default();
-        u.started(1, 500);
-        u.progress(1, 700, 10);
-        u.progress(1, 1000, 10);
-        u.started(2, 0);
-        u.progress(2, 50, 11);
+        u.started(DownloadId::new(1), 500);
+        u.progress(DownloadId::new(1), 700, 10);
+        u.progress(DownloadId::new(1), 1000, 10);
+        u.started(DownloadId::new(2), 0);
+        u.progress(DownloadId::new(2), 50, 11);
         assert_eq!(u.used(11, 60), 550, "resumed bytes do not count");
         assert_eq!(u.used(70, 60), 50, "minute 10 left the window");
         assert_eq!(u.used(200, 60), 0);
@@ -159,9 +160,9 @@ mod tests {
     #[test]
     fn says_when_the_window_frees_up() {
         let mut u = Usage::default();
-        u.started(1, 0);
-        u.progress(1, 600, 0);
-        u.progress(1, 1000, 30);
+        u.started(DownloadId::new(1), 0);
+        u.progress(DownloadId::new(1), 600, 0);
+        u.progress(DownloadId::new(1), 1000, 30);
         // 1000 bytes in an hour with a limit of 800: minute 0 must leave.
         assert_eq!(u.frees_at(40, 60, 800), 60);
         assert_eq!(u.frees_at(40, 60, 2000), 40, "already under the limit");

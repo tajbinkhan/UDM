@@ -97,7 +97,7 @@ pub struct GrabRequest {
     /// Add each file to this queue as soon as it is found, and start the
     /// queue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub download_found: Option<u64>,
+    pub download_found: Option<crate::id::QueueId>,
     /// Follow links on the start site however deep they go; the page and
     /// size budgets still stop the crawl.
     #[serde(default)]
@@ -728,7 +728,7 @@ pub struct Project {
     pub download_new: bool,
     /// The queue a scheduled run downloads in.
     #[serde(default = "main_queue")]
-    pub queue: u64,
+    pub queue: crate::id::QueueId,
     /// What happens once a scheduled run is done: after the crawl, or once
     /// the queue has downloaded what the run added.
     #[serde(default, skip_serializing_if = "is_nothing")]
@@ -757,7 +757,7 @@ pub struct Project {
     pub kind: crate::queue::QueueKind,
 }
 
-fn main_queue() -> u64 {
+fn main_queue() -> crate::id::QueueId {
     crate::queue::MAIN_QUEUE
 }
 

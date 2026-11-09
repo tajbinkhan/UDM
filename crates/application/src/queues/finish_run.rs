@@ -1,3 +1,4 @@
+use uidm_domain::id::QueueId;
 use uidm_domain::ports::{QueueFinish, QueueRuns, QueueStore};
 
 /// End a queue's run once its downloads are done: the queue stops, and when
@@ -16,7 +17,7 @@ impl<'a, Q: QueueStore, R: QueueRuns, F: QueueFinish> FinishRun<'a, Q, R, F> {
 
     /// End queue `id`'s run. Returns the queue's name, or `None` when it is
     /// gone.
-    pub fn run(&self, id: u64) -> Option<String> {
+    pub fn run(&self, id: QueueId) -> Option<String> {
         let started = self.runs.started_in_run(id);
         self.runs.end(id);
         self.runs.forget_retries(&started);
@@ -34,6 +35,7 @@ impl<'a, Q: QueueStore, R: QueueRuns, F: QueueFinish> FinishRun<'a, Q, R, F> {
 mod tests {
     use super::*;
     use crate::memory::{Finish, Queues, Runs};
+    use uidm_domain::id::DownloadId;
     use uidm_domain::queue::{RunEnd, WhenDone, MAIN_QUEUE};
 
     #[test]
@@ -45,12 +47,12 @@ mod tests {
         });
         let (runs, finish) = (Runs::default(), Finish::default());
         runs.begin(MAIN_QUEUE);
-        runs.note_started(MAIN_QUEUE, 1);
-        assert_eq!(runs.count_retry(1, 3), Some(1));
+        runs.note_started(MAIN_QUEUE, DownloadId::new(1));
+        assert_eq!(runs.count_retry(DownloadId::new(1), 3), Some(1));
         assert_eq!(FinishRun::new(&queues, &runs, &finish).run(MAIN_QUEUE).as_deref(), Some("Main queue"));
         assert!(!queues.get(MAIN_QUEUE).running);
         assert!(!runs.running(MAIN_QUEUE));
-        assert_eq!(runs.count_retry(1, 3), Some(1), "its retries start over");
+        assert_eq!(runs.count_retry(DownloadId::new(1), 3), Some(1), "its retries start over");
         let end = RunEnd { action: WhenDone::Hibernate, open: None, force_close: false };
         assert_eq!(finish.ended(), [("Main queue".to_string(), end)]);
     }
@@ -62,6 +64,6 @@ mod tests {
         let (runs, finish) = (Runs::default(), Finish::default());
         FinishRun::new(&queues, &runs, &finish).run(MAIN_QUEUE).unwrap();
         assert!(finish.ended().is_empty());
-        assert_eq!(FinishRun::new(&queues, &runs, &finish).run(9), None, "no such queue");
+        assert_eq!(FinishRun::new(&queues, &runs, &finish).run(QueueId::new(9)), None, "no such queue");
     }
 }

@@ -1,4 +1,5 @@
 use uidm_domain::download::{DownloadError, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{Clock, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore, QuotaState};
 use uidm_domain::quota::{self, QuotaLimit, QuotaNotice, QuotaStep};
 
@@ -11,7 +12,7 @@ pub enum QuotaEvent {
     /// The quota was reached and everything stopped.
     Reached { used: u64, limit: u64 },
     /// The window allows downloads again; these could not resume.
-    Resumed { failed: Vec<(u64, DownloadError)> },
+    Resumed { failed: Vec<(DownloadId, DownloadError)> },
 }
 
 /// Pause everything when the download quota is reached, warn shortly
@@ -83,7 +84,7 @@ where
                     // A queue deleted while paused stays gone.
                     let _ = start.run(q, None);
                 }
-                let mut downloads: Vec<u64> = downloads.into_iter().collect();
+                let mut downloads: Vec<DownloadId> = downloads.into_iter().collect();
                 downloads.sort_unstable();
                 let retry = RetryDownload::new(self.queues, self.downloads, self.control);
                 let failed = downloads
@@ -156,7 +157,7 @@ mod tests {
         assert_eq!(w.check(&quota, Some(LIMIT)), Some(QuotaEvent::Resumed { failed: vec![] }));
         assert!(w.queues.get(MAIN_QUEUE).running);
         assert_eq!(w.control.restarted().len(), 1);
-        assert!(w.downloads.entry(1).is_none(), "it goes on as a new row");
+        assert!(w.downloads.entry(DownloadId::new(1)).is_none(), "it goes on as a new row");
         assert!(!quota.paused());
     }
 

@@ -44,17 +44,18 @@ pub fn apply(table: &mut DownloadTable, event: &Event, now: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::id::DownloadId;
 
     #[test]
     fn download_events_change_the_list_and_others_do_not() {
         let mut t = DownloadTable::new();
-        apply(&mut t, &Event::Added { id: 1, url: "u".into() }, 0);
+        apply(&mut t, &Event::Added { id: DownloadId::new(1), url: "u".into() }, 0);
         apply(&mut t, &Event::Error { error: crate::daemon::Failure::Other("x".into()) }, 0);
         apply(&mut t, &Event::Show, 0);
         assert_eq!(t.len(), 1);
-        apply(&mut t, &Event::Failed { id: 1, url: "u".into(), error: "timed out".into() }, 0);
-        assert_eq!(t.get(1).unwrap().error.as_deref(), Some("timed out"));
-        apply(&mut t, &Event::Removed { id: 1 }, 0);
+        apply(&mut t, &Event::Failed { id: DownloadId::new(1), url: "u".into(), error: "timed out".into() }, 0);
+        assert_eq!(t.get(DownloadId::new(1)).unwrap().error.as_deref(), Some("timed out"));
+        apply(&mut t, &Event::Removed { id: DownloadId::new(1) }, 0);
         assert!(t.is_empty());
     }
 }

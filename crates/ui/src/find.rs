@@ -6,6 +6,7 @@
 
 use eframe::egui;
 use uidm_domain::download::DownloadEntry;
+use uidm_domain::id::DownloadId;
 
 use super::display_name;
 use crate::i18n::{tr, trf};
@@ -24,7 +25,7 @@ pub struct FindBar {
     /// the text must be whole words (see `whole_words`).
     pub whole: bool,
     /// The match F3 moved to.
-    pub current: Option<u64>,
+    pub current: Option<DownloadId>,
     /// Scroll the list to `current` on this frame.
     pub scroll: bool,
     /// Put the cursor in the text box on this frame.
@@ -89,7 +90,7 @@ impl FindBar {
 
     /// Move to the match after the current one in `ids` (before it when
     /// `back`), wrapping around at either end.
-    pub fn step(&mut self, ids: &[u64], back: bool) {
+    pub fn step(&mut self, ids: &[DownloadId], back: bool) {
         if ids.is_empty() {
             self.current = None;
             return;
@@ -141,7 +142,7 @@ pub fn shortcuts(ctx: &egui::Context, bar: &mut Option<FindBar>) {
 
 /// Step through `ids`, the matches in list order, on F3 and Shift+F3. The
 /// current match stays one of them.
-pub fn step_keys(ctx: &egui::Context, bar: &mut FindBar, ids: &[u64]) {
+pub fn step_keys(ctx: &egui::Context, bar: &mut FindBar, ids: &[DownloadId]) {
     let (next, back) = ctx.input(|i| (i.key_pressed(egui::Key::F3), i.modifiers.shift));
     if bar.current.is_some_and(|c| !ids.contains(&c)) {
         bar.current = None;
@@ -152,7 +153,7 @@ pub fn step_keys(ctx: &egui::Context, bar: &mut FindBar, ids: &[u64]) {
 }
 
 /// The bar itself. Returns false when it was closed.
-pub fn show(ui: &mut egui::Ui, bar: &mut FindBar, ids: &[u64]) -> bool {
+pub fn show(ui: &mut egui::Ui, bar: &mut FindBar, ids: &[DownloadId]) -> bool {
     let mut open = true;
     ui.horizontal(|ui| {
         ui.label(tr("Find:"));
@@ -214,7 +215,7 @@ mod tests {
 
     fn entry(id: u64, url: &str, path: Option<&str>, referrer: Option<&str>) -> DownloadEntry {
         DownloadEntry {
-            id,
+            id: DownloadId::new(id),
             url: url.into(),
             path: path.map(str::to_string),
             total: None,
@@ -313,15 +314,15 @@ mod tests {
     #[test]
     fn steps_wrap_both_ways() {
         let mut b = bar("x");
-        let ids = [4, 7, 9];
+        let ids = [4, 7, 9].map(DownloadId::new);
         b.step(&ids, false);
-        assert_eq!(b.current, Some(4));
+        assert_eq!(b.current, Some(DownloadId::new(4)));
         b.step(&ids, false);
         b.step(&ids, false);
         b.step(&ids, false);
-        assert_eq!(b.current, Some(4), "past the last goes back to the first");
+        assert_eq!(b.current, Some(DownloadId::new(4)), "past the last goes back to the first");
         b.step(&ids, true);
-        assert_eq!(b.current, Some(9));
+        assert_eq!(b.current, Some(DownloadId::new(9)));
         b.step(&[], false);
         assert_eq!(b.current, None);
     }

@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::id::{DownloadId, QueueId};
 use crate::media::MediaChoice;
 use crate::queue::WhenDone;
 use crate::settings::{Duplicate, FileExists, Settings, SPEED_LIMIT_RANGE_KBPS};
@@ -24,7 +25,7 @@ fn is_true(b: &bool) -> bool {
 /// given. With `start` false the download waits until started.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Answer {
-    pub id: u64,
+    pub id: DownloadId,
     #[serde(default)]
     pub filename: Option<String>,
     #[serde(default)]
@@ -34,7 +35,7 @@ pub struct Answer {
     /// With `start` false, the queue it waits in; missing uses the queue
     /// Download later is set to, else the main queue.
     #[serde(default)]
-    pub queue: Option<u64>,
+    pub queue: Option<QueueId>,
     /// What to do if the file name is taken (rename or overwrite); the
     /// setting decides when missing.
     #[serde(default)]
@@ -71,7 +72,7 @@ pub struct Answer {
 
 impl Answer {
     /// Start download `id` as proposed.
-    pub fn start(id: u64) -> Self {
+    pub fn start(id: DownloadId) -> Self {
         Answer {
             id,
             filename: None,
@@ -133,7 +134,7 @@ pub struct Download {
     /// The queue a download added with `start: false` waits in; the main
     /// queue when missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub queue: Option<u64>,
+    pub queue: Option<QueueId>,
     /// The folder to save in, a full path, instead of the one its category
     /// picks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -428,7 +429,7 @@ pub enum Scan {
 /// One download as the daemon tracks it, sent in a `downloads` snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DownloadEntry {
-    pub id: u64,
+    pub id: DownloadId,
     pub url: String,
     /// Output file, once the engine has chosen it.
     pub path: Option<String>,
@@ -451,7 +452,7 @@ pub struct DownloadEntry {
     /// While `confirming`: another download in the list has the same
     /// address, and the save-as dialog asks what to do about it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub duplicate_of: Option<u64>,
+    pub duplicate_of: Option<DownloadId>,
     /// The Referer its request sends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub referrer: Option<String>,
@@ -554,11 +555,11 @@ pub struct OnDone {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum DownloadError {
     #[error("no download with id {0}")]
-    NoDownload(u64),
+    NoDownload(DownloadId),
     #[error("download {0} is still running; cancel it first")]
-    StillRunning(u64),
+    StillRunning(DownloadId),
     #[error("download {0} is not failed, canceled or interrupted")]
-    NotRetryable(u64),
+    NotRetryable(DownloadId),
     #[error("Only a finished or stopped download can be downloaded again.")]
     NotFinishedOrStopped,
     #[error("This stream's playlist is no longer known. Play it in the browser again to download it.")]
@@ -596,7 +597,7 @@ pub enum DownloadError {
     #[error("Converting needs ffmpeg. Install it, or choose it in Options > General.")]
     NoFfmpeg,
     #[error("download {0} is not waiting to be started")]
-    NotWaiting(u64),
+    NotWaiting(DownloadId),
     #[error("the download has no file name")]
     AnswerNoFileName,
     #[error("the download has no folder")]
@@ -695,7 +696,7 @@ impl DownloadEntry {
         path: &Path,
         total: Option<u64>,
         resumable: bool,
-        duplicate_of: Option<u64>,
+        duplicate_of: Option<DownloadId>,
     ) -> bool {
         if self.status != Status::Queued {
             return false;
@@ -1045,7 +1046,7 @@ impl Download {
     /// The answer given for download `id` when no window answers its
     /// dialog in time: start as proposed (a "download later" waits instead),
     /// with `file_exists` deciding a taken name.
-    pub fn fallback_answer(&self, id: u64, file_exists: Option<FileExists>) -> Answer {
+    pub fn fallback_answer(&self, id: DownloadId, file_exists: Option<FileExists>) -> Answer {
         Answer { start: self.start != Some(false), queue: self.queue, file_exists, ..Answer::start(id) }
     }
 
@@ -1439,7 +1440,7 @@ mod tests {
         let dl = if cfg!(windows) { r"C:\dl" } else { "/dl" };
         let mut e = entry(Status::Confirming, 0);
         e.path = Some(Path::new(dl).join("a.zip").display().to_string());
-        e.duplicate_of = Some(7);
+        e.duplicate_of = Some(DownloadId::new(7));
         e.apply_answer(Some("b?.zip"), None, Some("Music"), Some("")).unwrap();
         assert_eq!(e.path, Some(Path::new(dl).join("b_.zip").display().to_string()));
         assert_eq!((e.status, e.duplicate_of, e.category.as_deref()), (Status::Waiting, None, Some("Music")));
@@ -1450,7 +1451,10 @@ mod tests {
             e.apply_answer(None, Some("rel"), None, None),
             Err(DownloadError::AnswerRelativeFolder("rel".into()))
         );
-        assert_eq!(entry(Status::Done, 1).apply_answer(None, None, None, None), Err(DownloadError::NotWaiting(1)));
+        assert_eq!(
+            entry(Status::Done, 1).apply_answer(None, None, None, None),
+            Err(DownloadError::NotWaiting(DownloadId::new(1)))
+        );
     }
     #[test]
     fn some_types_start_without_asking_and_some_files_start_early() {
@@ -1484,12 +1488,12 @@ mod tests {
     #[test]
     fn a_probed_download_is_held_unless_canceled_meanwhile() {
         let mut e = entry(Status::Queued, 0);
-        assert!(e.hold_for_answer(false, Path::new("/dl/a.zip"), Some(10), true, Some(3)));
-        assert_eq!((e.status, e.total, e.duplicate_of), (Status::Confirming, Some(10), Some(3)));
+        assert!(e.hold_for_answer(false, Path::new("/dl/a.zip"), Some(10), true, Some(DownloadId::new(3))));
+        assert_eq!((e.status, e.total, e.duplicate_of), (Status::Confirming, Some(10), Some(DownloadId::new(3))));
         let mut canceled = entry(Status::Canceled, 0);
         assert!(!canceled.hold_for_answer(true, Path::new("/dl/a.zip"), None, false, None));
-        let later = Download { start: Some(false), queue: Some(4), ..Download::default() };
-        let answer = later.fallback_answer(9, Some(FileExists::Rename));
-        assert_eq!((answer.id, answer.start, answer.queue), (9, false, Some(4)));
+        let later = Download { start: Some(false), queue: Some(QueueId::new(4)), ..Download::default() };
+        let answer = later.fallback_answer(DownloadId::new(9), Some(FileExists::Rename));
+        assert_eq!((answer.id, answer.start, answer.queue), (DownloadId::new(9), false, Some(QueueId::new(4))));
     }
 }

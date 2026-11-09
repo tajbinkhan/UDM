@@ -4,6 +4,7 @@
 
 use eframe::egui;
 use uidm_domain::download::{DownloadEntry, SegmentInfo, SegmentState};
+use uidm_domain::id::DownloadId;
 
 use crate::i18n::{tr, trf};
 
@@ -21,7 +22,12 @@ fn state_text(s: SegmentState) -> &'static str {
 
 /// Draw the dialog for download `id`. Returns false once closed or when the
 /// download left the list.
-pub fn dialog(ctx: &egui::Context, id: u64, entry: Option<&DownloadEntry>, segments: Option<&[SegmentInfo]>) -> bool {
+pub fn dialog(
+    ctx: &egui::Context,
+    id: DownloadId,
+    entry: Option<&DownloadEntry>,
+    segments: Option<&[SegmentInfo]>,
+) -> bool {
     let Some(e) = entry else {
         return false;
     };
@@ -37,7 +43,7 @@ pub fn dialog(ctx: &egui::Context, id: u64, entry: Option<&DownloadEntry>, segme
 
 /// The bar and table of a download's connections, or a line saying why
 /// there are none. The download window shows these too.
-pub fn details(ui: &mut egui::Ui, id: u64, e: &DownloadEntry, segments: Option<&[SegmentInfo]>) {
+pub fn details(ui: &mut egui::Ui, id: DownloadId, e: &DownloadEntry, segments: Option<&[SegmentInfo]>) {
     if let Some([done, all]) = e.parts.filter(|[_, all]| *all > 0) {
         ui.label(trf!("A stream of {all} segments; {done} are in.", all = all, done = done));
         ui.add(egui::ProgressBar::new(done as f32 / all as f32).desired_width(480.0).show_percentage());

@@ -1,4 +1,5 @@
 use uidm_domain::download::Download;
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::ports::{DownloadIntake, QueueStore};
 use uidm_domain::queue;
 
@@ -17,7 +18,7 @@ impl<'a, Q: QueueStore, I: DownloadIntake> AddLater<'a, Q, I> {
 
     /// `later` is the queue the settings send "Download later" to. Returns
     /// the new download's id and address.
-    pub fn run(&self, download: Download, later: Option<u64>) -> (u64, String) {
+    pub fn run(&self, download: Download, later: Option<QueueId>) -> (DownloadId, String) {
         let wanted = download.queue.or(later);
         let queue = self.queues.edit(|qs| queue::existing_or_main(qs, wanted));
         let (id, url) = self.intake.stage(download);
@@ -42,18 +43,18 @@ mod tests {
     use uidm_domain::queue::{Queue, MAIN_QUEUE};
 
     fn link(url: &str, queue: Option<u64>) -> Download {
-        Download { url: url.into(), queue, ..Download::default() }
+        Download { url: url.into(), queue: queue.map(QueueId::new), ..Download::default() }
     }
 
     #[test]
     fn it_waits_in_its_own_queue_the_later_queue_or_the_main_one() {
         let queues = Queues::main();
-        queues.edit(|qs| qs.push(Queue::new(2, "Later")));
+        queues.edit(|qs| qs.push(Queue::new(QueueId::new(2), "Later")));
         let downloads = Downloads::default();
         let intake = Intake::into(&downloads);
         let later = AddLater::new(&queues, &intake);
-        let (a, _) = later.run(link("https://x/a", Some(MAIN_QUEUE)), Some(2));
-        let (b, _) = later.run(link("https://x/b", None), Some(2));
+        let (a, _) = later.run(link("https://x/a", Some(MAIN_QUEUE.get())), Some(QueueId::new(2)));
+        let (b, _) = later.run(link("https://x/b", None), Some(QueueId::new(2)));
         let (c, _) = later.run(link("https://x/c", Some(9)), None);
         assert_eq!(queues.get(MAIN_QUEUE).order, [a, c], "a queue that is gone means the main one");
         assert_eq!(queues.get(2).order, [b]);

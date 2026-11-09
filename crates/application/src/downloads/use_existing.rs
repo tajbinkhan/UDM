@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use uidm_domain::download::{DownloadEntry, DownloadError, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{Attention, DownloadControl, DownloadFiles, DownloadList, QueueStore};
 
 use super::RetryDownload;
@@ -12,11 +13,11 @@ pub enum Existing {
     Gone,
     /// It was pointed at: its completion dialog shown again, or the window
     /// brought up for a running one.
-    Shown { id: u64, url: String },
+    Shown { id: DownloadId, url: String },
     /// It was stopped and started again, as a new row.
-    Resumed { id: u64, url: String },
+    Resumed { id: DownloadId, url: String },
     /// It was stopped and could not start again.
-    NotResumed { id: u64, url: String, error: DownloadError },
+    NotResumed { id: DownloadId, url: String, error: DownloadError },
 }
 
 /// Point the user at an older download instead of adding its address again:
@@ -81,7 +82,7 @@ mod tests {
         let files = Files::with_existing(&["/dl/1.zip"]);
         let use_existing = UseExisting::new(&queues, &downloads, &control, &files, &shown);
         let url = "https://dl.example/1.zip".to_string();
-        assert_eq!(use_existing.run(&with_file(1, Status::Done)), Existing::Shown { id: 1, url });
+        assert_eq!(use_existing.run(&with_file(1, Status::Done)), Existing::Shown { id: DownloadId::new(1), url });
         assert_eq!(shown.done(), [1]);
         let no_files = Files::default();
         let gone = UseExisting::new(&queues, &downloads, &control, &no_files, &shown);
@@ -96,7 +97,9 @@ mod tests {
         let use_existing = UseExisting::new(&queues, &downloads, &control, &files, &shown);
         let resumed = use_existing.run(&row(1, Status::Failed));
         assert_eq!(resumed, Existing::Resumed { id: RESTARTED_ID, url: "https://dl.example/1.zip".into() });
-        assert!(matches!(use_existing.run(&row(2, Status::Downloading)), Existing::Shown { id: 2, .. }));
+        assert!(
+            matches!(use_existing.run(&row(2, Status::Downloading)), Existing::Shown { id, .. } if id == DownloadId::new(2))
+        );
         assert_eq!(shown.windows(), 1);
     }
 }

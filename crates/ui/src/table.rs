@@ -11,6 +11,7 @@ use std::path::Path;
 use eframe::egui::{self, Align, Rect, Sense, Stroke};
 use egui_extras::TableBuilder;
 use uidm_domain::download::{Answer, DownloadEntry, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::queue::Queue;
 
 use crate::columns::{self, Column, Layout};
@@ -27,14 +28,14 @@ const DRAG_DISTANCE: f32 = 4.0;
 /// Everything the list needs for one frame.
 pub struct List<'a> {
     pub shown: &'a [&'a DownloadEntry],
-    pub speeds: &'a HashMap<u64, f64>,
-    pub selected: &'a HashSet<u64>,
+    pub speeds: &'a HashMap<DownloadId, f64>,
+    pub selected: &'a HashSet<DownloadId>,
     pub queues: &'a [Queue],
     /// In a queue's view: that queue, whose order the list shows.
     pub queue: Option<&'a Queue>,
     pub connected: bool,
     /// The match the find bar moved to, and whether to scroll to it.
-    pub found: Option<u64>,
+    pub found: Option<DownloadId>,
     pub scroll: bool,
 }
 
@@ -68,7 +69,7 @@ pub fn show(
     }
 
     // Each download's place in its queue, for the Q column.
-    let places: HashMap<u64, usize> =
+    let places: HashMap<DownloadId, usize> =
         list.queues.iter().flat_map(|q| q.order.iter().enumerate().map(|(i, id)| (*id, i + 1))).collect();
 
     // View > Font: the list's text, and rows tall enough for it.
@@ -390,7 +391,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
     if e.error.as_deref().and_then(uidm_domain::download::login_wanted).is_some() {
         item(ui, on, tr("Log in..."), Action::OpenLogin(e.id));
     }
-    let ids: Vec<u64> = if list.selected.contains(&e.id) {
+    let ids: Vec<DownloadId> = if list.selected.contains(&e.id) {
         list.shown.iter().filter(|r| list.selected.contains(&r.id) && r.status.is_terminal()).map(|r| r.id).collect()
     } else {
         vec![e.id]

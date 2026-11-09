@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
 use url::Url;
@@ -275,7 +276,7 @@ pub(super) fn stem(req: &DownloadRequest) -> String {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -540,7 +541,7 @@ fn join(jobs: &[Job], joined: &Path, header: Option<&[u8]>) -> Result<(), Engine
 
 /// What the segment threads share.
 struct Fetching<'a> {
-    id: u64,
+    id: DownloadId,
     token: &'a CancelToken,
     agent: &'a http::Client,
     req: &'a DownloadRequest,
@@ -667,7 +668,7 @@ pub(crate) fn decrypt<'a>(key: &[u8; 16], iv: &[u8; 16], data: &'a mut [u8]) -> 
 /// Fetch every job not already on disk, `workers` at a time.
 #[allow(clippy::too_many_arguments)]
 fn fetch_all(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,

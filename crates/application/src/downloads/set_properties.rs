@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use uidm_domain::download::{DownloadError, Properties, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadFiles, DownloadList};
 
 /// Change a stopped or finished download's details. The link, referrer
@@ -18,7 +19,7 @@ impl<'a, D: DownloadList, F: DownloadFiles> SetProperties<'a, D, F> {
     }
 
     /// Returns where its file moved to, if it moved.
-    pub fn run(&self, id: u64, p: Properties) -> Result<Option<PathBuf>, DownloadError> {
+    pub fn run(&self, id: DownloadId, p: Properties) -> Result<Option<PathBuf>, DownloadError> {
         let entry = self.downloads.entry(id).ok_or(DownloadError::NoDownload(id))?;
         let plan = entry.plan_properties(p)?;
         let done = entry.status == Status::Done;
@@ -79,12 +80,12 @@ mod tests {
         let files = Files::default();
         let p =
             Properties { filename: Some("b.zip".into()), description: Some(" new ".into()), ..Properties::default() };
-        let to = SetProperties::new(&downloads, &files).run(1, p).unwrap();
+        let to = SetProperties::new(&downloads, &files).run(DownloadId::new(1), p).unwrap();
         assert_eq!(to, Some(PathBuf::from(full("/dl/b.zip"))));
         assert_eq!(files.moved(), [(PathBuf::from(full("/dl/a.zip")), PathBuf::from(full("/dl/b.zip")), true)]);
-        let e = downloads.entry(1).unwrap();
+        let e = downloads.entry(DownloadId::new(1)).unwrap();
         assert_eq!((e.path.as_deref(), e.description.as_deref()), (Some(full("/dl/b.zip").as_str()), Some("new")));
-        assert!(downloads.request(1).is_none(), "a finished download keeps no request");
+        assert!(downloads.request(DownloadId::new(1)).is_none(), "a finished download keeps no request");
     }
 
     #[test]
@@ -96,10 +97,10 @@ mod tests {
             login: Some(DownloadLogin { username: "me".into(), password: Some("pw".into()) }),
             ..Properties::default()
         };
-        SetProperties::new(&downloads, &files).run(1, p).unwrap();
-        let req = downloads.request(1).unwrap();
+        SetProperties::new(&downloads, &files).run(DownloadId::new(1), p).unwrap();
+        let req = downloads.request(DownloadId::new(1)).unwrap();
         assert_eq!(req.url, "https://mirror.example/1.zip");
-        let e = downloads.entry(1).unwrap();
+        let e = downloads.entry(DownloadId::new(1)).unwrap();
         assert_eq!((e.url.as_str(), e.login_user.as_deref()), ("https://mirror.example/1.zip", Some("me")));
     }
 
@@ -110,7 +111,7 @@ mod tests {
         let downloads = Downloads::rows([e]);
         let files = Files::with_existing(&[&full("/other/1.zip")]);
         let p = Properties { folder: Some(full("/other")), ..Properties::default() };
-        let err = SetProperties::new(&downloads, &files).run(1, p).unwrap_err();
+        let err = SetProperties::new(&downloads, &files).run(DownloadId::new(1), p).unwrap_err();
         assert_eq!(err, DownloadError::Exists(full("/other/1.zip")));
         assert!(files.moved().is_empty());
     }
@@ -121,8 +122,8 @@ mod tests {
         e.path = Some(full("/dl/a.zip"));
         let downloads = Downloads::rows([e]);
         let p = Properties { filename: Some("b.zip".into()), ..Properties::default() };
-        let err = SetProperties::new(&downloads, &Files::failing()).run(1, p).unwrap_err();
+        let err = SetProperties::new(&downloads, &Files::failing()).run(DownloadId::new(1), p).unwrap_err();
         assert_eq!(err, DownloadError::Files("the file is open".into()));
-        assert_eq!(downloads.entry(1).unwrap().path, Some(full("/dl/a.zip")));
+        assert_eq!(downloads.entry(DownloadId::new(1)).unwrap().path, Some(full("/dl/a.zip")));
     }
 }

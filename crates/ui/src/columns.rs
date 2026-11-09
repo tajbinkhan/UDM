@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use uidm_domain::download::{DownloadEntry, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::queue;
 
 use super::display_name;
@@ -286,7 +287,7 @@ impl Layout {
 
     /// Sort `rows` by the chosen column. `speed` gives a running download's
     /// bytes per second. Ties keep the order added.
-    pub fn sort(&self, rows: &mut [&DownloadEntry], speed: impl Fn(u64) -> Option<f64>) {
+    pub fn sort(&self, rows: &mut [&DownloadEntry], speed: impl Fn(DownloadId) -> Option<f64>) {
         let Some(sort) = self.sort else {
             return;
         };
@@ -297,7 +298,7 @@ impl Layout {
 /// The window file that holds the layout.
 const LAYOUT_FILE: &str = "window.json";
 
-fn compare(sort: Sort, a: &DownloadEntry, b: &DownloadEntry, speed: &impl Fn(u64) -> Option<f64>) -> Ordering {
+fn compare(sort: Sort, a: &DownloadEntry, b: &DownloadEntry, speed: &impl Fn(DownloadId) -> Option<f64>) -> Ordering {
     let down = sort.descending;
     let running = |e: &DownloadEntry| speed(e.id).filter(|s| *s > 0.0 && e.status == Status::Downloading);
     let lower = |s: Option<&str>| s.map(str::to_lowercase);
@@ -528,7 +529,7 @@ mod tests {
 
     fn entry(id: u64, name: &str, total: Option<u64>, status: Status) -> DownloadEntry {
         DownloadEntry {
-            id,
+            id: DownloadId::new(id),
             url: format!("https://x/{name}"),
             path: None,
             total,
@@ -557,7 +558,7 @@ mod tests {
     }
 
     fn ids(rows: &[&DownloadEntry]) -> Vec<u64> {
-        rows.iter().map(|e| e.id).collect()
+        rows.iter().map(|e| e.id.get()).collect()
     }
 
     #[test]

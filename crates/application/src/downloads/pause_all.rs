@@ -35,6 +35,7 @@ mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, Paused, Queues, Runs};
     use uidm_domain::download::Status;
+    use uidm_domain::id::DownloadId;
     use uidm_domain::queue::MAIN_QUEUE;
 
     #[test]
@@ -46,6 +47,6 @@ mod tests {
         PauseAll::new(&queues, &downloads, &runs, &control, &paused).run();
         let (q, d) = paused.take();
         assert_eq!(q.into_iter().collect::<Vec<_>>(), [MAIN_QUEUE]);
-        assert_eq!(d.into_iter().collect::<Vec<_>>(), [1]);
+        assert_eq!(d.into_iter().collect::<Vec<_>>(), [DownloadId::new(1)]);
     }
 }

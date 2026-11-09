@@ -9,13 +9,14 @@ use std::path::Path;
 
 use eframe::egui;
 use uidm_domain::download::{DownloadEntry, DownloadLogin, OnDone, Properties, Status};
+use uidm_domain::id::DownloadId;
 
 use crate::i18n::{tr, trf};
 
 use super::{browse_button, display_name, human_bytes, take_picked, Action, Picked};
 
 pub struct PropertiesDialog {
-    pub id: u64,
+    pub id: DownloadId,
     url: String,
     referrer: String,
     description: String,
@@ -299,7 +300,7 @@ mod tests {
 
     fn entry(status: Status) -> DownloadEntry {
         DownloadEntry {
-            id: 3,
+            id: DownloadId::new(3),
             url: "https://x/a.zip".into(),
             path: Some(r"C:\dl\a.zip".into()),
             total: Some(10),

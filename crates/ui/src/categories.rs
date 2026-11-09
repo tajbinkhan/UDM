@@ -8,6 +8,7 @@ use std::collections::HashSet;
 
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use uidm_domain::download::{DownloadEntry, Status};
+use uidm_domain::id::QueueId;
 use uidm_domain::queue::Queue;
 use uidm_domain::settings::GENERAL;
 
@@ -44,7 +45,7 @@ pub enum Filter {
     /// By progress, and by category when one is picked.
     Downloads { progress: Progress, category: Option<String> },
     /// A queue's downloads, in its order.
-    Queue(u64),
+    Queue(QueueId),
 }
 
 impl Default for Filter {

@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
 use eframe::egui;
@@ -46,7 +47,7 @@ pub fn pick_text_file(ctx: &egui::Context, title: &'static str, slot: &Loaded) {
 }
 
 /// A queue picker.
-pub fn queue_combo(ui: &mut egui::Ui, id: &str, queue: &mut u64, queues: &[Queue]) {
+pub fn queue_combo(ui: &mut egui::Ui, id: &str, queue: &mut QueueId, queues: &[Queue]) {
     let name = queues.iter().find(|q| q.id == *queue).map_or(tr("Main queue").to_string(), |q| q.name.clone());
     egui::ComboBox::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
         for q in queues {
@@ -79,7 +80,7 @@ pub struct BatchDialog {
     list: String,
     /// An imported file's name, downloads and the entries left out.
     imported: Option<(String, Vec<Download>, usize)>,
-    queue: u64,
+    queue: QueueId,
     start: bool,
     /// Where to save; empty lets each file's category decide.
     folder: String,
@@ -427,7 +428,7 @@ enum ExportScope {
 /// The Export dialog.
 pub struct ExportDialog {
     scope: ExportScope,
-    queue: u64,
+    queue: QueueId,
     format: ExportFormat,
     result: Arc<Mutex<Option<Result<String, UiError>>>>,
     message: Option<Result<String, UiError>>,
@@ -436,7 +437,7 @@ pub struct ExportDialog {
 impl ExportDialog {
     /// Starts on the ticked downloads if any, else on `queue` (the queue
     /// the list shows) if given.
-    pub fn new(any_selected: bool, queue: Option<u64>) -> Self {
+    pub fn new(any_selected: bool, queue: Option<QueueId>) -> Self {
         ExportDialog {
             scope: match (any_selected, queue) {
                 (true, _) => ExportScope::Ticked,
@@ -456,13 +457,13 @@ pub fn export_dialog(
     ctx: &egui::Context,
     d: &mut ExportDialog,
     rows: &[DownloadEntry],
-    selected: &HashSet<u64>,
+    selected: &HashSet<DownloadId>,
     queues: &[Queue],
 ) -> bool {
     if let Some(r) = d.result.lock_or_recover().take() {
         d.message = Some(r);
     }
-    let in_queue = |id: u64| -> Vec<&DownloadEntry> {
+    let in_queue = |id: QueueId| -> Vec<&DownloadEntry> {
         let order = queues.iter().find(|q| q.id == id).map_or(&[][..], |q| q.order.as_slice());
         order.iter().filter_map(|i| rows.iter().find(|e| e.id == *i)).collect()
     };
@@ -563,7 +564,7 @@ pub enum GrabPhase {
         explored: u64,
         /// The downloads the crawl added to a queue so far, to count the
         /// finished ones.
-        added: Vec<u64>,
+        added: Vec<DownloadId>,
     },
     Review {
         files: Vec<GrabFile>,
@@ -659,7 +660,7 @@ pub struct GrabDialog {
     mirror_folder: String,
     mirror_pages: bool,
     mirror_picked: Picked,
-    queue: u64,
+    queue: QueueId,
     start_queue: bool,
     error: Option<String>,
     /// The project's name, for saving.
@@ -683,7 +684,7 @@ pub struct GrabDialog {
     /// One-time downloading, or periodic synchronization of what earlier
     /// runs downloaded.
     sync: uidm_domain::queue::QueueKind,
-    sched_queue: u64,
+    sched_queue: QueueId,
     when_done: uidm_domain::queue::WhenDone,
     /// Shutting down when done closes programs that would hold it up; only
     /// kept with shutting down, as the Queues dialog does.
@@ -1170,7 +1171,7 @@ impl GrabDialog {
     }
 
     /// The daemon's report of the crawl.
-    pub fn progress(&mut self, pages: u64, bytes: u64, found: usize, explored: u64, added: Vec<u64>) {
+    pub fn progress(&mut self, pages: u64, bytes: u64, found: usize, explored: u64, added: Vec<DownloadId>) {
         if matches!(self.phase, GrabPhase::Running { .. }) {
             self.phase = GrabPhase::Running { pages, bytes, found, explored, added };
         }
@@ -2113,7 +2114,7 @@ fn merge_update(mut files: Vec<GrabFile>, mut checked: Vec<bool>, found: Vec<Gra
 
 /// The downloads in `rows` of the ticked `files` that are running or
 /// waiting to run, which the review's Stop stops.
-fn stoppable_downloads(files: &[GrabFile], checked: &[bool], rows: &[DownloadEntry]) -> Vec<u64> {
+fn stoppable_downloads(files: &[GrabFile], checked: &[bool], rows: &[DownloadEntry]) -> Vec<DownloadId> {
     let ticked: HashSet<&str> = files.iter().zip(checked).filter(|(_, c)| **c).map(|(f, _)| f.url.as_str()).collect();
     rows.iter()
         .filter(|e| matches!(e.status, Status::Queued | Status::Downloading | Status::Confirming | Status::Waiting))
@@ -2403,7 +2404,11 @@ mod tests {
             row(5, "https://other/a.pdf", "queued"),
             row(6, "https://s/a.pdf", "canceled"),
         ];
-        assert_eq!(stoppable_downloads(&files, &checked, &rows), [1, 3], "only ticked files, only running or waiting");
+        assert_eq!(
+            stoppable_downloads(&files, &checked, &rows),
+            [DownloadId::new(1), DownloadId::new(3)],
+            "only ticked files, only running or waiting"
+        );
     }
 
     #[test]

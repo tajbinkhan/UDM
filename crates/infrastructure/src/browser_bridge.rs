@@ -94,6 +94,7 @@ impl Browser for BrowserBridge {
 mod tests {
     use super::*;
     use std::thread;
+    use uidm_application::daemon::ClientId;
 
     use crate::protocol::Outgoing;
 
@@ -104,8 +105,8 @@ mod tests {
     #[test]
     fn without_the_extension_nobody_is_asked() {
         let clients = clients();
-        let (_window, frames) = clients.connect(1);
-        clients.add_window(1);
+        let (_window, frames) = clients.connect(ClientId::new(1));
+        clients.add_window(ClientId::new(1));
         let bridge = BrowserBridge::new(clients);
         assert_eq!(bridge.cookies("https://site.net/"), None);
         assert!(frames.try_recv().is_err(), "nothing was sent");
@@ -114,7 +115,7 @@ mod tests {
     #[test]
     fn the_browsers_answer_comes_back_to_the_asker() {
         let clients = clients();
-        let (_extension, frames) = clients.connect(2);
+        let (_extension, frames) = clients.connect(ClientId::new(2));
         let bridge = Arc::new(BrowserBridge::new(clients));
         let asker = Arc::clone(&bridge);
         let asking = thread::spawn(move || asker.cookies("https://site.net/"));

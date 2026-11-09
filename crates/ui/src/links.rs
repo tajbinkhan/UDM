@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
 use uidm_domain::download::{Download, PageLink};
+use uidm_domain::id::QueueId;
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
 use uidm_domain::settings::{Settings, GENERAL};
 
@@ -59,7 +60,7 @@ pub struct LinksDialog {
     /// Only these types, comma-separated; empty shows every type.
     types: String,
     text_as_description: bool,
-    queue: u64,
+    queue: QueueId,
     start_queue: bool,
     target: Target,
     folder: String,

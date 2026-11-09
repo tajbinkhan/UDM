@@ -1,3 +1,4 @@
+use uidm_domain::id::QueueId;
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueStore};
 use uidm_domain::queue::QueueError;
 
@@ -15,7 +16,7 @@ impl<'a, Q: QueueStore, D: DownloadList, R: QueueRuns, X: DownloadControl> StopQ
         StopQueue { queues, downloads, runs, control }
     }
 
-    pub fn run(&self, id: u64) -> Result<(), QueueError> {
+    pub fn run(&self, id: QueueId) -> Result<(), QueueError> {
         let order = self.queues.edit(|qs| {
             let q = qs.iter_mut().find(|q| q.id == id).ok_or(QueueError::NoQueue(id))?;
             q.stop();
@@ -35,13 +36,14 @@ mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, Queues, Runs};
     use uidm_domain::download::Status;
+    use uidm_domain::id::DownloadId;
     use uidm_domain::queue::{WhenDone, MAIN_QUEUE};
 
     #[test]
     fn the_running_downloads_are_held_and_the_run_ends() {
         let queues = Queues::main();
         queues.edit(|qs| {
-            qs[0].order = vec![1, 2, 3];
+            qs[0].order = vec![DownloadId::new(1), DownloadId::new(2), DownloadId::new(3)];
             qs[0].running = true;
             qs[0].when_done_once = Some(WhenDone::ShutDown);
         });
@@ -61,7 +63,10 @@ mod tests {
     fn an_unknown_queue_is_an_error() {
         let (queues, downloads, runs, control) =
             (Queues::main(), Downloads::default(), Runs::default(), Control::default());
-        assert_eq!(StopQueue::new(&queues, &downloads, &runs, &control).run(9), Err(QueueError::NoQueue(9)));
+        assert_eq!(
+            StopQueue::new(&queues, &downloads, &runs, &control).run(QueueId::new(9)),
+            Err(QueueError::NoQueue(QueueId::new(9)))
+        );
         assert_eq!(queues.changes(), 0);
     }
 }

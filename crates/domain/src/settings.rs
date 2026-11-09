@@ -488,7 +488,7 @@ pub struct Settings {
     pub general_last_folder: Option<String>,
     /// The queue "Download later" puts downloads in without asking; `None`
     /// asks in the save-as dialog.
-    pub later_queue: Option<u64>,
+    pub later_queue: Option<crate::id::QueueId>,
     /// File types and their folders. Files of no listed type are `General`.
     pub categories: Vec<Category>,
     /// File types that are `General` even when a category lists them, as
@@ -1232,7 +1232,7 @@ impl Settings {
         category: Option<&str>,
         remember_folder: Option<bool>,
         picked: bool,
-        later_queue: Option<u64>,
+        later_queue: Option<crate::id::QueueId>,
     ) -> bool {
         let mut changed = false;
         if let Some(path) = path {

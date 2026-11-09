@@ -1,5 +1,6 @@
 use uidm_domain::batch;
 use uidm_domain::download::{Download, DownloadError, Mismatch, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueStore};
 
 use super::RetryDownload;
@@ -33,7 +34,7 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl> RefreshLink<'a, Q, 
     /// With it, check the link against the partial file unless `restart`;
     /// on a match (or with `restart`) keep it and start again, resuming the
     /// partial file when the link is for the same file.
-    pub fn run(&self, id: u64, download: Option<Download>, restart: bool) -> Result<Refreshed, DownloadError> {
+    pub fn run(&self, id: DownloadId, download: Option<Download>, restart: bool) -> Result<Refreshed, DownloadError> {
         let entry = self.downloads.entry(id).ok_or(DownloadError::NoDownload(id))?;
         if !entry.status.is_retryable() {
             return Err(DownloadError::LinkNeedsStop);
@@ -94,16 +95,20 @@ mod tests {
         let (queues, downloads, control) =
             (Queues::main(), Downloads::with(&[(1, Status::Failed)]), Control::default());
         let refresh = RefreshLink::new(&queues, &downloads, &control);
-        assert_eq!(refresh.run(1, None, false), Ok(Refreshed::Waiting));
-        assert_eq!(control.waiting_for_link(), Some(1));
+        assert_eq!(refresh.run(DownloadId::new(1), None, false), Ok(Refreshed::Waiting));
+        assert_eq!(control.waiting_for_link(), Some(DownloadId::new(1)));
     }
 
     #[test]
     fn a_matching_link_restarts_and_stops_the_wait() {
         let (queues, downloads) = (Queues::main(), started(1, Status::Failed));
         let control = Control::checking(Ok(None));
-        control.wait_for_link(Some(1));
-        let done = RefreshLink::new(&queues, &downloads, &control).run(1, link("https://new.example/1.zip"), false);
+        control.wait_for_link(Some(DownloadId::new(1)));
+        let done = RefreshLink::new(&queues, &downloads, &control).run(
+            DownloadId::new(1),
+            link("https://new.example/1.zip"),
+            false,
+        );
         assert_eq!(done, Ok(Refreshed::NewLink("https://new.example/1.zip".into())));
         assert_eq!(control.waiting_for_link(), None);
         assert_eq!(control.restarted()[0].download.url, "https://new.example/1.zip");
@@ -114,18 +119,26 @@ mod tests {
         let (queues, downloads) = (Queues::main(), started(1, Status::Interrupted));
         let control = Control::checking(Ok(Some(Mismatch::Changed)));
         let refresh = RefreshLink::new(&queues, &downloads, &control);
-        assert_eq!(refresh.run(1, link("https://new.example/x"), false), Ok(Refreshed::Mismatch(Mismatch::Changed)));
+        assert_eq!(
+            refresh.run(DownloadId::new(1), link("https://new.example/x"), false),
+            Ok(Refreshed::Mismatch(Mismatch::Changed))
+        );
         assert!(control.restarted().is_empty());
-        assert!(refresh.run(1, link("https://new.example/x"), true).is_ok(), "restart skips the check");
+        assert!(
+            refresh.run(DownloadId::new(1), link("https://new.example/x"), true).is_ok(),
+            "restart skips the check"
+        );
     }
 
     #[test]
     fn a_waiting_download_keeps_waiting_with_its_new_link() {
         let (queues, downloads, control) =
             (Queues::main(), Downloads::with(&[(1, Status::Waiting)]), Control::default());
-        RefreshLink::new(&queues, &downloads, &control).run(1, link("https://new.example/1.zip"), false).unwrap();
-        assert_eq!(downloads.entry(1).unwrap().url, "https://new.example/1.zip");
-        assert_eq!(downloads.request(1).unwrap().url, "https://new.example/1.zip");
+        RefreshLink::new(&queues, &downloads, &control)
+            .run(DownloadId::new(1), link("https://new.example/1.zip"), false)
+            .unwrap();
+        assert_eq!(downloads.entry(DownloadId::new(1)).unwrap().url, "https://new.example/1.zip");
+        assert_eq!(downloads.request(DownloadId::new(1)).unwrap().url, "https://new.example/1.zip");
         assert!(control.restarted().is_empty());
     }
 
@@ -135,10 +148,16 @@ mod tests {
         let downloads = Downloads::with(&[(1, Status::Downloading), (2, Status::Failed)]);
         let control = Control::checking(Err(ControlError("timed out".into())));
         let refresh = RefreshLink::new(&queues, &downloads, &control);
-        assert_eq!(refresh.run(1, None, false), Err(DownloadError::LinkNeedsStop));
-        assert_eq!(refresh.run(2, link("mailto:x"), false), Err(DownloadError::NotDownloadLink("mailto:x".into())));
+        assert_eq!(refresh.run(DownloadId::new(1), None, false), Err(DownloadError::LinkNeedsStop));
+        assert_eq!(
+            refresh.run(DownloadId::new(2), link("mailto:x"), false),
+            Err(DownloadError::NotDownloadLink("mailto:x".into()))
+        );
         let unreachable = started(3, Status::Failed);
         let refresh = RefreshLink::new(&queues, &unreachable, &control);
-        assert_eq!(refresh.run(3, link("https://x/"), false), Err(DownloadError::Unreachable("timed out".into())));
+        assert_eq!(
+            refresh.run(DownloadId::new(3), link("https://x/"), false),
+            Err(DownloadError::Unreachable("timed out".into()))
+        );
     }
 }

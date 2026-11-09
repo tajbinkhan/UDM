@@ -7,6 +7,7 @@
 
 use eframe::egui;
 use uidm_domain::download::{DownloadEntry, OnDone, SegmentInfo, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::queue::{Queue, WhenDone};
 use uidm_domain::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 
@@ -44,7 +45,7 @@ fn start_tab(t: ProgressTab) -> Tab {
 }
 
 pub struct ProgressWindow {
-    pub id: u64,
+    pub id: DownloadId,
     tab: Tab,
     /// The connections' bar and table are shown.
     details: bool,
@@ -93,7 +94,7 @@ impl ProgressWindow {
 
 /// Whether a queue started download `id`, which then is in a running
 /// queue. A queue keeps its downloads until they finish.
-pub fn started_by_queue(queues: &[Queue], id: u64) -> bool {
+pub fn started_by_queue(queues: &[Queue], id: DownloadId) -> bool {
     queues.iter().any(|q| q.running && q.order.contains(&id))
 }
 
@@ -364,16 +365,21 @@ pub fn on_done_fields(ui: &mut egui::Ui, on_done: &mut OnDone) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::id::QueueId;
 
     fn queue(id: u64, running: bool, order: &[u64]) -> Queue {
-        Queue { running, order: order.to_vec(), ..Queue::new(id, "q") }
+        Queue {
+            running,
+            order: order.iter().copied().map(DownloadId::new).collect(),
+            ..Queue::new(QueueId::new(id), "q")
+        }
     }
 
     #[test]
     fn only_a_running_queue_starts_a_download() {
         let queues = [queue(1, true, &[7, 8]), queue(2, false, &[9])];
-        assert!(started_by_queue(&queues, 8));
-        assert!(!started_by_queue(&queues, 9), "its queue is stopped, so the user started it");
-        assert!(!started_by_queue(&queues, 5), "in no queue");
+        assert!(started_by_queue(&queues, DownloadId::new(8)));
+        assert!(!started_by_queue(&queues, DownloadId::new(9)), "its queue is stopped, so the user started it");
+        assert!(!started_by_queue(&queues, DownloadId::new(5)), "in no queue");
     }
 }

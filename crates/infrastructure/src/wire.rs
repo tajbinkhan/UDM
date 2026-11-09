@@ -386,6 +386,7 @@ impl From<WireService> for ServiceError {
 mod tests {
     use super::*;
     use uidm_domain::download::Download;
+    use uidm_domain::id::{DownloadId, QueueId};
 
     /// `msg` as JSON, after a trip through `f` and back.
     fn json<T: serde::Serialize>(msg: &T) -> serde_json::Value {
@@ -395,13 +396,13 @@ mod tests {
     #[test]
     fn commands_keep_their_fields_on_the_wire() {
         let d = Download { url: "http://x/f".into(), ..Download::default() };
-        let msg = incoming(Command::AddMany { items: vec![d], queue: Some(3) });
+        let msg = incoming(Command::AddMany { items: vec![d], queue: Some(QueueId::new(3)) });
         let value = json(&msg);
         assert_eq!(value["op"], "add_many");
         assert_eq!(value["queue"], 3);
         assert_eq!(value["items"][0]["url"], "http://x/f");
         assert_eq!(json(&incoming(command(msg))), value, "back and forth is the same message");
-        let msg = incoming(Command::Remove { id: 2, delete_files: true });
+        let msg = incoming(Command::Remove { id: DownloadId::new(2), delete_files: true });
         assert_eq!(json(&msg), serde_json::json!({"op": "remove", "id": 2, "delete_files": true}));
     }
 
@@ -424,7 +425,7 @@ mod tests {
     fn events_go_out_as_they_came_in() {
         for msg in [
             Outgoing::Pong,
-            Outgoing::Ack { id: 1, url: "u".into(), status: "accepted".into() },
+            Outgoing::Ack { id: DownloadId::new(1), url: "u".into(), status: "accepted".into() },
             Outgoing::CommandLine { window_open: true },
             Outgoing::RenderPage { request: 2, url: "u".into() },
             Outgoing::Error { message: "no".into(), error_kind: None },
@@ -452,7 +453,8 @@ mod tests {
             DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
             ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
             ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
-            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(4)))).into(),
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(QueueId::new(4)))))
+                .into(),
             UpdateError::Save { path: "/t/s".into(), reason: "denied".into() }.into(),
             ServiceError::Grab(InvalidGrab::Depth).into(),
             SettingsError::Invalid(uidm_domain::settings::InvalidSettings::FolderNotFull(
@@ -483,7 +485,7 @@ mod tests {
             assert_eq!(value["error"], text.as_str());
             assert_eq!(back, Event::Update { newer: None, error: Some(f.clone()) });
 
-            let zip = Event::ZipPreview { id: 1, entries: Vec::new(), error: Some(f.clone()) };
+            let zip = Event::ZipPreview { id: DownloadId::new(1), entries: Vec::new(), error: Some(f.clone()) };
             let (value, back) = round_trip(zip.clone());
             assert_eq!(value["error"], text.as_str());
             assert_eq!(back, zip);
@@ -537,7 +539,11 @@ mod tests {
         );
         assert_eq!(
             read(r#"{"op":"zip_preview","id":3,"error":"not a zip"}"#),
-            Event::ZipPreview { id: 3, entries: Vec::new(), error: Some(Failure::Other("not a zip".into())) }
+            Event::ZipPreview {
+                id: DownloadId::new(3),
+                entries: Vec::new(),
+                error: Some(Failure::Other("not a zip".into()))
+            }
         );
     }
 
@@ -554,14 +560,14 @@ mod tests {
             (ServiceError::CrawlRunning.into(), json!({"Service": "CrawlRunning"})),
             (ServiceError::BadBody("http://a/".into()).into(), json!({"Service": {"BadBody": "http://a/"}})),
             (ServiceError::NotDownloadAddress("x:y".into()).into(), json!({"Service": {"NotDownloadAddress": "x:y"}})),
-            (QueueError::NoQueue(7).into(), json!({"Service": {"Queue": {"NoQueue": 7}}})),
+            (QueueError::NoQueue(QueueId::new(7)).into(), json!({"Service": {"Queue": {"NoQueue": 7}}})),
             (QueueError::MainQueue.into(), json!({"Service": {"Queue": "MainQueue"}})),
             (QueueError::NameTaken("N".into()).into(), json!({"Service": {"Queue": {"NameTaken": "N"}}})),
             (
                 QueueError::Invalid(InvalidQueue::StartTime("25:00".into())).into(),
                 json!({"Service": {"Queue": {"Invalid": {"StartTime": "25:00"}}}}),
             ),
-            (DownloadError::NoDownload(3).into(), json!({"Service": {"Download": {"NoDownload": 3}}})),
+            (DownloadError::NoDownload(DownloadId::new(3)).into(), json!({"Service": {"Download": {"NoDownload": 3}}})),
             (
                 DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
                 json!({"Service": {"Download": {"BadSpeedLimit": {"kbps": 1, "lo": 2, "hi": 3}}}}),
@@ -585,7 +591,10 @@ mod tests {
                 json!({"Service": {"Confirm": {"StartControl": "busy"}}}),
             ),
             (
-                ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(4)))).into(),
+                ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(QueueId::new(
+                    4,
+                )))))
+                .into(),
                 json!({"Service": {"Confirm": {"StartQueue": {"NoQueue": 4}}}}),
             ),
             (SettingsError::Refused("read-only".into()).into(), json!({"Settings": {"Refused": "read-only"}})),
@@ -621,19 +630,24 @@ mod tests {
     #[test]
     fn a_new_links_mismatch_keeps_its_reason_and_kind() {
         let reason = Failure::from(Mismatch::Size { new: 2 << 20, partial: 1 << 20 });
-        let (value, back) = round_trip(Event::RefreshMismatch { id: 1, url: "u".into(), reason: reason.clone() });
+        let (value, back) =
+            round_trip(Event::RefreshMismatch { id: DownloadId::new(1), url: "u".into(), reason: reason.clone() });
         assert_eq!(value["reason"], "The new link is for a 2.0 MB file; the partial download is of a 1.0 MB file.");
         assert_eq!(
             value["error_kind"],
             serde_json::json!({"Mismatch": {"Size": {"new": 2 << 20, "partial": 1 << 20}}})
         );
-        assert_eq!(back, Event::RefreshMismatch { id: 1, url: "u".into(), reason });
+        assert_eq!(back, Event::RefreshMismatch { id: DownloadId::new(1), url: "u".into(), reason });
         // From a daemon that sent the reason as text alone.
         let old: Outgoing =
             serde_json::from_str(r#"{"op":"refresh_mismatch","id":1,"url":"u","reason":"other file"}"#).unwrap();
         assert_eq!(
             super::event(old),
-            Event::RefreshMismatch { id: 1, url: "u".into(), reason: Failure::Other("other file".into()) }
+            Event::RefreshMismatch {
+                id: DownloadId::new(1),
+                url: "u".into(),
+                reason: Failure::Other("other file".into())
+            }
         );
     }
 }

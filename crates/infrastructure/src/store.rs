@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
 use tracing::warn;
@@ -35,10 +36,10 @@ use uidm_domain::quota::Usage;
 /// How a download ended, for the listener's notifications.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ended {
-    Finished(u64),
-    Failed(u64),
+    Finished(DownloadId),
+    Failed(DownloadId),
     /// It stopped to ask about its taken file name.
-    NameTaken(u64),
+    NameTaken(DownloadId),
 }
 
 /// Hears what the store changed. The store calls it with its table locked,
@@ -70,17 +71,17 @@ pub struct DownloadStore {
     /// The original request for each download that may still be retried.
     /// It holds the browser's cookies, so it is dropped once a download is
     /// done or removed, and saved only encrypted.
-    requests: Mutex<HashMap<u64, Download>>,
+    requests: Mutex<HashMap<DownloadId, Download>>,
     /// The queues, the main queue first. Lock after `table`, never before.
     queues: Mutex<Vec<Queue>>,
     /// Downloads being stopped to wait in their queue again: their
     /// `canceled` event becomes `waiting`.
-    held: Mutex<HashSet<u64>>,
+    held: Mutex<HashSet<DownloadId>>,
     /// Bytes received lately, for the download quota.
     quota: Mutex<Usage>,
     /// Rows that are conversions, not downloads: their progress is not
     /// received bytes.
-    uncounted: Mutex<HashSet<u64>>,
+    uncounted: Mutex<HashSet<DownloadId>>,
     /// Wakes the history writer after every change.
     dirty: Sender<()>,
     /// Keeps two saves from writing at once.
@@ -100,7 +101,7 @@ impl DownloadStore {
     /// Load the store from `files`, telling `events` of changes. Returns it,
     /// the receiver every change wakes, and the next download id the history
     /// asks for (the engine's next id must be at least that).
-    pub fn open(files: StoreFiles, events: Arc<dyn StoreEvents>) -> (Self, Receiver<()>, u64) {
+    pub fn open(files: StoreFiles, events: Arc<dyn StoreEvents>) -> (Self, Receiver<()>, DownloadId) {
         let history = match &files.history {
             Some(path) => History::load(path).unwrap_or_else(|e| {
                 // Keep the unreadable file for inspection instead of
@@ -126,7 +127,7 @@ impl DownloadStore {
         }
         table.apply(&Outgoing::Downloads { items: history.items });
         requests.retain(|id, _| table.get(*id).is_some_and(|e| e.status.is_retryable()));
-        let next_id = history.next_id.max(table.max_id() + 1);
+        let next_id = history.next_id.max(table.max_id().next());
         let usage = files.quota.as_deref().map(quota::load).unwrap_or_default();
         let (dirty, dirty_rx) = channel();
         let store = DownloadStore {
@@ -150,7 +151,7 @@ impl DownloadStore {
     }
 
     /// The requests kept for retries, locked.
-    pub fn requests(&self) -> MutexGuard<'_, HashMap<u64, Download>> {
+    pub fn requests(&self) -> MutexGuard<'_, HashMap<DownloadId, Download>> {
         lock(&self.requests)
     }
 
@@ -167,18 +168,18 @@ impl DownloadStore {
 
     /// Make download `id`'s coming `canceled` event a `waiting` one: it is
     /// being stopped to wait in its queue again.
-    pub fn hold(&self, id: u64) {
+    pub fn hold(&self, id: DownloadId) {
         lock(&self.held).insert(id);
     }
 
     /// Whether download `id` is being stopped to wait again.
-    pub fn is_held(&self, id: u64) -> bool {
+    pub fn is_held(&self, id: DownloadId) -> bool {
         lock(&self.held).contains(&id)
     }
 
     /// Do not count row `id`'s progress as received bytes: it is a
     /// conversion.
-    pub fn uncount(&self, id: u64) {
+    pub fn uncount(&self, id: DownloadId) {
         lock(&self.uncounted).insert(id);
     }
 
@@ -287,7 +288,11 @@ impl DownloadStore {
     /// Change download `id` with `f` and announce the new entry, all under
     /// the table lock, so the check `f` makes cannot race another change.
     /// `f` returns false to leave the entry alone.
-    pub fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Result<DownloadEntry, EditError> {
+    pub fn update(
+        &self,
+        id: DownloadId,
+        f: impl FnOnce(&mut DownloadEntry) -> bool,
+    ) -> Result<DownloadEntry, EditError> {
         let mut table = lock(&self.table);
         let mut item = table.get(id).cloned().ok_or(EditError::NoDownload(id))?;
         if !f(&mut item) {
@@ -308,7 +313,7 @@ impl DownloadStore {
     }
 
     /// Change queue `id` with `f`, then announce the queues.
-    pub fn update_queue<T>(&self, id: u64, f: impl FnOnce(&mut Queue) -> T) -> Result<T, QueueError> {
+    pub fn update_queue<T>(&self, id: QueueId, f: impl FnOnce(&mut Queue) -> T) -> Result<T, QueueError> {
         let result = {
             let mut queues = lock(&self.queues);
             queues.iter_mut().find(|q| q.id == id).map(f).ok_or(QueueError::NoQueue(id))?
@@ -320,12 +325,12 @@ impl DownloadStore {
 
     /// Take download `id` out of whatever queue holds it. Returns whether
     /// one did; the change is not announced.
-    pub fn leave_queues(&self, id: u64) -> bool {
+    pub fn leave_queues(&self, id: DownloadId) -> bool {
         self.leave_queues_where(id, |_| true)
     }
 
     /// Take download `id` out of the queues `which` picks.
-    fn leave_queues_where(&self, id: u64, which: impl Fn(&Queue) -> bool) -> bool {
+    fn leave_queues_where(&self, id: DownloadId, which: impl Fn(&Queue) -> bool) -> bool {
         let mut changed = false;
         for q in lock(&self.queues).iter_mut().filter(|q| which(q)) {
             let before = q.order.len();
@@ -347,7 +352,7 @@ impl DownloadStore {
     /// Write the history (with `next_id`, the engine's next download id),
     /// the saved requests and the quota's usage now. A file that cannot be
     /// written is logged and left as it was.
-    pub fn save(&self, next_id: u64) {
+    pub fn save(&self, next_id: DownloadId) {
         let _guard = lock(&self.save_lock);
         let history = History { next_id, items: lock(&self.table).snapshot(), queues: lock(&self.queues).clone() };
         let requests = lock(&self.requests).clone();
@@ -370,7 +375,7 @@ impl DownloadStore {
 
     /// Add `download` to the list as `id`, waiting, in no queue yet. A
     /// full-path `folder` fixes where it will be saved. Returns its address.
-    pub fn stage(&self, id: u64, download: Download) -> String {
+    pub fn stage(&self, id: DownloadId, download: Download) -> String {
         let url = download.url.clone();
         let path = download
             .folder
@@ -408,15 +413,15 @@ impl QueueStore for DownloadStore {
 }
 
 impl DownloadList for DownloadStore {
-    fn status(&self, id: u64) -> Option<Status> {
+    fn status(&self, id: DownloadId) -> Option<Status> {
         lock(&self.table).get(id).map(|e| e.status)
     }
 
-    fn finished(&self) -> HashSet<u64> {
+    fn finished(&self) -> HashSet<DownloadId> {
         lock(&self.table).entries().filter(|e| e.status == Status::Done).map(|e| e.id).collect()
     }
 
-    fn set_waiting(&self, id: u64) -> bool {
+    fn set_waiting(&self, id: DownloadId) -> bool {
         DownloadStore::update(self, id, |e| {
             e.status = Status::Waiting;
             true
@@ -428,23 +433,23 @@ impl DownloadList for DownloadStore {
         lock(&self.table).entries().filter(|e| keep(e)).last().cloned()
     }
 
-    fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64> {
+    fn ids_where(&self, keep: impl Fn(DownloadId, Status) -> bool) -> Vec<DownloadId> {
         lock(&self.table).entries().filter(|e| keep(e.id, e.status)).map(|e| e.id).collect()
     }
 
-    fn entry(&self, id: u64) -> Option<DownloadEntry> {
+    fn entry(&self, id: DownloadId) -> Option<DownloadEntry> {
         lock(&self.table).get(id).cloned()
     }
 
-    fn take_request(&self, id: u64) -> Option<Download> {
+    fn take_request(&self, id: DownloadId) -> Option<Download> {
         lock(&self.requests).remove(&id)
     }
 
-    fn drop_row(&self, id: u64) {
+    fn drop_row(&self, id: DownloadId) {
         self.publish(&Outgoing::Removed { id });
     }
 
-    fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool> {
+    fn update(&self, id: DownloadId, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool> {
         match DownloadStore::update(self, id, f) {
             Ok(_) => Some(true),
             Err(EditError::Refused) => Some(false),
@@ -452,15 +457,15 @@ impl DownloadList for DownloadStore {
         }
     }
 
-    fn request(&self, id: u64) -> Option<Download> {
+    fn request(&self, id: DownloadId) -> Option<Download> {
         lock(&self.requests).get(&id).cloned()
     }
 
-    fn keep_request(&self, id: u64, download: Download) {
+    fn keep_request(&self, id: DownloadId, download: Download) {
         lock(&self.requests).insert(id, download);
     }
 
-    fn edit_request(&self, id: u64, f: impl FnOnce(&mut Download)) {
+    fn edit_request(&self, id: DownloadId, f: impl FnOnce(&mut Download)) {
         if let Some(d) = lock(&self.requests).get_mut(&id) {
             f(d);
         }
@@ -481,7 +486,7 @@ pub fn body_is_sendable(d: &Download) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EditError {
     #[error("no download with id {0}")]
-    NoDownload(u64),
+    NoDownload(DownloadId),
     #[error("the change was refused")]
     Refused,
 }
@@ -498,7 +503,7 @@ impl DownloadIntake for Intake<'_> {
         body_is_sendable(download)
     }
 
-    fn stage(&self, download: Download) -> (u64, String) {
+    fn stage(&self, download: Download) -> (DownloadId, String) {
         let id = self.engine.reserve_id();
         (id, self.store.stage(id, download))
     }
@@ -526,7 +531,7 @@ impl DownloadIntake for StoreIntake {
         Intake { store: &self.store, engine: &self.engine }.sendable(download)
     }
 
-    fn stage(&self, download: Download) -> (u64, String) {
+    fn stage(&self, download: Download) -> (DownloadId, String) {
         Intake { store: &self.store, engine: &self.engine }.stage(download)
     }
 }
@@ -573,7 +578,12 @@ mod tests {
     }
 
     fn done(id: u64, path: &Path) -> Outgoing {
-        Outgoing::Done { id, url: "http://x/f".into(), path: path.display().to_string(), note: None }
+        Outgoing::Done {
+            id: DownloadId::new(id),
+            url: "http://x/f".into(),
+            path: path.display().to_string(),
+            note: None,
+        }
     }
 
     #[test]
@@ -586,20 +596,20 @@ mod tests {
     #[test]
     fn events_reach_the_table_and_the_listener_and_mark_it_dirty() {
         let (store, heard, dirty) = store(StoreFiles::default());
-        store.publish(&Outgoing::Added { id: 3, url: "http://x/f".into() });
-        assert!(store.entry(3).is_some());
-        assert!(matches!(heard.announced.lock().unwrap()[0], Outgoing::Added { id: 3, .. }));
+        store.publish(&Outgoing::Added { id: DownloadId::new(3), url: "http://x/f".into() });
+        assert!(store.entry(DownloadId::new(3)).is_some());
+        assert!(matches!(heard.announced.lock().unwrap()[0], Outgoing::Added { id, .. } if id == DownloadId::new(3)));
         assert!(dirty.try_recv().is_ok());
     }
 
     #[test]
     fn a_held_download_waits_again_instead_of_stopping() {
         let (store, heard, _) = store(StoreFiles::default());
-        store.publish(&Outgoing::Added { id: 1, url: "http://x/f".into() });
-        store.hold(1);
-        store.publish(&Outgoing::Canceled { id: 1, url: "http://x/f".into() });
-        assert_eq!(DownloadList::status(&store, 1), Some(Status::Waiting));
-        assert!(!store.is_held(1));
+        store.publish(&Outgoing::Added { id: DownloadId::new(1), url: "http://x/f".into() });
+        store.hold(DownloadId::new(1));
+        store.publish(&Outgoing::Canceled { id: DownloadId::new(1), url: "http://x/f".into() });
+        assert_eq!(DownloadList::status(&store, DownloadId::new(1)), Some(Status::Waiting));
+        assert!(!store.is_held(DownloadId::new(1)));
         assert!(matches!(heard.announced.lock().unwrap().last(), Some(Outgoing::Updated { .. })));
     }
 
@@ -609,18 +619,18 @@ mod tests {
         let (store, heard, _) = store(StoreFiles::default());
         {
             let mut queues = store.queues();
-            queues[0].order = vec![1, 2];
-            let mut sync = Queue::new(7, "sync");
+            queues[0].order = vec![DownloadId::new(1), DownloadId::new(2)];
+            let mut sync = Queue::new(QueueId::new(7), "sync");
             sync.kind = QueueKind::Synchronize;
-            sync.order = vec![1];
+            sync.order = vec![DownloadId::new(1)];
             queues.push(sync);
         }
-        store.publish(&Outgoing::Added { id: 1, url: "http://x/f".into() });
+        store.publish(&Outgoing::Added { id: DownloadId::new(1), url: "http://x/f".into() });
         store.publish(&done(1, &dir.join("f")));
         let queues = store.queues().clone();
-        assert_eq!(queues[0].order, vec![2]);
-        assert_eq!(queues[1].order, vec![1]);
-        assert_eq!(*heard.ended.lock().unwrap(), vec![Ended::Finished(1)]);
+        assert_eq!(queues[0].order, vec![DownloadId::new(2)]);
+        assert_eq!(queues[1].order, vec![DownloadId::new(1)]);
+        assert_eq!(*heard.ended.lock().unwrap(), vec![Ended::Finished(DownloadId::new(1))]);
         assert!(*heard.wakes.lock().unwrap() > 0);
     }
 
@@ -628,19 +638,22 @@ mod tests {
     fn a_finished_download_drops_its_request() {
         let dir = folder("request");
         let (store, ..) = store(StoreFiles::default());
-        let url = store.stage(4, Download { url: "http://x/f".into(), ..Download::default() });
+        let url = store.stage(DownloadId::new(4), Download { url: "http://x/f".into(), ..Download::default() });
         assert_eq!(url, "http://x/f");
-        assert_eq!(DownloadList::status(&store, 4), Some(Status::Waiting));
-        assert!(store.request(4).is_some());
+        assert_eq!(DownloadList::status(&store, DownloadId::new(4)), Some(Status::Waiting));
+        assert!(store.request(DownloadId::new(4)).is_some());
         store.publish(&done(4, &dir.join("f")));
-        assert!(store.request(4).is_none());
+        assert!(store.request(DownloadId::new(4)).is_none());
     }
 
     #[test]
     fn updating_a_missing_download_names_it() {
         let (store, ..) = store(StoreFiles::default());
-        assert_eq!(DownloadStore::update(&store, 9, |_| true).unwrap_err(), EditError::NoDownload(9));
-        assert_eq!(DownloadList::update(&store, 9, |_| true), None);
+        assert_eq!(
+            DownloadStore::update(&store, DownloadId::new(9), |_| true).unwrap_err(),
+            EditError::NoDownload(DownloadId::new(9))
+        );
+        assert_eq!(DownloadList::update(&store, DownloadId::new(9), |_| true), None);
     }
 
     #[test]
@@ -649,15 +662,15 @@ mod tests {
         let files =
             StoreFiles { history: Some(dir.join("history.json")), requests: None, quota: Some(dir.join("quota.json")) };
         let (first, ..) = store(files.clone());
-        first.publish(&Outgoing::Added { id: 5, url: "http://x/f".into() });
-        first.queues().push(Queue::new(8, "night"));
-        first.save(12);
+        first.publish(&Outgoing::Added { id: DownloadId::new(5), url: "http://x/f".into() });
+        first.queues().push(Queue::new(QueueId::new(8), "night"));
+        first.save(DownloadId::new(12));
         let (second, _, dirty) = store(files.clone());
-        assert!(second.entry(5).is_some());
+        assert!(second.entry(DownloadId::new(5)).is_some());
         assert_eq!(second.queues().len(), 2);
         assert!(dirty.try_recv().is_err());
         let (_, _, next_id) = DownloadStore::open(files, Arc::new(Listener(Arc::default())));
-        assert_eq!(next_id, 12);
+        assert_eq!(next_id, DownloadId::new(12));
     }
 
     #[test]

@@ -20,12 +20,13 @@ use serde::{Deserialize, Serialize};
 use crate::dpapi;
 use crate::settings::write_atomic;
 use uidm_domain::download::{Download, DownloadEntry, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct History {
     /// The id the next download gets, so ids keep increasing across restarts.
-    pub next_id: u64,
+    pub next_id: DownloadId,
     /// Every download, oldest first.
     pub items: Vec<DownloadEntry>,
     /// The queues, the main queue first.
@@ -55,7 +56,7 @@ impl History {
         // without any is from before queues.
         let before_queues = history.queues.is_empty();
         history.tidy_queues(before_queues);
-        let queued: std::collections::HashSet<u64> =
+        let queued: std::collections::HashSet<DownloadId> =
             history.queues.iter().flat_map(|q| q.order.iter().copied()).collect();
         for e in &mut history.items {
             if !e.status.is_terminal() {
@@ -70,8 +71,8 @@ impl History {
                 e.page = e.referrer.clone();
             }
         }
-        let max_id = history.items.iter().map(|e| e.id).max().unwrap_or(0);
-        history.next_id = history.next_id.max(max_id + 1);
+        let max_id = history.items.iter().map(|e| e.id).max().unwrap_or_default();
+        history.next_id = history.next_id.max(max_id.next());
         Ok(history)
     }
 
@@ -87,7 +88,7 @@ impl History {
             self.queues.insert(0, Queue::main());
         }
         self.queues.sort_by_key(|q| q.id != MAIN_QUEUE);
-        let status: HashMap<u64, Status> = self.items.iter().map(|e| (e.id, e.status)).collect();
+        let status: HashMap<DownloadId, Status> = self.items.iter().map(|e| (e.id, e.status)).collect();
         let mut seen = std::collections::HashSet::new();
         for q in &mut self.queues {
             let keep_done = q.kind.is_sync();
@@ -107,7 +108,7 @@ impl History {
 }
 
 /// Read the saved requests at `path`. A missing file means none.
-pub fn load_requests(path: &Path) -> io::Result<HashMap<u64, Download>> {
+pub fn load_requests(path: &Path) -> io::Result<HashMap<DownloadId, Download>> {
     let sealed = match fs::read(path) {
         Ok(b) => b,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
@@ -115,19 +116,20 @@ pub fn load_requests(path: &Path) -> io::Result<HashMap<u64, Download>> {
     };
     let plain = dpapi::unprotect(&sealed)?;
     // The requests hold cookies and headers; serde's message could quote one.
-    let list: Vec<(u64, Download)> = serde_json::from_slice(&plain).map_err(|e| crate::logging::json_error(&e))?;
+    let list: Vec<(DownloadId, Download)> =
+        serde_json::from_slice(&plain).map_err(|e| crate::logging::json_error(&e))?;
     Ok(list.into_iter().collect())
 }
 
 /// Encrypt and save `requests` to `path`, or delete the file when empty.
-pub fn save_requests(path: &Path, requests: &HashMap<u64, Download>) -> io::Result<()> {
+pub fn save_requests(path: &Path, requests: &HashMap<DownloadId, Download>) -> io::Result<()> {
     if requests.is_empty() {
         return match fs::remove_file(path) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
         };
     }
-    let mut list: Vec<(&u64, &Download)> = requests.iter().collect();
+    let mut list: Vec<(&DownloadId, &Download)> = requests.iter().collect();
     list.sort_by_key(|(id, _)| **id);
     let plain = serde_json::to_vec(&list).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     write_atomic(path, &dpapi::protect(&plain)?)
@@ -150,6 +152,7 @@ pub fn requests_path() -> io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::id::QueueId;
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("uidm_history_{}_{name}", std::process::id()))
@@ -157,7 +160,7 @@ mod tests {
 
     fn entry(id: u64, status: Status) -> DownloadEntry {
         DownloadEntry {
-            id,
+            id: DownloadId::new(id),
             url: format!("https://x/{id}.zip"),
             path: Some(format!("C:\\dl\\{id}.zip")),
             total: Some(1000),
@@ -216,7 +219,7 @@ mod tests {
         let path = temp_path("interrupted.json");
         History {
             queues: Vec::new(),
-            next_id: 5,
+            next_id: DownloadId::new(5),
             items: vec![
                 entry(1, Status::Done),
                 entry(2, Status::Downloading),
@@ -236,11 +239,12 @@ mod tests {
     #[test]
     fn queues_load_tidy_and_keep_their_downloads_waiting() {
         let path = temp_path("queues.json");
-        let mut night = Queue::new(2, "Night");
-        night.order = vec![3, 1, 2, 99, 3];
+        let mut night = Queue::new(QueueId::new(2), "Night");
+        night.order =
+            vec![DownloadId::new(3), DownloadId::new(1), DownloadId::new(2), DownloadId::new(99), DownloadId::new(3)];
         night.running = true;
         History {
-            next_id: 6,
+            next_id: DownloadId::new(6),
             items: vec![
                 entry(1, Status::Done),
                 entry(2, Status::Downloading),
@@ -254,10 +258,14 @@ mod tests {
         .unwrap();
         let h = History::load(&path).unwrap();
         assert_eq!(h.queues[0].id, MAIN_QUEUE, "the main queue is added first");
-        assert_eq!(h.queues[1].order, [3, 2], "finished, missing and repeated ids are dropped");
+        assert_eq!(
+            h.queues[1].order,
+            [DownloadId::new(3), DownloadId::new(2)],
+            "finished, missing and repeated ids are dropped"
+        );
         assert!(h.queues[0].order.is_empty(), "a download taken out of its queue stays out");
         assert!(h.queues[1].running, "a running queue stays started");
-        let status = |id: u64| h.items.iter().find(|e| e.id == id).unwrap().status;
+        let status = |id: u64| h.items.iter().find(|e| e.id == DownloadId::new(id)).unwrap().status;
         assert_eq!(status(2), Status::Waiting, "a queued download waits again");
         assert_eq!(status(4), Status::Waiting, "and one outside every queue still waits");
         assert_eq!(status(5), Status::Interrupted, "a download outside queues is interrupted");
@@ -267,13 +275,13 @@ mod tests {
     #[test]
     fn a_synchronizing_queue_keeps_its_finished_downloads() {
         let path = temp_path("sync_queue.json");
-        let mut sync = Queue::new(2, "Mirror");
+        let mut sync = Queue::new(QueueId::new(2), "Mirror");
         sync.kind = uidm_domain::queue::QueueKind::Synchronize;
-        sync.order = vec![1, 2];
-        let mut once = Queue::new(3, "Once");
-        once.order = vec![3, 4];
+        sync.order = vec![DownloadId::new(1), DownloadId::new(2)];
+        let mut once = Queue::new(QueueId::new(3), "Once");
+        once.order = vec![DownloadId::new(3), DownloadId::new(4)];
         History {
-            next_id: 5,
+            next_id: DownloadId::new(5),
             items: vec![
                 entry(1, Status::Done),
                 entry(2, Status::Waiting),
@@ -286,28 +294,64 @@ mod tests {
         .unwrap();
         let h = History::load(&path).unwrap();
         assert_eq!(h.queues[1].kind, uidm_domain::queue::QueueKind::Synchronize, "the type is saved");
-        assert_eq!(h.queues[1].order, [1, 2], "a finished download stays to be checked");
-        assert_eq!(h.queues[2].order, [4], "a one-time queue lets it go");
+        assert_eq!(
+            h.queues[1].order,
+            [DownloadId::new(1), DownloadId::new(2)],
+            "a finished download stays to be checked"
+        );
+        assert_eq!(h.queues[2].order, [DownloadId::new(4)], "a one-time queue lets it go");
         fs::remove_file(&path).ok();
     }
 
     #[test]
     fn waiting_downloads_from_before_queues_join_the_main_queue() {
         let path = temp_path("before_queues.json");
-        History { next_id: 3, items: vec![entry(1, Status::Waiting), entry(2, Status::Failed)], queues: Vec::new() }
-            .save(&path)
-            .unwrap();
+        History {
+            next_id: DownloadId::new(3),
+            items: vec![entry(1, Status::Waiting), entry(2, Status::Failed)],
+            queues: Vec::new(),
+        }
+        .save(&path)
+        .unwrap();
         let h = History::load(&path).unwrap();
         assert_eq!(h.queues.len(), 1);
-        assert_eq!(h.queues[0].order, [1], "only the waiting download joins");
+        assert_eq!(h.queues[0].order, [DownloadId::new(1)], "only the waiting download joins");
+        fs::remove_file(&path).ok();
+    }
+
+    /// A history saved before ids had types loads with the same numbers
+    /// and is saved back in the same shape.
+    #[test]
+    fn ids_keep_their_file_shape() {
+        let path = temp_path("id_shape.json");
+        let mut item = serde_json::to_value(entry(5, Status::Waiting)).unwrap();
+        item["id"] = 5.into();
+        let mut night = serde_json::to_value(Queue::new(QueueId::new(2), "Night")).unwrap();
+        night["order"] = serde_json::json!([5]);
+        let main = serde_json::to_value(Queue::main()).unwrap();
+        let old = serde_json::json!({ "next_id": 7, "items": [item], "queues": [main, night] });
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let h = History::load(&path).unwrap();
+        assert_eq!(h.next_id, DownloadId::new(7));
+        assert_eq!(h.items[0].id, DownloadId::new(5));
+        assert_eq!((h.queues[1].id, h.queues[1].order.as_slice()), (QueueId::new(2), &[DownloadId::new(5)][..]));
+        h.save(&path).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["next_id"], 7);
+        assert_eq!(saved["items"][0]["id"], 5);
+        assert_eq!(saved["queues"][0]["id"], 1);
+        assert_eq!(saved["queues"][1]["id"], 2);
+        assert_eq!(saved["queues"][1]["order"], serde_json::json!([5]));
         fs::remove_file(&path).ok();
     }
 
     #[test]
     fn next_id_is_never_below_a_saved_id() {
         let path = temp_path("next_id.json");
-        History { next_id: 1, items: vec![entry(41, Status::Done)], queues: Vec::new() }.save(&path).unwrap();
-        assert_eq!(History::load(&path).unwrap().next_id, 42);
+        History { next_id: DownloadId::new(1), items: vec![entry(41, Status::Done)], queues: Vec::new() }
+            .save(&path)
+            .unwrap();
+        assert_eq!(History::load(&path).unwrap().next_id, DownloadId::new(42));
         fs::remove_file(&path).ok();
     }
 
@@ -327,7 +371,7 @@ mod tests {
     fn requests_are_encrypted_and_never_in_the_history() {
         let mut requests = HashMap::new();
         requests.insert(
-            2,
+            DownloadId::new(2),
             Download {
                 url: "https://x/2.zip".into(),
                 cookies: Some("session=topsecret".into()),
@@ -342,14 +386,14 @@ mod tests {
             assert!(!raw.windows(secret.len()).any(|w| w == secret));
         }
         let back = load_requests(&req_path).unwrap();
-        assert_eq!(back[&2].cookies.as_deref(), Some("session=topsecret"));
+        assert_eq!(back[&DownloadId::new(2)].cookies.as_deref(), Some("session=topsecret"));
 
         // Saving none deletes the file.
         save_requests(&req_path, &HashMap::new()).unwrap();
         assert!(!req_path.exists());
 
         let hist_path = temp_path("no-secrets.json");
-        History { next_id: 3, items: vec![entry(2, Status::Downloading)], queues: Vec::new() }
+        History { next_id: DownloadId::new(3), items: vec![entry(2, Status::Downloading)], queues: Vec::new() }
             .save(&hist_path)
             .unwrap();
         let text = fs::read_to_string(&hist_path).unwrap().to_lowercase();

@@ -27,7 +27,7 @@ use uidm_domain::sync::LockExt;
 
 use tracing::{info, warn};
 
-use uidm_application::daemon::{ClientList, Event, Failure, Reply, Requests};
+use uidm_application::daemon::{ClientId, ClientList, Event, Failure, Reply, Requests};
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::front::Windows;
@@ -62,12 +62,12 @@ pub fn reply_channel() -> (Reply, Receiver<Vec<u8>>) {
 /// to the listener given at start.
 pub struct Clients {
     /// Connected clients by id.
-    clients: Mutex<HashMap<u64, Frames>>,
+    clients: Mutex<HashMap<ClientId, Frames>>,
     /// Clients that said they are a desktop window.
-    windows: Mutex<HashSet<u64>>,
+    windows: Mutex<HashSet<ClientId>>,
     /// Clients that said hello as the browser extension does, with no
     /// `client` (the host strips any).
-    browsers: Mutex<HashSet<u64>>,
+    browsers: Mutex<HashSet<ClientId>>,
     /// When a browser extension last connected or sent anything, in
     /// seconds since 1970, for Options' link state.
     browser_seen: Mutex<Option<u64>>,
@@ -100,7 +100,7 @@ impl Clients {
 
     /// Add client `id`. Returns its reply and the receiver of every frame
     /// it is sent, replies and broadcasts alike.
-    pub fn connect(&self, id: u64) -> (Reply, Receiver<Vec<u8>>) {
+    pub fn connect(&self, id: ClientId) -> (Reply, Receiver<Vec<u8>>) {
         let (tx, rx) = channel();
         lock(&self.clients).insert(id, tx.clone());
         (reply_to(tx), rx)
@@ -112,12 +112,12 @@ impl Clients {
     }
 
     /// Note that client `id` is a desktop window.
-    pub fn add_window(&self, id: u64) {
+    pub fn add_window(&self, id: ClientId) {
         lock(&self.windows).insert(id);
     }
 
     /// Whether client `id` is a desktop window.
-    pub fn is_window(&self, id: u64) -> bool {
+    pub fn is_window(&self, id: ClientId) -> bool {
         lock(&self.windows).contains(&id)
     }
 
@@ -171,7 +171,7 @@ impl Clients {
 
     /// Note that client `id` is a browser extension; the windows hear of
     /// it when it is the only one.
-    pub fn browser_connected(&self, id: u64) {
+    pub fn browser_connected(&self, id: ClientId) {
         *lock(&self.browser_seen) = Some(unix_now());
         let first = {
             let mut browsers = lock(&self.browsers);
@@ -183,7 +183,7 @@ impl Clients {
     }
 
     /// Client `id` sent something: a browser extension is still there.
-    pub fn heard_from(&self, id: u64) {
+    pub fn heard_from(&self, id: ClientId) {
         if lock(&self.browsers).contains(&id) {
             *lock(&self.browser_seen) = Some(unix_now());
         }
@@ -191,7 +191,7 @@ impl Clients {
 
     /// Forget client `id`; when it was the last browser extension, the
     /// windows hear when it went.
-    pub fn client_gone(&self, id: u64) {
+    pub fn client_gone(&self, id: ClientId) {
         lock(&self.clients).remove(&id);
         lock(&self.windows).remove(&id);
         let last = {
@@ -220,15 +220,15 @@ impl ClientList for Clients {
         Clients::window_open(self)
     }
 
-    fn is_window(&self, client: u64) -> bool {
+    fn is_window(&self, client: ClientId) -> bool {
         Clients::is_window(self, client)
     }
 
-    fn add_window(&self, client: u64) {
+    fn add_window(&self, client: ClientId) {
         Clients::add_window(self, client);
     }
 
-    fn browser_connected(&self, client: u64) {
+    fn browser_connected(&self, client: ClientId) {
         Clients::browser_connected(self, client);
     }
 
@@ -268,7 +268,7 @@ impl StoreEvents for Clients {
 /// Handle one frame from client `client`: decode it, note that the client
 /// is still there, and hand it to `requests`. A frame that is not a request
 /// gets an `error` back.
-pub fn receive(clients: &Clients, requests: &dyn Requests, client: u64, raw: &[u8], reply: &Reply) {
+pub fn receive(clients: &Clients, requests: &dyn Requests, client: ClientId, raw: &[u8], reply: &Reply) {
     let msg: Incoming = match serde_json::from_slice(raw) {
         Ok(msg) => msg,
         Err(e) => {
@@ -313,7 +313,7 @@ impl Server {
         for conn in self.listener.incoming() {
             match conn {
                 Ok(stream) => {
-                    let id = NEXT_CLIENT.fetch_add(1, Ordering::Relaxed);
+                    let id = ClientId::new(NEXT_CLIENT.fetch_add(1, Ordering::Relaxed));
                     let (clients, requests, token) =
                         (Arc::clone(&clients), Arc::clone(&requests), Arc::clone(&self.token));
                     thread::spawn(move || handle_client(stream, id, &clients, &*requests, &token));
@@ -326,18 +326,18 @@ impl Server {
 
 /// Serve client `id` until it disconnects. It joins `clients`, and so hears
 /// broadcasts, only after it authenticates.
-fn handle_client(mut stream: TcpStream, id: u64, clients: &Clients, requests: &dyn Requests, token: &str) {
+fn handle_client(mut stream: TcpStream, id: ClientId, clients: &Clients, requests: &dyn Requests, token: &str) {
     let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
     if let Err(e) = authenticate(&mut stream, token) {
-        warn!(client = id, peer = %peer, error = %e, "client rejected");
+        warn!(client = id.get(), peer = %peer, error = %e, "client rejected");
         return;
     }
-    info!(client = id, peer = %peer, "client connected");
+    info!(client = id.get(), peer = %peer, "client connected");
 
     let mut writer_stream = match stream.try_clone() {
         Ok(s) => s,
         Err(e) => {
-            warn!(client = id, error = %e, "client error");
+            warn!(client = id.get(), error = %e, "client error");
             return;
         }
     };
@@ -359,7 +359,7 @@ fn handle_client(mut stream: TcpStream, id: u64, clients: &Clients, requests: &d
             Ok(Some(raw)) => receive(clients, requests, id, &raw, &reply),
             Ok(None) => break, // clean disconnect
             Err(e) => {
-                warn!(client = id, error = %e, "client read error");
+                warn!(client = id.get(), error = %e, "client read error");
                 break;
             }
         }
@@ -372,7 +372,7 @@ fn handle_client(mut stream: TcpStream, id: u64, clients: &Clients, requests: &d
     requests.gone(id);
     drop(reply);
     let _ = writer.join();
-    info!(client = id, "client disconnected");
+    info!(client = id.get(), "client disconnected");
 }
 
 /// Run the daemon side of the handshake described in `ipc`.
@@ -409,14 +409,14 @@ mod tests {
     struct Echo(Mutex<Vec<u64>>);
 
     impl Requests for Echo {
-        fn handle(&self, _client: u64, command: Command, reply: &Reply) {
+        fn handle(&self, _client: ClientId, command: Command, reply: &Reply) {
             if matches!(command, Command::Ping) {
                 reply.send(Event::Pong);
             }
         }
 
-        fn gone(&self, client: u64) {
-            lock(&self.0).push(client);
+        fn gone(&self, client: ClientId) {
+            lock(&self.0).push(client.get());
         }
     }
 
@@ -432,8 +432,8 @@ mod tests {
     fn a_frame_that_is_not_a_request_gets_an_error() {
         let (clients, handler) = (clients(), Echo(Mutex::default()));
         let (reply, frames) = reply_channel();
-        receive(&clients, &handler, 1, b"{\"op\":\"nonsense\"}", &reply);
-        receive(&clients, &handler, 1, br#"{"op":"ping"}"#, &reply);
+        receive(&clients, &handler, ClientId::new(1), b"{\"op\":\"nonsense\"}", &reply);
+        receive(&clients, &handler, ClientId::new(1), br#"{"op":"ping"}"#, &reply);
         let got = got(&frames);
         assert!(matches!(&got[0], Outgoing::Error { message, .. } if message.starts_with("invalid message")));
         assert!(matches!(got[1], Outgoing::Pong));
@@ -442,9 +442,9 @@ mod tests {
     #[test]
     fn only_windows_hear_what_is_sent_to_windows() {
         let clients = clients();
-        let (_window, window_frames) = clients.connect(1);
-        let (_browser, browser_frames) = clients.connect(2);
-        clients.add_window(1);
+        let (_window, window_frames) = clients.connect(ClientId::new(1));
+        let (_browser, browser_frames) = clients.connect(ClientId::new(2));
+        clients.add_window(ClientId::new(1));
         assert!(clients.extension_connected());
         clients.to_windows(Event::Show);
         clients.broadcast(Event::Pong);
@@ -455,7 +455,7 @@ mod tests {
     #[test]
     fn a_client_whose_writer_is_gone_is_dropped_on_broadcast() {
         let clients = clients();
-        let (_reply, frames) = clients.connect(1);
+        let (_reply, frames) = clients.connect(ClientId::new(1));
         drop(frames);
         clients.broadcast(Event::Pong);
         assert!(clients.is_empty());

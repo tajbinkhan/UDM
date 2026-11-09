@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
 use tracing::{info, warn};
@@ -60,14 +61,14 @@ fn early_finished_anyway(early: &Early) -> Option<&Path> {
 /// they run under, which clients never see.
 #[derive(Default)]
 pub struct EarlyRuns {
-    runs: Mutex<HashMap<u64, Early>>,
+    runs: Mutex<HashMap<DownloadId, Early>>,
 }
 
 /// A download started while its save-as dialog is open, into a folder of
 /// its own, until the dialog is answered.
 pub struct Early {
     /// The download in the list it is for.
-    pub real: u64,
+    pub real: DownloadId,
     /// Its folder.
     pub dir: PathBuf,
     /// The file it writes, once started.
@@ -84,7 +85,7 @@ pub struct Early {
 impl EarlyRuns {
     /// The early downloads, locked. Each change inserts, removes or edits one
     /// entry, so a lock poisoned by a panicking thread is still read.
-    pub fn runs(&self) -> MutexGuard<'_, HashMap<u64, Early>> {
+    pub fn runs(&self) -> MutexGuard<'_, HashMap<DownloadId, Early>> {
         self.runs.lock_or_recover()
     }
 
@@ -142,7 +143,7 @@ impl EarlyRuns {
     }
 
     /// The engine id of download `real`'s early download, if it has one.
-    pub fn early_of(&self, real: u64) -> Option<u64> {
+    pub fn early_of(&self, real: DownloadId) -> Option<DownloadId> {
         self.runs().iter().find(|(_, e)| e.real == real).map(|(id, _)| *id)
     }
 }
@@ -157,7 +158,7 @@ pub struct Transfers {
     events: Arc<dyn StoreEvents>,
     early: Arc<EarlyRuns>,
     /// The download waiting for a new link from the browser, if any.
-    refresh_waiting: Mutex<Option<u64>>,
+    refresh_waiting: Mutex<Option<DownloadId>>,
 }
 
 impl Transfers {
@@ -169,7 +170,7 @@ impl Transfers {
         events: Arc<dyn StoreEvents>,
         settings: Arc<LiveSettings>,
         retries: Arc<ProxyRetries>,
-        next_id: u64,
+        next_id: DownloadId,
     ) -> Self {
         let early = Arc::new(EarlyRuns::default());
         let (to, shadows) = (Arc::clone(&store), Arc::clone(&early));
@@ -207,7 +208,7 @@ impl Transfers {
 
     /// The slot is only ever replaced whole, so a poisoned lock still holds
     /// a usable value.
-    fn waiting(&self) -> MutexGuard<'_, Option<u64>> {
+    fn waiting(&self) -> MutexGuard<'_, Option<DownloadId>> {
         self.refresh_waiting.lock_or_recover()
     }
 
@@ -230,7 +231,7 @@ impl Transfers {
     /// Start a `waiting` (or `confirming`) download now. A download that ran
     /// before resumes its own file; one that never ran goes to the file chosen
     /// for it, if any.
-    pub fn dispatch(&self, id: u64) -> Result<(), TransferError> {
+    pub fn dispatch(&self, id: DownloadId) -> Result<(), TransferError> {
         let download = self.store.requests().get(&id).cloned();
         let mut plan = (None, false);
         let item = self.store.update(id, |e| {
@@ -293,7 +294,7 @@ impl Transfers {
     /// replaces only once the new copy is complete. Returns whether it
     /// changed. A check that fails leaves the download and its file alone,
     /// with a note saying why.
-    pub fn check_for_change(&self, id: u64) -> Result<bool, TransferError> {
+    pub fn check_for_change(&self, id: DownloadId) -> Result<bool, TransferError> {
         let entry = self.entry(id).ok_or(TransferError::NoDownload(id))?;
         if entry.status != Status::Done {
             return Err(TransferError::NotFinished(id));
@@ -302,7 +303,7 @@ impl Transfers {
         let found = match found {
             Ok(found) => found,
             Err(e) => {
-                warn!(download_id = id, error = %e, "could not check for changes");
+                warn!(download_id = id.get(), error = %e, "could not check for changes");
                 let note = format!("Could not check the server for a newer copy: {e}");
                 let _ = self.store.update(id, |e| {
                     if e.status != Status::Done {
@@ -345,7 +346,7 @@ impl Transfers {
                 EditError::NoDownload(id) => TransferError::NoDownload(id),
                 EditError::Refused => TransferError::StartedAgain,
             })?;
-        info!(download_id = id, changed, url = %entry.url, "checked the server for changes");
+        info!(download_id = id.get(), changed, url = %entry.url, "checked the server for changes");
         Ok(changed)
     }
 
@@ -373,7 +374,7 @@ impl Transfers {
     /// id of its own (whose events clients never see) and into a folder of
     /// its own. Answering the dialog keeps what it fetched: see
     /// `settle_early`.
-    pub fn start_early(&self, id: u64, download: Download, filename: &str) {
+    pub fn start_early(&self, id: DownloadId, download: Download, filename: &str) {
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
         let root = early_root();
@@ -381,7 +382,7 @@ impl Transfers {
         // A new folder each time: one that is already there, or a link in
         // its place, makes this fail rather than be written through.
         if let Err(e) = std::fs::create_dir_all(&root).and_then(|()| std::fs::create_dir(&dir)) {
-            warn!(download_id = id, error = %e, "could not start early");
+            warn!(download_id = id.get(), error = %e, "could not start early");
             return;
         }
         let mut req = self.request_for(download);
@@ -395,14 +396,14 @@ impl Transfers {
         self.early
             .runs()
             .insert(shadow, Early { real: id, dir, file: None, target: None, total: None, end: None, discard: false });
-        info!(download_id = id, "starts early while its dialog is open");
+        info!(download_id = id.get(), "starts early while its dialog is open");
         self.engine.enqueue_as(shadow, req);
     }
 
     /// Stop the early download `shadow` and wait for it, returning how it
     /// ended. `None` if it did not stop in time; its events
     /// stay hidden, and its folder goes when UIDM next starts.
-    fn stop_early(&self, shadow: u64) -> Option<Early> {
+    fn stop_early(&self, shadow: DownloadId) -> Option<Early> {
         self.engine.cancel(shadow);
         let deadline = Instant::now() + EARLY_STOP_WAIT;
         loop {
@@ -413,7 +414,7 @@ impl Transfers {
                 }
                 if Instant::now() >= deadline {
                     if let Some(e) = early.get_mut(&shadow) {
-                        e.real = 0;
+                        e.real = DownloadId::NONE;
                         e.discard = true;
                     }
                     return None;
@@ -429,7 +430,7 @@ impl Transfers {
     /// and the download is done; a partial one becomes the download's own
     /// partial file, so starting it carries on from there. Returns whether
     /// it finished.
-    pub fn settle_early(&self, id: u64, shadow: u64) -> bool {
+    pub fn settle_early(&self, id: DownloadId, shadow: DownloadId) -> bool {
         let Some(early) = self.stop_early(shadow) else {
             return false;
         };
@@ -453,7 +454,7 @@ impl Transfers {
                 let to = free_path(&path, overwrite);
                 match crate::files::move_file(&finished, &to) {
                     Ok(()) => {
-                        info!(download_id = id, "finished while its dialog was open");
+                        info!(download_id = id.get(), "finished while its dialog was open");
                         self.store.leave_queues(id);
                         self.store.publish(&Outgoing::Done {
                             id,
@@ -464,7 +465,7 @@ impl Transfers {
                         let _ = std::fs::remove_dir_all(&early.dir);
                         return true;
                     }
-                    Err(err) => warn!(download_id = id, error = %err, "could not keep the early download"),
+                    Err(err) => warn!(download_id = id.get(), error = %err, "could not keep the early download"),
                 }
             }
             (Some(_), Some(path), _, Some(partial))
@@ -491,7 +492,7 @@ impl Transfers {
 
     /// Stop download `id`'s early download, if it has one, and drop what it
     /// fetched once it has stopped.
-    pub fn discard_early(&self, id: u64) {
+    pub fn discard_early(&self, id: DownloadId) {
         let Some(shadow) = self.early.early_of(id) else {
             return;
         };
@@ -504,7 +505,7 @@ impl Transfers {
             return;
         }
         if let Some(e) = early.get_mut(&shadow) {
-            e.real = 0;
+            e.real = DownloadId::NONE;
             e.discard = true;
         }
         drop(early);
@@ -518,7 +519,7 @@ impl Transfers {
         download: Download,
         reuse_path: Option<PathBuf>,
         reuse_partial: Option<PathBuf>,
-    ) -> (u64, String) {
+    ) -> (DownloadId, String) {
         let url = download.url.clone();
         let mut req = self.request_for(download.clone());
         req.reuse_path = reuse_path;
@@ -534,11 +535,11 @@ impl Transfers {
         (id, url)
     }
 
-    pub fn status(&self, id: u64) -> Option<Status> {
+    pub fn status(&self, id: DownloadId) -> Option<Status> {
         self.store.table().get(id).map(|e| e.status)
     }
 
-    pub fn entry(&self, id: u64) -> Option<DownloadEntry> {
+    pub fn entry(&self, id: DownloadId) -> Option<DownloadEntry> {
         self.store.table().get(id).cloned()
     }
 
@@ -611,7 +612,7 @@ impl Transfers {
 
     /// Change which download waits for a link from the browser, and tell
     /// every client.
-    pub fn set_refresh_waiting(&self, id: Option<u64>) {
+    pub fn set_refresh_waiting(&self, id: Option<DownloadId>) {
         *self.waiting() = id;
         self.events.announce(&Outgoing::RefreshWaiting { id });
     }
@@ -631,29 +632,29 @@ impl SettingsStore for Transfers {
 }
 
 impl DownloadControl for Transfers {
-    fn hold(&self, id: u64) {
+    fn hold(&self, id: DownloadId) {
         self.store.hold(id);
         self.engine.cancel(id);
     }
 
-    fn stop(&self, id: u64) {
+    fn stop(&self, id: DownloadId) {
         self.engine.cancel(id);
     }
 
-    fn set_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
+    fn set_limit(&self, id: DownloadId, bytes_per_sec: Option<u64>) {
         self.engine.set_download_limit(id, bytes_per_sec);
     }
 
-    fn start_again(&self, id: u64, download: Download) {
+    fn start_again(&self, id: DownloadId, download: Download) {
         let req = self.request_for(download);
         self.engine.enqueue_as(id, req);
     }
 
-    fn dispatch(&self, id: u64) -> Result<(), ControlError> {
+    fn dispatch(&self, id: DownloadId) -> Result<(), ControlError> {
         Transfers::dispatch(self, id).map_err(|e| ControlError(e.to_string()))
     }
 
-    fn cancel_waiting(&self, id: u64) {
+    fn cancel_waiting(&self, id: DownloadId) {
         self.discard_early(id);
         let url = self.store.table().get(id).map(|e| e.url.clone());
         if let Some(url) = url {
@@ -661,11 +662,11 @@ impl DownloadControl for Transfers {
         }
     }
 
-    fn wait_for_link(&self, id: Option<u64>) {
+    fn wait_for_link(&self, id: Option<DownloadId>) {
         self.set_refresh_waiting(id);
     }
 
-    fn waiting_for_link(&self) -> Option<u64> {
+    fn waiting_for_link(&self) -> Option<DownloadId> {
         *self.waiting()
     }
 
@@ -681,7 +682,7 @@ impl DownloadControl for Transfers {
         Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err())
     }
 
-    fn forget(&self, id: u64) {
+    fn forget(&self, id: DownloadId) {
         self.store.requests().remove(&id);
         if self.waiting().is_some_and(|w| w == id) {
             self.set_refresh_waiting(None);
@@ -695,7 +696,7 @@ impl DownloadControl for Transfers {
         path: Option<PathBuf>,
         partial: Option<PathBuf>,
         remember_limit: bool,
-    ) -> (u64, String) {
+    ) -> (DownloadId, String) {
         let (id, url) = self.start_resuming(download, path, partial);
         if !remember_limit {
             let _ = self.store.update(id, |e| {
@@ -711,11 +712,11 @@ impl DownloadControl for Transfers {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TransferError {
     #[error("no download with id {0}")]
-    NoDownload(u64),
+    NoDownload(DownloadId),
     #[error("download {0} is not waiting to be started")]
-    NotWaiting(u64),
+    NotWaiting(DownloadId),
     #[error("download {0} has not finished")]
-    NotFinished(u64),
+    NotFinished(DownloadId),
     #[error("The download started again in the meantime.")]
     StartedAgain,
     #[error("it has no file")]
@@ -744,7 +745,7 @@ pub enum SaveError {
 
 /// Only single inserts and removals change the set, so a poisoned lock
 /// still holds a usable one.
-fn lock_set(set: &Mutex<HashSet<u64>>) -> MutexGuard<'_, HashSet<u64>> {
+fn lock_set(set: &Mutex<HashSet<DownloadId>>) -> MutexGuard<'_, HashSet<DownloadId>> {
     set.lock_or_recover()
 }
 
@@ -752,7 +753,7 @@ fn lock_set(set: &Mutex<HashSet<u64>>) -> MutexGuard<'_, HashSet<u64>> {
 pub struct SyncChecker {
     transfers: Arc<Transfers>,
     /// Finished downloads being checked with the server.
-    checking: Arc<Mutex<HashSet<u64>>>,
+    checking: Arc<Mutex<HashSet<DownloadId>>>,
 }
 
 impl SyncChecker {
@@ -762,11 +763,11 @@ impl SyncChecker {
 }
 
 impl SyncChecks for SyncChecker {
-    fn checking(&self) -> HashSet<u64> {
+    fn checking(&self) -> HashSet<DownloadId> {
         lock_set(&self.checking).clone()
     }
 
-    fn check(&self, id: u64) {
+    fn check(&self, id: DownloadId) {
         lock_set(&self.checking).insert(id);
         let (transfers, checking) = (Arc::clone(&self.transfers), Arc::clone(&self.checking));
         thread::spawn(move || {
@@ -813,7 +814,7 @@ pub fn clean_early_folders(store: &DownloadStore) {
 
 /// Starts a download that waited, or puts it in its queue, through the use
 /// case: the download's id, whether to start it, and the queue.
-pub type GoOn = Arc<dyn Fn(u64, bool, Option<u64>) + Send + Sync>;
+pub type GoOn = Arc<dyn Fn(DownloadId, bool, Option<QueueId>) + Send + Sync>;
 
 /// Early starts, each handed over on a thread of its own: stopping the
 /// early copy and moving its bytes takes a moment.
@@ -829,11 +830,11 @@ impl EarlyHandOver {
 }
 
 impl uidm_domain::ports::EarlyStarts for EarlyHandOver {
-    fn start(&self, id: u64, download: Download, filename: &str) {
+    fn start(&self, id: DownloadId, download: Download, filename: &str) {
         self.transfers.start_early(id, download, filename);
     }
 
-    fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool {
+    fn hand_over(&self, id: DownloadId, start: bool, queue: Option<QueueId>) -> bool {
         let Some(shadow) = self.transfers.early.early_of(id) else {
             return false;
         };
@@ -848,7 +849,7 @@ impl uidm_domain::ports::EarlyStarts for EarlyHandOver {
 }
 
 impl uidm_domain::ports::TransferEngine for Transfers {
-    fn reserve_id(&self) -> u64 {
+    fn reserve_id(&self) -> DownloadId {
         self.engine.reserve_id()
     }
 
@@ -856,7 +857,7 @@ impl uidm_domain::ports::TransferEngine for Transfers {
         self.engine.active_count()
     }
 
-    fn start(&self, download: Download) -> (u64, String) {
+    fn start(&self, download: Download) -> (DownloadId, String) {
         self.start_resuming(download, None, None)
     }
 
@@ -864,7 +865,7 @@ impl uidm_domain::ports::TransferEngine for Transfers {
         Transfers::save_history(self);
     }
 
-    fn has_changed(&self, id: u64) -> bool {
+    fn has_changed(&self, id: DownloadId) -> bool {
         matches!(self.check_for_change(id), Ok(true))
     }
 }
@@ -909,12 +910,12 @@ mod tests {
 
     fn wait_for(w: &World, id: u64, status: Status) -> DownloadEntry {
         for _ in 0..500 {
-            if let Some(e) = w.transfers.entry(id).filter(|e| e.status == status) {
+            if let Some(e) = w.transfers.entry(DownloadId::new(id)).filter(|e| e.status == status) {
                 return e;
             }
             thread::sleep(Duration::from_millis(10));
         }
-        panic!("download {id} never became {status:?}: {:?}", w.transfers.entry(id));
+        panic!("download {id} never became {status:?}: {:?}", w.transfers.entry(DownloadId::new(id)));
     }
 
     #[test]
@@ -923,7 +924,7 @@ mod tests {
         let server = TestServer::start(engine::testserver::body(10_000));
         let (id, _) =
             w.transfers.start_resuming(Download { url: server.url.clone(), ..Download::default() }, None, None);
-        let done = wait_for(&w, id, Status::Done);
+        let done = wait_for(&w, id.get(), Status::Done);
         let path = PathBuf::from(done.path.unwrap());
         assert_eq!(path.parent(), Some(w.dir.as_path()));
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 10_000);
@@ -935,7 +936,7 @@ mod tests {
 
         // Waiting again in place, it downloads into the same file.
         DownloadControl::dispatch(&*w.transfers, id).unwrap();
-        wait_for(&w, id, Status::Done);
+        wait_for(&w, id.get(), Status::Done);
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 10_000);
         let _ = std::fs::remove_dir_all(&w.dir);
     }
@@ -956,12 +957,12 @@ mod tests {
     #[test]
     fn forgetting_the_download_waiting_for_a_link_stops_the_wait() {
         let w = world("forget");
-        w.store.publish(&Outgoing::Added { id: 5, url: "http://x/a".into() });
-        w.transfers.wait_for_link(Some(5));
-        assert_eq!(w.transfers.waiting_for_link(), Some(5));
-        w.transfers.forget(5);
+        w.store.publish(&Outgoing::Added { id: DownloadId::new(5), url: "http://x/a".into() });
+        w.transfers.wait_for_link(Some(DownloadId::new(5)));
+        assert_eq!(w.transfers.waiting_for_link(), Some(DownloadId::new(5)));
+        w.transfers.forget(DownloadId::new(5));
         assert_eq!(w.transfers.waiting_for_link(), None);
-        assert!(w.transfers.entry(5).is_none());
+        assert!(w.transfers.entry(DownloadId::new(5)).is_none());
         let said = w.heard.0.lock().unwrap().clone();
         assert!(said.iter().any(|m| matches!(m, Outgoing::RefreshWaiting { id: None })));
         let _ = std::fs::remove_dir_all(&w.dir);
@@ -1007,7 +1008,7 @@ mod tests {
         assert!(!w.transfers.settle_early(id, shadow), "kept as its partial file");
         assert_eq!(w.transfers.entry(id).unwrap().partial, Some(file.display().to_string()));
         DownloadControl::dispatch(&*w.transfers, id).unwrap();
-        let done = wait_for(&w, id, Status::Done);
+        let done = wait_for(&w, id.get(), Status::Done);
         assert_eq!(done.path, Some(chosen.display().to_string()));
         assert_eq!(std::fs::read(&chosen).unwrap(), body);
         assert!(!file.exists() && !engine::sidecar_path(&file).exists());
@@ -1023,7 +1024,7 @@ mod tests {
         let target = dir.join("big.bin");
         let partial = dir.join("big.bin.part");
         let early = |file: &Path| Early {
-            real: 1,
+            real: DownloadId::new(1),
             dir: dir.clone(),
             file: Some(file.to_path_buf()),
             target: Some(target.clone()),

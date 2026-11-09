@@ -45,7 +45,7 @@ impl Target {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Conversion {
     /// The download converted.
-    pub from: u64,
+    pub from: crate::id::DownloadId,
     /// Its address, which the new row shows.
     pub url: String,
     pub input: PathBuf,

@@ -1,4 +1,6 @@
-//! In-memory adapters for the use cases' tests.
+//! In-memory adapters for the use cases' tests. Their own helpers take and
+//! return ids as plain numbers, so tests stay short; the ports they
+//! implement take the id types.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -6,6 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use uidm_domain::download::{Download, DownloadEntry, Status};
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
@@ -28,7 +31,8 @@ impl Queues {
         Queues { list: Mutex::new(vec![Queue::new(MAIN_QUEUE, MAIN_QUEUE_NAME)]), changes: AtomicUsize::new(0) }
     }
 
-    pub fn get(&self, id: u64) -> Queue {
+    pub fn get(&self, id: impl Into<QueueId>) -> Queue {
+        let id = id.into();
         self.edit(|qs| qs.iter().find(|q| q.id == id).cloned()).expect("the queue exists")
     }
 
@@ -51,12 +55,13 @@ impl QueueStore for Queues {
 /// The download list, with the requests kept for retries.
 #[derive(Default)]
 pub struct Downloads {
-    rows: Mutex<HashMap<u64, DownloadEntry>>,
-    requests: Mutex<HashMap<u64, Download>>,
+    rows: Mutex<HashMap<DownloadId, DownloadEntry>>,
+    requests: Mutex<HashMap<DownloadId, Download>>,
 }
 
 /// A row for download `id` in state `status`.
-pub fn row(id: u64, status: Status) -> DownloadEntry {
+pub fn row(id: impl Into<DownloadId>, status: Status) -> DownloadEntry {
+    let id = id.into();
     let json = serde_json::json!({
         "id": id, "url": format!("https://dl.example/{id}.zip"), "status": status,
         "connections": 0, "done": 0, "resumable": false,
@@ -75,33 +80,33 @@ impl Downloads {
 
     /// Put download `id` in state `status`. Returns false when there is no
     /// such download.
-    pub fn set(&self, id: u64, status: Status) -> bool {
-        self.rows.lock().unwrap().get_mut(&id).map(|e| e.status = status).is_some()
+    pub fn set(&self, id: impl Into<DownloadId>, status: Status) -> bool {
+        self.rows.lock().unwrap().get_mut(&id.into()).map(|e| e.status = status).is_some()
     }
 
-    pub fn has_row(&self, id: u64) -> bool {
-        self.rows.lock().unwrap().contains_key(&id)
+    pub fn has_row(&self, id: impl Into<DownloadId>) -> bool {
+        self.rows.lock().unwrap().contains_key(&id.into())
     }
 }
 
 impl DownloadList for Downloads {
-    fn status(&self, id: u64) -> Option<Status> {
+    fn status(&self, id: DownloadId) -> Option<Status> {
         self.rows.lock().unwrap().get(&id).map(|e| e.status)
     }
 
-    fn entry(&self, id: u64) -> Option<DownloadEntry> {
+    fn entry(&self, id: DownloadId) -> Option<DownloadEntry> {
         self.rows.lock().unwrap().get(&id).cloned()
     }
 
-    fn take_request(&self, id: u64) -> Option<Download> {
+    fn take_request(&self, id: DownloadId) -> Option<Download> {
         self.requests.lock().unwrap().remove(&id)
     }
 
-    fn drop_row(&self, id: u64) {
+    fn drop_row(&self, id: DownloadId) {
         self.rows.lock().unwrap().remove(&id);
     }
 
-    fn update(&self, id: u64, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool> {
+    fn update(&self, id: DownloadId, f: impl FnOnce(&mut DownloadEntry) -> bool) -> Option<bool> {
         let mut rows = self.rows.lock().unwrap();
         let row = rows.get_mut(&id)?;
         let mut changed = row.clone();
@@ -112,25 +117,25 @@ impl DownloadList for Downloads {
         Some(ok)
     }
 
-    fn request(&self, id: u64) -> Option<Download> {
+    fn request(&self, id: DownloadId) -> Option<Download> {
         self.requests.lock().unwrap().get(&id).cloned()
     }
 
-    fn keep_request(&self, id: u64, download: Download) {
+    fn keep_request(&self, id: DownloadId, download: Download) {
         self.requests.lock().unwrap().insert(id, download);
     }
 
-    fn edit_request(&self, id: u64, f: impl FnOnce(&mut Download)) {
+    fn edit_request(&self, id: DownloadId, f: impl FnOnce(&mut Download)) {
         if let Some(d) = self.requests.lock().unwrap().get_mut(&id) {
             f(d);
         }
     }
 
-    fn finished(&self) -> HashSet<u64> {
+    fn finished(&self) -> HashSet<DownloadId> {
         self.ids_where(|_, s| s == Status::Done).into_iter().collect()
     }
 
-    fn set_waiting(&self, id: u64) -> bool {
+    fn set_waiting(&self, id: DownloadId) -> bool {
         self.set(id, Status::Waiting)
     }
 
@@ -141,8 +146,8 @@ impl DownloadList for Downloads {
         found.last().map(|e| (*e).clone())
     }
 
-    fn ids_where(&self, keep: impl Fn(u64, Status) -> bool) -> Vec<u64> {
-        let mut ids: Vec<u64> =
+    fn ids_where(&self, keep: impl Fn(DownloadId, Status) -> bool) -> Vec<DownloadId> {
+        let mut ids: Vec<DownloadId> =
             self.rows.lock().unwrap().values().filter(|e| keep(e.id, e.status)).map(|e| e.id).collect();
         ids.sort_unstable();
         ids
@@ -152,37 +157,37 @@ impl DownloadList for Downloads {
 /// The queues that have a run going, with what each run started, and the
 /// retries counted per download.
 #[derive(Default)]
-pub struct Runs(Mutex<HashMap<u64, HashSet<u64>>>, Mutex<HashMap<u64, u32>>);
+pub struct Runs(Mutex<HashMap<QueueId, HashSet<DownloadId>>>, Mutex<HashMap<DownloadId, u32>>);
 
 impl Runs {
-    pub fn running(&self, queue: u64) -> bool {
-        self.0.lock().unwrap().contains_key(&queue)
+    pub fn running(&self, queue: impl Into<QueueId>) -> bool {
+        self.0.lock().unwrap().contains_key(&queue.into())
     }
 
     /// Queue `queue`'s run started download `id`.
-    pub fn started(&self, queue: u64, id: u64) {
-        self.0.lock().unwrap().entry(queue).or_default().insert(id);
+    pub fn started(&self, queue: impl Into<QueueId>, id: impl Into<DownloadId>) {
+        self.0.lock().unwrap().entry(queue.into()).or_default().insert(id.into());
     }
 }
 
 impl QueueRuns for Runs {
-    fn begin(&self, queue: u64) {
+    fn begin(&self, queue: QueueId) {
         self.0.lock().unwrap().insert(queue, HashSet::new());
     }
 
-    fn end(&self, queue: u64) {
+    fn end(&self, queue: QueueId) {
         self.0.lock().unwrap().remove(&queue);
     }
 
-    fn started_in_run(&self, queue: u64) -> HashSet<u64> {
+    fn started_in_run(&self, queue: QueueId) -> HashSet<DownloadId> {
         self.0.lock().unwrap().get(&queue).cloned().unwrap_or_default()
     }
 
-    fn note_started(&self, queue: u64, id: u64) {
+    fn note_started(&self, queue: QueueId, id: DownloadId) {
         self.started(queue, id);
     }
 
-    fn count_retry(&self, id: u64, max: u32) -> Option<u32> {
+    fn count_retry(&self, id: DownloadId, max: u32) -> Option<u32> {
         let mut retries = self.1.lock().unwrap();
         let n = retries.entry(id).or_insert(0);
         (*n < max).then(|| {
@@ -191,7 +196,7 @@ impl QueueRuns for Runs {
         })
     }
 
-    fn forget_retries(&self, ids: &HashSet<u64>) {
+    fn forget_retries(&self, ids: &HashSet<DownloadId>) {
         self.1.lock().unwrap().retain(|id, _| !ids.contains(id));
     }
 }
@@ -224,8 +229,8 @@ pub struct Control {
     started_again: Mutex<Vec<(u64, Download)>>,
     dispatched: Mutex<Vec<u64>>,
     canceled_waiting: Mutex<Vec<u64>>,
-    waiting_for_link: Mutex<Option<u64>>,
-    refuse: HashSet<u64>,
+    waiting_for_link: Mutex<Option<DownloadId>>,
+    refuse: HashSet<DownloadId>,
     /// What [`DownloadControl::check_partial`] answers.
     partial_check: Option<Result<Option<uidm_domain::download::Mismatch>, ControlError>>,
 }
@@ -240,12 +245,12 @@ pub struct Restart {
 }
 
 /// The id [`Control`] gives the first restarted download.
-pub const RESTARTED_ID: u64 = 100;
+pub const RESTARTED_ID: DownloadId = DownloadId::new(100);
 
 impl Control {
     /// A control that cannot start the downloads in `refuse`.
     pub fn refusing(refuse: &[u64]) -> Self {
-        Control { refuse: refuse.iter().copied().collect(), ..Control::default() }
+        Control { refuse: refuse.iter().copied().map(DownloadId::new).collect(), ..Control::default() }
     }
 
     pub fn held(&self) -> Vec<u64> {
@@ -287,43 +292,43 @@ impl Control {
 }
 
 impl DownloadControl for Control {
-    fn hold(&self, id: u64) {
-        self.held.lock().unwrap().push(id);
+    fn hold(&self, id: DownloadId) {
+        self.held.lock().unwrap().push(id.get());
     }
 
-    fn stop(&self, id: u64) {
-        self.stopped.lock().unwrap().push(id);
+    fn stop(&self, id: DownloadId) {
+        self.stopped.lock().unwrap().push(id.get());
     }
 
-    fn forget(&self, id: u64) {
-        self.forgotten.lock().unwrap().push(id);
+    fn forget(&self, id: DownloadId) {
+        self.forgotten.lock().unwrap().push(id.get());
     }
 
-    fn set_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
-        self.limits.lock().unwrap().push((id, bytes_per_sec));
+    fn set_limit(&self, id: DownloadId, bytes_per_sec: Option<u64>) {
+        self.limits.lock().unwrap().push((id.get(), bytes_per_sec));
     }
 
-    fn start_again(&self, id: u64, download: Download) {
-        self.started_again.lock().unwrap().push((id, download));
+    fn start_again(&self, id: DownloadId, download: Download) {
+        self.started_again.lock().unwrap().push((id.get(), download));
     }
 
-    fn dispatch(&self, id: u64) -> Result<(), ControlError> {
+    fn dispatch(&self, id: DownloadId) -> Result<(), ControlError> {
         if self.refuse.contains(&id) {
             return Err(ControlError(format!("download {id} cannot start")));
         }
-        self.dispatched.lock().unwrap().push(id);
+        self.dispatched.lock().unwrap().push(id.get());
         Ok(())
     }
 
-    fn cancel_waiting(&self, id: u64) {
-        self.canceled_waiting.lock().unwrap().push(id);
+    fn cancel_waiting(&self, id: DownloadId) {
+        self.canceled_waiting.lock().unwrap().push(id.get());
     }
 
-    fn wait_for_link(&self, id: Option<u64>) {
+    fn wait_for_link(&self, id: Option<DownloadId>) {
         *self.waiting_for_link.lock().unwrap() = id;
     }
 
-    fn waiting_for_link(&self) -> Option<u64> {
+    fn waiting_for_link(&self) -> Option<DownloadId> {
         *self.waiting_for_link.lock().unwrap()
     }
 
@@ -341,11 +346,11 @@ impl DownloadControl for Control {
         path: Option<PathBuf>,
         partial: Option<PathBuf>,
         remember_limit: bool,
-    ) -> (u64, String) {
+    ) -> (DownloadId, String) {
         let mut restarted = self.restarted.lock().unwrap();
         let url = download.url.clone();
         restarted.push(Restart { download, path, partial, remember_limit });
-        (RESTARTED_ID + restarted.len() as u64 - 1, url)
+        (DownloadId::new(RESTARTED_ID.get() + restarted.len() as u64 - 1), url)
     }
 }
 
@@ -431,16 +436,16 @@ impl DownloadFiles for Files {
 
 /// What was paused.
 #[derive(Default)]
-pub struct Paused(Mutex<(HashSet<u64>, HashSet<u64>)>);
+pub struct Paused(Mutex<(HashSet<QueueId>, HashSet<DownloadId>)>);
 
 impl PausedDownloads for Paused {
-    fn remember(&self, queues: &[u64], downloads: &[u64]) {
+    fn remember(&self, queues: &[QueueId], downloads: &[DownloadId]) {
         let mut p = self.0.lock().unwrap();
         p.0.extend(queues);
         p.1.extend(downloads);
     }
 
-    fn take(&self) -> (HashSet<u64>, HashSet<u64>) {
+    fn take(&self) -> (HashSet<QueueId>, HashSet<DownloadId>) {
         std::mem::take(&mut *self.0.lock().unwrap())
     }
 }
@@ -459,14 +464,14 @@ impl Clock for FixedClock {
 /// Records the checks started; `running` are the ones going on.
 #[derive(Default)]
 pub struct Checks {
-    running: HashSet<u64>,
+    running: HashSet<DownloadId>,
     started: Mutex<Vec<u64>>,
 }
 
 impl Checks {
     /// Checks where the downloads in `running` are being checked now.
     pub fn going_on(running: &[u64]) -> Self {
-        Checks { running: running.iter().copied().collect(), ..Checks::default() }
+        Checks { running: running.iter().copied().map(DownloadId::new).collect(), ..Checks::default() }
     }
 
     pub fn started(&self) -> Vec<u64> {
@@ -475,12 +480,12 @@ impl Checks {
 }
 
 impl SyncChecks for Checks {
-    fn checking(&self) -> HashSet<u64> {
+    fn checking(&self) -> HashSet<DownloadId> {
         self.running.clone()
     }
 
-    fn check(&self, id: u64) {
-        self.started.lock().unwrap().push(id);
+    fn check(&self, id: DownloadId) {
+        self.started.lock().unwrap().push(id.get());
     }
 }
 
@@ -505,7 +510,7 @@ impl QueueFinish for Finish {
 pub struct Quota {
     used: Mutex<u64>,
     frees_at: u64,
-    held: Mutex<Option<(Vec<u64>, HashSet<u64>)>>,
+    held: Mutex<Option<(Vec<QueueId>, HashSet<DownloadId>)>>,
     warned: Mutex<bool>,
     announced: Mutex<Vec<QuotaNotice>>,
 }
@@ -538,14 +543,14 @@ impl QuotaState for Quota {
         self.held.lock().unwrap().is_some()
     }
 
-    fn hold(&self, queues: &[u64], downloads: &[u64]) {
+    fn hold(&self, queues: &[QueueId], downloads: &[DownloadId]) {
         let mut held = self.held.lock().unwrap();
         let (q, d) = held.get_or_insert_with(Default::default);
         q.extend(queues);
         d.extend(downloads);
     }
 
-    fn release(&self) -> (Vec<u64>, HashSet<u64>) {
+    fn release(&self) -> (Vec<QueueId>, HashSet<DownloadId>) {
         self.held.lock().unwrap().take().unwrap_or_default()
     }
 
@@ -684,7 +689,7 @@ impl UpdateChecks for Checked {
 pub struct Convert {
     ffmpeg: bool,
     started: Mutex<Vec<Conversion>>,
-    running: HashSet<u64>,
+    running: HashSet<DownloadId>,
     stopped: Mutex<Vec<u64>>,
 }
 
@@ -700,7 +705,7 @@ impl Convert {
 
     /// A converter running a conversion as each of the rows `running`.
     pub fn running(running: &[u64]) -> Self {
-        Convert { running: running.iter().copied().collect(), ..Convert::default() }
+        Convert { running: running.iter().copied().map(DownloadId::new).collect(), ..Convert::default() }
     }
 
     pub fn stopped(&self) -> Vec<u64> {
@@ -717,11 +722,11 @@ impl Converter for Convert {
         self.started.lock().unwrap().push(conversion);
     }
 
-    fn stop(&self, id: u64) -> bool {
+    fn stop(&self, id: DownloadId) -> bool {
         if !self.running.contains(&id) {
             return false;
         }
-        self.stopped.lock().unwrap().push(id);
+        self.stopped.lock().unwrap().push(id.get());
         true
     }
 
@@ -748,8 +753,9 @@ impl DownloadIntake for Intake<'_> {
         !download.url.ends_with(".bad")
     }
 
-    fn stage(&self, download: Download) -> (u64, String) {
-        let id = self.next.fetch_add(1, Ordering::SeqCst) as u64;
+    fn stage(&self, download: Download) -> (DownloadId, String) {
+        let n = self.next.fetch_add(1, Ordering::SeqCst) as u64;
+        let id = DownloadId::new(n);
         let mut e = row(id, Status::Waiting);
         e.url = download.url.clone();
         self.list.rows.lock().unwrap().insert(id, e);
@@ -776,8 +782,8 @@ impl Shown {
 }
 
 impl Attention for Shown {
-    fn show_done(&self, id: u64) {
-        self.done.lock().unwrap().push(id);
+    fn show_done(&self, id: DownloadId) {
+        self.done.lock().unwrap().push(id.get());
     }
 
     fn show_window(&self) {
@@ -821,14 +827,14 @@ impl SettingsStore for Prefs {
 /// Early starts: downloads in `started` started early and are handed over.
 #[derive(Default)]
 pub struct Early {
-    started: HashSet<u64>,
+    started: HashSet<DownloadId>,
     handed: Mutex<Vec<(u64, bool, Option<u64>)>>,
     began: Mutex<Vec<(u64, String)>>,
 }
 
 impl Early {
     pub fn started(ids: &[u64]) -> Self {
-        Early { started: ids.iter().copied().collect(), ..Early::default() }
+        Early { started: ids.iter().copied().map(DownloadId::new).collect(), ..Early::default() }
     }
 
     pub fn handed(&self) -> Vec<(u64, bool, Option<u64>)> {
@@ -842,15 +848,15 @@ impl Early {
 }
 
 impl EarlyStarts for Early {
-    fn start(&self, id: u64, _download: Download, filename: &str) {
-        self.began.lock().unwrap().push((id, filename.to_string()));
+    fn start(&self, id: DownloadId, _download: Download, filename: &str) {
+        self.began.lock().unwrap().push((id.get(), filename.to_string()));
     }
 
-    fn hand_over(&self, id: u64, start: bool, queue: Option<u64>) -> bool {
+    fn hand_over(&self, id: DownloadId, start: bool, queue: Option<QueueId>) -> bool {
         if !self.started.contains(&id) {
             return false;
         }
-        self.handed.lock().unwrap().push((id, start, queue));
+        self.handed.lock().unwrap().push((id.get(), start, queue.map(QueueId::get)));
         true
     }
 }
@@ -866,11 +872,11 @@ impl Waiting {
 }
 
 impl Answers for Waiting {
-    fn await_answer(&self, id: u64) {
-        self.0.lock().unwrap().push(id);
+    fn await_answer(&self, id: DownloadId) {
+        self.0.lock().unwrap().push(id.get());
     }
 
-    fn await_new_name(&self, id: u64) {
-        self.0.lock().unwrap().push(id);
+    fn await_new_name(&self, id: DownloadId) {
+        self.0.lock().unwrap().push(id.get());
     }
 }

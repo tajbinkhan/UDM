@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
 use uidm_domain::media::Conversion;
@@ -23,7 +24,7 @@ use crate::store::DownloadStore;
 /// How often a conversion reports its progress.
 const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 
-type Running = Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>;
+type Running = Arc<Mutex<HashMap<DownloadId, Arc<AtomicBool>>>>;
 
 /// The conversions running, by their row's id, with a flag to stop each.
 pub struct Conversions {
@@ -33,12 +34,12 @@ pub struct Conversions {
     running: Running,
     /// Removes a converted download's original with its file, through the
     /// use case.
-    remove_original: Hook<u64>,
+    remove_original: Hook<DownloadId>,
 }
 
 /// Only single inserts and removals change the map, so a poisoned lock
 /// still holds a usable one.
-fn lock(running: &Running) -> MutexGuard<'_, HashMap<u64, Arc<AtomicBool>>> {
+fn lock(running: &Running) -> MutexGuard<'_, HashMap<DownloadId, Arc<AtomicBool>>> {
     running.lock_or_recover()
 }
 
@@ -47,7 +48,7 @@ impl Conversions {
         engine: Arc<Engine>,
         store: Arc<DownloadStore>,
         settings: Arc<LiveSettings>,
-        remove_original: Hook<u64>,
+        remove_original: Hook<DownloadId>,
     ) -> Self {
         Conversions { engine, store, settings, running: Arc::default(), remove_original }
     }
@@ -67,7 +68,7 @@ impl Converter for Conversions {
         settings::ffmpeg(&self.settings.lock()).is_some()
     }
 
-    fn stop(&self, id: u64) -> bool {
+    fn stop(&self, id: DownloadId) -> bool {
         match lock(&self.running).get(&id) {
             Some(stop) => {
                 stop.store(true, Ordering::Relaxed);
@@ -161,10 +162,10 @@ mod tests {
         let conversions =
             Conversions::new(engine, Arc::clone(&store), Arc::new(LiveSettings::new(missing, None)), Arc::new(|_| {}));
         assert!(!conversions.available());
-        assert!(!conversions.stop(1), "nothing runs");
+        assert!(!conversions.stop(DownloadId::new(1)), "nothing runs");
         let before = store.table().entries().count();
         conversions.start(Conversion {
-            from: 1,
+            from: DownloadId::new(1),
             url: "http://x/a.webm".into(),
             input: dir.join("a.webm"),
             output: dir.join("a.mp4"),

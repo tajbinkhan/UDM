@@ -8,6 +8,7 @@
 //! window takes it on its next frame (`take`).
 
 use std::sync::{Arc, Mutex, Once};
+use uidm_domain::id::QueueId;
 use uidm_domain::sync::LockExt;
 
 use eframe::egui;
@@ -38,8 +39,8 @@ pub enum Command {
     Find,
     FindNext,
     Scheduler,
-    StartQueue(u64),
-    StopQueue(u64),
+    StartQueue(QueueId),
+    StopQueue(QueueId),
     SpeedLimit(bool),
     Options,
     ToggleCategories,
@@ -86,7 +87,7 @@ pub struct State {
     /// What the ticked downloads allow.
     pub ticked: Ticked,
     /// Every queue: id, name and whether it is running.
-    pub queues: Vec<(u64, String, bool)>,
+    pub queues: Vec<(QueueId, String, bool)>,
     pub sort: Option<Sort>,
     pub toolbar_small: bool,
     /// The list has a font of its own (View > Font).

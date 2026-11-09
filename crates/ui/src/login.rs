@@ -8,6 +8,7 @@
 use eframe::egui;
 use uidm_domain::download::LoginWanted;
 use uidm_domain::download::{DownloadLogin, Properties};
+use uidm_domain::id::DownloadId;
 use uidm_domain::settings::{Settings, SiteLogin};
 
 use super::Action;
@@ -15,7 +16,7 @@ use crate::i18n::{tr, trf};
 
 pub struct LoginPrompt {
     /// The downloads waiting for this site's login.
-    ids: Vec<u64>,
+    ids: Vec<DownloadId>,
     wanted: LoginWanted,
     /// Every one of them is on the site that asked, so the login can be
     /// their own. Otherwise (a redirect to another site) it must be saved.
@@ -29,7 +30,7 @@ pub struct LoginPrompt {
 }
 
 impl LoginPrompt {
-    pub fn new(ids: Vec<u64>, wanted: LoginWanted, own_site: bool, username: String) -> Self {
+    pub fn new(ids: Vec<DownloadId>, wanted: LoginWanted, own_site: bool, username: String) -> Self {
         LoginPrompt { ids, wanted, own_site, username, password: String::new(), save: !own_site, plain: false }
     }
 
@@ -152,25 +153,30 @@ mod tests {
 
     #[test]
     fn ok_gives_each_download_the_login_and_retries() {
-        let mut p = LoginPrompt::new(vec![3, 4], wanted("files.example.com"), true, "ann".into());
+        let mut p = LoginPrompt::new(
+            vec![DownloadId::new(3), DownloadId::new(4)],
+            wanted("files.example.com"),
+            true,
+            "ann".into(),
+        );
         p.password = "secret".into();
         let actions = p.answer(Some(&Settings::default()));
         assert_eq!(actions.len(), 4);
         match &actions[0] {
-            Action::SetProperties { id: 3, changes } => {
+            Action::SetProperties { id, changes } if *id == DownloadId::new(3) => {
                 let login = changes.login.as_ref().unwrap();
                 assert_eq!((login.username.as_str(), login.password.as_deref()), ("ann", Some("secret")));
             }
             _ => panic!("expected the download's own login"),
         }
-        assert!(matches!(actions[1], Action::Retry(3)));
-        assert!(matches!(actions[3], Action::Retry(4)));
+        assert!(matches!(actions[1], Action::Retry(id) if id == DownloadId::new(3)));
+        assert!(matches!(actions[3], Action::Retry(id) if id == DownloadId::new(4)));
     }
 
     #[test]
     fn a_login_saved_from_plain_http_may_go_there_again() {
         for plain in [false, true] {
-            let mut p = LoginPrompt::new(vec![3], wanted("files.example.com"), false, "ann".into());
+            let mut p = LoginPrompt::new(vec![DownloadId::new(3)], wanted("files.example.com"), false, "ann".into());
             p.password = "secret".into();
             p.plain = plain;
             match &p.answer(Some(&Settings::default()))[0] {
@@ -190,7 +196,7 @@ mod tests {
             plain: false,
         });
         // Another site than the link's: saved whatever the box says.
-        let mut p = LoginPrompt::new(vec![3], wanted("files.example.com"), false, "ann".into());
+        let mut p = LoginPrompt::new(vec![DownloadId::new(3)], wanted("files.example.com"), false, "ann".into());
         p.password = "secret".into();
         let actions = p.answer(Some(&settings));
         match &actions[0] {
@@ -201,7 +207,7 @@ mod tests {
             }
             _ => panic!("expected the settings"),
         }
-        assert!(matches!(actions[1], Action::Retry(3)));
+        assert!(matches!(actions[1], Action::Retry(id) if id == DownloadId::new(3)));
         assert_eq!(actions.len(), 2);
     }
 }

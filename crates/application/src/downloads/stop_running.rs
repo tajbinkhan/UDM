@@ -1,4 +1,5 @@
 use uidm_domain::download::Status;
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueStore};
 
 use crate::queues::StopQueue;
@@ -6,8 +7,8 @@ use crate::queues::StopQueue;
 /// What [`StopRunning`] stopped.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Stopped {
-    pub queues: Vec<u64>,
-    pub downloads: Vec<u64>,
+    pub queues: Vec<QueueId>,
+    pub downloads: Vec<DownloadId>,
 }
 
 /// Stop every started queue and every queued or running download, keeping
@@ -25,7 +26,7 @@ impl<'a, Q: QueueStore, D: DownloadList, R: QueueRuns, X: DownloadControl> StopR
     }
 
     pub fn run(&self) -> Stopped {
-        let queues: Vec<u64> = self.queues.edit(|qs| qs.iter().filter(|q| q.running).map(|q| q.id).collect());
+        let queues: Vec<QueueId> = self.queues.edit(|qs| qs.iter().filter(|q| q.running).map(|q| q.id).collect());
         let stop = StopQueue::new(self.queues, self.downloads, self.runs, self.control);
         for q in &queues {
             // A queue deleted meanwhile has nothing left to stop.
@@ -50,12 +51,15 @@ mod tests {
         let queues = Queues::main();
         queues.edit(|qs| {
             qs[0].running = true;
-            qs.push(Queue::new(2, "Idle"));
+            qs.push(Queue::new(QueueId::new(2), "Idle"));
         });
         let downloads = Downloads::with(&[(1, Status::Downloading), (2, Status::Waiting), (3, Status::Queued)]);
         let (runs, control) = (Runs::default(), Control::default());
         let stopped = StopRunning::new(&queues, &downloads, &runs, &control).run();
-        assert_eq!(stopped, Stopped { queues: vec![MAIN_QUEUE], downloads: vec![1, 3] });
+        assert_eq!(
+            stopped,
+            Stopped { queues: vec![MAIN_QUEUE], downloads: vec![DownloadId::new(1), DownloadId::new(3)] }
+        );
         assert!(!queues.get(MAIN_QUEUE).running);
         assert_eq!(control.stopped(), [1, 3]);
     }

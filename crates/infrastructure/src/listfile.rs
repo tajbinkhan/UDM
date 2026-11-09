@@ -302,6 +302,7 @@ impl uidm_application::window::ListFiles for ListFormats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::id::DownloadId;
 
     #[test]
     fn a_written_list_reads_back() {
@@ -334,7 +335,7 @@ http://127.0.0.1/b.zip
 
     fn entry(id: u64, url: &str, path: Option<&str>, status: Status) -> DownloadEntry {
         DownloadEntry {
-            id,
+            id: DownloadId::new(id),
             url: url.into(),
             path: path.map(str::to_string),
             total: Some(1234),

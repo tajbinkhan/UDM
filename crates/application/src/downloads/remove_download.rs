@@ -1,4 +1,5 @@
 use uidm_domain::download::DownloadError;
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadControl, DownloadFiles, DownloadList, QueueStore};
 use uidm_domain::queue;
 
@@ -16,7 +17,7 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl, F: DownloadFiles> R
         RemoveDownload { queues, downloads, control, files }
     }
 
-    pub fn run(&self, id: u64, delete_files: bool) -> Result<(), DownloadError> {
+    pub fn run(&self, id: DownloadId, delete_files: bool) -> Result<(), DownloadError> {
         let entry = self.downloads.entry(id).ok_or(DownloadError::NoDownload(id))?;
         if !entry.status.is_terminal() {
             return Err(DownloadError::StillRunning(id));
@@ -51,10 +52,10 @@ mod tests {
     #[test]
     fn it_leaves_the_list_and_its_queue() {
         let queues = Queues::main();
-        queues.edit(|qs| qs[0].order = vec![1]);
+        queues.edit(|qs| qs[0].order = vec![DownloadId::new(1)]);
         let downloads = Downloads::with(&[(1, Status::Failed)]);
         let (control, files) = (Control::default(), Files::default());
-        RemoveDownload::new(&queues, &downloads, &control, &files).run(1, false).unwrap();
+        RemoveDownload::new(&queues, &downloads, &control, &files).run(DownloadId::new(1), false).unwrap();
         assert_eq!(control.forgotten(), [1]);
         assert!(queues.get(MAIN_QUEUE).order.is_empty());
         assert_eq!(queues.changes(), 1);
@@ -67,8 +68,8 @@ mod tests {
         let downloads = Downloads::rows([saved(1, Status::Canceled, 0), saved(2, Status::Done, 0)]);
         let (control, files) = (Control::default(), Files::default());
         let remove = RemoveDownload::new(&queues, &downloads, &control, &files);
-        remove.run(1, true).unwrap();
-        remove.run(2, true).unwrap();
+        remove.run(DownloadId::new(1), true).unwrap();
+        remove.run(DownloadId::new(2), true).unwrap();
         assert_eq!(files.recycled(), [(Some("/dl/2.zip".into()), None)], "1 never got past its save-as dialog");
         assert_eq!(queues.changes(), 0, "it was in no queue");
     }
@@ -79,8 +80,8 @@ mod tests {
         let downloads = Downloads::with(&[(1, Status::Downloading)]);
         let (control, files) = (Control::default(), Files::default());
         let remove = RemoveDownload::new(&queues, &downloads, &control, &files);
-        assert_eq!(remove.run(1, false), Err(DownloadError::StillRunning(1)));
-        assert_eq!(remove.run(9, false), Err(DownloadError::NoDownload(9)));
+        assert_eq!(remove.run(DownloadId::new(1), false), Err(DownloadError::StillRunning(DownloadId::new(1))));
+        assert_eq!(remove.run(DownloadId::new(9), false), Err(DownloadError::NoDownload(DownloadId::new(9))));
         assert!(control.forgotten().is_empty());
     }
 
@@ -89,7 +90,7 @@ mod tests {
         let queues = Queues::main();
         let downloads = Downloads::rows([saved(1, Status::Done, 1)]);
         let (control, files) = (Control::default(), Files::failing());
-        let err = RemoveDownload::new(&queues, &downloads, &control, &files).run(1, true).unwrap_err();
+        let err = RemoveDownload::new(&queues, &downloads, &control, &files).run(DownloadId::new(1), true).unwrap_err();
         assert_eq!(
             err.to_string(),
             "Removed https://dl.example/1.zip from the list, but its files stay: the file is open"

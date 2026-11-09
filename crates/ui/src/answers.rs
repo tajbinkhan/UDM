@@ -8,6 +8,7 @@ use std::path::Path;
 
 use eframe::egui;
 use uidm_domain::download::{Download, DownloadEntry};
+use uidm_domain::id::QueueId;
 use uidm_domain::settings::{Duplicate, FileExists, Settings};
 
 use crate::i18n::{tr, trf};
@@ -64,7 +65,7 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
 /// Many downloads waiting for answers before they are added.
 pub struct Prompt {
     items: Vec<Download>,
-    pub queue: u64,
+    pub queue: QueueId,
     pub start_queue: bool,
     questions: Vec<(usize, Question)>,
     /// The question on screen.
@@ -79,7 +80,7 @@ impl Prompt {
     /// The prompt for `items`, or `None` when they raise no question.
     pub fn new(
         items: Vec<Download>,
-        queue: u64,
+        queue: QueueId,
         start_queue: bool,
         rows: &[DownloadEntry],
         settings: &Settings,
@@ -256,7 +257,7 @@ mod tests {
         s.categories.clear();
         let rows = [entry(1, "https://x.net/a.zip"), entry(2, "https://x.net/b.zip")];
         let items = vec![item("https://x.net/a.zip"), item("https://x.net/b.zip"), item("https://x.net/c.zip")];
-        let mut p = Prompt::new(items, 1, false, &rows, &s).ok().unwrap();
+        let mut p = Prompt::new(items, QueueId::new(1), false, &rows, &s).ok().unwrap();
         // a: in the list (No to all leaves out b too); then c's name.
         assert!(matches!(p.current(), Some(Question::InList(_))));
         p.answer(false, true);
@@ -270,14 +271,16 @@ mod tests {
 
         // Nothing to ask: the items come straight back.
         let s = Settings::default();
-        assert!(Prompt::new(vec![item("https://y.net/z.bin")], 1, false, &[], &s).is_err());
+        assert!(Prompt::new(vec![item("https://y.net/z.bin")], QueueId::new(1), false, &[], &s).is_err());
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn yes_adds_a_duplicate_with_a_new_name() {
         let rows = [entry(1, "https://x.net/a.zip")];
-        let mut p = Prompt::new(vec![item("https://x.net/a.zip")], 1, false, &rows, &Settings::default()).ok().unwrap();
+        let mut p = Prompt::new(vec![item("https://x.net/a.zip")], QueueId::new(1), false, &rows, &Settings::default())
+            .ok()
+            .unwrap();
         p.answer(true, false);
         assert!(p.done());
         assert_eq!(p.into_items()[0].duplicate, Some(Duplicate::NewName));

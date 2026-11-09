@@ -29,6 +29,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use uidm_domain::filename::name_from_url;
 use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename};
+use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
 use crate::net::NetConfig;
@@ -121,7 +122,7 @@ pub struct DownloadRequest {
 /// Progress events over the course of a download. `id` matches the `Ack`.
 pub enum Progress {
     Started {
-        id: u64,
+        id: DownloadId,
         url: String,
         /// The file being written.
         path: PathBuf,
@@ -134,7 +135,7 @@ pub enum Progress {
         validator: Option<Validator>,
     },
     Advanced {
-        id: u64,
+        id: DownloadId,
         url: String,
         done: u64,
         total: Option<u64>,
@@ -144,25 +145,25 @@ pub enum Progress {
         segments: Option<Vec<SegmentInfo>>,
     },
     Finished {
-        id: u64,
+        id: DownloadId,
         url: String,
         path: PathBuf,
         /// Something the user should know about the result.
         note: Option<String>,
     },
     Failed {
-        id: u64,
+        id: DownloadId,
         url: String,
         error: String,
     },
     Canceled {
-        id: u64,
+        id: DownloadId,
         url: String,
     },
     /// The file name is taken and the request says to ask: nothing was
     /// written. `path` is the taken file.
     NameTaken {
-        id: u64,
+        id: DownloadId,
         url: String,
         path: PathBuf,
         total: Option<u64>,
@@ -252,7 +253,7 @@ impl Reporter {
 
 /// One queued unit of work.
 struct Job {
-    id: u64,
+    id: DownloadId,
     token: CancelToken,
     req: DownloadRequest,
 }
@@ -272,7 +273,7 @@ struct Shared {
     limiter: RateLimiter,
     /// Each running download's limiter, by id, with the limit set for that
     /// download alone (`None` when it follows `per_file`).
-    own_limits: Mutex<HashMap<u64, OwnLimit>>,
+    own_limits: Mutex<HashMap<DownloadId, OwnLimit>>,
     /// The limit for each download that has none of its own, or `None`.
     /// Every such download gets a bucket of its own at this rate, so it caps
     /// each file rather than all of them together.
@@ -359,14 +360,14 @@ impl<'a> Gate<'a> {
 
 impl Shared {
     /// Download `id`'s own limiter; an unlimited one if it has none.
-    fn own_limiter(&self, id: u64) -> Arc<RateLimiter> {
+    fn own_limiter(&self, id: DownloadId) -> Arc<RateLimiter> {
         self.own_limits.lock_or_recover().get(&id).map(|(l, _)| Arc::clone(l)).unwrap_or_default()
     }
 }
 
 struct Inner {
     sched: Mutex<Sched>,
-    registry: Mutex<HashMap<u64, CancelToken>>,
+    registry: Mutex<HashMap<DownloadId, CancelToken>>,
     shared: Arc<Shared>,
     reporter: Reporter,
 }
@@ -401,7 +402,7 @@ impl Engine {
     }
 
     /// Queue `req` and return its id. It starts when a slot is free.
-    pub fn enqueue(&self, req: DownloadRequest) -> u64 {
+    pub fn enqueue(&self, req: DownloadRequest) -> DownloadId {
         let id = self.reserve_id();
         self.enqueue_as(id, req);
         id
@@ -409,12 +410,12 @@ impl Engine {
 
     /// Take the next id without queuing anything, for a download that waits
     /// (for the user to confirm it, say) before it is queued with `enqueue_as`.
-    pub fn reserve_id(&self) -> u64 {
-        self.counter.fetch_add(1, Ordering::Relaxed)
+    pub fn reserve_id(&self) -> DownloadId {
+        DownloadId::new(self.counter.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Queue `req` under an id from `reserve_id`.
-    pub fn enqueue_as(&self, id: u64, req: DownloadRequest) {
+    pub fn enqueue_as(&self, id: DownloadId, req: DownloadRequest) {
         let token: CancelToken = Arc::new(AtomicBool::new(false));
         self.inner.registry.lock_or_recover().insert(id, Arc::clone(&token));
         self.inner.sched.lock_or_recover().queue.push_back(Job { id, token, req });
@@ -423,13 +424,13 @@ impl Engine {
 
     /// Make the next id at least `next`, so ids keep increasing across
     /// restarts and never match one saved in the history.
-    pub fn set_next_id(&self, next: u64) {
-        self.counter.fetch_max(next.max(1), Ordering::Relaxed);
+    pub fn set_next_id(&self, next: DownloadId) {
+        self.counter.fetch_max(next.get().max(1), Ordering::Relaxed);
     }
 
     /// The id the next download will get.
-    pub fn next_id(&self) -> u64 {
-        self.counter.load(Ordering::Relaxed)
+    pub fn next_id(&self) -> DownloadId {
+        DownloadId::new(self.counter.load(Ordering::Relaxed))
     }
 
     /// Change how many downloads run at once. Running downloads are never
@@ -452,7 +453,7 @@ impl Engine {
     /// Set one download's own speed limit, or `None` to clear it. A running
     /// download slows down or speeds up at once; a queued one starts with it.
     /// Clearing it falls back to the limit per file, if one is set.
-    pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
+    pub fn set_download_limit(&self, id: DownloadId, bytes_per_sec: Option<u64>) {
         let shared = &self.inner.shared;
         let per_file = *shared.per_file.lock_or_recover();
         if let Some((limiter, own)) = shared.own_limits.lock_or_recover().get_mut(&id) {
@@ -492,7 +493,7 @@ impl Engine {
     /// Stop a download. A queued one is dropped from the queue and reported
     /// canceled at once; a running one stops at its next read. Unknown ids are
     /// ignored.
-    pub fn cancel(&self, id: u64) {
+    pub fn cancel(&self, id: DownloadId) {
         let Some(token) = self.inner.registry.lock_or_recover().get(&id).cloned() else {
             return;
         };
@@ -553,7 +554,7 @@ pub fn run_blocking(req: DownloadRequest, cb: Arc<dyn Fn(Progress) + Send + Sync
         resplit: AtomicBool::new(true),
         claimed: Mutex::new(HashSet::new()),
     };
-    run(0, Arc::new(AtomicBool::new(false)), req, Reporter(cb), &shared);
+    run(DownloadId::NONE, Arc::new(AtomicBool::new(false)), req, Reporter(cb), &shared);
 }
 
 /// Statuses that, on a retried or resumed download, usually mean the link or
@@ -561,7 +562,7 @@ pub fn run_blocking(req: DownloadRequest, cb: Arc<dyn Fn(Progress) + Send + Sync
 const EXPIRED_STATUSES: [u16; 4] = [401, 403, 404, 410];
 
 /// Run one download to completion (blocking), reporting a terminal event.
-fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, shared: &Shared) {
+fn run(id: DownloadId, token: CancelToken, req: DownloadRequest, reporter: Reporter, shared: &Shared) {
     let url = req.url.clone();
     if token.load(Ordering::Relaxed) {
         reporter.send(Progress::Canceled { id, url });
@@ -625,7 +626,7 @@ fn writable(dir: &Path) -> Result<(), EngineError> {
 /// The staging folder of download `id` saved with administrator rights. A
 /// retry (which gets a new id) keeps the folder its file is already in, so
 /// it resumes, or goes straight to the move when the file is complete.
-fn staging_dir(req: &DownloadRequest, id: u64) -> PathBuf {
+fn staging_dir(req: &DownloadRequest, id: DownloadId) -> PathBuf {
     let earlier = req
         .reuse_path
         .as_deref()
@@ -650,7 +651,7 @@ const STAGED_DONE: &str = ".complete";
 /// a staging folder as the user, then move the finished file into its
 /// folder through the elevated helper.
 fn run_elevated(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     req: &mut DownloadRequest,
     reporter: &Reporter,
@@ -713,7 +714,7 @@ impl From<PathBuf> for Saved {
 }
 
 fn run_inner(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     req: &DownloadRequest,
     reporter: &Reporter,
@@ -858,7 +859,7 @@ pub fn http_date(s: &str) -> Option<std::time::SystemTime> {
 
 /// A download sent as a POST: one request, its response saved as one stream.
 fn run_post(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -1318,7 +1319,7 @@ impl Work {
 /// Parallel, resumable path for a server that honors byte ranges.
 #[allow(clippy::too_many_arguments)]
 fn run_segmented(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -1468,7 +1469,7 @@ fn run_segmented(
 
 /// Shared references a segment thread needs; grouped to keep signatures short.
 struct SegmentCtx<'a> {
-    id: u64,
+    id: DownloadId,
     token: &'a CancelToken,
     agent: &'a http::Client,
     url: &'a str,
@@ -1620,7 +1621,7 @@ fn maybe_report(ctx: &SegmentCtx, global: u64) {
 /// transient failure restarts from the beginning, up to `MAX_RETRIES`.
 #[allow(clippy::too_many_arguments)]
 fn run_single(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -1657,7 +1658,7 @@ fn run_single(
 
 #[allow(clippy::too_many_arguments)]
 fn single_once(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -1784,7 +1785,7 @@ mod tests {
         // No jobs are enqueued, so no download runs; cancel on an absent id
         // must simply do nothing.
         let engine = Engine::new(Arc::new(|_p: Progress| {}), 1);
-        engine.cancel(999);
+        engine.cancel(DownloadId::new(999));
         assert!(engine.inner.registry.lock().unwrap().is_empty());
     }
 
@@ -1792,13 +1793,13 @@ mod tests {
     fn a_retry_keeps_its_staging_folder() {
         let mut req = live::request("http://x/", Path::new("/dl"), FileExists::Rename);
         req.temp_dir = Some(PathBuf::from("/tmp/uidm"));
-        assert_eq!(staging_dir(&req, 7), Path::new("/tmp/uidm/elevated-7"));
+        assert_eq!(staging_dir(&req, DownloadId::new(7)), Path::new("/tmp/uidm/elevated-7"));
         // A retry gets a new id but resumes the file in the old folder.
         req.reuse_path = Some(PathBuf::from("/tmp/uidm/elevated-7/report.pdf"));
-        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/uidm/elevated-7"));
+        assert_eq!(staging_dir(&req, DownloadId::new(9)), Path::new("/tmp/uidm/elevated-7"));
         // A file chosen in the folder itself is not a staged one.
         req.reuse_path = Some(PathBuf::from("/dl/report.pdf"));
-        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/uidm/elevated-9"));
+        assert_eq!(staging_dir(&req, DownloadId::new(9)), Path::new("/tmp/uidm/elevated-9"));
     }
 
     /// End-to-end checks against a local server.

@@ -13,17 +13,42 @@ mod table;
 pub use failure::Failure;
 pub use table::{apply, change_of};
 
+use std::fmt;
 use std::sync::Arc;
 
 use uidm_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
 };
 use uidm_domain::grab::{GrabFile, GrabRequest};
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::media::{MediaInfo, Target};
 use uidm_domain::queue::{Queue, WhenDone};
 use uidm_domain::quota::QuotaNotice;
 use uidm_domain::settings::Settings;
 use uidm_domain::update::Release;
+
+/// A client connected to the daemon, numbered by the daemon's server in
+/// the order they connect. Any number is valid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct ClientId(u64);
+
+impl ClientId {
+    /// The client numbered `id`.
+    pub const fn new(id: u64) -> Self {
+        ClientId(id)
+    }
+
+    /// Its number.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl fmt::Display for ClientId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 /// A request to the daemon.
 #[derive(Debug, Clone)]
@@ -71,7 +96,7 @@ pub enum Command {
     /// queue when `None`) without starting. Answered with `AddedMany`.
     AddMany {
         items: Vec<Download>,
-        queue: Option<u64>,
+        queue: Option<QueueId>,
     },
     /// Crawl a site for files; progress comes as `GrabProgress` and the
     /// result as `GrabDone`.
@@ -88,20 +113,20 @@ pub enum Command {
     StopProbeLinks,
     /// Cancel a queued or running download.
     Cancel {
-        id: u64,
+        id: DownloadId,
     },
     /// Start a failed or canceled download again from its partial file.
     Retry {
-        id: u64,
+        id: DownloadId,
     },
     /// Download a finished, failed or canceled download again from the
     /// start.
     Redownload {
-        id: u64,
+        id: DownloadId,
     },
     /// Forget a download, and with `delete_files` recycle its files.
     Remove {
-        id: u64,
+        id: DownloadId,
         delete_files: bool,
     },
     /// Ask for every download, the queues and the download waiting for a
@@ -120,30 +145,30 @@ pub enum Command {
     },
     /// Delete a queue; its waiting downloads move to the main queue.
     DeleteQueue {
-        id: u64,
+        id: QueueId,
     },
     StartQueue {
-        id: u64,
+        id: QueueId,
     },
     /// Stop a queue; its running downloads wait in it again.
     StopQueue {
-        id: u64,
+        id: QueueId,
     },
     /// What happens when this queue's current run ends, this time only.
     SetQueueOnce {
-        id: u64,
+        id: QueueId,
         when_done: Option<WhenDone>,
     },
     /// Put a download in a queue (or move it within one) at `position`, or
     /// at the end.
     MoveToQueue {
-        id: u64,
-        queue: u64,
+        id: DownloadId,
+        queue: QueueId,
         position: Option<usize>,
     },
     /// Take a download out of its queue but keep it in the list.
     RemoveFromQueue {
-        id: u64,
+        id: DownloadId,
     },
     /// Stop the countdown before sleeping or shutting down.
     CancelCountdown,
@@ -151,7 +176,7 @@ pub enum Command {
     /// browser hands over. `restart` starts over when the link is for
     /// another file.
     RefreshLink {
-        id: u64,
+        id: DownloadId,
         download: Option<Download>,
         restart: bool,
     },
@@ -164,25 +189,25 @@ pub enum Command {
     InstallUpdate,
     /// Convert a finished video with ffmpeg.
     Convert {
-        id: u64,
+        id: DownloadId,
         to: Target,
         delete_original: bool,
     },
     /// List the files inside a waiting zip download; answered with
     /// `ZipPreview`.
     PreviewZip {
-        id: u64,
+        id: DownloadId,
     },
     /// Change a stopped or finished download's link, referrer,
     /// description, login, or its file's name and folder.
     SetProperties {
-        id: u64,
+        id: DownloadId,
         changes: Properties,
     },
     /// Set or clear one download's own speed limit, and whether it stays
     /// through a stop.
     SetSpeedLimit {
-        id: u64,
+        id: DownloadId,
         bytes_per_sec: Option<u64>,
         remember: Option<bool>,
     },
@@ -190,7 +215,7 @@ pub enum Command {
     CountdownNow,
     /// Set or clear what one unfinished download does once it finishes.
     SetOnDone {
-        id: u64,
+        id: DownloadId,
         on_done: Option<OnDone>,
     },
     /// Ask for the current settings; answered with `Settings`.
@@ -229,7 +254,7 @@ pub enum Event {
     Pong,
     /// An `Add` or `Retry` was taken as download `id`.
     Ack {
-        id: u64,
+        id: DownloadId,
         url: String,
         status: String,
     },
@@ -254,12 +279,12 @@ pub enum Event {
     },
     /// A download was queued.
     Added {
-        id: u64,
+        id: DownloadId,
         url: String,
     },
     /// A download has begun.
     Started {
-        id: u64,
+        id: DownloadId,
         url: String,
         path: String,
         total: Option<u64>,
@@ -270,7 +295,7 @@ pub enum Event {
     },
     /// Progress of a running download.
     Progress {
-        id: u64,
+        id: DownloadId,
         url: String,
         done: u64,
         total: Option<u64>,
@@ -279,23 +304,23 @@ pub enum Event {
     },
     /// A download finished; `path` is the saved file.
     Done {
-        id: u64,
+        id: DownloadId,
         url: String,
         path: String,
         note: Option<String>,
     },
     Failed {
-        id: u64,
+        id: DownloadId,
         url: String,
         error: String,
     },
     Canceled {
-        id: u64,
+        id: DownloadId,
         url: String,
     },
     /// A download left the list.
     Removed {
-        id: u64,
+        id: DownloadId,
     },
     /// A download's whole entry, replacing what the client had.
     Updated {
@@ -313,7 +338,7 @@ pub enum Event {
     Show,
     /// Show finished download `id`'s completion dialog again.
     ShowDone {
-        id: u64,
+        id: DownloadId,
     },
     /// Every queue, the main queue first.
     Queues {
@@ -333,12 +358,12 @@ pub enum Event {
     Quit,
     /// Which download waits for a new link from the browser, if any.
     RefreshWaiting {
-        id: Option<u64>,
+        id: Option<DownloadId>,
     },
     /// A download's file name is taken: it waits as `confirming` with
     /// `path`, the taken file, for the save-as dialog.
     NameTaken {
-        id: u64,
+        id: DownloadId,
         url: String,
         path: String,
         total: Option<u64>,
@@ -346,7 +371,7 @@ pub enum Event {
     /// The new link of a `RefreshLink` is for another file: `reason` is a
     /// `Failure::Mismatch` (or, from an older daemon, `Other`).
     RefreshMismatch {
-        id: u64,
+        id: DownloadId,
         url: String,
         reason: Failure,
     },
@@ -391,7 +416,7 @@ pub enum Event {
     },
     /// The files inside a zip download, or why they could not be listed.
     ZipPreview {
-        id: u64,
+        id: DownloadId,
         entries: Vec<ZipEntry>,
         error: Option<Failure>,
     },
@@ -401,7 +426,7 @@ pub enum Event {
         bytes: u64,
         found: usize,
         explored: u64,
-        added: Vec<u64>,
+        added: Vec<DownloadId>,
     },
     /// A crawl ended.
     GrabDone {
@@ -486,14 +511,14 @@ pub trait ClientList: Send + Sync {
     fn window_open(&self) -> bool;
 
     /// Whether client `client` is a desktop window.
-    fn is_window(&self, client: u64) -> bool;
+    fn is_window(&self, client: ClientId) -> bool;
 
     /// Note that client `client` is a desktop window.
-    fn add_window(&self, client: u64);
+    fn add_window(&self, client: ClientId);
 
     /// Note that client `client` is the browser extension; the windows
     /// hear of it when it is the only one.
-    fn browser_connected(&self, client: u64);
+    fn browser_connected(&self, client: ClientId);
 
     /// Whether the browser extension is connected, and when one last was.
     fn browser_link(&self) -> Event;
@@ -527,8 +552,8 @@ pub trait Countdowns: Send + Sync {
 pub trait Requests: Send + Sync {
     /// Handle `command` from client `client`; a direct answer goes to
     /// `reply`.
-    fn handle(&self, client: u64, command: Command, reply: &Reply);
+    fn handle(&self, client: ClientId, command: Command, reply: &Reply);
 
     /// Client `client` disconnected.
-    fn gone(&self, client: u64);
+    fn gone(&self, client: ClientId);
 }
