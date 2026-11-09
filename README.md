@@ -787,19 +787,25 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
   clients and no queued or running downloads. It also shows the
   notifications, plays the sounds and runs the virus scans, since it is the
   one process running whenever a download ends. Its log is
-  `%LOCALAPPDATA%\Pullbay\pullbay-daemon.log`, beside the host's `pullbay-host.log`
-  and the window's `pullbay-gui.log` (`~/Library/Application Support/Pullbay` on
-  macOS, `~/.local/share/pullbay` on Linux). A log over 5 MB moves to `.old` when
-  the daemon starts. Passwords in addresses are hidden as `***`. It keeps its
-  files in:
-  - `%APPDATA%\Pullbay\settings.json`: the settings. A missing file or field
+  `pullbay-daemon.log` in the data folder, beside the host's `pullbay-host.log`
+  and the window's `pullbay-gui.log`. A log over 5 MB moves to `.old` when
+  the daemon starts and then once an hour. Passwords in addresses are hidden
+  as `***`. It keeps its files in two folders:
+
+  | | Windows | macOS | Linux |
+  | --- | --- | --- | --- |
+  | settings folder | `%APPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `~/.config/pullbay` |
+  | data folder | `%LOCALAPPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `~/.local/share/pullbay` |
+
+  On Linux, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` move them.
+  - `settings.json` (settings folder): the settings. A missing file or field
     means the default.
-  - `%LOCALAPPDATA%\Pullbay\history.json`: the download list and the next id,
+  - `history.json` (data folder): the download list and the next id,
     written about a second after each change and again on exit. It never
     holds cookies or request headers.
-  - `%LOCALAPPDATA%\Pullbay\requests.bin`: the original requests of downloads
-    that can still be retried, cookies included, encrypted with Windows DPAPI
-    for the current user. It is deleted when none is left.
+  - `requests.bin` (data folder): the original requests of downloads that can
+    still be retried, cookies included, encrypted for the current user (with
+    Windows DPAPI on Windows). It is deleted when none is left.
 - **`pullbay-host`** is what the browser launches. It connects to the daemon,
   starting it if nothing answers, then copies frames between the browser's
   stdin/stdout and the daemon without parsing them. It waits up to 10 seconds
@@ -811,7 +817,7 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
   way to hand the daemon links from other programs.
 - **`pullbay-gui`** is the desktop window: one more daemon client. It starts the
   daemon too if needed, asks for the full list on connect, and applies every
-  event to the same `DownloadTable` the daemon keeps.
+  event to the same `DownloadTable` (`pullbay_domain::table`) the daemon keeps.
 - **The extension** keeps one native-messaging port open, reconnecting with
   backoff (1 s doubling to 30 s) if Pullbay goes away.
 
@@ -1593,33 +1599,31 @@ is a failed scan, as is one that runs over 10 minutes.
 
 ## Layout
 
+The Rust code is a Cargo workspace with one crate per layer. `AGENTS.md`
+gives the rules between them; its section 16 says where the code still
+differs.
+
 | Path | What it is |
 | --- | --- |
-| `crates/` | The workspace, one crate per layer of `AGENTS.md`: `domain`, `application`, `infrastructure`, `ui`, `app` |
+| `crates/domain/` | Pure rules, no I/O: the download model (`download.rs`), the list kept by both the daemon and the window (`table.rs`), queues and schedules (`queue.rs`), URL patterns and pasted lists (`batch.rs`), site patterns (`site.rs`), file names (`filename.rs`), settings and their defaults (`settings.rs`), streams (`media.rs`), the grabber's model (`grab.rs`), and the port traits (`ports.rs`) |
+| `crates/application/` | Use cases, one per file: `downloads/`, `queues/`, `quota/`, `power/`, `update/`, `grab/`; the daemon's `Command`s and `Event`s and its service (`daemon/`); the window's ports (`window.rs`); in-memory adapters for tests (`memory.rs`) |
+| `crates/infrastructure/src/engine/` | Download engine: segments, resume sidecar, speed limiter, HTTP, FTP, streams |
+| `crates/infrastructure/src/media/` | HLS playlists, DASH and HDS manifests, yt-dlp pages, ffmpeg conversion |
+| `crates/infrastructure/src/protocol.rs`, `wire.rs` | Framing and wire messages, and their mapping to `Command` and `Event` |
+| `crates/infrastructure/src/ipc.rs`, `server.rs`, `daemon_client.rs` | Daemon address, start-up, token file and HMAC handshake; the daemon's side and the window's side of the connection |
+| `crates/infrastructure/src/store.rs`, `history.rs`, `state.rs` | The daemon's download list, queues and kept requests, and their files |
+| `crates/infrastructure/src/settings.rs`, `live_settings.rs` | The settings file, its migrations and the checks that read the disk |
+| `crates/infrastructure/src/transfers.rs`, `probes.rs`, `connect.rs` | The engine's adapter in the daemon, server probes, and the proxy and logins a download uses |
+| `crates/infrastructure/src/net.rs`, `pac.rs`, `ntlm.rs` | Proxies, PAC scripts, site logins and HTTP authentication |
+| `crates/infrastructure/src/grab.rs`, `crawler.rs` | The site grabber's crawl and `robots.txt`, and its project files |
+| `crates/infrastructure/src/paths.rs`, `logging.rs` | Every folder Pullbay uses, and the log files |
+| `crates/infrastructure/src/dpapi.rs`, `registry.rs`, `autostart.rs`, `browsers.rs` | Sealing saved requests and passwords, registry values, start at sign-in, and registering the host with each browser |
+| `crates/infrastructure/src/notify.rs`, `scan.rs`, `power.rs`, `update.rs` | Notifications and sounds, virus scans, sleep and shut down, the update check |
+| `crates/infrastructure/src/listfile.rs`, `from_uidm.rs` | Exporting and importing the download list; moving UIDM's files over |
+| `crates/ui/src/` | The window: its state and messages (`state.rs`), views, dialogs, tray icon (`tray.rs`), tools for many downloads (`tools.rs`), and translations (`i18n.rs`, `lang/`) |
+| `crates/app/src/bin/pullbay-daemon.rs` | Daemon: wires the adapters into the service, starts the background threads and serves clients |
 | `crates/app/src/bin/pullbay-gui.rs` | Desktop window: builds its adapters and starts `pullbay-ui` |
 | `crates/app/src/bin/pullbay-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
-| `crates/app/src/bin/pullbay-daemon.rs` | Daemon: server, auth, download list, retry/remove, idle exit |
-| `crates/infrastructure/src/state.rs` | `DownloadTable`, kept by both the daemon and the window |
-| `crates/infrastructure/src/settings.rs` | Settings, their defaults, validation and file |
-| `crates/infrastructure/src/history.rs` | Download history and saved requests on disk |
-| `crates/infrastructure/src/dpapi.rs` | DPAPI encryption for saved requests |
-| `crates/infrastructure/src/registry.rs` | Start with Windows and the notification app id |
-| `crates/infrastructure/src/browsers.rs` | The browsers found, and registering the host with each |
-| `crates/infrastructure/src/notify.rs` | Windows notifications and sounds |
-| `crates/infrastructure/src/scan.rs` | Virus scans of finished downloads |
-| `crates/infrastructure/src/queue.rs` | Queues, schedules and their calendar arithmetic |
-| `crates/infrastructure/src/power.rs` | Sleep, hibernate and shut down |
-| `crates/infrastructure/src/net.rs` | Proxies, site logins, HTTP authentication, Credential Manager |
-| `crates/infrastructure/src/media/` | HLS playlists, DASH and HDS manifests: qualities, segments, keys, DRM; yt-dlp pages |
-| `crates/infrastructure/src/batch.rs` | URL patterns, pasted lists and the clipboard link rule |
-| `crates/infrastructure/src/listfile.rs` | Exporting and importing the download list |
-| `crates/infrastructure/src/grab.rs` | The site grabber's crawler and `robots.txt` |
-| `crates/ui/src/` | The window's views, state and messages: the main window, its dialogs, tray icon, queue controls, tools (batch, import, export, grabber, clipboard) and Win32 helpers |
-| `crates/infrastructure/src/ipc.rs` | Daemon address, start-up, token file, HMAC handshake |
-| `crates/infrastructure/src/app.rs` | Request building and event mapping |
-| `crates/infrastructure/src/protocol.rs` | Framing and message types |
-| `crates/ui/src/i18n.rs`, `crates/ui/src/lang/` | The window's text in other languages, one JSON table each |
-| `crates/infrastructure/src/engine/` | Queue, segments, resume sidecar, speed limiter, HTTP, streams (`stream.rs`) |
 | `extension/` | MV3 extension: capture, context menu, popup |
 | `extension/_locales/` | The extension's text in each language |
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
@@ -1636,10 +1640,14 @@ is a failed scan, as is one that runs over 10 minutes.
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
 | `installer/pullbay.iss` | Inno Setup script for `Pullbay-Setup-<version>.exe` |
 | `installer/build.ps1` | Builds the programs and the installer into `dist\` |
+| `installer/linux/` | `package.sh` (the `.deb`, `.rpm`, AppImage and `.tar.gz`), the tarball's `install.sh`, the AppImage's `AppRun` and the desktop entry |
+| `installer/macos/package.sh` | Builds the universal `.dmg` |
 | `installer/make-firefox.ps1` | Makes the Firefox copy of the extension, or with `-Check` tells whether one is out of date |
 | `installer/make-firefox.js` | The same for macOS and Linux, with `--check` |
 | `installer/render-icons.js` | Renders `assets/icon.svg` to the extension's PNGs, `assets/icon-256.png`, `assets/icon-1024.png` and `assets/icon-64.rgba` with headless Chrome |
 | `installer/pullbay.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
+| `docs/adr/` | Architecture decisions |
+| `GLOSSARY.md` | The names of the windows and dialogs |
 
 ## Build
 
@@ -1648,7 +1656,7 @@ and OpenSSL development packages (`sudo apt install libgtk-3-dev libssl-dev`
 on Ubuntu):
 
 ```bash
-cargo test
+cargo test --workspace
 cargo build --release
 ```
 
@@ -1662,7 +1670,7 @@ Rust on Windows needs a linker. This project builds with the
 `stable-x86_64-pc-windows-gnu` toolchain plus MinGW-w64 (WinLibs) on `PATH`.
 
 ```bash
-cargo test
+cargo test --workspace
 cargo build --release
 node --test extension/test/*.test.js
 ```
@@ -1678,7 +1686,7 @@ $env:PULLBAY_INSTANCE = "test"; .\target\debug\pullbay-gui.exe
 
 A string the window shows needs its German, Spanish and French translations
 in `crates/ui/src/lang/`; a test fails for one without them.
-`lang/untranslated.json` lists the strings that were untranslated before
+`crates/ui/src/lang/untranslated.json` lists the strings that were untranslated before
 that test came in, and an entry leaves the list once it is translated.
 
 GitHub Actions builds and tests Pullbay on Windows, macOS and Linux on every
@@ -1686,23 +1694,26 @@ push and pull request (`.github/workflows/build.yml`), and the extension's
 tests with Node. Those runs keep no files.
 
 Each run also fails on a clippy warning or on code that rustfmt would
-change. Run both before pushing:
+change. Run the same checks before pushing:
 
 ```bash
-cargo fmt
-cargo clippy --all-targets -- -D warnings
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
 `rustfmt.toml` sets the line width to 120. Clippy checks only the code for
 the platform it runs on, so a warning in a macOS-only or Linux-only block
-shows up on that runner.
+shows up on that runner. With the target added through `rustup`,
+`cargo clippy --target x86_64-pc-windows-gnu` or
+`--target x86_64-apple-darwin` lints that code from Linux too.
 
 The installers come from `.github/workflows/release.yml`. Set the version in
 `Cargo.toml`, commit, and push a tag that matches it:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 It builds every file in the table under [Install](#install) on Windows,
