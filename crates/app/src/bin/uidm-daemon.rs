@@ -398,6 +398,7 @@ mod tests {
     use uidm_application::daemon::service::{ServiceError, COMMAND_LINE_WAIT};
     use uidm_application::daemon::ClientId;
     use uidm_application::daemon::{Event, Failure, Reply};
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::download::DownloadLogin;
     use uidm_domain::download::{Download, DownloadEntry, OnDone, Properties, Status};
     use uidm_domain::grab::GrabRequest;
@@ -987,7 +988,7 @@ mod tests {
                 heard.insert(index, (total, content_type, error));
             }
         }
-        let found = (Some(BODY.len() as u64), Some("application/octet-stream".to_string()), None);
+        let found = (Some(ByteCount::new(BODY.len() as u64)), Some("application/octet-stream".to_string()), None);
         assert_eq!(heard[&0], found);
         assert_eq!(heard[&2], found);
         assert!(heard[&1].2.is_some(), "a link that cannot be reached says why");
@@ -1020,11 +1021,11 @@ mod tests {
         let t = setup("browser_size", Duplicate::NewName);
         let (id, _) = t.daemon.add_later(Download {
             url: "https://x/big.iso".into(),
-            size: Some(4_000_000_000),
+            size: Some(ByteCount::new(4_000_000_000)),
             content_type: Some("application/x-iso9660-image".into()),
             ..Download::default()
         });
-        assert_eq!(t.daemon.entry(id).unwrap().total, Some(4_000_000_000));
+        assert_eq!(t.daemon.entry(id).unwrap().total, Some(ByteCount::new(4_000_000_000)));
     }
 
     #[test]
@@ -1437,8 +1438,8 @@ mod tests {
         // 2 MB came in this minute.
         {
             let mut q = t.daemon.store.quota();
-            q.started(DownloadId::new(99), 0);
-            q.progress(DownloadId::new(99), 2 << 20, uidm_infrastructure::quota::now_minute());
+            q.started(DownloadId::new(99), ByteCount::ZERO);
+            q.progress(DownloadId::new(99), ByteCount::new(2 << 20), uidm_infrastructure::quota::now_minute());
         }
         t.daemon.check_quota();
         assert!(t.window_got(|m| matches!(m, Outgoing::Quota { paused: true, resumes_at: Some(_), .. })));
@@ -1933,7 +1934,7 @@ mod tests {
             let asked = t.wait(id, Status::Confirming);
             let wanted = if finish_first { LEN as u64 } else { LEN as u64 / 4 };
             let until = Instant::now() + Duration::from_secs(30);
-            while t.daemon.entry(id).unwrap().done < wanted {
+            while t.daemon.entry(id).unwrap().done < ByteCount::new(wanted) {
                 assert!(Instant::now() < until, "the early download never got going");
                 thread::sleep(Duration::from_millis(20));
             }

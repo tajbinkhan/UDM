@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{AfterProbe, Download};
 use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{
@@ -13,7 +14,7 @@ pub struct Probed {
     pub filename: String,
     /// Where the file would go: the folder for its category, then the name.
     pub path: PathBuf,
-    pub total: Option<u64>,
+    pub total: Option<ByteCount>,
     /// Whether it sends the file in ranges, so a download can resume.
     pub resumable: bool,
 }
@@ -100,7 +101,12 @@ mod tests {
     use uidm_domain::settings::Settings;
 
     fn probed(name: &str) -> Probed {
-        Probed { filename: name.into(), path: PathBuf::from("/dl").join(name), total: Some(100), resumable: true }
+        Probed {
+            filename: name.into(),
+            path: PathBuf::from("/dl").join(name),
+            total: Some(ByteCount::new(100)),
+            resumable: true,
+        }
     }
 
     struct World {
@@ -149,7 +155,10 @@ mod tests {
         let w = World::new(Settings { start_while_asking: true, ..Settings::default() });
         assert_eq!(w.hold("a.iso", Some(2)), Held::Asked { early: false }, "a duplicate does not start early");
         let e = w.downloads.entry(DownloadId::new(1)).unwrap();
-        assert_eq!((e.status, e.duplicate_of, e.total), (Status::Confirming, Some(DownloadId::new(2)), Some(100)));
+        assert_eq!(
+            (e.status, e.duplicate_of, e.total),
+            (Status::Confirming, Some(DownloadId::new(2)), Some(ByteCount::new(100)))
+        );
         assert_eq!(w.waiting.awaited(), [1]);
         w.downloads.set(1, Status::Queued);
         assert_eq!(w.hold("a.iso", Some(9)), Held::Asked { early: true }, "a duplicate of nothing is no duplicate");

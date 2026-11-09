@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{Download, PageLink};
 use uidm_domain::id::QueueId;
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
@@ -41,7 +42,7 @@ pub enum Probed {
     /// Not answered yet.
     Asking,
     /// Its size and `Content-Type`, each when the server gave it.
-    Found { total: Option<u64>, content_type: Option<String> },
+    Found { total: Option<ByteCount>, content_type: Option<String> },
     /// It could not be asked, and why.
     Failed(String),
 }
@@ -640,12 +641,15 @@ mod tests {
         assert!(d.take_probe().is_none(), "asked once");
 
         // Answers map back to their links; the third asked is link 3.
-        let zip = Probed::Found { total: Some(2048), content_type: Some("application/x-zip-compressed".into()) };
+        let zip = Probed::Found {
+            total: Some(ByteCount::new(2048)),
+            content_type: Some("application/x-zip-compressed".into()),
+        };
         d.heard(first, 0, zip.clone());
         d.heard(first, 1, Probed::Found { total: None, content_type: Some("application/pdf; q=1".into()) });
         d.heard(first + 100, 2, zip.clone());
         assert_eq!(d.probed[3], Probed::Asking, "an answer to another request is dropped");
-        assert_eq!(link_columns(&d.links[0], &d.probed[0]), ("zip".into(), human_bytes(2048)));
+        assert_eq!(link_columns(&d.links[0], &d.probed[0]), ("zip".into(), human_bytes(ByteCount::new(2048))));
         assert_eq!(link_columns(&d.links[1], &d.probed[1]), ("pdf".into(), "Unknown".into()));
         assert_eq!(link_columns(&d.links[3], &d.probed[3]).1, "...");
 

@@ -16,6 +16,7 @@
 //! its cookies, user agent, form body and a login with its downloads.
 
 use std::path::Path;
+use uidm_domain::bytes::ByteCount;
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -41,7 +42,7 @@ pub struct ListItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<Status>,
     /// The page the download came from.
@@ -338,8 +339,8 @@ http://127.0.0.1/b.zip
             id: DownloadId::new(id),
             url: url.into(),
             path: path.map(str::to_string),
-            total: Some(1234),
-            done: 0,
+            total: Some(ByteCount::new(1234)),
+            done: ByteCount::ZERO,
             status,
             error: None,
             resumable: true,

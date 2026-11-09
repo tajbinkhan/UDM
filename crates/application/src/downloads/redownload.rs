@@ -49,12 +49,13 @@ impl<'a, D: DownloadList, X: DownloadControl, F: DownloadFiles> Redownload<'a, D
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Files};
+    use uidm_domain::bytes::ByteCount;
 
     #[test]
     fn a_stopped_download_starts_over_under_its_id() {
         let mut old = row(1, Status::Failed);
         old.connections = 2;
-        old.done = 500;
+        old.done = ByteCount::new(500);
         old.path = Some("/dl/1.zip".into());
         old.partial = Some("/tmp/1.zip.part".into());
         let downloads = Downloads::rows([old]);
@@ -62,7 +63,7 @@ mod tests {
         let url = Redownload::new(&downloads, &control, &files).run(DownloadId::new(1)).unwrap();
         assert_eq!(url, "https://dl.example/1.zip");
         let e = downloads.entry(DownloadId::new(1)).unwrap();
-        assert_eq!((e.status, e.done, e.partial), (Status::Queued, 0, None));
+        assert_eq!((e.status, e.done, e.partial), (Status::Queued, ByteCount::ZERO, None));
         assert_eq!(files.forgot_resume(), ["/dl/1.zip", "/tmp/1.zip.part"]);
         let (id, d) = &control.started_again()[0];
         assert_eq!((*id, d.filename.as_deref()), (1, Some("1.zip")));

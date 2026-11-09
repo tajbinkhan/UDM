@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
@@ -559,7 +560,7 @@ pub enum GrabPhase {
     Form,
     Running {
         pages: u64,
-        bytes: u64,
+        bytes: ByteCount,
         found: usize,
         explored: u64,
         /// The downloads the crawl added to a queue so far, to count the
@@ -961,7 +962,7 @@ impl GrabDialog {
     /// Start the crawl for `req`, which is valid.
     fn begin_crawl(&mut self, req: GrabRequest, queues: &[Queue], actions: &mut Vec<Action>) {
         self.error = None;
-        self.phase = GrabPhase::Running { pages: 0, bytes: 0, found: 0, explored: 0, added: Vec::new() };
+        self.phase = GrabPhase::Running { pages: 0, bytes: ByteCount::ZERO, found: 0, explored: 0, added: Vec::new() };
         if let Some(q) = req.download_found.and_then(|id| queues.iter().find(|q| q.id == id)) {
             actions.push(Action::SaveQueue(Queue { max_concurrent: req.download_at_once as usize, ..q.clone() }));
         }
@@ -1010,7 +1011,7 @@ impl GrabDialog {
             same_site: d.same_site,
             types: d.types.join(", "),
             max_pages: d.max_pages,
-            max_mb: d.max_bytes / (1024 * 1024),
+            max_mb: d.max_bytes.whole_mib(),
             delay_secs: d.delay_ms as f64 / 1000.0,
             explore_only: d.explore_only.join("\n"),
             explore_skip: d.explore_skip.join("\n"),
@@ -1018,8 +1019,8 @@ impl GrabDialog {
             files_skip: d.files_skip.join("\n"),
             subdomains: d.subdomains,
             no_parent: d.no_parent,
-            min_mb: d.min_size.map(|b| b as f64 / MB),
-            max_mb_file: d.max_size.map(|b| b as f64 / MB),
+            min_mb: d.min_size.map(|b| b.as_f64() / MB),
+            max_mb_file: d.max_size.map(|b| b.as_f64() / MB),
             hide_duplicates: d.hide_duplicates,
             browser_cookies: d.browser_cookies,
             render_scripts: d.render_scripts,
@@ -1111,7 +1112,7 @@ impl GrabDialog {
             same_site: self.same_site,
             types: uidm_domain::settings::parse_extensions(&self.types),
             max_pages: self.max_pages,
-            max_bytes: self.max_mb * 1024 * 1024,
+            max_bytes: ByteCount::mib(self.max_mb),
             delay_ms: (self.delay_secs * 1000.0).round() as u64,
             explore_only: pattern_list(&self.explore_only),
             explore_skip: pattern_list(&self.explore_skip),
@@ -1119,8 +1120,8 @@ impl GrabDialog {
             files_skip: pattern_list(&self.files_skip),
             subdomains: self.subdomains,
             no_parent: self.no_parent,
-            min_size: self.min_mb.map(|m| (m * MB).round() as u64),
-            max_size: self.max_mb_file.map(|m| (m * MB).round() as u64),
+            min_size: self.min_mb.map(|m| ByteCount::new((m * MB).round() as u64)),
+            max_size: self.max_mb_file.map(|m| ByteCount::new((m * MB).round() as u64)),
             hide_duplicates: self.hide_duplicates,
             browser_cookies: self.browser_cookies,
             render_scripts: self.render_scripts,
@@ -1171,7 +1172,7 @@ impl GrabDialog {
     }
 
     /// The daemon's report of the crawl.
-    pub fn progress(&mut self, pages: u64, bytes: u64, found: usize, explored: u64, added: Vec<DownloadId>) {
+    pub fn progress(&mut self, pages: u64, bytes: ByteCount, found: usize, explored: u64, added: Vec<DownloadId>) {
         if matches!(self.phase, GrabPhase::Running { .. }) {
             self.phase = GrabPhase::Running { pages, bytes, found, explored, added };
         }

@@ -385,6 +385,7 @@ impl From<WireService> for ServiceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::download::Download;
     use uidm_domain::id::{DownloadId, QueueId};
 
@@ -616,7 +617,10 @@ mod tests {
                 json!({"Settings": {"Invalid": {"Scanner": "NoPath"}}}),
             ),
             (Mismatch::Changed.into(), json!({"Mismatch": "Changed"})),
-            (Mismatch::Size { new: 1, partial: 2 }.into(), json!({"Mismatch": {"Size": {"new": 1, "partial": 2}}})),
+            (
+                Mismatch::Size { new: ByteCount::new(1), partial: ByteCount::new(2) }.into(),
+                json!({"Mismatch": {"Size": {"new": 1, "partial": 2}}}),
+            ),
             (Failure::InvalidMessage("eof".into()), json!({"InvalidMessage": "eof"})),
             (Failure::Probe("HTTP 404".into()), json!({"Probe": "HTTP 404"})),
         ];
@@ -629,7 +633,7 @@ mod tests {
 
     #[test]
     fn a_new_links_mismatch_keeps_its_reason_and_kind() {
-        let reason = Failure::from(Mismatch::Size { new: 2 << 20, partial: 1 << 20 });
+        let reason = Failure::from(Mismatch::Size { new: ByteCount::new(2 << 20), partial: ByteCount::new(1 << 20) });
         let (value, back) =
             round_trip(Event::RefreshMismatch { id: DownloadId::new(1), url: "u".into(), reason: reason.clone() });
         assert_eq!(value["reason"], "The new link is for a 2.0 MB file; the partial download is of a 1.0 MB file.");

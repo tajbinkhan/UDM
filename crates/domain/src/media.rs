@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 
 /// What a video becomes.
@@ -106,7 +107,7 @@ pub struct MediaOption {
     pub bandwidth: Option<u64>,
     /// About how big it is, from its bit rate and the length of the video.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
     /// A subtitle track's language, as the stream names it (`en`, `de-AT`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
@@ -157,7 +158,7 @@ pub struct MediaFile {
     /// Its type, as a file extension: `mp4`, `ts`, `webm`.
     pub ext: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
 }
 
 impl MediaInfo {
@@ -349,9 +350,9 @@ pub fn quality_label(height: Option<u32>, bandwidth: Option<u64>) -> String {
 
 /// About how many bytes `seconds` of a `bandwidth` bits-per-second stream
 /// take.
-pub fn estimate_size(bandwidth: Option<u64>, seconds: Option<f64>) -> Option<u64> {
+pub fn estimate_size(bandwidth: Option<u64>, seconds: Option<f64>) -> Option<ByteCount> {
     let (b, s) = (bandwidth?, seconds?);
-    (s > 0.0).then(|| (b as f64 * s / 8.0) as u64)
+    (s > 0.0).then(|| ByteCount::new((b as f64 * s / 8.0) as u64))
 }
 
 /// Whether `text` looks like an HLS playlist, a DASH manifest or an HDS
@@ -426,6 +427,18 @@ pub fn is_video(name: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Sizes in a probe's answer are plain numbers on the wire.
+    #[test]
+    fn sizes_keep_their_wire_shape() {
+        let raw = r#"{"id":"137","label":"1080p","size":51600000}"#;
+        let option: MediaOption = serde_json::from_str(raw).unwrap();
+        assert_eq!(option.size, Some(ByteCount::new(51_600_000)));
+        assert_eq!(serde_json::to_string(&option).unwrap(), raw);
+        let raw = r#"{"ext":"mp4","size":300000}"#;
+        let file: MediaFile = serde_json::from_str(raw).unwrap();
+        assert_eq!(serde_json::to_string(&file).unwrap(), raw);
+    }
+
     #[test]
     fn webvtt_segments_join_into_one_file() {
         let parts = [
@@ -456,7 +469,7 @@ mod tests {
         assert_eq!(quality_label(Some(1080), Some(5_200_000)), "1080p, 5.2 Mbps");
         assert_eq!(quality_label(None, Some(128_000)), "128 kbps");
         assert_eq!(quality_label(None, None), "Default");
-        assert_eq!(estimate_size(Some(8_000_000), Some(10.0)), Some(10_000_000));
+        assert_eq!(estimate_size(Some(8_000_000), Some(10.0)), Some(ByteCount::new(10_000_000)));
         assert_eq!(estimate_size(None, Some(10.0)), None);
     }
 

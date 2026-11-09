@@ -15,6 +15,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
@@ -186,7 +187,8 @@ pub fn toast_for(e: &DownloadEntry, failed: bool) -> Toast {
     }
 }
 
-fn human_bytes(n: u64) -> String {
+fn human_bytes(n: ByteCount) -> String {
+    let n = n.get();
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut value = n as f64;
     let mut unit = 0;
@@ -372,7 +374,7 @@ mod tests {
         let e = store
             .update(DownloadId::new(4), |e| {
                 e.path = Some(std::env::temp_dir().join("a.zip").display().to_string());
-                e.total = Some(2048);
+                e.total = Some(ByteCount::new(2048));
                 true
             })
             .unwrap();
@@ -383,6 +385,6 @@ mod tests {
         assert_eq!(done.buttons[0].1, "open:4");
         let failed = toast_for(&DownloadEntry { error: Some("gone".into()), ..e }, true);
         assert_eq!(failed.buttons, [("Retry".to_string(), "retry:4".to_string())]);
-        assert_eq!(human_bytes(10), "10 B");
+        assert_eq!(human_bytes(ByteCount::new(10)), "10 B");
     }
 }

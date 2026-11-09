@@ -2,6 +2,7 @@
 //! copy, and when to look again. Asking GitHub and checking the Setup
 //! program it offers is `uidm_infrastructure::update`.
 
+use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 
 /// How often the window's check runs on its own: once a week.
@@ -25,7 +26,7 @@ pub struct SetupAsset {
     pub name: String,
     /// Where GitHub serves it, under this repository's release downloads.
     pub url: String,
-    pub size: u64,
+    pub size: ByteCount,
     /// Its SHA-256 in hex, when GitHub reports one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,

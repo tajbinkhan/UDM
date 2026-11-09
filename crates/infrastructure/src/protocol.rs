@@ -9,6 +9,7 @@ use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::grab::{GrabFile, GrabRequest};
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::media::MediaInfo;
@@ -272,7 +273,7 @@ pub enum Outgoing {
         url: String,
         /// The file being written.
         path: String,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
         connections: usize,
         /// Where the data goes until it is complete, when not at `path` (a
@@ -287,8 +288,8 @@ pub enum Outgoing {
     Progress {
         id: DownloadId,
         url: String,
-        done: u64,
-        total: Option<u64>,
+        done: ByteCount,
+        total: Option<ByteCount>,
         /// For a stream: segments fetched and segments in all.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parts: Option<[u64; 2]>,
@@ -374,7 +375,7 @@ pub enum Outgoing {
         id: DownloadId,
         url: String,
         path: String,
-        total: Option<u64>,
+        total: Option<ByteCount>,
     },
     /// Reply to `refresh_link`: the new link is for another file, so the
     /// partial file cannot be kept. Send `refresh_link` again with
@@ -407,7 +408,7 @@ pub enum Outgoing {
         request: u64,
         index: usize,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        total: Option<u64>,
+        total: Option<ByteCount>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         content_type: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -430,8 +431,8 @@ pub enum Outgoing {
     /// (`paused`, with when they resume, in seconds since 1970), when they
     /// resume, and to a window that connects while it matters.
     Quota {
-        used: u64,
-        limit: u64,
+        used: ByteCount,
+        limit: ByteCount,
         paused: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resumes_at: Option<u64>,
@@ -497,7 +498,7 @@ pub enum Outgoing {
     /// finished ones while they download.
     GrabProgress {
         pages: u64,
-        bytes: u64,
+        bytes: ByteCount,
         found: usize,
         #[serde(default)]
         explored: u64,
@@ -624,7 +625,7 @@ mod tests {
             [("Accept".to_string(), "*/*".to_string()), ("Sec-Fetch-Mode".into(), "navigate".into())]
         );
         assert_eq!(d.redirects, ["https://x/get/a"]);
-        assert_eq!((d.size, d.content_type.as_deref()), (Some(1048576), Some("application/zip")));
+        assert_eq!((d.size, d.content_type.as_deref()), (Some(ByteCount::new(1048576)), Some("application/zip")));
         let proxy = d.browser_proxy.clone().unwrap();
         assert_eq!(
             (proxy.mode, proxy.pac_url.as_deref(), proxy.bypass.len()),
@@ -737,6 +738,26 @@ mod tests {
         }
     }
 
+    /// Byte counts (`ByteCount`) are plain numbers on the wire: messages
+    /// carrying them read and write back unchanged.
+    #[test]
+    fn byte_counts_keep_their_wire_shape() {
+        for raw in [
+            r#"{"op":"started","id":1,"url":"u","path":"p","total":1048576,"resumable":true,"connections":4,"validator":{"size":1048576,"etag":"e"}}"#,
+            r#"{"op":"progress","id":1,"url":"u","done":524288,"total":1048576,"segments":[{"start":0,"end":524287,"done":1000,"state":"receiving"}]}"#,
+            r#"{"op":"name_taken","id":1,"url":"u","path":"p","total":5}"#,
+            r#"{"op":"link_info","request":3,"index":0,"total":10}"#,
+            r#"{"op":"quota","used":900,"limit":1000,"paused":false}"#,
+            r#"{"op":"zip_preview","id":2,"entries":[{"name":"a.txt","size":120}]}"#,
+        ] {
+            let msg: Outgoing = serde_json::from_str(raw).unwrap();
+            let want: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(&msg).unwrap(), want, "{raw}");
+        }
+        let add: Incoming = serde_json::from_str(r#"{"op":"add","url":"https://x/a.zip","size":1048576}"#).unwrap();
+        assert_eq!(serde_json::to_value(&add).unwrap()["size"], 1048576);
+    }
+
     /// An `add` message parses into the typed download.
     #[test]
     fn parse_add() {
@@ -760,7 +781,9 @@ mod tests {
             other => panic!("expected probe_links, got {other:?}"),
         }
         let info: Outgoing = serde_json::from_str(r#"{"op":"link_info","request":3,"index":0,"total":10}"#).unwrap();
-        assert!(matches!(info, Outgoing::LinkInfo { total: Some(10), content_type: None, error: None, .. }));
+        assert!(
+            matches!(info, Outgoing::LinkInfo { total: Some(t), content_type: None, error: None, .. } if t.get() == 10)
+        );
     }
 
     /// The save-as dialog's answer to a taken name, and a `confirm` without

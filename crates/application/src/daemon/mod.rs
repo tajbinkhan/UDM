@@ -16,6 +16,7 @@ pub use table::{apply, change_of};
 use std::fmt;
 use std::sync::Arc;
 
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
 };
@@ -287,7 +288,7 @@ pub enum Event {
         id: DownloadId,
         url: String,
         path: String,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
         connections: usize,
         partial: Option<String>,
@@ -297,8 +298,8 @@ pub enum Event {
     Progress {
         id: DownloadId,
         url: String,
-        done: u64,
-        total: Option<u64>,
+        done: ByteCount,
+        total: Option<ByteCount>,
         parts: Option<[u64; 2]>,
         segments: Option<Vec<SegmentInfo>>,
     },
@@ -366,7 +367,7 @@ pub enum Event {
         id: DownloadId,
         url: String,
         path: String,
-        total: Option<u64>,
+        total: Option<ByteCount>,
     },
     /// The new link of a `RefreshLink` is for another file: `reason` is a
     /// `Failure::Mismatch` (or, from an older daemon, `Other`).
@@ -384,7 +385,7 @@ pub enum Event {
     LinkInfo {
         request: u64,
         index: usize,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         content_type: Option<String>,
         error: Option<Failure>,
     },
@@ -396,8 +397,8 @@ pub enum Event {
     },
     /// Where the download quota stands.
     Quota {
-        used: u64,
-        limit: u64,
+        used: ByteCount,
+        limit: ByteCount,
         paused: bool,
         resumes_at: Option<u64>,
     },
@@ -423,7 +424,7 @@ pub enum Event {
     /// A crawl's progress.
     GrabProgress {
         pages: u64,
-        bytes: u64,
+        bytes: ByteCount,
         found: usize,
         explored: u64,
         added: Vec<DownloadId>,

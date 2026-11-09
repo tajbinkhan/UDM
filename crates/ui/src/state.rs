@@ -11,6 +11,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
+use uidm_domain::bytes::ByteCount;
 
 use uidm_application::daemon::{self, Event, Failure, Lost};
 use uidm_application::window::BrowserSlot;
@@ -38,7 +39,7 @@ pub enum Link {
 /// Bytes per second, smoothed across progress events.
 pub struct Speed {
     at: Instant,
-    done: u64,
+    done: ByteCount,
     pub bytes_per_sec: f64,
 }
 
@@ -165,7 +166,7 @@ pub struct BrowsersRead {
 pub enum GrabEvent {
     /// Pages read, bytes read, files kept, file links looked at, and the
     /// downloads added to a queue so far.
-    Progress(u64, u64, usize, u64, Vec<DownloadId>),
+    Progress(u64, ByteCount, usize, u64, Vec<DownloadId>),
     /// The files kept, pages read, file links looked at, why it stopped,
     /// and the login page site's cookies it used.
     Done(Vec<GrabFile>, u64, u64, Option<String>, Option<String>),
@@ -190,7 +191,7 @@ impl AppState {
             (0, 0) => tr("UIDM: no active downloads").to_string(),
             (0, q) => trf!("UIDM: {queued} queued", queued = q),
             (a, _) => {
-                trf!("UIDM: {active} downloading at {speed}/s", active = a, speed = crate::human_bytes(speed as u64))
+                trf!("UIDM: {active} downloading at {speed}/s", active = a, speed = crate::human_rate(speed as u64))
             }
         }
     }
@@ -257,7 +258,7 @@ impl AppState {
                 } else if was_paused {
                     self.notice = Some(tr("The download quota allows downloads again; paused ones resumed.").into());
                     None
-                } else if *used >= *limit / 10 * 9 {
+                } else if uidm_domain::quota::nearly_reached(*used, *limit) {
                     Some(trf!(
                         "Download quota nearly used: {amount}. Downloads pause when it runs out.",
                         amount = amount
@@ -336,14 +337,14 @@ impl AppState {
         }
     }
 
-    fn sample_speed(&mut self, id: DownloadId, done: u64) {
+    fn sample_speed(&mut self, id: DownloadId, done: ByteCount) {
         let now = Instant::now();
         let s = self.speeds.entry(id).or_insert(Speed { at: now, done, bytes_per_sec: 0.0 });
         let dt = now.duration_since(s.at);
         if dt < SPEED_MIN_INTERVAL || done < s.done {
             return;
         }
-        let instant = (done - s.done) as f64 / dt.as_secs_f64();
+        let instant = (done - s.done).as_f64() / dt.as_secs_f64();
         s.bytes_per_sec = if s.bytes_per_sec == 0.0 { instant } else { 0.7 * s.bytes_per_sec + 0.3 * instant };
         s.at = now;
         s.done = done;
@@ -801,7 +802,10 @@ mod tests {
     #[test]
     fn what_the_window_takes_is_handed_over_once() {
         let mut s = AppState::default();
-        daemon(&mut s, Event::GrabProgress { pages: 1, bytes: 2, found: 3, explored: 4, added: vec![] });
+        daemon(
+            &mut s,
+            Event::GrabProgress { pages: 1, bytes: ByteCount::new(2), found: 3, explored: 4, added: vec![] },
+        );
         apply(&mut s, UiMessage::ClipboardBatch);
         assert_eq!(take_grab_events(&mut s).len(), 1);
         assert!(take_grab_events(&mut s).is_empty(), "taken already");

@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
@@ -191,7 +192,10 @@ fn read_playlist(
     (&mut reader).take(SNIFF_BYTES).read_to_end(&mut body)?;
     if sniff(&String::from_utf8_lossy(&body)).is_none() {
         if let Some(ext) = uidm_domain::media::sniff_file(&body) {
-            return Ok(Err(MediaInfo { file: Some(MediaFile { ext: ext.into(), size }), ..MediaInfo::default() }));
+            return Ok(Err(MediaInfo {
+                file: Some(MediaFile { ext: ext.into(), size: size.map(ByteCount::new) }),
+                ..MediaInfo::default()
+            }));
         }
         return Ok(Err(MediaInfo { not_stream: true, ..MediaInfo::failed(None, NOT_A_STREAM.into()) }));
     }
@@ -566,7 +570,7 @@ impl Fetching<'_> {
         self.reporter.send(Progress::Advanced {
             id: self.id,
             url: self.req.url.clone(),
-            done: self.done_bytes.load(Ordering::Relaxed),
+            done: ByteCount::new(self.done_bytes.load(Ordering::Relaxed)),
             total: None,
             parts: Some([self.done_parts.load(Ordering::Relaxed), self.total_parts]),
             segments: None,
@@ -1097,7 +1101,7 @@ mod tests {
             assert_eq!(info.duration, Some(20.0));
             let labels: Vec<&str> = info.video.iter().map(|o| o.label.as_str()).collect();
             assert_eq!(labels, ["720p, 3.0 Mbps", "360p, 900 kbps"]);
-            assert_eq!(info.video[0].size, Some(7_500_000));
+            assert_eq!(info.video[0].size, Some(ByteCount::new(7_500_000)));
             fs::remove_dir_all(&dir).ok();
         }
 
@@ -1110,7 +1114,7 @@ mod tests {
             files.insert("/f/page.m3u8".into(), b"<html>no</html>".to_vec());
             let server = TestServer::start_files(files);
             let info = probe(&format!("{}/f/movie.m3u8", server.url), &[], &NetConfig::default());
-            assert_eq!(info.file, Some(MediaFile { ext: "mp4".into(), size: Some(300_000) }));
+            assert_eq!(info.file, Some(MediaFile { ext: "mp4".into(), size: Some(ByteCount::new(300_000)) }));
             assert_eq!(info.error, None);
             let info = probe(&format!("{}/f/page.m3u8", server.url), &[], &NetConfig::default());
             assert!(info.not_stream);
@@ -1206,7 +1210,7 @@ mod tests {
             assert_eq!(info.kind, Some(MediaKind::Hds));
             let labels: Vec<&str> = info.video.iter().map(|o| o.label.as_str()).collect();
             assert_eq!(labels, ["720p, 1.2 Mbps", "240p, 300 kbps"]);
-            assert_eq!(info.video[0].size, Some(1_200_000));
+            assert_eq!(info.video[0].size, Some(ByteCount::new(1_200_000)));
 
             let (result, parts) = run(request(url.clone(), &dir, MediaChoice::default()));
             let (path, note) = result.unwrap();

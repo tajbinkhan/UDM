@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
@@ -217,7 +218,7 @@ impl DownloadStore {
         match msg {
             // Bytes a resumed download already had do not count again.
             Outgoing::Started { id, .. } => {
-                let done = table.get(*id).map_or(0, |e| e.done);
+                let done = table.get(*id).map_or(ByteCount::ZERO, |e| e.done);
                 lock(&self.quota).started(*id, done);
             }
             Outgoing::Progress { id, done, .. } if !lock(&self.uncounted).contains(id) => {

@@ -16,7 +16,7 @@ use uidm_domain::queue::Queue;
 
 use crate::columns::{self, Column, Layout};
 use crate::i18n::{tr, trf};
-use crate::{display_name, human_bytes, human_duration, scan_label, Action};
+use crate::{display_name, human_bytes, human_duration, human_rate, scan_label, Action};
 
 /// IDM's rows are 17 px; the row's text sets the floor here.
 const ROW_HEIGHT: f32 = 18.0;
@@ -257,7 +257,7 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
             // arrived. A stream counts segments.
             let size = match e.total {
                 Some(total) => human_bytes(total),
-                None if e.done > 0 => human_bytes(e.done),
+                None if !e.done.is_zero() => human_bytes(e.done),
                 None => String::new(),
             };
             let size = ui.add(egui::Label::new(size).selectable(false));
@@ -278,7 +278,7 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
         }
         Column::Speed => {
             ui.add(
-                egui::Label::new(running.map(|bps| format!("{}/s", human_bytes(bps as u64))).unwrap_or_default())
+                egui::Label::new(running.map(|bps| format!("{}/s", human_rate(bps as u64))).unwrap_or_default())
                     .selectable(false),
             );
         }
@@ -334,7 +334,7 @@ fn status(ui: &mut egui::Ui, e: &DownloadEntry) {
         ui.weak(tr("(note)")).on_hover_text(note);
     }
     if let Some(limit) = e.speed_limit {
-        ui.weak(tr("(limited)")).on_hover_text(trf!("Limited to {speed}/s", speed = human_bytes(limit)));
+        ui.weak(tr("(limited)")).on_hover_text(trf!("Limited to {speed}/s", speed = human_rate(limit)));
     }
 }
 

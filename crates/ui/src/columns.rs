@@ -7,6 +7,7 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use uidm_domain::bytes::ByteCount;
 
 use eframe::egui;
 use serde::{Deserialize, Serialize};
@@ -357,7 +358,7 @@ pub fn fraction(e: &DownloadEntry) -> Option<f32> {
     let parts = e.parts.filter(|[_, all]| *all > 0);
     match (e.total, parts) {
         _ if e.status == Status::Done => Some(1.0),
-        (Some(t), _) if t > 0 => Some((e.done as f32 / t as f32).clamp(0.0, 1.0)),
+        (Some(t), _) if !t.is_zero() => Some((e.done.as_f64() / t.as_f64()).clamp(0.0, 1.0) as f32),
         (_, Some([done, all])) => Some((done as f32 / all as f32).clamp(0.0, 1.0)),
         _ => None,
     }
@@ -368,10 +369,10 @@ pub fn fraction(e: &DownloadEntry) -> Option<f32> {
 pub fn time_left(e: &DownloadEntry, bytes_per_sec: Option<f64>) -> Option<f64> {
     let bps = bytes_per_sec.filter(|s| *s > 0.0)?;
     let estimate = e.total.or_else(|| match e.parts {
-        Some([done, all]) if done > 0 => Some(e.done / done * all),
+        Some([done, all]) if done > 0 => Some(ByteCount::new(e.done.get() / done * all)),
         _ => None,
     })?;
-    (estimate > e.done).then(|| (estimate - e.done) as f64 / bps)
+    (estimate > e.done).then(|| (estimate - e.done).as_f64() / bps)
 }
 
 /// `2026-10-27 14:05` in local time.
@@ -532,8 +533,8 @@ mod tests {
             id: DownloadId::new(id),
             url: format!("https://x/{name}"),
             path: None,
-            total,
-            done: 0,
+            total: total.map(ByteCount::new),
+            done: ByteCount::ZERO,
             status,
             error: None,
             resumable: false,
@@ -700,7 +701,7 @@ mod tests {
     #[test]
     fn time_left_needs_a_speed_and_a_size() {
         let mut e = entry(1, "a", Some(1000), Status::Downloading);
-        e.done = 400;
+        e.done = ByteCount::new(400);
         assert_eq!(time_left(&e, Some(100.0)), Some(6.0));
         assert_eq!(time_left(&e, None), None);
         e.total = None;

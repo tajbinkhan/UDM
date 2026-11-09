@@ -152,6 +152,7 @@ pub fn requests_path() -> io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::id::QueueId;
 
     fn temp_path(name: &str) -> PathBuf {
@@ -163,8 +164,8 @@ mod tests {
             id: DownloadId::new(id),
             url: format!("https://x/{id}.zip"),
             path: Some(format!("C:\\dl\\{id}.zip")),
-            total: Some(1000),
-            done: 400,
+            total: Some(ByteCount::new(1000)),
+            done: ByteCount::new(400),
             status,
             error: None,
             resumable: true,
@@ -232,7 +233,7 @@ mod tests {
         let h = History::load(&path).unwrap();
         let statuses: Vec<Status> = h.items.iter().map(|e| e.status).collect();
         assert_eq!(statuses, [Status::Done, Status::Interrupted, Status::Interrupted, Status::Failed]);
-        assert_eq!(h.items[1].done, 400, "progress is kept");
+        assert_eq!(h.items[1].done, ByteCount::new(400), "progress is kept");
         fs::remove_file(&path).ok();
     }
 
@@ -342,6 +343,26 @@ mod tests {
         assert_eq!(saved["queues"][0]["id"], 1);
         assert_eq!(saved["queues"][1]["id"], 2);
         assert_eq!(saved["queues"][1]["order"], serde_json::json!([5]));
+        fs::remove_file(&path).ok();
+    }
+
+    /// Byte counts in the history (`total`, `done`, the validator's size)
+    /// read from an old file as plain numbers and are saved back the same.
+    #[test]
+    fn byte_counts_keep_their_file_shape() {
+        let path = temp_path("byte_shape.json");
+        let mut item = serde_json::to_value(entry(5, Status::Waiting)).unwrap();
+        item["total"] = 4_000_000_000u64.into();
+        item["done"] = 1_048_576.into();
+        item["validator"] = serde_json::json!({ "size": 4_000_000_000u64, "etag": "x" });
+        let old = serde_json::json!({ "next_id": 7, "items": [item.clone()], "queues": [] });
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let h = History::load(&path).unwrap();
+        assert_eq!((h.items[0].total, h.items[0].done), (Some(ByteCount::new(4_000_000_000)), ByteCount::mib(1)));
+        assert_eq!(h.items[0].validator.as_ref().and_then(|v| v.size), Some(ByteCount::new(4_000_000_000)));
+        h.save(&path).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["items"][0], item);
         fs::remove_file(&path).ok();
     }
 

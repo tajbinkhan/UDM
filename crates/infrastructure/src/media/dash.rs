@@ -491,6 +491,7 @@ pub fn pick(m: &Manifest, video: Option<&str>, audio: Option<&str>) -> Result<(T
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
 
     const URL: &str = "https://cdn.x/movie/manifest.mpd";
 
@@ -575,7 +576,7 @@ mod tests {
         let info = describe(&m);
         assert_eq!(info.video.len(), 2);
         assert_eq!(info.audio[0].label, "en, 128 kbps");
-        assert_eq!(info.video[0].size, Some(7_500_000));
+        assert_eq!(info.video[0].size, Some(ByteCount::new(7_500_000)));
         let (v, a) = pick(&m, Some("720"), None).unwrap();
         assert!(v.segments[0].url.ends_with("/720/001.m4s"));
         assert!(a.unwrap().segments[0].url.ends_with("t0.m4s"));

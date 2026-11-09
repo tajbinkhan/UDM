@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
@@ -82,7 +83,7 @@ impl Converter for Conversions {
         let Some(ffmpeg) = settings::ffmpeg(&self.settings.lock()) else {
             return;
         };
-        let size = std::fs::metadata(&c.input).map(|m| m.len()).unwrap_or(0);
+        let size = ByteCount::new(std::fs::metadata(&c.input).map(|m| m.len()).unwrap_or(0));
         let new_id = self.engine.reserve_id();
         let store = Arc::clone(&self.store);
         store.uncount(new_id);
@@ -109,7 +110,7 @@ impl Converter for Conversions {
                     store.publish(&Outgoing::Progress {
                         id: new_id,
                         url: url.clone(),
-                        done: (f * size as f64) as u64,
+                        done: ByteCount::new((f * size.get() as f64) as u64),
                         total: Some(size),
                         parts: None,
                         segments: None,

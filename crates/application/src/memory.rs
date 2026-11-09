@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{Download, DownloadEntry, Status};
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::media::Conversion;
@@ -508,7 +509,7 @@ impl QueueFinish for Finish {
 /// A quota count fixed at `used` bytes, wherever the window lies.
 #[derive(Default)]
 pub struct Quota {
-    used: Mutex<u64>,
+    used: Mutex<ByteCount>,
     frees_at: u64,
     held: Mutex<Option<(Vec<QueueId>, HashSet<DownloadId>)>>,
     warned: Mutex<bool>,
@@ -517,11 +518,11 @@ pub struct Quota {
 
 impl Quota {
     /// `used` bytes in the window, which frees up at minute `frees_at`.
-    pub fn at(used: u64, frees_at: u64) -> Self {
+    pub fn at(used: ByteCount, frees_at: u64) -> Self {
         Quota { used: Mutex::new(used), frees_at, ..Quota::default() }
     }
 
-    pub fn set_used(&self, used: u64) {
+    pub fn set_used(&self, used: ByteCount) {
         *self.used.lock().unwrap() = used;
     }
 
@@ -531,11 +532,11 @@ impl Quota {
 }
 
 impl QuotaState for Quota {
-    fn used(&self, _now: u64, _window: u64) -> u64 {
+    fn used(&self, _now: u64, _window: u64) -> ByteCount {
         *self.used.lock().unwrap()
     }
 
-    fn frees_at(&self, _now: u64, _window: u64, _limit: u64) -> u64 {
+    fn frees_at(&self, _now: u64, _window: u64, _limit: ByteCount) -> u64 {
         self.frees_at
     }
 

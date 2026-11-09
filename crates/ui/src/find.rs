@@ -211,6 +211,7 @@ pub fn show(ui: &mut egui::Ui, bar: &mut FindBar, ids: &[DownloadId]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::download::Status;
 
     fn entry(id: u64, url: &str, path: Option<&str>, referrer: Option<&str>) -> DownloadEntry {
@@ -219,7 +220,7 @@ mod tests {
             url: url.into(),
             path: path.map(str::to_string),
             total: None,
-            done: 0,
+            done: ByteCount::ZERO,
             status: Status::Done,
             error: None,
             resumable: false,

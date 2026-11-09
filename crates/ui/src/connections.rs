@@ -3,6 +3,7 @@
 //! state, updated live. A stream shows how many of its segments are in.
 
 use eframe::egui;
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{DownloadEntry, SegmentInfo, SegmentState};
 use uidm_domain::id::DownloadId;
 
@@ -59,7 +60,10 @@ pub fn details(ui: &mut egui::Ui, id: DownloadId, e: &DownloadEntry, segments: O
     };
     let mut sorted = segments.to_vec();
     sorted.sort_by_key(|s| s.start);
-    let total = e.total.unwrap_or_else(|| sorted.last().map_or(0, |s| s.end + 1)).max(1);
+    let total = e
+        .total
+        .unwrap_or_else(|| sorted.last().map_or(ByteCount::ZERO, |s| s.end + ByteCount::new(1)))
+        .max(ByteCount::new(1));
     bar(ui, &sorted, total);
     ui.add_space(8.0);
     let active = sorted
@@ -74,10 +78,13 @@ pub fn details(ui: &mut egui::Ui, id: DownloadId, e: &DownloadEntry, segments: O
         }
         ui.end_row();
         for s in &sorted {
-            let len = s.end + 1 - s.start;
-            ui.label(format!("{} - {}", human_bytes(s.start), human_bytes(s.end + 1)));
+            let len = s.end + ByteCount::new(1) - s.start;
+            ui.label(format!("{} - {}", human_bytes(s.start), human_bytes(s.end + ByteCount::new(1))));
             ui.label(trf!("{done} of {total}", done = human_bytes(s.done), total = human_bytes(len)));
-            ui.add(egui::ProgressBar::new(s.done as f32 / len.max(1) as f32).desired_width(100.0));
+            ui.add(
+                egui::ProgressBar::new((s.done.as_f64() / len.max(ByteCount::new(1)).as_f64()) as f32)
+                    .desired_width(100.0),
+            );
             let text = state_text(s.state);
             match s.state {
                 SegmentState::Retrying => ui.colored_label(ui.visuals().warn_fg_color, text),
@@ -91,15 +98,15 @@ pub fn details(ui: &mut egui::Ui, id: DownloadId, e: &DownloadEntry, segments: O
 
 /// One bar for the whole file: each range drawn where it sits, its fetched
 /// part filled, with a thin gap between ranges.
-fn bar(ui: &mut egui::Ui, segments: &[SegmentInfo], total: u64) {
+fn bar(ui: &mut egui::Ui, segments: &[SegmentInfo], total: ByteCount) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(480.0, 20.0), egui::Sense::hover());
     let painter = ui.painter_at(rect);
     let visuals = ui.visuals();
     painter.rect_filled(rect, 3.0, visuals.extreme_bg_color);
-    let x = |at: u64| rect.left() + rect.width() * (at as f32 / total as f32);
+    let x = |at: ByteCount| rect.left() + rect.width() * (at.as_f64() / total.as_f64()) as f32;
     for s in segments {
         let left = x(s.start);
-        let fill_to = x(s.start + s.done.min(s.end + 1 - s.start));
+        let fill_to = x(s.start + s.done.min(s.end + ByteCount::new(1) - s.start));
         let color = match s.state {
             SegmentState::Retrying => visuals.warn_fg_color,
             SegmentState::Done => visuals.widgets.inactive.fg_stroke.color.gamma_multiply(0.55),

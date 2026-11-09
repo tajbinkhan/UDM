@@ -12,6 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
@@ -81,11 +82,11 @@ impl QuotaHold {
 }
 
 impl QuotaState for QuotaHold {
-    fn used(&self, now: u64, window: u64) -> u64 {
+    fn used(&self, now: u64, window: u64) -> ByteCount {
         self.store.quota().used(now, window)
     }
 
-    fn frees_at(&self, now: u64, window: u64, limit: u64) -> u64 {
+    fn frees_at(&self, now: u64, window: u64, limit: ByteCount) -> u64 {
         self.store.quota().frees_at(now, window, limit)
     }
 
@@ -148,24 +149,31 @@ mod tests {
         );
         assert!(!hold.paused());
         assert_eq!(hold.release(), (vec![], HashSet::new()));
-        assert_eq!(hold.used(100, 60), 0);
+        assert_eq!(hold.used(100, 60), ByteCount::ZERO);
 
         hold.set_warned(true);
         assert!(hold.warned());
-        hold.announce(QuotaNotice { used: 5, limit: 9, paused: true, resumes_at: Some(3) });
+        hold.announce(QuotaNotice {
+            used: ByteCount::new(5),
+            limit: ByteCount::new(9),
+            paused: true,
+            resumes_at: Some(3),
+        });
         let said = heard.0.lock().unwrap().clone();
-        assert!(matches!(said.as_slice(), [Outgoing::Quota { used: 5, limit: 9, paused: true, resumes_at: Some(3) }]));
+        assert!(
+            matches!(said.as_slice(), [Outgoing::Quota { used, limit, paused: true, resumes_at: Some(3) }] if used.get() == 5 && limit.get() == 9)
+        );
     }
 
     #[test]
     fn survives_a_save_and_load() {
         let mut u = Usage::default();
-        u.started(DownloadId::new(1), 0);
-        u.progress(DownloadId::new(1), 42, 5);
+        u.started(DownloadId::new(1), ByteCount::ZERO);
+        u.progress(DownloadId::new(1), ByteCount::new(42), 5);
         let path = std::env::temp_dir().join(format!("uidm_quota_{}.json", std::process::id()));
         save(&u, &path).unwrap();
         let mut back = load(&path);
-        assert_eq!(back.used(5, 60), 42);
+        assert_eq!(back.used(5, 60), ByteCount::new(42));
         let _ = fs::remove_file(&path);
         assert_eq!(load(&path), Usage::default(), "a missing file is no usage");
     }

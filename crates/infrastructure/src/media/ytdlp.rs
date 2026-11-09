@@ -10,6 +10,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use uidm_domain::bytes::ByteCount;
 
 use serde_json::Value;
 
@@ -168,7 +169,7 @@ struct Format<'a> {
     fps: Option<f64>,
     /// Kilobits per second.
     tbr: Option<f64>,
-    size: Option<u64>,
+    size: Option<ByteCount>,
     video: bool,
     audio: bool,
     vcodec: &'a str,
@@ -195,7 +196,7 @@ impl<'a> Format<'a> {
             height: n("height").filter(|h| *h > 0.0).map(|h| h as u32),
             fps: n("fps"),
             tbr: n("tbr").or_else(|| n("vbr")).or_else(|| n("abr")),
-            size: n("filesize").or_else(|| n("filesize_approx")).filter(|s| *s > 0.0).map(|s| s as u64),
+            size: n("filesize").or_else(|| n("filesize_approx")).filter(|s| *s > 0.0).map(|s| ByteCount::new(s as u64)),
             video: vcodec != "none",
             audio: acodec != "none",
             vcodec,
@@ -290,7 +291,7 @@ pub fn describe(v: &Value) -> MediaInfo {
                 label = label.replacen(&format!("{h}p"), &format!("{h}p{}", fps.round() as u32), 1);
             }
             let own = f.size.or_else(|| estimate_size(Some(f.bits()), duration));
-            let sound = if f.audio { Some(0) } else { sound_size };
+            let sound = if f.audio { Some(ByteCount::ZERO) } else { sound_size };
             MediaOption {
                 id: f.id.to_string(),
                 label,
@@ -453,7 +454,7 @@ mod tests {
         // is left out because video-only formats exist.
         assert_eq!(ids, ["313", "137"]);
         assert_eq!(info.video[0].label, "2160p60, 18.0 Mbps");
-        assert_eq!(info.video[1].size, Some(51_600_000));
+        assert_eq!(info.video[1].size, Some(ByteCount::new(51_600_000)));
         let audio: Vec<&str> = info.audio.iter().map(|o| o.id.as_str()).collect();
         assert_eq!(audio, ["140", "140-1"]);
         assert_eq!(info.duration, Some(100.0));

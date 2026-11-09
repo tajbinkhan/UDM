@@ -14,7 +14,7 @@ use uidm_domain::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 use crate::dialog::Opening;
 use crate::i18n::{tr, trf};
 
-use super::{columns, connections, display_name, human_bytes, human_duration, theme, Action};
+use super::{columns, connections, display_name, human_bytes, human_duration, human_rate, theme, Action};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tab {
@@ -103,7 +103,7 @@ fn status_text(e: &DownloadEntry) -> &'static str {
         Status::Queued => tr("Waiting in its queue"),
         Status::Confirming => tr("Waiting for the save-as dialog"),
         Status::Waiting => tr("Waiting to be started"),
-        Status::Downloading if e.done == 0 => tr("Connecting..."),
+        Status::Downloading if e.done.is_zero() => tr("Connecting..."),
         Status::Downloading => tr("Receiving data..."),
         Status::Done => tr("Done"),
         Status::Failed => tr("Failed"),
@@ -274,7 +274,7 @@ fn status_tab(ui: &mut egui::Ui, e: &DownloadEntry, fraction: Option<f32>, runni
 
         let downloading = e.status == Status::Downloading;
         ui.label(tr("Transfer rate"));
-        ui.label(running.map(|bps| format!("{}/s", human_bytes(bps as u64))).unwrap_or_default());
+        ui.label(running.map(|bps| format!("{}/s", human_rate(bps as u64))).unwrap_or_default());
         ui.end_row();
 
         ui.label(tr("Time left"));
@@ -310,7 +310,7 @@ fn limit_tab(
     ui.add_space(4.0);
     ui.label(trf!(
         "Transfer rate: {speed}",
-        speed = running.map(|bps| format!("{}/s", human_bytes(bps as u64))).unwrap_or_else(|| "-".into())
+        speed = running.map(|bps| format!("{}/s", human_rate(bps as u64))).unwrap_or_else(|| "-".into())
     ));
     ui.add_space(4.0);
     let wanted = w.limit_on.then_some(w.limit_kbps * 1024);

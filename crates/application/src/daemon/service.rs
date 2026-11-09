@@ -625,7 +625,7 @@ impl<W: Wiring> DaemonService<W> {
         );
         match check.run(self.quota_limit(), now) {
             Some(QuotaEvent::Reached { used, limit }) => {
-                info!(used, limit, "quota reached")
+                info!(used = used.get(), limit = limit.get(), "quota reached")
             }
             Some(QuotaEvent::Resumed { failed }) => {
                 info!("quota allows downloads again");

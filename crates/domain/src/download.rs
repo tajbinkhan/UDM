@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::bytes::ByteCount;
 use crate::id::{DownloadId, QueueId};
 use crate::media::MediaChoice;
 use crate::queue::WhenDone;
@@ -182,7 +183,7 @@ pub struct Download {
     /// The size the browser's response gave (its `Content-Length`), shown
     /// until the daemon asks the server itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
     /// The `Content-Type` of the browser's response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
@@ -391,10 +392,10 @@ impl Status {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SegmentInfo {
     /// First and last byte of the range.
-    pub start: u64,
-    pub end: u64,
+    pub start: ByteCount,
+    pub end: ByteCount,
     /// Bytes of the range fetched so far.
-    pub done: u64,
+    pub done: ByteCount,
     pub state: SegmentState,
 }
 
@@ -433,8 +434,8 @@ pub struct DownloadEntry {
     pub url: String,
     /// Output file, once the engine has chosen it.
     pub path: Option<String>,
-    pub total: Option<u64>,
-    pub done: u64,
+    pub total: Option<ByteCount>,
+    pub done: ByteCount,
     pub status: Status,
     pub error: Option<String>,
     pub resumable: bool,
@@ -504,7 +505,7 @@ pub struct DownloadEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Validator {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub etag: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -624,17 +625,12 @@ pub enum Mismatch {
     #[error("The new link does not say how big its file is, so it cannot be matched to the partial download.")]
     UnknownSize,
     /// The new link's size and the partial download's, in bytes.
-    #[error("The new link is for a {} file; the partial download is of a {} file.", megabytes(*new), megabytes(*partial))]
-    Size { new: u64, partial: u64 },
+    #[error("The new link is for a {} file; the partial download is of a {} file.", new.megabytes(), partial.megabytes())]
+    Size { new: ByteCount, partial: ByteCount },
     #[error("The file at the new link has changed since the download started (its ETag or date differs).")]
     Changed,
     #[error("The new link's server cannot resume downloads, so it must start over.")]
     NotResumable,
-}
-
-/// `bytes` as a [`Mismatch`] says it: "2.0 MB".
-pub fn megabytes(bytes: u64) -> String {
-    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
 }
 
 /// A download's own speed limit from `bytes_per_sec`: `None` (or 0) is no
@@ -694,7 +690,7 @@ impl DownloadEntry {
         &mut self,
         start_now: bool,
         path: &Path,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
         duplicate_of: Option<DownloadId>,
     ) -> bool {
@@ -865,7 +861,7 @@ impl DownloadEntry {
     /// byte under the same id.
     pub fn reset_for_redownload(&mut self) {
         self.status = Status::Queued;
-        self.done = 0;
+        self.done = ByteCount::ZERO;
         self.total = None;
         self.parts = None;
         self.error = None;
@@ -1136,7 +1132,7 @@ impl CommandLine {
 pub struct ZipEntry {
     pub name: String,
     /// Its size once unpacked.
-    pub size: u64,
+    pub size: ByteCount,
 }
 
 const NEEDS_LOGIN: &str = "This site needs a login: ";
@@ -1207,7 +1203,11 @@ mod tests {
     }
 
     fn v(size: Option<u64>, etag: Option<&str>, date: Option<&str>) -> Validator {
-        Validator { size, etag: etag.map(str::to_string), last_modified: date.map(str::to_string) }
+        Validator {
+            size: size.map(ByteCount::new),
+            etag: etag.map(str::to_string),
+            last_modified: date.map(str::to_string),
+        }
     }
 
     #[test]
@@ -1319,9 +1319,13 @@ mod tests {
 
     #[test]
     fn a_reset_starts_from_the_first_byte() {
-        let mut e = DownloadEntry { done: 500, partial: Some("/tmp/a.part".into()), ..entry(Status::Failed, 2) };
+        let mut e = DownloadEntry {
+            done: ByteCount::new(500),
+            partial: Some("/tmp/a.part".into()),
+            ..entry(Status::Failed, 2)
+        };
         e.reset_for_redownload();
-        assert_eq!((e.status, e.done, e.connections, e.partial), (Status::Queued, 0, 0, None));
+        assert_eq!((e.status, e.done, e.connections, e.partial), (Status::Queued, ByteCount::ZERO, 0, None));
     }
 
     fn full(p: &str) -> String {
@@ -1488,8 +1492,17 @@ mod tests {
     #[test]
     fn a_probed_download_is_held_unless_canceled_meanwhile() {
         let mut e = entry(Status::Queued, 0);
-        assert!(e.hold_for_answer(false, Path::new("/dl/a.zip"), Some(10), true, Some(DownloadId::new(3))));
-        assert_eq!((e.status, e.total, e.duplicate_of), (Status::Confirming, Some(10), Some(DownloadId::new(3))));
+        assert!(e.hold_for_answer(
+            false,
+            Path::new("/dl/a.zip"),
+            Some(ByteCount::new(10)),
+            true,
+            Some(DownloadId::new(3))
+        ));
+        assert_eq!(
+            (e.status, e.total, e.duplicate_of),
+            (Status::Confirming, Some(ByteCount::new(10)), Some(DownloadId::new(3)))
+        );
         let mut canceled = entry(Status::Canceled, 0);
         assert!(!canceled.hold_for_answer(true, Path::new("/dl/a.zip"), None, false, None));
         let later = Download { start: Some(false), queue: Some(QueueId::new(4)), ..Download::default() };

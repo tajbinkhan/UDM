@@ -99,7 +99,7 @@ impl SiteCrawler for Crawler {
                     }
                 }
                 let mut body = shown.html.into_bytes();
-                body.truncate(uidm_domain::grab::MAX_PAGE_BYTES as usize);
+                body.truncate(usize::try_from(uidm_domain::grab::MAX_PAGE_BYTES.get()).unwrap_or(usize::MAX));
                 let page = Page { url: shown.url, content_type: Some("text/html".into()), body };
                 mirror(req, &page);
                 return Some(page);

@@ -399,6 +399,7 @@ pub fn pick_audio<'a>(master: &'a Master, variant: &Variant, choice: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
 
     const BASE: &str = "https://cdn.x/v/master.m3u8";
 
@@ -435,7 +436,7 @@ mod tests {
 
         let info = describe(&m, Some(100.0));
         assert_eq!(info.video[0].label, "1080p, 5.0 Mbps");
-        assert_eq!(info.video[0].size, Some(62_500_000));
+        assert_eq!(info.video[0].size, Some(ByteCount::new(62_500_000)));
         assert_eq!(info.audio.len(), 2);
         assert!(!info.drm);
     }

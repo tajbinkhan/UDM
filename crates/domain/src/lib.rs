@@ -6,6 +6,7 @@
 #![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
 
 pub mod batch;
+pub mod bytes;
 pub mod command;
 pub mod download;
 pub mod filename;

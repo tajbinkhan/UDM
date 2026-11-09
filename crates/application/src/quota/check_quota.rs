@@ -1,3 +1,4 @@
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{DownloadError, Status};
 use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{Clock, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore, QuotaState};
@@ -10,7 +11,7 @@ use crate::queues::StartQueue;
 #[derive(Debug, PartialEq, Eq)]
 pub enum QuotaEvent {
     /// The quota was reached and everything stopped.
-    Reached { used: u64, limit: u64 },
+    Reached { used: ByteCount, limit: ByteCount },
     /// The window allows downloads again; these could not resume.
     Resumed { failed: Vec<(DownloadId, DownloadError)> },
 }
@@ -55,8 +56,8 @@ where
     /// minute `now`.
     pub fn run(&self, limit: Option<QuotaLimit>, now: u64) -> Option<QuotaEvent> {
         // With the quota off, whatever it stopped resumes.
-        let limit = limit.unwrap_or(QuotaLimit { bytes: u64::MAX, window: 0, warn: false });
-        let used = if limit.window == 0 { 0 } else { self.quota.used(now, limit.window) };
+        let limit = limit.unwrap_or(QuotaLimit { bytes: ByteCount::new(u64::MAX), window: 0, warn: false });
+        let used = if limit.window == 0 { ByteCount::ZERO } else { self.quota.used(now, limit.window) };
         let notice = |paused, resumes_at| QuotaNotice { used, limit: limit.bytes, paused, resumes_at };
         match quota::step(used, limit, self.quota.paused(), self.quota.warned()) {
             QuotaStep::Keep => None,
@@ -105,7 +106,7 @@ mod tests {
     use crate::memory::{Control, Downloads, Queues, Quota, Runs, Sounds, FIXED_NOW};
     use uidm_domain::queue::MAIN_QUEUE;
 
-    const LIMIT: QuotaLimit = QuotaLimit { bytes: 1000, window: 60, warn: true };
+    const LIMIT: QuotaLimit = QuotaLimit { bytes: ByteCount::new(1000), window: 60, warn: true };
 
     struct World {
         queues: Queues,
@@ -137,11 +138,19 @@ mod tests {
     #[test]
     fn reaching_the_quota_stops_everything_once() {
         let w = World::new();
-        let quota = Quota::at(1000, 130);
-        assert_eq!(w.check(&quota, Some(LIMIT)), Some(QuotaEvent::Reached { used: 1000, limit: 1000 }));
+        let quota = Quota::at(ByteCount::new(1000), 130);
+        assert_eq!(
+            w.check(&quota, Some(LIMIT)),
+            Some(QuotaEvent::Reached { used: ByteCount::new(1000), limit: ByteCount::new(1000) })
+        );
         assert!(!w.queues.get(MAIN_QUEUE).running);
         assert_eq!(w.control.stopped(), [1]);
-        let notice = QuotaNotice { used: 1000, limit: 1000, paused: true, resumes_at: Some(130 * 60) };
+        let notice = QuotaNotice {
+            used: ByteCount::new(1000),
+            limit: ByteCount::new(1000),
+            paused: true,
+            resumes_at: Some(130 * 60),
+        };
         assert_eq!(quota.announced(), [notice]);
         assert_eq!(w.check(&quota, Some(LIMIT)), None, "the next pass only stops what started since");
         assert_eq!(quota.announced().len(), 1);
@@ -150,10 +159,10 @@ mod tests {
     #[test]
     fn the_window_freeing_up_resumes_what_the_quota_stopped() {
         let w = World::new();
-        let quota = Quota::at(1000, 0);
+        let quota = Quota::at(ByteCount::new(1000), 0);
         w.check(&quota, Some(LIMIT));
         w.downloads.set(1, Status::Canceled);
-        quota.set_used(10);
+        quota.set_used(ByteCount::new(10));
         assert_eq!(w.check(&quota, Some(LIMIT)), Some(QuotaEvent::Resumed { failed: vec![] }));
         assert!(w.queues.get(MAIN_QUEUE).running);
         assert_eq!(w.control.restarted().len(), 1);
@@ -164,17 +173,20 @@ mod tests {
     #[test]
     fn nine_tenths_warn_once() {
         let w = World::new();
-        let quota = Quota::at(900, 0);
+        let quota = Quota::at(ByteCount::new(900), 0);
         assert_eq!(w.check(&quota, Some(LIMIT)), None);
         assert_eq!(w.check(&quota, Some(LIMIT)), None);
-        assert_eq!(quota.announced(), [QuotaNotice { used: 900, limit: 1000, paused: false, resumes_at: None }]);
+        assert_eq!(
+            quota.announced(),
+            [QuotaNotice { used: ByteCount::new(900), limit: ByteCount::new(1000), paused: false, resumes_at: None }]
+        );
         assert!(w.queues.get(MAIN_QUEUE).running);
     }
 
     #[test]
     fn turning_the_quota_off_resumes_what_it_stopped() {
         let w = World::new();
-        let quota = Quota::at(1000, 0);
+        let quota = Quota::at(ByteCount::new(1000), 0);
         w.check(&quota, Some(LIMIT));
         assert!(matches!(w.check(&quota, None), Some(QuotaEvent::Resumed { .. })));
         assert_eq!(w.check(&quota, None), None);

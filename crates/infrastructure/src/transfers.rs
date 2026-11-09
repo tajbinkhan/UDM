@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
@@ -53,7 +54,7 @@ fn early_finished_anyway(early: &Early) -> Option<&Path> {
     let finished = !partial_left
         && !engine::sidecar_path(target).exists()
         && early.file.as_deref().is_none_or(|f| !engine::sidecar_path(f).exists())
-        && std::fs::metadata(target).is_ok_and(|m| m.is_file() && m.len() == total);
+        && std::fs::metadata(target).is_ok_and(|m| m.is_file() && m.len() == total.get());
     finished.then_some(target)
 }
 
@@ -75,7 +76,7 @@ pub struct Early {
     pub file: Option<PathBuf>,
     /// The file it saves to when finished, and its size, once known.
     pub target: Option<PathBuf>,
-    pub total: Option<u64>,
+    pub total: Option<ByteCount>,
     /// How it ended: finished (with its file), or stopped or failed.
     pub end: Option<Option<PathBuf>>,
     /// Nobody waits for it: once it ends it goes, with its folder.
@@ -113,7 +114,7 @@ impl EarlyRuns {
                 e.file = Some(partial.clone().unwrap_or_else(|| path.clone()));
                 e.target = Some(path.clone());
                 e.total = *total;
-                shown = Some((0, *total));
+                shown = Some((ByteCount::ZERO, *total));
             }
             Progress::Advanced { done, total, .. } => {
                 e.total = total.or(e.total);
@@ -264,7 +265,7 @@ impl Transfers {
                 // and the file has no resume sidecar. Download beside it and
                 // swap it in at the end, so a failed or stopped download
                 // leaves the old file whole.
-                let replacing = item.done == 0
+                let replacing = item.done.is_zero()
                     && req.temp_dir.is_none()
                     && req.reuse_partial.is_none()
                     && path.is_file()
@@ -329,7 +330,7 @@ impl Transfers {
                     // validator stays the old one until the new copy starts, so
                     // a download that fails is found changed again next time.
                     e.status = Status::Waiting;
-                    e.done = 0;
+                    e.done = ByteCount::ZERO;
                     e.parts = None;
                     e.error = None;
                     e.scan = None;
@@ -1028,7 +1029,7 @@ mod tests {
             dir: dir.clone(),
             file: Some(file.to_path_buf()),
             target: Some(target.clone()),
-            total: Some(4),
+            total: Some(ByteCount::new(4)),
             end: Some(None),
             discard: false,
         };

@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::filename::name_from_url;
 use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename};
 use uidm_domain::id::DownloadId;
@@ -126,7 +127,7 @@ pub enum Progress {
         url: String,
         /// The file being written.
         path: PathBuf,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
         connections: usize,
         /// Where the data goes until it is complete, when not at `path`.
@@ -137,8 +138,8 @@ pub enum Progress {
     Advanced {
         id: DownloadId,
         url: String,
-        done: u64,
-        total: Option<u64>,
+        done: ByteCount,
+        total: Option<ByteCount>,
         /// For a stream: segments fetched and segments in all.
         parts: Option<[u64; 2]>,
         /// For a download in byte ranges: each connection's range and state.
@@ -166,7 +167,7 @@ pub enum Progress {
         id: DownloadId,
         url: String,
         path: PathBuf,
-        total: Option<u64>,
+        total: Option<ByteCount>,
     },
 }
 
@@ -598,7 +599,9 @@ fn run(id: DownloadId, token: CancelToken, req: DownloadRequest, reporter: Repor
     }
     match result {
         Ok(Saved { path, note }) => reporter.send(Progress::Finished { id, url, path, note }),
-        Err(EngineError::NameTaken { path, total }) => reporter.send(Progress::NameTaken { id, url, path, total }),
+        Err(EngineError::NameTaken { path, total }) => {
+            reporter.send(Progress::NameTaken { id, url, path, total: total.map(ByteCount::new) })
+        }
         Err(e) => {
             let mut error = e.to_string();
             if let EngineError::Status(code) = e {
@@ -751,7 +754,7 @@ fn run_inner(
         id,
         url: req.url.clone(),
         path: output.clone(),
-        total: probe.total,
+        total: probe.total.map(ByteCount::new),
         resumable: probe.resumable,
         connections,
         partial: (work != output).then(|| work.clone()),
@@ -877,7 +880,7 @@ fn run_post(
         id,
         url: req.url.clone(),
         path: output.clone(),
-        total: probe.total,
+        total: probe.total.map(ByteCount::new),
         resumable: false,
         connections: 1,
         partial: None,
@@ -905,8 +908,8 @@ fn run_post(
             reporter.send(Progress::Advanced {
                 id,
                 url: req.url.clone(),
-                done,
-                total: probe.total,
+                done: ByteCount::new(done),
+                total: probe.total.map(ByteCount::new),
                 parts: None,
                 segments: None,
             });
@@ -941,9 +944,14 @@ pub struct Fetched {
 
 /// GET `url` with the download's headers, proxy and logins, reading at most
 /// `limit` bytes of the body (the rest is dropped).
-pub fn fetch(url: &str, headers: &[(String, String)], net: &NetConfig, limit: u64) -> Result<Fetched, EngineError> {
+pub fn fetch(
+    url: &str,
+    headers: &[(String, String)],
+    net: &NetConfig,
+    limit: ByteCount,
+) -> Result<Fetched, EngineError> {
     let agent = http::Client::new(net, url)?;
-    fetch_with(&agent, url, headers, limit)
+    fetch_with(&agent, url, headers, limit.get())
 }
 
 /// The bytes `start` through `end` (inclusive) of `url`, for a preview.
@@ -998,7 +1006,7 @@ pub fn probe_media(
 pub struct Inspection {
     /// The name the file would be saved under.
     pub filename: String,
-    pub total: Option<u64>,
+    pub total: Option<ByteCount>,
     pub resumable: bool,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
@@ -1033,7 +1041,7 @@ pub fn inspect(
     let probe = http::probe(&agent, url, headers)?;
     Ok(Inspection {
         filename: pick_filename(filename, &probe),
-        total: probe.total,
+        total: probe.total.map(ByteCount::new),
         resumable: probe.resumable,
         etag: probe.etag,
         last_modified: probe.last_modified,
@@ -1086,8 +1094,8 @@ pub fn partial_matches(output: &Path, found: &Inspection, ignore_date: bool) -> 
     }
     match found.total {
         None => Err(Mismatch::UnknownSize),
-        Some(total) if total != m.total => Err(Mismatch::Size { new: total, partial: m.total }),
-        Some(total) if !m.matches(total, found.etag.as_deref(), found.last_modified.as_deref(), ignore_date) => {
+        Some(total) if total.get() != m.total => Err(Mismatch::Size { new: total, partial: ByteCount::new(m.total) }),
+        Some(total) if !m.matches(total.get(), found.etag.as_deref(), found.last_modified.as_deref(), ignore_date) => {
             Err(Mismatch::Changed)
         }
         Some(_) if !found.resumable => Err(Mismatch::NotResumable),
@@ -1307,9 +1315,9 @@ impl Work {
             .iter()
             .zip(&self.states)
             .map(|(s, state)| SegmentInfo {
-                start: s.start,
-                end: s.end,
-                done: s.done,
+                start: ByteCount::new(s.start),
+                end: ByteCount::new(s.end),
+                done: ByteCount::new(s.done),
                 state: if s.is_complete() { SegmentState::Done } else { *state },
             })
             .collect()
@@ -1458,8 +1466,8 @@ fn run_segmented(
     reporter.send(Progress::Advanced {
         id,
         url: url.clone(),
-        done,
-        total: Some(total),
+        done: ByteCount::new(done),
+        total: Some(ByteCount::new(total)),
         parts: None,
         segments: Some(segments),
     });
@@ -1526,8 +1534,8 @@ fn set_state(ctx: &SegmentCtx, idx: usize, state: SegmentState) {
     ctx.reporter.send(Progress::Advanced {
         id: ctx.id,
         url: ctx.url.to_string(),
-        done: ctx.global_done.load(Ordering::Relaxed),
-        total: Some(ctx.total),
+        done: ByteCount::new(ctx.global_done.load(Ordering::Relaxed)),
+        total: Some(ByteCount::new(ctx.total)),
         parts: None,
         segments: Some(segments),
     });
@@ -1610,8 +1618,8 @@ fn maybe_report(ctx: &SegmentCtx, global: u64) {
     ctx.reporter.send(Progress::Advanced {
         id: ctx.id,
         url: ctx.url.to_string(),
-        done: global,
-        total: Some(ctx.total),
+        done: ByteCount::new(global),
+        total: Some(ByteCount::new(ctx.total)),
         parts: None,
         segments,
     });
@@ -1691,8 +1699,8 @@ fn single_once(
             reporter.send(Progress::Advanced {
                 id,
                 url: probe.final_url.clone(),
-                done,
-                total: probe.total,
+                done: ByteCount::new(done),
+                total: probe.total.map(ByteCount::new),
                 parts: None,
                 segments: None,
             });
@@ -1988,7 +1996,7 @@ mod tests {
             engine.enqueue(req);
             loop {
                 match rx.recv_timeout(Duration::from_secs(30)).expect("download timed out") {
-                    Progress::NameTaken { path, total, .. } => return (path, total),
+                    Progress::NameTaken { path, total, .. } => return (path, total.map(ByteCount::get)),
                     Progress::Started { .. } => panic!("the download started"),
                     Progress::Finished { .. } => panic!("the download finished"),
                     Progress::Failed { error, .. } => panic!("download failed: {error}"),
@@ -2166,7 +2174,7 @@ mod tests {
             // threshold there before the engine has kept a byte of them.
             loop {
                 if let Progress::Advanced { done, .. } = rx.recv_timeout(Duration::from_secs(10)).unwrap() {
-                    if done >= 512 * 1024 {
+                    if done >= ByteCount::new(512 * 1024) {
                         break;
                     }
                 }
@@ -2267,7 +2275,7 @@ mod tests {
         fn pages_for_the_grabber_answer_a_login_request() {
             let behavior = Behavior { basic_auth: Some("ann:secret".into()), ..Behavior::default() };
             let server = TestServer::start_with(b"<a href=x.pdf>".to_vec(), behavior);
-            assert!(fetch(&server.url, &[], &NetConfig::default(), 1024).is_err());
+            assert!(fetch(&server.url, &[], &NetConfig::default(), ByteCount::new(1024)).is_err());
             let net = |plain| NetConfig {
                 logins: vec![crate::net::Login {
                     site: "127.0.0.1".into(),
@@ -2279,8 +2287,11 @@ mod tests {
             };
             // Basic over plain http: a saved login goes only when allowed
             // there; otherwise the user is asked.
-            assert!(matches!(fetch(&server.url, &[], &net(false), 1024), Err(EngineError::NeedsLogin(..))));
-            assert_eq!(fetch(&server.url, &[], &net(true), 1024).unwrap().body, b"<a href=x.pdf>");
+            assert!(matches!(
+                fetch(&server.url, &[], &net(false), ByteCount::new(1024)),
+                Err(EngineError::NeedsLogin(..))
+            ));
+            assert_eq!(fetch(&server.url, &[], &net(true), ByteCount::new(1024)).unwrap().body, b"<a href=x.pdf>");
         }
 
         #[test]
@@ -2418,7 +2429,7 @@ mod tests {
                 }
             };
             assert!(last.len() >= 4, "one range per connection at least");
-            assert_eq!(last.iter().map(|s| s.done).sum::<u64>(), LEN as u64);
+            assert_eq!(last.iter().map(|s| s.done).sum::<ByteCount>(), ByteCount::new(LEN as u64));
             assert!(states.contains(&SegmentState::Connecting) && states.contains(&SegmentState::Receiving));
             fs::remove_dir_all(&dir).ok();
         }
@@ -2738,7 +2749,7 @@ mod tests {
             assert_eq!(found.etag.as_deref(), Some("\"v1\""));
             assert_eq!(partial_matches(&partial, &found, false), Ok(()));
 
-            let other_size = Inspection { total: Some(LEN as u64 + 1), ..found.clone() };
+            let other_size = Inspection { total: Some(ByteCount::new(LEN as u64 + 1)), ..found.clone() };
             assert!(partial_matches(&partial, &other_size, false).unwrap_err().to_string().contains("2.0 MB file"));
             let changed = Inspection { etag: Some("\"v2\"".into()), ..found.clone() };
             assert_eq!(partial_matches(&partial, &changed, false), Err(Mismatch::Changed));
@@ -2755,7 +2766,7 @@ mod tests {
             let server = TestServer::start(body(LEN));
             let found = inspect(&server.url, None, &[], &NetConfig::default()).unwrap();
             assert_eq!(found.filename, "file.bin");
-            assert_eq!(found.total, Some(LEN as u64));
+            assert_eq!(found.total, Some(ByteCount::new(LEN as u64)));
             assert!(found.resumable);
             let named = inspect(&server.url, Some("a/b:c.txt"), &[], &NetConfig::default()).unwrap();
             assert_eq!(named.filename, "a_b_c.txt");

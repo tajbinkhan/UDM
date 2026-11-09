@@ -3,6 +3,7 @@
 //! download of it (the settings' proxy and logins, the browser's cookies).
 
 use std::sync::Arc;
+use uidm_domain::bytes::ByteCount;
 
 use uidm_domain::download::{Download, ZipEntry};
 use uidm_domain::media::MediaInfo;
@@ -57,7 +58,7 @@ impl Probes for ServerProbes {
         engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref())
     }
 
-    fn zip(&self, download: &Download, total: Option<u64>) -> Result<Vec<ZipEntry>, ProbeError> {
+    fn zip(&self, download: &Download, total: Option<ByteCount>) -> Result<Vec<ZipEntry>, ProbeError> {
         let req = self.transfers.request_for(download.clone());
         let total = match total {
             Some(t) => t,
@@ -66,7 +67,7 @@ impl Probes for ServerProbes {
                 .total
                 .ok_or_else(|| probe_error("The server does not say how big the file is."))?,
         };
-        crate::zip::list(total, |a, b| {
+        crate::zip::list(total.get(), |a, b| {
             engine::fetch_range_bytes(&req.url, &req.headers, &req.net, a, b)
                 .map_err(|e| crate::zip::ZipError::Unread(format!("The server would not send part of the file: {e}")))
         })
@@ -112,7 +113,7 @@ mod tests {
         let (probes, _) = probes("link");
         let server = TestServer::start(testserver::body(1000));
         let facts = probes.link(&download(&server.url)).unwrap();
-        assert_eq!(facts.total, Some(1000));
+        assert_eq!(facts.total, Some(ByteCount::new(1000)));
         assert!(probes.link(&download("http://127.0.0.1:1/gone.bin")).is_err());
     }
 
@@ -122,7 +123,7 @@ mod tests {
         let server = TestServer::start(testserver::body(500));
         let facts = probes.file(&download(&server.url)).unwrap();
         assert_eq!(facts.filename, "file.bin");
-        assert_eq!(facts.total, Some(500));
+        assert_eq!(facts.total, Some(ByteCount::new(500)));
         assert!(facts.path.starts_with(&dir) && facts.path.ends_with("file.bin"), "{:?}", facts.path);
     }
 
@@ -134,11 +135,11 @@ mod tests {
             method: Some("POST".into()),
             body: Some("YT0x".into()),
             filename: Some("report.pdf".into()),
-            size: Some(77),
+            size: Some(ByteCount::new(77)),
             ..download(&server.url)
         };
         let facts = probes.file(&post).unwrap();
-        assert_eq!((facts.filename.as_str(), facts.total), ("report.pdf", Some(77)));
+        assert_eq!((facts.filename.as_str(), facts.total), ("report.pdf", Some(ByteCount::new(77))));
         assert_eq!(server.served.load(std::sync::atomic::Ordering::Relaxed), 0, "the server was not asked");
     }
 

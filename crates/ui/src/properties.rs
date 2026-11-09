@@ -282,6 +282,7 @@ fn type_text(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
 
     #[test]
     fn the_type_names_the_extension() {
@@ -303,8 +304,8 @@ mod tests {
             id: DownloadId::new(3),
             url: "https://x/a.zip".into(),
             path: Some(r"C:\dl\a.zip".into()),
-            total: Some(10),
-            done: 10,
+            total: Some(ByteCount::new(10)),
+            done: ByteCount::new(10),
             status,
             error: None,
             resumable: true,

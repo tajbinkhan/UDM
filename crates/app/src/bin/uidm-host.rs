@@ -305,7 +305,9 @@ fn print_progress(p: Progress, ok: &AtomicBool) {
         }
         Progress::Advanced { done, total, .. } => {
             match total {
-                Some(t) if t > 0 => eprint!("\r[progress] {done}/{t} ({}%)   ", done * 100 / t),
+                Some(t) if !t.is_zero() => {
+                    eprint!("\r[progress] {done}/{t} ({}%)   ", done.get().saturating_mul(100) / t.get())
+                }
                 _ => eprint!("\r[progress] {done} bytes   "),
             }
             let _ = io::stderr().flush();

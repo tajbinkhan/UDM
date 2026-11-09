@@ -525,6 +525,7 @@ pub fn track(media: &Media, bootstrap: &[u8], duration: Option<f64>) -> Result<T
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::media::sniff_hds as sniff;
 
     const URL: &str = "https://cdn.x/z/movie/manifest.f4m?hdnea=st=1~exp=2~hmac=abc";
@@ -668,7 +669,7 @@ pub(crate) mod tests {
         assert_eq!(info.kind, Some(MediaKind::Hds));
         let labels: Vec<&str> = info.video.iter().map(|o| o.label.as_str()).collect();
         assert_eq!(labels, ["720p, 1.5 Mbps", "360p, 500 kbps"]);
-        assert_eq!(info.video[1].size, Some(500_000));
+        assert_eq!(info.video[1].size, Some(ByteCount::new(500_000)));
 
         let low = pick(&m, Some("video_500"));
         let t = track(low, boot, m.duration).unwrap();

@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
+use crate::bytes::ByteCount;
 use crate::download::{Download, DownloadEntry, Scan, Status, ZipEntry};
 use crate::grab::{GrabRequest, Outcome, Project, RenderedPage};
 use crate::id::{DownloadId, QueueId};
@@ -244,11 +245,11 @@ pub trait QueueSounds: Send + Sync {
 /// The download quota's count and what it has stopped.
 pub trait QuotaState: Send + Sync {
     /// Bytes received in the `window` minutes up to minute `now`.
-    fn used(&self, now: u64, window: u64) -> u64;
+    fn used(&self, now: u64, window: u64) -> ByteCount;
 
     /// The first minute after `now` at which the window holds less than
     /// `limit` bytes again, if no more arrive.
-    fn frees_at(&self, now: u64, window: u64, limit: u64) -> u64;
+    fn frees_at(&self, now: u64, window: u64, limit: ByteCount) -> u64;
 
     /// Whether downloads are paused for the quota.
     fn paused(&self) -> bool;
@@ -419,7 +420,7 @@ pub trait GrabRuns: Send + Sync {
 /// ask (its cookies, referrer, proxy and login).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LinkFacts {
-    pub total: Option<u64>,
+    pub total: Option<ByteCount>,
     pub content_type: Option<String>,
 }
 
@@ -429,7 +430,7 @@ pub struct FileFacts {
     pub filename: String,
     /// The folder for its category, then the name.
     pub path: PathBuf,
-    pub total: Option<u64>,
+    pub total: Option<ByteCount>,
     /// Whether the server sends the file in ranges, so a download can resume.
     pub resumable: bool,
 }
@@ -455,7 +456,7 @@ pub trait Probes: Send + Sync {
 
     /// The files inside the zip archive at `download`, reading only its
     /// end. `total` is its size when known already.
-    fn zip(&self, download: &Download, total: Option<u64>) -> Result<Vec<ZipEntry>, ProbeError>;
+    fn zip(&self, download: &Download, total: Option<ByteCount>) -> Result<Vec<ZipEntry>, ProbeError>;
 }
 
 /// The browser extension, for what only the browser knows. Asking waits a

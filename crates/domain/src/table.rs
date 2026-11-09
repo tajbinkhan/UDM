@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::bytes::ByteCount;
 use crate::download::{DownloadEntry, Status, Validator};
 use crate::id::DownloadId;
 
@@ -24,7 +25,7 @@ pub enum Change<'a> {
         id: DownloadId,
         url: &'a str,
         path: &'a str,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
         connections: usize,
         partial: Option<&'a str>,
@@ -33,8 +34,8 @@ pub enum Change<'a> {
     Progress {
         id: DownloadId,
         url: &'a str,
-        done: u64,
-        total: Option<u64>,
+        done: ByteCount,
+        total: Option<ByteCount>,
         parts: Option<[u64; 2]>,
     },
     Done {
@@ -56,7 +57,7 @@ pub enum Change<'a> {
         id: DownloadId,
         url: &'a str,
         path: &'a str,
-        total: Option<u64>,
+        total: Option<ByteCount>,
     },
     Removed {
         id: DownloadId,
@@ -193,7 +194,7 @@ fn blank(id: DownloadId, url: &str, status: Status) -> DownloadEntry {
         url: url.to_string(),
         path: None,
         total: None,
-        done: 0,
+        done: ByteCount::ZERO,
         status,
         error: None,
         resumable: false,
@@ -230,7 +231,7 @@ mod tests {
                 id: DownloadId::new(id),
                 url: URL,
                 path: "/dl/f.zip",
-                total: Some(1000),
+                total: Some(ByteCount::new(1000)),
                 resumable: true,
                 connections: 4,
                 partial: None,
@@ -241,7 +242,13 @@ mod tests {
     }
 
     fn progress(id: u64, done: u64) -> Change<'static> {
-        Change::Progress { id: DownloadId::new(id), url: URL, done, total: Some(1000), parts: None }
+        Change::Progress {
+            id: DownloadId::new(id),
+            url: URL,
+            done: ByteCount::new(done),
+            total: Some(ByteCount::new(1000)),
+            parts: None,
+        }
     }
 
     #[test]
@@ -255,11 +262,11 @@ mod tests {
         assert_eq!(e.connections, 4);
         assert_eq!(e.last_try, Some(NOW));
         t.change(progress(1, 400), NOW);
-        assert_eq!(t.get(DownloadId::new(1)).unwrap().done, 400);
+        assert_eq!(t.get(DownloadId::new(1)).unwrap().done, ByteCount::new(400));
         t.change(Change::Done { id: DownloadId::new(1), url: URL, path: "/dl/f.zip", note: None }, NOW);
         let e = t.get(DownloadId::new(1)).unwrap();
         assert_eq!(e.status, Status::Done);
-        assert_eq!(e.done, 1000, "done fills to the total");
+        assert_eq!(e.done, ByteCount::new(1000), "done fills to the total");
     }
 
     #[test]
@@ -277,17 +284,25 @@ mod tests {
         t.change(Change::Canceled { id: DownloadId::new(2), url: URL }, NOW);
         t.change(progress(2, 500), NOW);
         assert_eq!(t.get(DownloadId::new(2)).unwrap().status, Status::Canceled);
-        assert_eq!(t.get(DownloadId::new(2)).unwrap().done, 500);
+        assert_eq!(t.get(DownloadId::new(2)).unwrap().done, ByteCount::new(500));
     }
 
     #[test]
     fn a_taken_name_waits_for_the_save_as_dialog() {
         let mut t = DownloadTable::new();
         t.change(Change::Added { id: DownloadId::new(6), url: URL }, NOW);
-        t.change(Change::NameTaken { id: DownloadId::new(6), url: URL, path: "/dl/report.pdf", total: Some(42) }, NOW);
+        t.change(
+            Change::NameTaken {
+                id: DownloadId::new(6),
+                url: URL,
+                path: "/dl/report.pdf",
+                total: Some(ByteCount::new(42)),
+            },
+            NOW,
+        );
         let e = t.get(DownloadId::new(6)).unwrap();
         assert_eq!(e.status, Status::Confirming);
-        assert_eq!(e.total, Some(42));
+        assert_eq!(e.total, Some(ByteCount::new(42)));
         assert_eq!(e.connections, 0, "never started, so a retry does not reuse the file");
     }
 

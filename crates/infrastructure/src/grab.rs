@@ -17,6 +17,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::sync::LockExt;
 
 use scraper::{Html, Selector};
@@ -438,7 +439,7 @@ struct Queued {
 pub fn crawl(
     req: &GrabRequest,
     fetch: impl Fn(&str) -> Option<Page> + Sync,
-    mut size: impl FnMut(&str) -> Option<u64>,
+    mut size: impl FnMut(&str) -> Option<ByteCount>,
     mut wait: impl FnMut(Duration),
     cancel: &AtomicBool,
     mut progress: impl FnMut(&Outcome),
@@ -489,7 +490,7 @@ pub fn crawl(
             break;
         }
         if out.bytes >= req.max_bytes {
-            out.stopped = Some(format!("Stopped at the budget of {} MB.", req.max_bytes / (1024 * 1024)));
+            out.stopped = Some(format!("Stopped at the budget of {} MB.", req.max_bytes.whole_mib()));
             break;
         }
         // The next pages robots.txt lets the crawl read, as many as are
@@ -547,7 +548,7 @@ pub fn crawl(
         for (Queued { url, depth, off_site }, page) in batch.into_iter().zip(fetched) {
             let Some(page) = page else { continue };
             out.pages += 1;
-            out.bytes += page.body.len() as u64;
+            out.bytes += ByteCount::new(page.body.len() as u64);
             let html = page.content_type.as_deref().is_none_or(|t| t.to_ascii_lowercase().contains("html"));
             if html {
                 let here = Url::parse(&page.url).unwrap_or(url.clone());
@@ -1293,15 +1294,16 @@ Crawl-delay: 2.5
     #[test]
     fn sizes_filter_and_hide_duplicates() {
         let none = AtomicBool::new(false);
-        let sizes = |u: &str| -> Option<u64> {
+        let sizes = |u: &str| -> Option<ByteCount> {
             match u.rsplit('/').next()? {
-                "one.pdf" => Some(500),
-                "two.pdf" => Some(5000),
-                "top.pdf" => Some(50),
+                "one.pdf" => Some(ByteCount::new(500)),
+                "two.pdf" => Some(ByteCount::new(5000)),
+                "top.pdf" => Some(ByteCount::new(50)),
                 _ => None,
             }
         };
-        let req = GrabRequest { min_size: Some(100), max_size: Some(1000), ..request(1) };
+        let req =
+            GrabRequest { min_size: Some(ByteCount::new(100)), max_size: Some(ByteCount::new(1000)), ..request(1) };
         let names: Vec<String> =
             crawl(&req, site, sizes, |_| {}, &none, |_| {}).files.into_iter().map(|f| f.name).collect();
         assert_eq!(names, ["one.pdf", "three x.pdf"], "unknown sizes stay");
@@ -1314,7 +1316,7 @@ Crawl-delay: 2.5
             };
             Some(Page { url: url.into(), content_type: Some("text/html".into()), body: body.as_bytes().to_vec() })
         };
-        let size = |u: &str| Some(if u.contains("/z/") { 9 } else { 7 });
+        let size = |u: &str| Some(ByteCount::new(if u.contains("/z/") { 9 } else { 7 }));
         let out = crawl(&request(0), twice, size, |_| {}, &none, |_| {});
         let urls: Vec<&str> = out.files.iter().map(|f| f.url.as_str()).collect();
         assert_eq!(urls, ["https://s/x/a.pdf", "https://s/z/a.pdf"]);

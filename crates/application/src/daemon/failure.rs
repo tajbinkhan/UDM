@@ -61,6 +61,7 @@ impl From<ProbeError> for Failure {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::id::QueueId;
     use uidm_domain::settings::InvalidSettings;
 
@@ -78,7 +79,10 @@ mod tests {
         assert_eq!(Failure::InvalidMessage("eof".into()).to_string(), "invalid message: eof");
         assert_eq!(Failure::from(ProbeError("HTTP 404".into())), Failure::Probe("HTTP 404".into()));
         assert_eq!(Failure::Other("as sent".into()).to_string(), "as sent");
-        let size = Failure::from(Mismatch::Size { new: 2 * 1024 * 1024, partial: 1024 * 1024 });
+        let size = Failure::from(Mismatch::Size {
+            new: ByteCount::new(2 * 1024 * 1024),
+            partial: ByteCount::new(1024 * 1024),
+        });
         assert_eq!(size.to_string(), "The new link is for a 2.0 MB file; the partial download is of a 1.0 MB file.");
     }
 }

@@ -13,6 +13,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
@@ -156,8 +157,8 @@ pub(super) fn run(
                     reporter.send(Progress::Advanced {
                         id,
                         url: url.clone(),
-                        done: t.bytes(),
-                        total: t.total.filter(|total| *total >= t.bytes()),
+                        done: ByteCount::new(t.bytes()),
+                        total: t.total.filter(|total| *total >= t.bytes()).map(ByteCount::new),
                         parts: None,
                         segments: None,
                     });

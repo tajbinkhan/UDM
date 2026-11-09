@@ -7,6 +7,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -23,7 +24,7 @@ pub struct GrabRequest {
     /// Stop after reading this many pages.
     pub max_pages: u64,
     /// Stop after reading this many bytes of pages.
-    pub max_bytes: u64,
+    pub max_bytes: ByteCount,
     /// Wait at least this long between requests, in milliseconds.
     pub delay_ms: u64,
     /// Explore only pages whose address matches one of these (see
@@ -48,9 +49,9 @@ pub struct GrabRequest {
     /// Keep only files of at least this many bytes. Sizes are asked with a
     /// request per file; a file whose size is not known is kept.
     #[serde(default)]
-    pub min_size: Option<u64>,
+    pub min_size: Option<ByteCount>,
     #[serde(default)]
-    pub max_size: Option<u64>,
+    pub max_size: Option<ByteCount>,
     /// List a file once when the same name and size turn up at another
     /// address.
     #[serde(default)]
@@ -199,7 +200,7 @@ pub const MAX_MB_RANGE: (u64, u64) = (1, 2_000);
 pub const DELAY_MS_RANGE: (u64, u64) = (200, 60_000);
 
 /// Most bytes read from one page.
-pub const MAX_PAGE_BYTES: u64 = 5 * 1024 * 1024;
+pub const MAX_PAGE_BYTES: ByteCount = ByteCount::mib(5);
 
 /// The name the crawler gives in `robots.txt` matching.
 pub const USER_AGENT: &str = "UIDM";
@@ -212,7 +213,7 @@ impl Default for GrabRequest {
             same_site: true,
             types: vec!["pdf".into()],
             max_pages: 200,
-            max_bytes: 50 * 1024 * 1024,
+            max_bytes: ByteCount::mib(50),
             delay_ms: 1000,
             explore_only: Vec::new(),
             explore_skip: LOGOUT_PATTERNS.iter().map(|p| p.to_string()).collect(),
@@ -308,7 +309,7 @@ impl GrabRequest {
         if !in_range(self.max_pages, MAX_PAGES_RANGE) {
             return Err(InvalidGrab::Pages);
         }
-        let mb = self.max_bytes / (1024 * 1024);
+        let mb = self.max_bytes.whole_mib();
         if !in_range(mb, MAX_MB_RANGE) {
             return Err(InvalidGrab::Size);
         }
@@ -669,7 +670,7 @@ pub struct GrabFile {
     pub page: String,
     /// Its size, when it was asked for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
     /// The text of the link to it, when the crawl keeps link texts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -930,7 +931,7 @@ pub struct Outcome {
     /// Pages read.
     pub pages: u64,
     /// Bytes of pages read.
-    pub bytes: u64,
+    pub bytes: ByteCount,
     /// Links to files looked at, kept or not.
     pub explored: u64,
     /// Why it stopped before reading everything in reach, if it did.
@@ -964,6 +965,22 @@ pub fn project_name_is_unique(projects: &[String], name: &str, own: Option<&str>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A project file's byte limits are plain numbers, read and written
+    /// back unchanged.
+    #[test]
+    fn byte_limits_keep_their_file_shape() {
+        let mut old = serde_json::to_value(GrabRequest::default()).unwrap();
+        old["max_bytes"] = 52_428_800.into();
+        old["min_size"] = 100.into();
+        old["max_size"] = 1_000_000.into();
+        let req: GrabRequest = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!((req.max_bytes, req.min_size), (ByteCount::mib(50), Some(ByteCount::new(100))));
+        assert_eq!(serde_json::to_value(&req).unwrap(), old);
+        let file = r#"{"url":"u","name":"a.pdf","page":"p","size":5000}"#;
+        let found: GrabFile = serde_json::from_str(file).unwrap();
+        assert_eq!(serde_json::to_string(&found).unwrap(), file);
+    }
 
     #[test]
     fn a_project_name_is_compared_as_its_file() {

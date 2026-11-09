@@ -71,6 +71,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
@@ -2456,7 +2457,7 @@ impl App {
                             None => tr("Unknown").to_string(),
                         });
                         // Started early, while this dialog is open.
-                        if entry.done > 0 {
+                        if !entry.done.is_zero() {
                             ui.weak(trf!("{done} downloaded so far", done = human_bytes(entry.done)));
                         }
                         // A zip on a server that sends ranges can list its
@@ -5010,7 +5011,7 @@ impl App {
                     ui.colored_label(ui.visuals().warn_fg_color, e);
                 }
                 Ok(entries) => {
-                    let total: u64 = entries.iter().map(|e| e.size).sum();
+                    let total: ByteCount = entries.iter().map(|e| e.size).sum();
                     ui.label(trf!("{count} files, {size} unpacked", count = entries.len(), size = human_bytes(total)));
                     if entries.len() == uidm_domain::download::MAX_ZIP_ENTRIES {
                         ui.weak(trf!("Showing the first {count}.", count = uidm_domain::download::MAX_ZIP_ENTRIES));
@@ -5324,9 +5325,9 @@ fn display_name(e: &DownloadEntry) -> String {
     }
 }
 
-fn human_bytes(n: u64) -> String {
+fn human_bytes(n: ByteCount) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = n as f64;
+    let mut value = n.as_f64();
     let mut unit = 0;
     while value >= 1024.0 && unit < UNITS.len() - 1 {
         value /= 1024.0;
@@ -5337,6 +5338,12 @@ fn human_bytes(n: u64) -> String {
     } else {
         format!("{value:.1} {}", tr(UNITS[unit]))
     }
+}
+
+/// A speed in bytes per second as `human_bytes` says one second's worth;
+/// callers add the "/s".
+fn human_rate(bytes_per_sec: u64) -> String {
+    human_bytes(ByteCount::new(bytes_per_sec))
 }
 
 fn human_duration(secs: f64) -> String {

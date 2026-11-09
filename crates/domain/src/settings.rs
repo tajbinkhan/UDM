@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 
 /// Parallel connections per download unless the settings say otherwise.
@@ -1139,8 +1140,8 @@ impl Settings {
     }
 
     /// The quota as bytes and a window in minutes, when it is on.
-    pub fn quota(&self) -> Option<(u64, u64)> {
-        self.quota_enabled.then(|| (self.quota_mb * 1024 * 1024, self.quota_hours * 60))
+    pub fn quota(&self) -> Option<(ByteCount, u64)> {
+        self.quota_enabled.then(|| (ByteCount::mib(self.quota_mb), self.quota_hours.saturating_mul(60)))
     }
 
     /// Where new downloads go, by category, for files from any site.

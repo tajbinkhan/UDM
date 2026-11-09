@@ -106,6 +106,7 @@ pub fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::download::Status;
     use uidm_domain::id::DownloadId;
 
@@ -114,7 +115,7 @@ mod tests {
             id: DownloadId::new(id),
             url: "https://x/f.zip".into(),
             path: "C:\\dl\\f.zip".into(),
-            total: Some(1000),
+            total: Some(ByteCount::new(1000)),
             resumable: true,
             connections: 4,
             partial: None,
@@ -126,8 +127,8 @@ mod tests {
         Outgoing::Progress {
             id: DownloadId::new(id),
             url: "https://x/f.zip".into(),
-            done,
-            total: Some(1000),
+            done: ByteCount::new(done),
+            total: Some(ByteCount::new(1000)),
             parts: None,
             segments: None,
         }
@@ -146,7 +147,7 @@ mod tests {
         assert_eq!(e.connections, 4);
 
         t.apply(&progress(1, 400));
-        assert_eq!(t.get(DownloadId::new(1)).unwrap().done, 400);
+        assert_eq!(t.get(DownloadId::new(1)).unwrap().done, ByteCount::new(400));
 
         t.apply(&Outgoing::Done {
             id: DownloadId::new(1),
@@ -156,7 +157,7 @@ mod tests {
         });
         let e = t.get(DownloadId::new(1)).unwrap();
         assert_eq!(e.status, Status::Done);
-        assert_eq!(e.done, 1000, "done fills to the total");
+        assert_eq!(e.done, ByteCount::new(1000), "done fills to the total");
     }
 
     #[test]
@@ -176,7 +177,7 @@ mod tests {
         t.apply(&progress(2, 500));
         let e = t.get(DownloadId::new(2)).unwrap();
         assert_eq!(e.status, Status::Canceled);
-        assert_eq!(e.done, 500);
+        assert_eq!(e.done, ByteCount::new(500));
     }
 
     #[test]
@@ -198,12 +199,12 @@ mod tests {
             id: DownloadId::new(6),
             url: "u".into(),
             path: r"C:\dl\report.pdf".into(),
-            total: Some(42),
+            total: Some(ByteCount::new(42)),
         });
         let e = t.get(DownloadId::new(6)).unwrap();
         assert_eq!(e.status, Status::Confirming);
         assert_eq!(e.path.as_deref(), Some(r"C:\dl\report.pdf"));
-        assert_eq!(e.total, Some(42));
+        assert_eq!(e.total, Some(ByteCount::new(42)));
         assert_eq!(e.connections, 0, "never started, so a retry does not reuse the file");
     }
 
