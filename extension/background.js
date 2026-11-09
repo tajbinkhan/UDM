@@ -192,18 +192,33 @@ async function takeFromPlayer(d) {
   await addBrowserProxy(download);
   send(download);
 }
+// The headers players' requests sent, by request id, until their answers
+// say whether they are media (see recordMedia).
+const mediaRequests = new Map();
 if (chrome.webRequest) {
+  const players = { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "object", "other"] };
+  if (chrome.webRequest.onSendHeaders) {
+    chrome.webRequest.onSendHeaders.addListener(
+      (d) => {
+        if (d.tabId < 0 || !privateAllowed(d)) return;
+        noteRequest(mediaRequests, d, Date.now());
+      },
+      players,
+      ["requestHeaders", ...EXTRA_HEADERS],
+    );
+  }
   chrome.webRequest.onHeadersReceived.addListener(
     (d) => {
       if (d.tabId < 0 || !privateAllowed(d)) return;
       const found = classifyMedia(d, rules);
       if (found) {
-        recordMedia(media, d.tabId, d.url, found, Date.now(), d.frameId);
+        const sent = mediaRequests.get(d.requestId);
+        recordMedia(media, d.tabId, d.url, found, Date.now(), d.frameId, sent && sent.headers);
         scheduleRecentMenu();
       }
       if (connected && captureEnabled && tabCaptures(d.tabId) && autoCaptureMedia(d, rules, playerTaken.get(d.tabId))) takeFromPlayer(d);
     },
-    { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "object", "other"] },
+    players,
     ["responseHeaders"],
   );
   chrome.webRequest.onBeforeRequest.addListener(
@@ -271,14 +286,16 @@ const PROBE_TIMEOUT_MS = 20000;
 const PAGE_PROBE_TIMEOUT_MS = 60000;
 
 // Ask UIDM what the stream at `url` offers, sending the page's cookies
-// along. Resolves to a MediaInfo, or null without an answer.
-async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = null) {
+// along, and `sent`, what the player's own request carried (mediaRequest).
+// Resolves to a MediaInfo, or null without an answer.
+async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = null, sent = {}) {
   if (mediaInfos.has(url)) return mediaInfos.get(url);
   const request = nextProbe++;
   const download = { url, user_agent: navigator.userAgent };
   const cookies = await cookieHeader(url, from);
   if (cookies) download.cookies = cookies;
-  if (referrer) download.referrer = referrer;
+  if (sent.referrer || referrer) download.referrer = sent.referrer || referrer;
+  if (sent.request_headers) download.request_headers = sent.request_headers;
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       probes.delete(request);
@@ -317,7 +334,8 @@ async function videoMenu(tabId, referrer, tab, player = {}) {
   const infos = new Map();
   await Promise.all(
     streams.map(async (e) => {
-      const info = await probeStream(e.url, referrer, e.kind === "page" ? PAGE_PROBE_TIMEOUT_MS : PROBE_TIMEOUT_MS, tabContext(tab));
+      const timeout = e.kind === "page" ? PAGE_PROBE_TIMEOUT_MS : PROBE_TIMEOUT_MS;
+      const info = await probeStream(e.url, referrer, timeout, tabContext(tab), mediaRequest(e));
       if (info && !adoptFile(e, info)) infos.set(e.url, info);
     }),
   );
@@ -345,7 +363,9 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
   const download = { op: "add", url: entry.url, user_agent: navigator.userAgent };
   const cookies = await cookieHeader(entry.url, { tabId, incognito: isPrivate(tabId) });
   if (cookies) download.cookies = cookies;
-  if (referrer) download.referrer = referrer;
+  const sent = mediaRequest(entry);
+  if (sent.referrer || referrer) download.referrer = sent.referrer || referrer;
+  if (sent.request_headers) download.request_headers = sent.request_headers;
   if (isWeb(page)) download.page = page;
   await addBrowserProxy(download);
   const names = { title: msg.title, ogTitle: msg.ogTitle, siteName: msg.siteName };
