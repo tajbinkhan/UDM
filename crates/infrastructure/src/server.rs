@@ -15,6 +15,7 @@
 //! application's `Requests` port, which the daemon wires in; its answers
 //! come back as `Event`s on a `Reply`, which go out as frames.
 
+use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::{TcpListener, TcpStream};
@@ -23,11 +24,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Instant;
-use uidm_domain::sync::LockExt;
 
 use tracing::{info, warn};
 
-use uidm_application::daemon::{ClientId, ClientList, Event, Failure, Reply, Requests};
+use pullbay_application::daemon::{ClientId, ClientList, Event, Failure, Reply, Requests};
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::front::Windows;
@@ -404,7 +404,7 @@ fn denied(why: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_application::daemon::Command;
+    use pullbay_application::daemon::Command;
 
     struct Echo(Mutex<Vec<u64>>);
 

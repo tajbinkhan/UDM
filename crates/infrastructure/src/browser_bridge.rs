@@ -2,17 +2,17 @@
 //! by broadcasting a request to the clients (only the extension answers)
 //! and waits for the answer the daemon hands back.
 
+use pullbay_domain::sync::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
-use uidm_domain::sync::LockExt;
 
+use pullbay_application::daemon::Event;
+use pullbay_domain::grab::RenderedPage;
+use pullbay_domain::ports::Browser;
 use tracing::info;
-use uidm_application::daemon::Event;
-use uidm_domain::grab::RenderedPage;
-use uidm_domain::ports::Browser;
 
 use crate::server::Clients;
 
@@ -93,8 +93,8 @@ impl Browser for BrowserBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pullbay_application::daemon::ClientId;
     use std::thread;
-    use uidm_application::daemon::ClientId;
 
     use crate::protocol::Outgoing;
 

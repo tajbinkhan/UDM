@@ -1,4 +1,4 @@
-//! Download addresses. `Address` is one UIDM can download from: it starts
+//! Download addresses. `Address` is one Pullbay can download from: it starts
 //! with `http://`, `https://` or `ftp://` (in any case), the same check the
 //! daemon makes before it takes a download (`batch::is_download_url`) and
 //! no stricter, so every address accepted before is accepted now. The text
@@ -8,7 +8,7 @@
 //! when it is one, else the text. Requests from clients, the list's rows
 //! and the history file carry a `Link`, so a client's request for
 //! `javascript:` can still be decoded and refused by name, and a row saved
-//! with an address UIDM does not take (by hand, or by an older version) is
+//! with an address Pullbay does not take (by hand, or by an older version) is
 //! still loaded and shown instead of failing the whole file. Starting such
 //! a row fails where an `Address` is needed. Both serialize as the plain
 //! string.
@@ -122,7 +122,7 @@ impl Link {
         Link::from(text.into())
     }
 
-    /// The address, when it is one UIDM can download from.
+    /// The address, when it is one Pullbay can download from.
     pub fn address(&self) -> Option<&Address> {
         match &self.0 {
             Given::Address(a) => Some(a),

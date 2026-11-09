@@ -2,17 +2,17 @@
 //! with ffmpeg (`media::convert`), each on a thread of its own, as a row of
 //! its own in the list with ffmpeg's progress.
 
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::sync::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
-use uidm_domain::bytes::ByteCount;
-use uidm_domain::id::DownloadId;
-use uidm_domain::sync::LockExt;
 
-use uidm_domain::media::Conversion;
-use uidm_domain::ports::Converter;
+use pullbay_domain::media::Conversion;
+use pullbay_domain::ports::Converter;
 
 use crate::engine::Engine;
 use crate::front::Hook;
@@ -142,7 +142,7 @@ impl Converter for Conversions {
 mod tests {
     use super::*;
     use crate::store::{Ended, StoreEvents, StoreFiles};
-    use uidm_domain::settings::Settings;
+    use pullbay_domain::settings::Settings;
 
     struct Quiet;
 
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn without_ffmpeg_nothing_starts() {
-        let dir = std::env::temp_dir().join(format!("uidm_conversions_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_conversions_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         // A folder is never ffmpeg, so this finds none whatever is on PATH.
         let missing = Settings { ffmpeg_path: dir.join("nope.exe").display().to_string(), ..Settings::default() };
@@ -170,7 +170,7 @@ mod tests {
             url: "http://x/a.webm".into(),
             input: dir.join("a.webm"),
             output: dir.join("a.mp4"),
-            target: uidm_domain::media::Target::Mp4,
+            target: pullbay_domain::media::Target::Mp4,
             delete_original: false,
         });
         assert_eq!(store.table().entries().count(), before, "no row without ffmpeg");

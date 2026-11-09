@@ -1,7 +1,7 @@
-use uidm_domain::ports::PowerControl;
-use uidm_domain::queue::{PowerRequest, PowerStep, COUNTDOWN_SECS};
+use pullbay_domain::ports::PowerControl;
+use pullbay_domain::queue::{PowerRequest, PowerStep, COUNTDOWN_SECS};
 
-/// Carry out what a finished queue or download asks: close UIDM at once, or
+/// Carry out what a finished queue or download asks: close Pullbay at once, or
 /// count down before sleeping, hibernating or shutting down.
 pub struct RunWhenDone<'a, P> {
     power: &'a P,
@@ -28,7 +28,7 @@ impl<'a, P: PowerControl> RunWhenDone<'a, P> {
 mod tests {
     use super::*;
     use crate::memory::Power;
-    use uidm_domain::queue::WhenDone;
+    use pullbay_domain::queue::WhenDone;
 
     fn request(action: WhenDone) -> PowerRequest {
         PowerRequest { action, queue: "Night".into(), file: None, force_close: false }

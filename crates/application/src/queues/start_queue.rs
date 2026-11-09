@@ -1,6 +1,6 @@
-use uidm_domain::id::QueueId;
-use uidm_domain::ports::{Clock, QueueRuns, QueueSounds, QueueStore};
-use uidm_domain::queue::QueueError;
+use pullbay_domain::id::QueueId;
+use pullbay_domain::ports::{Clock, QueueRuns, QueueSounds, QueueStore};
+use pullbay_domain::queue::QueueError;
 
 /// Start a queue: its waiting downloads run in order, as the scheduler
 /// starts them.
@@ -37,7 +37,7 @@ impl<'a, Q: QueueStore, R: QueueRuns, C: Clock, S: QueueSounds> StartQueue<'a, Q
 mod tests {
     use super::*;
     use crate::memory::{Queues, Runs, Sounds, FIXED_NOW};
-    use uidm_domain::queue::MAIN_QUEUE;
+    use pullbay_domain::queue::MAIN_QUEUE;
 
     #[test]
     fn a_queue_started_by_hand_runs_and_chimes_once() {

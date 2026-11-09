@@ -1,8 +1,8 @@
-use uidm_domain::bytes::ByteCount;
-use uidm_domain::download::{DownloadError, Status};
-use uidm_domain::id::DownloadId;
-use uidm_domain::ports::{Clock, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore, QuotaState};
-use uidm_domain::quota::{self, QuotaLimit, QuotaNotice, QuotaStep};
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::download::{DownloadError, Status};
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::ports::{Clock, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore, QuotaState};
+use pullbay_domain::quota::{self, QuotaLimit, QuotaNotice, QuotaStep};
 
 use crate::downloads::{RetryDownload, StopRunning};
 use crate::queues::StartQueue;
@@ -104,7 +104,7 @@ where
 mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, Queues, Quota, Runs, Sounds, FIXED_NOW};
-    use uidm_domain::queue::MAIN_QUEUE;
+    use pullbay_domain::queue::MAIN_QUEUE;
 
     const LIMIT: QuotaLimit = QuotaLimit { bytes: ByteCount::new(1000), window: 60, warn: true };
 

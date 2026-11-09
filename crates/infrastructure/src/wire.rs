@@ -3,15 +3,15 @@
 //! connection use it: the window's `daemon_client` sends commands and reads
 //! events, and the daemon's `server` reads commands and sends events.
 
+use pullbay_application::daemon::service::ServiceError;
+use pullbay_application::daemon::{Command, Event, Failure};
+use pullbay_application::downloads::{ConfirmError, StartOrWaitError};
+use pullbay_domain::download::{DownloadError, Mismatch};
+use pullbay_domain::grab::InvalidGrab;
+use pullbay_domain::ports::{ControlError, SettingsError};
+use pullbay_domain::queue::QueueError;
+use pullbay_domain::update::UpdateError;
 use serde::{Deserialize, Serialize};
-use uidm_application::daemon::service::ServiceError;
-use uidm_application::daemon::{Command, Event, Failure};
-use uidm_application::downloads::{ConfirmError, StartOrWaitError};
-use uidm_domain::download::{DownloadError, Mismatch};
-use uidm_domain::grab::InvalidGrab;
-use uidm_domain::ports::{ControlError, SettingsError};
-use uidm_domain::queue::QueueError;
-use uidm_domain::update::UpdateError;
 
 use crate::protocol::{Incoming, Outgoing};
 
@@ -249,7 +249,7 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
 }
 
 /// A failure as the wire carries it: its English text, which clients that
-/// do not translate show (the browser extension, `uidm-host send`), and its
+/// do not translate show (the browser extension, `pullbay-host send`), and its
 /// kind and values as `error_kind`. A failure known only by its text has no
 /// kind.
 pub fn text_and_kind(failure: Failure) -> (String, Option<serde_json::Value>) {
@@ -385,9 +385,9 @@ impl From<WireService> for ServiceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::bytes::ByteCount;
-    use uidm_domain::download::Download;
-    use uidm_domain::id::{DownloadId, QueueId};
+    use pullbay_domain::bytes::ByteCount;
+    use pullbay_domain::download::Download;
+    use pullbay_domain::id::{DownloadId, QueueId};
 
     /// `msg` as JSON, after a trip through `f` and back.
     fn json<T: serde::Serialize>(msg: &T) -> serde_json::Value {
@@ -450,7 +450,7 @@ mod tests {
             ServiceError::NotDownloadAddress("javascript:x".into()).into(),
             ServiceError::CrawlRunning.into(),
             QueueError::NameTaken("Night".into()).into(),
-            QueueError::Invalid(uidm_domain::queue::InvalidQueue::StartTime("25:00".into())).into(),
+            QueueError::Invalid(pullbay_domain::queue::InvalidQueue::StartTime("25:00".into())).into(),
             DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
             ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
             ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
@@ -458,8 +458,8 @@ mod tests {
                 .into(),
             UpdateError::Save { path: "/t/s".into(), reason: "denied".into() }.into(),
             ServiceError::Grab(InvalidGrab::Depth).into(),
-            SettingsError::Invalid(uidm_domain::settings::InvalidSettings::FolderNotFull(
-                uidm_domain::settings::SettingsField::CategoryFolder("Music".into()),
+            SettingsError::Invalid(pullbay_domain::settings::InvalidSettings::FolderNotFull(
+                pullbay_domain::settings::SettingsField::CategoryFolder("Music".into()),
                 "rel".into(),
             ))
             .into(),
@@ -553,10 +553,10 @@ mod tests {
     /// rename shows up here rather than in the clients.
     #[test]
     fn the_kind_names_the_error_and_its_values() {
+        use pullbay_domain::command::CommandError;
+        use pullbay_domain::queue::InvalidQueue;
+        use pullbay_domain::settings::{InvalidSettings, ProxyEntry, SettingsField};
         use serde_json::json;
-        use uidm_domain::command::CommandError;
-        use uidm_domain::queue::InvalidQueue;
-        use uidm_domain::settings::{InvalidSettings, ProxyEntry, SettingsField};
         let golden: Vec<(Failure, serde_json::Value)> = vec![
             (ServiceError::CrawlRunning.into(), json!({"Service": "CrawlRunning"})),
             (ServiceError::BadBody("http://a/".into()).into(), json!({"Service": {"BadBody": "http://a/"}})),

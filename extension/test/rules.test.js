@@ -87,7 +87,7 @@ const { loadWorker, download } = require("./harness.js");
 test("the worker asks for the rules and applies them to browser downloads", async () => {
   const w = loadWorker();
   assert.ok(w.sent.some((m) => m.op === "get_settings"), "asks for settings on connect");
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: RULES });
 
   const adds = () => w.sent.filter((m) => m.op === "add").map((m) => m.url);
@@ -109,7 +109,7 @@ test("the worker asks for the rules and applies them to browser downloads", asyn
 
 test("skip next download leaves exactly one download in the browser", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: RULES });
 
   const state = await w.popup({ type: "setSkipNext", value: true });
@@ -125,7 +125,7 @@ test("skip next download leaves exactly one download in the browser", async () =
 
 test("downloads waiting for the save-as dialog show in the popup and can be started", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   const item = { id: 7, url: "https://dl.net/a.zip", path: "C:\\dl\\a.zip", total: 10, done: 0, status: "confirming", error: null, resumable: true, connections: 0 };
   w.port.onMessage.fire({ op: "updated", item });
   const state = await w.popup({ type: "state" });
@@ -136,7 +136,7 @@ test("downloads waiting for the save-as dialog show in the popup and can be star
 
 test("a taken name under ask waits in the popup and starts with a new name", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: { file_exists: "ask" } });
   w.port.onMessage.fire({ op: "added", id: 8, url: "https://dl.net/a.zip" });
   w.port.onMessage.fire({ op: "name_taken", id: 8, url: "https://dl.net/a.zip", path: "C:\\dl\\a.zip", total: 10 });
@@ -152,10 +152,10 @@ test("a taken name under ask waits in the popup and starts with a new name", asy
 
 test("download later from the context menu adds without starting", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
-  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-later-link", linkUrl: "https://dl.net/a.zip", pageUrl: "https://dl.net/" });
-  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-link", linkUrl: "https://dl.net/b.zip", pageUrl: "https://dl.net/" });
-  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-later-media", srcUrl: "https://dl.net/c.mp4", pageUrl: "https://dl.net/" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
+  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "pullbay-later-link", linkUrl: "https://dl.net/a.zip", pageUrl: "https://dl.net/" });
+  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "pullbay-link", linkUrl: "https://dl.net/b.zip", pageUrl: "https://dl.net/" });
+  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "pullbay-later-media", srcUrl: "https://dl.net/c.mp4", pageUrl: "https://dl.net/" });
   const adds = w.sent.filter((m) => m.op === "add").map((m) => [m.url, m.start]);
   assert.equal(JSON.stringify(adds), JSON.stringify([["https://dl.net/a.zip", false], ["https://dl.net/b.zip", undefined], ["https://dl.net/c.mp4", false]]));
 });
@@ -232,7 +232,7 @@ test("held keys skip or force capture", () => {
 
 test("the worker keeps a skip-key download and sends a force-key link", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: { ...RULES, capture_skip_key: "alt", capture_force_key: "ctrl" } });
   await w.content({ type: "link:skip" }, 3, "https://dl.net/");
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/a.zip" }));
@@ -258,7 +258,7 @@ test("address exceptions with wildcards", () => {
   assert.ok(urlMatches("https://x.net/a(1).zip", "https://x.net/a(1).zip"), "other characters are literal");
   assert.ok(!urlMatches("", "https://x.net/a.zip"));
 
-  // Masks from UIDM's default list, which carry no scheme.
+  // Masks from Pullbay's default list, which carry no scheme.
   assert.ok(urlMatches("*.gstatic.com/*/sounds/*.mp3", "https://ssl.gstatic.com/chat/sounds/ding.mp3"));
   assert.ok(urlMatches("*.gvt1.com/edgedl/widevine-cdm/*.zip*", "https://redirector.gvt1.com/edgedl/widevine-cdm/4.10/win-x64.zip?cms_redirect=yes"));
   assert.ok(urlMatches("get*.opera.com/pub/opera/*/autoupdate/*.exe", "http://get.geo.opera.com/pub/opera/desktop/110/autoupdate/setup.exe"));
@@ -270,7 +270,7 @@ test("address exceptions with wildcards", () => {
 
 test("all links on a page go to the window's picker with cookies", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.chrome.cookies.getAll = async ({ url }) => (url.startsWith("https://dl.net") ? [{ name: "s", value: "1" }] : []);
   w.chrome.scripting = {
     executeScript: async ({ target }) => {
@@ -281,7 +281,7 @@ test("all links on a page go to the window's picker with cookies", async () => {
       ];
     },
   };
-  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-all-links", pageUrl: "https://dl.net/list" }, { id: 4 });
+  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "pullbay-all-links", pageUrl: "https://dl.net/list" }, { id: 4 });
   const msg = w.sent.find((m) => m.op === "pick_links");
   assert.equal(msg.page, "https://dl.net/list");
   assert.equal(JSON.stringify(msg.links.map((l) => [l.url, l.cookies ?? null])), JSON.stringify([["https://dl.net/a.zip", "s=1"], ["https://cdn.org/b.png", null]]));
@@ -289,7 +289,7 @@ test("all links on a page go to the window's picker with cookies", async () => {
 
 test("all links runs links.js in every frame first, and lists each link once", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: { capture_types: ["zip", "abc"], capture_min_size_kb: 0, capture_excluded_sites: [] } });
   const calls = [];
   w.chrome.scripting = {
@@ -305,7 +305,7 @@ test("all links runs links.js in every frame first, and lists each link once", a
       ];
     },
   };
-  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-all-links", pageUrl: "https://dl.net/list" }, { id: 4 });
+  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "pullbay-all-links", pageUrl: "https://dl.net/list" }, { id: 4 });
   assert.equal(JSON.stringify(calls.map((o) => [o.target.allFrames, o.files || null, o.args || null])), JSON.stringify([[true, ["links.js"], null], [true, null, [false, ["zip", "abc"]]]]));
   const msg = w.sent.find((m) => m.op === "pick_links");
   assert.equal(JSON.stringify(msg.links), JSON.stringify([{ url: "https://dl.net/a.zip", text: "A" }, { url: "ftp://files.net/b.iso", text: "B" }]));
@@ -322,7 +322,7 @@ test("where the selection button shows", () => {
 
 test("the selection button asks for the selection's links only", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   let asked = null;
   w.chrome.scripting = {
     executeScript: async ({ args }) => {
@@ -350,29 +350,29 @@ test("each browser's manifest has only the keys it understands", () => {
   assert.deepEqual(Object.keys(firefox.background), ["scripts"]);
   assert.equal(firefox.background.scripts.at(-1), chrome.background.service_worker);
   assert.equal(firefox.key, undefined);
-  assert.equal(firefox.browser_specific_settings.gecko.id, "uidm@uidm.local");
+  assert.equal(firefox.browser_specific_settings.gecko.id, "pullbay@pullbay.local");
   assert.equal(firefox.version, chrome.version);
 });
 
-test("a download UIDM cannot take comes with a notice saying why", async () => {
+test("a download Pullbay cannot take comes with a notice saying why", async () => {
   const w = loadWorker();
   const shown = () => w.chrome.notifications.shown.map(([, o]) => o.message);
-  // Not connected: the browser keeps what UIDM would have taken.
+  // Not connected: the browser keeps what Pullbay would have taken.
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/a.zip", filename: "C:/dl/a.zip" }));
-  assert.deepEqual(shown(), ["UIDM is not running or not connected, so the browser downloads a.zip."]);
+  assert.deepEqual(shown(), ["Pullbay is not running or not connected, so the browser downloads a.zip."]);
   assert.equal(w.chrome.notifications.shown[0][1].buttons[0].title, "Don't show again");
 
-  // Connected, but UIDM could not start it: it goes back, with the reason.
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  // Connected, but Pullbay could not start it: it goes back, with the reason.
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: RULES });
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/b.zip" }));
   w.port.onMessage.fire({ op: "ack", id: 4, url: "https://dl.net/b.zip", status: "accepted" });
   w.port.onMessage.fire({ op: "failed", id: 4, url: "https://dl.net/b.zip", error: "server returned HTTP 403" });
   await new Promise((r) => setTimeout(r, 0));
-  assert.equal(shown().at(-1), "UIDM could not start https://dl.net/b.zip (server returned HTTP 403), so the browser downloads it.");
+  assert.equal(shown().at(-1), "Pullbay could not start https://dl.net/b.zip (server returned HTTP 403), so the browser downloads it.");
 
   // "Don't show again" stops them for good.
-  await w.chrome.notifications.onButtonClicked.fire("uidm-takeover", 0);
+  await w.chrome.notifications.onButtonClicked.fire("pullbay-takeover", 0);
   assert.equal(JSON.stringify(w.chrome.storage.written.at(-1)), JSON.stringify({ takeoverNotice: false }));
   w.port.onDisconnect.fire();
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/c.zip" }));
@@ -392,20 +392,20 @@ test("in Firefox, clicking the notice stops it", async () => {
 
 test("the worker runs as a Firefox background script", async () => {
   const w = loadWorker({ firefox: true });
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: RULES });
   await w.chrome.downloads.onCreated.fire(download({ url: "https://dl.net/a.zip" }));
   assert.equal(w.sent.find((m) => m.op === "add").url, "https://dl.net/a.zip");
   // The popup, opened as a tab at moz-extension://, is still the popup.
   const state = await new Promise((resolve) =>
-    w.chrome.runtime.onMessage.fire({ type: "state" }, { id: "uidm", tab: { id: 9 }, url: "moz-extension://0b1c/popup.html" }, resolve),
+    w.chrome.runtime.onMessage.fire({ type: "state" }, { id: "pullbay", tab: { id: 9 }, url: "moz-extension://0b1c/popup.html" }, resolve),
   );
   assert.equal(state.connected, true);
 });
 
 test("a site crawl gets the browser's cookies for its start page", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.chrome.cookies.getAll = async () => [{ name: "session", value: "abc" }];
   w.port.onMessage.fire({ op: "cookies_wanted", request: 3, url: "https://site.net/members/" });
   await new Promise((r) => setTimeout(r, 0));
@@ -414,7 +414,7 @@ test("a site crawl gets the browser's cookies for its start page", async () => {
 
 test("a crawl's page is rendered in a background tab and the tab is closed", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   const { event } = require("./harness.js");
   const removed = [];
   w.chrome.tabs = {

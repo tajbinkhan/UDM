@@ -1,34 +1,34 @@
-//! Checking GitHub for a newer UIDM release, and the Setup program attached
+//! Checking GitHub for a newer Pullbay release, and the Setup program attached
 //! to it. The window shows a notice with a link to the release page; Update
 //! now has the daemon download that Setup, check it against what GitHub
 //! says about it, and run it. `GitHub` is the adapter for `ReleaseSource`.
 
+use pullbay_domain::bytes::ByteCount;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use uidm_domain::bytes::ByteCount;
 
+use pullbay_domain::download::Download;
+use pullbay_domain::ports::ReleaseSource;
+use pullbay_domain::update::UpdateError;
 use tracing::info;
-use uidm_domain::download::Download;
-use uidm_domain::ports::ReleaseSource;
-use uidm_domain::update::UpdateError;
 
 use crate::connect::{config_for, ProxyRetries};
 use crate::engine;
 use crate::live_settings::LiveSettings;
 
-use uidm_domain::update::{Release, SetupAsset};
+use pullbay_domain::update::{Release, SetupAsset};
 
-/// The releases of UIDM's repository, newest first by GitHub's reckoning.
-pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/uidm/releases/latest";
+/// The releases of Pullbay's repository, newest first by GitHub's reckoning.
+pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/pullbay/releases/latest";
 
 /// Where release files are served from; a Setup anywhere else is not used.
-const DOWNLOADS: &str = "https://github.com/tajbinkhan/uidm/releases/download/";
-/// The largest Setup UIDM downloads.
+const DOWNLOADS: &str = "https://github.com/tajbinkhan/pullbay/releases/download/";
+/// The largest Setup Pullbay downloads.
 pub const MAX_SETUP_BYTES: ByteCount = ByteCount::mib(256);
 
-/// The Setup asset among a release's `assets`, if there is one UIDM can
-/// use: named `UIDM-Setup-*.exe`, served from the repository's releases,
+/// The Setup asset among a release's `assets`, if there is one Pullbay can
+/// use: named `Pullbay-Setup-*.exe`, served from the repository's releases,
 /// and of a sensible size.
 fn setup_asset(assets: &serde_json::Value) -> Option<SetupAsset> {
     assets.as_array()?.iter().find_map(|a| {
@@ -36,7 +36,7 @@ fn setup_asset(assets: &serde_json::Value) -> Option<SetupAsset> {
         let url = a["browser_download_url"].as_str()?;
         let size = ByteCount::new(a["size"].as_u64()?);
         let lower = name.to_ascii_lowercase();
-        let usable = lower.starts_with("uidm-setup-")
+        let usable = lower.starts_with("pullbay-setup-")
             && lower.ends_with(".exe")
             && !name.contains(['/', '\\', ':'])
             && url.starts_with(DOWNLOADS)
@@ -91,9 +91,10 @@ pub fn check_setup(asset: &SetupAsset, bytes: &[u8]) -> Result<(), ReleaseError>
 pub fn parse_release(json: &[u8]) -> Result<Release, ReleaseError> {
     let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| ReleaseError::NotJson(e.to_string()))?;
     let tag = v["tag_name"].as_str().ok_or(ReleaseError::NoRelease)?;
-    let url = v["html_url"].as_str().unwrap_or("https://github.com/tajbinkhan/uidm/releases");
+    let url = v["html_url"].as_str().unwrap_or("https://github.com/tajbinkhan/pullbay/releases");
     // Only a link to GitHub is ever shown.
-    let url = if url.starts_with("https://github.com/") { url } else { "https://github.com/tajbinkhan/uidm/releases" };
+    let url =
+        if url.starts_with("https://github.com/") { url } else { "https://github.com/tajbinkhan/pullbay/releases" };
     Ok(Release {
         version: tag.trim().trim_start_matches(['v', 'V']).to_string(),
         url: url.to_string(),
@@ -127,7 +128,7 @@ impl GitHub {
 impl ReleaseSource for GitHub {
     fn latest(&self) -> Result<Release, UpdateError> {
         let headers = [
-            ("User-Agent".to_string(), format!("UIDM/{VERSION}")),
+            ("User-Agent".to_string(), format!("Pullbay/{VERSION}")),
             ("Accept".to_string(), "application/vnd.github+json".to_string()),
         ];
         let body =
@@ -138,7 +139,7 @@ impl ReleaseSource for GitHub {
     }
 
     fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError> {
-        let headers = [("User-Agent".to_string(), format!("UIDM/{VERSION}"))];
+        let headers = [("User-Agent".to_string(), format!("Pullbay/{VERSION}"))];
         info!(url = %setup.url, "downloading the update");
         let body =
             self.fetch(&setup.url, &headers, MAX_SETUP_BYTES).map_err(|e| UpdateError::Download(e.to_string()))?;
@@ -150,9 +151,9 @@ impl ReleaseSource for GitHub {
     }
 
     fn run_setup(&self, path: &Path) -> Result<(), UpdateError> {
-        // /fromuidm closes UIDM without asking: the user asked for this.
+        // /frompullbay closes Pullbay without asking: the user asked for this.
         Command::new(path)
-            .arg("/fromuidm=yes")
+            .arg("/frompullbay=yes")
             .spawn()
             .map(|_| ())
             .map_err(|e| UpdateError::Start { path: path.display().to_string(), reason: e.to_string() })
@@ -163,7 +164,7 @@ impl ReleaseSource for GitHub {
 mod tests {
     use super::*;
     use crate::engine::testserver::TestServer;
-    use uidm_domain::settings::Settings;
+    use pullbay_domain::settings::Settings;
 
     fn github(url: &str) -> GitHub {
         GitHub::new(Arc::new(LiveSettings::new(Settings::default(), None)), Arc::default(), url)
@@ -171,7 +172,7 @@ mod tests {
 
     #[test]
     fn the_latest_release_is_read_from_the_server() {
-        let answer = br#"{"tag_name":"v9.0.0","html_url":"https://github.com/tajbinkhan/uidm/releases/tag/v9.0.0"}"#;
+        let answer = br#"{"tag_name":"v9.0.0","html_url":"https://github.com/tajbinkhan/pullbay/releases/tag/v9.0.0"}"#;
         let server = TestServer::start(answer.to_vec());
         let release = github(&server.url).latest().unwrap();
         assert_eq!(release.version, "9.0.0");
@@ -191,7 +192,7 @@ mod tests {
     fn a_setup_that_does_not_match_its_release_is_refused() {
         let server = TestServer::start(b"not a program".to_vec());
         let setup = SetupAsset {
-            name: "UIDM-Setup-9.exe".into(),
+            name: "Pullbay-Setup-9.exe".into(),
             url: server.url.clone(),
             size: ByteCount::new(13),
             sha256: None,
@@ -202,13 +203,13 @@ mod tests {
     #[test]
     fn releases_are_read_from_githubs_answer() {
         let r = parse_release(
-            br#"{"tag_name":"v0.4.1","html_url":"https://github.com/tajbinkhan/uidm/releases/tag/v0.4.1"}"#,
+            br#"{"tag_name":"v0.4.1","html_url":"https://github.com/tajbinkhan/pullbay/releases/tag/v0.4.1"}"#,
         )
         .unwrap();
         assert_eq!(r.version, "0.4.1");
         assert!(r.url.ends_with("/v0.4.1"));
         let elsewhere = parse_release(br#"{"tag_name":"v9","html_url":"https://evil.example/x"}"#).unwrap();
-        assert_eq!(elsewhere.url, "https://github.com/tajbinkhan/uidm/releases");
+        assert_eq!(elsewhere.url, "https://github.com/tajbinkhan/pullbay/releases");
         assert!(parse_release(b"{}").is_err());
         assert!(parse_release(b"not json").is_err());
         assert_eq!(r.setup, None);
@@ -222,14 +223,14 @@ mod tests {
             sha2::Sha256::digest(body).iter().map(|b| format!("{b:02x}")).collect::<String>()
         };
         let json = format!(
-            r#"{{"tag_name":"v0.5.0","html_url":"https://github.com/tajbinkhan/uidm/releases/tag/v0.5.0","assets":[
-                {{"name":"uidm-0.5.0.zip","browser_download_url":"https://github.com/tajbinkhan/uidm/releases/download/v0.5.0/uidm-0.5.0.zip","size":5}},
-                {{"name":"UIDM-Setup-0.5.0.exe","browser_download_url":"https://github.com/tajbinkhan/uidm/releases/download/v0.5.0/UIDM-Setup-0.5.0.exe","size":{},"digest":"sha256:{sha}"}}
+            r#"{{"tag_name":"v0.5.0","html_url":"https://github.com/tajbinkhan/pullbay/releases/tag/v0.5.0","assets":[
+                {{"name":"pullbay-0.5.0.zip","browser_download_url":"https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/pullbay-0.5.0.zip","size":5}},
+                {{"name":"Pullbay-Setup-0.5.0.exe","browser_download_url":"https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/Pullbay-Setup-0.5.0.exe","size":{},"digest":"sha256:{sha}"}}
             ]}}"#,
             body.len()
         );
         let setup = parse_release(json.as_bytes()).unwrap().setup.unwrap();
-        assert_eq!(setup.name, "UIDM-Setup-0.5.0.exe");
+        assert_eq!(setup.name, "Pullbay-Setup-0.5.0.exe");
         assert_eq!(setup.sha256.as_deref(), Some(sha.as_str()));
         assert!(check_setup(&setup, body).is_ok());
         assert_eq!(check_setup(&setup, b"MZ setuP").unwrap_err(), ReleaseError::WrongChecksum);
@@ -242,8 +243,10 @@ mod tests {
             ReleaseError::NotProgram
         );
 
-        let elsewhere = json
-            .replace("https://github.com/tajbinkhan/uidm/releases/download/v0.5.0/UIDM", "https://evil.example/UIDM");
+        let elsewhere = json.replace(
+            "https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/Pullbay",
+            "https://evil.example/Pullbay",
+        );
         assert_eq!(parse_release(elsewhere.as_bytes()).unwrap().setup, None, "only from the repository's releases");
     }
 }

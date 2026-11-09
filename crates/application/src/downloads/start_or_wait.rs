@@ -1,6 +1,6 @@
-use uidm_domain::id::{DownloadId, QueueId};
-use uidm_domain::ports::{ControlError, DownloadControl, DownloadList, QueueStore};
-use uidm_domain::queue::{self, QueueError};
+use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::ports::{ControlError, DownloadControl, DownloadList, QueueStore};
+use pullbay_domain::queue::{self, QueueError};
 
 use crate::queues::MoveToQueue;
 
@@ -52,8 +52,8 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl> StartOrWait<'a, Q, 
 mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, Queues};
-    use uidm_domain::download::Status;
-    use uidm_domain::queue::{Queue, MAIN_QUEUE};
+    use pullbay_domain::download::Status;
+    use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 
     #[test]
     fn start_hands_it_to_the_engine() {

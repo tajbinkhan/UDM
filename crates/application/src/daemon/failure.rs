@@ -2,10 +2,10 @@
 //! the error's kind and values, so the window can say it in the user's
 //! language. Each message reads as the daemon's English text did before.
 
-use uidm_domain::download::{DownloadError, Mismatch};
-use uidm_domain::ports::{ProbeError, SettingsError};
-use uidm_domain::queue::QueueError;
-use uidm_domain::update::UpdateError;
+use pullbay_domain::download::{DownloadError, Mismatch};
+use pullbay_domain::ports::{ProbeError, SettingsError};
+use pullbay_domain::queue::QueueError;
+use pullbay_domain::update::UpdateError;
 
 use super::service::ServiceError;
 
@@ -61,9 +61,9 @@ impl From<ProbeError> for Failure {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::bytes::ByteCount;
-    use uidm_domain::id::QueueId;
-    use uidm_domain::settings::InvalidSettings;
+    use pullbay_domain::bytes::ByteCount;
+    use pullbay_domain::id::QueueId;
+    use pullbay_domain::settings::InvalidSettings;
 
     /// Clients that read only the text hear what they heard before.
     #[test]

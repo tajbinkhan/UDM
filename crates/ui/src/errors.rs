@@ -2,20 +2,20 @@
 //! English text matches the error's own message, which the daemon, the
 //! logs and the clients that do not translate use.
 
-use uidm_application::daemon::service::ServiceError;
-use uidm_application::daemon::Failure;
-use uidm_application::downloads::{ConfirmError, StartOrWaitError};
-use uidm_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
-use uidm_domain::command::{CommandError, PATH_TOKEN};
-use uidm_domain::download::{DownloadError, Mismatch};
-use uidm_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
-use uidm_domain::ports::SettingsError;
-use uidm_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
-use uidm_domain::settings::{
+use pullbay_application::daemon::service::ServiceError;
+use pullbay_application::daemon::Failure;
+use pullbay_application::downloads::{ConfirmError, StartOrWaitError};
+use pullbay_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
+use pullbay_domain::command::{CommandError, PATH_TOKEN};
+use pullbay_domain::download::{DownloadError, Mismatch};
+use pullbay_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
+use pullbay_domain::ports::SettingsError;
+use pullbay_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
+use pullbay_domain::settings::{
     InvalidSettings, ProxyEntry, SettingsField, CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE,
     SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE,
 };
-use uidm_domain::update::UpdateError;
+use pullbay_domain::update::UpdateError;
 
 use crate::i18n::{tr, trf};
 
@@ -435,9 +435,9 @@ fn update(e: &UpdateError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::bytes::ByteCount;
-    use uidm_domain::id::{DownloadId, QueueId};
-    use uidm_domain::ports::ControlError;
+    use pullbay_domain::bytes::ByteCount;
+    use pullbay_domain::id::{DownloadId, QueueId};
+    use pullbay_domain::ports::ControlError;
 
     /// `?` turns the domain's errors into the window's, in the user's words.
     #[test]

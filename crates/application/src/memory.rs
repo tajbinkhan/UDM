@@ -7,21 +7,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use uidm_domain::address::Link;
-use uidm_domain::bytes::ByteCount;
-use uidm_domain::download::{Download, DownloadEntry, Status};
-use uidm_domain::filename::FileName;
-use uidm_domain::id::{DownloadId, QueueId};
-use uidm_domain::media::Conversion;
-use uidm_domain::ports::{
+use pullbay_domain::address::Link;
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::download::{Download, DownloadEntry, Status};
+use pullbay_domain::filename::FileName;
+use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::media::Conversion;
+use pullbay_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
     EarlyStarts, FilesError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore,
     QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
 };
-use uidm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
-use uidm_domain::quota::QuotaNotice;
-use uidm_domain::settings::Settings;
-use uidm_domain::update::{Release, SetupAsset, UpdateError};
+use pullbay_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
+use pullbay_domain::quota::QuotaNotice;
+use pullbay_domain::settings::Settings;
+use pullbay_domain::update::{Release, SetupAsset, UpdateError};
 
 pub struct Queues {
     list: Mutex<Vec<Queue>>,
@@ -235,7 +235,7 @@ pub struct Control {
     waiting_for_link: Mutex<Option<DownloadId>>,
     refuse: HashSet<DownloadId>,
     /// What [`DownloadControl::check_partial`] answers.
-    partial_check: Option<Result<Option<uidm_domain::download::Mismatch>, ControlError>>,
+    partial_check: Option<Result<Option<pullbay_domain::download::Mismatch>, ControlError>>,
 }
 
 /// One call to [`DownloadControl::restart`].
@@ -289,7 +289,7 @@ impl Control {
     }
 
     /// A control whose partial-file checks answer `answer`.
-    pub fn checking(answer: Result<Option<uidm_domain::download::Mismatch>, ControlError>) -> Self {
+    pub fn checking(answer: Result<Option<pullbay_domain::download::Mismatch>, ControlError>) -> Self {
         Control { partial_check: Some(answer), ..Control::default() }
     }
 }
@@ -339,7 +339,7 @@ impl DownloadControl for Control {
         &self,
         _download: &Download,
         _partial: &str,
-    ) -> Result<Option<uidm_domain::download::Mismatch>, ControlError> {
+    ) -> Result<Option<pullbay_domain::download::Mismatch>, ControlError> {
         self.partial_check.clone().expect("the test sets what the check answers")
     }
 
@@ -387,7 +387,7 @@ impl Files {
         Files { existing: paths.iter().map(PathBuf::from).collect(), ..Files::default() }
     }
 
-    /// Files where UIDM may not write into `dir`.
+    /// Files where Pullbay may not write into `dir`.
     pub fn read_only(dir: &str) -> Self {
         Files { read_only: [PathBuf::from(dir)].into(), ..Files::default() }
     }

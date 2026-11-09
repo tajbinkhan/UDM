@@ -36,4 +36,4 @@ One or two sentences on what this release is about.
 ## Install
 
 Pick the file for your system from the list below. The
-[README](https://github.com/tajbinkhan/uidm#install) has the full steps.
+[README](https://github.com/tajbinkhan/pullbay#install) has the full steps.

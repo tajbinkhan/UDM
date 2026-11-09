@@ -28,7 +28,7 @@ pub const COUNTDOWN_SECS: u32 = 60;
 pub enum WhenDone {
     #[default]
     Nothing,
-    /// Close UIDM's window and daemon.
+    /// Close Pullbay's window and daemon.
     Exit,
     Sleep,
     Hibernate,
@@ -42,7 +42,7 @@ impl WhenDone {
     pub fn label(self) -> &'static str {
         match self {
             WhenDone::Nothing => "Do nothing",
-            WhenDone::Exit => "Exit UIDM",
+            WhenDone::Exit => "Exit Pullbay",
             WhenDone::Sleep => "Sleep",
             WhenDone::Hibernate => "Hibernate",
             WhenDone::ShutDown => "Shut down",
@@ -164,7 +164,7 @@ pub struct Queue {
     /// Replaces `open_when_done` for the current run only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_when_done_once: Option<String>,
-    /// Start it whenever UIDM starts.
+    /// Start it whenever Pullbay starts.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub start_on_launch: bool,
     /// Shutting down when done closes programs that would hold it up.
@@ -336,7 +336,7 @@ impl PowerRequest {
 pub enum PowerStep {
     /// Nothing to do.
     None,
-    /// Close UIDM at once.
+    /// Close Pullbay at once.
     Exit,
     /// Sleep, hibernate or shut down after a countdown the user can stop.
     Countdown,
@@ -355,7 +355,7 @@ impl WhenDone {
 /// What a queue does when a run ends, after its downloads are done.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunEnd {
-    /// Nothing, sleep, hibernate, shut down, or exit UIDM.
+    /// Nothing, sleep, hibernate, shut down, or exit Pullbay.
     pub action: WhenDone,
     /// A file to open.
     pub open: Option<String>,

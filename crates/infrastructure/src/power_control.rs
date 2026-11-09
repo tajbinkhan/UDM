@@ -1,31 +1,31 @@
-//! `PowerOff`, the adapter for `PowerControl`: closing UIDM, and the
+//! `PowerOff`, the adapter for `PowerControl`: closing Pullbay, and the
 //! countdown before sleeping, hibernating or shutting down that the windows
 //! show and may stop. The power actions themselves are `power::perform`.
 //! `RunEnds` is the adapter for `QueueFinish`: what happens when a queue's
 //! run is done.
 
+use pullbay_domain::sync::LockExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
-use uidm_domain::sync::LockExt;
 
+use pullbay_domain::ports::{PowerControl, QueueFinish};
+use pullbay_domain::queue::{PowerRequest, RunEnd, WhenDone};
 use tracing::{info, warn};
-use uidm_domain::ports::{PowerControl, QueueFinish};
-use uidm_domain::queue::{PowerRequest, RunEnd, WhenDone};
 
-use uidm_application::daemon::Event;
+use pullbay_application::daemon::Event;
 
 use crate::live_settings::LiveSettings;
 use crate::notify;
 use crate::power;
 use crate::protocol::Outgoing;
 use crate::store::StoreEvents;
-use uidm_domain::settings::Sound;
+use pullbay_domain::settings::Sound;
 
 /// Set to make sleep, hibernate and shut down only log what they would do
 /// (for testing the countdown without losing the machine).
-pub const POWER_DRY_RUN_ENV: &str = "UIDM_POWER_DRY_RUN";
+pub const POWER_DRY_RUN_ENV: &str = "PULLBAY_POWER_DRY_RUN";
 
 /// How often a countdown's thread looks whether it was stopped.
 const COUNTDOWN_POLL: Duration = Duration::from_millis(250);
@@ -41,7 +41,7 @@ struct Countdown {
 /// window forward.
 pub type Hook = Box<dyn Fn() + Send + Sync>;
 
-/// Closing UIDM and the power countdown.
+/// Closing Pullbay and the power countdown.
 pub struct PowerOff {
     /// Reaches every client.
     events: Arc<dyn StoreEvents>,
@@ -86,7 +86,7 @@ impl PowerOff {
     }
 }
 
-/// Carry out `action`, or with `UIDM_POWER_DRY_RUN` set only log it.
+/// Carry out `action`, or with `PULLBAY_POWER_DRY_RUN` set only log it.
 fn power_off(action: WhenDone, force_close: bool) {
     if std::env::var_os(POWER_DRY_RUN_ENV).is_some() {
         info!(action = action.label(), "dry run: would do it");
@@ -160,7 +160,7 @@ pub type WhenDoneHook = Box<dyn Fn(WhenDone, &str, bool) + Send + Sync>;
 /// Open the program or file a queue names for the end of its run, as
 /// Explorer would on a double-click.
 pub fn open_after_run(file: &str) {
-    uidm_domain::ports::FileOpener::open(&crate::platform::Desktop, file);
+    pullbay_domain::ports::FileOpener::open(&crate::platform::Desktop, file);
 }
 
 /// The end of a queue's run: its sound, the file it opens, and its
@@ -189,7 +189,7 @@ impl QueueFinish for RunEnds {
     }
 }
 
-impl uidm_application::daemon::Countdowns for PowerOff {
+impl pullbay_application::daemon::Countdowns for PowerOff {
     fn countdown(&self) -> Option<Event> {
         self.countdown_message()
     }
@@ -241,7 +241,7 @@ mod tests {
     fn a_finished_run_does_what_it_asks() {
         let asked = Arc::new(Mutex::new(Vec::new()));
         let heard = Arc::clone(&asked);
-        let settings = uidm_domain::settings::Settings { sound_on_queue_done: false, ..Default::default() };
+        let settings = pullbay_domain::settings::Settings { sound_on_queue_done: false, ..Default::default() };
         let ends = RunEnds::new(
             Arc::new(LiveSettings::new(settings, None)),
             Box::new(move |action, queue: &str, force| heard.lock().unwrap().push((action, queue.to_string(), force))),

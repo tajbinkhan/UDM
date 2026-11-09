@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use pullbay_domain::download::Download;
+use pullbay_domain::grab::{GrabRequest, Outcome, Page};
+use pullbay_domain::ports::{Browser, SiteCrawler};
 use tracing::{info, warn};
-use uidm_domain::download::Download;
-use uidm_domain::grab::{GrabRequest, Outcome, Page};
-use uidm_domain::ports::{Browser, SiteCrawler};
 
 use crate::engine;
 use crate::grab;
@@ -20,7 +20,7 @@ use crate::net::Login;
 use crate::transfers::Transfers;
 
 /// How the site grabber names itself to servers.
-const GRABBER_AGENT: &str = "Mozilla/5.0 (compatible; UIDM site grabber; obeys robots.txt)";
+const GRABBER_AGENT: &str = "Mozilla/5.0 (compatible; Pullbay site grabber; obeys robots.txt)";
 
 /// Crawls with the engine.
 pub struct Crawler {
@@ -73,7 +73,7 @@ impl SiteCrawler for Crawler {
         // Each site's cookies go to that site's pages only.
         let page_headers = |url: &str| {
             let mut h = headers.to_vec();
-            if let Some(c) = uidm_domain::grab::crawl_cookies(req, url, cookies.as_deref(), login) {
+            if let Some(c) = pullbay_domain::grab::crawl_cookies(req, url, cookies.as_deref(), login) {
                 h.push(("Cookie".to_string(), c));
             }
             h
@@ -99,12 +99,12 @@ impl SiteCrawler for Crawler {
                     }
                 }
                 let mut body = shown.html.into_bytes();
-                body.truncate(usize::try_from(uidm_domain::grab::MAX_PAGE_BYTES.get()).unwrap_or(usize::MAX));
+                body.truncate(usize::try_from(pullbay_domain::grab::MAX_PAGE_BYTES.get()).unwrap_or(usize::MAX));
                 let page = Page { url: shown.url, content_type: Some("text/html".into()), body };
                 mirror(req, &page);
                 return Some(page);
             }
-            let page = engine::fetch(url, &page_headers(url), &net, uidm_domain::grab::MAX_PAGE_BYTES)
+            let page = engine::fetch(url, &page_headers(url), &net, pullbay_domain::grab::MAX_PAGE_BYTES)
                 .map(|f| Page { url: f.url, content_type: f.content_type, body: f.body })
                 .ok()?;
             mirror(req, &page);

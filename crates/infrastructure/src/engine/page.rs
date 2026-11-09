@@ -1,10 +1,13 @@
 //! Downloading a video page with yt-dlp (see `media::ytdlp`): yt-dlp fetches
-//! the chosen video and sound and ffmpeg joins them, while UIDM reads its
+//! the chosen video and sound and ffmpeg joins them, while Pullbay reads its
 //! progress lines and stops it on cancel.
 //!
 //! yt-dlp keeps `.part` files of what it fetched, so a canceled download
 //! carries on where it stopped when it is started again.
 
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::sync::LockExt;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -13,18 +16,15 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use uidm_domain::bytes::ByteCount;
-use uidm_domain::id::DownloadId;
-use uidm_domain::sync::LockExt;
 
 use super::{
     choose_output, http, stream, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved, Shared,
 };
 use crate::media::ytdlp::{self, DONE_TAG, PROGRESS_TEMPLATE};
-use uidm_domain::media::MediaChoice;
+use pullbay_domain::media::MediaChoice;
 
 /// What yt-dlp's estimate of the whole download starts with.
-const SIZE_TAG: &str = "UIDM-SIZE ";
+const SIZE_TAG: &str = "Pullbay-SIZE ";
 
 /// How far yt-dlp got. It fetches the video and then the sound, each from 0,
 /// so bytes of finished files are kept apart.
@@ -207,7 +207,7 @@ pub(super) fn run(
         None => output,
     };
     let note = req.ffmpeg.is_none().then(|| {
-        "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) UIDM saves the quality you chose."
+        "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) Pullbay saves the quality you chose."
             .to_string()
     });
     drop(claim);
@@ -218,7 +218,7 @@ pub(super) fn run(
 /// the chosen file's, with the id added.
 fn working_stem(output: &Path, id: DownloadId) -> PathBuf {
     let mut stem = output.with_extension("").into_os_string();
-    stem.push(format!(".uidm-{id}"));
+    stem.push(format!(".pullbay-{id}"));
     stem.into()
 }
 
@@ -240,29 +240,29 @@ mod tests {
     #[test]
     fn working_stem_adds_the_id() {
         let stem = working_stem(Path::new("dl/Song.mp3"), DownloadId::new(42));
-        assert_eq!(stem, Path::new("dl/Song.uidm-42"));
+        assert_eq!(stem, Path::new("dl/Song.pullbay-42"));
         // Dots in the title stay; only the extension goes.
-        assert_eq!(working_stem(Path::new("a.b.mp4"), DownloadId::new(7)), Path::new("a.b.uidm-7"));
+        assert_eq!(working_stem(Path::new("a.b.mp4"), DownloadId::new(7)), Path::new("a.b.pullbay-7"));
     }
 
     #[test]
     fn settle_renames_unless_taken() {
-        let dir = std::env::temp_dir().join(format!("uidm-settle-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay-settle-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let output = dir.join("Song.mp3");
 
-        let saved = dir.join("Song.uidm-1.mp3");
+        let saved = dir.join("Song.pullbay-1.mp3");
         fs::write(&saved, b"new").unwrap();
         assert_eq!(settle(&saved, &output), output);
         assert_eq!(fs::read(&output).unwrap(), b"new");
 
         // yt-dlp's own extension is kept.
-        let saved = dir.join("Song.uidm-2.m4a");
+        let saved = dir.join("Song.pullbay-2.m4a");
         fs::write(&saved, b"m4a").unwrap();
         assert_eq!(settle(&saved, &output), dir.join("Song.m4a"));
 
         // A name taken since leaves the file under its working name.
-        let saved = dir.join("Song.uidm-3.mp3");
+        let saved = dir.join("Song.pullbay-3.mp3");
         fs::write(&saved, b"third").unwrap();
         assert_eq!(settle(&saved, &output), saved);
         assert_eq!(fs::read(&output).unwrap(), b"new");
@@ -290,9 +290,9 @@ mod tests {
     #[ignore]
     fn downloads_a_youtube_video() {
         use super::super::Engine;
+        use pullbay_domain::media::MediaKind;
+        use pullbay_domain::settings::{FileExists, Folders, Settings};
         use std::sync::mpsc;
-        use uidm_domain::media::MediaKind;
-        use uidm_domain::settings::{FileExists, Folders, Settings};
 
         let url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
         let ffmpeg = crate::settings::ffmpeg(&Settings::default());
@@ -301,7 +301,7 @@ mod tests {
         assert!(info.error.is_none(), "{:?}", info.error);
         assert!(!info.video.is_empty() && !info.audio.is_empty(), "{info:?}");
 
-        let dir = std::env::temp_dir().join(format!("uidm_page_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_page_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let (tx, rx) = mpsc::channel();

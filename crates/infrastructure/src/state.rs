@@ -1,19 +1,19 @@
 //! The daemon's download list, kept current by applying its wire messages.
 //!
 //! The daemon applies every event it broadcasts, so it can answer `list`. How
-//! an event changes the list is `uidm_domain::table`'s; this module maps the
+//! an event changes the list is `pullbay_domain::table`'s; this module maps the
 //! wire messages onto those changes.
 
 use std::ops::{Deref, DerefMut};
 
 use crate::protocol::Outgoing;
 
-use uidm_domain::table::Change;
+use pullbay_domain::table::Change;
 
-/// The download list (`uidm_domain::table::DownloadTable`), fed with the
+/// The download list (`pullbay_domain::table::DownloadTable`), fed with the
 /// daemon's wire messages.
 #[derive(Debug, Default, Clone)]
-pub struct DownloadTable(uidm_domain::table::DownloadTable);
+pub struct DownloadTable(pullbay_domain::table::DownloadTable);
 
 impl DownloadTable {
     pub fn new() -> Self {
@@ -30,7 +30,7 @@ impl DownloadTable {
 }
 
 impl Deref for DownloadTable {
-    type Target = uidm_domain::table::DownloadTable;
+    type Target = pullbay_domain::table::DownloadTable;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -110,9 +110,9 @@ pub fn unix_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::bytes::ByteCount;
-    use uidm_domain::download::Status;
-    use uidm_domain::id::DownloadId;
+    use pullbay_domain::bytes::ByteCount;
+    use pullbay_domain::download::Status;
+    use pullbay_domain::id::DownloadId;
 
     fn started(id: u64) -> Outgoing {
         Outgoing::Started {

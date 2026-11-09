@@ -5,29 +5,29 @@ use eframe::egui;
 
 use crate::i18n::tr;
 
-/// The README on GitHub, which is UIDM's manual.
-pub const MANUAL: &str = "https://github.com/tajbinkhan/uidm#readme";
+/// The README on GitHub, which is Pullbay's manual.
+pub const MANUAL: &str = "https://github.com/tajbinkhan/pullbay#readme";
 /// Its section on queues and their schedules.
-pub const SCHEDULER: &str = "https://github.com/tajbinkhan/uidm#queues-and-the-scheduler";
-/// Its section on which browser downloads UIDM takes: the capture rules.
-pub const CAPTURE: &str = "https://github.com/tajbinkhan/uidm#what-the-extension-does-and-does-not-take";
+pub const SCHEDULER: &str = "https://github.com/tajbinkhan/pullbay#queues-and-the-scheduler";
+/// Its section on which browser downloads Pullbay takes: the capture rules.
+pub const CAPTURE: &str = "https://github.com/tajbinkhan/pullbay#what-the-extension-does-and-does-not-take";
 /// Its section on the site grabber.
-pub const GRABBER: &str = "https://github.com/tajbinkhan/uidm#streams-batches-and-the-site-grabber";
+pub const GRABBER: &str = "https://github.com/tajbinkhan/pullbay#streams-batches-and-the-site-grabber";
 /// Its first steps: opening the window, sending downloads from the browser,
 /// and the toolbar, menus and options from there.
-pub const TUTORIALS: &str = "https://github.com/tajbinkhan/uidm#use";
-/// UIDM's home page.
-pub const HOME: &str = "https://github.com/tajbinkhan/uidm";
+pub const TUTORIALS: &str = "https://github.com/tajbinkhan/pullbay#use";
+/// Pullbay's home page.
+pub const HOME: &str = "https://github.com/tajbinkhan/pullbay";
 /// Where to report a problem or ask for help.
-pub const SUPPORT: &str = "https://github.com/tajbinkhan/uidm/issues";
+pub const SUPPORT: &str = "https://github.com/tajbinkhan/pullbay/issues";
 
 /// The tips, one shown at a time.
 pub const TIPS: [&str; 10] = [
-    "Hold Alt while clicking a link to keep its download in the browser, or Ctrl to send any link to UIDM. Options > Browser capture sets the keys.",
-    "Right-click a link in the browser and choose Download later with UIDM to add it to a queue without starting it.",
+    "Hold Alt while clicking a link to keep its download in the browser, or Ctrl to send any link to Pullbay. Options > Browser capture sets the keys.",
+    "Right-click a link in the browser and choose Download later with Pullbay to add it to a queue without starting it.",
     "A queue can start on a schedule and put the computer to sleep or shut it down when it is done. Downloads > Scheduler sets one up.",
     "Tasks > Run site grabber finds the files of a type that a site links to, such as every PDF in its manuals.",
-    "The video button over a playing video lists the qualities the page loaded. Pick one, and UIDM downloads it as one file.",
+    "The video button over a playing video lists the qualities the page loaded. Pick one, and Pullbay downloads it as one file.",
     "Tasks > Add batch download downloads a numbered series, such as photo[001-120].jpg, or a list of addresses you paste.",
     "Ctrl+F finds a download in the list by its name or address.",
     "Options > Connection sets a proxy, and the logins for sites that ask for one.",

@@ -1,7 +1,7 @@
-// Renders assets/icon.svg into every icon file UIDM ships:
+// Renders assets/icon.svg into every icon file Pullbay ships:
 // extension/icons/{16,32,48,128}.png, assets/icon-256.png, assets/icon-1024.png
 // and assets/icon-64.rgba (the window and tray icon, raw RGBA). Run
-// make-icon.js afterwards to pack installer/uidm.ico.
+// make-icon.js afterwards to pack installer/pullbay.ico.
 //
 // It draws the SVG on a canvas in headless Chrome. Set CHROME to the browser
 // when it is not in its usual Windows place.
@@ -40,7 +40,7 @@ img.onload = () => {
 img.src = "data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}";
 </script></body>`;
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uidm-icon-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pullbay-icon-"));
 const html = path.join(dir, "render.html");
 fs.writeFileSync(html, page);
 const dom = execFileSync(

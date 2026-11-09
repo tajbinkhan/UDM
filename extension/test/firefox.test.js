@@ -11,7 +11,7 @@ const { makeFirefox, checkFirefox } = require("../../installer/make-firefox.js")
 
 // A fresh Firefox copy in a new temporary folder, removed after the test.
 function freshCopy(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uidm-firefox-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pullbay-firefox-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const out = path.join(dir, "firefox");
   makeFirefox(out);

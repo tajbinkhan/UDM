@@ -9,9 +9,9 @@
 //! taskbar too. On Linux, closing the window to the tray closes it for real,
 //! and showing it opens a new one (see `reopen`).
 
+use pullbay_domain::sync::LockExt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
-use uidm_domain::sync::LockExt;
 
 use eframe::egui;
 
@@ -42,7 +42,7 @@ pub fn wake() {
     show();
 }
 
-/// Whether one of UIDM's own windows is in front. Not known here, so a
+/// Whether one of Pullbay's own windows is in front. Not known here, so a
 /// dialog that opens on its own takes the focus, as before.
 pub fn in_front() -> bool {
     true

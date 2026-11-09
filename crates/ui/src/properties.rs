@@ -8,8 +8,8 @@
 use std::path::Path;
 
 use eframe::egui;
-use uidm_domain::download::{DownloadEntry, DownloadLogin, OnDone, Properties, Status};
-use uidm_domain::id::DownloadId;
+use pullbay_domain::download::{DownloadEntry, DownloadLogin, OnDone, Properties, Status};
+use pullbay_domain::id::DownloadId;
 
 use crate::i18n::{tr, trf};
 
@@ -270,7 +270,7 @@ pub fn dialog(
 /// A file's type for people: what Windows calls it and its extension, such
 /// as "PDF Document (.pdf)".
 fn type_text(name: &str) -> String {
-    match uidm_domain::settings::extension_of(name) {
+    match pullbay_domain::settings::extension_of(name) {
         Some(ext) => match super::win::file_type_name(&ext) {
             Some(kind) => format!("{kind} (.{ext})"),
             None => format!(".{ext}"),
@@ -282,7 +282,7 @@ fn type_text(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::bytes::ByteCount;
+    use pullbay_domain::bytes::ByteCount;
 
     #[test]
     fn the_type_names_the_extension() {

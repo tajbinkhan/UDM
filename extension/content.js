@@ -1,7 +1,7 @@
-// UIDM's video button: a small "Download video" button over a playing video
+// Pullbay's video button: a small "Download video" button over a playing video
 // or audio player (or an <object>/<embed> one).
 // Clicking it lists what the page loaded (qualities, sizes) and sends the
-// choice to UIDM through the service worker.
+// choice to Pullbay through the service worker.
 //
 // This runs on every page, so it stays small and out of the way: it does
 // nothing until a video plays, never touches the page's own elements or
@@ -10,12 +10,12 @@
 // through Encrypted Media Extensions is DRM protected: the menu says so and
 // offers nothing.
 
-// A tab open when UIDM was installed or connected gets this script from the
+// A tab open when Pullbay was installed or connected gets this script from the
 // worker (injectOpenTabs, in background.js), which skips frames that have
 // it; should a frame get it twice anyway, the second copy does nothing, so
 // nothing listens twice.
-var uidmContentAgain = globalThis.uidmContentLoaded === true;
-globalThis.uidmContentLoaded = true;
+var pullbayContentAgain = globalThis.pullbayContentLoaded === true;
+globalThis.pullbayContentLoaded = true;
 
 // What this page calls itself, for naming its videos (videoName, in
 // media.js): its title, og:title and og:site_name. The worker asks the top
@@ -30,10 +30,10 @@ function pageNames() {
 
 // The video button's "?": the README's part on streams and the video
 // button.
-var VIDEO_HELP = "https://github.com/tajbinkhan/uidm#streams-batches-and-the-site-grabber";
+var VIDEO_HELP = "https://github.com/tajbinkhan/pullbay#streams-batches-and-the-site-grabber";
 
 // The mini view's button face: a down arrow, drawn without page text.
-function uidmArrow() {
+function pullbayArrow() {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
   svg.setAttribute("viewBox", "0 0 16 16");
@@ -55,19 +55,19 @@ function uidmArrow() {
 // its accessible name.
 function makeMini(button) {
   const label = button.textContent;
-  button.replaceChildren(uidmArrow());
+  button.replaceChildren(pullbayArrow());
   button.title = label;
   button.setAttribute("aria-label", label);
   button.classList.add("mini");
 }
 
 // The skip and force keys: a link clicked with the skip keys held downloads
-// in the browser; one clicked with the force keys goes to UIDM instead of
-// opening. The keys come from UIDM's settings, which the worker keeps in
+// in the browser; one clicked with the force keys goes to Pullbay instead of
+// opening. The keys come from Pullbay's settings, which the worker keeps in
 // storage, so a click is handled at once. rules.js (loaded first) matches
 // them.
 (() => {
-  if (uidmContentAgain) return;
+  if (pullbayContentAgain) return;
   // The capture_* key settings; none until they arrive.
   let keys = {};
   chrome.storage.local.get("captureKeys").then((s) => s.captureKeys && (keys = s.captureKeys)).catch(() => {});
@@ -154,7 +154,7 @@ function makeMini(button) {
 // sent: the browser shares a multipart form's text fields with extensions
 // but not its files, so a download the form starts is rebuilt without
 // them, or left in the browser when a file goes along (see post.js).
-if (!uidmContentAgain) document.addEventListener(
+if (!pullbayContentAgain) document.addEventListener(
   "submit",
   (ev) => {
     const form = ev.target;
@@ -184,7 +184,7 @@ function selectionHasLinks(sel) {
 // described when it is the menu's link. The top frame also says what the
 // page calls itself (pageNames).
 (() => {
-  if (uidmContentAgain) return;
+  if (pullbayContentAgain) return;
   let menuLink = null;
   document.addEventListener(
     "contextmenu",
@@ -215,11 +215,11 @@ function selectionHasLinks(sel) {
 })();
 
 // The selection button: selecting text that holds links (or bare web
-// addresses) shows a small "Download with UIDM" button by the selection.
-// It opens UIDM's link picker with just those links. Whether it shows at
+// addresses) shows a small "Download with Pullbay" button by the selection.
+// It opens Pullbay's link picker with just those links. Whether it shows at
 // all is asked once, on the first such selection.
 (() => {
-  if (uidmContentAgain) return;
+  if (pullbayContentAgain) return;
   let enabled = null;
   let view = "full";
   let host = null;
@@ -238,7 +238,7 @@ function selectionHasLinks(sel) {
       button.mini { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 50%; }
     `;
     button = document.createElement("button");
-    button.textContent = chrome.i18n.getMessage("downloadWithUidm");
+    button.textContent = chrome.i18n.getMessage("downloadWithPullbay");
     if (view === "mini") makeMini(button);
     // Keep the selection: a press would otherwise clear it.
     button.addEventListener("mousedown", (ev) => ev.preventDefault());
@@ -286,7 +286,7 @@ function selectionHasLinks(sel) {
 })();
 
 (() => {
-  if (uidmContentAgain) return;
+  if (pullbayContentAgain) return;
   // Frames too small to hold a video (trackers, widgets) are skipped.
   if (window.top !== window && innerWidth < 200) return;
 
@@ -298,7 +298,7 @@ function selectionHasLinks(sel) {
   let ui = null;
   let current = null; // the player the button belongs to
   let hideTimer = 0;
-  let closeTimer = 0; // closes the menu after "Sent to UIDM"
+  let closeTimer = 0; // closes the menu after "Sent to Pullbay"
   let frame = 0;
   // While the button shows, where it stands is looked at again now and
   // then: a dialog may open over the player without a scroll or resize.
@@ -532,7 +532,7 @@ function selectionHasLinks(sel) {
     const answer = await ask({ type: "video:menu", element: idOf(current), srcs: sources(current) });
     menu.replaceChildren();
     if (!answer || !answer.connected) {
-      menu.append(el("div", "note", chrome.i18n.getMessage("uidmNotConnected")));
+      menu.append(el("div", "note", chrome.i18n.getMessage("pullbayNotConnected")));
       return;
     }
     if (answer.items.length === 0) {
@@ -580,7 +580,7 @@ function selectionHasLinks(sel) {
               subtitles: subs.length && !o.audioOnly ? [...picked] : undefined,
               ...pageNames(),
             });
-            const result = sent && sent.ok ? chrome.i18n.getMessage("sentToUidm") : chrome.i18n.getMessage("couldNotReachUidm");
+            const result = sent && sent.ok ? chrome.i18n.getMessage("sentToPullbay") : chrome.i18n.getMessage("couldNotReachPullbay");
             menu.replaceChildren(el("div", "head", result));
             closeTimer = setTimeout(() => (menu.hidden = true), 1500);
           }),

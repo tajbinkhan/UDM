@@ -1,5 +1,5 @@
-use uidm_domain::ports::{Clock, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore};
-use uidm_domain::queue::ScheduleStep;
+use pullbay_domain::ports::{Clock, DownloadControl, DownloadList, QueueRuns, QueueSounds, QueueStore};
+use pullbay_domain::queue::ScheduleStep;
 
 use super::{StartQueue, StopQueue};
 
@@ -62,9 +62,9 @@ where
 mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, FixedClock, Queues, Runs, Sounds, FIXED_NOW};
-    use uidm_domain::download::Status;
-    use uidm_domain::id::{DownloadId, QueueId};
-    use uidm_domain::queue::{Moment, Queue, Schedule, StopReason};
+    use pullbay_domain::download::Status;
+    use pullbay_domain::id::{DownloadId, QueueId};
+    use pullbay_domain::queue::{Moment, Queue, Schedule, StopReason};
 
     fn every_day_at(start: &str, stop: Option<&str>) -> Schedule {
         Schedule {

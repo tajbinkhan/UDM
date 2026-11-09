@@ -1,7 +1,7 @@
-use uidm_domain::address::Link;
-use uidm_domain::download::{DownloadError, Status};
-use uidm_domain::id::DownloadId;
-use uidm_domain::ports::{DownloadControl, DownloadFiles, DownloadList};
+use pullbay_domain::address::Link;
+use pullbay_domain::download::{DownloadError, Status};
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::ports::{DownloadControl, DownloadFiles, DownloadList};
 
 /// Start a finished or stopped download again from the first byte, under
 /// the same id, so it keeps its place and description. It goes to the same
@@ -50,7 +50,7 @@ impl<'a, D: DownloadList, X: DownloadControl, F: DownloadFiles> Redownload<'a, D
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Files};
-    use uidm_domain::bytes::ByteCount;
+    use pullbay_domain::bytes::ByteCount;
 
     #[test]
     fn a_stopped_download_starts_over_under_its_id() {

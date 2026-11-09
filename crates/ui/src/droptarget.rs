@@ -5,14 +5,14 @@
 //! browser's `UniformResourceLocatorW` format, else plain text).
 //!
 //! Drag the window to move it; its place is remembered. Double-click it to
-//! open UIDM; right-click it to close it.
+//! open Pullbay; right-click it to close it.
 
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use uidm_domain::sync::LockExt;
+use pullbay_domain::sync::LockExt;
 
 use crate::i18n::tr;
 
@@ -245,7 +245,7 @@ pub fn links_in(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for word in text.split_whitespace() {
         let word = word.trim_matches(['"', '\'', '<', '>']);
-        if uidm_domain::batch::is_download_url(word) && !out.iter().any(|w: &String| w == word) {
+        if pullbay_domain::batch::is_download_url(word) && !out.iter().any(|w: &String| w == word) {
             out.push(word.to_string());
         }
     }
@@ -258,7 +258,7 @@ fn run() {
     unsafe {
         OleInitialize(ptr::null_mut());
         let instance = GetModuleHandleW(ptr::null());
-        let class = wide("UidmDropTarget");
+        let class = wide("PullbayDropTarget");
         let wc = WndClass {
             style: 0,
             proc_: window_proc,
@@ -275,7 +275,7 @@ fn run() {
         // Bottom right of the screen the first time.
         let (x, y) =
             saved_place().unwrap_or_else(|| (GetSystemMetrics(0) - WIDTH - 40, GetSystemMetrics(1) - HEIGHT - 80));
-        let title = wide(tr("UIDM drop target"));
+        let title = wide(tr("Pullbay drop target"));
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class.as_ptr(),
@@ -351,7 +351,7 @@ extern "system" fn window_proc(hwnd: Hwnd, msg: u32, wparam: usize, lparam: isiz
                 DeleteObject(brush);
                 SetBkMode(hdc, TRANSPARENT);
                 SetTextColor(hdc, 0x00FF_FFFF);
-                let text = wide(tr("Drop links here\nfor UIDM"));
+                let text = wide(tr("Drop links here\nfor Pullbay"));
                 DrawTextW(hdc, text.as_ptr(), -1, &mut r, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
                 EndPaint(hwnd, &ps);
                 0
@@ -514,7 +514,7 @@ mod tests {
     }
 
     /// Opens a real window on the desktop, so it is left out of the usual
-    /// run: `cargo test --bin uidm-gui -- --ignored`.
+    /// run: `cargo test --bin pullbay-gui -- --ignored`.
     #[test]
     #[ignore]
     fn the_window_opens_and_closes() {

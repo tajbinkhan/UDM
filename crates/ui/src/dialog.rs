@@ -1,4 +1,4 @@
-//! Dialogs as windows of their own, like the Win32 dialogs UIDM's layout
+//! Dialogs as windows of their own, like the Win32 dialogs Pullbay's layout
 //! follows, instead of panels drawn inside the main window. `Window` takes
 //! the same builder calls as `egui::Window`, so a dialog moves over by
 //! changing one name. Each opens centered on the main window and sizes
@@ -47,7 +47,7 @@ pub enum Opening {
     /// Stays on top of other windows until closed but leaves the focus with
     /// another program in front, as IDM's save-as and completion dialogs
     /// do. A dialog that opens on its own then takes no typing meant for
-    /// that program. With UIDM itself in front (a link added in the main
+    /// that program. With Pullbay itself in front (a link added in the main
     /// window) it takes the focus.
     OnTop,
     /// Opens behind the program in front, without the focus.
@@ -148,7 +148,7 @@ impl<'o> Window<'o> {
         self
     }
 
-    /// The width of the dialog UIDM's layout follows, in dialog units.
+    /// The width of the dialog Pullbay's layout follows, in dialog units.
     pub fn dlu_width(self, width: f32) -> Self {
         self.min_width(width * DLU_X)
     }

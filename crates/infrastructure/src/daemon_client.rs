@@ -1,20 +1,20 @@
 //! The window's connection to the daemon: the adapter for
-//! `uidm_application::daemon::DaemonClient` over `ipc` and `protocol`.
+//! `pullbay_application::daemon::DaemonClient` over `ipc` and `protocol`.
 //!
 //! It connects (starting or restarting the daemon as `ipc` does, with its
 //! handshake), introduces itself, maps each `Command` to an `Incoming`
 //! frame and each `Outgoing` frame to an `Event`, and says when the
 //! connection goes.
 
+use pullbay_domain::sync::LockExt;
 use std::io::{self, ErrorKind};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
-use uidm_domain::sync::LockExt;
 
-use uidm_application::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
-use uidm_domain::download::CommandLine;
+use pullbay_application::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
+use pullbay_domain::download::CommandLine;
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::ipc;
@@ -152,10 +152,10 @@ fn for_window(event: &Event) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pullbay_application::daemon::Failure;
+    use pullbay_domain::id::DownloadId;
     use std::net::TcpListener;
     use std::sync::mpsc::{channel, Receiver};
-    use uidm_application::daemon::Failure;
-    use uidm_domain::id::DownloadId;
 
     /// A pretend daemon on a local port: it hands each accepted
     /// connection to `serve`.

@@ -1,4 +1,4 @@
-//! UIDM: a download manager rebuilt in Rust.
+//! Pullbay: a download manager rebuilt in Rust.
 //!
 //! - `protocol`: message types and the length-prefixed JSON framing shared by
 //!   browser <-> host and host <-> daemon.
@@ -55,6 +55,7 @@ pub mod dpapi;
 pub mod elevate;
 pub mod engine;
 pub mod files;
+pub mod from_uidm;
 pub mod front;
 pub mod grab;
 pub mod history;

@@ -1,5 +1,5 @@
 // Packs the extension's PNG icons and assets/icon-256.png into
-// installer/uidm.ico, the icon of the setup program, its shortcuts and its
+// installer/pullbay.ico, the icon of the setup program, its shortcuts and its
 // entry in Installed apps. Windows reads PNG images inside an .ico directly.
 //
 //   node installer/make-icon.js
@@ -35,6 +35,6 @@ const entries = images.map((png) => {
   return e;
 });
 
-const out = path.join(__dirname, "uidm.ico");
+const out = path.join(__dirname, "pullbay.ico");
 fs.writeFileSync(out, Buffer.concat([header, ...entries, ...images]));
 console.log(`wrote ${out} (${offset} bytes)`);

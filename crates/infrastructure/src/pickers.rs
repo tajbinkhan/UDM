@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use uidm_application::window::{FileKind, FilePicker};
+use pullbay_application::window::{FileKind, FilePicker};
 
 /// The system's file and folder dialogs.
 pub struct NativePicker;

@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use crate::engine::{DownloadRequest, Progress};
 use crate::protocol::Outgoing;
-use uidm_domain::download::Download;
-use uidm_domain::settings::Settings;
+use pullbay_domain::download::Download;
+use pullbay_domain::settings::Settings;
 
 /// Largest frame accepted on any channel. Chrome caps host messages at 1 MiB;
 /// a little headroom lets an oversized frame fail cleanly.

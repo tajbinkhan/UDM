@@ -1,5 +1,5 @@
-use uidm_domain::id::DownloadId;
-use uidm_domain::ports::{Converter, DownloadControl, DownloadList};
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::ports::{Converter, DownloadControl, DownloadList};
 
 /// How [`CancelDownload`] stopped a row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +42,7 @@ impl<'a, D: DownloadList, X: DownloadControl, C: Converter> CancelDownload<'a, D
 mod tests {
     use super::*;
     use crate::memory::{Control, Convert, Downloads};
-    use uidm_domain::download::Status;
+    use pullbay_domain::download::Status;
 
     #[test]
     fn each_kind_of_row_stops_its_own_way() {

@@ -1,17 +1,17 @@
 [package]
-name = "uidm-infrastructure"
-description = "UIDM's adapters: download engine, protocol, storage, IPC and OS integration"
+name = "pullbay-infrastructure"
+description = "Pullbay's adapters: download engine, protocol, storage, IPC and OS integration"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# The old `uidm` library, moved here unchanged. It still holds domain rules
+# The old `pullbay` library, moved here unchanged. It still holds domain rules
 # next to its I/O; AGENTS.md section 16 tracks what moves out.
 [dependencies]
-uidm-domain.workspace = true
-# Only for the ports `uidm-application` defines (AGENTS.md section 3): the
+pullbay-domain.workspace = true
+# Only for the ports `pullbay-application` defines (AGENTS.md section 3): the
 # window's daemon connection (`daemon_client`).
-uidm-application.workspace = true
+pullbay-application.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # OS randomness for the daemon's per-start auth token and handshake nonces.

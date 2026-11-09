@@ -1,5 +1,5 @@
 [
-  "&About UIDM",
+  "&About Pullbay",
   "&Add new download",
   "&Arrange files",
   "&Choose Font...",
@@ -53,7 +53,7 @@
   "Complete",
   "Dark Mode support",
   "Delete Completed",
-  "Disconnected from the UIDM daemon: {reason}",
+  "Disconnected from the Pullbay daemon: {reason}",
   "Do&n't show",
   "Download Now",
   "E&xport...",
@@ -102,13 +102,13 @@
   "Stop the daemon if it is running, then start it again. Downloads it was running resume.",
   "Stop the main queue, or pick a queue from the arrow",
   "Stop the selected downloads",
-  "The running UIDM daemon is older than this window, so it did not understand a request. Restart the daemon to run the new one.",
+  "The running Pullbay daemon is older than this window, so it did not understand a request. Restart the daemon to run the new one.",
   "This queue is empty. Use Download Later, or a download's Move to queue menu, to add one.",
   "Tip of the &Day...",
   "Tray &icon",
   "Turn o&n",
   "Turn of&f",
-  "UIDM &Home Page",
+  "Pullbay &Home Page",
   "Unfinished",
   "Use authorization"
 ]

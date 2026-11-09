@@ -1,5 +1,5 @@
-use uidm_domain::ports::QuotaState;
-use uidm_domain::quota::{self, QuotaLimit, QuotaNotice};
+use pullbay_domain::ports::QuotaState;
+use pullbay_domain::quota::{self, QuotaLimit, QuotaNotice};
 
 /// The quota's state for a window that just connected: shown when
 /// downloads are paused for it, or when it is nearly reached and the user
@@ -30,7 +30,7 @@ impl<'a, U: QuotaState> QuotaStatus<'a, U> {
 mod tests {
     use super::*;
     use crate::memory::Quota;
-    use uidm_domain::bytes::ByteCount;
+    use pullbay_domain::bytes::ByteCount;
 
     const LIMIT: QuotaLimit = QuotaLimit { bytes: ByteCount::new(1000), window: 60, warn: true };
 

@@ -1,6 +1,6 @@
-use uidm_domain::download::Status;
-use uidm_domain::id::DownloadId;
-use uidm_domain::ports::{DownloadControl, DownloadList, QueueFinish, QueueRuns, QueueStore, SyncChecks};
+use pullbay_domain::download::Status;
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::ports::{DownloadControl, DownloadList, QueueFinish, QueueRuns, QueueStore, SyncChecks};
 
 use super::FinishRun;
 
@@ -93,8 +93,8 @@ where
 mod tests {
     use super::*;
     use crate::memory::{Checks, Control, Downloads, Finish, Queues, Runs};
-    use uidm_domain::id::QueueId;
-    use uidm_domain::queue::{Queue, QueueKind, MAIN_QUEUE};
+    use pullbay_domain::id::QueueId;
+    use pullbay_domain::queue::{Queue, QueueKind, MAIN_QUEUE};
 
     fn running(order: &[u64], max: usize) -> Queues {
         let queues = Queues::main();

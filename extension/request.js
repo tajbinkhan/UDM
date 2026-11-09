@@ -6,7 +6,7 @@
 // frames with webRequest: the headers the browser sent, the redirects it
 // followed and what the response said (its size, type and name). These
 // functions keep that record, tell a response that is a download from a
-// page, and read the browser's proxy setting, so UIDM can repeat the
+// page, and read the browser's proxy setting, so Pullbay can repeat the
 // request as the browser made it.
 
 // How long a recorded request can match a download, and how many are kept.
@@ -138,11 +138,11 @@ function pruneRequests(log, now) {
   }
 }
 
-// Headers that never go to UIDM: cookies travel in their own field, and
+// Headers that never go to Pullbay: cookies travel in their own field, and
 // pseudo-headers are not headers.
 const UNSENT_HEADERS = new Set(["cookie"]);
 
-// What a recorded request adds to UIDM's "add" message: the headers the
+// What a recorded request adds to Pullbay's "add" message: the headers the
 // browser sent, its redirects, and the response's size and type.
 function requestDetails(record) {
   const out = {};
@@ -221,7 +221,7 @@ function firefoxProxyUrl(scheme, address, defaultPort) {
 }
 
 // The browser's proxy setting (chrome.proxy.settings' value, or Firefox's
-// browser.proxy.settings') as UIDM's `browser_proxy`: { mode, http, https,
+// browser.proxy.settings') as Pullbay's `browser_proxy`: { mode, http, https,
 // socks, pac_url, pac_script, bypass }, mode one of "direct", "fixed",
 // "pac", "auto_detect" and "system". Undefined when it cannot be read.
 function proxySetting(value) {
@@ -270,7 +270,7 @@ function proxySetting(value) {
       const single = chromeProxyUrl(rules.singleProxy);
       const fallback = chromeProxyUrl(rules.fallbackProxy);
       const socksOf = (u) => (u && u.startsWith("socks") ? u : undefined);
-      // A SOCKS proxy for one scheme stays there; UIDM sends that scheme
+      // A SOCKS proxy for one scheme stays there; Pullbay sends that scheme
       // through it.
       return drop({
         mode: "fixed",
@@ -289,7 +289,7 @@ function proxySetting(value) {
 
 // Hides the browser's download bubble (Chrome's downloads.setUiOptions)
 // while a download is taken from it, so it does not flash up for a file
-// UIDM downloads. `setEnabled(bool)` shows or hides it. Each hold() is
+// Pullbay downloads. `setEnabled(bool)` shows or hides it. Each hold() is
 // matched by a release(); the bubble comes back when none are left, or
 // after `holdMs` whatever happens, so it is never left hidden.
 function bubbleGate(setEnabled, holdMs = 10000) {

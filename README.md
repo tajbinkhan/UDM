@@ -1,4 +1,4 @@
-# UIDM
+# Pullbay
 
 A download manager for Windows, macOS and Linux, rebuilt from scratch in
 Rust. It catches downloads in Chrome, Edge, Firefox and other browsers, fetches each file over parallel connections,
@@ -10,30 +10,48 @@ pattern, a list or a site crawl, and watches the clipboard for links.
 ## Install
 
 Every release on the
-[Releases page](https://github.com/tajbinkhan/uidm/releases) has a file for
+[Releases page](https://github.com/tajbinkhan/pullbay/releases) has a file for
 each system:
 
 | System | File | |
 |---|---|---|
-| Windows 10 and 11 | `UIDM-Setup-<version>.exe` | the installer, below |
-| | `UIDM-<version>-windows-portable.zip` | the programs and `install-host.ps1` |
-| macOS 11 or later | `UIDM-<version>-macos.dmg` | Apple Silicon and Intel |
-| Ubuntu, Debian, Mint | `uidm_<version>_amd64.deb` | `sudo apt install ./uidm_*.deb` |
-| Fedora, openSUSE, RHEL | `uidm-<version>-1.x86_64.rpm` | `sudo dnf install ./uidm-*.rpm` |
-| Any Linux | `UIDM-<version>-x86_64.AppImage` | make it executable and run it |
-| | `uidm-<version>-linux-x86_64.tar.gz` | unpack and run `./install.sh` |
+| Windows 10 and 11 | `Pullbay-Setup-<version>.exe` | the installer, below |
+| | `Pullbay-<version>-windows-portable.zip` | the programs and `install-host.ps1` |
+| macOS 11 or later | `Pullbay-<version>-macos.dmg` | Apple Silicon and Intel |
+| Ubuntu, Debian, Mint | `pullbay_<version>_amd64.deb` | `sudo apt install ./pullbay_*.deb` |
+| Fedora, openSUSE, RHEL | `pullbay-<version>-1.x86_64.rpm` | `sudo dnf install ./pullbay-*.rpm` |
+| Any Linux | `Pullbay-<version>-x86_64.AppImage` | make it executable and run it |
+| | `pullbay-<version>-linux-x86_64.tar.gz` | unpack and run `./install.sh` |
 
 The Linux files need glibc 2.35 and OpenSSL 3 (Ubuntu 22.04, Debian 12,
 Fedora 36 or newer) and GTK 3. The tray icon needs
 `libayatana-appindicator3` (and on GNOME the AppIndicator extension);
 notifications use `notify-send`. [Build](#build) says how the files are made.
 
+### Coming from UIDM
+
+Pullbay was called UIDM up to version 0.3.3. Install Pullbay over it: the
+first time a Pullbay program starts, it moves UIDM's settings, download
+list and logs into Pullbay's folders. It also replaces UIDM's browser
+registrations and its start-at-sign-in entry with Pullbay's. Half-finished
+downloads resume.
+
+- **Windows**: Setup closes UIDM, installs into a `Pullbay` folder beside
+  UIDM's, and removes UIDM's folder and shortcuts.
+- **Debian, Ubuntu, Fedora**: the `pullbay` package replaces the `uidm`
+  one. `install.sh` removes UIDM's copy in `~/.local`.
+- **macOS and AppImage**: delete `UIDM.app` or the UIDM AppImage yourself.
+
+The browser extension has to be loaded again, because UIDM's went with its
+folder. Remove the UIDM extension, then load Pullbay's as described below.
+It keeps the same ID. In Firefox it has a new ID, `pullbay@pullbay.local`.
+
 ### Windows
 
-Run `UIDM-Setup-<version>.exe`. It installs for your user only, without administrator rights, into
-`%LOCALAPPDATA%\Programs\UIDM`. It registers UIDM with Chrome, Edge and
+Run `Pullbay-Setup-<version>.exe`. It installs for your user only, without administrator rights, into
+`%LOCALAPPDATA%\Programs\Pullbay`. It registers Pullbay with Chrome, Edge and
 Firefox, adds
-**UIDM** to the Start menu (and, if you tick it, the desktop), and lists UIDM
+**Pullbay** to the Start menu (and, if you tick it, the desktop), and lists Pullbay
 under **Installed apps**. Setup is not code-signed, so Windows SmartScreen
 may warn before it runs.
 
@@ -44,8 +62,8 @@ under [Build](#build), run this from this folder:
 .\install-host.ps1
 ```
 
-That builds the three programs if needed, registers UIDM with Chrome, Edge and
-Firefox, makes the Firefox copy of the extension, and adds **UIDM** to the
+That builds the three programs if needed, registers Pullbay with Chrome, Edge and
+Firefox, makes the Firefox copy of the extension, and adds **Pullbay** to the
 Start menu.
 
 Either way, load the extension once:
@@ -60,9 +78,9 @@ Either way, load the extension once:
 
 After updating, reload the extension on the extensions page. It asks for
 `webRequest` (to send downloads started by a form as the same POST, to send
-UIDM the browser's whole request, and to notice the videos a page loads),
+Pullbay the browser's whole request, and to notice the videos a page loads),
 `webNavigation` (to find the frame a link in an `about:blank` frame belongs
-to), `downloads.ui` (to keep the download bubble hidden for a download UIDM
+to), `downloads.ui` (to keep the download bubble hidden for a download Pullbay
 takes) and `proxy` (to read the browser's proxy setting, which it never
 changes), in addition to native messaging, downloads, cookies, context
 menus, storage, scripting and notifications. A small
@@ -71,34 +89,34 @@ until a video plays.
 
 For streamed videos to end up as one `.mp4`, install
 [ffmpeg](https://ffmpeg.org/) and put `ffmpeg.exe` on `PATH`, or choose it in
-**Options > General**. Without it UIDM still downloads streams, as `.ts`
+**Options > General**. Without it Pullbay still downloads streams, as `.ts`
 files or as separate video and audio files.
 
 Videos on YouTube, Facebook, Instagram and Vimeo pages need
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) as well:
 `winget install yt-dlp.yt-dlp` installs it with ffmpeg and Deno, which
 yt-dlp uses to read YouTube's player. Setup offers to run that command for
-you when winget is there and yt-dlp is not. UIDM finds `yt-dlp.exe` on
-`PATH`, next to UIDM's programs or next to ffmpeg. Restart UIDM after
+you when winget is there and yt-dlp is not. Pullbay finds `yt-dlp.exe` on
+`PATH`, next to Pullbay's programs or next to ffmpeg. Restart Pullbay after
 installing it yourself, so it sees the new `PATH`.
 
-To remove UIDM, uninstall it from **Installed apps**. That closes UIDM if it
+To remove Pullbay, uninstall it from **Installed apps**. That closes Pullbay if it
 is running, removes the program, its browser registration, shortcuts, the
 **Start with Windows** entry and the notification registration, and asks
 whether to remove your settings and download list too. Installing a newer
-setup over an older one closes UIDM first and keeps your settings. With the
+setup over an older one closes Pullbay first and keeps your settings. With the
 script, `.\install-host.ps1 -Uninstall` removes what it added. Downloaded
 files are left alone either way.
 
-**Updates.** UIDM looks for a newer release on GitHub once a week (Options >
+**Updates.** Pullbay looks for a newer release on GitHub once a week (Options >
 General can turn that off), and **About** (which also shows the version,
 the copyright, and a support link to the issue tracker) checks on demand. When a newer
 release has a Setup attached, **Update now** (in About, and next to the
-notice in the status bar) has the daemon download `UIDM-Setup-<version>.exe`
+notice in the status bar) has the daemon download `Pullbay-Setup-<version>.exe`
 through your proxy settings, only from this repository's release downloads.
 It checks the file's size, that it is a Windows program, and its SHA-256
 when GitHub lists one, saves it to the temp folder and runs it with
-`/fromuidm=yes`. UIDM then stops its downloads, saves its list and quits;
+`/frompullbay=yes`. Pullbay then stops its downloads, saves its list and quits;
 Setup closes whatever is left without asking again and replaces the files.
 Stopped downloads resume from the list as usual. The notice's **×** hides it
 for that version (remembered in `window.json`); a newer release shows it
@@ -106,36 +124,36 @@ again.
 
 ### macOS
 
-Open the disk image and drag **UIDM** to **Applications**. UIDM is not
+Open the disk image and drag **Pullbay** to **Applications**. Pullbay is not
 signed with an Apple Developer ID, so the first time, right-click it in
 Applications, choose **Open**, then **Open** again (or allow it under
 **System Settings > Privacy & Security**). The extension folders are inside
-the app: in Finder, right-click UIDM, **Show Package Contents**, then
+the app: in Finder, right-click Pullbay, **Show Package Contents**, then
 `Contents/Resources/extension` (Chrome, Edge, Brave) or
 `Contents/Resources/firefox`. In Chrome's **Load unpacked** dialog,
-Cmd+Shift+G and `/Applications/UIDM.app/Contents/Resources/extension` gets
+Cmd+Shift+G and `/Applications/Pullbay.app/Contents/Resources/extension` gets
 there directly.
 
 ### Linux
 
 Install the `.deb` or `.rpm` with your package manager, or run the
 AppImage, or unpack the `.tar.gz` and run `./install.sh` (it installs into
-`~/.local` for your user; `./install.sh --remove` takes it away). UIDM is
-then among your applications, and `uidm` starts it from a terminal. The
-extension folders are `/usr/lib/uidm/extension` and `/usr/lib/uidm/firefox`
-for the packages, `~/.local/lib/uidm/...` for the archive, and inside the
-AppImage (`./UIDM-*.AppImage --appimage-extract` unpacks them).
+`~/.local` for your user; `./install.sh --remove` takes it away). Pullbay is
+then among your applications, and `pullbay` starts it from a terminal. The
+extension folders are `/usr/lib/pullbay/extension` and `/usr/lib/pullbay/firefox`
+for the packages, `~/.local/lib/pullbay/...` for the archive, and inside the
+AppImage (`./Pullbay-*.AppImage --appimage-extract` unpacks them).
 
 ### Browsers on macOS and Linux
 
-There is no Setup to register UIDM with the browsers, so the first time UIDM
+There is no Setup to register Pullbay with the browsers, so the first time Pullbay
 runs it registers itself with every browser it finds: Chrome, Edge,
 Firefox, Brave, Chromium and Vivaldi (Opera reads Chrome's). Each browser
-reads `com.uidm.host.json` from its own `NativeMessagingHosts` folder, such
+reads `com.pullbay.host.json` from its own `NativeMessagingHosts` folder, such
 as `~/.config/google-chrome/NativeMessagingHosts` or
 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts`.
 **Options > Browser capture** lists them to add or remove one later. When an
-AppImage moves, UIDM points the browsers at its new place the next time it
+AppImage moves, Pullbay points the browsers at its new place the next time it
 runs.
 
 Then load the extension as described for Windows above, from the folder for
@@ -144,7 +162,7 @@ your system.
 ### Firefox
 
 Firefox 128 or later loads the `firefox` folder, a copy of the extension with
-its own manifest and the ID `uidm@uidm.local`. Firefox runs background scripts
+its own manifest and the ID `pullbay@pullbay.local`. Firefox runs background scripts
 where Chrome runs a service worker, and Chrome warns about Firefox's keys, so
 the two cannot share one `manifest.json`. Setup and the macOS and Linux
 packages install the `firefox` folder next to `extension`. In a checkout it
@@ -157,7 +175,7 @@ update, then reload the add-on. To tell whether a copy is out of date,
 `node installer/make-firefox.js --check firefox` (or
 `.\installer\make-firefox.ps1 -Check firefox`) lists each file that differs,
 is missing or is extra, and fails if there is any; CI checks that both
-makers produce the same copy. Setup and `install-host.ps1` register UIDM with
+makers produce the same copy. Setup and `install-host.ps1` register Pullbay with
 Firefox (under
 `HKCU\Software\Mozilla\NativeMessagingHosts`, with a host manifest that names
 that ID). Until the extension is signed by Mozilla, load it for each Firefox
@@ -165,7 +183,7 @@ session:
 
 1. Open `about:debugging`, choose **This Firefox**, then **Load Temporary
    Add-on...**, and pick `manifest.json` in the `firefox` folder.
-2. In `about:addons`, open UIDM's **Permissions** and allow **Access your
+2. In `about:addons`, open Pullbay's **Permissions** and allow **Access your
    data for all websites**. Firefox asks for this separately; without it the
    video button, the selection button, form downloads and **Download all
    links** do not work, though plain downloads are still caught.
@@ -176,7 +194,7 @@ Known gaps in Firefox:
 - Firefox has no way to hide its download panel, as Chrome's `downloads.ui`
   does. It needs it less: it lets the extension cancel a download at its
   headers (`webRequestBlocking`, which only the Firefox copy asks for), so
-  a download UIDM takes there never starts in Firefox. One it only takes
+  a download Pullbay takes there never starts in Firefox. One it only takes
   later (a link with a `download` attribute, say) may show the panel.
 
 These were checked against a stand-in for the browser API in the extension's
@@ -184,28 +202,28 @@ tests, not in a running Firefox.
 
 ## Use
 
-- **Open the window** from the Start menu (**UIDM**), or run
-  `target\release\uidm-gui.exe`. It lists every download with its size,
+- **Open the window** from the Start menu (**Pullbay**), or run
+  `target\release\pullbay-gui.exe`. It lists every download with its size,
   progress, speed and time left. **Cancel** stops one and keeps the partial
   file; **Retry** resumes it; **Open** and **Show in folder** work on finished
   files; **Remove** takes a row off the list without deleting the file. Paste
   a URL at the top to add one.
-- **Download in the browser as usual.** While UIDM is connected, the extension
-  takes each download away from the browser and hands it to UIDM, cookies and
+- **Download in the browser as usual.** While Pullbay is connected, the extension
+  takes each download away from the browser and hands it to Pullbay, cookies and
   referrer included, so sign-in-protected files work. Right-click a link,
-  image, video or audio and choose **Download with UIDM** to send it directly.
-- **The toolbar popup** shows whether UIDM is connected, lists recent
+  image, video or audio and choose **Download with Pullbay** to send it directly.
+- **The toolbar popup** shows whether Pullbay is connected, lists recent
   downloads, takes a pasted URL, and has a **Capture downloads** switch. With
-  capture off, or while UIDM is not running, the browser keeps its own
+  capture off, or while Pullbay is not running, the browser keeps its own
   downloads. At its top, **Capture in this tab** turns capture off for the
   tab it was opened over only, as IDM's toolbar button does: that tab's
   downloads, forced links and web players' files stay with the browser, and
   its toolbar icon turns grey with an "X" badge until it is turned on again
-  or the tab closes. (IDM's button toggles on a click; UIDM's button keeps
+  or the tab closes. (IDM's button toggles on a click; Pullbay's button keeps
   opening the popup, which holds the rest of these features, so the switch
   is its first row.) Under **Downloading in the browser** it lists the browser's own
-  downloads in progress (ones it kept, or started before UIDM ran): **Send to
-  UIDM** cancels and erases the browser's copy and starts it in UIDM, with its
+  downloads in progress (ones it kept, or started before Pullbay ran): **Send to
+  Pullbay** cancels and erases the browser's copy and starts it in Pullbay, with its
   referrer, name and cookies, as a captured download. This stands in for
   IDM's menu on a started download, which Chrome does not let extensions
   add; it works the same in Firefox.
@@ -217,13 +235,13 @@ tests, not in a running Firefox.
   spot (saved to Options) and picks it. A **Description** typed here is kept
   with the download and shows in the list and in Properties. Change the name
   or folder, then **Start download**, **Download later** (it waits in the list with a
-  **Start** button) or **Cancel**. If the window is closed, UIDM opens it; if
+  **Start** button) or **Cancel**. If the window is closed, Pullbay opens it; if
   no window shows up within 20 seconds, the download starts as proposed.
   Options can turn the dialog off, or skip it for some file types
   (**Start these types without asking**, such as `exe, msi`; the type is
   checked again once the server names the file). **Start downloading while
   the save-as dialog is open** fetches the file while you decide, into a
-  folder of its own (`UIDM early` in the Windows temporary folder), and the
+  folder of its own (`Pullbay early` in the Windows temporary folder), and the
   dialog shows how much has come. Answering keeps those bytes: a finished
   file moves to the name and folder chosen, and an unfinished one carries on
   from where it got to (and **Download later** keeps it to carry on later).
@@ -237,28 +255,27 @@ tests, not in a running Firefox.
   even when only the main queue exists; its **+** adds a queue by name and
   chooses it. **Don't ask me again** makes that queue the
   answer for the dialog, **Later** and the browser's **Download later with
-  UIDM** alike, until **Download later puts files in** in Options changes
+  Pullbay** alike, until **Download later puts files in** in Options changes
   it. **Start the queue now** starts that queue as soon as **Download
   later** has put the download in it.
-- **When a file name is taken**, UIDM saves the new file as `name (1).ext`
+- **When a file name is taken**, Pullbay saves the new file as `name (1).ext`
   by default. Options (**If the file exists**) can make it overwrite the old
   file instead, or ask. With **Ask me**, the save-as dialog says the name is
   taken and offers **Save with a new name** or **Overwrite it**. This holds
   even with the dialog turned off: the download stops before writing anything
   and opens the dialog. If no window answers within 20 seconds, it gets a new
   name.
-- **When UIDM may not write to the folder** (one under `C:\Program Files`,
+- **When Pullbay may not write to the folder** (one under `C:\Program Files`,
   say), the save-as dialog opens even when it is turned off and says so.
   Pick another folder with **Browse...**, cancel, or tick **Save there with
   administrator rights** (Windows only). With that ticked, the download
-  still runs as you, in a staging folder (`UIDM\elevated-<id>` in the
+  still runs as you, in a staging folder (`Pullbay\elevated-<id>` in the
   temporary folder), and when it is done Windows asks for administrator
-  rights and a helper (`uidm-daemon --move-elevated`) moves the file into
+  rights and a helper (`pullbay-daemon --move-elevated`) moves the file into
   place. If you say No, the download fails with a message naming the
   finished file, which stays in the staging folder; starting it again asks
-  again without downloading it again. IDM does this with its elevated
-  helper, `idmfsa.dll`.
-- **When the address is already in the list**, UIDM asks by default: the
+  again without downloading it again.
+- **When the address is already in the list**, Pullbay asks by default: the
   save-as dialog (shown for this even when it is turned off) says which
   download has it and offers **Add it anyway** (with a new name if the old
   file is in the way), **Replace the old download** (it leaves the list and
@@ -295,7 +312,7 @@ tests, not in a running Firefox.
   there is General's even when a category lists it.
 - **Queues** hold downloads to run later. **Later** (next to Download), the
   save-as dialog's **Download later**, and the browser's **Download later
-  with UIDM** menu item add a download to a queue without opening a
+  with Pullbay** menu item add a download to a queue without opening a
   connection. Pick a queue in the sidebar to see its downloads in order, with
   **Up** and **Down** to reorder them, **Start**/**Stop** for the queue, and
   what happens when this run ends. A download's **Move to queue** menu moves
@@ -323,24 +340,24 @@ tests, not in a running Firefox.
   without one); the last start is saved, so a restart keeps the rhythm.
   Grabber projects have the same choice, and the same **Browse...** for the
   file to open when a run is done. The queue's header shows its next
-  run. If UIDM was not running at the start time, the queue starts as soon
+  run. If Pullbay was not running at the start time, the queue starts as soon
   as it is, while the time window is still open. The Queues dialog says so
   next to a schedule until **Don't show this again** hides the note.
   **Wake the computer to start** (on by default, for queues and grabber
   projects) sets a Windows wake timer, so a sleeping or hibernating PC
-  wakes 30 seconds before the start time, as IDM does. UIDM must be
+  wakes 30 seconds before the start time, as IDM does. Pullbay must be
   running, and the power plan must allow wake timers; the schedule shows a
   warning with the setting's location when it does not.
-- **When a queue is done**, UIDM can do nothing, exit, or put the computer to
+- **When a queue is done**, Pullbay can do nothing, exit, or put the computer to
   sleep, hibernate or shut it down, per queue or for the current run only.
   Sleeping, hibernating and shutting down wait for a 60-second countdown in
   the window, which **Cancel** stops and **Shut down now** (or **Sleep
   now**, **Hibernate now**) skips. **Force apps to close** shuts down even
   when a program asks to save its work first. Failed downloads count as
   finished, unless the queue retries them.
-- **The tray icon** keeps UIDM at hand. Closing the window hides it there;
+- **The tray icon** keeps Pullbay at hand. Closing the window hides it there;
   click the icon to bring it back. Its tooltip shows how many downloads run
-  and how fast, and its menu has **Open UIDM**, **Add URL from clipboard**,
+  and how fast, and its menu has **Open Pullbay**, **Add URL from clipboard**,
   **Add batch download from clipboard**, **Pause all**, **Resume all**, **Speed limit** and **Exit**. Exit closes the
   window; downloads keep going and the daemon stops on its own once idle.
   **Pause all** stops every queued and running download, keeping its partial
@@ -348,7 +365,7 @@ tests, not in a running Firefox.
   **View > Tray icon** picks the **Colored icon** or a **White icon** (a
   white silhouette of it, for a dark taskbar), or **Don't show**; the style
   changes at once and is kept with the window's layout.
-- **Start with Windows** (in Options) starts UIDM hidden in the tray when you
+- **Start with Windows** (in Options) starts Pullbay hidden in the tray when you
   sign in, ready for the browser. A download caught while the window is in
   the tray opens its save-as dialog on its own, as IDM's does. The save-as
   and completion dialogs have a taskbar button and stay on top of other
@@ -368,11 +385,11 @@ tests, not in a running Firefox.
   resume** (on by default; untick it to have the limit dropped when the
   download is stopped and resumed). The **When done** tab (also in
   **Properties**) sets what happens once this download finishes: show the
-  completion dialog whatever Options says, then exit UIDM, sleep, hibernate
+  completion dialog whatever Options says, then exit Pullbay, sleep, hibernate
   or shut down (after the same 60-second countdown a queue uses). It runs
   once, after the virus scan, and not for a download that fails.
   It opens whenever a download starts (**Options > General** can turn that
-  off), behind the program you are in, and opens even while UIDM is in the
+  off), behind the program you are in, and opens even while Pullbay is in the
   tray, without bringing up the main window. A download a queue starts opens
   its window hidden in the tray, as IDM's do. **Minimize** sends the window
   to the taskbar; **Hide** (shown while the tray icon is on) puts it in the
@@ -385,7 +402,7 @@ tests, not in a running Firefox.
   buttons themselves, and choose the tab the window opens on and whether it
   opens with its details shown. The window closes when the download
   finishes.
-- **When a download ends**, UIDM shows a Windows notification: **Open** and
+- **When a download ends**, Pullbay shows a Windows notification: **Open** and
   **Show in folder** for a finished file, **Retry** for a failed one. Options
   can show an IDM-style dialog in the window instead (a notification still
   appears if the window is not running), or nothing. **Options > When done >
@@ -407,7 +424,7 @@ tests, not in a running Firefox.
 - **New link** on a failed, canceled, interrupted or waiting download gives
   it a fresh link when the old one expired: paste the new address, or choose
   **Use my next download in the browser** and start the download again on its
-  web page; the extension hands that download to UIDM as the new link instead
+  web page; the extension hands that download to Pullbay as the new link instead
   of starting another. The part already downloaded is kept only if the new
   link is for the same file (same size, and the same ETag or Last-Modified
   when the server sends one); otherwise the window says why and asks before
@@ -422,7 +439,7 @@ tests, not in a running Firefox.
   retry one that failed. Site logins pair a site with a user name and
   password; a site can name one of its folders, such as
   `example.com/private/*`, to use another login there. When a server asks
-  for a login (HTTP Basic, Digest or NTLM), UIDM sends the matching one to that
+  for a login (HTTP Basic, Digest or NTLM), Pullbay sends the matching one to that
   site and no other. A saved login goes over plain http as Basic, or to an
   FTP server, only with its **Plain connections** box ticked, since there
   the password can be read on the way; a login saved from **Log in to the
@@ -442,17 +459,17 @@ tests, not in a running Firefox.
   until the page loads again. It also appears over `<audio>` players and `<object>`/`<embed>` media players (an
   audio player gets it just above). It lists what that player loaded:
   direct video and audio files with their sizes, and streams (HLS `.m3u8`,
-  DASH `.mpd`, HDS `.f4m`) with each quality UIDM read from the playlist and its
+  DASH `.mpd`, HDS `.f4m`) with each quality Pullbay read from the playlist and its
   estimated size; on a feed with many players each button lists its own
   player's streams, and the page's whole list when it cannot tell. The
   button hides while its player is covered by something else on the page,
   while the tab is in the background or its window minimized, and in full
-  screen. Pick one and UIDM downloads it, named after the page (its
+  screen. Pick one and Pullbay downloads it, named after the page (its
   `og:title`, else the tab's title, also for a player in a frame) without the
   site's name after it ("Cute cat - YouTube" becomes "Cute cat.mp4", on any
   site). A stream's segments are fetched in parallel
   and joined into one video (see [Streams](#streams-batches-and-the-site-grabber)).
-  Videos protected by DRM say so and offer nothing: UIDM does not get around
+  Videos protected by DRM say so and offer nothing: Pullbay does not get around
   DRM. The popup turns the button off everywhere or on the current site;
   **Options > Videos and menus** has the same switch and the site list, the
   video and audio types the button lists (with **Check all**, **Clear all**
@@ -460,14 +477,14 @@ tests, not in a running Firefox.
   (128 KB by default), a full or mini look for it and for the button by
   selected links, and whether it shows on protected videos to say so.
   **Web players** (off by default) hands a web player's media of the listed
-  types (MP4, M4V, WebM, FLV, MP3 and M4A at first) to UIDM as soon as the
+  types (MP4, M4V, WebM, FLV, MP3 and M4A at first) to Pullbay as soon as the
   page's `<video>` or `<audio>` loads it, without the button, as IDM's
   "automatically start downloading from web players" does: only whole
   files, not HLS or DASH streams, and each address once per tab.
-- **Context menu**: the extension adds **Download with UIDM**, **Download
-  later with UIDM**, **Download page with UIDM** (on a page or a frame: that
+- **Context menu**: the extension adds **Download with Pullbay**, **Download
+  later with Pullbay**, **Download page with Pullbay** (on a page or a frame: that
   page's own address, or the frame's), **Download all links**, **Download
-  selected links**, **Download the last video with UIDM** (the video or audio
+  selected links**, **Download the last video with Pullbay** (the video or audio
   the browser loaded last, in any tab, in its best quality) and **Recent
   videos**, a submenu of the last 10. **Options > Videos and menus** chooses
   which of them show, apart for Chromium browsers (Chrome, Edge and the like)
@@ -479,7 +496,7 @@ tests, not in a running Firefox.
   as it opens, so there it shows for every selection). When an item cannot
   do its job, a browser notice says so: no links found on the page or in the
   selection, a page the browser does not let extensions read, or **Cannot
-  reach UIDM** (with the browser's reason when it gave one; a link then
+  reach Pullbay** (with the browser's reason when it gave one; a link then
   downloads in the browser instead).
 - **More > Add many...** adds downloads from a pattern such as
   `https://example.com/photo[001-120].jpg` (with steps like `[0-100:5]` and
@@ -498,7 +515,7 @@ tests, not in a running Firefox.
 - **More > Import list... / Export list...** move the list to another
   computer or a backup: tick downloads in the list's first column to export
   only those, pick a queue to export the downloads waiting in it (in its
-  order), or export all, as a UIDM list (`.json`, with names, folders,
+  order), or export all, as a Pullbay list (`.json`, with names, folders,
   sizes and status), plain text (one address per line) or an IDM export
   file (`.ef2`, with referrers, which IDM's **Import > From IDM export
   file** reads). Imports read any of them, in UTF-8 or UTF-16, and add
@@ -531,7 +548,7 @@ tests, not in a running Firefox.
     not it saves for offline browsing;
   - start downloading each match as soon as it is found;
   - log in to the start site with the project's own user name and password;
-  - sign in on a login page: **Open** opens it in your browser (UIDM has no
+  - sign in on a login page: **Open** opens it in your browser (Pullbay has no
     browser of its own) so you sign in there, and when the crawl starts
     the extension hands over that site's cookies; without the extension,
     paste them in **Cookies**;
@@ -546,13 +563,13 @@ tests, not in a running Firefox.
   the crawl downloaded its finds as it went, closing the grabber adds
   nothing more. **Save as
   template** keeps the settings under a name, and **New** starts a project
-  from a saved template or one that comes with UIDM (pictures, audio,
+  from a saved template or one that comes with Pullbay (pictures, audio,
   video, documents, or archives and programs from a site). A scheduled
   project explores only, explores and downloads the new files (starting the
   queue), or downloads the ticked files without exploring. Like a queue, it
   is one-time downloading or periodic synchronization, which also checks the
   files earlier runs found (or the ticked ones) and downloads again those
-  changed on the server. It then exits UIDM,
+  changed on the server. It then exits Pullbay,
   sleeps, hibernates or shuts down (with its own **Force apps to close**),
   and can open a file, after the crawl or once the queue is done. Its stop
   time ends the queue's downloads too, as it ends the crawl.
@@ -571,7 +588,7 @@ tests, not in a running Firefox.
   **More > Add batch download from clipboard** (also in the tray menu) opens
   **Add many** with every http, https and ftp link in the copied text, of any
   file type, to check and add.
-- **Download all links with UIDM** (the browser's menu on a page or a text
+- **Download all links with Pullbay** (the browser's menu on a page or a text
   selection, and the button over a selection) lists the links in the window
   to tick. As IDM does, it collects more than a page's links: its frames'
   addresses, addresses in its inline scripts (absolute ones, and quoted
@@ -597,13 +614,13 @@ tests, not in a running Firefox.
   download folder, connections per file (1 to 16), downloads at once (1 to
   10), a total speed limit (with, while it is on, a limit for each file
   that has no limit of its own, and **Always turn the speed limit on when
-  UIDM starts**), a download quota (no more than so many MB every
+  Pullbay starts**), a download quota (no more than so many MB every
   so many hours, with a warning at 90% that can be turned off), what to do when a file name is taken or an
   address is already in the list, the save-as
-  dialog, whether to resume unfinished downloads when UIDM starts, Start with
-  Windows, whether UIDM shows a tray icon (without one, closing the window
-  quits and the Start menu opens UIDM again), whether closing the window
-  keeps UIDM in the tray, whether minimizing the window hides it in the
+  dialog, whether to resume unfinished downloads when Pullbay starts, Start with
+  Windows, whether Pullbay shows a tray icon (without one, closing the window
+  quits and the Start menu opens Pullbay again), whether closing the window
+  keeps Pullbay in the tray, whether minimizing the window hides it in the
   tray (on by default, as in IDM), where ffmpeg
   is, the **Language**, the **Theme** (follow Windows, light or dark) and the
   **Text size** (80% to 150%, scaling the whole window). Language, theme and
@@ -619,8 +636,8 @@ tests, not in a running Firefox.
   Microsoft Edge, Mozilla Firefox, Brave and Chromium when they are
   installed for you (their profile folder exists) or registered. Ticking
   one writes its native-messaging key under `HKEY_CURRENT_USER` and the
-  manifest it names (`%LOCALAPPDATA%\UIDM\com.uidm.host.json`, or
-  `com.uidm.host.firefox.json` for Firefox), pointing at the `uidm-host.exe`
+  manifest it names (`%LOCALAPPDATA%\Pullbay\com.pullbay.host.json`, or
+  `com.pullbay.host.firefox.json` for Firefox), pointing at the `pullbay-host.exe`
   next to the window; unticking removes the key, and the manifest once no
   browser names it. Setup registers Chrome, Edge and Firefox. Vivaldi and
   Opera read Chrome's registration, so the list says so when it finds them
@@ -629,7 +646,7 @@ tests, not in a running Firefox.
   its window does, so it keeps its tabs), ends what is left of it after 8
   seconds (Chromium keeps helper processes, and with "Continue running
   background apps" the browser itself), and starts it again. **Add
-  browser...** adds any other browser by its program file: UIDM tells its
+  browser...** adds any other browser by its program file: Pullbay tells its
   family from the program's name and registers it where that browser reads
   registrations, or, for a Chromium browser it does not know, where Chrome
   does, which most of them read (a Firefox fork gets Firefox's). Added
@@ -665,7 +682,7 @@ tests, not in a running Firefox.
   list's text: the window's text font or its fixed-width font (Segoe UI and
   Consolas on Windows; there is no system font picker), at 8 to 24 points,
   with a sample; **Reset to default** goes back to the window's font. The
-  layout and font are kept in `%LOCALAPPDATA%\UIDM\window.json`.
+  layout and font are kept in `%LOCALAPPDATA%\Pullbay\window.json`.
 - **Help** (next to **More**): **Help contents** opens this README on
   GitHub, two more items open its sections on queues and the scheduler and
   on the site grabber, **Tutorials** opens its first steps (this **Use**
@@ -675,36 +692,36 @@ tests, not in a running Firefox.
   General**) is cleared; the next start shows the next tip. **About** sits
   beside **Help**, and **More > Manage queues...** opens the queues even with
   the categories panel hidden.
-- **Command line**: `uidm-gui` takes IDM's switches, so scripts and other
+- **Command line**: `pullbay-gui` takes IDM's switches, so scripts and other
   programs can start downloads:
 
   ```
-  uidm-gui /d URL [/p folder] [/f file_name] [/a] [/n] [/q] [/h]
-  uidm-gui /s
+  pullbay-gui /d URL [/p folder] [/f file_name] [/a] [/n] [/q] [/h]
+  pullbay-gui /s
   ```
 
   `/d` adds URL to the list (http, https or ftp) and shows the usual
   download dialog; `/p` and `/f` set its folder and file name, `/a` adds it
   to the main queue without starting it, and `/n` asks nothing (a taken name
-  gets a numbered one). `/q` exits UIDM once that download finishes, but only
-  when the call started UIDM, as in IDM. `/s` starts the main queue. `/h`
+  gets a numbered one). `/q` exits Pullbay once that download finishes, but only
+  when the call started Pullbay, as in IDM. `/s` starts the main queue. `/h`
   (hang up a dial-up connection) is accepted and does nothing. `/p`, `/f`,
   `/a`, `/n`, `/q` and `/h` need `/d`. Each switch also works as `-d` and as
   `--download`, `--path`, `--file`, `--add`, `--silent`, `--quit`,
-  `--hang-up` and `--start-queue`. With UIDM already open, the call hands the
-  switches to that window and exits; otherwise it starts UIDM in the tray
+  `--hang-up` and `--start-queue`. With Pullbay already open, the call hands the
+  switches to that window and exits; otherwise it starts Pullbay in the tray
   and runs them there. For example:
 
   ```
-  uidm-gui.exe /n /d "https://example.com/files/setup.exe" /p D:\Downloads
+  pullbay-gui.exe /n /d "https://example.com/files/setup.exe" /p D:\Downloads
   ```
-- **Sending links from other programs**: `uidm-host send` takes what IDM's
+- **Sending links from other programs**: `pullbay-host send` takes what IDM's
   `SendLinkToIDM2` and `SendLinksArray` COM calls take, as JSON in a file or
   on stdin (`-`):
 
   ```
-  uidm-host send links.json
-  uidm-host send -
+  pullbay-host send links.json
+  pullbay-host send -
   ```
 
   One link is an object with `url` and any of `referer`, `cookies`,
@@ -717,30 +734,30 @@ tests, not in a running Firefox.
   is printed. A list is an object with `links`, each an address or an object
   with `url` and an optional `text` and `cookies`, plus one `referer` for them
   all; it opens the link picker with them. A relative `folder` is under the
-  current one, and an empty string counts as left out. UIDM starts if it is
-  not running. The exit code is 0 when UIDM took the links, 1 when it refused
+  current one, and an empty string counts as left out. Pullbay starts if it is
+  not running. The exit code is 0 when Pullbay took the links, 1 when it refused
   them or could not be reached, and 2 for bad input. The host talks to the
   daemon over the same authenticated connection as the browser (see
   [Host-daemon authentication](#host-daemon-authentication)), so only
   programs running as the same Windows user can send links. From PowerShell:
 
   ```powershell
-  $uidm = "$env:LOCALAPPDATA\Programs\UIDM\uidm-host.exe"
+  $pullbay = "$env:LOCALAPPDATA\Programs\Pullbay\pullbay-host.exe"
   @{ url = "https://example.com/report"; referer = "https://example.com/";
      cookies = "session=abc"; post_data = "id=42"; folder = "D:\Reports";
-     filename = "report.pdf"; silent = $true } | ConvertTo-Json | & $uidm send -
+     filename = "report.pdf"; silent = $true } | ConvertTo-Json | & $pullbay send -
   @{ referer = "https://example.com/files/";
      links = @("https://example.com/a.zip", "https://example.com/b.zip") } |
-     ConvertTo-Json | & $uidm send -
+     ConvertTo-Json | & $pullbay send -
   ```
 
   Or from Python:
 
   ```python
   import json, os, subprocess
-  uidm = os.path.expandvars(r"%LOCALAPPDATA%\Programs\UIDM\uidm-host.exe")
+  pullbay = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Pullbay\pullbay-host.exe")
   link = {"url": "https://example.com/a.zip", "user": "me", "password": "pw", "add_only": True}
-  subprocess.run([uidm, "send", "-"], input=json.dumps(link), text=True, check=True)
+  subprocess.run([pullbay, "send", "-"], input=json.dumps(link), text=True, check=True)
   ```
 - **Languages**: the window comes in English, German, Spanish and French.
   It starts in the first Windows display language it has, else English;
@@ -751,18 +768,18 @@ tests, not in a running Firefox.
 Files are saved to your Downloads folder, sorted by category, unless Options
 says otherwise.
 Closing the browser or the window does not stop a download. The list survives
-restarts: downloads that were running when UIDM stopped show as
+restarts: downloads that were running when Pullbay stopped show as
 **Interrupted**, and **Retry** resumes them from their partial file.
 
 ## How it fits together
 
 ```
-browser extension --stdio--> uidm-host --+
-                                          +--loopback TCP--> uidm-daemon --> engine
-desktop window (uidm-gui) ---------------+   (authenticated)   (owns downloads)
+browser extension --stdio--> pullbay-host --+
+                                          +--loopback TCP--> pullbay-daemon --> engine
+desktop window (pullbay-gui) ---------------+   (authenticated)   (owns downloads)
 ```
 
-- **`uidm-daemon`** owns the download engine and keeps a list of every
+- **`pullbay-daemon`** owns the download engine and keeps a list of every
   download it has seen. It listens on `127.0.0.1:51515`; winning that bind is
   its single-instance lock. Replies to a request go to the client that asked;
   download events go to every client, so the window, the popup and any open
@@ -770,47 +787,47 @@ desktop window (uidm-gui) ---------------+   (authenticated)   (owns downloads)
   clients and no queued or running downloads. It also shows the
   notifications, plays the sounds and runs the virus scans, since it is the
   one process running whenever a download ends. Its log is
-  `%LOCALAPPDATA%\UIDM\uidm-daemon.log`, beside the host's `uidm-host.log`
-  and the window's `uidm-gui.log` (`~/Library/Application Support/UIDM` on
-  macOS, `~/.local/share/uidm` on Linux). A log over 5 MB moves to `.old` when
+  `%LOCALAPPDATA%\Pullbay\pullbay-daemon.log`, beside the host's `pullbay-host.log`
+  and the window's `pullbay-gui.log` (`~/Library/Application Support/Pullbay` on
+  macOS, `~/.local/share/pullbay` on Linux). A log over 5 MB moves to `.old` when
   the daemon starts. Passwords in addresses are hidden as `***`. It keeps its
   files in:
-  - `%APPDATA%\UIDM\settings.json`: the settings. A missing file or field
+  - `%APPDATA%\Pullbay\settings.json`: the settings. A missing file or field
     means the default.
-  - `%LOCALAPPDATA%\UIDM\history.json`: the download list and the next id,
+  - `%LOCALAPPDATA%\Pullbay\history.json`: the download list and the next id,
     written about a second after each change and again on exit. It never
     holds cookies or request headers.
-  - `%LOCALAPPDATA%\UIDM\requests.bin`: the original requests of downloads
+  - `%LOCALAPPDATA%\Pullbay\requests.bin`: the original requests of downloads
     that can still be retried, cookies included, encrypted with Windows DPAPI
     for the current user. It is deleted when none is left.
-- **`uidm-host`** is what the browser launches. It connects to the daemon,
+- **`pullbay-host`** is what the browser launches. It connects to the daemon,
   starting it if nothing answers, then copies frames between the browser's
   stdin/stdout and the daemon without parsing them. It waits up to 10 seconds
   for a daemon it just started, so it gives up within about 15 seconds if no
   genuine daemon answers. When the browser closes the port, the host closes
   its side, delivers any reply still in flight for up to 2 seconds, and exits.
   The daemon is started with the host's stdio marked non-inheritable, so it
-  never holds the browser's pipes open. `uidm-host send` connects the same
+  never holds the browser's pipes open. `pullbay-host send` connects the same
   way to hand the daemon links from other programs.
-- **`uidm-gui`** is the desktop window: one more daemon client. It starts the
+- **`pullbay-gui`** is the desktop window: one more daemon client. It starts the
   daemon too if needed, asks for the full list on connect, and applies every
   event to the same `DownloadTable` the daemon keeps.
 - **The extension** keeps one native-messaging port open, reconnecting with
-  backoff (1 s doubling to 30 s) if UIDM goes away.
+  backoff (1 s doubling to 30 s) if Pullbay goes away.
 
 Every link uses the same framing: a 4-byte little-endian length, then that
 many bytes of UTF-8 JSON. Between browser and host that is the browser's
-native-messaging standard; UIDM reuses it everywhere so the host can relay
+native-messaging standard; Pullbay reuses it everywhere so the host can relay
 frames untouched.
 
 ## What the extension does and does not take
 
 It takes a download from the browser only when all of these hold:
 
-- UIDM is connected and **Capture downloads** is on;
+- Pullbay is connected and **Capture downloads** is on;
 - the URL is `http` or `https` (`blob:` and `data:` downloads only exist inside
   the browser);
-- it is not from a private window, so private downloads never enter UIDM's
+- it is not from a private window, so private downloads never enter Pullbay's
   list, unless **Capture downloads in private windows too** is on in
   **Options > Browser capture** (off by default; only the window changes it).
   Then private windows' downloads, links, page buttons and context menus work
@@ -833,7 +850,7 @@ It takes a download from the browser only when all of these hold:
     `example.com` and `*.example.com` both cover the site and every subdomain;
   - its URL matches none of the excluded addresses, where `*` matches any
     run of characters and an address without `http://` or `https://`
-    matches both. UIDM starts with a short list of site sounds and browser
+    matches both. Pullbay starts with a short list of site sounds and browser
     and Windows update files that sites fetch on their own (taken from IDM's
     own list). Remove any you want captured; **Restore defaults** adds them
     back and keeps your own;
@@ -843,7 +860,7 @@ It takes a download from the browser only when all of these hold:
   while its tab started it some other way (a form sent, a page's script).
 
 Holding the force keys (Ctrl by default) while clicking a link sends it to
-UIDM whatever the rules say, instead of opening it. Each is any mix of Ctrl,
+Pullbay whatever the rules say, instead of opening it. Each is any mix of Ctrl,
 Alt and Shift, plus Insert or Del for forcing, set in **Options > Browser capture**,
 and must be held exactly: Alt+Shift is not Alt. They work with a left or
 middle click and with Enter on a link, or with the option set only with a
@@ -866,27 +883,27 @@ and frame response when its headers arrive (`webRequest.onHeadersReceived`):
 one marked `Content-Disposition: attachment`, or of a type the browser
 cannot show, is a download, and the capture rules are applied to its name,
 type and size there. Firefox lets the extension cancel it then
-(`webRequestBlocking`), so the browser never starts it and UIDM gets it at
+(`webRequestBlocking`), so the browser never starts it and Pullbay gets it at
 once. Chrome lets extensions like this one only look, not cancel, so there
 the download still appears in the browser and is taken from it at once
 (`downloads.onCreated`), with the size, type and name the headers gave
 (the download item often has none yet); the download bubble is hidden from
-the moment the headers say UIDM takes it (`downloads.setUiOptions`) until
+the moment the headers say Pullbay takes it (`downloads.setUiOptions`) until
 the browser's copy is canceled and erased, and comes back after ten seconds
 whatever happens. A tab another tab opened a moment before only for the
 download (it still shows nothing or the download's address, and never
-showed a page) is closed once UIDM takes the download.
+showed a page) is closed once Pullbay takes the download.
 
 **The whole request.** The extension follows the requests of pages and
 frames: the headers the browser sent (`onSendHeaders`, with Chrome's
 `extraHeaders` so nothing is hidden), the redirects it followed, and what
-the response said. A download goes to UIDM with them: `request_headers`
+the response said. A download goes to Pullbay with them: `request_headers`
 (without `Cookie`, which goes as `cookies`), `redirects`, `size` and
 `content_type`. The daemon repeats the headers that are safe to: not the
 ones about the connection (`Connection`, `Keep-Alive`, `TE`, `Upgrade`,
 ...), not `Host`, `Content-Length`, `Range`, the conditional `If-*` ones or
 `Accept-Encoding` (the engine asks for ranges and decompresses what it asks
-for itself), not `Authorization` (logins are UIDM's), and not `Cookie`,
+for itself), not `Authorization` (logins are Pullbay's), and not `Cookie`,
 `Referer` and `User-Agent`, which come in their own fields. It keeps at most
 64 headers, 20 redirects and values of 8 KB. The size and type are shown
 until the server is asked, and are all a form download has before it
@@ -895,7 +912,7 @@ made from nothing (`about:blank`, `about:srcdoc`) is skipped for the
 nearest frame above it with an address (`webNavigation.getAllFrames`), else
 the page.
 
-A download a form started, with a POST, is sent to UIDM as the same POST.
+A download a form started, with a POST, is sent to Pullbay as the same POST.
 The extension records the method and body of recent form submissions in
 frames and of scripts' requests (`webRequest`, `requestBody`) and matches a
 new download to the request it came from, else the latest form to the same
@@ -905,18 +922,18 @@ forms, multipart forms (with a boundary of its own) and raw bodies such as
 a script's JSON. The browser does not share a multipart form's files, so
 the page tells the extension which of its fields are files as the form is
 sent: they are left out, and a form that sends a chosen file stays in the
-browser, as does a body the browser did not share. UIDM sends the POST once
+browser, as does a body the browser did not share. Pullbay sends the POST once
 and saves the response as one stream; it is not resumable, and it is not
 repeated on a failure, since a form may not be safe to send twice.
 Downloads without a recorded POST are fetched with GET as before.
 
-If UIDM takes a download but cannot even start it, for example because the
-server refuses the request, the extension removes it from UIDM's list and
+If Pullbay takes a download but cannot even start it, for example because the
+server refuses the request, the extension removes it from Pullbay's list and
 hands it back to the browser, so it is never silently lost. A POST goes back
 as a POST with its form, when the form is text.
 
-Either way the user hears of it: a browser notice, "UIDM could not take over
-the download", names the file and why (UIDM's error, or that UIDM is not
+Either way the user hears of it: a browser notice, "Pullbay could not take over
+the download", names the file and why (Pullbay's error, or that Pullbay is not
 running or not connected, for a download the rules would have taken). Its
 **Don't show again** button turns these notices off for good; Firefox's
 notices have no buttons, so there a click on the notice does it.
@@ -928,16 +945,16 @@ port. Both ends therefore prove they hold a shared secret, and the secret never
 crosses the socket.
 
 At start the daemon writes a random 256-bit token to
-`%LOCALAPPDATA%\UIDM\daemon.token`, which the profile's default ACL limits to
+`%LOCALAPPDATA%\Pullbay\daemon.token`, which the profile's default ACL limits to
 the current user, SYSTEM and Administrators. It writes the token only after it
 wins the bind, so a second daemon cannot overwrite the running one's token.
 Each connection then runs:
 
 1. client to daemon: `auth_hello { client_nonce }`
 2. daemon to client: `auth_challenge { server_nonce, proof }`, where `proof` is
-   `HMAC-SHA256(token, "uidm-daemon", client_nonce, server_nonce)`
+   `HMAC-SHA256(token, "pullbay-daemon", client_nonce, server_nonce)`
 3. the client checks that proof, then sends `auth { proof }` with the
-   `"uidm-host"` label
+   `"pullbay-host"` label
 4. the daemon checks it and replies `auth_ok`
 
 Every field is length-prefixed before it is hashed, and the two labels keep one
@@ -969,7 +986,7 @@ Given an `add`, the engine:
    The connection that had it stops at the new end of its first half without a
    new request, so the download no longer ends at the pace of its slowest
    range. The split ranges are saved in the sidecar like the first ones.
-3. Records progress in a `<file>.uidmpart` JSON sidecar next to the output,
+3. Records progress in a `<file>.pullbaypart` JSON sidecar next to the output,
    flushed about every 1 MiB and again on cancel or failure. Re-running the
    download reads the sidecar and refetches only the missing bytes of each
    segment. The sidecar is checked against the server's ETag, Last-Modified and
@@ -993,7 +1010,7 @@ fallback. The file's folder is its category's, from that final name, unless
 the save-as dialog chose one.
 
 A new download never writes into an existing file unless that file is a
-partial copy of the same download, which its `.uidmpart` sidecar proves (same
+partial copy of the same download, which its `.pullbaypart` sidecar proves (same
 size, and same ETag or Last-Modified when the server sends them). Otherwise it
 is saved as `name (1).ext`, `name (2).ext`, and so on, or replaces the file
 when Options says to overwrite. When Options says to ask, the engine stops
@@ -1007,7 +1024,7 @@ file its earlier attempt wrote.
 Before it writes anything, the engine checks that it may create files in the
 folder; if not, the download fails with `Saving here needs administrator
 rights: <folder>`. A request with `elevate` set is downloaded into a staging
-folder instead, and the finished file is moved into its folder by `uidm-daemon
+folder instead, and the finished file is moved into its folder by `pullbay-daemon
 --move-elevated <from> <to>`, started with the `runas` verb so Windows shows
 its UAC prompt. The helper copies the file, so it takes the folder's
 permissions, then deletes the staged one.
@@ -1101,7 +1118,7 @@ Client to daemon (the host relays the browser's unchanged):
 Daemon to clients:
 
 ```json
-{ "op": "hello", "name": "uidm-daemon", "version": "0.1.0" }
+{ "op": "hello", "name": "pullbay-daemon", "version": "0.1.0" }
 { "op": "pong" }
 { "op": "ack", "id": 1, "url": "https://...", "status": "accepted" }
 { "op": "added", "id": 1, "url": "https://..." }
@@ -1142,7 +1159,7 @@ Daemon to clients:
 { "op": "error", "message": "..." }
 ```
 
-`command_line` is what `uidm-gui` sends for its switches. With a window
+`command_line` is what `pullbay-gui` sends for its switches. With a window
 open the daemon runs it at once and answers `window_open: true`; otherwise
 it holds it for up to a minute and runs it when the next window says
 `hello`.
@@ -1157,7 +1174,7 @@ other event covers. A `hello` with `client: "window"` tells the daemon a
 window is open to show save-as dialogs. `confirm` answers the dialog of a
 `confirming` download or starts a `waiting` one, keeping its id; `filename`
 and `folder` default to the proposed ones, and `start: false` makes it
-`waiting`. `elevate: true` saves it into a folder UIDM may not write to,
+`waiting`. `elevate: true` saves it into a folder Pullbay may not write to,
 with administrator rights. `file_exists` (`rename` or `overwrite`) decides what happens if
 the name is taken, for this start and later ones; without it the setting
 decides. `name_taken` means the name is taken under the `ask` setting:
@@ -1183,9 +1200,9 @@ path or `null` for its folder (`null` means a folder named after it inside the
 download folder). File types are lowercase letters and digits without the
 dot. `notify` is `toast`, `dialog` or `off`; `scanner` is `defender` or
 `custom`, and a custom `scanner_command` must name a program and contain
-`{path}`. Turning `start_with_windows` on or off adds or removes the `UIDM`
+`{path}`. Turning `start_with_windows` on or off adds or removes the `Pullbay`
 value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, which
-runs `uidm-gui.exe --minimized`.
+runs `pullbay-gui.exe --minimized`.
 
 A finished download's entry carries `"scan": { "result": "scanning" }`, then
 `clean`, `threat` or `failed` (the last two with a `detail`, the end of the
@@ -1268,7 +1285,7 @@ Windows nothing starts the daemon, though; see Known gaps.
 
 Sleep and hibernate use `SetSuspendState`; shutting down runs
 `shutdown.exe /s /t 0`. The daemon saves the history as the countdown starts.
-With the environment variable `UIDM_POWER_DRY_RUN` set, the daemon only logs
+With the environment variable `PULLBAY_POWER_DRY_RUN` set, the daemon only logs
 what it would do, which is how these were tested.
 
 `refresh_link` with a `download` gives download `id` (failed, canceled,
@@ -1299,11 +1316,11 @@ and `username`). Passwords are write-only: `proxy_password`,
 `proxy_https_password`, `proxy_ftp_password`, `proxy_socks_password` and each
 login's `password` travel in `set_settings` only when changed, and the daemon
 keeps them outside the settings file and never sends them back. Proxy
-passwords are encrypted with DPAPI in `%LOCALAPPDATA%\UIDM`: `proxy.bin` for
+passwords are encrypted with DPAPI in `%LOCALAPPDATA%\Pullbay`: `proxy.bin` for
 HTTP, `proxy-https.bin`, `proxy-ftp.bin` and `proxy-socks.bin`. A settings
 file from before each proxy had a login of its own gives its shared login to
 the HTTPS and SOCKS proxies, which used it, on the daemon's first start. Login
-passwords are generic credentials named `UIDM/login/<site>` in Windows
+passwords are generic credentials named `Pullbay/login/<site>` in Windows
 Credential Manager, removed with their login.
 
 **Proxies.** The system proxy is read from the Internet settings in the
@@ -1319,14 +1336,14 @@ with `CONNECT`; empty means the HTTP one, with its login). A SOCKS4 or
 SOCKS5 proxy carries the `http://` and `https://` URLs that have no proxy of
 their own, and with `proxy_socks_https` every `https://` URL even when an
 HTTP or HTTPS proxy is set. `ftp://` downloads go through the FTP proxy:
-UIDM logs in to it first with its own login, when it has one (`USER`,
+Pullbay logs in to it first with its own login, when it has one (`USER`,
 `PASS`), then as `user@host`. Without an FTP proxy they go through the SOCKS
-proxy (`proxy_socks_ftp`, on by default): UIDM opens both the control and
+proxy (`proxy_socks_ftp`, on by default): Pullbay opens both the control and
 the data connections with a SOCKS CONNECT itself (SOCKS4, SOCKS4a or SOCKS5,
 with the SOCKS login), and always in passive mode, since the server cannot
 connect back through the proxy.
 A proxy's login goes to the proxy only (`Proxy-Authorization`, or the
-SOCKS handshake). UIDM follows redirects itself, dropping `Cookie` and
+SOCKS handshake). Pullbay follows redirects itself, dropping `Cookie` and
 `Authorization` on every hop, so a site's cookies and logins never reach
 another server. With
 `use_browser_proxy`, the extension reports the browser's whole proxy
@@ -1341,7 +1358,7 @@ Chrome's `<local>`, `*.corp.net` and `host:port` entries and Firefox's
 `.corp.net`; address ranges have no counterpart and are dropped. Without
 WinHTTP (macOS, Linux) a script or detection cannot run, so those downloads
 connect directly. With `browser_proxy_after_errors` too, a
-download goes through UIDM's own proxy setting first; when it fails, the
+download goes through Pullbay's own proxy setting first; when it fails, the
 daemon retries it once through the browser's proxy, and that address keeps
 using it until the daemon restarts.
 
@@ -1352,7 +1369,7 @@ and `example.com/private` covers that folder and everything below it, both
 ignoring case. The longest matching pattern wins, so a folder's login beats
 its server's. A download's own login (from **Log in to the site** or its
 properties) replaces the site logins for its host. A request goes out
-without credentials. On a 401, UIDM picks the login for the address that
+without credentials. On a 401, Pullbay picks the login for the address that
 answered and sends the request again, once, straight to that URL,
 with `Authorization` for the `WWW-Authenticate` challenge: Digest (MD5,
 MD5-sess, SHA-256, with `qop=auth`) when offered, else NTLM, else Basic.
@@ -1396,7 +1413,7 @@ player). When clicked it asks the worker for its tab's list for that player
 playlists its frame asked for while it was the player that started last
 (or that started within 1.5 s after), which tells players fed through
 `blob:` addresses apart; with nothing of its own, the whole list. The worker
-asks UIDM (`probe_media`) what each stream offers. The button hides when, at
+asks Pullbay (`probe_media`) what each stream offers. The button hides when, at
 five points of the player, what is on top lies outside the player's box
 (its furthest ancestor not much bigger than it, so a custom player's
 controls and overlays do not count), when `document.hidden`, and when
@@ -1404,7 +1421,7 @@ something is full screen; it looks again on scroll, resize and once a
 second. Tabs open before the extension was installed, updated or turned
 back on get the content script injected (`scripting.executeScript`, every
 frame that lacks it) on `runtime.onInstalled` and on the first connection
-to UIDM in a browser session. A content script can only pick from what the worker saw
+to Pullbay in a browser session. A content script can only pick from what the worker saw
 in its tab, by number, never pass in an address. A video element that raised
 an `encrypted` event or holds `MediaKeys` is DRM protected: the menu says so
 and offers nothing, or with `video_protected_note` off the button does not
@@ -1436,15 +1453,15 @@ reader. `probe_media` on such an address runs
 `yt-dlp -J` and offers one video per height (H.264 first, then the highest
 bit rate) and the sound per language. The download runs yt-dlp with the
 chosen formats and `--ffmpeg-location`, so ffmpeg joins them into an `.mp4`;
-the sound alone is `-x --audio-format mp3|m4a`. UIDM reads yt-dlp's progress
+the sound alone is `-x --audio-format mp3|m4a`. Pullbay reads yt-dlp's progress
 lines, and canceling ends yt-dlp and its children (`taskkill /T` on
 Windows); its `.part` files let a retry carry on. Without ffmpeg the best
 format with both video and sound in one file is saved, with a note. Live
-streams are refused. UIDM does not send the browser's cookies to yt-dlp, so
+streams are refused. Pullbay does not send the browser's cookies to yt-dlp, so
 only videos anyone can watch signed out are offered (on Facebook and
 Instagram that is public posts only).
 
-**HLS.** UIDM reads master playlists (qualities, separate audio tracks) and
+**HLS.** Pullbay reads master playlists (qualities, separate audio tracks) and
 media playlists (segments, `#EXT-X-BYTERANGE`, `#EXT-X-MAP` headers,
 `#EXT-X-MEDIA-SEQUENCE`). Segments encrypted with AES-128 are decrypted with
 the key from the playlist's key URL, fetched once, and the IV from the
@@ -1454,7 +1471,7 @@ Widevine use) is DRM and refused, as is a live playlist without
 `#EXT-X-ENDLIST`. Subtitle tracks (`#EXT-X-MEDIA:TYPE=SUBTITLES`) in the
 quality's `SUBTITLES` group are offered by name and language.
 
-**DASH.** UIDM reads a static manifest's `SegmentTemplate` (with a fixed
+**DASH.** Pullbay reads a static manifest's `SegmentTemplate` (with a fixed
 duration or a `SegmentTimeline`, `$Number$`, `$Time$`, `$Bandwidth$`,
 `$RepresentationID$` and `%0Nd` widths), `SegmentList` (with byte ranges)
 and `SegmentBase` or a plain `BaseURL` (the whole file), inheriting them
@@ -1466,7 +1483,7 @@ offered by their `Label` or language; one with the `main` role is the
 default. TTML and WebVTT inside MP4 segments are left out.
 
 **HDS.** Adobe HTTP Dynamic Streaming (`.f4m`, `application/f4m+xml`, or XML
-whose root is `<manifest>` in the `ns.adobe.com/f4m` namespace). UIDM reads
+whose root is `<manifest>` in the `ns.adobe.com/f4m` namespace). Pullbay reads
 F4M 1.0 manifests (`<media url bitrate width height bootstrapInfoId>`, each
 offered as a quality, `<bootstrapInfo>` inline in base64 or at a `url`,
 `<baseURL>`, `<metadata>`, `<duration>`) and F4M 2.0 manifests whose
@@ -1480,7 +1497,7 @@ the media's metadata as an `onMetaData` tag, then every fragment's tags.
 `<drmAdditionalHeader>` marks DRM and is refused, as are live streams
 (`<streamType>live</streamType>` or the bootstrap's live flag).
 
-**Downloading.** Segments go one file each into `<file>.uidmparts` next to
+**Downloading.** Segments go one file each into `<file>.pullbayparts` next to
 the output, written as `.tmp` and renamed once complete, up to **Connections
 per file** at once, through the shared speed limit, each retried with the
 usual backoff. Progress counts segments and bytes, and the window's bar
@@ -1511,7 +1528,7 @@ its own name.
 
 **The site grabber** runs in the daemon, so it uses the proxy settings, and
 reports to the window that started it. It reads `robots.txt` once per site
-(the group for `UIDM` if there is one, else `*`; longest match wins, with `*`
+(the group for `Pullbay` if there is one, else `*`; longest match wins, with `*`
 and `$`), waits at least the set time between requests, and caps a site's
 `Crawl-delay` at 30 seconds. Pages are parsed with html5ever, the HTML parser
 from Servo, so markup inside scripts or comments is not mistaken for links.
@@ -1527,9 +1544,9 @@ Pages read at once are fetched on their own threads, one batch at a time,
 with the usual wait between batches; robots.txt is read before a site's
 first batch. With `*` in the types, every link with a file name that is not
 a page counts as a file. A project's login is stored in Credential Manager
-as `UIDM/grabber/<start host>/<user name>`, so projects on one site can use
+as `Pullbay/grabber/<start host>/<user name>`, so projects on one site can use
 different accounts (a password an older version kept under
-`UIDM/grabber/<start host>` is still read), sent to the start site when it asks, and
+`Pullbay/grabber/<start host>` is still read), sent to the start site when it asks, and
 given to the downloads on that site. A login page's cookies come from the
 extension's `cookies_wanted` request at crawl start, as the start site's do
 with **Use my browser's sign-in**, or else from the pasted ones, which
@@ -1539,7 +1556,7 @@ host (and its subdomains when the crawl explores them), never to other
 hosts the crawl reads; the downloads it adds for files on the login site
 carry that site's cookies too, as captured browser downloads do, and
 files on other hosts get none. Named filters are kept in
-`%APPDATA%\UIDM\grabber\filters.json` and named templates in
+`%APPDATA%\Pullbay\grabber\filters.json` and named templates in
 `grabber\templates\`. With scripts run, the extension closes every window
 the page opens and reports its address; the crawl explores those only when
 **Ignore the windows page scripts open** is off. A scheduled run sets the
@@ -1553,10 +1570,10 @@ once the time passes.
 ## Notifications and virus scans
 
 Windows only shows notifications from an app it knows, so at start the daemon
-registers the app id `UIDM.DownloadManager` under
-`HKCU\Software\Classes\AppUserModelId` with UIDM's name and an icon it writes
-to `%LOCALAPPDATA%\UIDM\uidm.png`. A copy started with `UIDM_INSTANCE=test`
-registers `UIDM.DownloadManager.test` with the name `UIDM (test)` and the icon
+registers the app id `Pullbay.DownloadManager` under
+`HKCU\Software\Classes\AppUserModelId` with Pullbay's name and an icon it writes
+to `%LOCALAPPDATA%\Pullbay\pullbay.png`. A copy started with `PULLBAY_INSTANCE=test`
+registers `Pullbay.DownloadManager.test` with the name `Pullbay (test)` and the icon
 in its own data folder instead, so it leaves the installed copy's entry alone.
 Each button carries an argument such as
 `open:12`, which the daemon acts on while it runs. A failure is announced one
@@ -1579,9 +1596,9 @@ is a failed scan, as is one that runs over 10 minutes.
 | Path | What it is |
 | --- | --- |
 | `crates/` | The workspace, one crate per layer of `AGENTS.md`: `domain`, `application`, `infrastructure`, `ui`, `app` |
-| `crates/app/src/bin/uidm-gui.rs` | Desktop window: builds its adapters and starts `uidm-ui` |
-| `crates/app/src/bin/uidm-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
-| `crates/app/src/bin/uidm-daemon.rs` | Daemon: server, auth, download list, retry/remove, idle exit |
+| `crates/app/src/bin/pullbay-gui.rs` | Desktop window: builds its adapters and starts `pullbay-ui` |
+| `crates/app/src/bin/pullbay-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
+| `crates/app/src/bin/pullbay-daemon.rs` | Daemon: server, auth, download list, retry/remove, idle exit |
 | `crates/infrastructure/src/state.rs` | `DownloadTable`, kept by both the daemon and the window |
 | `crates/infrastructure/src/settings.rs` | Settings, their defaults, validation and file |
 | `crates/infrastructure/src/history.rs` | Download history and saved requests on disk |
@@ -1615,14 +1632,14 @@ is a failed scan, as is one that runs over 10 minutes.
 | `extension/test/` | Node tests for the rules and the service worker |
 | `assets/icon.svg` | The app icon's source; `installer/render-icons.js` renders every icon file below from it |
 | `assets/icon-64.rgba` | Window and tray icon, raw RGBA rendered from `assets/icon.svg` |
-| `host/com.uidm.host.json` | Template of the native-messaging manifest |
+| `host/com.pullbay.host.json` | Template of the native-messaging manifest |
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
-| `installer/uidm.iss` | Inno Setup script for `UIDM-Setup-<version>.exe` |
+| `installer/pullbay.iss` | Inno Setup script for `Pullbay-Setup-<version>.exe` |
 | `installer/build.ps1` | Builds the programs and the installer into `dist\` |
 | `installer/make-firefox.ps1` | Makes the Firefox copy of the extension, or with `-Check` tells whether one is out of date |
 | `installer/make-firefox.js` | The same for macOS and Linux, with `--check` |
 | `installer/render-icons.js` | Renders `assets/icon.svg` to the extension's PNGs, `assets/icon-256.png`, `assets/icon-1024.png` and `assets/icon-64.rgba` with headless Chrome |
-| `installer/uidm.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
+| `installer/pullbay.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
 
 ## Build
 
@@ -1650,13 +1667,13 @@ cargo build --release
 node --test extension/test/*.test.js
 ```
 
-To try a build next to the installed UIDM, give it a name in
-`UIDM_INSTANCE`. That copy keeps its settings and list in `UIDM-<name>`
+To try a build next to the installed Pullbay, give it a name in
+`PULLBAY_INSTANCE`. That copy keeps its settings and list in `Pullbay-<name>`
 folders, runs its daemon on a port of its own, and shows the name in the
 window's title. It does not end other daemons when it restarts its own.
 
 ```powershell
-$env:UIDM_INSTANCE = "test"; .\target\debug\uidm-gui.exe
+$env:PULLBAY_INSTANCE = "test"; .\target\debug\pullbay-gui.exe
 ```
 
 A string the window shows needs its German, Spanish and French translations
@@ -1664,7 +1681,7 @@ in `crates/ui/src/lang/`; a test fails for one without them.
 `lang/untranslated.json` lists the strings that were untranslated before
 that test came in, and an entry leaves the list once it is translated.
 
-GitHub Actions builds and tests UIDM on Windows, macOS and Linux on every
+GitHub Actions builds and tests Pullbay on Windows, macOS and Linux on every
 push and pull request (`.github/workflows/build.yml`), and the extension's
 tests with Node. Those runs keep no files.
 
@@ -1691,7 +1708,7 @@ git push origin v0.2.0
 It builds every file in the table under [Install](#install) on Windows,
 macOS and Linux runners and attaches them to a new GitHub Release for that
 tag. Release files don't count against the repository's storage (each may be
-up to 2 GB), and UIDM's update check reads the latest release. The build
+up to 2 GB), and Pullbay's update check reads the latest release. The build
 files are kept as artifacts for one day only, to hand them from the
 builders to the release. Starting the workflow by hand
 (**Actions > Release > Run workflow**) builds the same files without a
@@ -1704,7 +1721,7 @@ To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php
 .\installer\build.ps1
 ```
 
-It builds the release programs and writes `dist\UIDM-Setup-<version>.exe`,
+It builds the release programs and writes `dist\Pullbay-Setup-<version>.exe`,
 with the version from `Cargo.toml`. Pass `-SkipBuild` when `target\release`
 is already current.
 
@@ -1713,15 +1730,15 @@ The Rust tests also run on Linux under Wine, cross-compiled with
 `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine` (needs the `mingw-w64` and
 `wine64` packages).
 
-`cargo build --release` produces `uidm-host.exe`, `uidm-daemon.exe` and
-`uidm-gui.exe` in `target\release`. The host and the window start the daemon
+`cargo build --release` produces `pullbay-host.exe`, `pullbay-daemon.exe` and
+`pullbay-gui.exe` in `target\release`. The host and the window start the daemon
 from their own folder, so keep the three together. The window renders through
 OpenGL, which needs a working graphics driver.
 
 To run one download without the browser, window or daemon:
 
 ```bash
-cargo run --release --bin uidm-host -- download https://example.com/file.zip
+cargo run --release --bin pullbay-host -- download https://example.com/file.zip
 ```
 
 ### Adding a language
@@ -1755,15 +1772,15 @@ would not display correctly yet.
 
 - The installer. Built with Inno Setup 6.7.3, then installed and uninstalled
   silently on Windows 11. The install put the three programs, the extension
-  (without its tests) and the icon in `%LOCALAPPDATA%\Programs\UIDM`. It
-  wrote a host manifest pointing at the installed `uidm-host.exe`, pointed
+  (without its tests) and the icon in `%LOCALAPPDATA%\Programs\Pullbay`. It
+  wrote a host manifest pointing at the installed `pullbay-host.exe`, pointed
   the Chrome and Edge keys at it, and added the Start menu shortcut and the
   Installed apps entry. Started the way Chrome starts it (the manifest's
   path, the extension origin as argument), the installed host started the
   installed daemon, which downloaded a file intact. Uninstalling while that
   daemon ran closed it, then removed the folder, both keys, the shortcut, the
   Installed apps entry and the notification registration, leaving
-  `%LOCALAPPDATA%\UIDM` alone. Installing over a running daemon closed it
+  `%LOCALAPPDATA%\Pullbay` alone. Installing over a running daemon closed it
   and replaced the files without a restart. The wizard pages and their
   prompts were not tried on screen.
 - Asking about taken file names (#8). Engine tests against a local server:
@@ -1842,7 +1859,7 @@ would not display correctly yet.
   all four segments into `Video\Canvas Test Video.ts`, named after the page;
   after the video raised an `encrypted` event the menu said it is DRM
   protected; the popup's per-site switch added and removed the site in
-  UIDM's settings.
+  Pullbay's settings.
 - 20 more extension tests (27 in all): classifying responses (playlists by
   type and name, files with their size from `Content-Range`, segments, small
   files and errors left out), per-tab lists (one entry per URL, a size learned
@@ -1875,13 +1892,13 @@ would not display correctly yet.
   leaves downloads by type, size and site, applies changed rules at once,
   skips exactly one download after **Skip next download**, and starts a
   download waiting for its dialog from the popup; **Download later with
-  UIDM** adds with `start: false`. Form downloads: URL-encoded forms rebuild
+  Pullbay** adds with `start: false`. Form downloads: URL-encoded forms rebuild
   as the browser encodes them, multipart forms with a boundary of their own
   and without their file fields, and raw bodies byte for byte; forms that
   send a file and bodies the browser withheld stay in the browser; a
   download matches the latest POST to its URL within a minute; a form's
-  download reaches UIDM as the same POST with its content type while a link
-  next to it stays a GET; and a POST UIDM cannot start goes back to the
+  download reaches Pullbay as the same POST with its content type while a link
+  next to it stays a GET; and a POST Pullbay cannot start goes back to the
   browser as a POST with its form. A web player's file a script asked for
   with a POST goes as the same POST. The browser's whole proxy setting goes
   along with a download, read from Chrome's and Firefox's shapes. A
@@ -1932,7 +1949,7 @@ would not display correctly yet.
   scanner command lines (quoting, a file name with quotes and `&` staying one
   argument, a command without `{path}` refused) and real scanner runs with
   exit codes 0, 1 and 7. Under Wine against the real daemon: Start with
-  Windows writes `"...\uidm-gui.exe" --minimized` to the Run key and removes
+  Windows writes `"...\pullbay-gui.exe" --minimized` to the Run key and removes
   it again; the app id is registered; a scanner reporting a threat and one
   reporting clean show as such; **Pause all** stops a running and a queued
   download and **Resume all** finishes both, the running one in its own
@@ -1989,7 +2006,7 @@ would not display correctly yet.
   the browser, forwards cookies, referrer and user agent, and the file lands
   under its `Content-Disposition` name; private, `blob:` and self-started
   downloads stay in the browser, as does everything while capture is off; a
-  download UIDM cannot start goes back to the browser; the context menu works
+  download Pullbay cannot start goes back to the browser; the context menu works
   connected and falls back to the browser when not; the worker notices when the
   host dies, reconnects and restores the list.
 - Window: driven through Windows UI Automation. It starts the daemon, shows a
@@ -2017,11 +2034,11 @@ arguments; no real ffmpeg was run on real video.
   (PAC and WPAD) are Windows-only; the system proxy comes from the
   `http_proxy`, `https_proxy`, `ftp_proxy`, `all_proxy` and `no_proxy`
   variables. On macOS closing to the tray minimizes the window rather than
-  hiding it. On Linux the window closes and UIDM stays in the tray; a
+  hiding it. On Linux the window closes and Pullbay stays in the tray; a
   caught download's save-as dialog or download window opens the main
   window with it.
   macOS notifications have no buttons. Passwords and saved requests are
-  sealed with a key in UIDM's data folder that only your user can read,
+  sealed with a key in Pullbay's data folder that only your user can read,
   rather than the Keychain or the Secret Service. **Update now** opens the
   release page instead of installing. Microsoft Defender is Windows' own:
   choose a scanner program such as `clamscan`. These builds were tested on
@@ -2073,3 +2090,12 @@ arguments; no real ffmpeg was run on real video.
 - Other processes running as the same user can read the token. That is outside
   this design's threat model: such a process can already read the browser's
   cookies directly.
+
+## License
+
+Pullbay is free software under the [MIT License](LICENSE).
+
+Pullbay is an independent project. It is not affiliated with, endorsed by or
+connected to Tonec Inc. or Internet Download Manager. "Internet Download
+Manager" and "IDM" are names of their owner, used here only to describe
+the program Pullbay works like.

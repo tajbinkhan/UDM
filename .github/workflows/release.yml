@@ -1,6 +1,6 @@
-# Builds UIDM's installers for every system and attaches them to a GitHub
+# Builds Pullbay's installers for every system and attaches them to a GitHub
 # Release. Release files don't count against the repository's storage, and
-# UIDM's own update check reads the latest release.
+# Pullbay's own update check reads the latest release.
 #
 # To release: set the version in Cargo.toml, write the notes in
 # release-notes/v<version>.md (start from release-notes/TEMPLATE.md), commit,
@@ -64,16 +64,16 @@ jobs:
         shell: pwsh
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
-          $out = "dist\portable\UIDM"
+          $out = "dist\portable\Pullbay"
           New-Item -ItemType Directory -Force "$out\target\release" | Out-Null
-          Copy-Item target\release\uidm-host.exe, target\release\uidm-daemon.exe, target\release\uidm-gui.exe "$out\target\release"
+          Copy-Item target\release\pullbay-host.exe, target\release\pullbay-daemon.exe, target\release\pullbay-gui.exe "$out\target\release"
           Copy-Item -Recurse extension, host "$out"
           Copy-Item install-host.ps1, README.md "$out"
           New-Item -ItemType Directory -Force "$out\installer" | Out-Null
           Copy-Item installer\make-firefox.ps1 "$out\installer"
           Remove-Item -Recurse -Force "$out\extension\test"
           .\installer\make-firefox.ps1 -Out "$out\firefox"
-          Compress-Archive -Path $out -DestinationPath "dist\UIDM-$version-windows-portable.zip"
+          Compress-Archive -Path $out -DestinationPath "dist\Pullbay-$version-windows-portable.zip"
           Remove-Item -Recurse -Force dist\portable
 
       - uses: actions/upload-artifact@v5
@@ -181,5 +181,5 @@ jobs:
           fi
           gh release create "$TAG" dist/* \
             --repo "${{ github.repository }}" \
-            --title "UIDM $TAG" \
+            --title "Pullbay $TAG" \
             "$@"

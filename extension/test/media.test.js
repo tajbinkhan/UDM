@@ -122,7 +122,7 @@ test("page titles become safe file names", () => {
 
 function connected(settings = {}) {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({
     op: "settings",
     settings: { capture_types: [], capture_min_size_kb: 0, capture_excluded_sites: [], video_button: true, video_button_excluded_sites: [], ...settings },
@@ -162,39 +162,39 @@ test("the context menu has the items the settings keep, and the last videos", as
   const w = connected();
   const items = () => [...w.chrome.contextMenus.items.keys()];
   w.port.onMessage.fire({ op: "settings", settings: { browser_menu_hidden: ["all_links", "download_later"] } });
-  for (const gone of ["uidm-all-links", "uidm-later-link", "uidm-later-media"]) assert.ok(!items().includes(gone), gone);
-  for (const kept of ["uidm-link", "uidm-media", "uidm-selection-links", "uidm-last-video", "uidm-recent"]) {
+  for (const gone of ["pullbay-all-links", "pullbay-later-link", "pullbay-later-media"]) assert.ok(!items().includes(gone), gone);
+  for (const kept of ["pullbay-link", "pullbay-media", "pullbay-selection-links", "pullbay-last-video", "pullbay-recent"]) {
     assert.ok(items().includes(kept), kept);
   }
   await new Promise((r) => setTimeout(r, 350));
-  assert.equal(w.chrome.contextMenus.items.get("uidm-last-video").enabled, false, "no video yet");
+  assert.equal(w.chrome.contextMenus.items.get("pullbay-last-video").enabled, false, "no video yet");
 
   await seen(w, 7, "https://v.net/old.mp4", "video/mp4", { "Content-Length": "9000000" });
   await new Promise((r) => setTimeout(r, 5));
   await seen(w, 8, "https://v.net/new.mp4", "video/mp4", { "Content-Length": "9000000" });
   await new Promise((r) => setTimeout(r, 350));
-  assert.equal(w.chrome.contextMenus.items.get("uidm-last-video").enabled, true);
-  const children = [...w.chrome.contextMenus.items.values()].filter((i) => i.parentId === "uidm-recent");
+  assert.equal(w.chrome.contextMenus.items.get("pullbay-last-video").enabled, true);
+  const children = [...w.chrome.contextMenus.items.values()].filter((i) => i.parentId === "pullbay-recent");
   same(children.map((c) => c.title), ["v.net (MP4 video)", "v.net (MP4 video)"]);
 
-  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-last-video" });
+  await w.chrome.contextMenus.onClicked.fire({ menuItemId: "pullbay-last-video" });
   assert.equal(w.sent.filter((m) => m.op === "add").at(-1).url, "https://v.net/new.mp4");
   await w.chrome.contextMenus.onClicked.fire({ menuItemId: children[1].id });
   assert.equal(w.sent.filter((m) => m.op === "add").at(-1).url, "https://v.net/old.mp4");
 
   // Showing everything again brings the items back.
   w.port.onMessage.fire({ op: "settings", settings: { browser_menu_hidden: [] } });
-  assert.ok(items().includes("uidm-all-links"));
+  assert.ok(items().includes("pullbay-all-links"));
 });
 
-test("a tab's video goes to UIDM in the quality picked", async () => {
+test("a tab's video goes to Pullbay in the quality picked", async () => {
   const w = connected();
   await seen(w, 7, "https://v.net/master.m3u8", "application/vnd.apple.mpegurl");
   await seen(w, 8, "https://other.net/elsewhere.mp4", "video/mp4", { "Content-Length": "9000000" });
 
   const asked = w.content({ type: "video:menu" }, 7);
   await tick();
-  // The worker asks UIDM what the stream offers.
+  // The worker asks Pullbay what the stream offers.
   const probe = w.sent.find((m) => m.op === "probe_media");
   assert.equal(probe.download.url, "https://v.net/master.m3u8");
   assert.equal(probe.download.referrer, "https://site.net/watch");
@@ -296,7 +296,7 @@ test("YouTube pages are one address per video", () => {
   same([...store.get(1).keys()], ["https://v.net/a.mp4", "https://www.youtube.com/watch?v=other"]);
 });
 
-test("a YouTube video goes to UIDM as a page yt-dlp reads", async () => {
+test("a YouTube video goes to Pullbay as a page yt-dlp reads", async () => {
   const w = connected();
   const page = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
   const asked = w.content({ type: "video:menu" }, 7, "https://www.youtube.com/watch?v=jNQXAC9IVRw&t=3");
@@ -366,7 +366,7 @@ test("Facebook, Instagram and Vimeo video pages are one address per video", () =
   }
 });
 
-test("a Facebook video goes to UIDM as a page, also after moving there in the page", async () => {
+test("a Facebook video goes to Pullbay as a page, also after moving there in the page", async () => {
   const w = connected();
   // The site moves to a video without loading a page.
   await w.chrome.webNavigation.onHistoryStateUpdated.fire({ tabId: 7, frameId: 0, url: "https://www.facebook.com/NASA/videos/42/" });
@@ -447,7 +447,7 @@ test("a stream offers its sound alone, from its audio track or its smallest vide
 
 test("choosing the sound alone sends an audio_only stream", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.chrome.webRequest.onHeadersReceived.fire({
     tabId: 7,
     url: "https://v.net/master.m3u8",
@@ -471,7 +471,7 @@ test("choosing the sound alone sends an audio_only stream", async () => {
 });
 test("subtitle tracks are listed, ticked by default, and sent with the quality", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.chrome.webRequest.onHeadersReceived.fire({
     tabId: 7,
     url: "https://v.net/master.m3u8",
@@ -523,7 +523,7 @@ test("an address that is no stream is left out when another can be downloaded", 
 for (const firefox of [false, true]) {
   test(`a video file caught under a playlist's name is offered and sent as a file${firefox ? " in Firefox" : ""}`, async () => {
     const w = loadWorker({ firefox });
-    w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+    w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
     w.chrome.webRequest.onHeadersReceived.fire({
       tabId: 7,
       url: "https://v.net/movie.m3u8?t=1",
@@ -551,7 +551,7 @@ for (const firefox of [false, true]) {
   });
 }
 
-test("a whole file's type comes from what UIDM found in it", () => {
+test("a whole file's type comes from what Pullbay found in it", () => {
   const { adoptFile } = require("../media.js");
   const entry = { id: 1, url: "https://v.net/x.m3u8", kind: "hls", mime: "audio/mpegurl", size: 0, time: 1 };
   assert.equal(adoptFile(entry, { file: { ext: "ts", size: 10 } }), true);
@@ -565,23 +565,23 @@ test("Chromium browsers and Firefox each have their own context menu list", () =
   const rules = { browser_menu_hidden_chromium: ["all_links"], browser_menu_hidden_firefox: ["recent_videos", "download"] };
   same(hiddenMenuItems(rules, false), ["all_links"]);
   same(hiddenMenuItems(rules, true), ["recent_videos", "download"]);
-  // An older UIDM's one list serves both.
+  // An older Pullbay's one list serves both.
   same(hiddenMenuItems({ browser_menu_hidden: ["last_video"] }, true), ["last_video"]);
   same(hiddenMenuItems(null, false), []);
 
   const lists = { browser_menu_hidden_chromium: ["all_links"], browser_menu_hidden_firefox: ["download"] };
   const menu = (w) => [...w.chrome.contextMenus.items.keys()];
   const chrome = loadWorker();
-  chrome.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  chrome.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   chrome.port.onMessage.fire({ op: "settings", settings: lists });
-  assert.ok(!menu(chrome).includes("uidm-all-links") && menu(chrome).includes("uidm-link"));
+  assert.ok(!menu(chrome).includes("pullbay-all-links") && menu(chrome).includes("pullbay-link"));
   const firefox = loadWorker({ firefox: true });
-  firefox.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  firefox.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   firefox.port.onMessage.fire({ op: "settings", settings: lists });
-  assert.ok(menu(firefox).includes("uidm-all-links") && !menu(firefox).includes("uidm-link"));
+  assert.ok(menu(firefox).includes("pullbay-all-links") && !menu(firefox).includes("pullbay-link"));
 });
 
-test("web players' files of the listed types go to UIDM without the video button", async () => {
+test("web players' files of the listed types go to Pullbay without the video button", async () => {
   const rules = { video_auto_capture: true, video_auto_types: ["mp4", "mp3"], capture_excluded_sites: ["blocked.net"] };
   const player = (url, type, extra = {}) => ({ type: "media", ...response(url, type, extra) });
   assert.equal(autoCaptureMedia(player("https://v.net/a.mp4", "video/mp4"), rules), true);

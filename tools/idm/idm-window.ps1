@@ -10,8 +10,8 @@ from watch-idm.ps1's log.
     pwsh -File tools/idm/idm-window.ps1 -Hwnd 0x1088C -Action Caption -X 385 -Y 19
 
 Click      presses the dialog button with control ID -Id (BM_CLICK). Start
-           Download in "Download File Info" is 1006; decode-dialogs.py lists
-           the others.
+           Download in "Download File Info" is 1006. Accessibility Insights
+           or Spy++ shows the others on the open window.
 Minimize   and Restore send SC_MINIMIZE and SC_RESTORE.
 Capture    saves the window as a PNG with PrintWindow, even behind another
            window; find IDM's own caption buttons by their pixels in it.

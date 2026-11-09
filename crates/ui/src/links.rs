@@ -12,11 +12,11 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
-use uidm_domain::bytes::ByteCount;
-use uidm_domain::download::{Download, PageLink};
-use uidm_domain::id::QueueId;
-use uidm_domain::queue::{Queue, MAIN_QUEUE};
-use uidm_domain::settings::{Settings, GENERAL};
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::download::{Download, PageLink};
+use pullbay_domain::id::QueueId;
+use pullbay_domain::queue::{Queue, MAIN_QUEUE};
+use pullbay_domain::settings::{Settings, GENERAL};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::errors::UiError;
@@ -171,7 +171,7 @@ impl LinksDialog {
     }
 
     /// The page the links came from, sent as their referrer and kept as
-    /// their page. A program that sends links (`uidm-host send`) may give
+    /// their page. A program that sends links (`pullbay-host send`) may give
     /// none.
     fn referrer(&self) -> Option<String> {
         (!self.page.is_empty()).then(|| self.page.clone())
@@ -225,7 +225,7 @@ impl LinksDialog {
 
     /// Indexes of the links the filters leave in view.
     fn visible(&self) -> Vec<usize> {
-        let types = uidm_domain::settings::parse_extensions(&self.types);
+        let types = pullbay_domain::settings::parse_extensions(&self.types);
         let mut seen = HashSet::new();
         (0..self.links.len())
             .filter(|&i| {

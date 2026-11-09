@@ -2,14 +2,14 @@
 //! Queues dialog where queues and their schedules are edited, and the
 //! countdown before a finished queue sleeps or shuts down the computer.
 
+use pullbay_domain::id::QueueId;
+use pullbay_domain::sync::LockExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use uidm_domain::id::QueueId;
-use uidm_domain::sync::LockExt;
 
 use eframe::egui;
-use uidm_domain::queue::{
+use pullbay_domain::queue::{
     Queue, QueueKind, Schedule, WhenDone, MAIN_QUEUE, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX,
 };
 
@@ -84,7 +84,7 @@ fn wake_timers_allowed(ctx: &egui::Context) -> Option<(bool, bool)> {
 pub fn wake_field(ui: &mut egui::Ui, wake: &mut bool) {
     ui.vertical(|ui| {
         ui.add_enabled(cfg!(windows), egui::Checkbox::new(wake, tr("Wake the computer to start")))
-            .on_hover_text(tr("Wakes Windows from sleep or hibernation shortly before the start time. UIDM must be running."))
+            .on_hover_text(tr("Wakes Windows from sleep or hibernation shortly before the start time. Pullbay must be running."))
             .on_disabled_hover_text(tr("Only on Windows for now"));
         if *wake {
             if let Some((ac, dc)) = wake_timers_allowed(ui.ctx()) {
@@ -304,7 +304,7 @@ pub struct QueuesDialog {
     draft: QueueDraft,
     /// A new queue just saved, to select once the daemon lists it.
     pending_name: Option<String>,
-    /// Say that a schedule only runs while UIDM does, until dismissed.
+    /// Say that a schedule only runs while Pullbay does, until dismissed.
     pub schedule_note: bool,
 }
 
@@ -444,7 +444,7 @@ fn form(
         ui.end_row();
 
         ui.label("");
-        ui.checkbox(&mut draft.start_on_launch, tr("Start this queue whenever UIDM starts"));
+        ui.checkbox(&mut draft.start_on_launch, tr("Start this queue whenever Pullbay starts"));
         ui.end_row();
 
         ui.label(tr("Schedule"));
@@ -510,7 +510,7 @@ fn form(
             if d.schedule_note {
                 ui.label("");
                 ui.vertical(|ui| {
-                    ui.label(tr("UIDM must be running at the start time for the schedule to start this queue. If it starts later, the queue starts then, while its time is still open. Start with Windows (Options > General) keeps it running."));
+                    ui.label(tr("Pullbay must be running at the start time for the schedule to start this queue. If it starts later, the queue starts then, while its time is still open. Start with Windows (Options > General) keeps it running."));
                     if ui.add_enabled(connected, egui::Button::new(tr("Don't show this again")).small()).clicked() {
                         actions.push(Action::HideScheduleNote);
                     }
@@ -642,7 +642,7 @@ pub fn countdown(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::queue::{parse_date, parse_time};
+    use pullbay_domain::queue::{parse_date, parse_time};
 
     #[test]
     fn new_named_checks_the_name() {

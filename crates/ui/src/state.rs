@@ -9,18 +9,18 @@
 //!
 //! The dialogs' own drafts still live in `App` (#199).
 
+use pullbay_domain::bytes::ByteCount;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
-use uidm_domain::bytes::ByteCount;
 
-use uidm_application::daemon::{self, Event, Failure, Lost};
-use uidm_application::window::BrowserSlot;
-use uidm_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
-use uidm_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
-use uidm_domain::id::DownloadId;
-use uidm_domain::queue::{Queue, WhenDone};
-use uidm_domain::settings::{AddedBrowser, Notify, Settings};
-use uidm_domain::table::DownloadTable;
+use pullbay_application::daemon::{self, Event, Failure, Lost};
+use pullbay_application::window::BrowserSlot;
+use pullbay_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
+use pullbay_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::queue::{Queue, WhenDone};
+use pullbay_domain::settings::{AddedBrowser, Notify, Settings};
+use pullbay_domain::table::DownloadTable;
 
 use crate::errors::{self, UiError};
 use crate::i18n::{tr, trf};
@@ -100,9 +100,9 @@ pub struct AppState {
     pub quota: Option<String>,
     /// The last update check's answer, for the About box: a newer release,
     /// none, or why it could not look.
-    pub update: Option<Result<Option<uidm_domain::update::Release>, UiError>>,
+    pub update: Option<Result<Option<pullbay_domain::update::Release>, UiError>>,
     /// A newer release, for the status bar.
-    pub newer_release: Option<uidm_domain::update::Release>,
+    pub newer_release: Option<pullbay_domain::update::Release>,
     /// Update now is under way: `None` while the daemon downloads the
     /// update, or why it failed.
     pub installing: Option<Option<String>>,
@@ -188,10 +188,10 @@ impl AppState {
             .map(|(_, s)| s.bytes_per_sec)
             .sum();
         match (active, queued) {
-            (0, 0) => tr("UIDM: no active downloads").to_string(),
-            (0, q) => trf!("UIDM: {queued} queued", queued = q),
+            (0, 0) => tr("Pullbay: no active downloads").to_string(),
+            (0, q) => trf!("Pullbay: {queued} queued", queued = q),
             (a, _) => {
-                trf!("UIDM: {active} downloading at {speed}/s", active = a, speed = crate::human_rate(speed as u64))
+                trf!("Pullbay: {active} downloading at {speed}/s", active = a, speed = crate::human_rate(speed as u64))
             }
         }
     }
@@ -223,7 +223,7 @@ impl AppState {
                 self.saving = false;
                 self.stale_daemon = true;
                 self.last_error = Some(
-                    tr("The running UIDM daemon is older than this window, so it did not understand a request. Restart the daemon to run the new one.")
+                    tr("The running Pullbay daemon is older than this window, so it did not understand a request. Restart the daemon to run the new one.")
                         .into(),
                 );
             }
@@ -258,7 +258,7 @@ impl AppState {
                 } else if was_paused {
                     self.notice = Some(tr("The download quota allows downloads again; paused ones resumed.").into());
                     None
-                } else if uidm_domain::quota::nearly_reached(*used, *limit) {
+                } else if pullbay_domain::quota::nearly_reached(*used, *limit) {
                     Some(trf!(
                         "Download quota nearly used: {amount}. Downloads pause when it runs out.",
                         amount = amount
@@ -384,9 +384,9 @@ impl Default for AppState {
             quota_paused: false,
             browser_link: None,
             grab_projects: Vec::new(),
-            grab_templates: uidm_domain::grab::built_in_templates(),
+            grab_templates: pullbay_domain::grab::built_in_templates(),
             grab_template: GrabRequest::default(),
-            grab_filters: uidm_domain::grab::default_filters(),
+            grab_filters: pullbay_domain::grab::default_filters(),
             grab_opened: None,
             browsers_read: None,
         }
@@ -494,7 +494,7 @@ pub enum Taken {
 
 /// A zip preview's download and its files, or why they could not be
 /// listed.
-pub type ZipListed = (DownloadId, Result<Vec<uidm_domain::download::ZipEntry>, UiError>);
+pub type ZipListed = (DownloadId, Result<Vec<pullbay_domain::download::ZipEntry>, UiError>);
 
 /// Change `state` as `msg` says. The only place the window's state
 /// changes. A [`UiMessage::Take`] returns what was taken.
@@ -685,7 +685,7 @@ pub enum Need {
     /// Wait a moment, then wake for download `id`'s failure if it is still
     /// failed.
     WakeIfStillFailed(DownloadId),
-    /// UIDM exits.
+    /// Pullbay exits.
     Quit,
 }
 
@@ -779,7 +779,7 @@ impl Watch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::download::OnDone;
+    use pullbay_domain::download::OnDone;
 
     fn entry(id: u64, status: Status) -> DownloadEntry {
         let mut e: DownloadEntry = serde_json::from_value(serde_json::json!({
@@ -831,7 +831,8 @@ mod tests {
         assert_eq!(take_save_result(&mut s), Some(Err("not connected".into())));
         // The daemon's refusal comes typed, and reads as the window says it.
         apply(&mut s, UiMessage::SavingSettings);
-        let refused = uidm_domain::ports::SettingsError::Invalid(uidm_domain::settings::InvalidSettings::QuotaZero);
+        let refused =
+            pullbay_domain::ports::SettingsError::Invalid(pullbay_domain::settings::InvalidSettings::QuotaZero);
         daemon(&mut s, Event::Error { error: refused.into() });
         assert_eq!(take_save_result(&mut s), Some(Err("The quota must be at least 1 MB.".into())));
     }
@@ -839,7 +840,7 @@ mod tests {
     #[test]
     fn the_daemons_errors_are_shown_as_the_window_says_them() {
         let mut s = AppState::default();
-        let error = Failure::from(uidm_domain::queue::QueueError::MainQueue);
+        let error = Failure::from(pullbay_domain::queue::QueueError::MainQueue);
         daemon(&mut s, Event::Error { error });
         assert_eq!(s.last_error.as_deref(), Some("The main queue cannot be deleted."));
         daemon(&mut s, Event::Rejected { url: "x".into(), error: Failure::Other("as the daemon said".into()) });
@@ -854,7 +855,7 @@ mod tests {
     fn what_the_workers_read_lands_in_the_state() {
         let mut s = AppState::default();
         assert!(!s.grab_templates.is_empty(), "the built-in templates until the first read");
-        let templates = uidm_domain::grab::built_in_templates();
+        let templates = pullbay_domain::grab::built_in_templates();
         let read = GrabLibrary {
             projects: vec!["nightly".into()],
             templates: templates.clone(),
@@ -949,7 +950,7 @@ mod tests {
     #[test]
     fn a_login_failure_asks_for_the_login_once() {
         let mut s = AppState::default();
-        let error = uidm_domain::download::needs_login_error("files.example.com", None);
+        let error = pullbay_domain::download::needs_login_error("files.example.com", None);
         for _ in 0..2 {
             daemon(
                 &mut s,
@@ -983,7 +984,8 @@ mod tests {
         };
         assert_eq!(see(&mut w, Event::Show), Need::Show);
         assert_eq!(see(&mut w, Event::Quit), Need::Quit);
-        let done = |id| Event::Done { id, url: uidm_domain::address::Link::default(), path: String::new(), note: None };
+        let done =
+            |id| Event::Done { id, url: pullbay_domain::address::Link::default(), path: String::new(), note: None };
         assert_eq!(see(&mut w, done(DownloadId::new(1))), Need::Nothing, "no dialog asked for");
         let asked = DownloadEntry {
             on_done: Some(OnDone { dialog: true, ..OnDone::default() }),
@@ -991,7 +993,7 @@ mod tests {
         };
         see(&mut w, Event::Updated { item: asked });
         assert_eq!(see(&mut w, done(DownloadId::new(2))), Need::Wake);
-        let failed = |id| Event::Failed { id, url: uidm_domain::address::Link::default(), error: "gone".into() };
+        let failed = |id| Event::Failed { id, url: pullbay_domain::address::Link::default(), error: "gone".into() };
         assert_eq!(see(&mut w, failed(DownloadId::new(3))), Need::Nothing, "notifications, not dialogs");
         see(&mut w, Event::Settings { settings: Settings { progress_on_start: true, ..settings(Notify::Dialog) } });
         assert_eq!(see(&mut w, failed(DownloadId::new(3))), Need::WakeIfStillFailed(DownloadId::new(3)));
@@ -1002,7 +1004,7 @@ mod tests {
         assert_eq!(see(&mut w, confirming), Need::Wake);
         let started = Event::Started {
             id: DownloadId::new(6),
-            url: uidm_domain::address::Link::default(),
+            url: pullbay_domain::address::Link::default(),
             path: String::new(),
             total: None,
             resumable: false,

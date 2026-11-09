@@ -2,12 +2,12 @@
 //! with the engine, building each request the way `Transfers` would for a
 //! download of it (the settings' proxy and logins, the browser's cookies).
 
+use pullbay_domain::bytes::ByteCount;
 use std::sync::Arc;
-use uidm_domain::bytes::ByteCount;
 
-use uidm_domain::download::{Download, ZipEntry};
-use uidm_domain::media::MediaInfo;
-use uidm_domain::ports::{FileFacts, LinkFacts, ProbeError, Probes};
+use pullbay_domain::download::{Download, ZipEntry};
+use pullbay_domain::media::MediaInfo;
+use pullbay_domain::ports::{FileFacts, LinkFacts, ProbeError, Probes};
 
 use crate::engine;
 use crate::transfers::Transfers;
@@ -84,7 +84,7 @@ mod tests {
     use crate::engine::testserver::{self, TestServer};
     use crate::live_settings::LiveSettings;
     use crate::store::{DownloadStore, Ended, StoreEvents, StoreFiles};
-    use uidm_domain::settings::Settings;
+    use pullbay_domain::settings::Settings;
 
     struct Quiet;
 
@@ -96,7 +96,7 @@ mod tests {
 
     /// Probes saving to `name`'s folder under the temp folder.
     fn probes(name: &str) -> (ServerProbes, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("uidm_probes_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_probes_{}_{name}", std::process::id()));
         let events: Arc<dyn StoreEvents> = Arc::new(Quiet);
         let (store, _, next_id) = DownloadStore::open(StoreFiles::default(), Arc::clone(&events));
         let settings = Settings { download_dir: Some(dir.display().to_string()), ..Settings::default() };
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn a_video_page_or_stream_is_named_without_asking_its_server() {
-        use uidm_domain::media::{MediaChoice, MediaKind};
+        use pullbay_domain::media::{MediaChoice, MediaKind};
         let (probes, dir) = probes("media");
         let server = TestServer::start(testserver::body(10));
         for kind in [MediaKind::Page, MediaKind::Hls] {

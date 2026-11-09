@@ -8,7 +8,7 @@
 //! a login of its own, then logs in as `user@host`. Through a SOCKS proxy,
 //! both the control and the data connections are tunnelled with SOCKS
 //! CONNECT; data then always uses passive mode, since the server could not
-//! reach UIDM behind the proxy.
+//! reach Pullbay behind the proxy.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
@@ -32,7 +32,7 @@ pub fn is_ftp(url: &str) -> bool {
 /// What an FTP fetch needs besides the address.
 #[derive(Clone, Default)]
 pub struct FtpOptions {
-    /// Open data connections from the server to UIDM (PORT) instead of the
+    /// Open data connections from the server to Pullbay (PORT) instead of the
     /// other way round.
     pub active: bool,
     pub logins: Vec<Login>,
@@ -130,7 +130,7 @@ impl Control {
         let saved =
             net::find_login(&opts.logins, url).filter(|l| l.plain).map(|l| (l.username.clone(), l.password.clone()));
         let given = from_url.is_some() || saved.is_some();
-        let (user, pass) = from_url.or(saved).unwrap_or_else(|| ("anonymous".into(), "uidm@".into()));
+        let (user, pass) = from_url.or(saved).unwrap_or_else(|| ("anonymous".into(), "pullbay@".into()));
         if has_control(&user) || has_control(&pass) {
             return Err(EngineError::Protocol("the FTP login has control characters in it".into()));
         }
@@ -307,8 +307,8 @@ fn mdtm_to_http_date(text: &str) -> Option<String> {
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
         return None;
     }
-    let day = uidm_domain::queue::days_from_civil(y as i64, mo, d);
-    let weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][uidm_domain::queue::weekday(day) as usize];
+    let day = pullbay_domain::queue::days_from_civil(y as i64, mo, d);
+    let weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][pullbay_domain::queue::weekday(day) as usize];
     let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][mo as usize - 1];
     Some(format!("{weekday}, {d:02} {month} {y:04} {h:02}:{mi:02}:{s:02} GMT"))
 }

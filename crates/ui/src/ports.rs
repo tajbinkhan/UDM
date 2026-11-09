@@ -2,18 +2,18 @@
 //! clock, the save folders, opening files and the window's own files.
 //!
 //! `main` installs them once, before the window opens, with the adapters
-//! from `uidm_infrastructure`. Views read them through [`ports`]. This is a
+//! from `pullbay_infrastructure`. Views read them through [`ports`]. This is a
 //! step on the way to #199, where views get what they need through
 //! `AppState` instead.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use uidm_application::window::{
+use pullbay_application::window::{
     BrowserRegistry, FilePicker, GrabLibrary, ListFiles, SettingsChecks, SystemServices, WindowFiles,
 };
-use uidm_domain::ports::{Clock, DownloadFiles, FileOpener, GrabDownloads, SaveFolders, Timestamps};
-use uidm_domain::queue::Moment;
+use pullbay_domain::ports::{Clock, DownloadFiles, FileOpener, GrabDownloads, SaveFolders, Timestamps};
+use pullbay_domain::queue::Moment;
 
 /// What the views reach through ports.
 pub struct Ports {
@@ -23,7 +23,7 @@ pub struct Ports {
     pub times: Arc<dyn Timestamps>,
     /// The system's Downloads folder.
     pub folders: Arc<dyn SaveFolders>,
-    /// Whether UIDM may write to a folder.
+    /// Whether Pullbay may write to a folder.
     pub files: Arc<dyn DownloadFiles>,
     /// Opening and showing files.
     pub opener: Arc<dyn FileOpener>,
@@ -41,7 +41,7 @@ pub struct Ports {
     /// The operating system: its proxy, wake timers, sounds and
     /// credential store.
     pub system: Arc<dyn SystemServices>,
-    /// Registering UIDM with the browsers.
+    /// Registering Pullbay with the browsers.
     pub browsers: Arc<dyn BrowserRegistry>,
     /// The system's file and folder dialogs, called on workers.
     pub pickers: Arc<dyn FilePicker>,
@@ -63,7 +63,7 @@ impl Ports {
         self.folders.downloads_dir()
     }
 
-    /// Whether UIDM may write to `folder` without administrator rights.
+    /// Whether Pullbay may write to `folder` without administrator rights.
     pub fn can_write(&self, folder: &Path) -> bool {
         self.files.can_write(folder)
     }
@@ -94,14 +94,14 @@ pub fn ports() -> &'static Ports {
 #[cfg(test)]
 mod fakes {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use uidm_application::window::{
+    use pullbay_application::window::{
         BrowserSlot, FileKind, IdentifiedBrowser, ListError, ListFormat, SystemFonts, SystemProxy,
     };
-    use uidm_domain::download::{Download, DownloadEntry};
-    use uidm_domain::grab::{GrabFile, GrabRequest};
-    use uidm_domain::ports::{FilesError, SettingsError};
-    use uidm_domain::settings::{Settings, Sound};
+    use pullbay_domain::download::{Download, DownloadEntry};
+    use pullbay_domain::grab::{GrabFile, GrabRequest};
+    use pullbay_domain::ports::{FilesError, SettingsError};
+    use pullbay_domain::settings::{Settings, Sound};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct Utc;
 
@@ -126,7 +126,7 @@ mod fakes {
 
     impl SaveFolders for Temp {
         fn downloads_dir(&self) -> PathBuf {
-            std::env::temp_dir().join("uidm-test-downloads")
+            std::env::temp_dir().join("pullbay-test-downloads")
         }
     }
 

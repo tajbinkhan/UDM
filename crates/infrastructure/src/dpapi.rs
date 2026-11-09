@@ -3,7 +3,7 @@
 //! can read them.
 //!
 //! On Windows this is DPAPI (`CryptProtectData`). On macOS and Linux it is
-//! AES-256-CBC with an HMAC-SHA256 tag, keyed by a random key in UIDM's data
+//! AES-256-CBC with an HMAC-SHA256 tag, keyed by a random key in Pullbay's data
 //! folder that only the user can read (`secret.key`, mode 600).
 
 pub use imp::{protect, unprotect};
@@ -15,8 +15,8 @@ mod imp {
     use std::ptr;
 
     /// Fixed extra entropy, so another program calling DPAPI as the same user
-    /// cannot decrypt UIDM's data by accident.
-    const ENTROPY: &[u8] = b"uidm-saved-requests-v1";
+    /// cannot decrypt Pullbay's data by accident.
+    const ENTROPY: &[u8] = b"pullbay-saved-requests-v1";
     const CRYPTPROTECT_UI_FORBIDDEN: u32 = 0x1;
 
     #[repr(C)]
@@ -123,7 +123,7 @@ mod imp {
     use hmac::{KeyInit, Mac};
     use sha2::Sha256;
 
-    const MAGIC: &[u8] = b"UIDM-SEAL1";
+    const MAGIC: &[u8] = b"Pullbay-SEAL1";
     const IV: usize = 16;
     const TAG: usize = 32;
 
@@ -182,7 +182,7 @@ mod imp {
             mac.update(label);
             mac.finalize().into_bytes().into()
         };
-        Ok((derive(b"uidm-encrypt"), derive(b"uidm-authenticate")))
+        Ok((derive(b"pullbay-encrypt"), derive(b"pullbay-authenticate")))
     }
 
     fn tag(key: &[u8; 32], sealed: &[u8]) -> hmac::Hmac<Sha256> {
@@ -215,12 +215,13 @@ mod imp {
     /// Decrypt data that `protect` produced for the current user.
     pub fn unprotect(data: &[u8]) -> io::Result<Vec<u8>> {
         if data.len() < MAGIC.len() + IV + TAG || !data.starts_with(MAGIC) {
-            return Err(bad("not data UIDM sealed"));
+            return Err(bad("not data Pullbay sealed"));
         }
         let (enc, auth) = keys()?;
         let (sealed, t) = data.split_at(data.len() - TAG);
         tag(&auth, sealed).verify_slice(t).map_err(|_| bad("sealed data was changed or sealed for another user"))?;
-        let iv: [u8; IV] = sealed[MAGIC.len()..MAGIC.len() + IV].try_into().map_err(|_| bad("not data UIDM sealed"))?;
+        let iv: [u8; IV] =
+            sealed[MAGIC.len()..MAGIC.len() + IV].try_into().map_err(|_| bad("not data Pullbay sealed"))?;
         let mut body = sealed[MAGIC.len() + IV..].to_vec();
         let plain = cbc::Decryptor::<aes::Aes256>::new(&enc.into(), &iv.into())
             .decrypt_padded_mut::<Pkcs7>(&mut body)
@@ -244,7 +245,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_key_made_by_many_at_once_is_one_key() {
-        let dir = std::env::temp_dir().join(format!("uidm_key_race_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_key_race_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("secret.key");
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));

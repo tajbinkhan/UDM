@@ -1,19 +1,18 @@
 //! Saving into folders that need administrator rights (`C:\Program Files`).
 //!
-//! UIDM checks a folder before a download starts. When it cannot write
+//! Pullbay checks a folder before a download starts. When it cannot write
 //! there, the user can save there with administrator rights: the download
 //! itself still runs as the user, in a staging folder, and only the finished
-//! file is moved into place by `uidm-daemon --move-elevated`, which Windows
-//! starts after a UAC prompt. IDM does the same with its elevated helper,
-//! `idmfsa.dll`.
+//! file is moved into place by `pullbay-daemon --move-elevated`, which Windows
+//! starts after a UAC prompt.
 
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// The argument that makes `uidm-daemon` move one file and exit, instead of
-/// running as the daemon: `uidm-daemon --move-elevated <from> <to>`.
+/// The argument that makes `pullbay-daemon` move one file and exit, instead of
+/// running as the daemon: `pullbay-daemon --move-elevated <from> <to>`.
 pub const MOVE_ARG: &str = "--move-elevated";
 
 /// Whether this system can ask for administrator rights to save a file.
@@ -21,8 +20,8 @@ pub fn supported() -> bool {
     cfg!(windows)
 }
 
-/// Whether UIDM can create files in `dir`. A missing folder is judged by
-/// the nearest folder above it that exists, where UIDM would have to make
+/// Whether Pullbay can create files in `dir`. A missing folder is judged by
+/// the nearest folder above it that exists, where Pullbay would have to make
 /// it; nothing is left behind. Only a refusal counts: any other error (a
 /// missing drive, a full disk) is left for the download to report.
 pub fn can_write(dir: &Path) -> bool {
@@ -43,7 +42,7 @@ fn try_write(dir: &Path) -> io::Result<()> {
     // reads as a folder that needs administrator rights.
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    let probe = dir.join(format!(".uidm-write-check-{}-{n}", std::process::id()));
+    let probe = dir.join(format!(".pullbay-write-check-{}-{n}", std::process::id()));
     fs::OpenOptions::new().write(true).create_new(true).open(&probe)?;
     fs::remove_file(&probe)
 }
@@ -160,7 +159,7 @@ mod win {
     }
 
     pub fn move_as_admin(from: &Path, to: &Path) -> Result<(), MoveError> {
-        let exe = crate::platform::sibling_exe("uidm-daemon").map_err(|e| MoveError::Failed(e.to_string()))?;
+        let exe = crate::platform::sibling_exe("pullbay-daemon").map_err(|e| MoveError::Failed(e.to_string()))?;
         let params = format!("{MOVE_ARG} {} {}", quote(&from.to_string_lossy()), quote(&to.to_string_lossy()));
         let (verb, file, params) = (wide("runas".as_ref()), wide(exe.as_os_str()), wide(params.as_ref()));
         let mut info = ShellExecuteInfo {
@@ -219,7 +218,7 @@ mod tests {
 
     #[test]
     fn a_writable_folder_passes_and_is_left_clean() {
-        let dir = std::env::temp_dir().join(format!("uidm-elevate-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay-elevate-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         assert!(can_write(&dir.join("new").join("deeper")));
@@ -236,7 +235,7 @@ mod tests {
     #[test]
     fn checks_of_one_folder_at_once_all_pass() {
         // Two downloads into one folder check it at the same moment.
-        let dir = std::env::temp_dir().join(format!("uidm-elevate-race-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay-elevate-race-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let refused = std::sync::atomic::AtomicUsize::new(0);

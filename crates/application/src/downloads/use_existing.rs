@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use uidm_domain::address::Link;
-use uidm_domain::download::{DownloadEntry, DownloadError, Status};
-use uidm_domain::id::DownloadId;
-use uidm_domain::ports::{Attention, DownloadControl, DownloadFiles, DownloadList, QueueStore};
+use pullbay_domain::address::Link;
+use pullbay_domain::download::{DownloadEntry, DownloadError, Status};
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::ports::{Attention, DownloadControl, DownloadFiles, DownloadList, QueueStore};
 
 use super::RetryDownload;
 

@@ -1,6 +1,6 @@
-use uidm_domain::id::QueueId;
-use uidm_domain::ports::{DownloadList, QueueStore};
-use uidm_domain::queue::{self, Queue, QueueError};
+use pullbay_domain::id::QueueId;
+use pullbay_domain::ports::{DownloadList, QueueStore};
+use pullbay_domain::queue::{self, Queue, QueueError};
 
 /// Create a queue (id 0) or change one.
 pub struct SaveQueue<'a, Q, D> {
@@ -26,9 +26,9 @@ impl<'a, Q: QueueStore, D: DownloadList> SaveQueue<'a, Q, D> {
 mod tests {
     use super::*;
     use crate::memory::{Downloads, Queues};
-    use uidm_domain::download::Status;
-    use uidm_domain::id::DownloadId;
-    use uidm_domain::queue::{QueueKind, MAIN_QUEUE};
+    use pullbay_domain::download::Status;
+    use pullbay_domain::id::DownloadId;
+    use pullbay_domain::queue::{QueueKind, MAIN_QUEUE};
 
     #[test]
     fn a_new_queue_gets_the_next_id() {

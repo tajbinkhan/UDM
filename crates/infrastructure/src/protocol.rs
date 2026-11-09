@@ -3,21 +3,21 @@
 //! Framing: a 4-byte little-endian length, then that many bytes of UTF-8 JSON.
 //! This is the browser's standard and is transport-agnostic, so your own
 //! extension and host are free to use whatever JSON shapes you like. The types
-//! below are UIDM's own contract, not a copy of any other product's protocol.
+//! below are Pullbay's own contract, not a copy of any other product's protocol.
 
 use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
-use uidm_domain::address::Link;
-use uidm_domain::bytes::ByteCount;
-use uidm_domain::grab::{GrabFile, GrabRequest};
-use uidm_domain::id::{DownloadId, QueueId};
-use uidm_domain::media::MediaInfo;
-use uidm_domain::queue::{Queue, WhenDone};
-use uidm_domain::settings::Settings;
+use pullbay_domain::address::Link;
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::grab::{GrabFile, GrabRequest};
+use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::media::MediaInfo;
+use pullbay_domain::queue::{Queue, WhenDone};
+use pullbay_domain::settings::Settings;
 
-use uidm_domain::download::*;
+use pullbay_domain::download::*;
 
 /// A request from a client (the browser via the host, or the desktop window)
 /// to the daemon.
@@ -166,10 +166,10 @@ pub enum Incoming {
         #[serde(default)]
         user_agent: Option<String>,
     },
-    /// Look for a newer UIDM release now; answered with `update`.
+    /// Look for a newer Pullbay release now; answered with `update`.
     CheckUpdate,
     /// Download the newest release's Setup, check it and run it, then
-    /// quit so it can replace UIDM's files. Failures come back as
+    /// quit so it can replace Pullbay's files. Failures come back as
     /// `update_failed`.
     InstallUpdate,
     /// Convert a finished video with ffmpeg: to an MP4, or its sound to an
@@ -177,7 +177,7 @@ pub enum Incoming {
     /// progress; the original stays unless `delete_original`.
     Convert {
         id: DownloadId,
-        to: uidm_domain::media::Target,
+        to: pullbay_domain::media::Target,
         #[serde(default)]
         delete_original: bool,
     },
@@ -237,7 +237,7 @@ pub enum Incoming {
     SetSettings {
         settings: Settings,
     },
-    /// What `uidm-gui` was started with on the command line. With a window
+    /// What `pullbay-gui` was started with on the command line. With a window
     /// open it runs now; otherwise it waits for the window this process is
     /// about to open. Answered with `command_line`.
     CommandLine(CommandLine),
@@ -362,7 +362,7 @@ pub enum Outgoing {
         file: Option<String>,
     },
     CountdownCanceled,
-    /// A finished queue or download asked UIDM to exit: windows close.
+    /// A finished queue or download asked Pullbay to exit: windows close.
     Quit,
     /// Which download waits for a new link from the browser, if any. Sent to
     /// every client when it changes, and after `downloads` in a `list` reply.
@@ -458,7 +458,7 @@ pub enum Outgoing {
     /// that asked, and to every window when the weekly check finds one.
     Update {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        newer: Option<uidm_domain::update::Release>,
+        newer: Option<pullbay_domain::update::Release>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
         /// The error's kind and values (see `wire`), for clients that
@@ -479,7 +479,7 @@ pub enum Outgoing {
     ZipPreview {
         id: DownloadId,
         #[serde(default)]
-        entries: Vec<uidm_domain::download::ZipEntry>,
+        entries: Vec<pullbay_domain::download::ZipEntry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
         /// The error's kind and values (see `wire`), for clients that
@@ -609,8 +609,8 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buf: &mut [u8]) -> io::Result<bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pullbay_domain::settings::{Duplicate, FileExists};
     use std::io::Cursor;
-    use uidm_domain::settings::{Duplicate, FileExists};
 
     #[test]
     fn a_browser_download_carries_its_whole_request() {
@@ -710,7 +710,7 @@ mod tests {
     /// that predate the id types read the same and are written back
     /// unchanged.
     /// Addresses and file names travel as plain strings, and a request
-    /// whose address UIDM does not take still decodes, so the daemon can
+    /// whose address Pullbay does not take still decodes, so the daemon can
     /// refuse it by name (`rejected`) and the browser keep the download.
     #[test]
     fn addresses_and_names_keep_their_wire_shape() {

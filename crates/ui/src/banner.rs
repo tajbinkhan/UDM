@@ -2,7 +2,7 @@
 //! connection when it is not up, the last error, notices, the download
 //! quota, a newer release and a download waiting for a new link. Each is
 //! shown only while it applies, and its text wraps so its buttons stay in
-//! view. UIDM's window has no status bar; this is where its messages went.
+//! view. Pullbay's window has no status bar; this is where its messages went.
 
 use eframe::egui::{self, Color32};
 
@@ -21,7 +21,7 @@ pub enum Connection<'a> {
 pub struct Release<'a> {
     pub version: &'a str,
     pub url: &'a str,
-    /// It has a setup UIDM can install.
+    /// It has a setup Pullbay can install.
     pub installable: bool,
 }
 
@@ -74,10 +74,10 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
         Connection::Up => {}
         Connection::Connecting => strip(ui, Tone::Info, |ui| {
             ui.spinner();
-            ui.label(tr("Connecting to the UIDM daemon..."));
+            ui.label(tr("Connecting to the Pullbay daemon..."));
         }),
         Connection::Lost(why) => strip(ui, Tone::Error, |ui| {
-            ui.label(trf!("Disconnected from the UIDM daemon: {reason}", reason = why));
+            ui.label(trf!("Disconnected from the Pullbay daemon: {reason}", reason = why));
             if ui.button(tr("Retry")).clicked() {
                 actions.push(Action::Reconnect);
             }
@@ -126,7 +126,7 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
     }
     if let Some(r) = &notes.release {
         strip(ui, Tone::Info, |ui| {
-            ui.hyperlink_to(trf!("UIDM {version} is available", version = r.version), r.url);
+            ui.hyperlink_to(trf!("Pullbay {version} is available", version = r.version), r.url);
             // About checks again and offers Update now.
             if r.installable && ui.add_enabled(connected, egui::Button::new(tr("Update now"))).clicked() {
                 actions.push(Action::CheckUpdate);

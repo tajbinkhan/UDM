@@ -1,9 +1,9 @@
 ---
 name: observe-idm
-description: Watch Internet Download Manager run to confirm its behavior before building UIDM's version of it, or to read its dialogs and icons. Use when an IDM-parity change depends on how IDM's windows, dialogs or tray act, or on what a dialog contains.
+description: Watch Internet Download Manager run to confirm its behavior before building Pullbay's version of it, or to see what one of its dialogs shows. Use when an IDM-parity change depends on how IDM's windows, dialogs or tray act, or on what a dialog contains.
 ---
 
-Decompiled code shows what IDM *can* do; only a run shows which path a user takes. On 2026-11-06 UIDM's minimize button was built to hide the download window in the tray, from IDM's tray code, and a run then showed that IDM's minimize goes to the taskbar and only its own caption button hides to the tray. Confirm by running IDM before building.
+Learn IDM only the way a user can: run it and watch its windows. Never decompile, disassemble or unpack IDM's programs, libraries or help files, or extract their icons, dialogs or strings; IDM's license forbids it, and Pullbay has to stay an independent rewrite. Don't build from memory either: on 2026-11-06 Pullbay's minimize button was built to hide the download window in the tray, and a run then showed that IDM's minimize goes to the taskbar and only its own caption button hides to the tray. Confirm by running IDM before building.
 
 ## Steps
 
@@ -16,8 +16,6 @@ Decompiled code shows what IDM *can* do; only a run shows which path a user take
 
 ## Reference
 
-- **Dialog contents**: run REA `inspect_pe_resources` on `C:\Program Files (x86)\Internet Download Manager\IDMan.exe`, save the result to a file, then `python -I tools/idm/decode-dialogs.py <file> <IDMan.exe> "<text>|<text>"`.
-- **Icons**: `python -I tools/idm/extract-icons.py <file> <IDMan.exe> <folder>`.
-- **Code behind a behavior**: REA with Ghidra (`open_binary`, `procedure_pseudo_code`, `procedure_callers`). IDM's RTTI names survive, such as `CTrayIconController`.
+- **Dialog contents**: open the dialog in IDM and save it with `idm-window.ps1 -Action Capture`, then read the PNG. Describe what it offers in Pullbay's own words; don't copy IDM's text or images into Pullbay.
 - **Window flags**: in the log's `exstyle`, `0x8` is always-on-top, `0x40000` a taskbar button (`WS_EX_APPWINDOW`), `0x80` a tool window (no taskbar button). `fg=True` is the window with the focus.
 - **Tray icons in the hidden area** are not in the log. Windows lists every icon an app registered under `HKCU\Control Panel\NotifyIconSettings`, by executable and ID.

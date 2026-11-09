@@ -1,9 +1,9 @@
-//! UIDM's desktop window: its egui views, its state (`AppState`) and the
+//! Pullbay's desktop window: its egui views, its state (`AppState`) and the
 //! messages that change it. It lists downloads and controls them.
 //!
-//! The `uidm-gui` binary builds the adapters, puts them in a [`Start`] and
-//! calls [`run`]. This crate reaches the rest of UIDM only through the ports
-//! in `uidm_application` and `uidm_domain` (AGENTS.md section 3).
+//! The `pullbay-gui` binary builds the adapters, puts them in a [`Start`] and
+//! calls [`run`]. This crate reaches the rest of Pullbay only through the ports
+//! in `pullbay_application` and `pullbay_domain` (AGENTS.md section 3).
 //!
 //! The window is one more daemon client. A background thread connects (starting the
 //! daemon if needed, with the same mutual handshake as the host), asks for the
@@ -65,35 +65,35 @@ mod win;
 #[path = "win_other.rs"]
 mod win;
 
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
-use uidm_domain::bytes::ByteCount;
-use uidm_domain::id::{DownloadId, QueueId};
-use uidm_domain::sync::LockExt;
 
 use categories::Filter;
 use eframe::egui;
 use i18n::{tr, trf};
 use pending::Pending;
-#[cfg(windows)]
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use state::{AppState, Forget, GrabEvent, Link, Need, UiMessage, Watch};
-use uidm_application::daemon::{Command, DaemonClient, DaemonError};
-use uidm_domain::download::CommandLine;
-use uidm_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, Status};
-use uidm_domain::grab::GrabRequest;
-use uidm_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
-use uidm_domain::settings::Sound;
-use uidm_domain::settings::{
+use pullbay_application::daemon::{Command, DaemonClient, DaemonError};
+use pullbay_domain::download::CommandLine;
+use pullbay_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, Status};
+use pullbay_domain::grab::GrabRequest;
+use pullbay_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
+use pullbay_domain::settings::Sound;
+use pullbay_domain::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
     SelectionButton, ServerLimit, Settings, SiteLogin, SocksVersion, BROWSER_MENU_ITEMS, CAPTURE_MIN_SIZE_MAX_KB,
     CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE,
     SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
 };
+#[cfg(windows)]
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use state::{AppState, Forget, GrabEvent, Link, Need, UiMessage, Watch};
 
 /// The `client` this window names in its `hello`, so the daemon knows a
 /// window is open to show a save-as dialog. `main` builds the daemon client
@@ -137,11 +137,11 @@ pub struct Start {
     pub instance: Option<String>,
 }
 
-/// The id every UIDM window carries: the Wayland app id, and the X11 window
-/// class, by which the desktop finds `uidm.desktop` and its icon for the
+/// The id every Pullbay window carries: the Wayland app id, and the X11 window
+/// class, by which the desktop finds `pullbay.desktop` and its icon for the
 /// dock, the taskbar and the window switcher. It must match that file's
 /// name and its `StartupWMClass`.
-pub const APP_ID: &str = "uidm";
+pub const APP_ID: &str = "pullbay";
 
 /// Open the window and run it until it quits. With a window already open,
 /// this copy hands it its command line (or, with none, brings it forward)
@@ -174,15 +174,15 @@ pub fn run(start: Start) -> eframe::Result {
                     DaemonError::Connect(why) => why,
                     DaemonError::Refused(failure) => errors::daemon(&failure),
                 };
-                startup_error = Some(trf!("Could not pass the command line to UIDM: {error}", error = error));
+                startup_error = Some(trf!("Could not pass the command line to Pullbay: {error}", error = error));
             }
         },
         Some(Err(e)) => startup_error = Some(e.to_string()),
     }
     // A named copy says so, to tell it from the installed one.
     let title = match instance {
-        Some(name) => format!("UIDM ({name})"),
-        None => "UIDM".to_string(),
+        Some(name) => format!("Pullbay ({name})"),
+        None => "Pullbay".to_string(),
     };
     // Where a window cannot be hidden, a copy started in the tray waits
     // there with no window until something wants one (see `reopen`).
@@ -221,7 +221,7 @@ pub fn run(start: Start) -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "UIDM",
+        "Pullbay",
         options,
         Box::new(move |cc| {
             reopen::opened(&cc.egui_ctx);
@@ -239,7 +239,7 @@ pub fn run(start: Start) -> eframe::Result {
     // Closed to the tray: a new copy waits there, and this one ends, which
     // takes its window off the screen on every desktop. (Wayland would keep
     // a dropped window until the event loop ran again.) If the new copy
-    // cannot start, UIDM leaves the tray; downloads go on in the daemon.
+    // cannot start, Pullbay leaves the tray; downloads go on in the daemon.
     if reopen::parked() {
         let _ = crate::ports::ports().system.start_window_in_tray();
     }
@@ -339,7 +339,7 @@ enum Action {
     PreviewZip(DownloadId),
     OpenConvert(DownloadId),
     /// Convert a finished video, and maybe delete the original.
-    Convert(DownloadId, uidm_domain::media::Target, bool),
+    Convert(DownloadId, pullbay_domain::media::Target, bool),
     OpenAbout,
     /// Look for a newer release now.
     CheckUpdate,
@@ -435,7 +435,7 @@ enum Action {
     HideProgressTab(progress::Tab),
     /// Set or clear what a download does once it finishes.
     SetOnDone(DownloadId, Option<OnDone>),
-    /// Stop showing the note that a queue's schedule needs UIDM running.
+    /// Stop showing the note that a queue's schedule needs Pullbay running.
     HideScheduleNote,
     /// Open the speed limit dialog for a download.
     OpenSpeedLimit(DownloadId),
@@ -494,7 +494,7 @@ struct App {
     was_minimized: bool,
     /// The theme and text size last applied, so they are only set when the
     /// settings change them (Ctrl+Plus and Ctrl+Minus zoom in between).
-    appearance: Option<(uidm_domain::settings::Theme, u32)>,
+    appearance: Option<(pullbay_domain::settings::Theme, u32)>,
     /// The language setting last applied.
     language: Option<String>,
     /// Which downloads the list shows.
@@ -550,7 +550,7 @@ struct App {
     zip_preview: Option<ZipPreview>,
     /// The Convert dialog: the video, what it becomes, and whether the
     /// original goes.
-    convert: Option<(DownloadId, uidm_domain::media::Target, bool)>,
+    convert: Option<(DownloadId, pullbay_domain::media::Target, bool)>,
     /// This window opened the drop target, so finding it closed means the
     /// user closed it.
     drop_shown: bool,
@@ -580,7 +580,7 @@ struct LimitDialog {
 /// The files inside a zip download, once the daemon has listed them.
 struct ZipPreview {
     id: DownloadId,
-    result: Option<Result<Vec<uidm_domain::download::ZipEntry>, UiError>>,
+    result: Option<Result<Vec<pullbay_domain::download::ZipEntry>, UiError>>,
 }
 
 /// Downloads about to be removed, and the confirmation's boxes.
@@ -616,7 +616,7 @@ fn browse_file_button(ui: &mut egui::Ui, title: &'static str, ext: &'static str,
     if ui.button(tr("Browse...")).clicked() {
         let (slot, ctx) = (Arc::clone(slot), ui.ctx().clone());
         thread::spawn(move || {
-            let kinds = [uidm_application::window::FileKind::new(ext, &[ext])];
+            let kinds = [pullbay_application::window::FileKind::new(ext, &[ext])];
             if let Some(file) = crate::ports::ports().pickers.pick_file(title, &kinds, None) {
                 *slot.lock_or_recover() = Some(file);
                 ctx.request_repaint();
@@ -660,10 +660,10 @@ struct ConfirmDraft {
     start_queue: bool,
     /// The name box the queue picker's "+" opened, with its error, if open.
     new_queue: Option<(String, Option<String>)>,
-    /// The folder last checked for whether UIDM may write there, and the
+    /// The folder last checked for whether Pullbay may write there, and the
     /// answer, so the check runs once per folder typed or picked.
     write_check: Option<(String, bool)>,
-    /// Save into a folder UIDM may not write to, with administrator rights.
+    /// Save into a folder Pullbay may not write to, with administrator rights.
     elevate: bool,
     /// A queue "+" just created, to select once the daemon lists it (the
     /// daemon picks its id), and when it was sent.
@@ -758,17 +758,17 @@ type AskedBatch = (Result<answers::Prompt, Vec<Download>>, QueueId, bool);
 
 /// What Save's worker did: each registration it made (the browser and
 /// whether it is now registered), and the settings to send, or why not.
-type SaveChecked = (Vec<(uidm_application::window::BrowserSlot, bool)>, Result<Settings, UiError>);
+type SaveChecked = (Vec<(pullbay_application::window::BrowserSlot, bool)>, Result<Settings, UiError>);
 
 /// A browser in Options' list: whether it was registered when the dialog
 /// opened, and whether it should be.
 struct BrowserDraft {
     /// The browser whose registration it uses: itself, or for an added
     /// browser the one its family reads.
-    browser: uidm_application::window::BrowserSlot,
+    browser: pullbay_application::window::BrowserSlot,
     name: String,
     /// The browser the user added by its program, if it is one.
-    added: Option<uidm_domain::settings::AddedBrowser>,
+    added: Option<pullbay_domain::settings::AddedBrowser>,
     /// For an added browser, whether its place is known rather than the
     /// place most of its family reads.
     known: bool,
@@ -780,7 +780,7 @@ struct BrowserDraft {
 
 /// What Options shows of the browsers, read on a worker: the browsers found
 /// or registered, then those the user `added`.
-fn read_browsers(added: &[uidm_domain::settings::AddedBrowser]) -> state::BrowsersRead {
+fn read_browsers(added: &[pullbay_domain::settings::AddedBrowser]) -> state::BrowsersRead {
     let browsers = &crate::ports::ports().browsers;
     let mut rows: Vec<state::BrowserRow> = browsers
         .known()
@@ -798,8 +798,8 @@ fn read_browsers(added: &[uidm_domain::settings::AddedBrowser]) -> state::Browse
 }
 
 /// The row for a browser the user `added` by its program, or `None` when
-/// UIDM cannot tell what browser it is. Reads the disk: for workers.
-fn browser_row(added: &uidm_domain::settings::AddedBrowser) -> Option<state::BrowserRow> {
+/// Pullbay cannot tell what browser it is. Reads the disk: for workers.
+fn browser_row(added: &pullbay_domain::settings::AddedBrowser) -> Option<state::BrowserRow> {
     let browsers = &crate::ports::ports().browsers;
     let target = browsers.identify(Path::new(&added.program))?;
     let registered = browsers.registered(&target.browser);
@@ -817,7 +817,7 @@ fn browser_row(added: &uidm_domain::settings::AddedBrowser) -> Option<state::Bro
 /// stopping at the first that fails.
 fn check_and_register(
     settings: Settings,
-    changes: Vec<(uidm_application::window::BrowserSlot, String, bool)>,
+    changes: Vec<(pullbay_application::window::BrowserSlot, String, bool)>,
 ) -> SaveChecked {
     let ports = crate::ports::ports();
     if let Err(e) = ports.checks.validate(&settings) {
@@ -852,7 +852,7 @@ fn browser_link_text(connected: bool, last_seen: Option<u64>, now: u64) -> Strin
         return tr("The browser extension is connected.").into();
     }
     let Some(seen) = last_seen else {
-        return tr("The browser extension has not connected since UIDM started.").into();
+        return tr("The browser extension has not connected since Pullbay started.").into();
     };
     let minutes = now.saturating_sub(seen) / 60;
     match minutes {
@@ -998,11 +998,11 @@ struct OptionsDraft {
     /// Whether that read came.
     browsers_loaded: bool,
     /// The added browsers as saved, kept while the read is awaited.
-    added_saved: Vec<uidm_domain::settings::AddedBrowser>,
+    added_saved: Vec<pullbay_domain::settings::AddedBrowser>,
     /// A picked browser program being identified on a worker.
     adding_browser: Pending<(PathBuf, Option<state::BrowserRow>)>,
     /// Get System's read of the system's proxy, done on a worker.
-    system_proxy: Pending<Option<uidm_application::window::SystemProxy>>,
+    system_proxy: Pending<Option<pullbay_application::window::SystemProxy>>,
     /// Save's disk checks and browser registrations, done on a worker:
     /// the registrations made, and the settings to send or why not.
     checking: Pending<SaveChecked>,
@@ -1055,7 +1055,7 @@ struct OptionsDraft {
     tips_on_startup: bool,
     /// Kept as it is; only the tip window changes it.
     next_tip: usize,
-    theme: uidm_domain::settings::Theme,
+    theme: pullbay_domain::settings::Theme,
     text_size: u32,
     /// Empty follows Windows.
     language: String,
@@ -1166,7 +1166,7 @@ impl OptionsDraft {
             clipboard_start: s.clipboard_start,
             video_button: s.video_button,
             video_types: {
-                let mut all: Vec<(String, bool)> = uidm_domain::settings::default_video_types()
+                let mut all: Vec<(String, bool)> = pullbay_domain::settings::default_video_types()
                     .into_iter()
                     .map(|t| {
                         let on = s.video_types.contains(&t);
@@ -1460,8 +1460,8 @@ impl OptionsDraft {
     /// that was removed from the list, with whether it is to be registered,
     /// and its name for an error. Rows sharing a place (an added browser
     /// using Chrome's, say) change together, so each place is listed once.
-    fn browser_changes(&self) -> Vec<(uidm_application::window::BrowserSlot, String, bool)> {
-        let mut changes: Vec<(uidm_application::window::BrowserSlot, String, bool)> = Vec::new();
+    fn browser_changes(&self) -> Vec<(pullbay_application::window::BrowserSlot, String, bool)> {
+        let mut changes: Vec<(pullbay_application::window::BrowserSlot, String, bool)> = Vec::new();
         for (i, b) in self.browsers.iter().enumerate() {
             let on = self.wanted(i);
             // A row sharing a place already listed changes with it.
@@ -1474,7 +1474,7 @@ impl OptionsDraft {
 
     /// Note the registrations Save's worker made, for every row sharing
     /// each one's place.
-    fn registered(&mut self, done: Vec<(uidm_application::window::BrowserSlot, bool)>) {
+    fn registered(&mut self, done: Vec<(pullbay_application::window::BrowserSlot, bool)>) {
         for (place, on) in done {
             for b in self.browsers.iter_mut().filter(|b| b.browser.same_place(&place)) {
                 b.was = on;
@@ -1488,7 +1488,7 @@ impl OptionsDraft {
         let picked = self.browser_picked.lock_or_recover().take();
         if let Some(program) = picked {
             self.adding_browser.start(ctx, move || {
-                let added = uidm_domain::settings::AddedBrowser {
+                let added = pullbay_domain::settings::AddedBrowser {
                     name: crate::ports::ports().browsers.display_name(&program),
                     program: program.display().to_string(),
                 };
@@ -1506,7 +1506,7 @@ impl OptionsDraft {
     fn add_browser(&mut self, program: &Path, row: Option<state::BrowserRow>) {
         let Some(row) = row else {
             self.browser_note = Some(trf!(
-                "UIDM cannot tell what browser {program} is. Pick the program of a browser built on Chromium (such as Chrome, Edge, Brave, Vivaldi, Opera or Yandex) or on Firefox.",
+                "Pullbay cannot tell what browser {program} is. Pick the program of a browser built on Chromium (such as Chrome, Edge, Brave, Vivaldi, Opera or Yandex) or on Firefox.",
                 program = program.display()
             ));
             return;
@@ -1524,7 +1524,7 @@ impl OptionsDraft {
             (true, true) => trf!("{browser} is added; it is registered when you save.", browser = row.name),
             (true, false) => trf!("{browser} is added; it reads {place}'s registration, written when you save.", browser = row.name, place = row.browser.name),
             (false, _) => trf!(
-                "{browser} is added. UIDM does not know where it looks for programs like UIDM, so it registers it where {place} does, which most browsers of its kind read.",
+                "{browser} is added. Pullbay does not know where it looks for programs like Pullbay, so it registers it where {place} does, which most browsers of its kind read.",
                 browser = row.name,
                 place = row.browser.name
             ),
@@ -1621,9 +1621,9 @@ impl App {
             let library = crate::ports::ports().grab.as_ref();
             let read = state::GrabLibrary {
                 projects: library.map(|l| l.recent()).unwrap_or_default(),
-                templates: library.map(|l| l.templates()).unwrap_or_else(uidm_domain::grab::built_in_templates),
+                templates: library.map(|l| l.templates()).unwrap_or_else(pullbay_domain::grab::built_in_templates),
                 template: library.map(|l| l.template()).unwrap_or_default(),
-                filters: library.map(|l| l.filters()).unwrap_or_else(uidm_domain::grab::default_filters),
+                filters: library.map(|l| l.filters()).unwrap_or_else(pullbay_domain::grab::default_filters),
             };
             if outbox.send(UiMessage::GrabLibraryRead(read)).is_ok() {
                 ctx.request_repaint();
@@ -1704,7 +1704,7 @@ impl App {
                     _ => continue,
                 };
                 let Some(text) = win::clipboard_text() else { continue };
-                let Some(url) = uidm_domain::batch::clipboard_link(&text, &types) else { continue };
+                let Some(url) = pullbay_domain::batch::clipboard_link(&text, &types) else { continue };
                 if last_offered.as_deref() == Some(url.as_str()) {
                     continue;
                 }
@@ -1721,7 +1721,7 @@ impl App {
         });
     }
 
-    /// Put UIDM in the tray. Its menu acts at once, without waiting for a
+    /// Put Pullbay in the tray. Its menu acts at once, without waiting for a
     /// frame, since the window may be hidden.
     fn install_tray(&mut self) {
         let (watch, outbox) = (Arc::clone(&self.watch), self.outbox.clone());
@@ -1921,7 +1921,7 @@ impl App {
             }
             Action::OpenWith(path) => win::open_with(&path),
             Action::OpenAbout => self.about = Some(false),
-            Action::OpenConvert(id) => self.convert = Some((id, uidm_domain::media::Target::Mp3, false)),
+            Action::OpenConvert(id) => self.convert = Some((id, pullbay_domain::media::Target::Mp3, false)),
             Action::Convert(id, to, delete_original) => {
                 self.daemon.send(Command::Convert { id, to, delete_original });
             }
@@ -1967,7 +1967,10 @@ impl App {
             Action::SaveSettings(settings) => {
                 state::apply(&mut self.state, UiMessage::SavingSettings);
                 if !self.daemon.send(Command::SetSettings { settings }) {
-                    state::apply(&mut self.state, UiMessage::SaveFailed(tr("not connected to the UIDM daemon").into()));
+                    state::apply(
+                        &mut self.state,
+                        UiMessage::SaveFailed(tr("not connected to the Pullbay daemon").into()),
+                    );
                 }
             }
             Action::QuickSettings(settings) => {
@@ -2115,7 +2118,7 @@ impl App {
             }
             Action::OpenBatch => self.batch = Some(tools::BatchDialog::new()),
             Action::BatchFromClipboard => {
-                let links = uidm_domain::batch::links_in(&win::clipboard_text().unwrap_or_default());
+                let links = pullbay_domain::batch::links_in(&win::clipboard_text().unwrap_or_default());
                 if links.is_empty() {
                     state::apply(
                         &mut self.state,
@@ -2241,7 +2244,7 @@ impl App {
                 }
             }
             if !connected && d.running() {
-                d.failed(tr("The connection to the UIDM daemon was lost.").into());
+                d.failed(tr("The connection to the Pullbay daemon was lost.").into());
             }
             let settings = self.state.settings.clone().unwrap_or_default();
             let lists = tools::GrabLists {
@@ -2291,17 +2294,17 @@ impl App {
         if self.login.is_none() {
             let queued: Vec<DownloadId> = state::take_login_wanted(&mut self.state);
             // Only those still failed for a login.
-            let waiting: Vec<(&DownloadEntry, uidm_domain::download::LoginWanted)> = queued
+            let waiting: Vec<(&DownloadEntry, pullbay_domain::download::LoginWanted)> = queued
                 .iter()
                 .filter_map(|id| rows.iter().find(|e| e.id == *id && e.status == Status::Failed))
-                .filter_map(|e| e.error.as_deref().and_then(uidm_domain::download::login_wanted).map(|w| (e, w)))
+                .filter_map(|e| e.error.as_deref().and_then(pullbay_domain::download::login_wanted).map(|w| (e, w)))
                 .collect();
             if let Some((first, wanted)) = waiting.first().cloned() {
                 let (same, other): (Vec<_>, Vec<_>) = waiting.iter().partition(|(_, w)| w.host == wanted.host);
                 state::apply(&mut self.state, UiMessage::LoginsWaiting(other.iter().map(|(e, _)| e.id).collect()));
                 let own_site = same
                     .iter()
-                    .all(|(e, _)| uidm_domain::site::host_of(e.url.as_str()).eq_ignore_ascii_case(&wanted.host));
+                    .all(|(e, _)| pullbay_domain::site::host_of(e.url.as_str()).eq_ignore_ascii_case(&wanted.host));
                 let username = settings
                     .as_ref()
                     .and_then(|s| s.site_logins.iter().find(|l| l.site.eq_ignore_ascii_case(&wanted.host)))
@@ -2394,7 +2397,7 @@ impl App {
                 // box again with the name, so "+" never stays stuck.
                 let name = name.clone();
                 draft.pending_queue = None;
-                draft.new_queue = Some((name, Some(tr("UIDM did not add the queue. Try again.").to_string())));
+                draft.new_queue = Some((name, Some(tr("Pullbay did not add the queue. Try again.").to_string())));
             } else {
                 ctx.request_repaint_after(std::time::Duration::from_millis(250));
             }
@@ -2412,14 +2415,14 @@ impl App {
         let replaced = other.filter(|_| draft.duplicate == Duplicate::Overwrite).and_then(|o| o.path.as_deref());
         // Under Ask, a name taken by a file in the folder needs an answer,
         // unless the duplicate question already covers it.
-        let name = uidm_domain::filename::sanitize_filename(draft.filename.trim())
-            .map(uidm_domain::filename::FileName::into_string)
+        let name = pullbay_domain::filename::sanitize_filename(draft.filename.trim())
+            .map(pullbay_domain::filename::FileName::into_string)
             .unwrap_or_default();
         let taken = ask
             && other.is_none()
             && !name.is_empty()
             && crate::ports::ports().files.is_file(&Path::new(draft.folder.trim()).join(&name));
-        // A folder UIDM may not write to needs administrator rights, or
+        // A folder Pullbay may not write to needs administrator rights, or
         // another folder.
         let folder = draft.folder.trim().to_string();
         let denied = match &draft.write_check {
@@ -2508,7 +2511,7 @@ impl App {
                                 .on_hover_text(tr("Add a category"));
                             if add.clicked() {
                                 draft.new_category = Some(NewCategory {
-                                    extensions: uidm_domain::settings::extension_of(draft.filename.trim()).unwrap_or_default(),
+                                    extensions: pullbay_domain::settings::extension_of(draft.filename.trim()).unwrap_or_default(),
                                     ..NewCategory::default()
                                 });
                             }
@@ -2606,7 +2609,7 @@ impl App {
                     ui.add_space(4.0);
                     ui.colored_label(
                         ui.visuals().warn_fg_color,
-                        tr("UIDM may not save files in this folder. Saving there needs administrator rights."),
+                        tr("Pullbay may not save files in this folder. Saving there needs administrator rights."),
                     );
                     ui.horizontal(|ui| {
                         if crate::ports::ports().system.can_elevate() {
@@ -2781,7 +2784,7 @@ impl App {
                     if ui.add_enabled(connected, egui::Button::new(tr("OK"))).clicked() {
                         match loaded
                             .as_ref()
-                            .map_or(Err(tr("not connected to the UIDM daemon").into()), |s| new.add_to(s))
+                            .map_or(Err(tr("not connected to the Pullbay daemon").into()), |s| new.add_to(s))
                         {
                             Ok(s) => added = Some(s),
                             Err(e) => new.error = Some(e.to_string()),
@@ -2852,7 +2855,7 @@ impl App {
         let mut scanner = String::new();
         take_picked(&draft.scanner_picked, &mut scanner);
         if !scanner.is_empty() {
-            draft.scanner_command = uidm_domain::command::with_program(&scanner, &draft.scanner_command);
+            draft.scanner_command = pullbay_domain::command::with_program(&scanner, &draft.scanner_command);
         }
         for (slot, file) in draft.sound_picked.iter().zip(draft.sound_files.iter_mut()) {
             take_picked(slot, file);
@@ -2932,11 +2935,11 @@ impl App {
 /// The height of an Options page, which scrolls past it.
 const OPTIONS_PAGE_HEIGHT: f32 = 420.0;
 
-fn theme_label(t: uidm_domain::settings::Theme) -> &'static str {
+fn theme_label(t: pullbay_domain::settings::Theme) -> &'static str {
     match t {
-        uidm_domain::settings::Theme::System => tr("Follow Windows"),
-        uidm_domain::settings::Theme::Light => tr("Light"),
-        uidm_domain::settings::Theme::Dark => tr("Dark"),
+        pullbay_domain::settings::Theme::System => tr("Follow Windows"),
+        pullbay_domain::settings::Theme::Light => tr("Light"),
+        pullbay_domain::settings::Theme::Dark => tr("Dark"),
     }
 }
 
@@ -3024,7 +3027,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         ui.end_row();
 
         ui.label("");
-        ui.checkbox(&mut draft.limit_on_startup, tr("Always turn the speed limit on when UIDM starts"));
+        ui.checkbox(&mut draft.limit_on_startup, tr("Always turn the speed limit on when Pullbay starts"));
         ui.end_row();
 
         ui.label(tr("Download quota"));
@@ -3138,12 +3141,12 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         ui.end_row();
 
         ui.label("");
-        ui.checkbox(&mut draft.tray_icon, tr("Show UIDM's icon in the notification area"))
-            .on_hover_text(tr("Without it, closing the window quits UIDM; open it again from the Start menu"));
+        ui.checkbox(&mut draft.tray_icon, tr("Show Pullbay's icon in the notification area"))
+            .on_hover_text(tr("Without it, closing the window quits Pullbay; open it again from the Start menu"));
         ui.end_row();
 
         ui.label("");
-        ui.add_enabled(draft.tray_icon, egui::Checkbox::new(&mut draft.close_to_tray, tr("Closing the window keeps UIDM in the tray")));
+        ui.add_enabled(draft.tray_icon, egui::Checkbox::new(&mut draft.close_to_tray, tr("Closing the window keeps Pullbay in the tray")));
         ui.end_row();
 
         ui.label("");
@@ -3152,7 +3155,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
 
         ui.label("");
         ui.checkbox(&mut draft.drop_target, tr("Show the drop target, a small window on top that takes dragged links"))
-            .on_hover_text(tr("Drag it to move it, double-click it to open UIDM, right-click it to close it"));
+            .on_hover_text(tr("Drag it to move it, double-click it to open Pullbay, right-click it to close it"));
         ui.end_row();
 
         ui.label("");
@@ -3188,7 +3191,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         ui.end_row();
 
         ui.label("");
-        ui.checkbox(&mut draft.check_updates, tr("Look for a newer UIDM on GitHub once a week"))
+        ui.checkbox(&mut draft.check_updates, tr("Look for a newer Pullbay on GitHub once a week"))
             .on_hover_text(tr("Only a notice; Update now in About downloads and runs the new Setup"));
         ui.end_row();
 
@@ -3196,7 +3199,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         egui::ComboBox::from_id_salt("theme")
             .selected_text(theme_label(draft.theme))
             .show_ui(ui, |ui| {
-                for t in uidm_domain::settings::Theme::ALL {
+                for t in pullbay_domain::settings::Theme::ALL {
                     ui.selectable_value(&mut draft.theme, t, theme_label(t));
                 }
             });
@@ -3240,7 +3243,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
             ui.horizontal(|ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut draft.manual_user_agent)
-                        .hint_text(tr("UIDM's default"))
+                        .hint_text(tr("Pullbay's default"))
                         .desired_width(280.0),
                 );
                 ui.menu_button(tr("Presets"), |ui| {
@@ -3396,7 +3399,7 @@ fn connection_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
         });
         ui.end_row();
         ui.label(tr("FTP"));
-        ui.checkbox(&mut draft.ftp_active, tr("Active mode: the server connects back to UIDM for data"))
+        ui.checkbox(&mut draft.ftp_active, tr("Active mode: the server connects back to Pullbay for data"))
             .on_hover_text(tr("Passive mode, the default, works through most firewalls and routers"));
         ui.end_row();
     });
@@ -3464,7 +3467,7 @@ fn connection_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
 /// worker read, as IDM's Get System does. Windows' SOCKS proxies speak
 /// SOCKS4. Its configuration script is not read: it picks a proxy per
 /// address.
-fn use_system_proxy(draft: &mut OptionsDraft, rules: Option<uidm_application::window::SystemProxy>) {
+fn use_system_proxy(draft: &mut OptionsDraft, rules: Option<pullbay_application::window::SystemProxy>) {
     let Some(rules) = rules else {
         draft.error = Some(
             if cfg!(windows) {
@@ -3495,7 +3498,7 @@ fn notifications_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
         ui.label(tr("When a download ends"));
         ui.vertical(|ui| {
             ui.radio_value(&mut draft.notify, Notify::Toast, tr("Show a Windows notification"));
-            ui.radio_value(&mut draft.notify, Notify::Dialog, tr("Show a dialog in UIDM"));
+            ui.radio_value(&mut draft.notify, Notify::Dialog, tr("Show a dialog in Pullbay"));
             ui.radio_value(&mut draft.notify, Notify::Off, tr("Show nothing"));
         });
         ui.end_row();
@@ -3619,7 +3622,7 @@ fn categories_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
 
 fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
     ui.horizontal_wrapped(|ui| {
-        ui.weak(tr("These rules decide which browser downloads UIDM takes. The rest stay in the browser."));
+        ui.weak(tr("These rules decide which browser downloads Pullbay takes. The rest stay in the browser."));
         ui.hyperlink_to(tr("How capture rules work"), help::CAPTURE);
     });
     ui.add_space(6.0);
@@ -3632,8 +3635,8 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                     .desired_rows(3)
                     .desired_width(360.0),
             );
-            if ui.button(tr("Default")).on_hover_text(tr("The types UIDM starts with")).clicked() {
-                draft.capture_types = uidm_domain::settings::default_capture_types().join(", ");
+            if ui.button(tr("Default")).on_hover_text(tr("The types Pullbay starts with")).clicked() {
+                draft.capture_types = pullbay_domain::settings::default_capture_types().join(", ");
             }
         });
         ui.end_row();
@@ -3653,7 +3656,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                     .desired_rows(4)
                     .desired_width(360.0),
             );
-            if ui.button(tr("Default")).on_hover_text(tr("No site left out, as UIDM starts")).clicked() {
+            if ui.button(tr("Default")).on_hover_text(tr("No site left out, as Pullbay starts")).clicked() {
                 draft.capture_excluded_sites.clear();
             }
         });
@@ -3670,7 +3673,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                 );
                 if ui
                     .button(tr("Restore defaults"))
-                    .on_hover_text(tr("Add back the site sounds and update files UIDM leaves out as it starts, keeping your own addresses"))
+                    .on_hover_text(tr("Add back the site sounds and update files Pullbay leaves out as it starts, keeping your own addresses"))
                     .clicked()
                 {
                     let mut list: Vec<String> = draft
@@ -3680,7 +3683,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                         .filter(|l| !l.is_empty())
                         .map(String::from)
                         .collect();
-                    uidm_domain::settings::add_missing_exclusions(&mut list);
+                    pullbay_domain::settings::add_missing_exclusions(&mut list);
                     draft.capture_excluded_urls = list.join("
 ");
                 }
@@ -3694,7 +3697,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
 
         ui.label(tr("Browsers"));
         ui.vertical(|ui| {
-            ui.weak(tr("Capture downloads from these browsers. Each needs UIDM's extension; restart a browser after a change."));
+            ui.weak(tr("Capture downloads from these browsers. Each needs Pullbay's extension; restart a browser after a change."));
             if let Some((connected, last_seen)) = draft.browser_link {
                 ui.label(browser_link_text(connected, last_seen, crate::ports::ports().unix_now()));
             }
@@ -3712,7 +3715,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                     let restart = if can_restart {
                         restart.on_hover_text(tr("Close this browser and start it again, so it sees a change"))
                     } else {
-                        restart.on_disabled_hover_text(tr("UIDM does not know this browser's program; add it with Add browser... to restart it"))
+                        restart.on_disabled_hover_text(tr("Pullbay does not know this browser's program; add it with Add browser... to restart it"))
                     };
                     if restart.clicked() {
                         draft.restart_ask = Some(i);
@@ -3793,7 +3796,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
             ui.horizontal(|ui| {
                 ui.label(tr("Hold"));
                 key_boxes(ui, &mut draft.capture_force_key, true);
-                ui.label(tr("while clicking a link to send it to UIDM, whatever its type"));
+                ui.label(tr("while clicking a link to send it to Pullbay, whatever its type"));
             });
             ui.checkbox(
                 &mut draft.capture_keys_left_click,
@@ -3809,14 +3812,14 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
         ui.label(tr("Private windows"));
         ui.checkbox(&mut draft.capture_private, tr("Capture downloads in private windows too"))
             .on_hover_text(tr(
-                "Downloads, links and videos in private (incognito) windows go to UIDM as well. The browser must also let the extension in: in Chrome and Edge turn on \"Allow in Incognito\" in the UIDM extension's details, in Firefox \"Run in Private Windows\".",
+                "Downloads, links and videos in private (incognito) windows go to Pullbay as well. The browser must also let the extension in: in Chrome and Edge turn on \"Allow in Incognito\" in the Pullbay extension's details, in Firefox \"Run in Private Windows\".",
             ));
         ui.end_row();
 
         ui.label(tr("Selected links"));
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
-                ui.label(tr("Show a Download with UIDM button by selected text with links"));
+                ui.label(tr("Show a Download with Pullbay button by selected text with links"));
                 egui::ComboBox::from_id_salt("selection_button")
                     .selected_text(selection_label(draft.selection_button))
                     .show_ui(ui, |ui| {
@@ -3945,7 +3948,7 @@ fn video_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
 
         ui.label(tr("Context menu"));
         ui.vertical(|ui| {
-            ui.weak(tr("The items UIDM adds to the browser's menu for links, pages and videos"));
+            ui.weak(tr("The items Pullbay adds to the browser's menu for links, pages and videos"));
             egui::Grid::new("menu_items").num_columns(3).spacing([12.0, 4.0]).show(ui, |ui| {
                 ui.label("");
                 ui.strong("Chrome, Edge");
@@ -4037,7 +4040,7 @@ fn is_finished(s: Status) -> bool {
 }
 
 fn is_download_url(url: &str) -> bool {
-    uidm_domain::batch::is_download_url(url) && !url.contains(char::is_whitespace)
+    pullbay_domain::batch::is_download_url(url) && !url.contains(char::is_whitespace)
 }
 
 impl App {
@@ -4262,8 +4265,8 @@ impl eframe::App for App {
                 self.tray_shown = Some(s.tray_icon);
             }
         }
-        // Close keeps UIDM in the tray unless Options says to quit. Where a
-        // window cannot be hidden, it closes and UIDM waits in the tray for
+        // Close keeps Pullbay in the tray unless Options says to quit. Where a
+        // window cannot be hidden, it closes and Pullbay waits in the tray for
         // something to open it again (see `reopen`).
         if ctx.input(|i| i.viewport().close_requested())
             && tray::shown()
@@ -4661,7 +4664,7 @@ impl App {
         connected: bool,
         actions: &mut Vec<Action>,
     ) {
-        use uidm_domain::media::Target;
+        use pullbay_domain::media::Target;
         let Some((id, to, delete)) = self.convert.as_mut() else {
             return;
         };
@@ -4726,7 +4729,7 @@ impl App {
                 speed_limit: s.speed_limit_enabled,
                 categories: s.categories_panel,
                 tray_icon: s.tray_icon,
-                dark_mode: s.theme != uidm_domain::settings::Theme::Light,
+                dark_mode: s.theme != pullbay_domain::settings::Theme::Light,
                 language: s.language.clone(),
             }),
             ticked: menubar::Ticked {
@@ -4853,8 +4856,8 @@ impl App {
             }
             C::ToggleDarkMode => actions.extend(changed(&|s| {
                 s.theme = match s.theme {
-                    uidm_domain::settings::Theme::Light => uidm_domain::settings::Theme::System,
-                    _ => uidm_domain::settings::Theme::Light,
+                    pullbay_domain::settings::Theme::Light => pullbay_domain::settings::Theme::System,
+                    _ => pullbay_domain::settings::Theme::Light,
                 }
             })),
             C::Language(code) => actions.extend(changed(&|s| s.language = code.to_string())),
@@ -4923,17 +4926,17 @@ impl App {
         };
         let answer = self.state.update.clone();
         let mut open = true;
-        crate::dialog::Window::new(tr("About UIDM"))
+        crate::dialog::Window::new(tr("About Pullbay"))
             .id(egui::Id::new("about"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.heading("UIDM");
+                ui.heading("Pullbay");
                 ui.label(trf!("Version {version}", version = env!("CARGO_PKG_VERSION")));
-                ui.label(tr("Copyright © 2026 UIDM contributors. Released under the MIT License."));
-                ui.hyperlink_to("github.com/tajbinkhan/uidm", help::HOME);
+                ui.label(tr("Copyright © 2026 Pullbay contributors. Released under the MIT License."));
+                ui.hyperlink_to("github.com/tajbinkhan/pullbay", help::HOME);
                 ui.horizontal(|ui| {
                     ui.label(tr("Support:"));
                     ui.hyperlink_to(tr("report a problem or ask a question"), help::SUPPORT);
@@ -4951,7 +4954,7 @@ impl App {
                 if checking {
                     match &answer {
                         Some(Ok(Some(r))) => {
-                            ui.label(trf!("UIDM {version} is available.", version = r.version));
+                            ui.label(trf!("Pullbay {version} is available.", version = r.version));
                             ui.hyperlink_to(tr("Open the release page"), &r.url);
                             if r.setup.is_some() {
                                 let installing = self.state.installing.clone();
@@ -4959,7 +4962,7 @@ impl App {
                                     let busy = matches!(installing, Some(None));
                                     if ui
                                         .add_enabled(connected && !busy, egui::Button::new(tr("Update now")))
-                                        .on_hover_text(tr("Download the new Setup, check it, and run it. UIDM closes for it; downloads stop and can be resumed."))
+                                        .on_hover_text(tr("Download the new Setup, check it, and run it. Pullbay closes for it; downloads stop and can be resumed."))
                                         .clicked()
                                     {
                                         actions.push(Action::InstallUpdate);
@@ -5016,8 +5019,8 @@ impl App {
                 Ok(entries) => {
                     let total: ByteCount = entries.iter().map(|e| e.size).sum();
                     ui.label(trf!("{count} files, {size} unpacked", count = entries.len(), size = human_bytes(total)));
-                    if entries.len() == uidm_domain::download::MAX_ZIP_ENTRIES {
-                        ui.weak(trf!("Showing the first {count}.", count = uidm_domain::download::MAX_ZIP_ENTRIES));
+                    if entries.len() == pullbay_domain::download::MAX_ZIP_ENTRIES {
+                        ui.weak(trf!("Showing the first {count}.", count = pullbay_domain::download::MAX_ZIP_ENTRIES));
                     }
                     egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                         egui::Grid::new("zip_entries").striped(true).num_columns(2).spacing([16.0, 2.0]).show(
@@ -5052,10 +5055,10 @@ impl App {
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.label(tr("You canceled this download twice. UIDM can leave it to the browser next time."));
+                ui.label(tr("You canceled this download twice. Pullbay can leave it to the browser next time."));
                 ui.add(egui::Label::new(egui::RichText::new(url.as_str()).weak()).truncate());
                 ui.hyperlink_to(tr("How capture rules work"), help::CAPTURE)
-                    .on_hover_text(tr("Which browser downloads UIDM takes, and how to keep others in the browser"));
+                    .on_hover_text(tr("Which browser downloads Pullbay takes, and how to keep others in the browser"));
                 ui.add_space(6.0);
                 ui.checkbox(dont_show, tr("Don't show this again"));
                 ui.add_space(6.0);
@@ -5299,7 +5302,7 @@ impl App {
                     });
                 } else if ui
                     .add_enabled(connected, egui::Button::new(tr("Use my next download in the browser")))
-                    .on_hover_text(tr("Start the download again on its web page; UIDM takes the new link from it"))
+                    .on_hover_text(tr("Start the download again on its web page; Pullbay takes the new link from it"))
                     .clicked()
                 {
                     actions.push(Action::RefreshFromBrowser(id));

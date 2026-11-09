@@ -1,7 +1,7 @@
-use uidm_domain::address::Address;
-use uidm_domain::download::{Download, DownloadError, Mismatch, Status};
-use uidm_domain::id::DownloadId;
-use uidm_domain::ports::{DownloadControl, DownloadList, QueueStore};
+use pullbay_domain::address::Address;
+use pullbay_domain::download::{Download, DownloadError, Mismatch, Status};
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::ports::{DownloadControl, DownloadList, QueueStore};
 
 use super::RetryDownload;
 
@@ -76,7 +76,7 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl> RefreshLink<'a, Q, 
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Queues};
-    use uidm_domain::ports::ControlError;
+    use pullbay_domain::ports::ControlError;
 
     fn link(url: &str) -> Option<Download> {
         Some(Download { url: url.into(), ..Download::default() })

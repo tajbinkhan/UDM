@@ -1,13 +1,13 @@
-// UIDM service worker.
+// Pullbay service worker.
 //
-// Keeps one native-messaging port to the UIDM host (which relays to the
-// daemon), takes downloads away from the browser and hands them to UIDM,
-// adds a "Download with UIDM" context menu, and serves the popup, which can
-// also hand UIDM a download the browser already started.
+// Keeps one native-messaging port to the Pullbay host (which relays to the
+// daemon), takes downloads away from the browser and hands them to Pullbay,
+// adds a "Download with Pullbay" context menu, and serves the popup, which can
+// also hand Pullbay a download the browser already started.
 //
-// A download is only taken from the browser while UIDM is connected, capture
-// is on, and it passes the capture rules from UIDM's settings (see rules.js);
-// otherwise the browser downloads it as usual. If UIDM cannot even start a
+// A download is only taken from the browser while Pullbay is connected, capture
+// is on, and it passes the capture rules from Pullbay's settings (see rules.js);
+// otherwise the browser downloads it as usual. If Pullbay cannot even start a
 // download it took, it is handed back to the browser. A download is seen
 // when its response headers arrive: Firefox lets the worker cancel it then,
 // Chrome only lets it look, so there it is taken as it appears, with the
@@ -22,7 +22,7 @@
 // lists, and has no importScripts.
 if (typeof importScripts === "function") importScripts("rules.js", "links.js", "post.js", "media.js", "request.js");
 
-const HOST = "com.uidm.host";
+const HOST = "com.pullbay.host";
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 
@@ -50,21 +50,21 @@ const posts = [];
 const formFiles = [];
 // The requests of frames: what the browser sent, where it was redirected
 // and what came back, by request id (see request.js). A download is matched
-// to its request here, for the whole request to go to UIDM.
+// to its request here, for the whole request to go to Pullbay.
 const requestLog = new Map();
 // Tabs other tabs opened lately: tab id -> { time, opener, loaded }, for
-// closing a tab that was opened only for a download UIDM took.
+// closing a tab that was opened only for a download Pullbay took.
 const openedTabs = new Map();
 // Private-window tabs. Firefox marks webRequest events from them, Chrome
 // does not, so they are followed here: what happens in them stays out of
-// UIDM and out of the "recent videos" menus of normal windows, unless
-// UIDM's `capture_private` is on (see privateAllowed).
+// Pullbay and out of the "recent videos" menus of normal windows, unless
+// Pullbay's `capture_private` is on (see privateAllowed).
 const privateTabs = new Set();
 const isPrivate = (tabId) => privateTabs.has(tabId);
 
-// Whether what `x` stands for may go to UIDM: `x` is a tab, a webRequest
+// Whether what `x` stands for may go to Pullbay: `x` is a tab, a webRequest
 // event's details or a browser download, and one from a private window
-// goes only with UIDM's "Capture downloads in private windows too"
+// goes only with Pullbay's "Capture downloads in private windows too"
 // (`capture_private`, off by default and before the settings arrive).
 // Every check for a private window goes through here.
 function privateAllowed(x) {
@@ -155,7 +155,7 @@ if (chrome.webRequest) {
 // Video and audio each tab loaded: tab id -> Map(url -> entry). A tab's list
 // starts over when it goes to another page.
 const media = new Map();
-// The web players' files each tab handed to UIDM without the video button
+// The web players' files each tab handed to Pullbay without the video button
 // (`video_auto_capture`): tab id -> Set(url), so each goes once, and again
 // only after the tab goes to another page.
 const playerTaken = new Map();
@@ -168,7 +168,7 @@ const mediaStarts = new Map();
 // the browser said the page changed.
 const PAGE_MOVE_GRACE_MS = 1000;
 
-// Hand the file a web player loaded (webRequest details `d`) to UIDM, as a
+// Hand the file a web player loaded (webRequest details `d`) to Pullbay, as a
 // click on it in the video button's menu would, but named by its address.
 async function takeFromPlayer(d) {
   if (!playerTaken.has(d.tabId)) playerTaken.set(d.tabId, new Set());
@@ -276,7 +276,7 @@ if (chrome.tabs) {
   });
 }
 
-// What UIDM said each stream offers, by URL, and the probes waiting for an
+// What Pullbay said each stream offers, by URL, and the probes waiting for an
 // answer, by request id.
 const mediaInfos = new Map();
 const probes = new Map();
@@ -285,7 +285,7 @@ const PROBE_TIMEOUT_MS = 20000;
 // yt-dlp takes longer: it reads the page and the player's code first.
 const PAGE_PROBE_TIMEOUT_MS = 60000;
 
-// Ask UIDM what the stream at `url` offers, sending the page's cookies
+// Ask Pullbay what the stream at `url` offers, sending the page's cookies
 // along, and `sent`, what the player's own request carried (mediaRequest).
 // Resolves to a MediaInfo, or null without an answer.
 async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = null, sent = {}) {
@@ -319,7 +319,7 @@ async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = nul
 // ({ frameId, element, srcs }) whose button was clicked: its own streams
 // when the worker can tell which they are (elementEntries), else all the
 // tab's. Pages in a private window are recorded only when they may go to
-// UIDM, so otherwise they stay out of the "last videos" menus.
+// Pullbay, so otherwise they stay out of the "last videos" menus.
 async function videoMenu(tabId, referrer, tab, player = {}) {
   const page = privateAllowed(tab) && videoPageUrl(referrer);
   if (page) recordPage(media, tabId, page, Date.now());
@@ -353,7 +353,7 @@ async function topPageNames(tabId, tab) {
   return { title: (tab && tab.title) || "" };
 }
 
-// Send media entry `entryId` of tab `tabId` to UIDM, in the chosen quality,
+// Send media entry `entryId` of tab `tabId` to Pullbay, in the chosen quality,
 // named after its page (`msg.title`, `msg.ogTitle`, `msg.siteName`; see
 // videoName). `referrer` is the document that played it, `page` the tab's
 // own address.
@@ -381,7 +381,7 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
     if (typeof msg.video === "string") download.media.video = msg.video;
     if (typeof msg.audio === "string") download.media.audio = msg.audio;
     if (soundOnly) download.media.audio_only = soundOnly;
-    // Subtitle ids come from what UIDM offered; UIDM fetches only tracks
+    // Subtitle ids come from what Pullbay offered; Pullbay fetches only tracks
     // the stream itself lists.
     if (Array.isArray(msg.subtitles) && !soundOnly) {
       download.media.subtitles = msg.subtitles.filter((id) => typeof id === "string").slice(0, 64);
@@ -394,7 +394,7 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
 // A content script's request. Pages are untrusted, so a content script can
 // only ask about its own tab and choose among the media the worker saw.
 function onContentMessage(msg, sender, sendResponse) {
-  // Nothing from a private window goes to UIDM unless UIDM's settings let
+  // Nothing from a private window goes to Pullbay unless Pullbay's settings let
   // it: its buttons stay off and a forced link opens in the browser.
   if (!privateAllowed(sender.tab)) {
     sendResponse({ enabled: false, connected: false, ok: false, items: [] });
@@ -459,7 +459,7 @@ function onContentMessage(msg, sender, sendResponse) {
       sendResponse({ ok: true });
       return false;
     case "link:force":
-      // The force key was held: the link goes to UIDM whatever it is,
+      // The force key was held: the link goes to Pullbay whatever it is,
       // unless capture is off, everywhere or in this tab.
       if (!connected || !captureEnabled || !tabCaptures(tabId) || !isWeb(msg.url)) {
         sendResponse({ ok: false });
@@ -480,13 +480,13 @@ function onContentMessage(msg, sender, sendResponse) {
 }
 
 let captureEnabled = true;
-// UIDM's settings, which carry the capture rules; null until they arrive.
+// Pullbay's settings, which carry the capture rules; null until they arrive.
 let rules = null;
 // "Skip next download" in the popup: the next download stays in the browser.
 let skipNext = false;
 // The last link click with the skip key held, as { time }.
 let skipClick = null;
-// A download in UIDM waiting for a new link: the next download from the
+// A download in Pullbay waiting for a new link: the next download from the
 // browser gives it one instead of starting a new download.
 let refreshWaiting = null;
 const settingsReady = chrome.storage.local.get({ capture: true, takeoverNotice: true }).then((s) => {
@@ -554,7 +554,7 @@ async function showTabCapture(tabId) {
   }
 }
 
-// UIDM's icon in grey, made once from its own icons (OffscreenCanvas, in
+// Pullbay's icon in grey, made once from its own icons (OffscreenCanvas, in
 // Chrome's worker and Firefox's background page alike): { 16, 32 } as
 // ImageData, or null where the browser cannot draw it; the "X" badge still
 // shows then.
@@ -636,7 +636,7 @@ function connect() {
   }
   port.onMessage.addListener(onHostMessage);
   port.onDisconnect.addListener(() => {
-    onDisconnect(chrome.runtime.lastError?.message || chrome.i18n.getMessage("uidmDisconnected"));
+    onDisconnect(chrome.runtime.lastError?.message || chrome.i18n.getMessage("pullbayDisconnected"));
   });
   port.postMessage({ op: "hello", version: chrome.runtime.getManifest().version });
   port.postMessage({ op: "list" });
@@ -660,7 +660,7 @@ function send(msg) {
     port.postMessage(msg);
     return true;
   } catch (e) {
-    // Kept for the "cannot reach UIDM" notice.
+    // Kept for the "cannot reach Pullbay" notice.
     if (e && e.message) lastError = e.message;
     return false;
   }
@@ -701,7 +701,7 @@ function onHostMessage(msg) {
     case "started": {
       const e = upsert(msg.id, msg.url);
       Object.assign(e, { status: "downloading", path: msg.path, total: msg.total, error: null });
-      // It started, so it is UIDM's for good: no fallback from here on.
+      // It started, so it is Pullbay's for good: no fallback from here on.
       captured.delete(msg.id);
       break;
     }
@@ -733,7 +733,7 @@ function onHostMessage(msg) {
       downloads.delete(msg.id);
       break;
     case "name_taken": {
-      // UIDM asks in its window whether to rename or overwrite; it keeps the
+      // Pullbay asks in its window whether to rename or overwrite; it keeps the
       // download either way, so no hand-back.
       const e = upsert(msg.id, msg.url);
       Object.assign(e, { status: "confirming", path: msg.path, total: msg.total, error: null });
@@ -742,7 +742,7 @@ function onHostMessage(msg) {
     }
     case "updated":
       downloads.set(msg.item.id, msg.item);
-      // Kept for later: it is UIDM's now, so no hand-back.
+      // Kept for later: it is Pullbay's now, so no hand-back.
       if (msg.item.status === "waiting") captured.delete(msg.item.id);
       break;
     case "settings":
@@ -774,7 +774,7 @@ function onHostMessage(msg) {
       );
       break;
     case "cookies_wanted":
-      // A site crawl in UIDM signs in with the browser's cookies.
+      // A site crawl in Pullbay signs in with the browser's cookies.
       if (isWeb(msg.url)) {
         cookieHeader(msg.url).then((cookies) => send({ op: "cookies", request: msg.request, cookies: cookies || null }));
       }
@@ -789,7 +789,7 @@ function onHostMessage(msg) {
       lastError = msg.message;
       break;
     case "rejected": {
-      // UIDM refused a download the browser already let go of: give it back.
+      // Pullbay refused a download the browser already let go of: give it back.
       lastError = msg.message;
       const taken = awaitingAck.get(msg.url);
       if (!taken) break;
@@ -802,7 +802,7 @@ function onHostMessage(msg) {
   updateBadge();
 }
 
-// A download UIDM took but could not even start (the server refused it, say)
+// A download Pullbay took but could not even start (the server refused it, say)
 // goes back to the browser so the user does not lose it. `error` is why.
 function handBackIfNeverStarted(id, error) {
   const taken = captured.get(id);
@@ -813,18 +813,18 @@ function handBackIfNeverStarted(id, error) {
   noticeTakeoverFailed(taken.url, taken.filename, error || "?");
 }
 
-// --- The notice that UIDM could not take a download ---------------------------
+// --- The notice that Pullbay could not take a download ---------------------------
 
-const TAKEOVER_NOTICE = "uidm-takeover";
+const TAKEOVER_NOTICE = "pullbay-takeover";
 // Whether the notice shows; its "Don't show again" turns it off for good.
 let takeoverNotice = true;
 // Whether the last notice had that button; Firefox's notices have none, so
 // there a click on the notice itself turns them off.
 let noticeHasButton = false;
 
-// Tell the user UIDM could not take the download of `url` (named
-// `filename`), which the browser keeps or gets back. `reason` is UIDM's
-// error, or null when UIDM is not connected. One notice replaces the last.
+// Tell the user Pullbay could not take the download of `url` (named
+// `filename`), which the browser keeps or gets back. `reason` is Pullbay's
+// error, or null when Pullbay is not connected. One notice replaces the last.
 async function noticeTakeoverFailed(url, filename, reason) {
   if (!takeoverNotice || !chrome.notifications) return;
   const file = filename || url;
@@ -862,22 +862,22 @@ if (chrome.notifications) {
 
 // --- Other notices -------------------------------------------------------------
 
-const MESSAGE_NOTICE = "uidm-message";
+const MESSAGE_NOTICE = "pullbay-message";
 
-// A short notice from UIDM, for a menu item or button that could not do what
+// A short notice from Pullbay, for a menu item or button that could not do what
 // it was asked. One notice replaces the last.
 function notice(message) {
   if (!chrome.notifications) return;
   chrome.notifications
-    .create(MESSAGE_NOTICE, { type: "basic", iconUrl: chrome.runtime.getURL("icons/48.png"), title: "UIDM", message })
+    .create(MESSAGE_NOTICE, { type: "basic", iconUrl: chrome.runtime.getURL("icons/48.png"), title: "Pullbay", message })
     .catch(() => {});
 }
 
-// UIDM could not be reached: not connected, or the message to the host did
+// Pullbay could not be reached: not connected, or the message to the host did
 // not go. Says why when the browser did (the port's runtime.lastError).
 // `fallback` adds that the browser downloads it instead.
 function noticeCannotReach(fallback = false) {
-  let message = lastError ? chrome.i18n.getMessage("cannotReachUidmReason", lastError) : chrome.i18n.getMessage("cannotReachUidm");
+  let message = lastError ? chrome.i18n.getMessage("cannotReachPullbayReason", lastError) : chrome.i18n.getMessage("cannotReachPullbay");
   if (fallback) message += ` ${chrome.i18n.getMessage("browserDownloadsInstead")}`;
   notice(message);
 }
@@ -947,11 +947,11 @@ function baseName(path) {
   return name || undefined;
 }
 
-// Add the browser's proxy setting to `msg`, for UIDM's "use the browser's
+// Add the browser's proxy setting to `msg`, for Pullbay's "use the browser's
 // proxy" option: all of it as `browser_proxy` (fixed proxies, a
 // configuration script, automatic detection, the system's setting or none,
 // and the bypass list), and its fixed proxy alone as `proxy`, which is all
-// older versions of UIDM read.
+// older versions of Pullbay read.
 async function addBrowserProxy(msg) {
   let value;
   try {
@@ -994,10 +994,10 @@ function proxyAddress(scheme, address, defaultPort) {
   return `${scheme}://${m[1]}:${Number(m[2]) || defaultPort}`;
 }
 
-// Hand `url` to UIDM. `referrer` is sent to the server as the Referer
+// Hand `url` to Pullbay. `referrer` is sent to the server as the Referer
 // header; `page`, the web page the download came from (the tab's address),
-// is only shown and sorted by in UIDM, as IDM keeps the two apart.
-// `description` is a note shown with it in UIDM's list (a link's title).
+// is only shown and sorted by in Pullbay, as IDM keeps the two apart.
+// `description` is a note shown with it in Pullbay's list (a link's title).
 // `details` is what the browser's own request adds (requestDetails): its
 // other headers, its redirects, and the response's size and type. `from`
 // says which tab or download it comes from, for its cookies (cookieHeader).
@@ -1010,7 +1010,7 @@ async function handOff(url, referrer, filename, later = false, post = null, refr
     msg.body = post.body;
     if (post.contentType) msg.headers = { "Content-Type": post.contentType };
   }
-  // "Download later": UIDM adds it to its main queue without starting it.
+  // "Download later": Pullbay adds it to its main queue without starting it.
   if (later) msg.start = false;
   if (referrer) msg.referrer = referrer;
   if (isWeb(page)) msg.page = page;
@@ -1018,7 +1018,7 @@ async function handOff(url, referrer, filename, later = false, post = null, refr
   if (description) msg.description = description;
   if (cookies) msg.cookies = cookies;
   if (refreshId !== null) {
-    // The same request, as the new link of a download already in UIDM.
+    // The same request, as the new link of a download already in Pullbay.
     const { op, ...download } = msg;
     return send({ op: "refresh_link", id: refreshId, download });
   }
@@ -1092,7 +1092,7 @@ function postFor(record, urls, now) {
 }
 
 // Close tab `tabId` when it was opened only for the download at one of
-// `urls`, as IDM does: taken by UIDM, it would stay blank.
+// `urls`, as IDM does: taken by Pullbay, it would stay blank.
 async function closeIfOpenedFor(tabId, urls) {
   if (tabId == null || tabId < 0 || !chrome.tabs || !chrome.tabs.get || !chrome.tabs.remove) return;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -1100,7 +1100,7 @@ async function closeIfOpenedFor(tabId, urls) {
 }
 
 // Whether a download described by `described`, from tab `tabId`, would be
-// taken now: UIDM is connected, capture is on (and on in its tab), no skip
+// taken now: Pullbay is connected, capture is on (and on in its tab), no skip
 // applies, and the capture rules (or a download waiting for a new link) want
 // it. A held key's action is in `described.key`. { refreshId }, or null.
 function takesNow(described, tabId) {
@@ -1113,7 +1113,7 @@ function takesNow(described, tabId) {
 
 // A frame's response `d` that is a download (`record.response`), seen when
 // its headers arrive, before the browser starts saving it. In Firefox the
-// worker may hold the response: one UIDM takes is canceled here and handed
+// worker may hold the response: one Pullbay takes is canceled here and handed
 // over, and the browser never starts it. Chrome lets the worker only look:
 // the download is taken when it appears (downloads.onCreated), with what was
 // learned here, and the bubble is hidden from now so it does not flash up.
@@ -1148,7 +1148,7 @@ function atHeaders(d, record) {
   return { cancel: true };
 }
 
-// Hand the response `d` canceled at its headers to UIDM (see atHeaders).
+// Hand the response `d` canceled at its headers to Pullbay (see atHeaders).
 async function takeAtHeaders(d, record, post, requestUrl, refreshId) {
   const tab = d.tabId >= 0 && chrome.tabs && chrome.tabs.get ? await chrome.tabs.get(d.tabId).catch(() => null) : null;
   const tabUrl = tab && privateAllowed(tab) && isWeb(tab.url) && tab.url !== d.url ? tab.url : null;
@@ -1177,7 +1177,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
 async function browserDownload(item, record) {
   await Promise.all([settingsReady, tabsOffReady]);
   if (!captureEnabled) return; // let the browser handle it
-  if (!privateAllowed(item)) return; // keep private-window downloads out of UIDM's list
+  if (!privateAllowed(item)) return; // keep private-window downloads out of Pullbay's list
   if (item.byExtensionId === chrome.runtime.id) return; // our own hand-back
   const url = item.finalUrl || item.url;
   if (!isWeb(url)) return; // blob:, data:, file: only exist in the browser
@@ -1199,7 +1199,7 @@ async function browserDownload(item, record) {
     key,
   };
   if (!connected) {
-    // It stays in the browser; say so if UIDM would have taken it.
+    // It stays in the browser; say so if Pullbay would have taken it.
     if (!skipNext && !clickApplies(skipClick, Date.now()) && key !== "skip" && captureDecision(rules, described).capture) {
       noticeTakeoverFailed(url, described.filename, null);
     }
@@ -1223,9 +1223,9 @@ async function browserDownload(item, record) {
 }
 
 // Take browser download `item` (its address `url`, named `filename`) from
-// the browser and hand it to UIDM, or, with `refreshId`, give that download
-// in UIDM it as its new link. Used for the downloads the browser starts and
-// for one the popup hands over after it started. False when UIDM did not get
+// the browser and hand it to Pullbay, or, with `refreshId`, give that download
+// in Pullbay it as its new link. Used for the downloads the browser starts and
+// for one the popup hands over after it started. False when Pullbay did not get
 // it: a form whose request cannot be rebuilt or one already finished stays
 // in the browser, one the host did not take goes back to it.
 // `guessPage` takes the tab in front as its page (see downloadPage), which
@@ -1268,9 +1268,9 @@ async function takeDownload(item, url, filename, refreshId = null, guessPage = t
   return sent;
 }
 
-// Send a download taken from the browser to UIDM, or as the new link of
+// Send a download taken from the browser to Pullbay, or as the new link of
 // download `refreshId`; give it back to the browser when the message does
-// not go. Says whether UIDM has it (a refresh counts as taken either way).
+// not go. Says whether Pullbay has it (a refresh counts as taken either way).
 async function deliver(requestUrl, referrer, filename, post, refreshId, page, details, from = null) {
   if (refreshId !== null) {
     if (await handOff(requestUrl, referrer, filename, false, post, refreshId, page, null, details, from)) return true;
@@ -1291,9 +1291,9 @@ async function deliver(requestUrl, referrer, filename, post, refreshId, page, de
 // --- Downloads the browser already started ----------------------------------
 
 // What the popup lists of the browser's own downloads in progress, which
-// "Send to UIDM" takes over (IDM's "download with IDM" on a started
+// "Send to Pullbay" takes over (IDM's "download with IDM" on a started
 // download; Chrome has no menu on its downloads). Private windows' stay out
-// unless UIDM's settings let them in.
+// unless Pullbay's settings let them in.
 async function browserDownloads() {
   if (!chrome.downloads.search) return [];
   let items;
@@ -1313,8 +1313,8 @@ async function browserDownloads() {
     }));
 }
 
-// Hand the browser's download `id` to UIDM: the browser's copy is canceled
-// and erased, and UIDM starts it again with its referrer, name and cookies,
+// Hand the browser's download `id` to Pullbay: the browser's copy is canceled
+// and erased, and Pullbay starts it again with its referrer, name and cookies,
 // as a captured download. Whatever the capture rules say: the user asked.
 async function sendBrowserDownload(id) {
   if (!connected) {
@@ -1351,13 +1351,13 @@ function collectLinks(selection, types) {
 // Collect the links of tab `tabId` (in every frame) and send them to the
 // window's picker, with the cookies of each site they point to. Says how it
 // went: "sent", "none" (no links), "unreadable" (a page extensions may not
-// script) or "unreachable" (UIDM is not connected); see noticePick.
+// script) or "unreachable" (Pullbay is not connected); see noticePick.
 async function pickLinks(tabId, pageUrl, selection = false) {
   if (!connected) return "unreachable";
   if (!chrome.scripting || tabId == null || tabId < 0) return "unreadable";
   let results;
   try {
-    // The extraction first: frames made before UIDM was installed, or made
+    // The extraction first: frames made before Pullbay was installed, or made
     // from nothing, have no content script.
     await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["links.js"] });
     results = await chrome.scripting.executeScript({
@@ -1391,7 +1391,7 @@ async function pickLinks(tabId, pageUrl, selection = false) {
   return send({ op: "pick_links", page: pageUrl, links, user_agent: navigator.userAgent }) ? "sent" : "unreachable";
 }
 
-// Say why the links of a page did not reach UIDM's picker, when they did not:
+// Say why the links of a page did not reach Pullbay's picker, when they did not:
 // a menu item or button that does nothing would look broken.
 function noticePick(result, selection) {
   if (result === "none" && selection) notice(chrome.i18n.getMessage("noSelectedLinksFound"));
@@ -1403,7 +1403,7 @@ function noticePick(result, selection) {
 
 // --- Pages for a site crawl --------------------------------------------------
 
-// A page UIDM's grabber reads after its scripts run: opened in a background
+// A page Pullbay's grabber reads after its scripts run: opened in a background
 // tab, given time to load and settle, then read and closed.
 const RENDER_TIMEOUT_MS = 30000;
 const RENDER_SETTLE_MS = 1500;
@@ -1425,7 +1425,7 @@ function waitForLoad(tabId, ms) {
 
 // The page at `url` as the browser shows it: { html, url, popups }, or
 // null. Windows its scripts open are closed at once, and their addresses
-// listed in `popups` for UIDM to follow or ignore.
+// listed in `popups` for Pullbay to follow or ignore.
 async function renderPage(url) {
   if (!isWeb(url) || !chrome.scripting || !chrome.tabs || !chrome.tabs.create) return null;
   let tab = null;
@@ -1456,28 +1456,28 @@ async function renderPage(url) {
 
 // --- Context menu -----------------------------------------------------------
 
-// The menu entries of each item UIDM's Options can leave out (its
+// The menu entries of each item Pullbay's Options can leave out (its
 // `browser_menu_hidden_chromium` and `browser_menu_hidden_firefox` name
 // them), with their titles and contexts.
 const PAGE_CONTEXTS = ["page", "frame", "video", "audio"];
 const MENU_ITEMS = {
-  page: [{ id: "uidm-page", title: chrome.i18n.getMessage("downloadPageWithUidm"), contexts: ["page", "frame"] }],
+  page: [{ id: "pullbay-page", title: chrome.i18n.getMessage("downloadPageWithPullbay"), contexts: ["page", "frame"] }],
   download: [
-    { id: "uidm-link", title: chrome.i18n.getMessage("downloadWithUidm"), contexts: ["link"] },
-    { id: "uidm-media", title: chrome.i18n.getMessage("downloadWithUidm"), contexts: ["image", "video", "audio"] },
+    { id: "pullbay-link", title: chrome.i18n.getMessage("downloadWithPullbay"), contexts: ["link"] },
+    { id: "pullbay-media", title: chrome.i18n.getMessage("downloadWithPullbay"), contexts: ["image", "video", "audio"] },
   ],
   download_later: [
-    { id: "uidm-later-link", title: chrome.i18n.getMessage("downloadLaterWithUidm"), contexts: ["link"] },
-    { id: "uidm-later-media", title: chrome.i18n.getMessage("downloadLaterWithUidm"), contexts: ["image", "video", "audio"] },
+    { id: "pullbay-later-link", title: chrome.i18n.getMessage("downloadLaterWithPullbay"), contexts: ["link"] },
+    { id: "pullbay-later-media", title: chrome.i18n.getMessage("downloadLaterWithPullbay"), contexts: ["image", "video", "audio"] },
   ],
-  all_links: [{ id: "uidm-all-links", title: chrome.i18n.getMessage("downloadAllLinksWithUidm"), contexts: ["page", "frame"] }],
-  selected_links: [{ id: "uidm-selection-links", title: chrome.i18n.getMessage("downloadSelectedLinksWithUidm"), contexts: ["selection"] }],
-  last_video: [{ id: "uidm-last-video", title: chrome.i18n.getMessage("downloadLastVideo"), contexts: PAGE_CONTEXTS }],
-  recent_videos: [{ id: "uidm-recent", title: chrome.i18n.getMessage("recentVideos"), contexts: PAGE_CONTEXTS }],
+  all_links: [{ id: "pullbay-all-links", title: chrome.i18n.getMessage("downloadAllLinksWithPullbay"), contexts: ["page", "frame"] }],
+  selected_links: [{ id: "pullbay-selection-links", title: chrome.i18n.getMessage("downloadSelectedLinksWithPullbay"), contexts: ["selection"] }],
+  last_video: [{ id: "pullbay-last-video", title: chrome.i18n.getMessage("downloadLastVideo"), contexts: PAGE_CONTEXTS }],
+  recent_videos: [{ id: "pullbay-recent", title: chrome.i18n.getMessage("recentVideos"), contexts: PAGE_CONTEXTS }],
 };
 // How many videos the recent videos submenu lists.
 const RECENT_VIDEOS = 10;
-const RECENT_PREFIX = "uidm-recent-";
+const RECENT_PREFIX = "pullbay-recent-";
 // The hidden list the menu was last built for, as JSON.
 let menuBuiltFor = null;
 const ignoreMenuError = () => void chrome.runtime.lastError;
@@ -1490,7 +1490,7 @@ function menuHidden() {
   return hiddenMenuItems(rules, IS_FIREFOX);
 }
 
-// Build the context menu with the items UIDM's settings leave in.
+// Build the context menu with the items Pullbay's settings leave in.
 function buildMenus() {
   const hidden = menuHidden();
   menuBuiltFor = JSON.stringify(hidden);
@@ -1533,7 +1533,7 @@ async function updateRecentMenu() {
   const hidden = menuHidden();
   const recent = recentMedia(media, RECENT_VIDEOS);
   if (!hidden.includes("last_video")) {
-    chrome.contextMenus.update("uidm-last-video", { enabled: recent.length > 0 }, ignoreMenuError);
+    chrome.contextMenus.update("pullbay-last-video", { enabled: recent.length > 0 }, ignoreMenuError);
   }
   if (hidden.includes("recent_videos")) return;
   for (const id of recentMenuIds) chrome.contextMenus.remove(id, ignoreMenuError);
@@ -1543,12 +1543,12 @@ async function updateRecentMenu() {
     const name = (title || hostOf(entry.url)).slice(0, 60);
     const id = RECENT_PREFIX + entry.id;
     chrome.contextMenus.create(
-      { id, parentId: "uidm-recent", title: `${name} (${mediaLabel(entry)})`, contexts: PAGE_CONTEXTS },
+      { id, parentId: "pullbay-recent", title: `${name} (${mediaLabel(entry)})`, contexts: PAGE_CONTEXTS },
       ignoreMenuError,
     );
     recentMenuIds.push(id);
   }
-  chrome.contextMenus.update("uidm-recent", { enabled: recent.length > 0 }, ignoreMenuError);
+  chrome.contextMenus.update("pullbay-recent", { enabled: recent.length > 0 }, ignoreMenuError);
 }
 
 // The right-clicked link's `download` attribute and title, from the content
@@ -1578,7 +1578,7 @@ if (MENUS && MENUS.onShown && MENUS.refresh) {
     const menu = ++shownMenu;
     // Not menuIds: Firefox lists only the items it shows, so once hidden
     // the item would never be in it again. A selection menu with the item
-    // in UIDM's menu (the settings may leave it out) is the one to check.
+    // in Pullbay's menu (the settings may leave it out) is the one to check.
     const made = !menuHidden().includes("selected_links");
     if (!made || !(info.contexts || []).includes("selection") || !tab || tab.id == null) return;
     let links = linksFromText(info.selectionText).length > 0;
@@ -1592,13 +1592,13 @@ if (MENUS && MENUS.onShown && MENUS.refresh) {
       }
     }
     if (menu !== shownMenu) return;
-    MENUS.update("uidm-selection-links", { visible: links }, ignoreMenuError);
+    MENUS.update("pullbay-selection-links", { visible: links }, ignoreMenuError);
     MENUS.refresh();
   });
   if (MENUS.onHidden) MENUS.onHidden.addListener(() => shownMenu++);
 }
 
-// Send a recent video to UIDM in its best quality, named after its page.
+// Send a recent video to Pullbay in its best quality, named after its page.
 async function downloadRecent({ tabId, entry }) {
   const { title, url } = await tabInfo(tabId);
   return downloadMedia(tabId, { entry: entry.id, title }, url, url);
@@ -1606,7 +1606,7 @@ async function downloadRecent({ tabId, entry }) {
 
 chrome.runtime.onInstalled.addListener(buildMenus);
 
-// Tabs open before UIDM was installed (or updated, or turned back on) have
+// Tabs open before Pullbay was installed (or updated, or turned back on) have
 // no content script: the browser only adds it to pages loaded after. They
 // get it here, in every frame that does not have it yet (content.js also
 // does nothing when it runs twice). Pages extensions may not script, and
@@ -1630,8 +1630,8 @@ async function injectOpenTabs() {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: true },
         func: () => {
-          if (globalThis.uidmContentLoaded === true || globalThis.uidmContentInjecting === true) return true;
-          globalThis.uidmContentInjecting = true;
+          if (globalThis.pullbayContentLoaded === true || globalThis.pullbayContentInjecting === true) return true;
+          globalThis.pullbayContentInjecting = true;
           return false;
         },
       });
@@ -1647,7 +1647,7 @@ async function injectOpenTabs() {
 }
 chrome.runtime.onInstalled.addListener(() => injectOpenTabs());
 
-// The first time UIDM connects in a browser session, open tabs get the
+// The first time Pullbay connects in a browser session, open tabs get the
 // content script too: an extension turned off and on again, or reloaded,
 // gets no onInstalled. Once a session (chrome.storage.session) is enough.
 let injectedOnConnect = false;
@@ -1664,10 +1664,10 @@ async function injectOnConnect() {
 }
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  // A private window's links and media stay out of UIDM, like its downloads,
-  // unless UIDM's settings let them in.
+  // A private window's links and media stay out of Pullbay, like its downloads,
+  // unless Pullbay's settings let them in.
   if (!privateAllowed(tab)) return;
-  if (info.menuItemId === "uidm-last-video") {
+  if (info.menuItemId === "pullbay-last-video") {
     const [last] = recentMedia(media, 1);
     if (last) await downloadRecent(last);
     return;
@@ -1678,12 +1678,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (chosen) await downloadRecent(chosen);
     return;
   }
-  if (info.menuItemId === "uidm-all-links" || info.menuItemId === "uidm-selection-links") {
-    const selection = info.menuItemId === "uidm-selection-links";
+  if (info.menuItemId === "pullbay-all-links" || info.menuItemId === "pullbay-selection-links") {
+    const selection = info.menuItemId === "pullbay-selection-links";
     noticePick(await pickLinks(tab && tab.id, info.pageUrl || (tab && tab.url) || "", selection), selection);
     return;
   }
-  if (info.menuItemId === "uidm-page") {
+  if (info.menuItemId === "pullbay-page") {
     // The page (or the frame clicked in) itself, as IDM's "Download with
     // IDM" on a page does; the tab's page is its referrer and its page.
     // A frame made from nothing (about:blank) is no page to download.
@@ -1692,8 +1692,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     if (!connected || !(await handOff(url, info.pageUrl, undefined, false, null, null, info.pageUrl, null, {}, tabContext(tab)))) noticeCannotReach();
     return;
   }
-  const isLink = info.menuItemId === "uidm-link" || info.menuItemId === "uidm-later-link";
-  const later = info.menuItemId === "uidm-later-link" || info.menuItemId === "uidm-later-media";
+  const isLink = info.menuItemId === "pullbay-link" || info.menuItemId === "pullbay-later-link";
+  const later = info.menuItemId === "pullbay-later-link" || info.menuItemId === "pullbay-later-media";
   const url = isLink ? info.linkUrl : info.srcUrl;
   if (!isWeb(url)) return;
   // The link's frame is the referrer, or the nearest frame above it with an
@@ -1705,7 +1705,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   // is the download's description, as IDM takes them.
   const { filename, description } = isLink && connected ? await linkDetails(tab, info) : {};
   if (connected && (await handOff(url, referrer, filename, later, null, null, info.pageUrl, description, {}, tabContext(tab)))) return;
-  // UIDM is not available; the click should still download something.
+  // Pullbay is not available; the click should still download something.
   noticeCannotReach(true);
   chrome.downloads.download({ url }).catch(() => {});
 });
@@ -1726,8 +1726,8 @@ function snapshot() {
   };
 }
 
-// Change the video button setting in UIDM: on or off everywhere, or for one
-// site. UIDM keeps it, and the window's Options shows it.
+// Change the video button setting in Pullbay: on or off everywhere, or for one
+// site. Pullbay keeps it, and the window's Options shows it.
 function setVideoButton(change) {
   if (!rules) return;
   const next = { ...rules };

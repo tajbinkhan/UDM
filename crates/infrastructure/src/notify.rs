@@ -53,7 +53,7 @@ fn escape(s: &str) -> String {
     out
 }
 
-/// The toast's XML. Toasts are silent; UIDM plays its own sounds.
+/// The toast's XML. Toasts are silent; Pullbay plays its own sounds.
 #[cfg_attr(not(windows), allow(dead_code))]
 pub fn toast_xml(t: &Toast) -> String {
     let mut xml = format!(
@@ -137,7 +137,7 @@ fn show_toast(
 /// lines. Without `actions`, for a notify-send that has none.
 #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
 fn notify_send_args(t: &Toast, actions: bool) -> Vec<String> {
-    let mut args = vec!["--app-name=UIDM".to_string(), "--icon=uidm".to_string()];
+    let mut args = vec!["--app-name=Pullbay".to_string(), "--icon=pullbay".to_string()];
     if actions {
         args.push("--wait".into());
         args.push(format!("--action=default={}", t.launch));
@@ -205,23 +205,23 @@ pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Res
     Ok(Shown)
 }
 
-/// UIDM's icon, shown on its notifications.
+/// Pullbay's icon, shown on its notifications.
 #[cfg(windows)]
 const ICON_PNG: &[u8] = include_bytes!("../../../extension/icons/128.png");
 
-/// Give UIDM's notifications a name and icon. Unpackaged apps need this
+/// Give Pullbay's notifications a name and icon. Unpackaged apps need this
 /// registration before Windows shows their notifications. The icon is
 /// written next to the history file.
 #[cfg(windows)]
 pub fn register_app() -> std::io::Result<()> {
-    let icon = crate::history::history_path()?.with_file_name("uidm.png");
+    let icon = crate::history::history_path()?.with_file_name("pullbay.png");
     if std::fs::read(&icon).ok().as_deref() != Some(ICON_PNG) {
         crate::settings::write_atomic(&icon, ICON_PNG)?;
     }
     crate::registry::register_app_id(&icon)
 }
 
-use uidm_domain::settings::Sound;
+use pullbay_domain::settings::Sound;
 
 #[cfg(windows)]
 const MB_OK: u32 = 0;
@@ -358,8 +358,8 @@ mod tests {
         assert_eq!(
             notify_send_args(&t, true),
             [
-                "--app-name=UIDM",
-                "--icon=uidm",
+                "--app-name=Pullbay",
+                "--icon=pullbay",
                 "--wait",
                 "--action=default=window",
                 "--action=open:7=Open",
@@ -369,7 +369,7 @@ mod tests {
         );
         assert_eq!(
             notify_send_args(&t, false),
-            ["--app-name=UIDM", "--icon=uidm", "Download complete", "a.pdf\n4.0 MB"]
+            ["--app-name=Pullbay", "--icon=pullbay", "Download complete", "a.pdf\n4.0 MB"]
         );
         assert_eq!(applescript_string("say \"hi\"\\"), r#""say \"hi\"\\""#);
     }

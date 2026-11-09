@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-use uidm_domain::sync::RwLockExt;
+use pullbay_domain::sync::RwLockExt;
 
 pub struct Language {
     /// The ISO 639-1 code, as Windows names its display languages.
@@ -54,7 +54,7 @@ fn table(index: usize) -> &'static Table {
 }
 
 /// The language Options names, or for an empty setting the first Windows
-/// display language UIDM has, else English.
+/// display language Pullbay has, else English.
 pub fn resolve(setting: &str) -> &'static Language {
     let wanted = if setting.is_empty() { crate::win::display_languages() } else { vec![setting.to_string()] };
     wanted

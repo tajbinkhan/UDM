@@ -1,41 +1,41 @@
 {
   "extDescription": {
-    "message": "Send browser downloads to the UIDM download manager.",
-    "description": "The extension's description in the browser's extension list and store. UIDM is the product name."
+    "message": "Send browser downloads to the Pullbay download manager.",
+    "description": "The extension's description in the browser's extension list and store. Pullbay is the product name."
   },
 
-  "downloadWithUidm": {
-    "message": "Download with UIDM",
+  "downloadWithPullbay": {
+    "message": "Download with Pullbay",
     "description": "Context menu item on a link, image, video or audio; also the button shown next to selected text that holds links."
   },
-  "downloadLaterWithUidm": {
-    "message": "Download later with UIDM",
-    "description": "Context menu item on a link, image, video or audio: adds it to UIDM's queue without starting it."
+  "downloadLaterWithPullbay": {
+    "message": "Download later with Pullbay",
+    "description": "Context menu item on a link, image, video or audio: adds it to Pullbay's queue without starting it."
   },
-  "downloadAllLinksWithUidm": {
-    "message": "Download all links with UIDM",
-    "description": "Context menu item on a page: lists the page's links in UIDM to pick from."
+  "downloadAllLinksWithPullbay": {
+    "message": "Download all links with Pullbay",
+    "description": "Context menu item on a page: lists the page's links in Pullbay to pick from."
   },
-  "downloadSelectedLinksWithUidm": {
-    "message": "Download the selected links with UIDM",
-    "description": "Context menu item on selected text: lists the links in the selection in UIDM to pick from."
+  "downloadSelectedLinksWithPullbay": {
+    "message": "Download the selected links with Pullbay",
+    "description": "Context menu item on selected text: lists the links in the selection in Pullbay to pick from."
   },
-  "uidmDisconnected": {
-    "message": "UIDM disconnected",
+  "pullbayDisconnected": {
+    "message": "Pullbay disconnected",
     "description": "Why the extension is not connected, when the browser gives no reason. Shown as the REASON in statusNotConnectedReason."
   },
 
   "captureDownloads": {
     "message": "Capture downloads",
-    "description": "Popup checkbox: whether downloads the browser starts go to UIDM instead."
+    "description": "Popup checkbox: whether downloads the browser starts go to Pullbay instead."
   },
   "captureDownloadsTitle": {
-    "message": "Send downloads the browser starts to UIDM",
+    "message": "Send downloads the browser starts to Pullbay",
     "description": "Tooltip of the captureDownloads checkbox."
   },
   "captureInTab": {
     "message": "Capture in this tab",
-    "description": "Popup checkbox at the top: whether downloads started in the current tab go to UIDM, like IDM's toolbar button."
+    "description": "Popup checkbox at the top: whether downloads started in the current tab go to Pullbay, like IDM's toolbar button."
   },
   "captureInTabTitle": {
     "message": "Turn capture off to leave this tab's downloads to the browser",
@@ -46,27 +46,27 @@
     "description": "Popup note shown next to captureInTab while capture is off in the current tab."
   },
   "statusConnected": {
-    "message": "Connected. Downloads you start in the browser go to UIDM.",
-    "description": "Popup status line while connected to UIDM with capture on."
+    "message": "Connected. Downloads you start in the browser go to Pullbay.",
+    "description": "Popup status line while connected to Pullbay with capture on."
   },
   "statusConnectedCaptureOff": {
     "message": "Connected. Capture is off, so the browser keeps its own downloads.",
-    "description": "Popup status line while connected to UIDM with capture off."
+    "description": "Popup status line while connected to Pullbay with capture off."
   },
   "statusNotConnected": {
-    "message": "Not connected to UIDM. Downloads stay in the browser.",
-    "description": "Popup status line while UIDM cannot be reached and no reason is known."
+    "message": "Not connected to Pullbay. Downloads stay in the browser.",
+    "description": "Popup status line while Pullbay cannot be reached and no reason is known."
   },
   "statusNotConnectedReason": {
-    "message": "Not connected to UIDM: $REASON$. Downloads stay in the browser.",
-    "description": "Popup status line while UIDM cannot be reached. REASON is an error message, often from the browser or UIDM in English.",
+    "message": "Not connected to Pullbay: $REASON$. Downloads stay in the browser.",
+    "description": "Popup status line while Pullbay cannot be reached. REASON is an error message, often from the browser or Pullbay in English.",
     "placeholders": {
       "reason": { "content": "$1", "example": "Specified native messaging host not found" }
     }
   },
   "refreshWaiting": {
     "message": "Your next download gives $NAME$ a new link.",
-    "description": "Popup line while a download in UIDM waits for a new link: the next download the browser starts becomes that link.",
+    "description": "Popup line while a download in Pullbay waits for a new link: the next download the browser starts becomes that link.",
     "placeholders": {
       "name": { "content": "$1", "example": "setup.exe" }
     }
@@ -77,7 +77,7 @@
   },
   "skipNextDownload": {
     "message": "Skip next download",
-    "description": "Popup button: the next download the browser starts stays in the browser instead of going to UIDM."
+    "description": "Popup button: the next download the browser starts stays in the browser instead of going to Pullbay."
   },
   "skipNextDownloadTitle": {
     "message": "Let the next download stay in the browser",
@@ -93,10 +93,10 @@
   },
   "allLinks": {
     "message": "All links on this page",
-    "description": "Popup button: lists the current page's links in UIDM to pick from."
+    "description": "Popup button: lists the current page's links in Pullbay to pick from."
   },
   "allLinksTitle": {
-    "message": "List this page's links in UIDM to pick the ones to download",
+    "message": "List this page's links in Pullbay to pick the ones to download",
     "description": "Tooltip of the allLinks button."
   },
   "videoButton": {
@@ -120,7 +120,7 @@
   },
   "download": {
     "message": "Download",
-    "description": "Popup button that sends the pasted address to UIDM; also the video button's menu item for a whole video or audio file."
+    "description": "Popup button that sends the pasted address to Pullbay; also the video button's menu item for a whole video or audio file."
   },
   "noDownloads": {
     "message": "No downloads yet.",
@@ -129,7 +129,7 @@
 
   "stateQueued": {
     "message": "Queued",
-    "description": "State of a download in the popup list: waiting in UIDM's queue."
+    "description": "State of a download in the popup list: waiting in Pullbay's queue."
   },
   "stateDownloading": {
     "message": "Downloading",
@@ -149,15 +149,15 @@
   },
   "stateInterrupted": {
     "message": "Interrupted",
-    "description": "State of a download in the popup list: stopped when UIDM closed; it can resume."
+    "description": "State of a download in the popup list: stopped when Pullbay closed; it can resume."
   },
   "stateConfirming": {
-    "message": "Waiting for you in UIDM",
-    "description": "State of a download in the popup list: UIDM's window asks the user something about it (the file name is taken)."
+    "message": "Waiting for you in Pullbay",
+    "description": "State of a download in the popup list: Pullbay's window asks the user something about it (the file name is taken)."
   },
   "stateWaiting": {
     "message": "Waiting to start",
-    "description": "State of a download in the popup list: added to UIDM without starting it."
+    "description": "State of a download in the popup list: added to Pullbay without starting it."
   },
   "threatFound": {
     "message": "Threat found",
@@ -177,7 +177,7 @@
   },
   "remove": {
     "message": "Remove",
-    "description": "Popup button on a download: removes it from UIDM's list."
+    "description": "Popup button on a download: removes it from Pullbay's list."
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",
@@ -237,35 +237,35 @@
   },
   "lookingForVideo": {
     "message": "Looking for the video...",
-    "description": "The video button's menu while it asks UIDM what the video offers."
+    "description": "The video button's menu while it asks Pullbay what the video offers."
   },
   "subtitles": {
     "message": "Subtitles:",
     "description": "The video button's menu: the label before the subtitle languages a stream offers, each with a checkbox."
   },
   "videoProtected": {
-    "message": "This video is protected by DRM, so UIDM will not download it.",
+    "message": "This video is protected by DRM, so Pullbay will not download it.",
     "description": "The video button's menu for a video with copy protection."
   },
   "streamProtected": {
-    "message": "Protected by DRM; UIDM will not download it.",
+    "message": "Protected by DRM; Pullbay will not download it.",
     "description": "The video button's menu, under a stream with copy protection."
   },
-  "uidmNotConnected": {
-    "message": "UIDM is not running or not connected.",
-    "description": "The video button's menu when UIDM cannot be reached."
+  "pullbayNotConnected": {
+    "message": "Pullbay is not running or not connected.",
+    "description": "The video button's menu when Pullbay cannot be reached."
   },
   "noVideoFound": {
     "message": "No video found yet. Let it play for a moment, then try again.",
     "description": "The video button's menu when the page has not loaded a video the extension recognizes."
   },
-  "sentToUidm": {
-    "message": "Sent to UIDM.",
-    "description": "The video button's menu after a choice was sent to UIDM."
+  "sentToPullbay": {
+    "message": "Sent to Pullbay.",
+    "description": "The video button's menu after a choice was sent to Pullbay."
   },
-  "couldNotReachUidm": {
-    "message": "Could not reach UIDM.",
-    "description": "The video button's menu when sending a choice to UIDM failed."
+  "couldNotReachPullbay": {
+    "message": "Could not reach Pullbay.",
+    "description": "The video button's menu when sending a choice to Pullbay failed."
   },
   "hlsStream": {
     "message": "HLS stream",
@@ -281,23 +281,23 @@
   },
   "youtubeVideo": {
     "message": "YouTube video",
-    "description": "The video button's menu: heading for a YouTube video, which UIDM reads with yt-dlp."
+    "description": "The video button's menu: heading for a YouTube video, which Pullbay reads with yt-dlp."
   },
   "facebookVideo": {
     "message": "Facebook video",
-    "description": "The video button's menu: heading for a Facebook video, which UIDM reads with yt-dlp."
+    "description": "The video button's menu: heading for a Facebook video, which Pullbay reads with yt-dlp."
   },
   "instagramVideo": {
     "message": "Instagram video",
-    "description": "The video button's menu: heading for an Instagram video, which UIDM reads with yt-dlp."
+    "description": "The video button's menu: heading for an Instagram video, which Pullbay reads with yt-dlp."
   },
   "vimeoVideo": {
     "message": "Vimeo video",
-    "description": "The video button's menu: heading for a Vimeo video, which UIDM reads with yt-dlp."
+    "description": "The video button's menu: heading for a Vimeo video, which Pullbay reads with yt-dlp."
   },
   "mediaNoAnswer": {
-    "message": "UIDM did not answer.",
-    "description": "The video button's menu, under a stream UIDM gave no details for."
+    "message": "Pullbay did not answer.",
+    "description": "The video button's menu, under a stream Pullbay gave no details for."
   },
   "soundOnly": {
     "message": "Sound only ($FORMAT$)",
@@ -329,12 +329,12 @@
     "description": "The video button's menu: heading for an audio file of unknown format."
   },
   "takeoverFailed": {
-    "message": "UIDM could not take over the download",
-    "description": "Title of the notice shown when UIDM could not take a download from the browser, which then downloads it itself."
+    "message": "Pullbay could not take over the download",
+    "description": "Title of the notice shown when Pullbay could not take a download from the browser, which then downloads it itself."
   },
   "takeoverNotConnected": {
-    "message": "UIDM is not running or not connected, so the browser downloads $FILE$.",
-    "description": "Body of the notice when UIDM is not running or not connected. FILE is the download's file name or address.",
+    "message": "Pullbay is not running or not connected, so the browser downloads $FILE$.",
+    "description": "Body of the notice when Pullbay is not running or not connected. FILE is the download's file name or address.",
     "placeholders": {
       "file": {
         "content": "$1",
@@ -343,8 +343,8 @@
     }
   },
   "takeoverError": {
-    "message": "UIDM could not start $FILE$ ($REASON$), so the browser downloads it.",
-    "description": "Body of the notice when UIDM refused or could not start a download. FILE is the file name or address, REASON is UIDM's error message.",
+    "message": "Pullbay could not start $FILE$ ($REASON$), so the browser downloads it.",
+    "description": "Body of the notice when Pullbay refused or could not start a download. FILE is the file name or address, REASON is Pullbay's error message.",
     "placeholders": {
       "file": {
         "content": "$1",
@@ -358,43 +358,43 @@
   },
   "dontShowAgain": {
     "message": "Don't show again",
-    "description": "Button on the notice that UIDM could not take a download: stop showing such notices."
+    "description": "Button on the notice that Pullbay could not take a download: stop showing such notices."
   },
   "takeoverClickToStop": {
     "message": "Click this notice to stop showing it.",
     "description": "Added to the notice in browsers whose notices have no buttons (Firefox): clicking the notice stops such notices."
   },
   "downloadLastVideo": {
-    "message": "Download the last video with UIDM",
-    "description": "Context menu item on a page or video: sends the video or audio the browser loaded last, in any tab, to UIDM."
+    "message": "Download the last video with Pullbay",
+    "description": "Context menu item on a page or video: sends the video or audio the browser loaded last, in any tab, to Pullbay."
   },
   "recentVideos": {
-    "message": "Recent videos (UIDM)",
-    "description": "Context menu item on a page or video: a submenu of the last 10 videos or audio files the browser loaded, to send one to UIDM."
+    "message": "Recent videos (Pullbay)",
+    "description": "Context menu item on a page or video: a submenu of the last 10 videos or audio files the browser loaded, to send one to Pullbay."
   },
-  "downloadPageWithUidm": {
-    "message": "Download page with UIDM",
-    "description": "Context menu item on a page or frame: sends the address of the page (or the frame clicked in) itself to UIDM."
+  "downloadPageWithPullbay": {
+    "message": "Download page with Pullbay",
+    "description": "Context menu item on a page or frame: sends the address of the page (or the frame clicked in) itself to Pullbay."
   },
   "noLinksFound": {
     "message": "No links found on this page.",
-    "description": "Notice when \"Download all links with UIDM\" finds no links on the page."
+    "description": "Notice when \"Download all links with Pullbay\" finds no links on the page."
   },
   "noSelectedLinksFound": {
     "message": "No links found in the selection.",
-    "description": "Notice when \"Download selected links with UIDM\" finds no links in the selected text."
+    "description": "Notice when \"Download selected links with Pullbay\" finds no links in the selected text."
   },
   "linksUnreadable": {
-    "message": "The browser does not let UIDM read the links of this page.",
+    "message": "The browser does not let Pullbay read the links of this page.",
     "description": "Notice when the extension may not read a page's links (a browser page or the extension store)."
   },
-  "cannotReachUidm": {
-    "message": "Cannot reach UIDM. Is it running?",
-    "description": "Notice when a context menu item or button could not send something to UIDM."
+  "cannotReachPullbay": {
+    "message": "Cannot reach Pullbay. Is it running?",
+    "description": "Notice when a context menu item or button could not send something to Pullbay."
   },
-  "cannotReachUidmReason": {
-    "message": "Cannot reach UIDM ($REASON$).",
-    "description": "Notice when a context menu item or button could not send something to UIDM. REASON is the browser's error.",
+  "cannotReachPullbayReason": {
+    "message": "Cannot reach Pullbay ($REASON$).",
+    "description": "Notice when a context menu item or button could not send something to Pullbay. REASON is the browser's error.",
     "placeholders": {
       "reason": {
         "content": "$1",
@@ -404,14 +404,14 @@
   },
   "browserDownloadsInstead": {
     "message": "The browser downloads it instead.",
-    "description": "Added to the \"Cannot reach UIDM\" notice when the browser downloads the link itself."
+    "description": "Added to the \"Cannot reach Pullbay\" notice when the browser downloads the link itself."
   },
   "browserDownloadsHeading": {
     "message": "Downloading in the browser",
-    "description": "Popup heading over the browser's own downloads in progress, which can be sent to UIDM."
+    "description": "Popup heading over the browser's own downloads in progress, which can be sent to Pullbay."
   },
-  "sendToUidm": {
-    "message": "Send to UIDM",
-    "description": "Popup button next to a download in progress in the browser: cancels it in the browser and downloads it with UIDM."
+  "sendToPullbay": {
+    "message": "Send to Pullbay",
+    "description": "Popup button next to a download in progress in the browser: cancels it in the browser and downloads it with Pullbay."
   }
 }
