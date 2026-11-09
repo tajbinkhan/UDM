@@ -13,6 +13,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use uidm_domain::sync::LockExt;
 
 use super::{
     choose_output, http, stream, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved, Shared,
@@ -149,7 +150,7 @@ pub(super) fn run(
             for line in BufReader::new(pipe).lines().map_while(Result::ok) {
                 let line = line.trim();
                 if let Some((done, size)) = ytdlp::progress_line(line) {
-                    let mut t = tally.lock().unwrap();
+                    let mut t = tally.lock_or_recover();
                     t.update(done, size);
                     reporter.send(Progress::Advanced {
                         id,
@@ -160,21 +161,22 @@ pub(super) fn run(
                         segments: None,
                     });
                 } else if let Some(size) = line.strip_prefix(SIZE_TAG) {
-                    tally.lock().unwrap().total = size.trim().parse::<f64>().ok().map(|s| s as u64);
+                    tally.lock_or_recover().total = size.trim().parse::<f64>().ok().map(|s| s as u64);
                 } else if let Some(path) = line.strip_prefix(DONE_TAG) {
-                    *saved_as.lock().unwrap() = Some(path.to_string());
+                    *saved_as.lock_or_recover() = Some(path.to_string());
                 } else if keep && !line.is_empty() {
-                    let mut c = complaints.lock().unwrap();
+                    let mut c = complaints.lock_or_recover();
                     c.push_str(line);
                     c.push('\n');
                 }
             }
         })
     };
-    let readers = [
-        read(Box::new(child.stdout.take().expect("piped")), false),
-        read(Box::new(child.stderr.take().expect("piped")), true),
-    ];
+    // Invariant: the command above set Stdio::piped() for both, and a pipe
+    // set that way is always there to take once.
+    #[allow(clippy::expect_used)]
+    let (stdout, stderr) = (child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
+    let readers = [read(Box::new(stdout), false), read(Box::new(stderr), true)];
 
     // Wait for yt-dlp, ending it when the download is canceled.
     let status = loop {
@@ -195,9 +197,9 @@ pub(super) fn run(
         return Ok(output.into());
     };
     if !status.success() {
-        return Err(EngineError::Io(ytdlp::complaint(&complaints.lock().unwrap())));
+        return Err(EngineError::Io(ytdlp::complaint(&complaints.lock_or_recover())));
     }
-    let saved = saved_as.lock().unwrap().take().map(std::path::PathBuf::from).filter(|p| p.is_file());
+    let saved = saved_as.lock_or_recover().take().map(std::path::PathBuf::from).filter(|p| p.is_file());
     let path = match saved {
         Some(saved) => settle(&saved, &output),
         None => output,

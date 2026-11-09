@@ -5,9 +5,10 @@
 //! run is done.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::sync::LockExt;
 
 use tracing::{info, warn};
 use uidm_domain::ports::{PowerControl, QueueFinish};
@@ -59,7 +60,7 @@ impl PowerOff {
     /// The slot is replaced or cleared whole, so a lock poisoned by a
     /// panicking thread still holds a usable value.
     fn slot(&self) -> MutexGuard<'_, Option<Countdown>> {
-        self.countdown.lock().unwrap_or_else(PoisonError::into_inner)
+        self.countdown.lock_or_recover()
     }
 
     /// What the countdown running is for, if one runs.

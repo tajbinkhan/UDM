@@ -9,9 +9,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::sync::LockExt;
 
 use tracing::{info, warn};
 use uidm_domain::download::{Download, DownloadEntry, Status, Validator};
@@ -84,7 +85,7 @@ impl EarlyRuns {
     /// The early downloads, locked. Each change inserts, removes or edits one
     /// entry, so a lock poisoned by a panicking thread is still read.
     pub fn runs(&self) -> MutexGuard<'_, HashMap<u64, Early>> {
-        self.runs.lock().unwrap_or_else(PoisonError::into_inner)
+        self.runs.lock_or_recover()
     }
 
     /// Keep the events of an early download (one started while its save-as
@@ -207,7 +208,7 @@ impl Transfers {
     /// The slot is only ever replaced whole, so a poisoned lock still holds
     /// a usable value.
     fn waiting(&self) -> MutexGuard<'_, Option<u64>> {
-        self.refresh_waiting.lock().unwrap_or_else(PoisonError::into_inner)
+        self.refresh_waiting.lock_or_recover()
     }
 
     /// The proxy and logins for `download` (see `connect::config_for`).
@@ -744,7 +745,7 @@ pub enum SaveError {
 /// Only single inserts and removals change the set, so a poisoned lock
 /// still holds a usable one.
 fn lock_set(set: &Mutex<HashSet<u64>>) -> MutexGuard<'_, HashSet<u64>> {
-    set.lock().unwrap_or_else(PoisonError::into_inner)
+    set.lock_or_recover()
 }
 
 /// The checks a synchronizing queue runs, each on a thread of its own.

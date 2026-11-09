@@ -12,9 +12,10 @@ use std::collections::VecDeque;
 use std::io;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+use uidm_domain::sync::LockExt;
 
 use tracing::{info, warn};
 use uidm_domain::download::{Answer, DownloadEntry, Scan, Status};
@@ -115,7 +116,7 @@ impl Notifier {
     /// Only pushes and pops change the list, so a poisoned lock still holds
     /// a usable one.
     fn toasts(&self) -> MutexGuard<'_, VecDeque<notify::Shown>> {
-        self.toasts.lock().unwrap_or_else(PoisonError::into_inner)
+        self.toasts.lock_or_recover()
     }
 
     /// Act on a click on a notification or one of its buttons.

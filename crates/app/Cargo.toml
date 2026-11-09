@@ -34,3 +34,7 @@ tracing.workspace = true
 anyhow.workspace = true
 # The window's run result, which `uidm-gui`'s main returns.
 eframe = "0.31.1"
+
+# The workspace's lints: no unwrap, expect or panic outside tests.
+[lints]
+workspace = true

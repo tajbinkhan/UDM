@@ -4,9 +4,10 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::sync::LockExt;
 
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::Converter;
@@ -38,7 +39,7 @@ pub struct Conversions {
 /// Only single inserts and removals change the map, so a poisoned lock
 /// still holds a usable one.
 fn lock(running: &Running) -> MutexGuard<'_, HashMap<u64, Arc<AtomicBool>>> {
-    running.lock().unwrap_or_else(PoisonError::into_inner)
+    running.lock_or_recover()
 }
 
 impl Conversions {

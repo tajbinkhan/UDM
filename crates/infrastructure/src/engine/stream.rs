@@ -22,6 +22,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::sync::LockExt;
 
 use url::Url;
 
@@ -209,8 +210,9 @@ pub fn probe(url: &str, headers: &[(String, String)], net: &NetConfig) -> MediaI
         Err(e) => return MediaInfo::failed(None, e.to_string()),
     };
     match sniff(&text) {
-        None => unreachable!("read_playlist reads only playlists and manifests"),
-        Some(MediaKind::Page) => unreachable!("sniff finds only streams"),
+        // read_playlist answers anything else itself; should a page get
+        // through, it is not a stream either.
+        None | Some(MediaKind::Page) => MediaInfo { not_stream: true, ..MediaInfo::failed(None, NOT_A_STREAM.into()) },
         Some(MediaKind::Dash) => match dash::parse(&text, &base) {
             Ok(m) => dash::describe(&m),
             Err(e) => MediaInfo::failed(Some(MediaKind::Dash), e.to_string()),
@@ -487,7 +489,7 @@ fn finish(
     let dir = output.parent().unwrap_or(Path::new("."));
     for (n, sub) in subs.iter().enumerate() {
         let name = subtitle_name(stem, sub, n);
-        let to = (0..).map(|k| dir.join(numbered_name(&name, k))).find(|p| !p.exists()).expect("some name is free");
+        let to = free_name(dir, &name);
         fs::rename(&sub.path, to)?;
     }
     let Some((audio, _, ext)) = tracks.get(1) else {
@@ -502,12 +504,18 @@ fn finish(
     } else {
         format!("{stem}.{ext}")
     };
-    let audio_path = (0..).map(|n| dir.join(numbered_name(&name, n))).find(|p| !p.exists()).expect("some name is free");
+    let audio_path = free_name(dir, &name);
     fs::rename(audio, &audio_path)?;
     Ok(Some(format!(
         "Saved as two files, video and audio ({}), because ffmpeg was not found. Install ffmpeg or set it in Options to get one video.",
         audio_path.file_name().unwrap_or_default().to_string_lossy()
     )))
+}
+
+/// The first of `name`, `name (1)`, `name (2)` and so on that `dir` does not
+/// hold yet; `name` itself, to be replaced, if every number is taken.
+fn free_name(dir: &Path, name: &str) -> PathBuf {
+    (0..=u32::MAX).map(|k| dir.join(numbered_name(name, k))).find(|p| !p.exists()).unwrap_or_else(|| dir.join(name))
 }
 
 /// Concatenate the segment files of one track, in order. With an HDS
@@ -548,7 +556,7 @@ struct Fetching<'a> {
 impl Fetching<'_> {
     fn report(&self, force: bool) {
         {
-            let mut last = self.last_report.lock().unwrap();
+            let mut last = self.last_report.lock_or_recover();
             if !force && last.elapsed() < REPORT_INTERVAL {
                 return;
             }
@@ -567,7 +575,7 @@ impl Fetching<'_> {
     /// The key at `url`, fetched once. The lock is held while fetching, so
     /// segments waiting for the same key do not each fetch it.
     fn key(&self, url: &str) -> Result<[u8; 16], EngineError> {
-        let mut keys = self.keys.lock().unwrap();
+        let mut keys = self.keys.lock_or_recover();
         if let Some(k) = keys.get(url) {
             return Ok(*k);
         }
@@ -697,7 +705,7 @@ fn fetch_all(
     thread::scope(|scope| {
         for _ in 0..workers.max(1) {
             scope.spawn(|| loop {
-                if token.load(Ordering::Relaxed) || first_error.lock().unwrap().is_some() {
+                if token.load(Ordering::Relaxed) || first_error.lock_or_recover().is_some() {
                     return;
                 }
                 let Some(&i) = todo.get(next.fetch_add(1, Ordering::Relaxed)) else {
@@ -710,14 +718,14 @@ fn fetch_all(
                     }
                     Ok(()) => return,
                     Err(e) => {
-                        first_error.lock().unwrap().get_or_insert(e);
+                        first_error.lock_or_recover().get_or_insert(e);
                         return;
                     }
                 }
             });
         }
     });
-    if let Some(e) = first_error.lock().unwrap().take() {
+    if let Some(e) = first_error.lock_or_recover().take() {
         return Err(e);
     }
     f.report(true);

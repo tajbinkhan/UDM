@@ -29,6 +29,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use uidm_domain::filename::name_from_url;
 use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename};
+use uidm_domain::sync::LockExt;
 
 use crate::net::NetConfig;
 use limit::{RateLimiter, Throttle};
@@ -303,7 +304,7 @@ impl Drop for Slot<'_> {
         if !self.limited {
             return;
         }
-        let mut used = self.gate.slots.0.lock().unwrap();
+        let mut used = self.gate.slots.0.lock_or_recover();
         if let Some(n) = used.get_mut(&self.gate.host) {
             *n -= 1;
             if *n == 0 {
@@ -333,7 +334,7 @@ impl<'a> Gate<'a> {
         let Some(max) = self.max else {
             return Some(Slot { gate: self, limited: false });
         };
-        let mut used = self.slots.0.lock().unwrap();
+        let mut used = self.slots.0.lock_or_recover();
         let n = used.entry(self.host.clone()).or_insert(0);
         if *n >= max {
             return None;
@@ -359,7 +360,7 @@ impl<'a> Gate<'a> {
 impl Shared {
     /// Download `id`'s own limiter; an unlimited one if it has none.
     fn own_limiter(&self, id: u64) -> Arc<RateLimiter> {
-        self.own_limits.lock().unwrap().get(&id).map(|(l, _)| Arc::clone(l)).unwrap_or_default()
+        self.own_limits.lock_or_recover().get(&id).map(|(l, _)| Arc::clone(l)).unwrap_or_default()
     }
 }
 
@@ -415,8 +416,8 @@ impl Engine {
     /// Queue `req` under an id from `reserve_id`.
     pub fn enqueue_as(&self, id: u64, req: DownloadRequest) {
         let token: CancelToken = Arc::new(AtomicBool::new(false));
-        self.inner.registry.lock().unwrap().insert(id, Arc::clone(&token));
-        self.inner.sched.lock().unwrap().queue.push_back(Job { id, token, req });
+        self.inner.registry.lock_or_recover().insert(id, Arc::clone(&token));
+        self.inner.sched.lock_or_recover().queue.push_back(Job { id, token, req });
         pump(&self.inner);
     }
 
@@ -434,7 +435,7 @@ impl Engine {
     /// Change how many downloads run at once. Running downloads are never
     /// interrupted.
     pub fn set_concurrency(&self, n: usize) {
-        self.inner.sched.lock().unwrap().limit = n.max(1);
+        self.inner.sched.lock_or_recover().limit = n.max(1);
         pump(&self.inner);
     }
 
@@ -453,12 +454,12 @@ impl Engine {
     /// Clearing it falls back to the limit per file, if one is set.
     pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
         let shared = &self.inner.shared;
-        let per_file = *shared.per_file.lock().unwrap();
-        if let Some((limiter, own)) = shared.own_limits.lock().unwrap().get_mut(&id) {
+        let per_file = *shared.per_file.lock_or_recover();
+        if let Some((limiter, own)) = shared.own_limits.lock_or_recover().get_mut(&id) {
             *own = bytes_per_sec;
             limiter.set_rate(bytes_per_sec.or(per_file));
         }
-        let mut sched = self.inner.sched.lock().unwrap();
+        let mut sched = self.inner.sched.lock_or_recover();
         for job in sched.queue.iter_mut().filter(|j| j.id == id) {
             job.req.speed_limit = bytes_per_sec;
         }
@@ -469,8 +470,8 @@ impl Engine {
     pub fn set_per_file_limit(&self, bytes_per_sec: Option<u64>) {
         let shared = &self.inner.shared;
         let rate = bytes_per_sec.filter(|b| *b > 0);
-        *shared.per_file.lock().unwrap() = rate;
-        for (limiter, own) in shared.own_limits.lock().unwrap().values() {
+        *shared.per_file.lock_or_recover() = rate;
+        for (limiter, own) in shared.own_limits.lock_or_recover().values() {
             if own.is_none() {
                 limiter.set_rate(rate);
             }
@@ -479,30 +480,30 @@ impl Engine {
 
     /// The limit a download without one of its own has, if any.
     pub fn per_file_limit(&self) -> Option<u64> {
-        *self.inner.shared.per_file.lock().unwrap()
+        *self.inner.shared.per_file.lock_or_recover()
     }
 
     /// Downloads queued or running. Each leaves the registry when it finishes,
     /// fails or is canceled.
     pub fn active_count(&self) -> usize {
-        self.inner.registry.lock().unwrap().len()
+        self.inner.registry.lock_or_recover().len()
     }
 
     /// Stop a download. A queued one is dropped from the queue and reported
     /// canceled at once; a running one stops at its next read. Unknown ids are
     /// ignored.
     pub fn cancel(&self, id: u64) {
-        let Some(token) = self.inner.registry.lock().unwrap().get(&id).cloned() else {
+        let Some(token) = self.inner.registry.lock_or_recover().get(&id).cloned() else {
             return;
         };
         token.store(true, Ordering::Relaxed);
         let queued = {
-            let mut sched = self.inner.sched.lock().unwrap();
+            let mut sched = self.inner.sched.lock_or_recover();
             let pos = sched.queue.iter().position(|j| j.id == id);
             pos.and_then(|p| sched.queue.remove(p))
         };
         if let Some(job) = queued {
-            self.inner.registry.lock().unwrap().remove(&id);
+            self.inner.registry.lock_or_recover().remove(&id);
             self.inner.reporter.send(Progress::Canceled { id, url: job.req.url });
         }
     }
@@ -512,7 +513,7 @@ impl Engine {
 fn pump(inner: &Arc<Inner>) {
     loop {
         let job = {
-            let mut sched = inner.sched.lock().unwrap();
+            let mut sched = inner.sched.lock_or_recover();
             if sched.running >= sched.limit {
                 return;
             }
@@ -531,12 +532,12 @@ fn pump(inner: &Arc<Inner>) {
             run(job.id, job.token, job.req, inner.reporter.clone(), &inner.shared);
             // The same id may already be queued again (a paused download put
             // back in its queue); leave that run's token alone.
-            let mut registry = inner.registry.lock().unwrap();
+            let mut registry = inner.registry.lock_or_recover();
             if registry.get(&id).is_some_and(|t| Arc::ptr_eq(t, &token)) {
                 registry.remove(&id);
             }
             drop(registry);
-            inner.sched.lock().unwrap().running -= 1;
+            inner.sched.lock_or_recover().running -= 1;
             pump(&inner);
         });
     }
@@ -571,8 +572,8 @@ fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, sh
     let own = {
         // Read the limit per file under the same lock that a change to it
         // walks, so a change made now cannot miss this download.
-        let mut own_limits = shared.own_limits.lock().unwrap();
-        let rate = own_rate.or(*shared.per_file.lock().unwrap());
+        let mut own_limits = shared.own_limits.lock_or_recover();
+        let rate = own_rate.or(*shared.per_file.lock_or_recover());
         // yt-dlp takes one fixed limit when it starts.
         req.speed_limit = rate;
         let own = Arc::new(RateLimiter::new(rate));
@@ -585,7 +586,7 @@ fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, sh
         run_inner(id, &token, &req, &reporter, shared)
     };
     {
-        let mut own_limits = shared.own_limits.lock().unwrap();
+        let mut own_limits = shared.own_limits.lock_or_recover();
         if own_limits.get(&id).is_some_and(|(o, _)| Arc::ptr_eq(o, &own)) {
             own_limits.remove(&id);
         }
@@ -740,7 +741,10 @@ fn run_inner(
     }
 
     let segmented = probe.resumable && probe.total.is_some_and(|t| t > 0);
-    let connections = if segmented { effective_connections(probe.total.unwrap(), req.connections) } else { 1 };
+    let connections = match probe.total {
+        Some(total) if segmented => effective_connections(total, req.connections),
+        _ => 1,
+    };
 
     reporter.send(Progress::Started {
         id,
@@ -1098,7 +1102,7 @@ struct Claim<'a> {
 
 impl Drop for Claim<'_> {
     fn drop(&mut self) {
-        self.set.lock().unwrap().remove(&self.path);
+        self.set.lock_or_recover().remove(&self.path);
     }
 }
 
@@ -1165,7 +1169,7 @@ fn choose_output<'a>(
     probe: &http::Probe,
 ) -> Result<Claim<'a>, EngineError> {
     let path = {
-        let mut set = claimed.lock().unwrap();
+        let mut set = claimed.lock_or_recover();
         let path = pick_free_path(&set, dir, filename, req, probe)?;
         set.insert(path.clone());
         path
@@ -1325,7 +1329,9 @@ fn run_segmented(
     limiter: &Throttle,
     gate: &Gate,
 ) -> Result<PathBuf, EngineError> {
-    let total = probe.total.expect("segmented path requires a known total");
+    let Some(total) = probe.total else {
+        return Err(EngineError::Protocol("a segmented download needs the file's size".into()));
+    };
     let url = probe.final_url.clone();
     let sidecar = Manifest::sidecar_path(&output);
 
@@ -1395,14 +1401,14 @@ fn run_segmented(
                     total,
                 };
                 loop {
-                    if token.load(Ordering::Relaxed) || first_error.lock().unwrap().is_some() {
+                    if token.load(Ordering::Relaxed) || first_error.lock_or_recover().is_some() {
                         return;
                     }
                     // A host at its limit: wait for a connection to free up,
                     // as long as some range is waiting for one.
                     let Some(slot) = gate.take() else {
                         let waiting = {
-                            let w = shared.lock().unwrap();
+                            let w = shared.lock_or_recover();
                             w.manifest.segments.iter().zip(&w.busy).any(|(s, b)| !*b && !s.is_complete())
                         };
                         if !waiting {
@@ -1411,18 +1417,18 @@ fn run_segmented(
                         thread::sleep(GATE_POLL);
                         continue;
                     };
-                    let Some(idx) = shared.lock().unwrap().next(plan.resplit) else {
+                    let Some(idx) = shared.lock_or_recover().next(plan.resplit) else {
                         return;
                     };
                     let result = download_segment(&ctx, idx);
                     drop(slot);
                     {
-                        let mut w = shared.lock().unwrap();
+                        let mut w = shared.lock_or_recover();
                         w.busy[idx] = false;
                         w.states[idx] = SegmentState::Waiting;
                     }
                     if let Err(e) = result {
-                        let mut slot = first_error.lock().unwrap();
+                        let mut slot = first_error.lock_or_recover();
                         if slot.is_none() {
                             *slot = Some(e);
                         }
@@ -1436,16 +1442,16 @@ fn run_segmented(
     if token.load(Ordering::Relaxed) {
         // Keep the sidecar and partial file so a later request resumes, saved
         // with the latest progress rather than the last periodic flush.
-        shared.lock().unwrap().manifest.save(&sidecar).ok();
+        shared.lock_or_recover().manifest.save(&sidecar).ok();
         return Ok(output);
     }
-    if let Some(err) = first_error.lock().unwrap().take() {
-        shared.lock().unwrap().manifest.save(&sidecar).ok();
+    if let Some(err) = first_error.lock_or_recover().take() {
+        shared.lock_or_recover().manifest.save(&sidecar).ok();
         return Err(err);
     }
 
     let (done, segments) = {
-        let w = shared.lock().unwrap();
+        let w = shared.lock_or_recover();
         (w.manifest.bytes_done(), w.snapshot())
     };
     reporter.send(Progress::Advanced {
@@ -1509,7 +1515,7 @@ fn download_segment(ctx: &SegmentCtx, idx: usize) -> Result<(), EngineError> {
 /// changes are rare next to the byte-driven reports, so each one is sent.
 fn set_state(ctx: &SegmentCtx, idx: usize, state: SegmentState) {
     let segments = {
-        let mut w = ctx.shared.lock().unwrap();
+        let mut w = ctx.shared.lock_or_recover();
         if w.states[idx] == state {
             return;
         }
@@ -1528,7 +1534,7 @@ fn set_state(ctx: &SegmentCtx, idx: usize, state: SegmentState) {
 
 fn download_segment_once(ctx: &SegmentCtx, idx: usize) -> Result<(), EngineError> {
     let (start, end, mut cursor) = {
-        let w = ctx.shared.lock().unwrap();
+        let w = ctx.shared.lock_or_recover();
         let s = &w.manifest.segments[idx];
         (s.start, s.end, s.cursor())
     };
@@ -1556,7 +1562,7 @@ fn download_segment_once(ctx: &SegmentCtx, idx: usize) -> Result<(), EngineError
         // The end can move closer while this runs: another connection may
         // have taken the second half of this range. Never write past it, even
         // if the server over-sends.
-        let end = ctx.shared.lock().unwrap().manifest.segments[idx].end;
+        let end = ctx.shared.lock_or_recover().manifest.segments[idx].end;
         if cursor > end {
             break;
         }
@@ -1566,7 +1572,7 @@ fn download_segment_once(ctx: &SegmentCtx, idx: usize) -> Result<(), EngineError
         cursor += n as u64;
 
         {
-            let mut w = ctx.shared.lock().unwrap();
+            let mut w = ctx.shared.lock_or_recover();
             w.manifest.segments[idx].done = cursor - start;
         }
         let g = ctx.global_done.fetch_add(n as u64, Ordering::Relaxed) + n as u64;

@@ -21,6 +21,10 @@
 //! main window stays in the tray, as IDM's do. The tray or a click on a
 //! notification shows the window through Win32 directly.
 
+// Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
+// test exemptions do not cover (AGENTS.md section 9).
+#![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
+
 mod addurl;
 mod answers;
 mod banner;
@@ -64,9 +68,10 @@ mod win;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::sync::LockExt;
 
 use categories::Filter;
 use eframe::egui;
@@ -289,7 +294,7 @@ fn open(
 /// tooltip, the threads' `Watch`) that a panicking thread cannot leave
 /// half-changed.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 /// What a click asked for, applied after drawing.
@@ -596,7 +601,7 @@ fn browse_button(ui: &mut egui::Ui, title: &'static str, start: &str, slot: &Pic
         thread::spawn(move || {
             let start = (!start.is_empty()).then(|| Path::new(&start));
             if let Some(folder) = crate::ports::ports().pickers.pick_folder(title, start) {
-                *slot.lock().unwrap() = Some(folder);
+                *slot.lock_or_recover() = Some(folder);
                 ctx.request_repaint();
             }
         });
@@ -611,7 +616,7 @@ fn browse_file_button(ui: &mut egui::Ui, title: &'static str, ext: &'static str,
         thread::spawn(move || {
             let kinds = [uidm_application::window::FileKind::new(ext, &[ext])];
             if let Some(file) = crate::ports::ports().pickers.pick_file(title, &kinds, None) {
-                *slot.lock().unwrap() = Some(file);
+                *slot.lock_or_recover() = Some(file);
                 ctx.request_repaint();
             }
         });
@@ -620,7 +625,7 @@ fn browse_file_button(ui: &mut egui::Ui, title: &'static str, ext: &'static str,
 
 /// Copy a picked folder into `field`, if one arrived.
 fn take_picked(slot: &Picked, field: &mut String) {
-    if let Some(folder) = slot.lock().unwrap().take() {
+    if let Some(folder) = slot.lock_or_recover().take() {
         *field = folder.display().to_string();
     }
 }
@@ -1478,7 +1483,7 @@ impl OptionsDraft {
     /// Start a picked browser program's identification on a worker, and
     /// add it once that is done.
     fn add_picked_browser(&mut self, ctx: &egui::Context) {
-        let picked = self.browser_picked.lock().unwrap().take();
+        let picked = self.browser_picked.lock_or_recover().take();
         if let Some(program) = picked {
             self.adding_browser.start(ctx, move || {
                 let added = uidm_domain::settings::AddedBrowser {
@@ -2193,7 +2198,7 @@ impl App {
         actions: &mut Vec<Action>,
     ) {
         let queue_list = self.state.queues.clone();
-        if let Some(read) = self.import.lock().unwrap().take() {
+        if let Some(read) = self.import.lock_or_recover().take() {
             let opened = read.and_then(|(name, text)| {
                 crate::ports::ports()
                     .lists
@@ -2254,9 +2259,10 @@ impl App {
         if let Some(p) = self.answers.as_mut() {
             match answers::window(ctx, p) {
                 Some(true) => {
-                    let p = self.answers.take().unwrap();
-                    let (queue, start_queue) = (p.queue, p.start_queue);
-                    self.add_many(p.into_items(), queue, start_queue);
+                    if let Some(p) = self.answers.take() {
+                        let (queue, start_queue) = (p.queue, p.start_queue);
+                        self.add_many(p.into_items(), queue, start_queue);
+                    }
                 }
                 Some(false) => self.answers = None,
                 None => {}
@@ -2832,7 +2838,7 @@ impl App {
                 Err(e) => draft.error = Some(e.to_string()),
             }
         }
-        if let Some(note) = draft.restart_done.lock().unwrap().take() {
+        if let Some(note) = draft.restart_done.lock_or_recover().take() {
             draft.browser_note = Some(note);
         }
         draft.browser_link = self.state.browser_link;
@@ -3265,11 +3271,11 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
                 let (slot, ctx) = (Arc::clone(&draft.ffmpeg_found), ui.ctx().clone());
                 thread::spawn(move || {
                     let found = crate::ports::ports().checks.ffmpeg(&Settings { ffmpeg_path: asked.clone(), ..Settings::default() });
-                    *slot.lock().unwrap() = Some((asked, found));
+                    *slot.lock_or_recover() = Some((asked, found));
                     ctx.request_repaint();
                 });
             }
-            let found = draft.ffmpeg_found.lock().unwrap().clone();
+            let found = draft.ffmpeg_found.lock_or_recover().clone();
             match found.filter(|(path, _)| draft.ffmpeg_asked.as_deref() == Some(path.as_str())) {
                 Some((_, Some(path))) => {
                     ui.weak(trf!("Using {path}", path = path.display()));
@@ -3736,7 +3742,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                 let (slot, ctx) = (Arc::clone(&draft.browser_picked), ui.ctx().clone());
                 thread::spawn(move || {
                     if let Some(file) = crate::ports::ports().pickers.pick_file(tr("Add browser"), &[], None) {
-                        *slot.lock().unwrap() = Some(file);
+                        *slot.lock_or_recover() = Some(file);
                         ctx.request_repaint();
                     }
                 });
@@ -3753,7 +3759,7 @@ fn capture_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
                             let (slot, program) = (draft.browsers[i].browser.clone(), draft.browsers[i].program());
                             thread::spawn(move || {
                                 let restarted = crate::ports::ports().browsers.restart(&slot, program.as_deref());
-                                *done.lock().unwrap() = Some(match restarted {
+                                *done.lock_or_recover() = Some(match restarted {
                                     Ok(()) => trf!("{browser} was restarted.", browser = name),
                                     Err(e) => trf!("Could not restart {browser}: {error}", browser = name, error = e),
                                 });

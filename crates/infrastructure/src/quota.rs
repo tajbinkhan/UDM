@@ -11,7 +11,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
+use uidm_domain::sync::LockExt;
 
 use uidm_application::daemon::Event;
 use uidm_domain::ports::QuotaState;
@@ -74,7 +75,7 @@ impl QuotaHold {
     /// Each change replaces or extends the held lists whole, so a lock
     /// poisoned by a panicking thread still holds a usable value.
     fn held(&self) -> MutexGuard<'_, Held> {
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+        self.held.lock_or_recover()
     }
 }
 
