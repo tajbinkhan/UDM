@@ -15,3 +15,7 @@ tracing.workspace = true
 # Building download rows in tests.
 [dev-dependencies]
 serde_json.workspace = true
+
+# The workspace's lints: no unwrap, expect or panic outside tests.
+[lints]
+workspace = true

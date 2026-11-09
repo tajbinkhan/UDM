@@ -5,8 +5,9 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
+use uidm_domain::sync::LockExt;
 
 use tracing::info;
 use uidm_application::daemon::Event;
@@ -35,7 +36,7 @@ pub struct BrowserBridge {
 /// Lock `m`. The maps change by single inserts and removals, so one a
 /// panicking thread left behind is still usable.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 impl BrowserBridge {

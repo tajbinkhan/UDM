@@ -6,7 +6,8 @@
 //! settings ask for (`QueueSounds`).
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
+use uidm_domain::sync::LockExt;
 
 use tracing::warn;
 use uidm_domain::ports::{QueueSounds, UpdateChecks};
@@ -32,7 +33,7 @@ impl LiveSettings {
     /// whole `Settings` values behind (every change replaces a field or the
     /// whole value), so a poisoned lock is still read.
     pub fn lock(&self) -> MutexGuard<'_, Settings> {
-        self.current.lock().unwrap_or_else(PoisonError::into_inner)
+        self.current.lock_or_recover()
     }
 
     /// A copy of the settings as they are now.

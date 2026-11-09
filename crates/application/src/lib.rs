@@ -1,6 +1,10 @@
 //! Use cases (add a download, pause, run a queue, ...) that coordinate the
 //! domain through its ports, one per file.
 
+// Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
+// test exemptions do not cover (AGENTS.md section 9).
+#![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
+
 pub mod daemon;
 pub mod downloads;
 pub mod grab;

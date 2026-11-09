@@ -4,8 +4,9 @@
 
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 use std::thread;
+use uidm_domain::sync::LockExt;
 
 use tracing::warn;
 use uidm_application::window::WindowFiles;
@@ -23,7 +24,7 @@ pub struct WindowDir {
 /// Lock `m`. It holds a channel's sender, which a panicking thread cannot
 /// leave half-changed.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 impl WindowDir {

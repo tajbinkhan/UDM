@@ -17,6 +17,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
+use uidm_domain::sync::LockExt;
 
 use scraper::{Html, Selector};
 
@@ -800,7 +801,7 @@ impl ScheduledGrabs {
 /// Only single inserts and removals change the set, so a poisoned lock
 /// still holds a usable one.
 fn claims(set: &std::sync::Mutex<HashSet<String>>) -> std::sync::MutexGuard<'_, HashSet<String>> {
-    set.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    set.lock_or_recover()
 }
 
 impl uidm_domain::ports::GrabRuns for ScheduledGrabs {

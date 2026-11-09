@@ -11,6 +11,7 @@
 
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
+use uidm_domain::sync::LockExt;
 
 use eframe::egui;
 
@@ -91,7 +92,7 @@ fn clipboard() -> &'static Mutex<Option<arboard::Clipboard>> {
 
 /// The clipboard's text, if it holds any.
 pub fn clipboard_text() -> Option<String> {
-    clipboard().lock().unwrap_or_else(|e| e.into_inner()).as_mut()?.get_text().ok()
+    clipboard().lock_or_recover().as_mut()?.get_text().ok()
 }
 
 /// A number that changes whenever the clipboard's text does. These systems

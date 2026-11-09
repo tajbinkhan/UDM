@@ -553,7 +553,10 @@ impl Registrar {
             "type": "stdio",
             "path": self.host.display().to_string(),
         });
-        manifest.as_object_mut().unwrap().extend(allowed.as_object().unwrap().clone());
+        // Both are object literals, so both are objects.
+        if let (Some(manifest), Some(allowed)) = (manifest.as_object_mut(), allowed.as_object()) {
+            manifest.extend(allowed.clone());
+        }
         serde_json::to_vec_pretty(&manifest).map_err(io::Error::other)
     }
 

@@ -302,10 +302,10 @@ impl<'a> Reader<'a> {
         Ok(self.bytes(1)?[0])
     }
     fn u32(&mut self) -> Result<u32, HdsError> {
-        Ok(u32::from_be_bytes(self.bytes(4)?.try_into().unwrap()))
+        Ok(u32::from_be_bytes(self.bytes(4)?.try_into().map_err(|_| HdsError::Truncated)?))
     }
     fn u64(&mut self) -> Result<u64, HdsError> {
-        Ok(u64::from_be_bytes(self.bytes(8)?.try_into().unwrap()))
+        Ok(u64::from_be_bytes(self.bytes(8)?.try_into().map_err(|_| HdsError::Truncated)?))
     }
     /// A NUL-terminated string.
     fn string(&mut self) -> Result<&'a [u8], HdsError> {
@@ -317,7 +317,7 @@ impl<'a> Reader<'a> {
     /// A box: its type and its body.
     fn boxed(&mut self) -> Result<([u8; 4], &'a [u8]), HdsError> {
         let size = self.u32()? as u64;
-        let kind: [u8; 4] = self.bytes(4)?.try_into().unwrap();
+        let kind: [u8; 4] = self.bytes(4)?.try_into().map_err(|_| HdsError::Truncated)?;
         let (size, header) = match size {
             1 => (self.u64()?, 16),
             0 => ((self.data.len() - self.at + 8) as u64, 8),
@@ -463,7 +463,7 @@ pub fn copy_mdat<R: Read + Seek, W: Write>(fragment: &mut R, out: &mut W) -> io:
             0 => break,
             _ => fragment.read_exact(&mut head[1..])?,
         }
-        let size = u32::from_be_bytes(head[..4].try_into().unwrap()) as u64;
+        let size = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as u64;
         let (body, to_end) = match size {
             0 => (0, true),
             1 => {
