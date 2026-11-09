@@ -144,13 +144,13 @@ test("a player counts as covered only when something outside its player box is o
   assert.equal(covered(() => body), false, "nothing over it");
   assert.equal(covered(() => dialog), true);
   assert.equal(covered((x, y) => (x < 300 ? video : dialog)), false, "partly visible");
-  assert.equal(covered(() => button), false, "UIDM's button covers nothing");
+  assert.equal(covered(() => button), false, "Pullbay's button covers nothing");
   assert.equal(covered(() => null), false, "nothing to look at");
 });
 
 function connected() {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({
     op: "settings",
     settings: { capture_types: [], capture_min_size_kb: 0, capture_excluded_sites: [], video_button: true, video_button_excluded_sites: [] },
@@ -163,7 +163,7 @@ const fromFrame = (w, msg, tabId, frameId, tab = {}) =>
   new Promise((resolve) =>
     w.chrome.runtime.onMessage.fire(
       msg,
-      { id: "uidm", tab: { id: tabId, url: "https://feed.net/", incognito: false, ...tab }, url: "https://feed.net/", frameId },
+      { id: "pullbay", tab: { id: tabId, url: "https://feed.net/", incognito: false, ...tab }, url: "https://feed.net/", frameId },
       resolve,
     ),
   );
@@ -297,12 +297,12 @@ for (const firefox of [false, true]) {
 
     // The first connection does it too, once a browser session.
     calls.length = 0;
-    w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+    w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
     await wait(5);
     assert.equal(calls.filter((o) => o.files).length, 2);
     assert.equal(w.chrome.storage.session.data.contentInjected, true);
     calls.length = 0;
-    w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+    w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
     await wait(5);
     assert.equal(calls.length, 0);
 
@@ -310,7 +310,7 @@ for (const firefox of [false, true]) {
     const again = loadWorker({ firefox, session: { contentInjected: true } });
     again.chrome.scripting = w.chrome.scripting;
     again.chrome.tabs.query = w.chrome.tabs.query;
-    again.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+    again.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
     await wait(5);
     assert.equal(calls.length, 0);
   });

@@ -2,7 +2,7 @@
 resolver = "2"
 # The layers of AGENTS.md. Dependencies point inward: domain <- application
 # <- infrastructure and ui <- app. The code still lives mostly in
-# infrastructure (the old `uidm` library) and app (the three binaries);
+# infrastructure (the old `pullbay` library) and app (the three binaries);
 # AGENTS.md section 16 tracks the moves still to make.
 members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/ui", "crates/app"]
 
@@ -13,10 +13,10 @@ edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-uidm-domain = { path = "crates/domain" }
-uidm-application = { path = "crates/application" }
-uidm-infrastructure = { path = "crates/infrastructure" }
-uidm-ui = { path = "crates/ui" }
+pullbay-domain = { path = "crates/domain" }
+pullbay-application = { path = "crates/application" }
+pullbay-infrastructure = { path = "crates/infrastructure" }
+pullbay-ui = { path = "crates/ui" }
 
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"

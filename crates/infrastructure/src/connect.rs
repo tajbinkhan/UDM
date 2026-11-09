@@ -4,13 +4,13 @@
 use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use uidm_domain::download::Download;
+use pullbay_domain::download::Download;
 
 use crate::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
-use uidm_domain::settings::{ProxyMode, Settings, SocksVersion};
+use pullbay_domain::settings::{ProxyMode, Settings, SocksVersion};
 
 /// Addresses retried through the browser's proxy after failing through
-/// UIDM's own proxy setting; they keep using it.
+/// Pullbay's own proxy setting; they keep using it.
 #[derive(Default)]
 pub struct ProxyRetries(Mutex<HashSet<String>>);
 
@@ -35,7 +35,7 @@ impl ProxyRetries {
 
 /// The proxy and logins for `download`. A download from the browser uses
 /// the browser's proxy when the settings say so: always, or once it failed
-/// through UIDM's own setting (`retries`).
+/// through Pullbay's own setting (`retries`).
 pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> NetConfig {
     let browser_wanted = s.use_browser_proxy && (!s.browser_proxy_after_errors || retries.contains(&download.url));
     // The browser's whole setting when it sent one (its direct
@@ -109,7 +109,9 @@ pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> 
     // its host, even those for one of its folders.
     let host = url::Url::parse(&download.url).ok().and_then(|u| u.host_str().map(str::to_string));
     if let (Some(l), Some(host)) = (&download.login, host) {
-        logins.retain(|s| !uidm_domain::site::site_matches(uidm_domain::site::split_login_pattern(&s.site).0, &host));
+        logins.retain(|s| {
+            !pullbay_domain::site::site_matches(pullbay_domain::site::split_login_pattern(&s.site).0, &host)
+        });
         logins.push(Login {
             site: host,
             username: l.username.clone(),
@@ -129,7 +131,7 @@ pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> 
     }
 }
 
-impl uidm_domain::ports::ProxyFallback for ProxyRetries {
+impl pullbay_domain::ports::ProxyFallback for ProxyRetries {
     fn claim_retry(&self, url: String) -> bool {
         self.insert(url)
     }
@@ -155,11 +157,11 @@ mod tests {
 
     #[test]
     fn the_browsers_whole_proxy_setting_is_used() {
-        use uidm_domain::download::{BrowserProxy, BrowserProxyMode};
+        use pullbay_domain::download::{BrowserProxy, BrowserProxyMode};
         let s = Settings {
             use_browser_proxy: true,
             proxy_mode: ProxyMode::Manual,
-            proxy_http: "uidm:8080".into(),
+            proxy_http: "pullbay:8080".into(),
             ..Settings::default()
         };
         let through = |setting: Option<BrowserProxy>, s: &Settings| {
@@ -172,7 +174,7 @@ mod tests {
             config_for(&d, s, &ProxyRetries::default()).proxy.and_then(|p| p.proxy_for(&d.url))
         };
         // The browser connects directly: so does the download, whatever
-        // UIDM's own setting and the older field say.
+        // Pullbay's own setting and the older field say.
         let direct = BrowserProxy::default();
         assert_eq!(through(Some(direct.clone()), &s), None);
         let fixed = BrowserProxy {
@@ -186,9 +188,9 @@ mod tests {
         assert_eq!(through(Some(fixed), &s).as_deref(), Some("http://bp:3128"));
         // Older extensions send only the fixed proxy.
         assert_eq!(through(None, &s).as_deref(), Some("http://old:1"));
-        // Without the option, UIDM's own setting applies.
+        // Without the option, Pullbay's own setting applies.
         let own = Settings { use_browser_proxy: false, ..s.clone() };
-        assert_eq!(through(Some(direct), &own).as_deref(), Some("http://uidm:8080"));
+        assert_eq!(through(Some(direct), &own).as_deref(), Some("http://pullbay:8080"));
     }
 
     #[test]

@@ -1,8 +1,8 @@
-use uidm_domain::batch;
-use uidm_domain::download::{same_address, Download, DownloadError, DuplicateStep};
-use uidm_domain::ports::{DownloadControl, DownloadFiles, DownloadIntake, DownloadList, QueueStore};
-use uidm_domain::queue;
-use uidm_domain::settings::Duplicate;
+use pullbay_domain::batch;
+use pullbay_domain::download::{same_address, Download, DownloadError, DuplicateStep};
+use pullbay_domain::ports::{DownloadControl, DownloadFiles, DownloadIntake, DownloadList, QueueStore};
+use pullbay_domain::queue;
+use pullbay_domain::settings::Duplicate;
 
 use super::RemoveDownload;
 
@@ -86,9 +86,9 @@ where
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Files, Intake, Queues};
-    use uidm_domain::download::Status;
-    use uidm_domain::queue::MAIN_QUEUE;
-    use uidm_domain::settings::FileExists;
+    use pullbay_domain::download::Status;
+    use pullbay_domain::queue::MAIN_QUEUE;
+    use pullbay_domain::settings::FileExists;
 
     fn links(urls: &[&str]) -> Vec<Download> {
         urls.iter().map(|u| Download { url: u.to_string(), ..Download::default() }).collect()

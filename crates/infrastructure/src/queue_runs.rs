@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use uidm_domain::ports::{PausedDownloads, QueueRuns};
+use pullbay_domain::ports::{PausedDownloads, QueueRuns};
 
 /// Every change below is a single insert or removal, so a lock poisoned by
 /// a panicking thread still holds consistent sets.

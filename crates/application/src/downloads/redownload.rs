@@ -1,5 +1,5 @@
-use uidm_domain::download::{DownloadError, Status};
-use uidm_domain::ports::{DownloadControl, DownloadFiles, DownloadList};
+use pullbay_domain::download::{DownloadError, Status};
+use pullbay_domain::ports::{DownloadControl, DownloadFiles, DownloadList};
 
 /// Start a finished or stopped download again from the first byte, under
 /// the same id, so it keeps its place and description. It goes to the same

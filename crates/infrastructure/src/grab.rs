@@ -22,7 +22,7 @@ use scraper::{Html, Selector};
 
 use url::Url;
 
-use uidm_domain::grab::*;
+use pullbay_domain::grab::*;
 
 /// The saved password of the grabber login `user` on the site of `start`,
 /// or the site's one saved by an older version.
@@ -84,17 +84,17 @@ pub fn rewrite_links(html: &str, page: &Url, here: &Path, root: &Path, local: im
 pub fn download_for(
     req: &GrabRequest,
     f: &GrabFile,
-    settings: &uidm_domain::settings::Settings,
+    settings: &pullbay_domain::settings::Settings,
     login_cookies: Option<&str>,
-) -> Option<uidm_domain::download::Download> {
-    let mut d = uidm_domain::download::Download {
+) -> Option<pullbay_domain::download::Download> {
+    let mut d = pullbay_domain::download::Download {
         url: f.url.clone(),
         referrer: Some(f.page.clone()),
         page: Some(f.page.clone()),
         cookies: crawl_cookies(req, &f.url, None, login_cookies),
         start: Some(false),
         description: f.text.clone().filter(|t| req.link_text && !t.is_empty()),
-        ..uidm_domain::download::Download::default()
+        ..pullbay_domain::download::Download::default()
     };
     match &req.save_to {
         SaveTo::Categories => {}
@@ -114,9 +114,9 @@ pub fn download_for(
         d.filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
         d.folder = path.parent().map(|p| p.display().to_string());
         d.file_exists = Some(if m.overwrite {
-            uidm_domain::settings::FileExists::Overwrite
+            pullbay_domain::settings::FileExists::Overwrite
         } else {
-            uidm_domain::settings::FileExists::Rename
+            pullbay_domain::settings::FileExists::Rename
         });
     } else if let Ok(url) = Url::parse(&f.url) {
         // The site's folders under the chosen folder, or under the
@@ -132,13 +132,13 @@ pub fn download_for(
             d.folder = Some(base.join(sub).display().to_string());
         }
         if req.overwrite {
-            d.file_exists = Some(uidm_domain::settings::FileExists::Overwrite);
+            d.file_exists = Some(pullbay_domain::settings::FileExists::Overwrite);
         }
     }
     // The project's own login goes to the start site's files.
     if let Some(user) = req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
         if on_start_site(req, &f.url) {
-            d.login = Some(uidm_domain::download::DownloadLogin {
+            d.login = Some(pullbay_domain::download::DownloadLogin {
                 username: user.to_string(),
                 password: project_password(&req.start, user),
             });
@@ -292,7 +292,7 @@ pub fn links(html: &str, page: &Url) -> (Vec<Url>, Vec<(Url, String)>) {
     (pages, files)
 }
 
-/// `%APPDATA%\UIDM\grabber`, next to the settings file.
+/// `%APPDATA%\Pullbay\grabber`, next to the settings file.
 pub fn projects_dir() -> io::Result<PathBuf> {
     crate::paths::grabber_dir()
 }
@@ -405,7 +405,7 @@ pub fn save_named_template(dir: &Path, name: &str, req: &GrabRequest) -> io::Res
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "A template needs a name."));
     }
     if built_in_templates().iter().any(|t| t.name.eq_ignore_ascii_case(name)) {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "A template that comes with UIDM has that name."));
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "A template that comes with Pullbay has that name."));
     }
     let t = Template {
         name: name.to_string(),
@@ -699,11 +699,11 @@ fn unseal_cookies(request: &mut serde_json::Value) {
     }
 }
 
-/// The [`GrabProjects`](uidm_domain::ports::GrabProjects) port over the
+/// The [`GrabProjects`](pullbay_domain::ports::GrabProjects) port over the
 /// projects folder.
 pub struct ProjectFiles(pub PathBuf);
 
-impl uidm_domain::ports::GrabProjects for ProjectFiles {
+impl pullbay_domain::ports::GrabProjects for ProjectFiles {
     fn names(&self) -> Vec<String> {
         recent_projects(&self.0)
     }
@@ -712,8 +712,8 @@ impl uidm_domain::ports::GrabProjects for ProjectFiles {
         load_project(&self.0, name).ok()
     }
 
-    fn save(&self, project: &Project) -> Result<(), uidm_domain::ports::FilesError> {
-        save_project(project, &self.0).map_err(|e| uidm_domain::ports::FilesError(e.to_string()))
+    fn save(&self, project: &Project) -> Result<(), pullbay_domain::ports::FilesError> {
+        save_project(project, &self.0).map_err(|e| pullbay_domain::ports::FilesError(e.to_string()))
     }
 }
 
@@ -782,7 +782,7 @@ pub fn load_project_file(path: &Path) -> io::Result<Project> {
 /// use cases.
 pub type RunProject = std::sync::Arc<dyn Fn(Project, i64) + Send + Sync>;
 
-/// The [`GrabRuns`](uidm_domain::ports::GrabRuns) port: the projects whose
+/// The [`GrabRuns`](pullbay_domain::ports::GrabRuns) port: the projects whose
 /// scheduled run is going on, and a thread for each run.
 pub struct ScheduledGrabs {
     /// Projects whose scheduled run is going on, by name.
@@ -803,7 +803,7 @@ fn claims(set: &std::sync::Mutex<HashSet<String>>) -> std::sync::MutexGuard<'_, 
     set.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-impl uidm_domain::ports::GrabRuns for ScheduledGrabs {
+impl pullbay_domain::ports::GrabRuns for ScheduledGrabs {
     fn claim(&self, name: &str) -> bool {
         claims(&self.claims).insert(name.to_string())
     }
@@ -822,23 +822,23 @@ impl uidm_domain::ports::GrabRuns for ScheduledGrabs {
 /// folder.
 pub struct FoundFiles;
 
-impl uidm_domain::ports::GrabDownloads for FoundFiles {
+impl pullbay_domain::ports::GrabDownloads for FoundFiles {
     fn download_for(
         &self,
         req: &GrabRequest,
         file: &GrabFile,
-        settings: &uidm_domain::settings::Settings,
+        settings: &pullbay_domain::settings::Settings,
         login: Option<&str>,
-    ) -> Option<uidm_domain::download::Download> {
+    ) -> Option<pullbay_domain::download::Download> {
         download_for(req, file, settings, login)
     }
 }
 
-fn files_error(e: io::Error) -> uidm_domain::ports::FilesError {
-    uidm_domain::ports::FilesError(e.to_string())
+fn files_error(e: io::Error) -> pullbay_domain::ports::FilesError {
+    pullbay_domain::ports::FilesError(e.to_string())
 }
 
-impl uidm_application::window::GrabLibrary for ProjectFiles {
+impl pullbay_application::window::GrabLibrary for ProjectFiles {
     fn folder(&self) -> PathBuf {
         self.0.clone()
     }
@@ -847,15 +847,15 @@ impl uidm_application::window::GrabLibrary for ProjectFiles {
         recent_projects(&self.0)
     }
 
-    fn load(&self, name: &str) -> Result<Project, uidm_domain::ports::FilesError> {
+    fn load(&self, name: &str) -> Result<Project, pullbay_domain::ports::FilesError> {
         load_project(&self.0, name).map_err(files_error)
     }
 
-    fn load_file(&self, path: &Path) -> Result<Project, uidm_domain::ports::FilesError> {
+    fn load_file(&self, path: &Path) -> Result<Project, pullbay_domain::ports::FilesError> {
         load_project_file(path).map_err(files_error)
     }
 
-    fn save(&self, project: &Project) -> Result<(), uidm_domain::ports::FilesError> {
+    fn save(&self, project: &Project) -> Result<(), pullbay_domain::ports::FilesError> {
         save_project(project, &self.0).map_err(files_error)
     }
 
@@ -871,11 +871,11 @@ impl uidm_application::window::GrabLibrary for ProjectFiles {
         templates(&self.0)
     }
 
-    fn save_template(&self, name: &str, req: &GrabRequest) -> Result<(), uidm_domain::ports::FilesError> {
+    fn save_template(&self, name: &str, req: &GrabRequest) -> Result<(), pullbay_domain::ports::FilesError> {
         save_named_template(&self.0, name, req).and_then(|()| save_template(&self.0, req)).map_err(files_error)
     }
 
-    fn delete_template(&self, name: &str) -> Result<(), uidm_domain::ports::FilesError> {
+    fn delete_template(&self, name: &str) -> Result<(), pullbay_domain::ports::FilesError> {
         delete_template(&self.0, name).map_err(files_error)
     }
 
@@ -883,7 +883,7 @@ impl uidm_application::window::GrabLibrary for ProjectFiles {
         load_filters(&self.0)
     }
 
-    fn save_filters(&self, filters: &[Filter]) -> Result<(), uidm_domain::ports::FilesError> {
+    fn save_filters(&self, filters: &[Filter]) -> Result<(), pullbay_domain::ports::FilesError> {
         save_filters(&self.0, filters).map_err(files_error)
     }
 }
@@ -894,7 +894,7 @@ mod tests {
 
     #[test]
     fn crawled_pages_are_saved_with_local_links() {
-        let dir = std::env::temp_dir().join(format!("uidm_save_page_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_save_page_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mirror = Mirror { folder: dir.display().to_string(), pages: true, overwrite: false };
         let req = GrabRequest { start: "https://s/".into(), mirror: Some(mirror.clone()), ..GrabRequest::default() };
@@ -921,7 +921,7 @@ mod tests {
 
     #[test]
     fn a_project_runs_once_at_a_time() {
-        use uidm_domain::ports::GrabRuns;
+        use pullbay_domain::ports::GrabRuns;
         let set = std::sync::Arc::default();
         let (tx, rx) = std::sync::mpsc::channel();
         let runs = ScheduledGrabs::new(
@@ -940,14 +940,14 @@ mod tests {
             schedule: None,
             run: RunAction::Explore,
             download_new: false,
-            when_done: uidm_domain::queue::WhenDone::Nothing,
+            when_done: pullbay_domain::queue::WhenDone::Nothing,
             open_when_done: None,
             force_close: false,
-            queue: uidm_domain::queue::MAIN_QUEUE,
+            queue: pullbay_domain::queue::MAIN_QUEUE,
             seen: Vec::new(),
             last_scheduled_day: None,
             last_scheduled_start: None,
-            kind: uidm_domain::queue::QueueKind::Synchronize,
+            kind: pullbay_domain::queue::QueueKind::Synchronize,
         };
         runs.run(project, 3);
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), ("site".to_string(), 3));
@@ -985,7 +985,7 @@ Crawl-delay: 2.5
         assert!(!ok("/tmp1/x/y"));
         assert_eq!(r.crawl_delay, Some(Duration::from_millis(2500)));
 
-        let named = Robots::parse("User-agent: UIDM\nDisallow: /\n\nUser-agent: *\nDisallow:\n", USER_AGENT);
+        let named = Robots::parse("User-agent: Pullbay\nDisallow: /\n\nUser-agent: *\nDisallow:\n", USER_AGENT);
         assert!(!named.allows(&Url::parse("https://s/a").unwrap()));
         let empty = Robots::parse("User-agent: *\nDisallow:\n", USER_AGENT);
         assert!(empty.allows(&Url::parse("https://s/a").unwrap()));
@@ -1198,9 +1198,9 @@ Crawl-delay: 2.5
             size: None,
             text: Some("The manual".into()),
         };
-        let settings = uidm_domain::settings::Settings {
-            download_dir: Some(std::env::temp_dir().join("uidm-grab-dl").display().to_string()),
-            ..uidm_domain::settings::Settings::default()
+        let settings = pullbay_domain::settings::Settings {
+            download_dir: Some(std::env::temp_dir().join("pullbay-grab-dl").display().to_string()),
+            ..pullbay_domain::settings::Settings::default()
         };
         let d = download_for(&request(1), &file, &settings, None).unwrap();
         assert_eq!((d.referrer.as_deref(), d.page.as_deref()), (Some("https://s/a/"), Some("https://s/a/")));
@@ -1349,7 +1349,7 @@ Crawl-delay: 2.5
 
     #[test]
     fn projects_and_the_template_are_saved_and_loaded() {
-        let dir = std::env::temp_dir().join(format!("uidm_grab_projects_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_grab_projects_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         assert!(recent_projects(&dir).is_empty());
         assert_eq!(template(&dir), GrabRequest::default());
@@ -1367,14 +1367,14 @@ Crawl-delay: 2.5
             schedule: None,
             run: RunAction::Explore,
             download_new: false,
-            when_done: uidm_domain::queue::WhenDone::Nothing,
+            when_done: pullbay_domain::queue::WhenDone::Nothing,
             open_when_done: None,
             force_close: true,
-            queue: uidm_domain::queue::MAIN_QUEUE,
+            queue: pullbay_domain::queue::MAIN_QUEUE,
             seen: Vec::new(),
             last_scheduled_day: None,
             last_scheduled_start: None,
-            kind: uidm_domain::queue::QueueKind::Synchronize,
+            kind: pullbay_domain::queue::QueueKind::Synchronize,
         };
         save_project(&p, &dir).unwrap();
         assert_eq!(load_project(&dir, "Docs: manuals").unwrap(), p);
@@ -1390,7 +1390,7 @@ Crawl-delay: 2.5
 
     #[test]
     fn project_files_load_from_anywhere_and_names_are_checked() {
-        let dir = std::env::temp_dir().join(format!("uidm_grab_elsewhere_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_grab_elsewhere_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let p = Project {
@@ -1401,14 +1401,14 @@ Crawl-delay: 2.5
             schedule: None,
             run: RunAction::Explore,
             download_new: false,
-            when_done: uidm_domain::queue::WhenDone::Nothing,
+            when_done: pullbay_domain::queue::WhenDone::Nothing,
             open_when_done: None,
             force_close: false,
-            queue: uidm_domain::queue::MAIN_QUEUE,
+            queue: pullbay_domain::queue::MAIN_QUEUE,
             seen: Vec::new(),
             last_scheduled_day: None,
             last_scheduled_start: None,
-            kind: uidm_domain::queue::QueueKind::OneTime,
+            kind: pullbay_domain::queue::QueueKind::OneTime,
         };
         assert!(name_is_unique(&dir, "Docs", None), "nothing saved yet");
         save_project(&p, &dir).unwrap();
@@ -1440,7 +1440,7 @@ Crawl-delay: 2.5
 
     #[test]
     fn named_templates_are_saved_listed_and_deleted() {
-        let dir = std::env::temp_dir().join(format!("uidm_grab_templates_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_grab_templates_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let names = |dir: &Path| templates(dir).into_iter().map(|t| t.name).collect::<Vec<_>>();
         let built_in = built_in_templates().len();
@@ -1466,7 +1466,7 @@ Crawl-delay: 2.5
         assert_eq!(f("*"), ["*"]);
         assert!(f(" ; ").is_empty());
         assert_eq!(f("Photo_*.JPG;*.tar.gz;*.jp?"), ["photo_*.jpg", "*.tar.gz", "*.jp?"], "name masks stay whole");
-        let dir = std::env::temp_dir().join(format!("uidm_grab_filters_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_grab_filters_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         assert_eq!(load_filters(&dir), default_filters());
         let mine = vec![Filter { name: "Manuals".into(), mask: "*.pdf".into() }];
@@ -1479,7 +1479,7 @@ Crawl-delay: 2.5
 
     #[test]
     fn older_projects_that_added_new_files_now_download_them() {
-        let dir = std::env::temp_dir().join(format!("uidm_grab_old_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_grab_old_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let json = r#"{"name":"old","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000},"download_new":true}"#;
         fs::write(project_file(&dir, "old"), json).unwrap();
@@ -1499,7 +1499,7 @@ Crawl-delay: 2.5
             text: None,
         };
         let mut p: Project = serde_json::from_str(r#"{"name":"p","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000}}"#).unwrap();
-        assert_eq!(p.queue, uidm_domain::queue::MAIN_QUEUE, "an older project file loads");
+        assert_eq!(p.queue, pullbay_domain::queue::MAIN_QUEUE, "an older project file loads");
         let first = p.record_run(vec![file("https://s/a.pdf"), file("https://s/b.pdf")]);
         assert_eq!(first.len(), 2);
         let second = p.record_run(vec![file("https://s/b.pdf"), file("https://s/c.pdf")]);
@@ -1518,11 +1518,11 @@ Crawl-delay: 2.5
             text: None,
         };
         let mut p: Project = serde_json::from_str(r#"{"name":"p","request":{"start":"https://s/","depth":1,"same_site":true,"types":["pdf"],"max_pages":5,"max_bytes":1048576,"delay_ms":1000},"run":"explore_and_download"}"#).unwrap();
-        assert_eq!(p.kind, uidm_domain::queue::QueueKind::OneTime, "an older project file is one-time");
+        assert_eq!(p.kind, pullbay_domain::queue::QueueKind::OneTime, "an older project file is one-time");
         p.record_run(vec![file("https://s/a.pdf"), file("https://s/b.pdf")]);
         let now = [file("https://s/b.pdf"), file("https://s/c.pdf")];
         assert!(p.to_resync(&now).is_empty(), "a one-time project checks nothing");
-        p.kind = uidm_domain::queue::QueueKind::Synchronize;
+        p.kind = pullbay_domain::queue::QueueKind::Synchronize;
         assert_eq!(p.to_resync(&now), ["https://s/b.pdf"], "only what an earlier run found");
         p.record_run(now.to_vec());
         p.run = RunAction::DownloadChecked;
@@ -1554,8 +1554,8 @@ Crawl-delay: 2.5
             size: None,
             text: None,
         };
-        let settings = uidm_domain::settings::Settings::default();
-        let dir = std::env::temp_dir().join(format!("uidm_mirror_{}", std::process::id()));
+        let settings = pullbay_domain::settings::Settings::default();
+        let dir = std::env::temp_dir().join(format!("pullbay_mirror_{}", std::process::id()));
         let mirrored = GrabRequest {
             mirror: Some(Mirror { folder: dir.display().to_string(), pages: true, overwrite: false }),
             ..req.clone()
@@ -1583,7 +1583,7 @@ Crawl-delay: 2.5
             login_cookies: Some("session=topsecret".into()),
             ..GrabRequest::default()
         };
-        let dir = std::env::temp_dir().join(format!("uidm-grab-cookie-project-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay-grab-cookie-project-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let project: Project = serde_json::from_value(serde_json::json!({ "name": "Sealed", "request": req })).unwrap();
@@ -1597,7 +1597,7 @@ Crawl-delay: 2.5
         assert_eq!(load_project(&dir, "Sealed").unwrap().request.login_cookies, None);
         let _ = fs::remove_dir_all(&dir);
         // Templates never keep them.
-        let dir = std::env::temp_dir().join(format!("uidm-grab-cookie-template-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay-grab-cookie-template-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         save_template(&dir, &req).unwrap();
@@ -1618,10 +1618,10 @@ Crawl-delay: 2.5
             "outside the start folder: host and path"
         );
         assert_eq!(at("https://cdn.net/x/a.pdf"), Path::new("cdn.net").join("x"));
-        let root = std::env::temp_dir().join("uidm-grab-sub");
-        let settings = uidm_domain::settings::Settings {
+        let root = std::env::temp_dir().join("pullbay-grab-sub");
+        let settings = pullbay_domain::settings::Settings {
             download_dir: Some(root.display().to_string()),
-            ..uidm_domain::settings::Settings::default()
+            ..pullbay_domain::settings::Settings::default()
         };
         let file = GrabFile {
             url: "https://s/docs/v1/a.pdf".into(),
@@ -1641,7 +1641,7 @@ Crawl-delay: 2.5
         let req = GrabRequest { subfolders: true, overwrite: true, ..req };
         let d = download_for(&req, &file, &settings, None).unwrap();
         assert_eq!(d.folder, Some(folder.join("v1").display().to_string()));
-        assert_eq!(d.file_exists, Some(uidm_domain::settings::FileExists::Overwrite));
+        assert_eq!(d.file_exists, Some(pullbay_domain::settings::FileExists::Overwrite));
         // By category: under the folder the file's category has.
         let req = GrabRequest { save_to: SaveTo::Categories, ..req };
         let d = download_for(&req, &file, &settings, None).unwrap();
@@ -1654,7 +1654,7 @@ Crawl-delay: 2.5
 
     #[test]
     fn found_files_on_the_login_site_carry_its_cookies() {
-        let settings = uidm_domain::settings::Settings::default();
+        let settings = pullbay_domain::settings::Settings::default();
         let req = GrabRequest {
             start: "https://docs.example.com/".into(),
             login_url: Some("https://example.com/login".into()),

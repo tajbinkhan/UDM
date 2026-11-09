@@ -99,11 +99,13 @@ impl Manifest {
         }
     }
 
-    /// The sidecar path for a given output file: `<output>.uidmpart`.
+    /// The sidecar path for a given output file: `<output>.pullbaypart`.
+    /// A sidecar UIDM left (`<output>.uidmpart`, from before Pullbay got its
+    /// name) is renamed to it first, so that download still resumes.
     pub fn sidecar_path(output: &Path) -> PathBuf {
-        let mut name = output.file_name().unwrap_or_default().to_os_string();
-        name.push(".uidmpart");
-        output.with_file_name(name)
+        let path = beside(output, ".pullbaypart");
+        adopt(&beside(output, ".uidmpart"), &path);
+        path
     }
 
     pub fn load(path: &Path) -> io::Result<Self> {
@@ -115,7 +117,7 @@ impl Manifest {
     /// directory, then rename over the target so a crash never leaves a
     /// half-written manifest.
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        let tmp = path.with_extension("uidmpart.tmp");
+        let tmp = path.with_extension("pullbaypart.tmp");
         let bytes = serde_json::to_vec(self).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         fs::write(&tmp, &bytes)?;
         // rename is atomic on the same volume; fall back to remove+rename on
@@ -127,6 +129,21 @@ impl Manifest {
                 fs::rename(&tmp, path)
             }
         }
+    }
+}
+
+/// `output`'s name with `suffix` added, in its folder.
+pub(crate) fn beside(output: &Path, suffix: &str) -> PathBuf {
+    let mut name = output.file_name().unwrap_or_default().to_os_string();
+    name.push(suffix);
+    output.with_file_name(name)
+}
+
+/// Rename `old`, which UIDM left, to `new` when only `old` is there. A
+/// rename that fails leaves `old`, and the download starts over.
+pub(crate) fn adopt(old: &Path, new: &Path) {
+    if !new.exists() && old.exists() {
+        let _ = fs::rename(old, new);
     }
 }
 
@@ -181,7 +198,7 @@ mod tests {
     #[test]
     fn save_load_roundtrip() {
         let mut path = std::env::temp_dir();
-        path.push(format!("uidm_test_{}.uidmpart", std::process::id()));
+        path.push(format!("pullbay_test_{}.pullbaypart", std::process::id()));
         let m = sample();
         m.save(&path).unwrap();
         let loaded = Manifest::load(&path).unwrap();
@@ -192,6 +209,22 @@ mod tests {
     #[test]
     fn sidecar_naming() {
         let p = Path::new("dl").join("movie.mp4");
-        assert_eq!(Manifest::sidecar_path(&p).file_name().unwrap(), "movie.mp4.uidmpart");
+        assert_eq!(Manifest::sidecar_path(&p).file_name().unwrap(), "movie.mp4.pullbaypart");
+    }
+
+    #[test]
+    fn a_sidecar_uidm_left_is_picked_up() {
+        let dir = std::env::temp_dir().join(format!("pullbay_uidm_sidecar_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("big.iso");
+        fs::write(dir.join("big.iso.uidmpart"), b"{}").unwrap();
+        let sidecar = Manifest::sidecar_path(&file);
+        assert_eq!(fs::read(&sidecar).unwrap(), b"{}");
+        assert!(!dir.join("big.iso.uidmpart").exists());
+
+        fs::write(dir.join("big.iso.uidmpart"), b"stale").unwrap();
+        Manifest::sidecar_path(&file);
+        assert_eq!(fs::read(&sidecar).unwrap(), b"{}", "Pullbay's own sidecar wins");
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -1,10 +1,10 @@
-use uidm_domain::download::OnDone;
-use uidm_domain::ports::{DownloadList, PowerControl};
-use uidm_domain::queue::PowerRequest;
+use pullbay_domain::download::OnDone;
+use pullbay_domain::ports::{DownloadList, PowerControl};
+use pullbay_domain::queue::PowerRequest;
 
 use crate::power::RunWhenDone;
 
-/// Do what a finished download asked to happen once it finished (close UIDM,
+/// Do what a finished download asked to happen once it finished (close Pullbay,
 /// or sleep, hibernate or shut down after the countdown), then clear it so
 /// downloading it again does not repeat it.
 pub struct AfterDownload<'a, D, P> {
@@ -36,8 +36,8 @@ impl<'a, D: DownloadList, P: PowerControl> AfterDownload<'a, D, P> {
 mod tests {
     use super::*;
     use crate::memory::{row, Downloads, Power};
-    use uidm_domain::download::Status;
-    use uidm_domain::queue::WhenDone;
+    use pullbay_domain::download::Status;
+    use pullbay_domain::queue::WhenDone;
 
     #[test]
     fn a_finished_download_shuts_down_once_after_the_countdown() {

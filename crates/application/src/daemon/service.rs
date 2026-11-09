@@ -1,6 +1,6 @@
 //! The daemon as a service: what it does with each client's command, its
 //! scheduler pass, and its notification thread's work, through the ports
-//! of `domain` and this crate. `uidm-daemon` wires adapters in through
+//! of `domain` and this crate. `pullbay-daemon` wires adapters in through
 //! [`Wiring`], runs the server and the background threads, and hands each
 //! command to [`Served`].
 //!
@@ -16,22 +16,22 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tracing::{info, warn};
-use uidm_domain::download::{
+use pullbay_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Scan, Status, ZipEntry,
 };
-use uidm_domain::grab::{self, GrabRequest, RenderedPage};
-use uidm_domain::ports::{
+use pullbay_domain::grab::{self, GrabRequest, RenderedPage};
+use pullbay_domain::ports::{
     Answers, Attention, Browser, Clock, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
     EarlyStarts, FileOpener, GrabDownloads, GrabProjects, GrabRuns, Notifications, PausedDownloads, PowerControl,
     Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SaveFolders,
     SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine, UpdateChecks, VirusScanner,
 };
-use uidm_domain::queue::{
+use pullbay_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
 };
-use uidm_domain::quota::QuotaLimit;
-use uidm_domain::settings::{Duplicate, Settings};
+use pullbay_domain::quota::QuotaLimit;
+use pullbay_domain::settings::{Duplicate, Settings};
+use tracing::{info, warn};
 
 use super::{ClientList, Command, Countdowns, DownloadFeed, Event, Reply, Requests};
 use crate::downloads::{
@@ -53,13 +53,13 @@ use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ServiceError {
     #[error(transparent)]
-    Queue(#[from] uidm_domain::queue::QueueError),
+    Queue(#[from] pullbay_domain::queue::QueueError),
     #[error(transparent)]
-    Download(#[from] uidm_domain::download::DownloadError),
+    Download(#[from] pullbay_domain::download::DownloadError),
     #[error(transparent)]
     Confirm(#[from] crate::downloads::ConfirmError),
     #[error(transparent)]
-    Update(#[from] uidm_domain::update::UpdateError),
+    Update(#[from] pullbay_domain::update::UpdateError),
     #[error(transparent)]
     Grab(#[from] grab::InvalidGrab),
     #[error("A site crawl is already running.")]
@@ -81,7 +81,7 @@ const FAILED_GRACE: Duration = Duration::from_secs(1);
 /// The `client` a desktop window names in its `hello`.
 const WINDOW_CLIENT: &str = "window";
 
-/// How long a command line waits for the window its `uidm-gui` opens. One
+/// How long a command line waits for the window its `pullbay-gui` opens. One
 /// older than this belonged to a window that never connected.
 pub const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
 
@@ -243,7 +243,7 @@ pub struct DaemonService<W: Wiring> {
     pub link_probes: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     /// Links from a page, held for the window that is being opened.
     pub picked_links: Mutex<Option<Event>>,
-    /// A command line held for the window its `uidm-gui` is opening, and
+    /// A command line held for the window its `pullbay-gui` is opening, and
     /// when it came.
     pub command_line: Mutex<Option<(CommandLine, Instant)>>,
     /// Grabber projects whose scheduled run is going on, by name.
@@ -309,19 +309,19 @@ impl<W: Wiring> DaemonService<W> {
         &self,
         id: u64,
         f: impl FnOnce(&mut Queue) -> T,
-    ) -> Result<T, uidm_domain::queue::QueueError> {
+    ) -> Result<T, pullbay_domain::queue::QueueError> {
         let result = self.store.edit(|queues| {
-            queues.iter_mut().find(|q| q.id == id).map(f).ok_or(uidm_domain::queue::QueueError::NoQueue(id))
+            queues.iter_mut().find(|q| q.id == id).map(f).ok_or(pullbay_domain::queue::QueueError::NoQueue(id))
         })?;
         self.store.queues_changed();
         Ok(result)
     }
 
-    /// Whether UIDM can send `download`'s request: its address must be
+    /// Whether Pullbay can send `download`'s request: its address must be
     /// http, https or ftp, as the command line's must, and a form body must
     /// be readable.
     fn check_download(&self, download: &Download) -> Result<(), ServiceError> {
-        if !uidm_domain::batch::is_download_url(&download.url) {
+        if !pullbay_domain::batch::is_download_url(&download.url) {
             Err(ServiceError::NotDownloadAddress(download.url.clone()))
         } else if self.intake.sendable(download) {
             Ok(())
@@ -335,7 +335,7 @@ impl<W: Wiring> DaemonService<W> {
         self.transfers.settings()
     }
 
-    /// What happens once at start: the queues set to start with UIDM
+    /// What happens once at start: the queues set to start with Pullbay
     /// start, and with "resume at startup", every interrupted download
     /// goes again.
     pub fn start_up(&self) {
@@ -477,7 +477,7 @@ impl<W: Wiring> DaemonService<W> {
         AfterDownload::new(&*self.store, &*self.power).run(id);
     }
 
-    /// Do what `uidm-gui`'s command line asked. `/q` counts only when that
+    /// Do what `pullbay-gui`'s command line asked. `/q` counts only when that
     /// call opened the window (`started`), as in IDM, where it works only
     /// for the first copy. Problems go to the windows, since the caller may
     /// be gone.
@@ -718,8 +718,8 @@ impl<W: Wiring> DaemonService<W> {
         if download.start == Some(false) || (download.start.is_none() && settings.add_only) {
             return self.add_later(download);
         }
-        let name = uidm_domain::filename::proposed_name(&download.url, download.filename.as_deref());
-        // A folder UIDM may not write to asks first, so the dialog can offer
+        let name = pullbay_domain::filename::proposed_name(&download.url, download.filename.as_deref());
+        // A folder Pullbay may not write to asks first, so the dialog can offer
         // administrator rights or another folder.
         let folder = match download.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
             Some(f) => f.to_path_buf(),
@@ -739,7 +739,7 @@ impl<W: Wiring> DaemonService<W> {
         if !download.may_be_duplicate() {
             return None;
         }
-        self.store.find_last(|e| uidm_domain::download::same_address(&e.url, &download.url))
+        self.store.find_last(|e| pullbay_domain::download::same_address(&e.url, &download.url))
     }
 
     /// Apply `choice` to `download`, whose address download `old` already
@@ -1011,7 +1011,7 @@ impl<W: Wiring> DaemonService<W> {
     pub fn convert(
         self: &Arc<Self>,
         id: u64,
-        to: uidm_domain::media::Target,
+        to: pullbay_domain::media::Target,
         delete_original: bool,
     ) -> Result<(), ServiceError> {
         let output =
@@ -1284,7 +1284,7 @@ impl<W: Wiring> DaemonService<W> {
     /// The settings as they are, with only the video button's fields taken
     /// from `asked`. The browser extension changes nothing else, and only
     /// the window changes settings at large: a browser connection, from an
-    /// extension that is not UIDM's or a bug in it, must not point the virus
+    /// extension that is not Pullbay's or a bug in it, must not point the virus
     /// scanner, ffmpeg, folders or proxy somewhere else.
     pub fn with_video_button(&self, asked: &Settings) -> Settings {
         let mut settings = self.settings_now();
@@ -1413,19 +1413,19 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 if let Some(links) = lock(&daemon.picked_links).take() {
                     send(links);
                 }
-                // The command line of the `uidm-gui` that opened this window.
+                // The command line of the `pullbay-gui` that opened this window.
                 let held = lock(&daemon.command_line).take();
                 if let Some((cmd, _)) = held.filter(|(_, at)| at.elapsed() < COMMAND_LINE_WAIT) {
                     daemon.run_command_line(cmd, true);
                 }
             }
-            send(Event::Hello { name: "uidm-daemon".to_string(), version: env!("CARGO_PKG_VERSION").to_string() })
+            send(Event::Hello { name: "pullbay-daemon".to_string(), version: env!("CARGO_PKG_VERSION").to_string() })
         }
         Command::Ping => send(Event::Pong),
         Command::CommandLine(cmd) => {
             let window_open = daemon.clients.window_open();
             if window_open && cmd.is_empty() {
-                // Starting UIDM again brings the open window forward, as in
+                // Starting Pullbay again brings the open window forward, as in
                 // IDM, instead of opening a second one.
                 daemon.clients.to_windows(Event::Show);
             } else if window_open {
@@ -1554,8 +1554,8 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         }
         Command::CancelRefresh => daemon.transfers.wait_for_link(None),
         Command::PickLinks { page, mut links, user_agent } => {
-            links.retain(|l| uidm_domain::batch::is_web_url(&l.url));
-            links.truncate(uidm_domain::batch::MAX_BATCH);
+            links.retain(|l| pullbay_domain::batch::is_web_url(&l.url));
+            links.truncate(pullbay_domain::batch::MAX_BATCH);
             info!(links = links.len(), page = %page, "links to pick from");
             let msg = Event::PickLinks { page, links, user_agent };
             if daemon.clients.window_open() {
@@ -1637,8 +1637,8 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::download::DownloadError;
-    use uidm_domain::queue::QueueError;
+    use pullbay_domain::download::DownloadError;
+    use pullbay_domain::queue::QueueError;
 
     /// Clients hear the same words as before the errors were typed.
     #[test]

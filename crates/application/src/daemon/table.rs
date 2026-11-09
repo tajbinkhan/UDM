@@ -1,7 +1,7 @@
 //! Applying the daemon's events to the download list
-//! (`uidm_domain::table`).
+//! (`pullbay_domain::table`).
 
-use uidm_domain::table::{Change, DownloadTable};
+use pullbay_domain::table::{Change, DownloadTable};
 
 use super::Event;
 

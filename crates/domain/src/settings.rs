@@ -3,7 +3,7 @@
 //!
 //! The daemon owns them; clients read them with `get_settings` and change
 //! them with `set_settings`. Reading and writing `settings.json`, and the
-//! checks that need the filesystem, live in `uidm_infrastructure::settings`.
+//! checks that need the filesystem, live in `pullbay_infrastructure::settings`.
 //! Where a folder rule falls back to the download folder and none is set, the
 //! caller passes the system's Downloads folder as `downloads`.
 
@@ -30,7 +30,7 @@ pub const CAPTURE_MIN_SIZE_MAX_KB: u64 = 10 * 1024 * 1024;
 pub const GENERAL: &str = "General";
 
 /// The keys held while clicking a link in the browser, to keep the download
-/// in the browser or to send the link to UIDM: any mix of Alt, Ctrl and
+/// in the browser or to send the link to Pullbay: any mix of Alt, Ctrl and
 /// Shift, and Insert or Del for forcing (as IDM offers). Stored as text such
 /// as `ctrl+shift`, or `none`; files from when one key was allowed say `alt`,
 /// `ctrl` or `shift`.
@@ -77,7 +77,7 @@ impl From<CaptureKey> for String {
     }
 }
 
-/// A capture key setting naming a key UIDM does not know.
+/// A capture key setting naming a key Pullbay does not know.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("\"{0}\" is not a key: use alt, ctrl, shift, insert or del")]
 pub struct UnknownKey(pub String);
@@ -102,7 +102,7 @@ impl TryFrom<String> for CaptureKey {
     }
 }
 
-/// Where selecting text with links on a page shows a "Download with UIDM"
+/// Where selecting text with links on a page shows a "Download with Pullbay"
 /// button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -125,15 +125,15 @@ pub enum PanelView {
     Mini,
 }
 
-/// The items UIDM can add to the browser's context menu, by the names the
+/// The items Pullbay can add to the browser's context menu, by the names the
 /// extension knows them by, with their labels.
 pub const BROWSER_MENU_ITEMS: [(&str, &str); 7] = [
-    ("page", "Download page with UIDM (the page or frame itself)"),
-    ("download", "Download with UIDM (links, pictures, videos)"),
-    ("download_later", "Download later with UIDM"),
-    ("all_links", "Download all links with UIDM"),
-    ("selected_links", "Download selected links with UIDM"),
-    ("last_video", "Download the last video with UIDM"),
+    ("page", "Download page with Pullbay (the page or frame itself)"),
+    ("download", "Download with Pullbay (links, pictures, videos)"),
+    ("download_later", "Download later with Pullbay"),
+    ("all_links", "Download all links with Pullbay"),
+    ("selected_links", "Download selected links with Pullbay"),
+    ("last_video", "Download the last video with Pullbay"),
     ("recent_videos", "The last 10 videos"),
 ];
 
@@ -171,7 +171,7 @@ pub fn default_video_auto_types() -> Vec<String> {
     ["mp4", "m4v", "webm", "flv", "mp3", "m4a"].map(String::from).to_vec()
 }
 
-/// How UIDM tells you a download finished or failed.
+/// How Pullbay tells you a download finished or failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Notify {
@@ -179,7 +179,7 @@ pub enum Notify {
     /// A Windows notification.
     #[default]
     Toast,
-    /// A dialog in the UIDM window, as IDM does; a notification when no
+    /// A dialog in the Pullbay window, as IDM does; a notification when no
     /// window is open.
     Dialog,
 }
@@ -204,7 +204,7 @@ pub enum ProxyMode {
     None,
     /// The proxy set in Windows' Internet settings.
     System,
-    /// The proxies set in UIDM's options.
+    /// The proxies set in Pullbay's options.
     Manual,
     /// The proxy auto-config script at `proxy_pac_url`.
     Script,
@@ -231,7 +231,7 @@ pub struct SiteLogin {
 }
 
 /// A browser the user added in Options by its program file, beyond the
-/// ones UIDM knows: shown in the list, registered where its family reads
+/// ones Pullbay knows: shown in the list, registered where its family reads
 /// registrations, and restarted by starting its program again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddedBrowser {
@@ -241,7 +241,7 @@ pub struct AddedBrowser {
     pub program: String,
 }
 
-/// The most connections UIDM opens to the hosts matching `site` (such as
+/// The most connections Pullbay opens to the hosts matching `site` (such as
 /// `*.example.com`), across every download at once.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerLimit {
@@ -458,7 +458,7 @@ pub struct Settings {
     /// Total speed across every download, in KB/s (1 KB = 1024 bytes).
     pub speed_limit_kbps: u64,
     /// Turn the speed limit on whenever the daemon starts, whatever it was
-    /// when UIDM last ran, for users who only want it off for a while.
+    /// when Pullbay last ran, for users who only want it off for a while.
     #[serde(default)]
     pub speed_limit_on_startup: bool,
     /// While the speed limit is on, the most each download may take, in
@@ -509,8 +509,8 @@ pub struct Settings {
     /// Minimizing the window hides it in the tray, as IDM does, instead of
     /// leaving it on the taskbar.
     pub minimize_to_tray: bool,
-    /// Show UIDM's icon in the notification area. Without it, closing the
-    /// window quits, and UIDM is reached from the Start menu.
+    /// Show Pullbay's icon in the notification area. Without it, closing the
+    /// window quits, and Pullbay is reached from the Start menu.
     pub tray_icon: bool,
     /// Show the categories and queues panel at the window's left.
     pub categories_panel: bool,
@@ -599,7 +599,7 @@ pub struct Settings {
     /// For a download taken from the browser, use the proxy the browser uses.
     pub use_browser_proxy: bool,
     /// With `use_browser_proxy`, use the browser's proxy only to retry a
-    /// download that failed through UIDM's own proxy setting.
+    /// download that failed through Pullbay's own proxy setting.
     pub browser_proxy_after_errors: bool,
     pub site_logins: Vec<SiteLogin>,
     /// Offer to download links copied to the clipboard whose file type is
@@ -675,7 +675,7 @@ pub struct Settings {
     pub temp_dir: Option<String>,
     /// Held while clicking a link, keeps its download in the browser.
     pub capture_skip_key: CaptureKey,
-    /// Held while clicking a link, sends it to UIDM whatever its type.
+    /// Held while clicking a link, sends it to Pullbay whatever its type.
     pub capture_force_key: CaptureKey,
     /// The keys count only on a click with the left mouse button, not a
     /// middle click or Enter on a link.
@@ -684,15 +684,15 @@ pub struct Settings {
     /// so they open as usual.
     pub capture_force_skips_pages: bool,
     /// Downloads, links and videos in the browser's private windows go to
-    /// UIDM too. Off by default: a private window keeps its downloads out of
-    /// UIDM's list. Only the window changes it, never the browser itself.
+    /// Pullbay too. Off by default: a private window keeps its downloads out of
+    /// Pullbay's list. Only the window changes it, never the browser itself.
     /// Chrome also needs "Allow in Incognito" turned on for the extension.
     #[serde(default)]
     pub capture_private: bool,
     /// Addresses whose downloads stay in the browser, with `*` matching any
     /// run of characters, such as `https://example.com/files/*.zip`.
     pub capture_excluded_urls: Vec<String>,
-    /// Whether `capture_excluded_urls` has been given UIDM's default list
+    /// Whether `capture_excluded_urls` has been given Pullbay's default list
     /// (see `add_default_exclusions`), so an address the user removes stays
     /// removed.
     #[serde(default)]
@@ -713,7 +713,7 @@ pub struct Settings {
     pub quota_hours: u64,
     /// Warn when 90% of the quota is used, before downloads stop.
     pub quota_warn: bool,
-    /// Look for a newer UIDM on GitHub once a week.
+    /// Look for a newer Pullbay on GitHub once a week.
     pub check_updates: bool,
     /// When that last happened, in seconds since 1970.
     pub last_update_check: u64,
@@ -742,7 +742,7 @@ pub struct Settings {
     /// queue and start as Options say, as IDM can hide it.
     #[serde(default = "yes")]
     pub list_queue_panel: bool,
-    /// The note that a queue's schedule needs UIDM running was dismissed.
+    /// The note that a queue's schedule needs Pullbay running was dismissed.
     pub schedule_note_hidden: bool,
     /// Closing the site grabber adds the files ticked in its results to the
     /// list and queue, as its Add button does.
@@ -1275,7 +1275,7 @@ impl Settings {
     }
 }
 
-/// Addresses no browser download is taken from as UIDM starts: sounds,
+/// Addresses no browser download is taken from as Pullbay starts: sounds,
 /// game assets and update files that sites and browsers fetch on their own.
 /// Taken from IDM's `defexclist.txt`, keeping the masks whose sites still
 /// answer. With no scheme, a mask matches `http` and `https` alike.

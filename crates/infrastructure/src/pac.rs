@@ -175,7 +175,7 @@ fn ask(_source: &PacSource, _url: &str) -> Result<Option<String>, NoScript> {
 
 #[cfg(windows)]
 fn ask(source: &PacSource, url: &str) -> Result<Option<String>, NoScript> {
-    let agent = wide("UIDM");
+    let agent = wide("Pullbay");
     // SAFETY: plain calls with valid strings; the session is closed below.
     let session = unsafe { WinHttpOpen(agent.as_ptr(), WINHTTP_ACCESS_TYPE_NO_PROXY, ptr::null(), ptr::null(), 0) };
     if session.is_null() {
@@ -306,7 +306,7 @@ pub fn proxy_for(source: &PacSource, url: &str) -> Result<Option<String>, NoScri
             }
         }
     }
-    let key = (source.clone(), uidm_domain::site::host_of(url));
+    let key = (source.clone(), pullbay_domain::site::host_of(url));
     if let Some((answer, at)) = CACHE.lock().unwrap().get_or_insert_with(HashMap::new).get(&key) {
         if at.elapsed() < CACHE_FOR {
             return answer.clone();

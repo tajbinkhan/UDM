@@ -1,4 +1,4 @@
-use uidm_domain::ports::{QueueFinish, QueueRuns, QueueStore};
+use pullbay_domain::ports::{QueueFinish, QueueRuns, QueueStore};
 
 /// End a queue's run once its downloads are done: the queue stops, and when
 /// the run started anything, the end of the run does what the queue asks
@@ -34,7 +34,7 @@ impl<'a, Q: QueueStore, R: QueueRuns, F: QueueFinish> FinishRun<'a, Q, R, F> {
 mod tests {
     use super::*;
     use crate::memory::{Finish, Queues, Runs};
-    use uidm_domain::queue::{RunEnd, WhenDone, MAIN_QUEUE};
+    use pullbay_domain::queue::{RunEnd, WhenDone, MAIN_QUEUE};
 
     #[test]
     fn a_run_that_started_something_ends_as_the_queue_asks() {

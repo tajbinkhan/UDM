@@ -1,5 +1,5 @@
-use uidm_domain::ports::{DownloadList, QueueRuns, QueueStore};
-use uidm_domain::queue::{self, QueueError};
+use pullbay_domain::ports::{DownloadList, QueueRuns, QueueStore};
+use pullbay_domain::queue::{self, QueueError};
 
 /// Delete a queue; its downloads move to the main queue, and the running
 /// ones keep running.
@@ -27,8 +27,8 @@ impl<'a, Q: QueueStore, D: DownloadList, R: QueueRuns> DeleteQueue<'a, Q, D, R> 
 mod tests {
     use super::*;
     use crate::memory::{Downloads, Queues, Runs};
-    use uidm_domain::download::Status;
-    use uidm_domain::queue::{Queue, MAIN_QUEUE};
+    use pullbay_domain::download::Status;
+    use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 
     #[test]
     fn its_unfinished_downloads_move_to_the_main_queue() {

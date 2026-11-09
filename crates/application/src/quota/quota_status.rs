@@ -1,5 +1,5 @@
-use uidm_domain::ports::QuotaState;
-use uidm_domain::quota::{self, QuotaLimit, QuotaNotice};
+use pullbay_domain::ports::QuotaState;
+use pullbay_domain::quota::{self, QuotaLimit, QuotaNotice};
 
 /// The quota's state for a window that just connected: shown when
 /// downloads are paused for it, or when it is nearly reached and the user

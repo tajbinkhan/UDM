@@ -1,7 +1,7 @@
 // Tests for capture turned off in one tab (the popup's "Capture in this
 // tab", IDM's toolbar button), the skip and force keys held down applying
 // to any download their tab starts, and private windows, which stay out of
-// UIDM unless its settings let them in (#152). Run with:
+// Pullbay unless its settings let them in (#152). Run with:
 // node --test extension/test/*.test.js
 
 const test = require("node:test");
@@ -17,7 +17,7 @@ const adds = (w) => w.sent.filter((m) => m.op === "add");
 
 function connected(settings = {}, options = {}) {
   const w = loadWorker(options);
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: { capture_types: ["zip"], capture_min_size_kb: 0, capture_excluded_sites: [], ...settings } });
   return w;
 }
@@ -92,7 +92,7 @@ test("capture off in one tab leaves its downloads, forced links and players' fil
   same(w.chrome.storage.session.data.tabsOff, []);
   same((await w.popup({ type: "state" })).tabsOff, []);
   // Only a tab id is taken.
-  w.chrome.runtime.onMessage.fire({ type: "setTabCapture", tabId: "5", value: false }, { id: "uidm", url: "chrome-extension://uidm/popup.html" }, () => {});
+  w.chrome.runtime.onMessage.fire({ type: "setTabCapture", tabId: "5", value: false }, { id: "pullbay", url: "chrome-extension://pullbay/popup.html" }, () => {});
   same((await w.popup({ type: "state" })).tabsOff, []);
 });
 
@@ -108,7 +108,7 @@ test("the tabs capture is off in outlast the worker, or live in memory without s
   same(old.browserCalls, []);
 });
 
-test("a tab with capture off gets UIDM's icon in grey", async () => {
+test("a tab with capture off gets Pullbay's icon in grey", async () => {
   // A stand-in for the canvas: one red pixel.
   class OffscreenCanvas {
     constructor(w, h) {
@@ -134,7 +134,7 @@ test("a tab with capture off gets UIDM's icon in grey", async () => {
   const [r, g, b, a] = icon[1].imageData[16].data;
   assert.ok(r === g && g === b, "grey");
   assert.equal(a, 255);
-  same(fetched, ["chrome-extension://uidm/icons/16.png", "chrome-extension://uidm/icons/32.png"]);
+  same(fetched, ["chrome-extension://pullbay/icons/16.png", "chrome-extension://pullbay/icons/32.png"]);
   // Firefox forgets a tab's icon when it loads a page: it is set again.
   const before = w.chrome.action.calls.length;
   await w.chrome.tabs.onUpdated.fire(4, { status: "loading" }, { id: 4 });
@@ -166,7 +166,7 @@ test("a key held down applies to a download its tab starts without a click, unti
   front(w, 3);
   const page = (name) => download({ url: `https://site.net/${name}.html`, mime: "text/html", referrer: "https://site.net/" });
 
-  // A form sent with the force key down: UIDM takes even a type it does not.
+  // A form sent with the force key down: Pullbay takes even a type it does not.
   await w.content({ type: "keys:held", action: "force" }, 3);
   await w.chrome.downloads.onCreated.fire(page("report"));
   same(adds(w).map((m) => m.url), ["https://site.net/report.html"]);
@@ -175,7 +175,7 @@ test("a key held down applies to a download its tab starts without a click, unti
   await w.chrome.downloads.onCreated.fire(page("other"));
   same(adds(w).length, 1);
 
-  // The skip key keeps a type UIDM takes in the browser.
+  // The skip key keeps a type Pullbay takes in the browser.
   await w.content({ type: "keys:held", action: "skip" }, 3);
   await w.chrome.downloads.onCreated.fire(download({ url: "https://cdn.net/a.zip", referrer: "https://site.net/" }));
   same(adds(w).length, 1);
@@ -208,7 +208,7 @@ test("Firefox: a key held down decides at the headers", async () => {
   assert.ok(!zip.some(Boolean), "a type the rules take, skipped");
 });
 
-test("private windows stay out of UIDM unless its settings let them in", async () => {
+test("private windows stay out of Pullbay unless its settings let them in", async () => {
   const w = connected({ capture_types: [] });
   w.chrome.cookies.stores = [
     { id: "0", tabIds: [1] },
@@ -217,7 +217,7 @@ test("private windows stay out of UIDM unless its settings let them in", async (
   await w.chrome.tabs.onCreated.fire({ id: 8, incognito: true });
   const privateDownload = () => download({ url: "https://cdn.net/p.zip", incognito: true });
   const menu = () =>
-    w.chrome.contextMenus.onClicked.fire({ menuItemId: "uidm-link", linkUrl: "https://cdn.net/m.zip", pageUrl: "https://site.net/" }, { id: 8, incognito: true });
+    w.chrome.contextMenus.onClicked.fire({ menuItemId: "pullbay-link", linkUrl: "https://cdn.net/m.zip", pageUrl: "https://site.net/" }, { id: 8, incognito: true });
 
   // Off, as by default.
   await w.chrome.downloads.onCreated.fire(privateDownload());

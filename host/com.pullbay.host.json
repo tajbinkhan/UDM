@@ -1,6 +1,6 @@
 {
-    "name": "com.uidm.host",
-    "description": "UIDM download manager native-messaging host",
+    "name": "com.pullbay.host",
+    "description": "Pullbay download manager native-messaging host",
     "type": "stdio",
     "path": "REPLACED_BY_INSTALL_SCRIPT",
     "allowed_origins": [

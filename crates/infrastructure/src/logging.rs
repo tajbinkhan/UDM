@@ -1,4 +1,4 @@
-//! The log file each UIDM program writes its `tracing` events to (AGENTS.md
+//! The log file each Pullbay program writes its `tracing` events to (AGENTS.md
 //! section 11). Each binary's `main` calls [`init`] once, first thing.
 //!
 //! The files sit in the data folder ([`crate::paths::daemon_log`],
@@ -75,7 +75,7 @@ use tracing_subscriber::Layer;
 /// A log file larger than this is moved aside when the daemon starts.
 pub const MAX_BYTES: u64 = 5 * 1024 * 1024;
 
-/// The UIDM program writing a log.
+/// The Pullbay program writing a log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Program {
     Daemon,
@@ -146,7 +146,7 @@ pub fn json_error(e: &serde_json::Error) -> io::Error {
     let kind = match e.classify() {
         Category::Io => "could not be read",
         Category::Syntax => "is not valid JSON",
-        Category::Data => "does not hold what UIDM expects",
+        Category::Data => "does not hold what Pullbay expects",
         Category::Eof => "ends too soon",
     };
     let text = match e.line() {
@@ -291,7 +291,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("uidm-logging-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay-logging-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn events_are_appended_with_passwords_hidden() {
         let dir = temp_dir("events");
-        let path = dir.join("nested").join("uidm-test.log");
+        let path = dir.join("nested").join("pullbay-test.log");
         let first = subscriber(path.clone(), false);
         tracing::subscriber::with_default(first, || {
             tracing::info!(download_id = 7, url = "ftp://bob:hunter2@h/f", "add");
@@ -350,20 +350,20 @@ mod tests {
         let typed = serde_json::from_str::<Vec<u64>>(&format!(r#"["{secret}"]"#)).unwrap_err();
         assert!(typed.to_string().contains(secret), "serde quotes it: {typed}");
         let e = json_error(&typed).to_string();
-        assert_eq!(e, "the file does not hold what UIDM expects (line 1, column 18)");
+        assert_eq!(e, "the file does not hold what Pullbay expects (line 1, column 18)");
         let cut = serde_json::from_str::<Vec<String>>(&format!(r#"["{secret}"#)).unwrap_err();
         assert!(!json_error(&cut).to_string().contains(secret));
         let value = serde_json::json!({ "a": secret });
         let from_value = serde_json::from_value::<std::collections::HashMap<String, u64>>(value).unwrap_err();
-        assert_eq!(json_error(&from_value).to_string(), "the file does not hold what UIDM expects");
+        assert_eq!(json_error(&from_value).to_string(), "the file does not hold what Pullbay expects");
     }
 
     #[test]
     fn a_large_log_is_moved_aside_once() {
         let dir = temp_dir("trim");
         fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("uidm-daemon.log");
-        let old = dir.join("uidm-daemon.log.old");
+        let path = dir.join("pullbay-daemon.log");
+        let old = dir.join("pullbay-daemon.log.old");
         assert_eq!(trim_file(&path, 10).unwrap_err().kind(), io::ErrorKind::NotFound);
         fs::write(&path, b"0123456789").unwrap();
         assert!(!trim_file(&path, 10).unwrap(), "at the limit it stays");

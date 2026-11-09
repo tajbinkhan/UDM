@@ -4,7 +4,7 @@
 //! each client's commands to, with a `Reply` for the answers.
 //!
 //! These are plain values: how they travel (the framing, the JSON shapes,
-//! the handshake) is the adapters' business, in `uidm-infrastructure`.
+//! the handshake) is the adapters' business, in `pullbay-infrastructure`.
 
 pub mod service;
 mod table;
@@ -13,15 +13,15 @@ pub use table::{apply, change_of};
 
 use std::sync::Arc;
 
-use uidm_domain::download::{
+use pullbay_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
 };
-use uidm_domain::grab::{GrabFile, GrabRequest};
-use uidm_domain::media::{MediaInfo, Target};
-use uidm_domain::queue::{Queue, WhenDone};
-use uidm_domain::quota::QuotaNotice;
-use uidm_domain::settings::Settings;
-use uidm_domain::update::Release;
+use pullbay_domain::grab::{GrabFile, GrabRequest};
+use pullbay_domain::media::{MediaInfo, Target};
+use pullbay_domain::queue::{Queue, WhenDone};
+use pullbay_domain::quota::QuotaNotice;
+use pullbay_domain::settings::Settings;
+use pullbay_domain::update::Release;
 
 /// A request to the daemon.
 #[derive(Debug, Clone)]
@@ -36,7 +36,7 @@ pub enum Command {
     },
     /// Answered with `Pong`.
     Ping,
-    /// A command line from `uidm-gui`; answered with `CommandLine`.
+    /// A command line from `pullbay-gui`; answered with `CommandLine`.
     CommandLine(CommandLine),
     /// Read a stream's playlist; answered with `MediaInfo`.
     ProbeMedia {
@@ -155,7 +155,7 @@ pub enum Command {
     },
     /// Stop waiting for a new link from the browser.
     CancelRefresh,
-    /// Look for a newer UIDM release now; answered with `Update`.
+    /// Look for a newer Pullbay release now; answered with `Update`.
     CheckUpdate,
     /// Download and run the newest release's Setup; failures come back as
     /// `UpdateFailed`.
@@ -327,7 +327,7 @@ pub enum Event {
         file: Option<String>,
     },
     CountdownCanceled,
-    /// UIDM exits: windows close.
+    /// Pullbay exits: windows close.
     Quit,
     /// Which download waits for a new link from the browser, if any.
     RefreshWaiting {

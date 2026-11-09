@@ -1,13 +1,13 @@
-//! IDM's command-line switches for `uidm-gui`:
+//! IDM's command-line switches for `pullbay-gui`:
 //!
 //! ```text
-//! uidm-gui /d URL [/p folder] [/f file_name] [/q] [/h] [/n] [/a]
-//! uidm-gui /s
+//! pullbay-gui /d URL [/p folder] [/f file_name] [/q] [/h] [/n] [/a]
+//! pullbay-gui /s
 //! ```
 //!
 //! `/d` downloads URL, `/p` and `/f` set its folder and file name, `/a` adds
 //! it to the main queue without starting it, `/n` asks no questions, and `/q`
-//! exits UIDM once it finishes. `/s` starts the main queue. `/h` (hang up the
+//! exits Pullbay once it finishes. `/s` starts the main queue. `/h` (hang up the
 //! dial-up connection) is accepted and does nothing. As in IDM, `/p`, `/f`,
 //! `/q`, `/h`, `/n` and `/a` need `/d`; without it they are ignored.
 //!
@@ -15,7 +15,7 @@
 //! `--file`, `--quit`, `--hang-up`, `--silent`, `--add`, `--start-queue`), and
 //! the slash forms take either case.
 //!
-//! `parse_sent` reads the JSON another program hands to `uidm-host send`:
+//! `parse_sent` reads the JSON another program hands to `pullbay-host send`:
 //! one link with what IDM's `SendLinkToIDM2` takes, or a list of links with
 //! one referer, as `SendLinksArray` takes them. The README shows its fields.
 
@@ -23,12 +23,12 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use uidm_domain::download::CommandLine;
+use pullbay_domain::download::CommandLine;
 
-use uidm_domain::download::{Download, DownloadLogin, PageLink};
-use uidm_domain::settings::{Duplicate, FileExists};
+use pullbay_domain::download::{Download, DownloadLogin, PageLink};
+use pullbay_domain::settings::{Duplicate, FileExists};
 
-/// Why a command line or a sent link cannot be used. `uidm-host send`
+/// Why a command line or a sent link cannot be used. `pullbay-host send`
 /// prints the message; the window shows it.
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
@@ -56,7 +56,7 @@ pub enum CliError {
     EmptyList,
     #[error("{0} is not an http or https address")]
     NotWebAddress(String),
-    #[error("too many links: {0}, at most {max}", max = uidm_domain::batch::MAX_BATCH)]
+    #[error("too many links: {0}, at most {max}", max = pullbay_domain::batch::MAX_BATCH)]
     TooManyLinks(usize),
 }
 
@@ -148,7 +148,7 @@ fn download(
     })
 }
 
-/// What another program sends with `uidm-host send`: one link to add, or
+/// What another program sends with `pullbay-host send`: one link to add, or
 /// links for the link picker.
 #[derive(Debug)]
 // It lives only while it is sent, as `protocol::Incoming` does.
@@ -232,7 +232,7 @@ struct LinkObject {
 /// The form body's type when the sender gives none.
 const FORM_TYPE: &str = "application/x-www-form-urlencoded";
 
-/// Read what a program sent to `uidm-host send`: a JSON object with `url`
+/// Read what a program sent to `pullbay-host send`: a JSON object with `url`
 /// for one link, or with `links` for the picker. `cwd` resolves a relative
 /// folder. An empty string counts as a missing field, as IDM's COM calls
 /// pass empty strings for what they leave out.
@@ -290,13 +290,13 @@ fn many(list: LinkList) -> Result<Sent, CliError> {
                 ListedLink::Link(o) => PageLink { url: o.url, text: o.text, cookies: given(o.cookies), image: false },
             };
             let url = link.url.trim().to_string();
-            if !uidm_domain::batch::is_web_url(&url) || url::Url::parse(&url).is_err() {
+            if !pullbay_domain::batch::is_web_url(&url) || url::Url::parse(&url).is_err() {
                 return Err(CliError::NotWebAddress(url));
             }
             Ok(PageLink { url, ..link })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
-    if links.len() > uidm_domain::batch::MAX_BATCH {
+    if links.len() > pullbay_domain::batch::MAX_BATCH {
         return Err(CliError::TooManyLinks(links.len()));
     }
     Ok(Sent::Many { referer: given(list.referer).unwrap_or_default(), links })

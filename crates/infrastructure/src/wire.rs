@@ -3,7 +3,7 @@
 //! connection use it: the window's `daemon_client` sends commands and reads
 //! events, and the daemon's `server` reads commands and sends events.
 
-use uidm_application::daemon::{Command, Event};
+use pullbay_application::daemon::{Command, Event};
 
 use crate::protocol::{Incoming, Outgoing};
 
@@ -218,7 +218,7 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::download::Download;
+    use pullbay_domain::download::Download;
 
     /// `msg` as JSON, after a trip through `f` and back.
     fn json<T: serde::Serialize>(msg: &T) -> serde_json::Value {

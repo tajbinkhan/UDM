@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use uidm_domain::media::Target;
+use pullbay_domain::media::Target;
 
 /// Why a conversion stopped. The message is shown to the user as the
 /// conversion's failure.
@@ -175,7 +175,7 @@ pub fn convert(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::media::is_video;
+    use pullbay_domain::media::is_video;
 
     #[test]
     fn reads_ffmpegs_length_and_progress() {
@@ -211,11 +211,11 @@ mod tests {
     /// where ffmpeg is not installed.
     #[test]
     fn converts_a_real_clip_when_ffmpeg_is_there() {
-        let Some(ffmpeg) = crate::settings::ffmpeg(&uidm_domain::settings::Settings::default()) else {
+        let Some(ffmpeg) = crate::settings::ffmpeg(&pullbay_domain::settings::Settings::default()) else {
             eprintln!("no ffmpeg; skipped");
             return;
         };
-        let dir = std::env::temp_dir().join(format!("uidm_convert_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_convert_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let clip = dir.join("clip.mkv");
         let made = crate::platform::no_window(&mut Command::new(&ffmpeg))

@@ -1,24 +1,24 @@
 //! What differs between Windows, macOS and Linux and is not worth a module
 //! of its own: program names, starting helper programs without a console
-//! window, and opening files. Where UIDM keeps its files is in `paths`.
+//! window, and opening files. Where Pullbay keeps its files is in `paths`.
 
 use std::io;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// The file name of UIDM's program `name` (`uidm-daemon`) on this system.
+/// The file name of Pullbay's program `name` (`pullbay-daemon`) on this system.
 pub fn exe_name(name: &str) -> String {
     format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
 
-/// UIDM's program `name`, next to the running one.
+/// Pullbay's program `name`, next to the running one.
 pub fn sibling_exe(name: &str) -> io::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     let dir = exe.parent().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the program has no folder"))?;
     Ok(dir.join(exe_name(name)))
 }
 
-/// The AppImage UIDM runs from, if it does. Its programs live in a mount
+/// The AppImage Pullbay runs from, if it does. Its programs live in a mount
 /// that goes away when the process that mounted it ends, so other programs
 /// are started through the AppImage itself (its `AppRun` picks the program
 /// by the first argument), and browsers are pointed at it.
@@ -29,7 +29,7 @@ pub fn appimage() -> Option<PathBuf> {
     std::env::var_os("APPIMAGE").filter(|p| !p.is_empty()).map(PathBuf::from).filter(|p| p.is_file())
 }
 
-/// How to start UIDM's program `name` (`uidm-gui`): its file and the
+/// How to start Pullbay's program `name` (`pullbay-gui`): its file and the
 /// arguments that come first.
 pub fn program(name: &str) -> io::Result<(PathBuf, Vec<String>)> {
     match appimage() {
@@ -38,7 +38,7 @@ pub fn program(name: &str) -> io::Result<(PathBuf, Vec<String>)> {
     }
 }
 
-/// A command that starts UIDM's program `name`.
+/// A command that starts Pullbay's program `name`.
 pub fn program_command(name: &str) -> io::Result<Command> {
     let (file, args) = program(name)?;
     let mut cmd = Command::new(file);
@@ -46,7 +46,7 @@ pub fn program_command(name: &str) -> io::Result<Command> {
     Ok(cmd)
 }
 
-/// Start `cmd` and wait for it on a thread of its own, for a program UIDM
+/// Start `cmd` and wait for it on a thread of its own, for a program Pullbay
 /// starts and does not watch (a file's viewer, the window, the daemon).
 /// Unix keeps an ended child as a zombie until its parent waits for it, and
 /// the window and the daemon live long enough to collect many.
@@ -220,7 +220,7 @@ fn zone_url(url: &str) -> Option<String> {
 /// The `FileOpener` adapter: opens files with the desktop's default program.
 pub struct Desktop;
 
-impl uidm_domain::ports::FileOpener for Desktop {
+impl pullbay_domain::ports::FileOpener for Desktop {
     fn open(&self, file: &str) {
         tracing::info!(file, "opening");
         if let Err(e) = open(file.as_ref()) {
@@ -281,7 +281,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn downloads_are_marked_as_from_the_internet() {
-        let dir = std::env::temp_dir().join(format!("uidm-motw-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay-motw-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("a.exe");
         std::fs::write(&file, b"x").unwrap();
@@ -298,11 +298,11 @@ mod tests {
 
     #[test]
     fn programs_are_named_for_the_system() {
-        let name = exe_name("uidm-daemon");
+        let name = exe_name("pullbay-daemon");
         if cfg!(windows) {
-            assert_eq!(name, "uidm-daemon.exe");
+            assert_eq!(name, "pullbay-daemon.exe");
         } else {
-            assert_eq!(name, "uidm-daemon");
+            assert_eq!(name, "pullbay-daemon");
         }
     }
 }

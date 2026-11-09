@@ -1,27 +1,27 @@
 {
   "extDescription": {
-    "message": "Browser-Downloads an den Download-Manager UIDM senden."
+    "message": "Browser-Downloads an den Download-Manager Pullbay senden."
   },
-  "downloadWithUidm": {
-    "message": "Mit UIDM herunterladen"
+  "downloadWithPullbay": {
+    "message": "Mit Pullbay herunterladen"
   },
-  "downloadLaterWithUidm": {
-    "message": "Später mit UIDM herunterladen"
+  "downloadLaterWithPullbay": {
+    "message": "Später mit Pullbay herunterladen"
   },
-  "downloadAllLinksWithUidm": {
-    "message": "Alle Links mit UIDM herunterladen"
+  "downloadAllLinksWithPullbay": {
+    "message": "Alle Links mit Pullbay herunterladen"
   },
-  "downloadSelectedLinksWithUidm": {
-    "message": "Ausgewählte Links mit UIDM herunterladen"
+  "downloadSelectedLinksWithPullbay": {
+    "message": "Ausgewählte Links mit Pullbay herunterladen"
   },
-  "uidmDisconnected": {
-    "message": "UIDM hat die Verbindung getrennt"
+  "pullbayDisconnected": {
+    "message": "Pullbay hat die Verbindung getrennt"
   },
   "captureDownloads": {
     "message": "Downloads abfangen"
   },
   "captureDownloadsTitle": {
-    "message": "Downloads, die der Browser startet, an UIDM senden"
+    "message": "Downloads, die der Browser startet, an Pullbay senden"
   },
   "captureInTab": {
     "message": "Übernahme in diesem Tab"
@@ -33,16 +33,16 @@
     "message": "In diesem Tab aus"
   },
   "statusConnected": {
-    "message": "Verbunden. Downloads, die Sie im Browser starten, gehen an UIDM."
+    "message": "Verbunden. Downloads, die Sie im Browser starten, gehen an Pullbay."
   },
   "statusConnectedCaptureOff": {
     "message": "Verbunden. Das Abfangen ist aus, daher behält der Browser seine Downloads selbst."
   },
   "statusNotConnected": {
-    "message": "Nicht mit UIDM verbunden. Downloads bleiben im Browser."
+    "message": "Nicht mit Pullbay verbunden. Downloads bleiben im Browser."
   },
   "statusNotConnectedReason": {
-    "message": "Nicht mit UIDM verbunden: $REASON$. Downloads bleiben im Browser.",
+    "message": "Nicht mit Pullbay verbunden: $REASON$. Downloads bleiben im Browser.",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -72,7 +72,7 @@
     "message": "Alle Links der Seite"
   },
   "allLinksTitle": {
-    "message": "Die Links dieser Seite in UIDM auflisten, um die gewünschten herunterzuladen"
+    "message": "Die Links dieser Seite in Pullbay auflisten, um die gewünschten herunterzuladen"
   },
   "videoButton": {
     "message": "Video-Schaltfläche"
@@ -114,7 +114,7 @@
     "message": "Unterbrochen"
   },
   "stateConfirming": {
-    "message": "Wartet in UIDM auf Sie"
+    "message": "Wartet in Pullbay auf Sie"
   },
   "stateWaiting": {
     "message": "Wartet auf den Start"
@@ -187,22 +187,22 @@
     "message": "Untertitel:"
   },
   "videoProtected": {
-    "message": "Dieses Video ist durch DRM geschützt, daher lädt UIDM es nicht herunter."
+    "message": "Dieses Video ist durch DRM geschützt, daher lädt Pullbay es nicht herunter."
   },
   "streamProtected": {
-    "message": "Durch DRM geschützt; UIDM lädt es nicht herunter."
+    "message": "Durch DRM geschützt; Pullbay lädt es nicht herunter."
   },
-  "uidmNotConnected": {
-    "message": "UIDM läuft nicht oder ist nicht verbunden."
+  "pullbayNotConnected": {
+    "message": "Pullbay läuft nicht oder ist nicht verbunden."
   },
   "noVideoFound": {
     "message": "Noch kein Video gefunden. Lassen Sie es kurz laufen und versuchen Sie es dann noch einmal."
   },
-  "sentToUidm": {
-    "message": "An UIDM gesendet."
+  "sentToPullbay": {
+    "message": "An Pullbay gesendet."
   },
-  "couldNotReachUidm": {
-    "message": "UIDM ist nicht erreichbar."
+  "couldNotReachPullbay": {
+    "message": "Pullbay ist nicht erreichbar."
   },
   "hlsStream": {
     "message": "HLS-Stream"
@@ -226,7 +226,7 @@
     "message": "Vimeo-Video"
   },
   "mediaNoAnswer": {
-    "message": "UIDM hat nicht geantwortet."
+    "message": "Pullbay hat nicht geantwortet."
   },
   "soundOnly": {
     "message": "Nur Ton ($FORMAT$)",
@@ -253,10 +253,10 @@
     "message": "Audio"
   },
   "takeoverFailed": {
-    "message": "UIDM konnte den Download nicht übernehmen"
+    "message": "Pullbay konnte den Download nicht übernehmen"
   },
   "takeoverNotConnected": {
-    "message": "UIDM läuft nicht oder ist nicht verbunden, daher lädt der Browser $FILE$ herunter.",
+    "message": "Pullbay läuft nicht oder ist nicht verbunden, daher lädt der Browser $FILE$ herunter.",
     "placeholders": {
       "file": {
         "content": "$1",
@@ -265,7 +265,7 @@
     }
   },
   "takeoverError": {
-    "message": "UIDM konnte $FILE$ nicht starten ($REASON$), daher lädt der Browser die Datei herunter.",
+    "message": "Pullbay konnte $FILE$ nicht starten ($REASON$), daher lädt der Browser die Datei herunter.",
     "placeholders": {
       "file": {
         "content": "$1",
@@ -284,13 +284,13 @@
     "message": "Klicken Sie auf diesen Hinweis, um ihn nicht mehr anzuzeigen."
   },
   "downloadLastVideo": {
-    "message": "Das letzte Video mit UIDM herunterladen"
+    "message": "Das letzte Video mit Pullbay herunterladen"
   },
   "recentVideos": {
-    "message": "Letzte Videos (UIDM)"
+    "message": "Letzte Videos (Pullbay)"
   },
-  "downloadPageWithUidm": {
-    "message": "Seite mit UIDM herunterladen"
+  "downloadPageWithPullbay": {
+    "message": "Seite mit Pullbay herunterladen"
   },
   "noLinksFound": {
     "message": "Auf dieser Seite wurden keine Links gefunden."
@@ -299,13 +299,13 @@
     "message": "In der Markierung wurden keine Links gefunden."
   },
   "linksUnreadable": {
-    "message": "Der Browser lässt UIDM die Links dieser Seite nicht lesen."
+    "message": "Der Browser lässt Pullbay die Links dieser Seite nicht lesen."
   },
-  "cannotReachUidm": {
-    "message": "UIDM ist nicht erreichbar. Läuft UIDM?"
+  "cannotReachPullbay": {
+    "message": "Pullbay ist nicht erreichbar. Läuft Pullbay?"
   },
-  "cannotReachUidmReason": {
-    "message": "UIDM ist nicht erreichbar ($REASON$).",
+  "cannotReachPullbayReason": {
+    "message": "Pullbay ist nicht erreichbar ($REASON$).",
     "placeholders": {
       "reason": {
         "content": "$1",
@@ -319,7 +319,7 @@
   "browserDownloadsHeading": {
     "message": "Downloads im Browser"
   },
-  "sendToUidm": {
-    "message": "An UIDM senden"
+  "sendToPullbay": {
+    "message": "An Pullbay senden"
   }
 }

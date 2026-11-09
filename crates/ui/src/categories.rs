@@ -1,4 +1,4 @@
-//! The categories tree at the window's left, laid out like the one UIDM's
+//! The categories tree at the window's left, laid out like the one Pullbay's
 //! window follows: All Downloads, Unfinished and Finished, each opening to
 //! a branch per category, then the saved grabber projects and the queues.
 //! Picking a node filters the list. The panel stays up while the daemon is
@@ -7,9 +7,9 @@
 use std::collections::HashSet;
 
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
-use uidm_domain::download::{DownloadEntry, Status};
-use uidm_domain::queue::Queue;
-use uidm_domain::settings::GENERAL;
+use pullbay_domain::download::{DownloadEntry, Status};
+use pullbay_domain::queue::Queue;
+use pullbay_domain::settings::GENERAL;
 
 use crate::i18n::tr;
 use crate::Action;

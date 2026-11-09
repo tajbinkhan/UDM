@@ -26,7 +26,7 @@ use std::time::Instant;
 
 use tracing::{info, warn};
 
-use uidm_application::daemon::{ClientList, Event, Reply, Requests};
+use pullbay_application::daemon::{ClientList, Event, Reply, Requests};
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::front::Windows;
@@ -403,7 +403,7 @@ fn denied(why: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_application::daemon::Command;
+    use pullbay_application::daemon::Command;
 
     struct Echo(Mutex<Vec<u64>>);
 

@@ -8,13 +8,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use pullbay_domain::ports::{QueueSounds, UpdateChecks};
 use tracing::warn;
-use uidm_domain::ports::{QueueSounds, UpdateChecks};
 
 use crate::notify;
 use crate::settings;
-use uidm_domain::settings::Settings;
-use uidm_domain::settings::Sound;
+use pullbay_domain::settings::Settings;
+use pullbay_domain::settings::Sound;
 
 /// The current settings, and where they are saved. With no path they live
 /// in memory only.
@@ -88,7 +88,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("uidm_live_settings_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_live_settings_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }

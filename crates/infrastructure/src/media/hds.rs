@@ -24,7 +24,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use base64::Engine as _;
 use roxmltree::{Document, Node};
 
-use uidm_domain::media::{
+use pullbay_domain::media::{
     resolve, AddressError, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED,
 };
 
@@ -246,10 +246,10 @@ pub fn describe(m: &Manifest) -> MediaInfo {
         .iter()
         .map(|media| MediaOption {
             id: media.id.clone(),
-            label: uidm_domain::media::quality_label(media.height, media.bitrate),
+            label: pullbay_domain::media::quality_label(media.height, media.bitrate),
             height: media.height,
             bandwidth: media.bitrate,
-            size: uidm_domain::media::estimate_size(media.bitrate, m.duration),
+            size: pullbay_domain::media::estimate_size(media.bitrate, m.duration),
             ..MediaOption::default()
         })
         .collect();
@@ -525,7 +525,7 @@ pub fn track(media: &Media, bootstrap: &[u8], duration: Option<f64>) -> Result<T
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use uidm_domain::media::sniff_hds as sniff;
+    use pullbay_domain::media::sniff_hds as sniff;
 
     const URL: &str = "https://cdn.x/z/movie/manifest.f4m?hdnea=st=1~exp=2~hmac=abc";
 
@@ -749,7 +749,7 @@ pub(crate) mod tests {
     fn writes_flv_headers() {
         let bare = flv_header(None);
         assert_eq!(bare, b"FLV\x01\x05\x00\x00\x00\x09\x00\x00\x00\x00");
-        assert_eq!(uidm_domain::media::sniff_file(&bare), Some("flv"));
+        assert_eq!(pullbay_domain::media::sniff_file(&bare), Some("flv"));
         let meta = flv_header(Some(b"AMF!"));
         assert_eq!(&meta[13..24], &[0x12, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(&meta[24..28], b"AMF!");

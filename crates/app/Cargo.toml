@@ -1,36 +1,36 @@
 [package]
-name = "uidm-app"
-description = "UIDM's binaries: native-messaging host, persistent daemon and desktop window"
+name = "pullbay-app"
+description = "Pullbay's binaries: native-messaging host, persistent daemon and desktop window"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 # The browser launches this; it relays to the daemon (and has a CLI test mode).
 [[bin]]
-name = "uidm-host"
-path = "src/bin/uidm-host.rs"
+name = "pullbay-host"
+path = "src/bin/pullbay-host.rs"
 
 # Long-lived process that owns the engine so downloads outlive the browser.
 [[bin]]
-name = "uidm-daemon"
-path = "src/bin/uidm-daemon.rs"
+name = "pullbay-daemon"
+path = "src/bin/pullbay-daemon.rs"
 
 # Desktop window that lists and controls downloads; another daemon client.
-# Its views are in uidm-ui; this binary wires them to the adapters.
+# Its views are in pullbay-ui; this binary wires them to the adapters.
 [[bin]]
-name = "uidm-gui"
-path = "src/bin/uidm-gui.rs"
+name = "pullbay-gui"
+path = "src/bin/pullbay-gui.rs"
 
 [dependencies]
-uidm-domain.workspace = true
-uidm-application.workspace = true
-uidm-infrastructure.workspace = true
-uidm-ui.workspace = true
+pullbay-domain.workspace = true
+pullbay-application.workspace = true
+pullbay-infrastructure.workspace = true
+pullbay-ui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# The binaries' log events; `uidm_infrastructure::logging` writes them.
+# The binaries' log events; `pullbay_infrastructure::logging` writes them.
 tracing.workspace = true
 # Startup errors, with what each step was doing (AGENTS.md section 9).
 anyhow.workspace = true
-# The window's run result, which `uidm-gui`'s main returns.
+# The window's run result, which `pullbay-gui`'s main returns.
 eframe = "0.31.1"

@@ -1,6 +1,6 @@
-//! Keeping the download quota's count in `%LOCALAPPDATA%\UIDM\quota.json`
+//! Keeping the download quota's count in `%LOCALAPPDATA%\Pullbay\quota.json`
 //! (the minutes of the longest window), so it survives a restart. The
-//! counting rules are `uidm_domain::quota`.
+//! counting rules are `pullbay_domain::quota`.
 //!
 //! `QuotaHold` is the adapter for `QuotaState`: it reads the count the
 //! download store keeps, remembers what the quota stopped, and tells the
@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use uidm_application::daemon::Event;
-use uidm_domain::ports::QuotaState;
-use uidm_domain::quota::QuotaNotice;
-use uidm_domain::quota::Usage;
+use pullbay_application::daemon::Event;
+use pullbay_domain::ports::QuotaState;
+use pullbay_domain::quota::QuotaNotice;
+use pullbay_domain::quota::Usage;
 
 use crate::protocol::Outgoing;
 use crate::settings::write_atomic;
@@ -33,7 +33,7 @@ pub fn save(usage: &Usage, path: &Path) -> io::Result<()> {
     write_atomic(path, &bytes)
 }
 
-/// `quota.json` in UIDM's data folder (`%LOCALAPPDATA%\UIDM` on Windows).
+/// `quota.json` in Pullbay's data folder (`%LOCALAPPDATA%\Pullbay` on Windows).
 pub fn quota_path() -> io::Result<PathBuf> {
     Ok(crate::paths::data_dir()?.join("quota.json"))
 }
@@ -157,7 +157,7 @@ mod tests {
         let mut u = Usage::default();
         u.started(1, 0);
         u.progress(1, 42, 5);
-        let path = std::env::temp_dir().join(format!("uidm_quota_{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("pullbay_quota_{}.json", std::process::id()));
         save(&u, &path).unwrap();
         let mut back = load(&path);
         assert_eq!(back.used(5, 60), 42);

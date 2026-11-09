@@ -2,7 +2,7 @@
 //! `GrabRequest`), which addresses pass its filters, where mirrored pages
 //! go, which found file becomes which download, and the saved projects with
 //! their schedules. Crawling, reading pages and keeping projects on disk is
-//! `uidm_infrastructure::grab`.
+//! `pullbay_infrastructure::grab`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -110,7 +110,7 @@ pub struct GrabRequest {
     /// login; the password is in Credential Manager (`project_login_target`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login_user: Option<String>,
-    /// The site's sign-in page. UIDM has no browser of its own, so the
+    /// The site's sign-in page. Pullbay has no browser of its own, so the
     /// user opens this in their browser and signs in there; when the crawl
     /// starts, the browser extension hands over that site's cookies, which
     /// go to that site's pages only (`on_login_site`).
@@ -119,7 +119,7 @@ pub struct GrabRequest {
     /// Cookies for the sign-in page's site, pasted by the user, used when
     /// the browser has none to give (no extension, or another browser).
     /// Project files keep them sealed for this user (see
-    /// `uidm_infrastructure::grab::save_project`).
+    /// `pullbay_infrastructure::grab::save_project`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login_cookies: Option<String>,
     /// Without a mirror, save each file under subfolders that follow its
@@ -167,7 +167,7 @@ pub fn project_login_target(start: &str, user: &str) -> String {
 pub fn host_login_target(start: &str) -> String {
     let host =
         Url::parse(start.trim()).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_default();
-    format!("UIDM/grabber/{host}")
+    format!("Pullbay/grabber/{host}")
 }
 
 /// Where and how a crawl is saved for offline browsing.
@@ -202,7 +202,7 @@ pub const DELAY_MS_RANGE: (u64, u64) = (200, 60_000);
 pub const MAX_PAGE_BYTES: u64 = 5 * 1024 * 1024;
 
 /// The name the crawler gives in `robots.txt` matching.
-pub const USER_AGENT: &str = "UIDM";
+pub const USER_AGENT: &str = "Pullbay";
 
 impl Default for GrabRequest {
     fn default() -> Self {
@@ -851,12 +851,12 @@ pub fn unsaved(current: &Project, saved: Option<&Project>) -> bool {
 pub struct Template {
     pub name: String,
     pub request: GrabRequest,
-    /// Shipped with UIDM, so it cannot be deleted.
+    /// Shipped with Pullbay, so it cannot be deleted.
     #[serde(skip)]
     pub built_in: bool,
 }
 
-/// The templates UIDM ships, files of one kind from a site: each one's
+/// The templates Pullbay ships, files of one kind from a site: each one's
 /// name, file types and depth.
 pub const BUILT_IN_TEMPLATES: [(&str, &[&str], u32); 5] = [
     ("Pictures from a site", &["jpg", "jpeg", "png", "gif", "webp", "bmp"], 2),

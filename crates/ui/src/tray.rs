@@ -22,7 +22,7 @@ use crate::i18n::tr;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Style {
-    /// UIDM's own colored icon.
+    /// Pullbay's own colored icon.
     #[default]
     Color,
     /// A plain white silhouette of it, like the system's own icons on a dark
@@ -63,7 +63,7 @@ struct Tray {
     items: Vec<(MenuItem, &'static str)>,
 }
 
-const OPEN: &str = "Open UIDM";
+const OPEN: &str = "Open Pullbay";
 const ADD: &str = "Add URL from clipboard";
 const ADD_BATCH: &str = "Add batch download from clipboard";
 const PAUSE: &str = "Pause all";
@@ -73,8 +73,8 @@ const DROP_TARGET: &str = "Drop target";
 const EXIT: &str = "Exit";
 
 /// The main icon's ID; the download windows' icon has `PROGRESS_ID`.
-const MAIN_ID: &str = "uidm";
-const PROGRESS_ID: &str = "uidm-progress";
+const MAIN_ID: &str = "pullbay";
+const PROGRESS_ID: &str = "pullbay-progress";
 
 /// The downloads tray icon, after IDM's: green arrows whose menu lists the
 /// hidden download windows by title. It is there only while one is.
@@ -259,7 +259,7 @@ fn build(
         .with_id(MAIN_ID)
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
-        .with_tooltip("UIDM")
+        .with_tooltip("Pullbay")
         .with_icon(Icon::from_rgba(rgba, size, size).map_err(|e| TrayError::Icon(e.to_string()))?)
         .build()
         .map_err(|e| TrayError::Build(e.to_string()))?;
@@ -465,7 +465,7 @@ pub fn take_restored() -> Vec<u64> {
 
 const PROGRESS_ICON_SIZE: u32 = 32;
 
-/// UIDM's own picture for the download windows' icon: two green arrows
+/// Pullbay's own picture for the download windows' icon: two green arrows
 /// pointing down, side by side, the right one lower. RGBA, `size` square.
 fn arrows_icon(size: u32) -> Vec<u8> {
     // One arrow in a unit square: a shaft and a head, pointing down.

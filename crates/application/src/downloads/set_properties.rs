@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use uidm_domain::download::{DownloadError, Properties, Status};
-use uidm_domain::ports::{DownloadFiles, DownloadList};
+use pullbay_domain::download::{DownloadError, Properties, Status};
+use pullbay_domain::ports::{DownloadFiles, DownloadList};
 
 /// Change a stopped or finished download's details. The link, referrer
 /// and login go into the request a retry starts from; a finished
@@ -23,7 +23,7 @@ impl<'a, D: DownloadList, F: DownloadFiles> SetProperties<'a, D, F> {
         let plan = entry.plan_properties(p)?;
         let done = entry.status == Status::Done;
         if let Some((from, to)) = &plan.moved {
-            let files = |e: uidm_domain::ports::FilesError| DownloadError::Files(e.to_string());
+            let files = |e: pullbay_domain::ports::FilesError| DownloadError::Files(e.to_string());
             if done {
                 self.files.move_finished(from, to).map_err(files)?;
             } else if entry.started() {
@@ -60,7 +60,7 @@ impl<'a, D: DownloadList, F: DownloadFiles> SetProperties<'a, D, F> {
 mod tests {
     use super::*;
     use crate::memory::{row, Downloads, Files};
-    use uidm_domain::download::DownloadLogin;
+    use pullbay_domain::download::DownloadLogin;
 
     fn full(p: &str) -> String {
         if cfg!(windows) {

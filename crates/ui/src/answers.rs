@@ -7,8 +7,8 @@
 use std::path::Path;
 
 use eframe::egui;
-use uidm_domain::download::{Download, DownloadEntry};
-use uidm_domain::settings::{Duplicate, FileExists, Settings};
+use pullbay_domain::download::{Download, DownloadEntry};
+use pullbay_domain::settings::{Duplicate, FileExists, Settings};
 
 use crate::i18n::{tr, trf};
 
@@ -42,12 +42,12 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
         let plain = d.may_be_duplicate();
         let duplicate = d.duplicate.unwrap_or(settings.if_duplicate) == Duplicate::Ask;
         if let (true, true, Some(old)) =
-            (plain, duplicate, rows.iter().rev().find(|e| uidm_domain::download::same_address(&e.url, &d.url)))
+            (plain, duplicate, rows.iter().rev().find(|e| pullbay_domain::download::same_address(&e.url, &d.url)))
         {
             out.push((i, Question::InList(crate::display_name(old))));
         }
         if d.file_exists.unwrap_or(settings.file_exists) == FileExists::Ask {
-            let name = uidm_domain::filename::proposed_name(&d.url, d.filename.as_deref());
+            let name = pullbay_domain::filename::proposed_name(&d.url, d.filename.as_deref());
             let folder = match d.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
                 Some(f) => f.to_path_buf(),
                 None => settings.folders_for(&d.url, &crate::ports::ports().downloads_dir()).for_name(&name),
@@ -208,7 +208,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("uidm_answers_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_answers_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

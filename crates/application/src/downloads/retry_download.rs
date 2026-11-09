@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use uidm_domain::download::DownloadError;
-use uidm_domain::ports::{DownloadControl, DownloadList, QueueStore};
-use uidm_domain::queue;
+use pullbay_domain::download::DownloadError;
+use pullbay_domain::ports::{DownloadControl, DownloadList, QueueStore};
+use pullbay_domain::queue;
 
 use crate::queues::MoveToQueue;
 
@@ -51,8 +51,8 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl> RetryDownload<'a, Q
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Queues, RESTARTED_ID};
-    use uidm_domain::download::{Download, Status};
-    use uidm_domain::queue::MAIN_QUEUE;
+    use pullbay_domain::download::{Download, Status};
+    use pullbay_domain::queue::MAIN_QUEUE;
 
     #[test]
     fn a_started_download_resumes_into_its_files_and_keeps_its_queue() {

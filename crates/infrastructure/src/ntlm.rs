@@ -212,7 +212,7 @@ pub fn workstation() -> String {
         .or_else(|_| std::env::var("HOSTNAME"))
         .ok()
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| "UIDM".into())
+        .unwrap_or_else(|| "Pullbay".into())
 }
 
 /// A challenge message for `c`, as a server sends it. For tests.

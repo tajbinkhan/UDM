@@ -18,18 +18,18 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use pullbay_application::daemon::Event;
+use pullbay_domain::download::{Download, DownloadEntry, Status};
+use pullbay_domain::ports::{DownloadIntake, DownloadList, QueueStore};
+use pullbay_domain::queue::{Queue, QueueError};
 use tracing::warn;
-use uidm_application::daemon::Event;
-use uidm_domain::download::{Download, DownloadEntry, Status};
-use uidm_domain::ports::{DownloadIntake, DownloadList, QueueStore};
-use uidm_domain::queue::{Queue, QueueError};
 
 use crate::engine::{self, Engine};
 use crate::history::{self, History};
 use crate::protocol::Outgoing;
 use crate::quota;
 use crate::state::DownloadTable;
-use uidm_domain::quota::Usage;
+use pullbay_domain::quota::Usage;
 
 /// How a download ended, for the listener's notifications.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -503,7 +503,7 @@ impl DownloadIntake for Intake<'_> {
     }
 }
 
-impl uidm_application::daemon::DownloadFeed for DownloadStore {
+impl pullbay_application::daemon::DownloadFeed for DownloadStore {
     fn announce(&self, event: Event) {
         DownloadStore::announce(self, event);
     }
@@ -534,7 +534,7 @@ impl DownloadIntake for StoreIntake {
 mod tests {
     use super::*;
 
-    use uidm_domain::queue::QueueKind;
+    use pullbay_domain::queue::QueueKind;
 
     /// What a store told its listener.
     #[derive(Default)]
@@ -565,7 +565,7 @@ mod tests {
     }
 
     fn folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("uidm_store_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_store_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -579,7 +579,7 @@ mod tests {
     fn a_new_store_has_the_main_queue() {
         let (store, ..) = store(StoreFiles::default());
         assert_eq!(store.queues().len(), 1);
-        assert_eq!(store.queues()[0].id, uidm_domain::queue::MAIN_QUEUE);
+        assert_eq!(store.queues()[0].id, pullbay_domain::queue::MAIN_QUEUE);
     }
 
     #[test]

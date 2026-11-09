@@ -6,18 +6,20 @@
 //! the page instead: it lists the qualities (`yt-dlp -J`) and downloads the
 //! one chosen, with ffmpeg joining the video and its sound.
 //!
-//! yt-dlp is found on `PATH`, next to UIDM's programs, or next to ffmpeg.
+//! yt-dlp is found on `PATH`, next to Pullbay's programs, or next to ffmpeg.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-use uidm_domain::media::{estimate_size, quality_label, MediaChoice, MediaInfo, MediaKind, MediaOption, LIVE_REFUSED};
+use pullbay_domain::media::{
+    estimate_size, quality_label, MediaChoice, MediaInfo, MediaKind, MediaOption, LIVE_REFUSED,
+};
 
 /// Why a page cannot be read without yt-dlp, in words for the user.
 pub const MISSING: &str =
-    "Videos on YouTube, Facebook, Instagram and Vimeo need yt-dlp. Install it (winget install yt-dlp.yt-dlp) or put yt-dlp.exe next to UIDM, then restart UIDM.";
+    "Videos on YouTube, Facebook, Instagram and Vimeo need yt-dlp. Install it (winget install yt-dlp.yt-dlp) or put yt-dlp.exe next to Pullbay, then restart Pullbay.";
 
 /// Whether an address on a site's host is one video.
 type VideoPage = fn(&url::Url) -> bool;
@@ -77,7 +79,7 @@ fn vimeo(u: &url::Url) -> bool {
     }
 }
 
-/// Whether `url` is a video page yt-dlp downloads for UIDM: a YouTube
+/// Whether `url` is a video page yt-dlp downloads for Pullbay: a YouTube
 /// watch page, Short or youtu.be link, or a Facebook, Instagram or Vimeo
 /// video.
 pub fn supports(url: &str) -> bool {
@@ -89,7 +91,7 @@ pub fn supports(url: &str) -> bool {
     SITES.iter().any(|(hosts, matches)| hosts.contains(&host.as_str()) && matches(&u))
 }
 
-/// yt-dlp: the first on `PATH`, else next to UIDM's programs, else next to
+/// yt-dlp: the first on `PATH`, else next to Pullbay's programs, else next to
 /// `ffmpeg`.
 pub fn find(ffmpeg: Option<&Path>) -> Option<PathBuf> {
     let name = crate::platform::exe_name("yt-dlp");
@@ -157,7 +159,7 @@ pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>) -> MediaInfo {
     }
     match serde_json::from_slice::<Value>(&out.stdout) {
         Ok(v) => describe(&v),
-        Err(e) => MediaInfo::failed(Some(MediaKind::Page), format!("yt-dlp gave an answer UIDM cannot read: {e}")),
+        Err(e) => MediaInfo::failed(Some(MediaKind::Page), format!("yt-dlp gave an answer Pullbay cannot read: {e}")),
     }
 }
 
@@ -240,7 +242,7 @@ pub fn describe(v: &Value) -> MediaInfo {
         v.get("formats").and_then(Value::as_array).into_iter().flatten().filter_map(Format::read).collect();
     if all.is_empty() {
         let drm = v.get("formats").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
-        let error = if drm { uidm_domain::media::DRM_REFUSED } else { "yt-dlp found no video on this page." };
+        let error = if drm { pullbay_domain::media::DRM_REFUSED } else { "yt-dlp found no video on this page." };
         return MediaInfo { drm, ..MediaInfo::failed(page, error.into()) };
     }
 
@@ -347,10 +349,10 @@ pub fn progress_line(line: &str) -> Option<(u64, Option<u64>)> {
 
 /// What starts the lines `progress_line` reads, and the line naming the
 /// finished file.
-pub const PROGRESS_TAG: &str = "UIDM-PROGRESS ";
-pub const DONE_TAG: &str = "UIDM-FILE ";
+pub const PROGRESS_TAG: &str = "PULLBAY-PROGRESS ";
+pub const DONE_TAG: &str = "Pullbay-FILE ";
 pub const PROGRESS_TEMPLATE: &str =
-    "download:UIDM-PROGRESS %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s";
+    "download:PULLBAY-PROGRESS %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s";
 
 /// `path` as a yt-dlp output template: `%` means something there.
 pub fn literal_template(path: &str) -> String {
@@ -487,15 +489,15 @@ mod tests {
             "137+140-1/137+bestaudio/137/bestvideo*+bestaudio/best"
         );
         assert_eq!(format_spec(&pick(Some("137"), None), false), "best[ext=mp4]/best");
-        let sound = MediaChoice { audio_only: Some(uidm_domain::media::Target::Mp3), ..pick(None, Some("140")) };
+        let sound = MediaChoice { audio_only: Some(pullbay_domain::media::Target::Mp3), ..pick(None, Some("140")) };
         assert_eq!(format_spec(&sound, true), "140/bestaudio[ext=m4a]/bestaudio/best");
     }
 
     #[test]
     fn reads_progress_and_complaints() {
-        assert_eq!(progress_line("UIDM-PROGRESS 1024 4096 NA"), Some((1024, Some(4096))));
-        assert_eq!(progress_line("UIDM-PROGRESS 1024 NA 8000.5"), Some((1024, Some(8000))));
-        assert_eq!(progress_line("UIDM-PROGRESS 10 NA NA"), Some((10, None)));
+        assert_eq!(progress_line("PULLBAY-PROGRESS 1024 4096 NA"), Some((1024, Some(4096))));
+        assert_eq!(progress_line("PULLBAY-PROGRESS 1024 NA 8000.5"), Some((1024, Some(8000))));
+        assert_eq!(progress_line("PULLBAY-PROGRESS 10 NA NA"), Some((10, None)));
         assert_eq!(progress_line("[download] 10%"), None);
         let why = complaint("WARNING: x\nERROR: [youtube] abc: Video unavailable\n");
         assert!(why.starts_with("yt-dlp: [youtube] abc: Video unavailable"), "{why}");

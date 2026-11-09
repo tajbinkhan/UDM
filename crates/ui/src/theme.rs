@@ -88,13 +88,13 @@ const WINDOW_RADIUS: u8 = 4;
 
 /// Sets the fonts (the system's `system`, where it has them), sizes,
 /// spacing and both color sets.
-pub fn apply(ctx: &egui::Context, system: uidm_application::window::SystemFonts) {
+pub fn apply(ctx: &egui::Context, system: pullbay_application::window::SystemFonts) {
     ctx.set_fonts(fonts(system));
     for theme in [Theme::Light, Theme::Dark] {
         let palette = if theme == Theme::Dark { &DARK } else { &LIGHT };
         ctx.style_mut_of(theme, |style| {
             style.visuals = visuals(palette);
-            // Sized like the 9 pt Segoe UI of the window UIDM's layout
+            // Sized like the 9 pt Segoe UI of the window Pullbay's layout
             // follows, with its tight padding: 20 px controls, 4 px gaps.
             style.text_styles = [
                 (TextStyle::Small, FontId::proportional(10.5)),
@@ -120,11 +120,11 @@ pub fn apply(ctx: &egui::Context, system: uidm_application::window::SystemFonts)
 
 /// Follows the Theme and Text size options. Changing the zoom factor scales
 /// every size above, the drop target's window included.
-pub fn set_appearance(ctx: &egui::Context, theme: uidm_domain::settings::Theme, text_size: u32) {
+pub fn set_appearance(ctx: &egui::Context, theme: pullbay_domain::settings::Theme, text_size: u32) {
     ctx.set_theme(match theme {
-        uidm_domain::settings::Theme::System => egui::ThemePreference::System,
-        uidm_domain::settings::Theme::Light => egui::ThemePreference::Light,
-        uidm_domain::settings::Theme::Dark => egui::ThemePreference::Dark,
+        pullbay_domain::settings::Theme::System => egui::ThemePreference::System,
+        pullbay_domain::settings::Theme::Light => egui::ThemePreference::Light,
+        pullbay_domain::settings::Theme::Dark => egui::ThemePreference::Dark,
     });
     ctx.set_zoom_factor(text_size as f32 / 100.0);
 }
@@ -143,7 +143,7 @@ pub fn progress_bar(ui: &mut egui::Ui, bar: egui::ProgressBar) -> egui::Response
 /// The system's fonts for text and code (Segoe UI and Consolas on Windows).
 /// egui's own fonts stay behind them for any glyph they lack, and take over
 /// where the system has none.
-fn fonts(system: uidm_application::window::SystemFonts) -> FontDefinitions {
+fn fonts(system: pullbay_application::window::SystemFonts) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     for (name, bytes, family) in
         [("system-text", system.text, FontFamily::Proportional), ("system-code", system.code, FontFamily::Monospace)]

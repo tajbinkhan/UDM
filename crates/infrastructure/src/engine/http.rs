@@ -30,7 +30,7 @@ fn runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_name("uidm-http")
+            .thread_name("pullbay-http")
             .enable_all()
             .build()
             .expect("the HTTP runtime starts")
@@ -64,8 +64,8 @@ pub struct Probe {
 impl Probe {
     /// What identifies this version of the file, for telling later whether
     /// the server's copy changed.
-    pub fn validator(&self) -> uidm_domain::download::Validator {
-        uidm_domain::download::Validator {
+    pub fn validator(&self) -> pullbay_domain::download::Validator {
+        pullbay_domain::download::Validator {
             size: self.total,
             etag: self.etag.clone(),
             last_modified: self.last_modified.clone(),
@@ -324,7 +324,7 @@ impl Client {
         match build_on(&self.http, None) {
             Err(Failed::Status(401, resp)) => {
                 let asked = resp.get_url().to_string();
-                let host = uidm_domain::site::host_of(&asked);
+                let host = pullbay_domain::site::host_of(&asked);
                 let challenges = resp.all("www-authenticate");
                 let realm = net::realm(&challenges);
                 (*resp).drain();

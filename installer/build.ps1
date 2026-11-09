@@ -1,4 +1,4 @@
-# Builds UIDM's Windows installer, dist\UIDM-Setup-<version>.exe.
+# Builds Pullbay's Windows installer, dist\Pullbay-Setup-<version>.exe.
 #
 #   .\installer\build.ps1              # build the programs, then the installer
 #   .\installer\build.ps1 -SkipBuild   # the programs in target\release are current
@@ -38,6 +38,6 @@ if (-not $iscc) {
 }
 if (-not $iscc) { throw "Inno Setup 6 is not installed (winget install JRSoftware.InnoSetup)" }
 
-& $iscc /Q "/DAppVersion=$version" (Join-Path $PSScriptRoot "uidm.iss")
+& $iscc /Q "/DAppVersion=$version" (Join-Path $PSScriptRoot "pullbay.iss")
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
-Write-Host "Built $(Join-Path $root "dist\UIDM-Setup-$version.exe")"
+Write-Host "Built $(Join-Path $root "dist\Pullbay-Setup-$version.exe")"

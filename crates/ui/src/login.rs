@@ -6,9 +6,9 @@
 //! site waiting for a login are answered with it too.
 
 use eframe::egui;
-use uidm_domain::download::LoginWanted;
-use uidm_domain::download::{DownloadLogin, Properties};
-use uidm_domain::settings::{Settings, SiteLogin};
+use pullbay_domain::download::LoginWanted;
+use pullbay_domain::download::{DownloadLogin, Properties};
+use pullbay_domain::settings::{Settings, SiteLogin};
 
 use super::Action;
 use crate::i18n::{tr, trf};

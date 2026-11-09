@@ -2,7 +2,7 @@
 //! one, a login. OK adds it; the save-as dialog follows as for any download.
 
 use eframe::egui;
-use uidm_domain::download::{Download, DownloadLogin};
+use pullbay_domain::download::{Download, DownloadLogin};
 
 use crate::i18n::tr;
 

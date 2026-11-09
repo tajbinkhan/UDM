@@ -2,16 +2,16 @@
 //! clicking again reverses the order, and a third click goes back to the
 //! order downloads were added in. Dragging the edge after a header sets the
 //! column's width. The Columns dialog shows, hides, reorders and sizes
-//! columns. All of it is saved to `%LOCALAPPDATA%\UIDM\window.json`, so it
+//! columns. All of it is saved to `%LOCALAPPDATA%\Pullbay\window.json`, so it
 //! survives a restart. A queue's view always keeps the queue's run order.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use eframe::egui;
+use pullbay_domain::download::{DownloadEntry, Status};
+use pullbay_domain::queue;
 use serde::{Deserialize, Serialize};
-use uidm_domain::download::{DownloadEntry, Status};
-use uidm_domain::queue;
 
 use super::display_name;
 use crate::i18n::tr;
@@ -54,7 +54,7 @@ impl Column {
         Column::Description,
     ];
 
-    /// The columns, in the order of the download manager UIDM's list
+    /// The columns, in the order of the download manager Pullbay's list
     /// follows.
     const DEFAULT: [Column; 8] = [
         Column::Name,

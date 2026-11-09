@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use uidm_domain::download::{DownloadError, Status};
-use uidm_domain::filename::numbered_name;
-use uidm_domain::media::{Conversion, Target};
-use uidm_domain::ports::{Converter, DownloadFiles, DownloadList};
+use pullbay_domain::download::{DownloadError, Status};
+use pullbay_domain::filename::numbered_name;
+use pullbay_domain::media::{Conversion, Target};
+use pullbay_domain::ports::{Converter, DownloadFiles, DownloadList};
 
 /// Convert a finished download's file with ffmpeg: to an MP4, or its sound
 /// alone to an MP3 or M4A. The new file is a row of its own, beside the

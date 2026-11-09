@@ -3,9 +3,9 @@
 
 use std::path::Path;
 
-use uidm_application::window::{SystemFonts, SystemProxy, SystemServices};
-use uidm_domain::ports::FilesError;
-use uidm_domain::settings::Sound;
+use pullbay_application::window::{SystemFonts, SystemProxy, SystemServices};
+use pullbay_domain::ports::FilesError;
+use pullbay_domain::settings::Sound;
 
 /// The operating system this copy runs on.
 pub struct ThisSystem;
@@ -50,7 +50,7 @@ impl SystemServices for ThisSystem {
     }
 
     fn start_window_in_tray(&self) -> Result<(), FilesError> {
-        let mut cmd = crate::platform::program_command("uidm-gui").map_err(|e| FilesError(e.to_string()))?;
+        let mut cmd = crate::platform::program_command("pullbay-gui").map_err(|e| FilesError(e.to_string()))?;
         cmd.arg(crate::cli::IN_TRAY)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())

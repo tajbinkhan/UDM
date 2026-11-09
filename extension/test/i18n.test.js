@@ -47,7 +47,7 @@ test("every language has exactly the English messages, with the same placeholder
       assert.ok(typeof m[name].message === "string" && m[name].message.trim(), `${lang} ${name} is empty`);
       assert.deepEqual(placeholders(m[name]), placeholders(english), `${lang} ${name} placeholders`);
       assert.deepEqual(uses(m[name]), uses(english), `${lang} ${name} uses other placeholders`);
-      if (english.message.includes("UIDM")) assert.ok(m[name].message.includes("UIDM"), `${lang} ${name} lost UIDM`);
+      if (english.message.includes("Pullbay")) assert.ok(m[name].message.includes("Pullbay"), `${lang} ${name} lost Pullbay`);
     }
   }
 });
@@ -79,7 +79,7 @@ test("every English message is used", () => {
 });
 
 test("messages fill in their values as the browser does", () => {
-  assert.equal(getMessage("statusNotConnectedReason", "no host"), "Not connected to UIDM: no host. Downloads stay in the browser.");
+  assert.equal(getMessage("statusNotConnectedReason", "no host"), "Not connected to Pullbay: no host. Downloads stay in the browser.");
   assert.equal(getMessage("sizeProgress", ["1.5 MB", "10.0 MB"]), "1.5 MB / 10.0 MB");
   assert.equal(getMessage("noDownloads"), "No downloads yet.");
   assert.equal(getMessage("noSuchMessage"), "");

@@ -1,4 +1,4 @@
-//! UIDM native-messaging host: the process the browser launches.
+//! Pullbay native-messaging host: the process the browser launches.
 //!
 //! It is a thin relay. It connects to the daemon (starting it if needed), then
 //! copies frames both ways without parsing them: browser stdin -> daemon, and
@@ -8,16 +8,16 @@
 //! When the browser closes the port the host exits, but the daemon and its
 //! downloads keep running.
 //!
-//! stdout carries protocol frames only; logs go to `uidm-host.log` in the
-//! data folder (see `uidm_infrastructure::logging`).
+//! stdout carries protocol frames only; logs go to `pullbay-host.log` in the
+//! data folder (see `pullbay_infrastructure::logging`).
 //!
 //! A CLI test mode runs a download in-process, without a browser or daemon:
-//!   uidm-host download <url> [output_dir]
+//!   pullbay-host download <url> [output_dir]
 //!
-//! Other programs send links to UIDM with
-//!   uidm-host send <file.json | ->
+//! Other programs send links to Pullbay with
+//!   pullbay-host send <file.json | ->
 //! which reads one link, or a list of links for the link picker, as JSON
-//! (see `uidm_infrastructure::cli::parse_sent`) and hands it to the daemon, starting it if
+//! (see `pullbay_infrastructure::cli::parse_sent`) and hands it to the daemon, starting it if
 //! needed. It goes through the same authenticated connection as the relay.
 
 use std::io::{self, Read, Write};
@@ -28,22 +28,22 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use uidm_infrastructure::app::MAX_MESSAGE_BYTES;
+use pullbay_infrastructure::app::MAX_MESSAGE_BYTES;
 
 /// After the browser closes, how long to wait for the daemon to deliver
 /// replies already in flight before giving up on them.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
-use uidm_domain::settings::{FileExists, Folders, DEFAULT_CONNECTIONS};
-use uidm_infrastructure::cli::Sent;
-use uidm_infrastructure::engine::{self, DownloadRequest, Progress};
-use uidm_infrastructure::ipc;
-use uidm_infrastructure::logging;
-use uidm_infrastructure::protocol::{read_message, write_frame, Incoming, Outgoing};
-use uidm_infrastructure::settings::default_downloads_dir;
+use pullbay_domain::settings::{FileExists, Folders, DEFAULT_CONNECTIONS};
+use pullbay_infrastructure::cli::Sent;
+use pullbay_infrastructure::engine::{self, DownloadRequest, Progress};
+use pullbay_infrastructure::ipc;
+use pullbay_infrastructure::logging;
+use pullbay_infrastructure::protocol::{read_message, write_frame, Incoming, Outgoing};
+use pullbay_infrastructure::settings::default_downloads_dir;
 
-/// The requests UIDM's browser extension sends. The host passes only these
+/// The requests Pullbay's browser extension sends. The host passes only these
 /// on: anything else from the browser, which an extension that is not
-/// UIDM's could send, never reaches the daemon.
+/// Pullbay's could send, never reaches the daemon.
 const BROWSER_OPS: &[&str] = &[
     "hello",
     "list",
@@ -78,7 +78,10 @@ fn from_browser(frame: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn main() {
+    // Before the log, which would make Pullbay's data folder first.
+    let moved = pullbay_infrastructure::from_uidm::move_from_uidm();
     logging::init(logging::Program::Host);
+    moved.log();
     let args: Vec<String> = std::env::args().collect();
     // The test and `send` modes print to stdout and stderr on purpose: that
     // is their output, for the person or program that ran them.
@@ -151,7 +154,7 @@ fn run_relay() -> anyhow::Result<()> {
 /// How long `send` waits for the daemon's answer once connected.
 const SEND_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// `uidm-host send <file | ->`: hand the JSON in the file (or on stdin) to
+/// `pullbay-host send <file | ->`: hand the JSON in the file (or on stdin) to
 /// the daemon. One link is added as the extension adds one, and its id goes
 /// to stdout; a list opens the link picker. Returns a process exit code: 0
 /// when the daemon took it, 1 when it refused or could not be reached, 2 for
@@ -160,22 +163,22 @@ fn run_send(args: &[String]) -> i32 {
     let source = match args.get(2) {
         Some(s) if args.len() == 3 => s,
         _ => {
-            eprintln!("usage: uidm-host send <file.json | ->");
+            eprintln!("usage: pullbay-host send <file.json | ->");
             return 2;
         }
     };
     let json = match read_input(source) {
         Ok(json) => json,
         Err(e) => {
-            eprintln!("[uidm-host] could not read {source}: {e}");
+            eprintln!("[pullbay-host] could not read {source}: {e}");
             return 2;
         }
     };
     let cwd = std::env::current_dir().unwrap_or_default();
-    let sent = match uidm_infrastructure::cli::parse_sent(&json, &cwd) {
+    let sent = match pullbay_infrastructure::cli::parse_sent(&json, &cwd) {
         Ok(sent) => sent,
         Err(e) => {
-            eprintln!("[uidm-host] {e}");
+            eprintln!("[pullbay-host] {e}");
             return 2;
         }
     };
@@ -186,7 +189,7 @@ fn run_send(args: &[String]) -> i32 {
         }
         Ok(None) => 0,
         Err(e) => {
-            eprintln!("[uidm-host] {e}");
+            eprintln!("[pullbay-host] {e}");
             1
         }
     }
@@ -251,12 +254,12 @@ fn run_cli(args: &[String]) -> i32 {
     let url = match args.get(2) {
         Some(u) => u.clone(),
         None => {
-            eprintln!("usage: uidm-host download <url> [output_dir]");
+            eprintln!("usage: pullbay-host download <url> [output_dir]");
             return 2;
         }
     };
     let output_dir = args.get(3).map(PathBuf::from).unwrap_or_else(default_downloads_dir);
-    eprintln!("[uidm-host] downloading {url} -> {}", output_dir.display());
+    eprintln!("[pullbay-host] downloading {url} -> {}", output_dir.display());
 
     let ok = Arc::new(AtomicBool::new(false));
     let ok_cb = Arc::clone(&ok);

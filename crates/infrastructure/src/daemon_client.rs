@@ -1,5 +1,5 @@
 //! The window's connection to the daemon: the adapter for
-//! `uidm_application::daemon::DaemonClient` over `ipc` and `protocol`.
+//! `pullbay_application::daemon::DaemonClient` over `ipc` and `protocol`.
 //!
 //! It connects (starting or restarting the daemon as `ipc` does, with its
 //! handshake), introduces itself, maps each `Command` to an `Incoming`
@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use uidm_application::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
-use uidm_domain::download::CommandLine;
+use pullbay_application::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
+use pullbay_domain::download::CommandLine;
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::ipc;

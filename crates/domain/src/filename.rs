@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-/// Make `name` safe to use as a file name on every system UIDM runs on:
+/// Make `name` safe to use as a file name on every system Pullbay runs on:
 /// characters Windows forbids become `_`, and device names get a `_` prefix.
 pub fn sanitize_filename(name: &str) -> String {
     let clean = name

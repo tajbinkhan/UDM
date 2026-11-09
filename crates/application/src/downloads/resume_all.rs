@@ -1,5 +1,7 @@
-use uidm_domain::download::{DownloadError, Status};
-use uidm_domain::ports::{Clock, DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueSounds, QueueStore};
+use pullbay_domain::download::{DownloadError, Status};
+use pullbay_domain::ports::{
+    Clock, DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueSounds, QueueStore,
+};
 
 use super::RetryDownload;
 use crate::queues::StartQueue;
@@ -65,7 +67,7 @@ where
 mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, Paused, Queues, Runs, Sounds, FIXED_NOW};
-    use uidm_domain::queue::MAIN_QUEUE;
+    use pullbay_domain::queue::MAIN_QUEUE;
 
     #[test]
     fn paused_and_interrupted_downloads_resume() {

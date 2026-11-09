@@ -80,7 +80,7 @@ pub struct ControlError(pub String);
 
 /// Taking new downloads into the list.
 pub trait DownloadIntake: Send + Sync {
-    /// Whether UIDM can send `download`'s request: a form body must be
+    /// Whether Pullbay can send `download`'s request: a form body must be
     /// readable.
     fn sendable(&self, download: &Download) -> bool;
 
@@ -169,7 +169,7 @@ pub trait DownloadFiles: Send + Sync {
     /// Whether a file (not a folder) is at `path`.
     fn is_file(&self, path: &Path) -> bool;
 
-    /// Whether UIDM may write files into `dir` without administrator rights.
+    /// Whether Pullbay may write files into `dir` without administrator rights.
     fn can_write(&self, dir: &Path) -> bool;
 }
 
@@ -261,9 +261,9 @@ pub trait QuotaState: Send + Sync {
     fn announce(&self, notice: QuotaNotice);
 }
 
-/// Closing UIDM, and sleeping, hibernating or shutting down the computer.
+/// Closing Pullbay, and sleeping, hibernating or shutting down the computer.
 pub trait PowerControl: Send + Sync {
-    /// Close UIDM: every window quits, and the daemon ends once its other
+    /// Close Pullbay: every window quits, and the daemon ends once its other
     /// downloads are done.
     fn exit(&self);
 
@@ -281,7 +281,7 @@ pub trait PowerControl: Send + Sync {
     fn power_off(&self, action: WhenDone, force_close: bool);
 }
 
-/// Where newer UIDM releases come from.
+/// Where newer Pullbay releases come from.
 pub trait ReleaseSource: Send + Sync {
     /// The latest release, with its Setup program only where one can run.
     fn latest(&self) -> Result<Release, UpdateError>;
@@ -290,12 +290,12 @@ pub trait ReleaseSource: Send + Sync {
     /// and save it. Returns where.
     fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError>;
 
-    /// Start the Setup program saved at `path`, telling it to close UIDM
+    /// Start the Setup program saved at `path`, telling it to close Pullbay
     /// without asking.
     fn run_setup(&self, path: &Path) -> Result<(), UpdateError>;
 }
 
-/// When UIDM last looked for a newer release.
+/// When Pullbay last looked for a newer release.
 pub trait UpdateChecks: Send + Sync {
     /// Whether the weekly check is on, and when the last check was (seconds
     /// since 1970).
@@ -510,7 +510,7 @@ pub trait Notifications: Send + Sync {
 }
 
 /// Addresses retried through the browser's proxy after failing through
-/// UIDM's own proxy setting.
+/// Pullbay's own proxy setting.
 pub trait ProxyFallback: Send + Sync {
     /// Note that `url` is retried through the browser's proxy. False when
     /// it already was: each address gets one such retry.

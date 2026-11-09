@@ -6,8 +6,8 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use pullbay_domain::queue::Moment;
 use tracing::{info, warn};
-use uidm_domain::queue::Moment;
 
 use crate::{logging, power};
 

@@ -1,24 +1,24 @@
 #!/bin/sh
-# The AppImage's entry point. One AppImage holds UIDM's three programs:
+# The AppImage's entry point. One AppImage holds Pullbay's three programs:
 #
-#   UIDM.AppImage                      the window
-#   UIDM.AppImage uidm-daemon          a program by name (UIDM starts its
+#   Pullbay.AppImage                      the window
+#   Pullbay.AppImage pullbay-daemon          a program by name (Pullbay starts its
 #                                      other programs this way)
-#   UIDM.AppImage chrome-extension://… a browser starting the native host
-#   UIDM.AppImage <manifest> uidm@uidm.local   Firefox starting it
+#   Pullbay.AppImage chrome-extension://… a browser starting the native host
+#   Pullbay.AppImage <manifest> pullbay@pullbay.local   Firefox starting it
 HERE="$(dirname "$(readlink -f "$0")")"
 BIN="$HERE/usr/bin"
 case "$1" in
-  uidm-gui|uidm-daemon|uidm-host)
+  pullbay-gui|pullbay-daemon|pullbay-host)
     prog="$1"
     shift
     exec "$BIN/$prog" "$@"
     ;;
   chrome-extension://*)
-    exec "$BIN/uidm-host" "$@"
+    exec "$BIN/pullbay-host" "$@"
     ;;
 esac
-if [ "$2" = "uidm@uidm.local" ]; then
-  exec "$BIN/uidm-host" "$@"
+if [ "$2" = "pullbay@pullbay.local" ]; then
+  exec "$BIN/pullbay-host" "$@"
 fi
-exec "$BIN/uidm-gui" "$@"
+exec "$BIN/pullbay-gui" "$@"

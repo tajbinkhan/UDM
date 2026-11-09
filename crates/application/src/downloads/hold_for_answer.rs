@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use uidm_domain::download::{AfterProbe, Download};
-use uidm_domain::ports::{
+use pullbay_domain::download::{AfterProbe, Download};
+use pullbay_domain::ports::{
     Answers, ControlError, DownloadControl, DownloadFiles, DownloadList, EarlyStarts, SettingsStore,
 };
 
@@ -95,8 +95,8 @@ where
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Early, Files, Prefs, Waiting};
-    use uidm_domain::download::Status;
-    use uidm_domain::settings::Settings;
+    use pullbay_domain::download::Status;
+    use pullbay_domain::settings::Settings;
 
     fn probed(name: &str) -> Probed {
         Probed { filename: name.into(), path: PathBuf::from("/dl").join(name), total: Some(100), resumable: true }
@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_uidm_may_not_write_to_asks_first() {
+    fn a_folder_pullbay_may_not_write_to_asks_first() {
         let settings = Settings { auto_start_types: vec!["zip".into()], ..Settings::default() };
         let w = World { files: Files::read_only("/dl"), ..World::new(settings) };
         assert_eq!(w.hold("a.zip", None), Held::Asked { early: false });

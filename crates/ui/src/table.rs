@@ -10,8 +10,8 @@ use std::path::Path;
 
 use eframe::egui::{self, Align, Rect, Sense, Stroke};
 use egui_extras::TableBuilder;
-use uidm_domain::download::{Answer, DownloadEntry, Status};
-use uidm_domain::queue::Queue;
+use pullbay_domain::download::{Answer, DownloadEntry, Status};
+use pullbay_domain::queue::Queue;
 
 use crate::columns::{self, Column, Layout};
 use crate::i18n::{tr, trf};
@@ -387,7 +387,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
         tr("Refresh download address..."),
         Action::OpenRefresh(e.id),
     );
-    if e.error.as_deref().and_then(uidm_domain::download::login_wanted).is_some() {
+    if e.error.as_deref().and_then(pullbay_domain::download::login_wanted).is_some() {
         item(ui, on, tr("Log in..."), Action::OpenLogin(e.id));
     }
     let ids: Vec<u64> = if list.selected.contains(&e.id) {
@@ -422,7 +422,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
     }
     item(ui, true, tr("Connections..."), Action::OpenConnections(e.id));
     item(ui, on && !done, tr("Speed limit..."), Action::OpenSpeedLimit(e.id));
-    if e.path.as_deref().filter(|_| done).is_some_and(uidm_domain::media::is_video) {
+    if e.path.as_deref().filter(|_| done).is_some_and(pullbay_domain::media::is_video) {
         item(ui, on, tr("Convert..."), Action::OpenConvert(e.id));
     }
     ui.separator();

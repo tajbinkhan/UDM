@@ -1,6 +1,6 @@
-use uidm_domain::download::Download;
-use uidm_domain::ports::{DownloadIntake, QueueStore};
-use uidm_domain::queue;
+use pullbay_domain::download::Download;
+use pullbay_domain::ports::{DownloadIntake, QueueStore};
+use pullbay_domain::queue;
 
 /// Add a download to a queue without starting it or opening a connection:
 /// the queue it names, else the one "Download later" uses, else the main
@@ -39,7 +39,7 @@ impl<'a, Q: QueueStore, I: DownloadIntake> AddLater<'a, Q, I> {
 mod tests {
     use super::*;
     use crate::memory::{Downloads, Intake, Queues};
-    use uidm_domain::queue::{Queue, MAIN_QUEUE};
+    use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 
     fn link(url: &str, queue: Option<u64>) -> Download {
         Download { url: url.into(), queue, ..Download::default() }

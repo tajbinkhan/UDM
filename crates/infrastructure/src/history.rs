@@ -1,9 +1,9 @@
 //! The daemon's download list on disk, so it survives restarts.
 //!
-//! - `%LOCALAPPDATA%\UIDM\history.json` holds every download's entry (URL,
+//! - `%LOCALAPPDATA%\Pullbay\history.json` holds every download's entry (URL,
 //!   file, size, progress, status) and the next id to hand out. It never holds
 //!   cookies or request headers.
-//! - `%LOCALAPPDATA%\UIDM\requests.bin` holds the original requests of
+//! - `%LOCALAPPDATA%\Pullbay\requests.bin` holds the original requests of
 //!   downloads that can still be retried, cookies included, encrypted with
 //!   DPAPI for the current user. It is deleted when no such request is left.
 //!
@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::dpapi;
 use crate::settings::write_atomic;
-use uidm_domain::download::{Download, DownloadEntry, Status};
-use uidm_domain::queue::{Queue, MAIN_QUEUE};
+use pullbay_domain::download::{Download, DownloadEntry, Status};
+use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct History {
@@ -137,12 +137,12 @@ fn local_data_dir() -> io::Result<PathBuf> {
     crate::paths::data_dir()
 }
 
-/// `%LOCALAPPDATA%\UIDM\history.json`.
+/// `%LOCALAPPDATA%\Pullbay\history.json`.
 pub fn history_path() -> io::Result<PathBuf> {
     Ok(local_data_dir()?.join("history.json"))
 }
 
-/// `%LOCALAPPDATA%\UIDM\requests.bin`.
+/// `%LOCALAPPDATA%\Pullbay\requests.bin`.
 pub fn requests_path() -> io::Result<PathBuf> {
     Ok(local_data_dir()?.join("requests.bin"))
 }
@@ -152,7 +152,7 @@ mod tests {
     use super::*;
 
     fn temp_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("uidm_history_{}_{name}", std::process::id()))
+        std::env::temp_dir().join(format!("pullbay_history_{}_{name}", std::process::id()))
     }
 
     fn entry(id: u64, status: Status) -> DownloadEntry {
@@ -268,7 +268,7 @@ mod tests {
     fn a_synchronizing_queue_keeps_its_finished_downloads() {
         let path = temp_path("sync_queue.json");
         let mut sync = Queue::new(2, "Mirror");
-        sync.kind = uidm_domain::queue::QueueKind::Synchronize;
+        sync.kind = pullbay_domain::queue::QueueKind::Synchronize;
         sync.order = vec![1, 2];
         let mut once = Queue::new(3, "Once");
         once.order = vec![3, 4];
@@ -285,7 +285,7 @@ mod tests {
         .save(&path)
         .unwrap();
         let h = History::load(&path).unwrap();
-        assert_eq!(h.queues[1].kind, uidm_domain::queue::QueueKind::Synchronize, "the type is saved");
+        assert_eq!(h.queues[1].kind, pullbay_domain::queue::QueueKind::Synchronize, "the type is saved");
         assert_eq!(h.queues[1].order, [1, 2], "a finished download stays to be checked");
         assert_eq!(h.queues[2].order, [4], "a one-time queue lets it go");
         fs::remove_file(&path).ok();

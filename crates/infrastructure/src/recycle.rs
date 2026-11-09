@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn recycles_files_and_folders() {
-        let dir = std::env::temp_dir().join(format!("uidm_recycle_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("pullbay_recycle_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("parts")).unwrap();
         let file = dir.join("a.bin");

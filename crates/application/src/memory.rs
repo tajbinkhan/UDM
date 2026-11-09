@@ -5,17 +5,17 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
-use uidm_domain::download::{Download, DownloadEntry, Status};
-use uidm_domain::media::Conversion;
-use uidm_domain::ports::{
+use pullbay_domain::download::{Download, DownloadEntry, Status};
+use pullbay_domain::media::Conversion;
+use pullbay_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
     EarlyStarts, FilesError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore,
     QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
 };
-use uidm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
-use uidm_domain::quota::QuotaNotice;
-use uidm_domain::settings::Settings;
-use uidm_domain::update::{Release, SetupAsset, UpdateError};
+use pullbay_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
+use pullbay_domain::quota::QuotaNotice;
+use pullbay_domain::settings::Settings;
+use pullbay_domain::update::{Release, SetupAsset, UpdateError};
 
 pub struct Queues {
     list: Mutex<Vec<Queue>>,
@@ -375,7 +375,7 @@ impl Files {
         Files { existing: paths.iter().map(PathBuf::from).collect(), ..Files::default() }
     }
 
-    /// Files where UIDM may not write into `dir`.
+    /// Files where Pullbay may not write into `dir`.
     pub fn read_only(dir: &str) -> Self {
         Files { read_only: [PathBuf::from(dir)].into(), ..Files::default() }
     }

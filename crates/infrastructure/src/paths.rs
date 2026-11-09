@@ -1,18 +1,18 @@
-//! Every folder UIDM uses, and the only module that asks the system where
+//! Every folder Pullbay uses, and the only module that asks the system where
 //! the user's folders are (AGENTS.md section 6). The base folders come from
-//! the `directories` crate; UIDM's own folder names are joined onto them
+//! the `directories` crate; Pullbay's own folder names are joined onto them
 //! here, so each file stays where earlier versions put it.
 //!
 //! | | Windows | macOS | Linux |
 //! |---|---|---|---|
-//! | settings, grabber projects ([`config_dir`]) | `%APPDATA%\UIDM` | `~/Library/Application Support/UIDM` | `$XDG_CONFIG_HOME/uidm` (`~/.config/uidm`) |
-//! | list, token, quota, keys ([`data_dir`]) | `%LOCALAPPDATA%\UIDM` | `~/Library/Application Support/UIDM` | `$XDG_DATA_HOME/uidm` (`~/.local/share/uidm`) |
+//! | settings, grabber projects ([`config_dir`]) | `%APPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `$XDG_CONFIG_HOME/pullbay` (`~/.config/pullbay`) |
+//! | list, token, quota, keys ([`data_dir`]) | `%LOCALAPPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `$XDG_DATA_HOME/pullbay` (`~/.local/share/pullbay`) |
 //! | logs ([`daemon_log`], [`host_log`], [`gui_log`]) | in [`data_dir`] | in [`data_dir`] | in [`data_dir`] |
-//! | window layout ([`window_dir`]) | `%LOCALAPPDATA%\UIDM` | none | none |
+//! | window layout ([`window_dir`]) | `%LOCALAPPDATA%\Pullbay` | none | none |
 //! | sign-in entry ([`autostart_dir`]) | the registry | `~/Library/LaunchAgents` | `$XDG_CONFIG_HOME/autostart` |
 //!
 //! With [`INSTANCE_VAR`] set, [`config_dir`] and [`data_dir`] get the
-//! instance's name after a dash (`UIDM-test`), and the daemon its own port
+//! instance's name after a dash (`Pullbay-test`), and the daemon its own port
 //! (see `ipc::daemon_addr`): a second copy, such as a build under test, runs
 //! beside the installed one without sharing its list, settings or daemon.
 //! The other folders have no instance name, as before.
@@ -24,7 +24,7 @@
 //!   the known folders only when they are not set. `directories` asks
 //!   Windows for the known folders and ignores the variables, but end-to-end
 //!   runs point the variables at a scratch folder to keep a test daemon's
-//!   files apart, and a process started with them changed expects UIDM to
+//!   files apart, and a process started with them changed expects Pullbay to
 //!   follow them, as it always has.
 //! - On Linux, any non-empty `XDG_CONFIG_HOME` and `XDG_DATA_HOME` is used
 //!   as given. `directories` ignores a relative one, which would move the
@@ -35,16 +35,16 @@ use std::path::PathBuf;
 
 use directories::BaseDirs;
 
-/// The environment variable naming a separate copy of UIDM. Programs UIDM
+/// The environment variable naming a separate copy of Pullbay. Programs Pullbay
 /// starts inherit it, so a whole copy (window, daemon, host) stays apart.
-pub const INSTANCE_VAR: &str = "UIDM_INSTANCE";
+pub const INSTANCE_VAR: &str = "PULLBAY_INSTANCE";
 
-/// UIDM's own folder name on this system, before any instance name.
-const OWN: &str = if cfg!(any(windows, target_os = "macos")) { "UIDM" } else { "uidm" };
+/// Pullbay's own folder name on this system, before any instance name.
+const OWN: &str = if cfg!(any(windows, target_os = "macos")) { "Pullbay" } else { "pullbay" };
 
-/// The name of this copy of UIDM, from [`INSTANCE_VAR`]; `None` for the
+/// The name of this copy of Pullbay, from [`INSTANCE_VAR`]; `None` for the
 /// usual one. A name is up to 32 letters, digits, `-` and `_`; anything else
-/// is ignored, so a typo cannot reach a folder outside UIDM's own.
+/// is ignored, so a typo cannot reach a folder outside Pullbay's own.
 pub fn instance() -> Option<String> {
     instance_name(std::env::var(INSTANCE_VAR).ok())
 }
@@ -56,11 +56,19 @@ fn instance_name(value: Option<String>) -> Option<String> {
     ok.then_some(name)
 }
 
-/// UIDM's folder name for instance `name`: `UIDM`, or `UIDM-test`.
+/// The folder name versions up to 0.3.3 used, when Pullbay was called UIDM.
+const UIDM_OWN: &str = if cfg!(any(windows, target_os = "macos")) { "UIDM" } else { "uidm" };
+
+/// Pullbay's folder name for instance `name`: `Pullbay`, or `Pullbay-test`.
 fn own_folder(name: Option<&str>) -> String {
+    folder_named(OWN, name)
+}
+
+/// Folder `own` for instance `name`: `own`, or `own-name`.
+fn folder_named(own: &str, name: Option<&str>) -> String {
     match name {
-        Some(name) => format!("{OWN}-{name}"),
-        None => OWN.to_string(),
+        Some(name) => format!("{own}-{name}"),
+        None => own.to_string(),
     }
 }
 
@@ -159,9 +167,25 @@ fn log_for(name: Option<&str>, file: &str) -> PathBuf {
     data_dir_for(name).map(|d| d.join(file)).unwrap_or_else(|_| std::env::temp_dir().join(file))
 }
 
-const DAEMON_LOG: &str = "uidm-daemon.log";
-const HOST_LOG: &str = "uidm-host.log";
-const GUI_LOG: &str = "uidm-gui.log";
+const DAEMON_LOG: &str = "pullbay-daemon.log";
+const HOST_LOG: &str = "pullbay-host.log";
+const GUI_LOG: &str = "pullbay-gui.log";
+
+/// This copy's settings and data folders under UIDM's name, each with the
+/// Pullbay folder it moves to: `(old, new)`. macOS has one pair, since both
+/// are the same folder there.
+pub fn uidm_folders() -> io::Result<Vec<(PathBuf, PathBuf)>> {
+    uidm_folders_for(instance().as_deref())
+}
+
+fn uidm_folders_for(name: Option<&str>) -> io::Result<Vec<(PathBuf, PathBuf)>> {
+    let mut pairs = vec![
+        (config_base()?.join(folder_named(UIDM_OWN, name)), config_dir_for(name)?),
+        (data_base()?.join(folder_named(UIDM_OWN, name)), data_dir_for(name)?),
+    ];
+    pairs.dedup();
+    Ok(pairs)
+}
 
 /// The folder settings, templates and grabber projects live in, which
 /// roams with the user on Windows.
@@ -207,16 +231,16 @@ pub fn fonts_dir() -> Option<PathBuf> {
 }
 
 /// The folder the window keeps its layout and the drop target's place in:
-/// `%LOCALAPPDATA%\UIDM` on Windows, shared by every instance. Elsewhere
+/// `%LOCALAPPDATA%\Pullbay` on Windows, shared by every instance. Elsewhere
 /// the window keeps neither.
 pub fn window_dir() -> Option<PathBuf> {
     #[cfg(windows)]
-    return root(Root::Local).map(|base| base.join("UIDM"));
+    return root(Root::Local).map(|base| base.join("Pullbay"));
     #[cfg(not(windows))]
     return None;
 }
 
-/// The folder the entry that starts UIDM at sign-in goes in. Windows keeps
+/// The folder the entry that starts Pullbay at sign-in goes in. Windows keeps
 /// it in the registry instead.
 #[cfg(unix)]
 pub fn autostart_dir() -> io::Result<PathBuf> {
@@ -259,6 +283,20 @@ mod tests {
         assert_eq!(grabber_dir_for(Some("test")).unwrap(), base(&config).join(&suffix).join("grabber"));
     }
 
+    #[test]
+    fn uidm_folders_move_to_pullbays() {
+        let pairs = uidm_folders_for(None).unwrap();
+        assert_eq!(pairs.len(), if cfg!(target_os = "macos") { 1 } else { 2 });
+        for (old, new) in &pairs {
+            assert_eq!(old.parent(), new.parent(), "{old:?} moves beside itself");
+            assert_eq!(old.file_name().unwrap(), UIDM_OWN);
+            assert_eq!(new.file_name().unwrap(), OWN);
+        }
+        assert_eq!(pairs[0].1, config_dir_for(None).unwrap());
+        let test = uidm_folders_for(Some("test")).unwrap();
+        assert_eq!(test[0].0.file_name().unwrap(), format!("{UIDM_OWN}-test").as_str());
+    }
+
     fn home() -> PathBuf {
         home_dir().expect("tests run with a home folder")
     }
@@ -276,18 +314,18 @@ mod tests {
         assert_eq!(root(Root::Roaming).unwrap(), roaming);
         assert_eq!(root(Root::Local).unwrap(), local);
         assert_eq!(home(), var("USERPROFILE"));
-        assert_eq!(config_dir_for(None).unwrap(), roaming.join("UIDM"));
-        assert_eq!(config_dir_for(Some("test")).unwrap(), roaming.join("UIDM-test"));
-        assert_eq!(data_dir_for(None).unwrap(), local.join("UIDM"));
-        assert_eq!(data_dir_for(Some("test")).unwrap(), local.join("UIDM-test"));
-        assert_eq!(grabber_dir_for(None).unwrap(), roaming.join(r"UIDM\grabber"));
-        assert_eq!(grabber_dir_for(Some("test")).unwrap(), roaming.join(r"UIDM-test\grabber"));
+        assert_eq!(config_dir_for(None).unwrap(), roaming.join("Pullbay"));
+        assert_eq!(config_dir_for(Some("test")).unwrap(), roaming.join("Pullbay-test"));
+        assert_eq!(data_dir_for(None).unwrap(), local.join("Pullbay"));
+        assert_eq!(data_dir_for(Some("test")).unwrap(), local.join("Pullbay-test"));
+        assert_eq!(grabber_dir_for(None).unwrap(), roaming.join(r"Pullbay\grabber"));
+        assert_eq!(grabber_dir_for(Some("test")).unwrap(), roaming.join(r"Pullbay-test\grabber"));
         // The window's files are shared by every instance; the logs are not.
-        assert_eq!(window_dir().unwrap(), local.join("UIDM"));
-        assert_eq!(log_for(None, DAEMON_LOG), local.join(r"UIDM\uidm-daemon.log"));
-        assert_eq!(log_for(Some("test"), DAEMON_LOG), local.join(r"UIDM-test\uidm-daemon.log"));
-        assert_eq!(log_for(None, HOST_LOG), local.join(r"UIDM\uidm-host.log"));
-        assert_eq!(log_for(None, GUI_LOG), local.join(r"UIDM\uidm-gui.log"));
+        assert_eq!(window_dir().unwrap(), local.join("Pullbay"));
+        assert_eq!(log_for(None, DAEMON_LOG), local.join(r"Pullbay\pullbay-daemon.log"));
+        assert_eq!(log_for(Some("test"), DAEMON_LOG), local.join(r"Pullbay-test\pullbay-daemon.log"));
+        assert_eq!(log_for(None, HOST_LOG), local.join(r"Pullbay\pullbay-host.log"));
+        assert_eq!(log_for(None, GUI_LOG), local.join(r"Pullbay\pullbay-gui.log"));
         assert_eq!(packages_dir().unwrap(), local.join("Packages"));
     }
 
@@ -303,16 +341,16 @@ mod tests {
     #[test]
     fn macos_folders_sit_in_application_support() {
         let support = home().join("Library/Application Support");
-        assert_eq!(config_dir_for(None).unwrap(), support.join("UIDM"));
-        assert_eq!(config_dir_for(Some("test")).unwrap(), support.join("UIDM-test"));
-        assert_eq!(data_dir_for(None).unwrap(), support.join("UIDM"));
-        assert_eq!(data_dir_for(Some("test")).unwrap(), support.join("UIDM-test"));
-        assert_eq!(grabber_dir_for(None).unwrap(), support.join("UIDM/grabber"));
-        assert_eq!(grabber_dir_for(Some("test")).unwrap(), support.join("UIDM-test/grabber"));
-        assert_eq!(log_for(None, DAEMON_LOG), support.join("UIDM/uidm-daemon.log"));
-        assert_eq!(log_for(Some("test"), DAEMON_LOG), support.join("UIDM-test/uidm-daemon.log"));
-        assert_eq!(log_for(None, HOST_LOG), support.join("UIDM/uidm-host.log"));
-        assert_eq!(log_for(None, GUI_LOG), support.join("UIDM/uidm-gui.log"));
+        assert_eq!(config_dir_for(None).unwrap(), support.join("Pullbay"));
+        assert_eq!(config_dir_for(Some("test")).unwrap(), support.join("Pullbay-test"));
+        assert_eq!(data_dir_for(None).unwrap(), support.join("Pullbay"));
+        assert_eq!(data_dir_for(Some("test")).unwrap(), support.join("Pullbay-test"));
+        assert_eq!(grabber_dir_for(None).unwrap(), support.join("Pullbay/grabber"));
+        assert_eq!(grabber_dir_for(Some("test")).unwrap(), support.join("Pullbay-test/grabber"));
+        assert_eq!(log_for(None, DAEMON_LOG), support.join("Pullbay/pullbay-daemon.log"));
+        assert_eq!(log_for(Some("test"), DAEMON_LOG), support.join("Pullbay-test/pullbay-daemon.log"));
+        assert_eq!(log_for(None, HOST_LOG), support.join("Pullbay/pullbay-host.log"));
+        assert_eq!(log_for(None, GUI_LOG), support.join("Pullbay/pullbay-gui.log"));
         assert_eq!(autostart_dir().unwrap(), home().join("Library/LaunchAgents"));
         assert_eq!(window_dir(), None);
         assert_eq!(root(Root::Local), Some(home()));
@@ -332,16 +370,16 @@ mod tests {
         let data = env_dir("XDG_DATA_HOME").unwrap_or_else(|| home().join(".local/share"));
         assert_eq!(config_base().unwrap(), config);
         assert_eq!(data_base().unwrap(), data);
-        assert_eq!(config_dir_for(None).unwrap(), config.join("uidm"));
-        assert_eq!(config_dir_for(Some("test")).unwrap(), config.join("uidm-test"));
-        assert_eq!(data_dir_for(None).unwrap(), data.join("uidm"));
-        assert_eq!(data_dir_for(Some("test")).unwrap(), data.join("uidm-test"));
-        assert_eq!(grabber_dir_for(None).unwrap(), config.join("uidm/grabber"));
-        assert_eq!(grabber_dir_for(Some("test")).unwrap(), config.join("uidm-test/grabber"));
-        assert_eq!(log_for(None, DAEMON_LOG), data.join("uidm/uidm-daemon.log"));
-        assert_eq!(log_for(Some("test"), DAEMON_LOG), data.join("uidm-test/uidm-daemon.log"));
-        assert_eq!(log_for(None, HOST_LOG), data.join("uidm/uidm-host.log"));
-        assert_eq!(log_for(None, GUI_LOG), data.join("uidm/uidm-gui.log"));
+        assert_eq!(config_dir_for(None).unwrap(), config.join("pullbay"));
+        assert_eq!(config_dir_for(Some("test")).unwrap(), config.join("pullbay-test"));
+        assert_eq!(data_dir_for(None).unwrap(), data.join("pullbay"));
+        assert_eq!(data_dir_for(Some("test")).unwrap(), data.join("pullbay-test"));
+        assert_eq!(grabber_dir_for(None).unwrap(), config.join("pullbay/grabber"));
+        assert_eq!(grabber_dir_for(Some("test")).unwrap(), config.join("pullbay-test/grabber"));
+        assert_eq!(log_for(None, DAEMON_LOG), data.join("pullbay/pullbay-daemon.log"));
+        assert_eq!(log_for(Some("test"), DAEMON_LOG), data.join("pullbay-test/pullbay-daemon.log"));
+        assert_eq!(log_for(None, HOST_LOG), data.join("pullbay/pullbay-host.log"));
+        assert_eq!(log_for(None, GUI_LOG), data.join("pullbay/pullbay-gui.log"));
         assert_eq!(autostart_dir().unwrap(), config.join("autostart"));
         assert_eq!(window_dir(), None);
         assert_eq!(root(Root::Roaming), Some(home()));

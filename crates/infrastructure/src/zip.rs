@@ -3,14 +3,14 @@
 //! the end-of-central-directory record (and its ZIP64 form), then the
 //! central directory itself, through a function that fetches byte ranges.
 
-use uidm_domain::download::ZipEntry;
+use pullbay_domain::download::ZipEntry;
 
 /// The longest a zip comment can make the end record's search.
 const TAIL: u64 = 65_557;
 /// A central directory larger than this is not read for a preview.
 const MAX_DIRECTORY: u64 = 16 * 1024 * 1024;
 /// Most entries listed.
-pub const MAX_ENTRIES: usize = uidm_domain::download::MAX_ZIP_ENTRIES;
+pub const MAX_ENTRIES: usize = pullbay_domain::download::MAX_ZIP_ENTRIES;
 
 fn u16_at(b: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes(b.get(at..at + 2)?.try_into().ok()?))

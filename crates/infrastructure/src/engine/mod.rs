@@ -19,6 +19,8 @@ mod stream;
 #[cfg(test)]
 pub(crate) mod testserver;
 
+use pullbay_domain::filename::name_from_url;
+use pullbay_domain::filename::{numbered_name, proposed_name, sanitize_filename};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -27,16 +29,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use uidm_domain::filename::name_from_url;
-use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename};
 
 use crate::net::NetConfig;
 use limit::{RateLimiter, Throttle};
+use pullbay_domain::download::{SegmentInfo, SegmentState, Validator};
+use pullbay_domain::media::MediaChoice;
+use pullbay_domain::settings::{FileExists, Folders};
 use resume::Manifest;
 use segments::split;
-use uidm_domain::download::{SegmentInfo, SegmentState, Validator};
-use uidm_domain::media::MediaChoice;
-use uidm_domain::settings::{FileExists, Folders};
 
 /// Smallest file worth splitting; below this, one connection is used.
 const MIN_SEGMENT_BYTES: u64 = 256 * 1024;
@@ -175,10 +175,10 @@ pub enum EngineError {
     Status(u16),
     /// The server asked for a login and none is set for this host; the
     /// realm it named, if any.
-    #[error("{}", uidm_domain::download::needs_login_error(.0, .1.as_deref()))]
+    #[error("{}", pullbay_domain::download::needs_login_error(.0, .1.as_deref()))]
     NeedsLogin(String, Option<String>),
     /// The server refused the login set for this host.
-    #[error("{}", uidm_domain::download::login_refused_error(.0, .1.as_deref()))]
+    #[error("{}", pullbay_domain::download::login_refused_error(.0, .1.as_deref()))]
     LoginRejected(String, Option<String>),
     #[error("http error: {0}")]
     Http(String),
@@ -188,14 +188,14 @@ pub enum EngineError {
     Io(String),
     #[error("protocol error: {0}")]
     Protocol(String),
-    /// UIDM will not download this (DRM, a live stream); the message says
+    /// Pullbay will not download this (DRM, a live stream); the message says
     /// why, for the user.
     #[error("{0}")]
     Refused(String),
     /// The file name is taken and the request says to ask first.
     #[error("{} already exists", path.display())]
     NameTaken { path: PathBuf, total: Option<u64> },
-    /// UIDM may not create files in this folder; saving there needs
+    /// Pullbay may not create files in this folder; saving there needs
     /// administrator rights.
     #[error("{NEEDS_ADMIN}{}", .0.display())]
     NeedsAdmin(PathBuf),
@@ -612,7 +612,7 @@ fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, sh
 }
 
 /// Make `dir` if it is missing, and fail with `NeedsAdmin` before anything
-/// is downloaded if UIDM may not create files in it.
+/// is downloaded if Pullbay may not create files in it.
 fn writable(dir: &Path) -> Result<(), EngineError> {
     if !crate::elevate::can_write(dir) {
         return Err(EngineError::NeedsAdmin(dir.to_path_buf()));
@@ -633,7 +633,7 @@ fn staging_dir(req: &DownloadRequest, id: u64) -> PathBuf {
     match earlier {
         Some(dir) => dir.to_path_buf(),
         None => {
-            let base = req.temp_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("UIDM"));
+            let base = req.temp_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("Pullbay"));
             base.join(format!("{STAGING_PREFIX}{id}"))
         }
     }
@@ -719,7 +719,7 @@ fn run_inner(
     shared: &Shared,
 ) -> Result<Saved, EngineError> {
     let agent = http::Client::new(&req.net, &req.url)?;
-    if let Some(choice) = req.media.as_ref().filter(|c| c.kind == Some(uidm_domain::media::MediaKind::Page)) {
+    if let Some(choice) = req.media.as_ref().filter(|c| c.kind == Some(pullbay_domain::media::MediaKind::Page)) {
         return page::run(id, token, req, choice, reporter, shared);
     }
     if let Some(choice) = &req.media {
@@ -847,7 +847,7 @@ pub fn http_date(s: &str) -> Option<std::time::SystemTime> {
     if !(1..=31).contains(&day) || h > 23 || mi > 59 || sec > 60 {
         return None;
     }
-    let days = uidm_domain::queue::days_from_civil(year, mon, day);
+    let days = pullbay_domain::queue::days_from_civil(year, mon, day);
     let secs = u64::try_from(days).ok()? * 86_400 + h * 3600 + mi * 60 + sec;
     Some(std::time::UNIX_EPOCH + Duration::from_secs(secs))
 }
@@ -976,9 +976,9 @@ pub fn probe_media(
     headers: &[(String, String)],
     net: &NetConfig,
     ffmpeg: Option<&Path>,
-) -> uidm_domain::media::MediaInfo {
+) -> pullbay_domain::media::MediaInfo {
     use crate::media::ytdlp;
-    use uidm_domain::media::{MediaInfo, MediaKind};
+    use pullbay_domain::media::{MediaInfo, MediaKind};
     if !ytdlp::supports(url) {
         return stream::probe(url, headers, net);
     }
@@ -1039,9 +1039,7 @@ pub fn inspect(
 /// The files a download writing to `output` may leave: the file itself, its
 /// resume sidecar, and a stream's folder of segments.
 pub fn files_of(output: &Path) -> Vec<PathBuf> {
-    let mut parts = output.file_name().unwrap_or_default().to_os_string();
-    parts.push(".uidmparts");
-    vec![output.to_path_buf(), Manifest::sidecar_path(output), output.with_file_name(parts)]
+    vec![output.to_path_buf(), Manifest::sidecar_path(output), stream::parts_dir(output)]
 }
 
 /// Leave beside `file` the resume sidecar of a download whose `total`
@@ -1751,7 +1749,7 @@ fn effective_connections(total: u64, requested: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uidm_domain::download::{login_wanted, LoginWanted};
+    use pullbay_domain::download::{login_wanted, LoginWanted};
 
     #[test]
     fn a_file_not_moved_says_where_it_is() {
@@ -1801,14 +1799,14 @@ mod tests {
     #[test]
     fn a_retry_keeps_its_staging_folder() {
         let mut req = live::request("http://x/", Path::new("/dl"), FileExists::Rename);
-        req.temp_dir = Some(PathBuf::from("/tmp/uidm"));
-        assert_eq!(staging_dir(&req, 7), Path::new("/tmp/uidm/elevated-7"));
+        req.temp_dir = Some(PathBuf::from("/tmp/pullbay"));
+        assert_eq!(staging_dir(&req, 7), Path::new("/tmp/pullbay/elevated-7"));
         // A retry gets a new id but resumes the file in the old folder.
-        req.reuse_path = Some(PathBuf::from("/tmp/uidm/elevated-7/report.pdf"));
-        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/uidm/elevated-7"));
+        req.reuse_path = Some(PathBuf::from("/tmp/pullbay/elevated-7/report.pdf"));
+        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/pullbay/elevated-7"));
         // A file chosen in the folder itself is not a staged one.
         req.reuse_path = Some(PathBuf::from("/dl/report.pdf"));
-        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/uidm/elevated-9"));
+        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/pullbay/elevated-9"));
     }
 
     /// End-to-end checks against a local server.
@@ -1820,7 +1818,7 @@ mod tests {
 
         /// A fresh, empty folder for one test.
         fn temp_dir(name: &str) -> PathBuf {
-            let dir = std::env::temp_dir().join(format!("uidm_engine_{}_{name}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("pullbay_engine_{}_{name}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
             dir
@@ -2710,9 +2708,9 @@ mod tests {
         fn downloads_go_to_their_category_folder() {
             let server = TestServer::start(body(LEN));
             let dir = temp_dir("categories");
-            let settings = uidm_domain::settings::Settings {
+            let settings = pullbay_domain::settings::Settings {
                 download_dir: Some(dir.display().to_string()),
-                ..uidm_domain::settings::Settings::default()
+                ..pullbay_domain::settings::Settings::default()
             };
             let mut req = request(&server.url, &dir, FileExists::Rename);
             req.folders = settings.folders(&crate::settings::default_downloads_dir());

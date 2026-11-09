@@ -1,5 +1,5 @@
-use uidm_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueStore};
-use uidm_domain::queue::QueueError;
+use pullbay_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueStore};
+use pullbay_domain::queue::QueueError;
 
 /// Stop a queue. Its running downloads stop and wait in it again, with
 /// their progress kept.
@@ -34,8 +34,8 @@ impl<'a, Q: QueueStore, D: DownloadList, R: QueueRuns, X: DownloadControl> StopQ
 mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, Queues, Runs};
-    use uidm_domain::download::Status;
-    use uidm_domain::queue::{WhenDone, MAIN_QUEUE};
+    use pullbay_domain::download::Status;
+    use pullbay_domain::queue::{WhenDone, MAIN_QUEUE};
 
     #[test]
     fn the_running_downloads_are_held_and_the_run_ends() {

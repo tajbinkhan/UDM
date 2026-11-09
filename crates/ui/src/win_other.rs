@@ -41,7 +41,7 @@ pub fn wake() {
     show();
 }
 
-/// Whether one of UIDM's own windows is in front. Not known here, so a
+/// Whether one of Pullbay's own windows is in front. Not known here, so a
 /// dialog that opens on its own takes the focus, as before.
 pub fn in_front() -> bool {
     true

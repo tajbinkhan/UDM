@@ -8,10 +8,10 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use pullbay_application::daemon::Event;
+use pullbay_domain::grab::RenderedPage;
+use pullbay_domain::ports::Browser;
 use tracing::info;
-use uidm_application::daemon::Event;
-use uidm_domain::grab::RenderedPage;
-use uidm_domain::ports::Browser;
 
 use crate::server::Clients;
 

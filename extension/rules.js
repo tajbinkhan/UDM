@@ -1,6 +1,6 @@
-// Capture rules: which downloads the browser starts are taken by UIDM.
+// Capture rules: which downloads the browser starts are taken by Pullbay.
 //
-// The rules come from UIDM's settings (`capture_types`, `capture_min_size_kb`,
+// The rules come from Pullbay's settings (`capture_types`, `capture_min_size_kb`,
 // `capture_excluded_sites` and `capture_excluded_urls`), so they are edited in one place, the
 // window's Options. These are plain functions: the service worker loads them
 // with importScripts, and the tests load them with require.
@@ -124,7 +124,7 @@ function urlMatches(pattern, url) {
 }
 
 // Whether selecting text with links on the page at `url` shows the
-// "Download with UIDM" button: UIDM's `selection_button` is "off",
+// "Download with Pullbay" button: Pullbay's `selection_button` is "off",
 // "everywhere" or "sites" (those in `selection_button_sites`).
 function selectionButtonAllowed(rules, url) {
   const mode = (rules && rules.selection_button) || "everywhere";
@@ -141,7 +141,7 @@ function downloadType(item) {
   return extensionOf(item.filename) || MIME_EXTENSIONS[mime] || extensionOf(urlPath(item.url));
 }
 
-// A key combination as UIDM stores it ("ctrl+shift", "none") made into
+// A key combination as Pullbay stores it ("ctrl+shift", "none") made into
 // { alt, ctrl, shift, insert, del }. Del is stored "del" ("delete" also
 // reads).
 var KEY_NAMES = ["alt", "ctrl", "shift", "insert", "del"];
@@ -152,7 +152,7 @@ function parseKeys(combo) {
   return keys;
 }
 
-// What the keys held on a link click ask for, by UIDM's `capture_skip_key`
+// What the keys held on a link click ask for, by Pullbay's `capture_skip_key`
 // and `capture_force_key`: "skip", "force" or "". `keys` is the click's
 // { alt, ctrl, shift, insert, del, button, mouse }: `mouse` is false for a click
 // made with Enter. A combination must be held exactly, no more and no less.
@@ -214,7 +214,7 @@ function heldApplies(entry, now) {
   return !!entry && !!entry.action && now - entry.time >= 0 && now - entry.time <= HELD_EXPIRE_MS;
 }
 
-// The toolbar icon of a tab with capture off is UIDM's own icon in grey:
+// The toolbar icon of a tab with capture off is Pullbay's own icon in grey:
 // `data` is an ImageData's RGBA bytes, turned to their brightness in place,
 // a little lighter so the icon reads as "off".
 function greyPixels(data) {
@@ -225,9 +225,9 @@ function greyPixels(data) {
   return data;
 }
 
-// The context menu items UIDM's settings leave out in this browser: Chrome,
+// The context menu items Pullbay's settings leave out in this browser: Chrome,
 // Edge and the other Chromium browsers have `browser_menu_hidden_chromium`,
-// Firefox `browser_menu_hidden_firefox`. An older UIDM sends one
+// Firefox `browser_menu_hidden_firefox`. An older Pullbay sends one
 // `browser_menu_hidden` for both.
 function hiddenMenuItems(rules, firefox) {
   if (!rules) return [];
@@ -236,7 +236,7 @@ function hiddenMenuItems(rules, firefox) {
   return Array.isArray(rules.browser_menu_hidden) ? rules.browser_menu_hidden : [];
 }
 
-// A link's `download` attribute as a file name for UIDM: the page chose it,
+// A link's `download` attribute as a file name for Pullbay: the page chose it,
 // so only its last part counts (no folders), without the characters Windows
 // forbids, and none when it is empty (a bare `download` keeps the server's).
 function linkFileName(name) {
@@ -251,7 +251,7 @@ function linkFileName(name) {
   return base || undefined;
 }
 
-// A link's description for UIDM's list: its title, else its text, on one
+// A link's description for Pullbay's list: its title, else its text, on one
 // line and not too long; none when it has neither.
 function linkDescription(title, text) {
   const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
@@ -285,11 +285,11 @@ function clickApplies(click, now) {
   return !!click && now - click.time >= 0 && now - click.time <= CLICK_WINDOW_MS;
 }
 
-// Decide whether UIDM takes `item`, a download the browser just reported:
+// Decide whether Pullbay takes `item`, a download the browser just reported:
 // { url, referrer, filename, mime, size, key }. `key` is a held key's
 // action ("skip" or "force"), which overrides every other rule. `size` is 0 or missing when the
 // browser does not know it yet; then only the name and site are checked.
-// `rules` is UIDM's settings, or null before they arrive (take everything).
+// `rules` is Pullbay's settings, or null before they arrive (take everything).
 // Returns { capture, reason }; `reason` says why a download stays.
 function captureDecision(rules, item) {
   if (item.key === "skip") return { capture: false, reason: "the skip key was held" };
@@ -386,7 +386,7 @@ function samplePoints(r, width, height) {
 // Whether the player `el` is covered by something else on the page (a
 // dialog, a sticky banner, another tab's panel): at every point of `points`
 // the topmost element (`hitAt(x, y)`, document.elementFromPoint) is outside
-// the player's `container` and is not one of its ancestors. UIDM's own
+// the player's `container` and is not one of its ancestors. Pullbay's own
 // button (`ignore`) covers nothing; points where nothing is (off screen)
 // say nothing.
 function playerCovered(el, container, points, hitAt, ignore) {

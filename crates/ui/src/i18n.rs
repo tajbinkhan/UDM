@@ -52,7 +52,7 @@ fn table(index: usize) -> &'static Table {
 }
 
 /// The language Options names, or for an empty setting the first Windows
-/// display language UIDM has, else English.
+/// display language Pullbay has, else English.
 pub fn resolve(setting: &str) -> &'static Language {
     let wanted = if setting.is_empty() { crate::win::display_languages() } else { vec![setting.to_string()] };
     wanted

@@ -49,7 +49,7 @@ test("rebuilding a recorded request", () => {
   );
   assert.equal(multi.body, b64(multi.text));
   assert.ok(rebuildPost({ requestBody: { formData: { a: ["1"] } }, contentType: "multipart/form-data; boundary=x", files: { names: ["f"], chosen: true } }).leave);
-  assert.match(rebuildPost({ requestBody: { formData: { a: ["1"] } }, contentType: "multipart/form-data; boundary=x" }).contentType, /^multipart\/form-data; boundary=----UIDMFormBoundary[0-9a-f]{24}$/);
+  assert.match(rebuildPost({ requestBody: { formData: { a: ["1"] } }, contentType: "multipart/form-data; boundary=x" }).contentType, /^multipart\/form-data; boundary=----PullbayFormBoundary[0-9a-f]{24}$/);
 
   // What cannot be rebuilt stays in the browser.
   assert.ok(rebuildPost({ requestBody: { formData: { a: ["1"] } }, contentType: "text/csv" }).leave);
@@ -84,7 +84,7 @@ test("a download matches the latest recent POST to its URL", () => {
 
 function connected() {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: { capture_types: [], capture_min_size_kb: 0, capture_excluded_sites: [] } });
   return w;
 }
@@ -99,7 +99,7 @@ function submit(w, { requestId, url, requestBody, contentType }) {
   });
 }
 
-test("a form's download is handed to UIDM as the same POST", async () => {
+test("a form's download is handed to Pullbay as the same POST", async () => {
   const w = connected();
   submit(w, {
     requestId: "1",
@@ -157,7 +157,7 @@ test("a multipart form's download is resent without its empty file field", async
 
 test("a web player's file asked for with a script's POST goes as the same POST", async () => {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "uidm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
   w.port.onMessage.fire({
     op: "settings",
     settings: { capture_types: [], video_auto_capture: true, video_auto_types: ["mp4"], capture_excluded_sites: [] },
@@ -192,7 +192,7 @@ test("a web player's file asked for with a script's POST goes as the same POST",
   assert.equal(w.sent.filter((m) => m.op === "add").at(-1).method, undefined);
 });
 
-test("a POST UIDM cannot start goes back to the browser as a POST", async () => {
+test("a POST Pullbay cannot start goes back to the browser as a POST", async () => {
   const w = connected();
   submit(w, {
     requestId: "3",

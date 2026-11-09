@@ -17,7 +17,7 @@
 
 use roxmltree::{Document, Node};
 
-use uidm_domain::media::{
+use pullbay_domain::media::{
     resolve, AddressError, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED,
 };
 
@@ -39,7 +39,7 @@ pub enum DashError {
     Drm,
     #[error("The manifest has no periods.")]
     NoPeriods,
-    #[error("The video is split into {0} periods (often ads between parts), which UIDM cannot join.")]
+    #[error("The video is split into {0} periods (often ads between parts), which Pullbay cannot join.")]
     Periods(usize),
     #[error("The manifest has no video or audio.")]
     NoTracks,
@@ -382,13 +382,13 @@ fn options(reps: &[Representation], duration: Option<f64>) -> Vec<MediaOption> {
             id: r.id.clone(),
             label: match (&r.language, r.content) {
                 (Some(lang), Content::Audio) => {
-                    format!("{lang}, {}", uidm_domain::media::quality_label(None, r.bandwidth))
+                    format!("{lang}, {}", pullbay_domain::media::quality_label(None, r.bandwidth))
                 }
-                _ => uidm_domain::media::quality_label(r.height, r.bandwidth),
+                _ => pullbay_domain::media::quality_label(r.height, r.bandwidth),
             },
             height: r.height,
             bandwidth: r.bandwidth,
-            size: uidm_domain::media::estimate_size(r.bandwidth, duration),
+            size: pullbay_domain::media::estimate_size(r.bandwidth, duration),
             ..MediaOption::default()
         })
         .collect()
