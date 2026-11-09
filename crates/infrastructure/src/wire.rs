@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uidm_application::daemon::service::ServiceError;
 use uidm_application::daemon::{Command, Event, Failure};
 use uidm_application::downloads::{ConfirmError, StartOrWaitError};
-use uidm_domain::download::DownloadError;
+use uidm_domain::download::{DownloadError, Mismatch};
 use uidm_domain::grab::InvalidGrab;
 use uidm_domain::ports::{ControlError, SettingsError};
 use uidm_domain::queue::QueueError;
@@ -145,7 +145,9 @@ pub fn event(msg: Outgoing) -> Event {
         Outgoing::Quit => Event::Quit,
         Outgoing::RefreshWaiting { id } => Event::RefreshWaiting { id },
         Outgoing::NameTaken { id, url, path, total } => Event::NameTaken { id, url, path, total },
-        Outgoing::RefreshMismatch { id, url, reason } => Event::RefreshMismatch { id, url, reason },
+        Outgoing::RefreshMismatch { id, url, reason, error_kind } => {
+            Event::RefreshMismatch { id, url, reason: failure(reason, error_kind) }
+        }
         Outgoing::AddedMany { count, skipped } => Event::AddedMany { count, skipped },
         Outgoing::LinkInfo { request, index, total, content_type, error, error_kind } => {
             Event::LinkInfo { request, index, total, content_type, error: error.map(|e| failure(e, error_kind)) }
@@ -205,7 +207,10 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
         Event::Quit => Outgoing::Quit,
         Event::RefreshWaiting { id } => Outgoing::RefreshWaiting { id },
         Event::NameTaken { id, url, path, total } => Outgoing::NameTaken { id, url, path, total },
-        Event::RefreshMismatch { id, url, reason } => Outgoing::RefreshMismatch { id, url, reason },
+        Event::RefreshMismatch { id, url, reason } => {
+            let (reason, error_kind) = text_and_kind(reason);
+            Outgoing::RefreshMismatch { id, url, reason, error_kind }
+        }
         Event::AddedMany { count, skipped } => Outgoing::AddedMany { count, skipped },
         Event::LinkInfo { request, index, total, content_type, error } => {
             let (error, error_kind) = optional(error);
@@ -279,10 +284,13 @@ const INVALID_MESSAGE: &str = "invalid message: ";
 
 /// `Failure`'s shape on the wire: the application's enums, which do not know
 /// the wire, mirrored here around the domain's, which serialize themselves.
+/// These variant names, and the domain enums', are the wire format: renaming
+/// one changes what clients read (the golden tests below pin them).
 #[derive(Serialize, Deserialize)]
 enum WireFailure {
     Service(WireService),
     Settings(SettingsError),
+    Mismatch(Mismatch),
     InvalidMessage(String),
     Probe(String),
 }
@@ -312,6 +320,7 @@ impl WireFailure {
         Some(match f {
             Failure::Service(e) => WireFailure::Service(WireService::of(e)),
             Failure::Settings(e) => WireFailure::Settings(e),
+            Failure::Mismatch(e) => WireFailure::Mismatch(e),
             Failure::InvalidMessage(why) => WireFailure::InvalidMessage(why),
             Failure::Probe(why) => WireFailure::Probe(why),
             Failure::Other(_) => return None,
@@ -324,6 +333,7 @@ impl From<WireFailure> for Failure {
         match w {
             WireFailure::Service(e) => Failure::Service(e.into()),
             WireFailure::Settings(e) => Failure::Settings(e),
+            WireFailure::Mismatch(e) => Failure::Mismatch(e),
             WireFailure::InvalidMessage(why) => Failure::InvalidMessage(why),
             WireFailure::Probe(why) => Failure::Probe(why),
         }
@@ -531,10 +541,99 @@ mod tests {
         );
     }
 
-    /// What a typed failure looks like on the wire.
+    /// What a typed failure looks like on the wire. The variant names of
+    /// the wire mirrors and of the domain enums are the wire format, so a
+    /// rename shows up here rather than in the clients.
     #[test]
     fn the_kind_names_the_error_and_its_values() {
-        let (value, _) = round_trip(Event::Error { error: QueueError::NoQueue(7).into() });
-        assert_eq!(value["error_kind"], serde_json::json!({"Service": {"Queue": {"NoQueue": 7}}}));
+        use serde_json::json;
+        use uidm_domain::command::CommandError;
+        use uidm_domain::queue::InvalidQueue;
+        use uidm_domain::settings::{InvalidSettings, ProxyEntry, SettingsField};
+        let golden: Vec<(Failure, serde_json::Value)> = vec![
+            (ServiceError::CrawlRunning.into(), json!({"Service": "CrawlRunning"})),
+            (ServiceError::BadBody("http://a/".into()).into(), json!({"Service": {"BadBody": "http://a/"}})),
+            (ServiceError::NotDownloadAddress("x:y".into()).into(), json!({"Service": {"NotDownloadAddress": "x:y"}})),
+            (QueueError::NoQueue(7).into(), json!({"Service": {"Queue": {"NoQueue": 7}}})),
+            (QueueError::MainQueue.into(), json!({"Service": {"Queue": "MainQueue"}})),
+            (QueueError::NameTaken("N".into()).into(), json!({"Service": {"Queue": {"NameTaken": "N"}}})),
+            (
+                QueueError::Invalid(InvalidQueue::StartTime("25:00".into())).into(),
+                json!({"Service": {"Queue": {"Invalid": {"StartTime": "25:00"}}}}),
+            ),
+            (DownloadError::NoDownload(3).into(), json!({"Service": {"Download": {"NoDownload": 3}}})),
+            (
+                DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
+                json!({"Service": {"Download": {"BadSpeedLimit": {"kbps": 1, "lo": 2, "hi": 3}}}}),
+            ),
+            (
+                DownloadError::FilesStay { url: "u".into(), reason: "r".into() }.into(),
+                json!({"Service": {"Download": {"FilesStay": {"url": "u", "reason": "r"}}}}),
+            ),
+            (UpdateError::NewestAlready.into(), json!({"Service": {"Update": "NewestAlready"}})),
+            (
+                UpdateError::Save { path: "/t/s".into(), reason: "denied".into() }.into(),
+                json!({"Service": {"Update": {"Save": {"path": "/t/s", "reason": "denied"}}}}),
+            ),
+            (ServiceError::Grab(InvalidGrab::Depth).into(), json!({"Service": {"Grab": "Depth"}})),
+            (
+                ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
+                json!({"Service": {"Confirm": {"Download": "AnswerNoFolder"}}}),
+            ),
+            (
+                ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
+                json!({"Service": {"Confirm": {"StartControl": "busy"}}}),
+            ),
+            (
+                ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(4)))).into(),
+                json!({"Service": {"Confirm": {"StartQueue": {"NoQueue": 4}}}}),
+            ),
+            (SettingsError::Refused("read-only".into()).into(), json!({"Settings": {"Refused": "read-only"}})),
+            (SettingsError::Invalid(InvalidSettings::QuotaZero).into(), json!({"Settings": {"Invalid": "QuotaZero"}})),
+            (
+                SettingsError::Invalid(InvalidSettings::FolderNotFull(
+                    SettingsField::CategoryFolder("Music".into()),
+                    "rel".into(),
+                ))
+                .into(),
+                json!({"Settings": {"Invalid": {"FolderNotFull": [{"CategoryFolder": "Music"}, "rel"]}}}),
+            ),
+            (
+                SettingsError::Invalid(InvalidSettings::ProxyNotHostPort(ProxyEntry::Socks)).into(),
+                json!({"Settings": {"Invalid": {"ProxyNotHostPort": "Socks"}}}),
+            ),
+            (
+                SettingsError::Invalid(InvalidSettings::Scanner(CommandError::NoPath)).into(),
+                json!({"Settings": {"Invalid": {"Scanner": "NoPath"}}}),
+            ),
+            (Mismatch::Changed.into(), json!({"Mismatch": "Changed"})),
+            (Mismatch::Size { new: 1, partial: 2 }.into(), json!({"Mismatch": {"Size": {"new": 1, "partial": 2}}})),
+            (Failure::InvalidMessage("eof".into()), json!({"InvalidMessage": "eof"})),
+            (Failure::Probe("HTTP 404".into()), json!({"Probe": "HTTP 404"})),
+        ];
+        for (failure, kind) in golden {
+            let (value, back) = round_trip(Event::Error { error: failure.clone() });
+            assert_eq!(value["error_kind"], kind, "{failure:?}");
+            assert_eq!(back, Event::Error { error: failure });
+        }
+    }
+
+    #[test]
+    fn a_new_links_mismatch_keeps_its_reason_and_kind() {
+        let reason = Failure::from(Mismatch::Size { new: 2 << 20, partial: 1 << 20 });
+        let (value, back) = round_trip(Event::RefreshMismatch { id: 1, url: "u".into(), reason: reason.clone() });
+        assert_eq!(value["reason"], "The new link is for a 2.0 MB file; the partial download is of a 1.0 MB file.");
+        assert_eq!(
+            value["error_kind"],
+            serde_json::json!({"Mismatch": {"Size": {"new": 2 << 20, "partial": 1 << 20}}})
+        );
+        assert_eq!(back, Event::RefreshMismatch { id: 1, url: "u".into(), reason });
+        // From a daemon that sent the reason as text alone.
+        let old: Outgoing =
+            serde_json::from_str(r#"{"op":"refresh_mismatch","id":1,"url":"u","reason":"other file"}"#).unwrap();
+        assert_eq!(
+            super::event(old),
+            Event::RefreshMismatch { id: 1, url: "u".into(), reason: Failure::Other("other file".into()) }
+        );
     }
 }

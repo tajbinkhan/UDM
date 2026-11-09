@@ -1,5 +1,5 @@
 use uidm_domain::batch;
-use uidm_domain::download::{Download, DownloadError, Status};
+use uidm_domain::download::{Download, DownloadError, Mismatch, Status};
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueStore};
 
 use super::RetryDownload;
@@ -10,8 +10,8 @@ pub enum Refreshed {
     /// The download waits for the next link the browser hands over.
     Waiting,
     /// The new link is not for the file the partial copy came from; nothing
-    /// changed. The text says why.
-    Mismatch(String),
+    /// changed, and why.
+    Mismatch(Mismatch),
     /// The download has the new link: a waiting one keeps waiting with it,
     /// any other started again.
     NewLink(String),
@@ -112,12 +112,9 @@ mod tests {
     #[test]
     fn a_different_file_changes_nothing_unless_restarted() {
         let (queues, downloads) = (Queues::main(), started(1, Status::Interrupted));
-        let control = Control::checking(Ok(Some("a different size".into())));
+        let control = Control::checking(Ok(Some(Mismatch::Changed)));
         let refresh = RefreshLink::new(&queues, &downloads, &control);
-        assert_eq!(
-            refresh.run(1, link("https://new.example/x"), false),
-            Ok(Refreshed::Mismatch("a different size".into()))
-        );
+        assert_eq!(refresh.run(1, link("https://new.example/x"), false), Ok(Refreshed::Mismatch(Mismatch::Changed)));
         assert!(control.restarted().is_empty());
         assert!(refresh.run(1, link("https://new.example/x"), true).is_ok(), "restart skips the check");
     }

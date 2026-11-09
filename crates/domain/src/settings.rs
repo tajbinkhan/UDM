@@ -1346,6 +1346,9 @@ fn check_extensions(what: SettingsField, exts: &[String]) -> Result<(), InvalidS
 }
 
 /// A part of the settings that a message names.
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SettingsField {
     DownloadFolder,
@@ -1374,6 +1377,9 @@ impl std::fmt::Display for SettingsField {
 }
 
 /// One of the manual proxies.
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProxyEntry {
     Http,
@@ -1395,6 +1401,9 @@ impl std::fmt::Display for ProxyEntry {
 
 /// Why settings are not valid (see [`Settings::validate`]). The window
 /// shows these, translated.
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum InvalidSettings {
     #[error("The configuration script must be an http or https address.")]

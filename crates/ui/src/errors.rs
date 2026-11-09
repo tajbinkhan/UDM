@@ -7,7 +7,7 @@ use uidm_application::daemon::Failure;
 use uidm_application::downloads::{ConfirmError, StartOrWaitError};
 use uidm_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
 use uidm_domain::command::{CommandError, PATH_TOKEN};
-use uidm_domain::download::DownloadError;
+use uidm_domain::download::{megabytes, DownloadError, Mismatch};
 use uidm_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
 use uidm_domain::ports::SettingsError;
 use uidm_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
@@ -316,8 +316,31 @@ pub fn daemon(e: &Failure) -> String {
     match e {
         Failure::Service(e) => service(e),
         Failure::Settings(e) => settings_error(e),
+        Failure::Mismatch(e) => mismatch(e),
         Failure::InvalidMessage(why) => trf!("invalid message: {why}", why = why),
         Failure::Probe(why) | Failure::Other(why) => why.clone(),
+    }
+}
+
+/// Why a new link does not fit a partial download.
+pub fn mismatch(e: &Mismatch) -> String {
+    match e {
+        Mismatch::UnknownSize => {
+            tr("The new link does not say how big its file is, so it cannot be matched to the partial download.")
+                .to_string()
+        }
+        Mismatch::Size { new, partial } => trf!(
+            "The new link is for a {new} file; the partial download is of a {partial} file.",
+            new = megabytes(*new),
+            partial = megabytes(*partial)
+        ),
+        Mismatch::Changed => {
+            tr("The file at the new link has changed since the download started (its ETag or date differs).")
+                .to_string()
+        }
+        Mismatch::NotResumable => {
+            tr("The new link's server cannot resume downloads, so it must start over.").to_string()
+        }
     }
 }
 
@@ -468,6 +491,10 @@ mod tests {
             Failure::InvalidMessage("expected value".into()),
             Failure::Probe("HTTP 404".into()),
             Failure::Other("from an old daemon".into()),
+            Mismatch::UnknownSize.into(),
+            Mismatch::Size { new: 3 << 20, partial: 1 << 20 }.into(),
+            Mismatch::Changed.into(),
+            Mismatch::NotResumable.into(),
             SettingsError::Invalid(InvalidSettings::TextSize).into(),
             ServiceError::CrawlRunning.into(),
             ServiceError::BadBody("http://a/".into()).into(),

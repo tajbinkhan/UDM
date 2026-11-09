@@ -1235,7 +1235,7 @@ impl<W: Wiring> DaemonService<W> {
         id: u64,
         download: Option<Download>,
         restart: bool,
-    ) -> Result<Option<String>, ServiceError> {
+    ) -> Result<Option<uidm_domain::download::Mismatch>, ServiceError> {
         match RefreshLink::new(&*self.store, &*self.store, &*self.transfers).run(id, download, restart)? {
             Refreshed::Waiting => Ok(None),
             Refreshed::Mismatch(reason) => Ok(Some(reason)),
@@ -1547,7 +1547,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 }
             }
             match daemon.refresh_link(id, download, restart) {
-                Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason }),
+                Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason: reason.into() }),
                 Ok(None) => {}
                 Err(message) => send(Event::Error { error: message.into() }),
             }

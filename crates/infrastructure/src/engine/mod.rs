@@ -34,7 +34,7 @@ use crate::net::NetConfig;
 use limit::{RateLimiter, Throttle};
 use resume::Manifest;
 use segments::split;
-use uidm_domain::download::{SegmentInfo, SegmentState, Validator};
+use uidm_domain::download::{Mismatch, SegmentInfo, SegmentState, Validator};
 use uidm_domain::media::MediaChoice;
 use uidm_domain::settings::{FileExists, Folders};
 
@@ -1067,21 +1067,6 @@ pub fn partial_files(partial: &Path) -> Vec<PathBuf> {
     vec![partial.to_path_buf(), Manifest::sidecar_path(partial)]
 }
 
-/// Why a partial download cannot continue from a new link. The window
-/// shows the message.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum Mismatch {
-    #[error("The new link does not say how big its file is, so it cannot be matched to the partial download.")]
-    UnknownSize,
-    /// The new link's size and the partial download's, as "2.0 MB".
-    #[error("The new link is for a {0} file; the partial download is of a {1} file.")]
-    Size(String, String),
-    #[error("The file at the new link has changed since the download started (its ETag or date differs).")]
-    Changed,
-    #[error("The new link's server cannot resume downloads, so it must start over.")]
-    NotResumable,
-}
-
 /// Whether the partial file at `output` can be continued from the file
 /// `found` describes: the same size, and the same ETag or Last-Modified when
 /// both sides have one (`ignore_date` skips the Last-Modified check). A
@@ -1094,10 +1079,9 @@ pub fn partial_matches(output: &Path, found: &Inspection, ignore_date: bool) -> 
     if !output.is_file() {
         return Ok(());
     }
-    let mb = |n: u64| format!("{:.1} MB", n as f64 / (1024.0 * 1024.0));
     match found.total {
         None => Err(Mismatch::UnknownSize),
-        Some(total) if total != m.total => Err(Mismatch::Size(mb(total), mb(m.total))),
+        Some(total) if total != m.total => Err(Mismatch::Size { new: total, partial: m.total }),
         Some(total) if !m.matches(total, found.etag.as_deref(), found.last_modified.as_deref(), ignore_date) => {
             Err(Mismatch::Changed)
         }

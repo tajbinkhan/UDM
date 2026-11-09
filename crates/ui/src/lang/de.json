@@ -1015,5 +1015,9 @@
   "This release has no Setup program; download it from its page.": "Diese Version hat kein Setup-Programm; laden Sie sie von ihrer Seite herunter.",
   "Could not download the update: {why}": "Das Update konnte nicht heruntergeladen werden: {why}",
   "Could not save the update to {path}: {reason}": "Das Update konnte nicht unter {path} gespeichert werden: {reason}",
-  "Could not start {path}: {reason}": "{path} konnte nicht gestartet werden: {reason}"
+  "Could not start {path}: {reason}": "{path} konnte nicht gestartet werden: {reason}",
+  "The new link does not say how big its file is, so it cannot be matched to the partial download.": "Der neue Link nennt die Größe seiner Datei nicht und kann daher nicht dem angefangenen Download zugeordnet werden.",
+  "The new link is for a {new} file; the partial download is of a {partial} file.": "Der neue Link verweist auf eine Datei mit {new}; der angefangene Download ist eine Datei mit {partial}.",
+  "The file at the new link has changed since the download started (its ETag or date differs).": "Die Datei am neuen Link hat sich seit dem Start des Downloads geändert (ihr ETag oder Datum weicht ab).",
+  "The new link's server cannot resume downloads, so it must start over.": "Der Server des neuen Links kann Downloads nicht fortsetzen, daher muss von vorn begonnen werden."
 }

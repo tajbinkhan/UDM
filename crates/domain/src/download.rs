@@ -549,7 +549,8 @@ pub struct OnDone {
 }
 
 /// Why a change to a download was refused. The messages are shown to the
-/// user.
+/// user. The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum DownloadError {
     #[error("no download with id {0}")]
@@ -612,6 +613,27 @@ pub enum DownloadError {
     /// It left the list, but its files could not go to the Recycle Bin.
     #[error("Removed {url} from the list, but its files stay: {reason}")]
     FilesStay { url: String, reason: String },
+}
+
+/// Why a partial download cannot continue from a new link. The window
+/// shows these, translated. The variant names are part of the wire format
+/// (the daemon's `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
+pub enum Mismatch {
+    #[error("The new link does not say how big its file is, so it cannot be matched to the partial download.")]
+    UnknownSize,
+    /// The new link's size and the partial download's, in bytes.
+    #[error("The new link is for a {} file; the partial download is of a {} file.", megabytes(*new), megabytes(*partial))]
+    Size { new: u64, partial: u64 },
+    #[error("The file at the new link has changed since the download started (its ETag or date differs).")]
+    Changed,
+    #[error("The new link's server cannot resume downloads, so it must start over.")]
+    NotResumable,
+}
+
+/// `bytes` as a [`Mismatch`] says it: "2.0 MB".
+pub fn megabytes(bytes: u64) -> String {
+    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
 }
 
 /// A download's own speed limit from `bytes_per_sec`: `None` (or 0) is no

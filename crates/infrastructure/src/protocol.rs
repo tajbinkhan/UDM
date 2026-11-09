@@ -382,6 +382,10 @@ pub enum Outgoing {
         id: u64,
         url: String,
         reason: String,
+        /// The reason's kind and values (see `wire`), for clients that
+        /// translate it; `reason` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Reply to `add_many`: how many downloads were added, and how many were
     /// skipped because their address was already in the list.

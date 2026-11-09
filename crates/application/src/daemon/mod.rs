@@ -343,11 +343,12 @@ pub enum Event {
         path: String,
         total: Option<u64>,
     },
-    /// The new link of a `RefreshLink` is for another file.
+    /// The new link of a `RefreshLink` is for another file: `reason` is a
+    /// `Failure::Mismatch` (or, from an older daemon, `Other`).
     RefreshMismatch {
         id: u64,
         url: String,
-        reason: String,
+        reason: Failure,
     },
     /// Downloads an `AddMany` added, and those skipped as duplicates.
     AddedMany {

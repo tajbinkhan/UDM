@@ -568,6 +568,9 @@ impl Schedule {
 
 /// Why a queue's own settings or its schedule are not valid (see
 /// [`Queue::validate`]). The window shows these, translated.
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum InvalidQueue {
     #[error("A queue needs a name.")]
@@ -596,6 +599,9 @@ pub enum InvalidQueue {
 
 /// Why a change to the queues was refused. The messages are shown to the
 /// user, translated by the window.
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum QueueError {
     #[error("no queue with id {0}")]

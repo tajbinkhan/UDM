@@ -206,7 +206,7 @@ impl AppState {
             Event::CountdownCanceled => self.countdown = None,
             Event::RefreshWaiting { id } => self.refresh_waiting = *id,
             Event::RefreshMismatch { id, url, reason } => {
-                self.refresh_mismatch = Some((*id, url.clone(), reason.clone()));
+                self.refresh_mismatch = Some((*id, url.clone(), errors::daemon(reason)));
             }
             Event::Settings { settings } => {
                 self.settings = Some(settings.clone());

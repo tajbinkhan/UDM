@@ -2,7 +2,7 @@
 //! the error's kind and values, so the window can say it in the user's
 //! language. Each message reads as the daemon's English text did before.
 
-use uidm_domain::download::DownloadError;
+use uidm_domain::download::{DownloadError, Mismatch};
 use uidm_domain::ports::{ProbeError, SettingsError};
 use uidm_domain::queue::QueueError;
 use uidm_domain::update::UpdateError;
@@ -18,6 +18,9 @@ pub enum Failure {
     /// New settings the daemon would not keep.
     #[error(transparent)]
     Settings(#[from] SettingsError),
+    /// A new link is not for the file a partial download came from.
+    #[error(transparent)]
+    Mismatch(#[from] Mismatch),
     /// The daemon could not read a client's message; the parser's complaint.
     #[error("invalid message: {0}")]
     InvalidMessage(String),
@@ -74,5 +77,7 @@ mod tests {
         assert_eq!(Failure::InvalidMessage("eof".into()).to_string(), "invalid message: eof");
         assert_eq!(Failure::from(ProbeError("HTTP 404".into())), Failure::Probe("HTTP 404".into()));
         assert_eq!(Failure::Other("as sent".into()).to_string(), "as sent");
+        let size = Failure::from(Mismatch::Size { new: 2 * 1024 * 1024, partial: 1024 * 1024 });
+        assert_eq!(size.to_string(), "The new link is for a 2.0 MB file; the partial download is of a 1.0 MB file.");
     }
 }

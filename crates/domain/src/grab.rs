@@ -246,6 +246,9 @@ impl Default for GrabRequest {
 }
 
 /// Why a grabber request cannot run. The window shows these, translated.
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum InvalidGrab {
     #[error("The start page must be a full web address.")]
