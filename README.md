@@ -1613,13 +1613,15 @@ is a failed scan, as is one that runs over 10 minutes.
 | `extension/media.js` | Which responses are videos and streams, per tab, and the video menu |
 | `extension/content.js` | The video button over playing videos |
 | `extension/test/` | Node tests for the rules and the service worker |
-| `assets/icon-64.rgba` | Window icon, raw RGBA made from `extension/icons/128.png` |
+| `assets/icon.svg` | The app icon's source; `installer/render-icons.js` renders every icon file below from it |
+| `assets/icon-64.rgba` | Window and tray icon, raw RGBA rendered from `assets/icon.svg` |
 | `host/com.uidm.host.json` | Template of the native-messaging manifest |
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
 | `installer/uidm.iss` | Inno Setup script for `UIDM-Setup-<version>.exe` |
 | `installer/build.ps1` | Builds the programs and the installer into `dist\` |
 | `installer/make-firefox.ps1` | Makes the Firefox copy of the extension, or with `-Check` tells whether one is out of date |
 | `installer/make-firefox.js` | The same for macOS and Linux, with `--check` |
+| `installer/render-icons.js` | Renders `assets/icon.svg` to the extension's PNGs, `assets/icon-256.png`, `assets/icon-1024.png` and `assets/icon-64.rgba` with headless Chrome |
 | `installer/uidm.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
 
 ## Build

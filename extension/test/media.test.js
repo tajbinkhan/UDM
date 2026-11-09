@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
+const { autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, mediaRequest, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
 const { loadWorker } = require("./harness.js");
 const { hiddenMenuItems } = require("../rules.js");
 
@@ -226,6 +226,54 @@ test("a tab's video goes to UIDM in the quality picked", async () => {
   // A new page in the tab starts its list over.
   await w.chrome.webRequest.onBeforeRequest.fire({ tabId: 7, type: "main_frame", method: "GET", url: "https://site.net/next" });
   assert.equal((await w.content({ type: "video:menu" }, 7)).items.length, 0);
+});
+
+test("a stream is asked for with the headers the player sent", async () => {
+  const w = connected();
+  const url = "https://cdn.v.net/hls/master.m3u8?token=abc";
+  w.chrome.webRequest.onSendHeaders.fire({
+    requestId: "41",
+    tabId: 7,
+    frameId: 0,
+    type: "xmlhttprequest",
+    method: "GET",
+    url,
+    requestHeaders: [
+      { name: "Origin", value: "https://site.net" },
+      { name: "Referer", value: "https://site.net/" },
+      { name: "X-Stream-Key", value: "k1" },
+      { name: "Cookie", value: "session=1" },
+    ],
+  });
+  await w.chrome.webRequest.onHeadersReceived.fire({ requestId: "41", tabId: 7, type: "xmlhttprequest", ...response(url, "application/vnd.apple.mpegurl") });
+
+  const asked = w.content({ type: "video:menu" }, 7);
+  await tick();
+  const probe = w.sent.find((m) => m.op === "probe_media");
+  same(probe.download.request_headers, [
+    ["Origin", "https://site.net"],
+    ["Referer", "https://site.net/"],
+    ["X-Stream-Key", "k1"],
+  ]);
+  assert.equal(probe.download.referrer, "https://site.net/", "the Referer the player sent, not the page's address");
+  w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { kind: "hls", video: [{ id: "", label: "Default" }], audio: [] } });
+  const item = (await asked).items[0];
+
+  await w.content({ type: "video:download", entry: item.entry, title: "Clip" }, 7);
+  const add = w.sent.find((m) => m.op === "add");
+  same(add.request_headers, probe.download.request_headers);
+  assert.equal(add.referrer, "https://site.net/");
+});
+
+test("a media entry keeps its latest request's headers, without cookies", () => {
+  const store = new Map();
+  const found = { kind: "hls", mime: "", size: 0 };
+  const e = recordMedia(store, 1, "https://v.net/a.m3u8", found, 1, 0, [["Origin", "https://a.net"]]);
+  recordMedia(store, 1, "https://v.net/a.m3u8", found, 2, 0, [["Origin", "https://b.net"], ["Cookie", "x=1"], [":authority", "v.net"]]);
+  recordMedia(store, 1, "https://v.net/a.m3u8", found, 3, 0, undefined);
+  same(mediaRequest(e), { request_headers: [["Origin", "https://b.net"]] });
+  same(mediaRequest(recordMedia(store, 1, "https://v.net/b.m3u8", found, 4)), {});
+  same(mediaRequest({ headers: [["Referer", "android-app://x"]] }), { request_headers: [["Referer", "android-app://x"]] }, "only a web Referer is a referrer");
 });
 
 test("YouTube pages are one address per video", () => {

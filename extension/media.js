@@ -366,8 +366,10 @@ let nextMediaId = 1;
 // Remember media `found` (from classifyMedia) at `url` for tab `tabId`.
 // `store` maps tab id -> Map(url -> entry). The same URL again keeps its
 // entry, learning its size if it was unknown. Each request is noted with
-// the frame `frameId` that made it (see elementEntries). Returns the entry.
-function recordMedia(store, tabId, url, found, now, frameId) {
+// the frame `frameId` that made it (see elementEntries). `headers` are the
+// [name, value] pairs the player's request sent, when the worker saw them;
+// the latest request's are kept. Returns the entry.
+function recordMedia(store, tabId, url, found, now, frameId, headers) {
   let tab = store.get(tabId);
   if (!tab) {
     tab = new Map();
@@ -377,6 +379,7 @@ function recordMedia(store, tabId, url, found, now, frameId) {
   let entry = tab.get(url);
   if (entry) {
     if (!entry.size && found.size) entry.size = found.size;
+    if (headers && headers.length) entry.headers = headers;
     if (found.kind !== "page") {
       entry.requests.push(request);
       if (entry.requests.length > REQUESTS_PER_MEDIA) entry.requests.shift();
@@ -384,9 +387,27 @@ function recordMedia(store, tabId, url, found, now, frameId) {
     return entry;
   }
   entry = { id: nextMediaId++, url, kind: found.kind, mime: found.mime, size: found.size, time: now, requests: found.kind === "page" ? [] : [request] };
+  if (headers && headers.length) entry.headers = headers;
   tab.set(url, entry);
   while (tab.size > MEDIA_PER_TAB) tab.delete(tab.keys().next().value);
   return entry;
+}
+
+// What the player's own request for media `entry` adds to a probe or an
+// "add" message, so UIDM asks the server the way the player did: the
+// headers it sent (`request_headers`, an Origin or a site's token header
+// among them; a server can refuse a stream asked for without them) and its
+// Referer (`referrer`). Cookies go in their own field, from the cookie
+// store, and pseudo-headers are not headers.
+function mediaRequest(entry) {
+  const out = {};
+  const headers = ((entry && entry.headers) || []).filter(
+    ([name]) => name && !name.startsWith(":") && name.toLowerCase() !== "cookie",
+  );
+  if (headers.length) out.request_headers = headers;
+  const referer = headers.find(([name]) => name.toLowerCase() === "referer");
+  if (referer && /^https?:\/\//i.test(referer[1])) out.referrer = referer[1];
+  return out;
 }
 
 // A file's type for people: "MP4 video".
@@ -549,5 +570,5 @@ function titleFileName(title, ext) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, START_GRACE_MS, adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
+  module.exports = { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, START_GRACE_MS, adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, mediaRequest, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
 }

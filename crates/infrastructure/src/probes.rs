@@ -37,8 +37,10 @@ impl Probes for ServerProbes {
         let req = self.transfers.request_for(download.clone());
         // Probing a POST download would send a GET (or repeat the POST),
         // so its dialog proposes a name from the request alone. What the
-        // browser's response said is all there is to show then.
-        let found = if crate::app::post_body(download).is_some() {
+        // browser's response said is all there is to show then. A video
+        // page or a stream is no file either: its address is a web page or
+        // a playlist, and the video is made from it only when it runs.
+        let found = if crate::app::post_body(download).is_some() || download.media.is_some() {
             let mut found = engine::Inspection::unprobed(&download.url, download.filename.as_deref());
             found.total = download.size;
             found.content_type = download.content_type.clone();
@@ -138,5 +140,30 @@ mod tests {
         let facts = probes.file(&post).unwrap();
         assert_eq!((facts.filename.as_str(), facts.total), ("report.pdf", Some(77)));
         assert_eq!(server.served.load(std::sync::atomic::Ordering::Relaxed), 0, "the server was not asked");
+    }
+
+    #[test]
+    fn a_video_page_or_stream_is_named_without_asking_its_server() {
+        use uidm_domain::media::{MediaChoice, MediaKind};
+        let (probes, dir) = probes("media");
+        let server = TestServer::start(testserver::body(10));
+        for kind in [MediaKind::Page, MediaKind::Hls] {
+            let video = Download {
+                filename: Some("Clip.mp4".into()),
+                media: Some(MediaChoice { kind: Some(kind), video: Some("298".into()), ..MediaChoice::default() }),
+                ..download(&server.url)
+            };
+            let facts = probes.file(&video).unwrap();
+            assert_eq!((facts.filename.as_str(), facts.total), ("Clip.mp4", None), "{kind:?}");
+            assert!(facts.path.starts_with(&dir) && facts.path.ends_with("Clip.mp4"), "{:?}", facts.path);
+        }
+        assert_eq!(server.served.load(std::sync::atomic::Ordering::Relaxed), 0, "the server was not asked");
+        // A page that cannot be reached still gets its dialog.
+        let gone = Download {
+            filename: Some("Clip.mp4".into()),
+            media: Some(MediaChoice { kind: Some(MediaKind::Page), ..MediaChoice::default() }),
+            ..download("http://127.0.0.1:1/watch?v=x")
+        };
+        assert_eq!(probes.file(&gone).unwrap().filename, "Clip.mp4");
     }
 }
