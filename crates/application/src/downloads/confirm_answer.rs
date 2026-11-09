@@ -166,7 +166,7 @@ where
         let picked = folder.as_deref().is_some_and(|f| !f.trim().is_empty());
         let later = (remember_queue && !start).then(|| queue.unwrap_or(MAIN_QUEUE));
         let path = item.path.as_deref().map(Path::new);
-        if s.remember_answer(path, &item.url, item.category.as_deref(), remember_folder, picked, later) {
+        if s.remember_answer(path, item.url.as_str(), item.category.as_deref(), remember_folder, picked, later) {
             if let Err(e) = self.settings.save_settings(s) {
                 warnings.push(ConfirmWarning::ChoicesNotRemembered(e));
             }

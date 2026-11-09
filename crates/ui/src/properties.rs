@@ -41,7 +41,7 @@ impl PropertiesDialog {
         let path = e.path.as_deref().map(Path::new);
         let filename = path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let folder = path.and_then(|p| p.parent()).map(|d| d.display().to_string()).unwrap_or_default();
-        let url = e.url.clone();
+        let url = e.url.to_string();
         let referrer = e.referrer.clone().unwrap_or_default();
         let description = e.description.clone().unwrap_or_default();
         let username = e.login_user.clone().unwrap_or_default();

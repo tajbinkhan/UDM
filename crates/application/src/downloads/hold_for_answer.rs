@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{AfterProbe, Download};
+use uidm_domain::filename::FileName;
 use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{
     Answers, ControlError, DownloadControl, DownloadFiles, DownloadList, EarlyStarts, SettingsStore,
@@ -11,7 +12,7 @@ use uidm_domain::ports::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Probed {
     /// The file name it proposes.
-    pub filename: String,
+    pub filename: FileName,
     /// Where the file would go: the folder for its category, then the name.
     pub path: PathBuf,
     pub total: Option<ByteCount>,
@@ -102,7 +103,7 @@ mod tests {
 
     fn probed(name: &str) -> Probed {
         Probed {
-            filename: name.into(),
+            filename: FileName::parse(name).unwrap(),
             path: PathBuf::from("/dl").join(name),
             total: Some(ByteCount::new(100)),
             resumable: true,

@@ -534,7 +534,7 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, b"old").unwrap();
             let id = self.daemon.transfers.engine().reserve_id();
-            let url = url.to_string();
+            let url = uidm_domain::address::Link::new(url);
             self.daemon.store.publish(&Outgoing::Added { id, url: url.clone() });
             self.daemon.store.publish(&Outgoing::Done { id, url, path: path.display().to_string(), note: None });
             id
@@ -542,7 +542,7 @@ mod tests {
 
         fn failed(&self, url: &str) -> DownloadId {
             let id = self.daemon.transfers.engine().reserve_id();
-            let url = url.to_string();
+            let url = uidm_domain::address::Link::new(url);
             self.daemon.store.publish(&Outgoing::Added { id, url: url.clone() });
             self.daemon.store.publish(&Outgoing::Failed { id, url, error: "gone".into() });
             id
@@ -713,7 +713,7 @@ mod tests {
         let t = setup("overwrite_running", Duplicate::Overwrite);
         let url = serve();
         let old = t.daemon.transfers.engine().reserve_id();
-        t.daemon.store.publish(&Outgoing::Added { id: old, url: url.clone() });
+        t.daemon.store.publish(&Outgoing::Added { id: old, url: url.as_str().into() });
         assert_eq!(t.daemon.transfers.status(old), Some(Status::Queued));
         assert_eq!(t.add(&url), old);
         assert_eq!(t.len(), 1);
@@ -798,7 +798,7 @@ mod tests {
     fn add_many_skips_duplicates_unless_told_to_add_them() {
         let url = serve();
         let items = |urls: &[&str]| {
-            urls.iter().map(|u| Download { url: u.to_string(), ..Download::default() }).collect::<Vec<_>>()
+            urls.iter().map(|u| Download { url: (*u).into(), ..Download::default() }).collect::<Vec<_>>()
         };
         let t = setup("many_ask", Duplicate::Ask);
         t.finished(&url, &t.dir.join("f.bin"));
@@ -975,7 +975,7 @@ mod tests {
     #[test]
     fn the_link_picker_hears_each_links_type_and_size() {
         let t = setup("probe_links", Duplicate::NewName);
-        let link = |url: String| Download { url, ..Download::default() };
+        let link = |url: String| Download { url: url.into(), ..Download::default() };
         let links = vec![link(serve()), link("http://127.0.0.1:1/gone.zip".into()), link(serve())];
         let (tx, rx) = server::reply_channel();
         t.daemon.probe_links(ClientId::new(7), 42, links, tx);
@@ -1007,10 +1007,10 @@ mod tests {
     fn the_browsers_proxy_can_wait_for_a_failure() {
         let t = setup("browser_proxy", Duplicate::NewName);
         let d = Download { url: "https://x/a.zip".into(), proxy: Some("http://bp:3128".into()), ..Download::default() };
-        let through = |s: &Settings| t.daemon.transfers.net_for(&d, s).proxy.and_then(|p| p.proxy_for(&d.url));
+        let through = |s: &Settings| t.daemon.transfers.net_for(&d, s).proxy.and_then(|p| p.proxy_for(d.url.as_str()));
         let after = Settings { use_browser_proxy: true, browser_proxy_after_errors: true, ..Settings::default() };
         assert_eq!(through(&after), None, "not before it failed");
-        t.daemon.browser_proxy_retries.insert(d.url.clone());
+        t.daemon.browser_proxy_retries.insert(d.url.to_string());
         assert_eq!(through(&after).as_deref(), Some("http://bp:3128"), "once it failed");
         // A download that never failed is not retried through it.
         assert!(!t.daemon.retry_through_browser_proxy(DownloadId::new(999), &after));
@@ -1576,7 +1576,7 @@ mod tests {
     fn a_dropped_link_always_gets_the_save_as_dialog() {
         let t = setup("ask_flag", Duplicate::NewName);
         assert!(!t.daemon.settings.lock().ask_where_to_save);
-        let (id, _) = t.daemon.add(Download { url: serve(), ask: Some(true), ..Download::default() });
+        let (id, _) = t.daemon.add(Download { url: serve().into(), ask: Some(true), ..Download::default() });
         t.wait(id, Status::Confirming);
     }
 
@@ -1600,8 +1600,8 @@ mod tests {
     #[test]
     fn a_download_removed_from_its_queue_stays_listed_and_waits_for_a_hand_start() {
         let t = setup("remove_from_queue", Duplicate::NewName);
-        let (id, _) = t.daemon.add_later(Download { url: serve(), ..Download::default() });
-        let (kept, _) = t.daemon.add_later(Download { url: format!("{}#kept", serve()), ..Download::default() });
+        let (id, _) = t.daemon.add_later(Download { url: serve().into(), ..Download::default() });
+        let (kept, _) = t.daemon.add_later(Download { url: format!("{}#kept", serve()).into(), ..Download::default() });
         assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(MAIN_QUEUE));
 
         t.daemon.remove_from_queue(id).unwrap();

@@ -1,4 +1,4 @@
-use uidm_domain::batch;
+use uidm_domain::address::Address;
 use uidm_domain::download::{Download, DownloadError, Mismatch, Status};
 use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueStore};
@@ -15,7 +15,7 @@ pub enum Refreshed {
     Mismatch(Mismatch),
     /// The download has the new link: a waiting one keeps waiting with it,
     /// any other started again.
-    NewLink(String),
+    NewLink(Address),
 }
 
 /// Give a stopped download a new link, or wait for the browser's next one.
@@ -43,9 +43,9 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl> RefreshLink<'a, Q, 
             self.control.wait_for_link(Some(id));
             return Ok(Refreshed::Waiting);
         };
-        if !batch::is_download_url(&download.url) {
-            return Err(DownloadError::NotDownloadLink(download.url));
-        }
+        let Some(address) = download.url.address().cloned() else {
+            return Err(DownloadError::NotDownloadLink(download.url.into_string()));
+        };
         if self.control.waiting_for_link() == Some(id) {
             self.control.wait_for_link(None);
         }
@@ -57,19 +57,18 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl> RefreshLink<'a, Q, 
                 }
             }
         }
-        let url = download.url.clone();
         self.downloads.keep_request(id, download);
         if entry.status == Status::Waiting {
             self.downloads
                 .update(id, |e| {
-                    e.url = url.clone();
+                    e.url = address.clone().into();
                     true
                 })
                 .ok_or(DownloadError::NoDownload(id))?;
         } else {
             RetryDownload::new(self.queues, self.downloads, self.control).run(id)?;
         }
-        Ok(Refreshed::NewLink(url))
+        Ok(Refreshed::NewLink(address))
     }
 }
 
@@ -109,7 +108,7 @@ mod tests {
             link("https://new.example/1.zip"),
             false,
         );
-        assert_eq!(done, Ok(Refreshed::NewLink("https://new.example/1.zip".into())));
+        assert_eq!(done, Ok(Refreshed::NewLink(Address::parse("https://new.example/1.zip").unwrap())));
         assert_eq!(control.waiting_for_link(), None);
         assert_eq!(control.restarted()[0].download.url, "https://new.example/1.zip");
     }

@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
+use uidm_domain::address::Link;
 use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
@@ -250,7 +251,7 @@ impl DownloadStore {
         match msg {
             Outgoing::Done { id, url, path, .. } => {
                 let referrer = table.get(*id).and_then(|e| e.referrer.clone());
-                crate::platform::mark_from_internet(Path::new(path), url, referrer.as_deref());
+                crate::platform::mark_from_internet(Path::new(path), url.as_str(), referrer.as_deref());
                 lock(&self.requests).remove(id);
                 self.events.ended(Ended::Finished(*id));
             }
@@ -376,14 +377,14 @@ impl DownloadStore {
 
     /// Add `download` to the list as `id`, waiting, in no queue yet. A
     /// full-path `folder` fixes where it will be saved. Returns its address.
-    pub fn stage(&self, id: DownloadId, download: Download) -> String {
+    pub fn stage(&self, id: DownloadId, download: Download) -> Link {
         let url = download.url.clone();
         let path = download
             .folder
             .as_deref()
             .map(PathBuf::from)
             .filter(|f| f.is_absolute())
-            .map(|f| f.join(engine::Inspection::unprobed(&url, download.filename.as_deref()).filename));
+            .map(|f| f.join(engine::Inspection::unprobed(url.as_str(), download.filename.as_deref()).filename));
         // The size the browser's response gave, until the server is asked.
         let size = download.size;
         lock(&self.requests).insert(id, download);
@@ -504,7 +505,7 @@ impl DownloadIntake for Intake<'_> {
         body_is_sendable(download)
     }
 
-    fn stage(&self, download: Download) -> (DownloadId, String) {
+    fn stage(&self, download: Download) -> (DownloadId, Link) {
         let id = self.engine.reserve_id();
         (id, self.store.stage(id, download))
     }
@@ -532,7 +533,7 @@ impl DownloadIntake for StoreIntake {
         Intake { store: &self.store, engine: &self.engine }.sendable(download)
     }
 
-    fn stage(&self, download: Download) -> (DownloadId, String) {
+    fn stage(&self, download: Download) -> (DownloadId, Link) {
         Intake { store: &self.store, engine: &self.engine }.stage(download)
     }
 }

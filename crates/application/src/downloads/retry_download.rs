@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use uidm_domain::address::Link;
 use uidm_domain::download::DownloadError;
 use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueStore};
@@ -23,7 +24,7 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl> RetryDownload<'a, Q
     }
 
     /// Returns the new row's id and its address.
-    pub fn run(&self, id: DownloadId) -> Result<(DownloadId, String), DownloadError> {
+    pub fn run(&self, id: DownloadId) -> Result<(DownloadId, Link), DownloadError> {
         let entry = self.downloads.entry(id).ok_or(DownloadError::NoDownload(id))?;
         if !entry.status.is_retryable() {
             return Err(DownloadError::NotRetryable(id));

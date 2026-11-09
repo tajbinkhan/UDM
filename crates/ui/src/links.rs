@@ -196,7 +196,7 @@ impl LinksDialog {
         let links = asking
             .iter()
             .map(|&i| Download {
-                url: self.links[i].url.clone(),
+                url: self.links[i].url.as_str().into(),
                 referrer: self.referrer(),
                 page: self.referrer(),
                 cookies: self.links[i].cookies.clone(),
@@ -279,7 +279,7 @@ impl LinksDialog {
                 let filename = (!self.rename.trim().is_empty())
                     .then(|| pattern_name(&self.rename, n + 1, ticked.len(), &link_type(l)));
                 Download {
-                    url: l.url.clone(),
+                    url: l.url.as_str().into(),
                     // The page the links were picked from is both.
                     referrer: self.referrer(),
                     page: self.referrer(),

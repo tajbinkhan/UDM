@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use uidm_domain::address::Address;
 use uidm_domain::bytes::ByteCount;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
@@ -77,7 +78,7 @@ pub struct BatchDialog {
     wild_size: usize,
     /// The settings last expanded (pattern and wildcard settings), and what
     /// they gave, so the list is not rebuilt every frame.
-    expanded: Option<(String, Result<Vec<String>, UiError>)>,
+    expanded: Option<(String, Result<Vec<Address>, UiError>)>,
     list: String,
     /// An imported file's name, downloads and the entries left out.
     imported: Option<(String, Vec<Download>, usize)>,
@@ -116,8 +117,9 @@ impl BatchDialog {
 
     /// The dialog with `urls` in its list, such as every link on the
     /// clipboard.
-    pub fn with_list(urls: &[String]) -> Self {
-        BatchDialog { source: Source::List, list: urls.join("\n"), ..BatchDialog::new() }
+    pub fn with_list(urls: &[Address]) -> Self {
+        let list = urls.iter().map(Address::as_str).collect::<Vec<_>>().join("\n");
+        BatchDialog { source: Source::List, list, ..BatchDialog::new() }
     }
 
     /// The dialog for downloads imported from `name`.
@@ -126,7 +128,7 @@ impl BatchDialog {
     }
 
     /// The URLs to add, or why there are none.
-    fn urls(&mut self) -> Result<(Vec<String>, usize), UiError> {
+    fn urls(&mut self) -> Result<(Vec<Address>, usize), UiError> {
         match self.source {
             Source::Pattern => {
                 // A `*` means IDM's form, so its settings count too.
@@ -306,7 +308,7 @@ pub fn batch_dialog(
                         line.push_str(&trf!(" (the most one batch can add is {max})", max = MAX_BATCH));
                     }
                     ui.label(line);
-                    let preview: Vec<&String> = if u.len() <= 6 {
+                    let preview: Vec<&Address> = if u.len() <= 6 {
                         u.iter().collect()
                     } else {
                         u.iter().take(3).chain(u.iter().skip(u.len() - 2)).collect()
@@ -382,7 +384,7 @@ pub fn batch_dialog(
                         (None, Ok((u, _))) => u
                             .into_iter()
                             .map(|url| Download {
-                                url,
+                                url: url.into(),
                                 start: Some(false),
                                 folder: folder.clone(),
                                 ..Download::default()

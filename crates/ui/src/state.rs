@@ -208,7 +208,7 @@ impl AppState {
             Event::CountdownCanceled => self.countdown = None,
             Event::RefreshWaiting { id } => self.refresh_waiting = *id,
             Event::RefreshMismatch { id, url, reason } => {
-                self.refresh_mismatch = Some((*id, url.clone(), errors::daemon(reason)));
+                self.refresh_mismatch = Some((*id, url.to_string(), errors::daemon(reason)));
             }
             Event::Settings { settings } => {
                 self.settings = Some(settings.clone());
@@ -932,7 +932,11 @@ mod tests {
         for id in [1, 2] {
             daemon(
                 &mut s,
-                Event::Failed { id: DownloadId::new(id), url: format!("https://x/{id}.bin"), error: "gone".into() },
+                Event::Failed {
+                    id: DownloadId::new(id),
+                    url: format!("https://x/{id}.bin").into(),
+                    error: "gone".into(),
+                },
             );
         }
         assert!(s.completed.is_empty(), "not at once");
@@ -979,7 +983,7 @@ mod tests {
         };
         assert_eq!(see(&mut w, Event::Show), Need::Show);
         assert_eq!(see(&mut w, Event::Quit), Need::Quit);
-        let done = |id| Event::Done { id, url: String::new(), path: String::new(), note: None };
+        let done = |id| Event::Done { id, url: uidm_domain::address::Link::default(), path: String::new(), note: None };
         assert_eq!(see(&mut w, done(DownloadId::new(1))), Need::Nothing, "no dialog asked for");
         let asked = DownloadEntry {
             on_done: Some(OnDone { dialog: true, ..OnDone::default() }),
@@ -987,7 +991,7 @@ mod tests {
         };
         see(&mut w, Event::Updated { item: asked });
         assert_eq!(see(&mut w, done(DownloadId::new(2))), Need::Wake);
-        let failed = |id| Event::Failed { id, url: String::new(), error: "gone".into() };
+        let failed = |id| Event::Failed { id, url: uidm_domain::address::Link::default(), error: "gone".into() };
         assert_eq!(see(&mut w, failed(DownloadId::new(3))), Need::Nothing, "notifications, not dialogs");
         see(&mut w, Event::Settings { settings: Settings { progress_on_start: true, ..settings(Notify::Dialog) } });
         assert_eq!(see(&mut w, failed(DownloadId::new(3))), Need::WakeIfStillFailed(DownloadId::new(3)));
@@ -998,7 +1002,7 @@ mod tests {
         assert_eq!(see(&mut w, confirming), Need::Wake);
         let started = Event::Started {
             id: DownloadId::new(6),
-            url: String::new(),
+            url: uidm_domain::address::Link::default(),
             path: String::new(),
             total: None,
             resumable: false,

@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::address::{Address, Link};
 use crate::bytes::ByteCount;
+use crate::filename::FileName;
 use crate::id::{DownloadId, QueueId};
 use crate::media::MediaChoice;
 use crate::queue::WhenDone;
@@ -23,7 +25,8 @@ fn is_true(b: &bool) -> bool {
 
 /// The save-as dialog's answer for a `confirming` download, or the start of
 /// a `waiting` one. `filename` and `folder` replace the proposed ones when
-/// given. With `start` false the download waits until started.
+/// given; `filename` is what the user typed, cleaned into a `FileName`
+/// when it is used. With `start` false the download waits until started.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Answer {
     pub id: DownloadId,
@@ -95,7 +98,9 @@ impl Answer {
 /// The payload a browser hand-off needs to reissue a request outside the page.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Download {
-    pub url: String,
+    /// The address as the client sent it; the daemon refuses one that is
+    /// not an `Address`.
+    pub url: Link,
     /// `POST` for a download a form started; anything else is a GET.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
@@ -121,7 +126,9 @@ pub struct Download {
     pub page: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
-    /// Suggested filename, when the client could derive one.
+    /// Suggested filename, when the client could derive one. Text as the
+    /// client sent it, which may be a path or empty: it is cleaned into a
+    /// `FileName` when the download is named (`filename::proposed_name`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
     /// `false` adds the download to a queue without starting it ("Download
@@ -336,6 +343,7 @@ pub struct Properties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login: Option<DownloadLogin>,
     /// A new name for a finished download's file, which is renamed on disk.
+    /// What the user typed, cleaned into a `FileName` when it is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
     /// A new folder (a full path) for the download's file. A finished file
@@ -431,7 +439,9 @@ pub enum Scan {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DownloadEntry {
     pub id: DownloadId,
-    pub url: String,
+    /// Its address. A row read from a file with text that is no address
+    /// keeps it, and fails when started.
+    pub url: Link,
     /// Output file, once the engine has chosen it.
     pub path: Option<String>,
     pub total: Option<ByteCount>,
@@ -680,7 +690,7 @@ impl DownloadEntry {
             .as_deref()
             .and_then(|p| Path::new(p).file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.url.clone())
+            .unwrap_or_else(|| self.url.to_string())
     }
 
     /// Hold it, probed, for the save-as dialog's answer (or with
@@ -726,8 +736,8 @@ impl DownloadEntry {
         } else {
             let proposed = self.path.as_deref().map(Path::new);
             let name = filename
-                .map(crate::filename::sanitize_filename)
-                .filter(|n| !n.is_empty())
+                .and_then(crate::filename::sanitize_filename)
+                .map(FileName::into_string)
                 .or_else(|| proposed.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()))
                 .ok_or(DownloadError::AnswerNoFileName)?;
             let dir = match folder.map(str::trim) {
@@ -777,10 +787,10 @@ impl DownloadEntry {
             return Err(DownloadError::NotStopped);
         }
         let trimmed = |s: Option<String>| s.map(|s| s.trim().to_string());
-        let url = trimmed(p.url).filter(|u| *u != self.url);
-        if let Some(u) = url.as_deref().filter(|u| !crate::batch::is_download_url(u)) {
-            return Err(DownloadError::NotDownloadLink(u.to_string()));
-        }
+        let url = trimmed(p.url)
+            .filter(|u| self.url != u.as_str())
+            .map(|u| Address::parse(&u).map_err(|_| DownloadError::NotDownloadLink(u.clone())))
+            .transpose()?;
         let referrer = trimmed(p.referrer);
         if let Some(r) = referrer.as_deref().filter(|r| !r.is_empty() && !crate::batch::is_web_url(r)) {
             return Err(DownloadError::NotWebAddress(r.to_string()));
@@ -819,8 +829,8 @@ impl DownloadEntry {
                 let from = self.path.as_deref().map(PathBuf::from).ok_or(DownloadError::NoFile)?;
                 let name = filename
                     .as_deref()
-                    .map(crate::filename::sanitize_filename)
-                    .filter(|n| !n.is_empty())
+                    .and_then(crate::filename::sanitize_filename)
+                    .map(FileName::into_string)
                     .or_else(|| from.file_name().map(|n| n.to_string_lossy().into_owned()))
                     .ok_or(DownloadError::NoFileName)?;
                 let dir = match folder.as_deref().map(str::trim) {
@@ -904,7 +914,7 @@ impl DownloadEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertiesPlan {
     /// A new address (trimmed, and different from the old one).
-    pub url: Option<String>,
+    pub url: Option<Address>,
     /// A new referrer; empty removes it.
     pub referrer: Option<String>,
     /// A new description; empty removes it.
@@ -921,7 +931,7 @@ impl PropertiesPlan {
     /// Apply the plan to the request a retry starts from.
     pub fn apply_to_request(&self, req: &mut Download) {
         if let Some(u) = &self.url {
-            req.url = u.clone();
+            req.url = u.clone().into();
         }
         if let Some(r) = &self.referrer {
             req.referrer = Some(r.clone()).filter(|r| !r.is_empty());
@@ -945,7 +955,7 @@ impl PropertiesPlan {
     /// its request now logs in with.
     pub fn apply_to_row(&self, e: &mut DownloadEntry, login_user: Option<String>) {
         if let Some(u) = &self.url {
-            e.url = u.clone();
+            e.url = u.clone().into();
         }
         if let Some(r) = &self.referrer {
             e.referrer = Some(r.clone()).filter(|r| !r.is_empty());
@@ -963,13 +973,13 @@ impl PropertiesPlan {
 /// Whether two download addresses name the same file: equal once parsed (so
 /// the case of the scheme and host and a default port do not matter) and with
 /// the fragment, which never reaches the server, dropped.
-pub fn same_address(a: &str, b: &str) -> bool {
-    let key = |u: &str| match url::Url::parse(u.trim()) {
+pub fn same_address(a: &Link, b: &Link) -> bool {
+    let key = |u: &Link| match url::Url::parse(u.as_str().trim()) {
         Ok(mut parsed) => {
             parsed.set_fragment(None);
             parsed.to_string()
         }
-        Err(_) => u.trim().split('#').next().unwrap_or("").to_string(),
+        Err(_) => u.as_str().trim().split('#').next().unwrap_or("").to_string(),
     };
     key(a) == key(b)
 }
@@ -1024,13 +1034,13 @@ impl Download {
     pub fn after_probe(
         &self,
         settings: &Settings,
-        filename: &str,
+        filename: &FileName,
         resumable: bool,
         size_known: bool,
         writable: bool,
         duplicate: bool,
     ) -> AfterProbe {
-        if !duplicate && self.ask != Some(true) && writable && settings.starts_without_asking(filename) {
+        if !duplicate && self.ask != Some(true) && writable && settings.starts_without_asking(filename.as_str()) {
             return AfterProbe::StartNow;
         }
         let plain = !self.is_post() && self.media.is_none();
@@ -1408,11 +1418,11 @@ mod tests {
 
     #[test]
     fn same_address_ignores_fragment_and_host_case() {
-        assert!(same_address("https://Example.com/a.zip", "https://example.com/a.zip#part"));
-        assert!(same_address("https://example.com:443/a.zip", " https://example.com/a.zip "));
-        assert!(!same_address("https://example.com/a.zip", "https://example.com/a.zip?v=2"));
-        assert!(!same_address("https://example.com/a.zip", "http://example.com/a.zip"));
-        assert!(!same_address("https://example.com/A.zip", "https://example.com/a.zip"));
+        assert!(same_address(&Link::new("https://Example.com/a.zip"), &Link::new("https://example.com/a.zip#part")));
+        assert!(same_address(&Link::new("https://example.com:443/a.zip"), &Link::new(" https://example.com/a.zip ")));
+        assert!(!same_address(&Link::new("https://example.com/a.zip"), &Link::new("https://example.com/a.zip?v=2")));
+        assert!(!same_address(&Link::new("https://example.com/a.zip"), &Link::new("http://example.com/a.zip")));
+        assert!(!same_address(&Link::new("https://example.com/A.zip"), &Link::new("https://example.com/a.zip")));
     }
 
     #[test]
@@ -1465,26 +1475,29 @@ mod tests {
         let mut settings = Settings { start_while_asking: true, ..Settings::default() };
         settings.auto_start_types = vec!["zip".into()];
         let plain = Download::default();
-        assert_eq!(plain.after_probe(&settings, "a.zip", true, true, true, false), AfterProbe::StartNow);
         assert_eq!(
-            plain.after_probe(&settings, "a.zip", true, true, true, true),
+            plain.after_probe(&settings, &FileName::parse("a.zip").unwrap(), true, true, true, false),
+            AfterProbe::StartNow
+        );
+        assert_eq!(
+            plain.after_probe(&settings, &FileName::parse("a.zip").unwrap(), true, true, true, true),
             AfterProbe::Ask { start_early: false }
         );
         assert_eq!(
-            plain.after_probe(&settings, "a.zip", true, true, false, false),
+            plain.after_probe(&settings, &FileName::parse("a.zip").unwrap(), true, true, false, false),
             AfterProbe::Ask { start_early: false }
         );
         assert_eq!(
-            plain.after_probe(&settings, "a.iso", true, true, true, false),
+            plain.after_probe(&settings, &FileName::parse("a.iso").unwrap(), true, true, true, false),
             AfterProbe::Ask { start_early: true }
         );
         assert_eq!(
-            plain.after_probe(&settings, "a.iso", false, true, true, false),
+            plain.after_probe(&settings, &FileName::parse("a.iso").unwrap(), false, true, true, false),
             AfterProbe::Ask { start_early: false }
         );
         let post = Download { method: Some("POST".into()), ..Download::default() };
         assert_eq!(
-            post.after_probe(&settings, "a.iso", true, true, true, false),
+            post.after_probe(&settings, &FileName::parse("a.iso").unwrap(), true, true, true, false),
             AfterProbe::Ask { start_early: false }
         );
     }

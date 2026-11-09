@@ -35,11 +35,11 @@ pub fn to_request(d: Download, settings: &Settings) -> DownloadRequest {
     }
     let extra = browser_request_headers(&d.request_headers, &headers);
     headers.extend(extra);
-    let folders = settings.folders_for(&d.url, &crate::settings::default_downloads_dir());
-    let host = url::Url::parse(&d.url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase));
+    let folders = settings.folders_for(d.url.as_str(), &crate::settings::default_downloads_dir());
+    let host = url::Url::parse(d.url.as_str()).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase));
     let host_limit = host.and_then(|h| settings.server_limit(&h));
     DownloadRequest {
-        url: d.url,
+        url: d.url.into_string(),
         folders,
         filename: d.filename,
         headers,
@@ -130,7 +130,7 @@ pub fn progress_to_outgoing(p: Progress) -> Outgoing {
     match p {
         Progress::Started { id, url, path, total, resumable, connections, partial, validator } => Outgoing::Started {
             id,
-            url,
+            url: url.into(),
             path: path.display().to_string(),
             total,
             resumable,
@@ -139,15 +139,15 @@ pub fn progress_to_outgoing(p: Progress) -> Outgoing {
             validator,
         },
         Progress::Advanced { id, url, done, total, parts, segments } => {
-            Outgoing::Progress { id, url, done, total, parts, segments }
+            Outgoing::Progress { id, url: url.into(), done, total, parts, segments }
         }
         Progress::Finished { id, url, path, note } => {
-            Outgoing::Done { id, url, path: path.display().to_string(), note }
+            Outgoing::Done { id, url: url.into(), path: path.display().to_string(), note }
         }
-        Progress::Failed { id, url, error } => Outgoing::Failed { id, url, error },
-        Progress::Canceled { id, url } => Outgoing::Canceled { id, url },
+        Progress::Failed { id, url, error } => Outgoing::Failed { id, url: url.into(), error },
+        Progress::Canceled { id, url } => Outgoing::Canceled { id, url: url.into() },
         Progress::NameTaken { id, url, path, total } => {
-            Outgoing::NameTaken { id, url, path: path.display().to_string(), total }
+            Outgoing::NameTaken { id, url: url.into(), path: path.display().to_string(), total }
         }
     }
 }

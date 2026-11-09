@@ -15,6 +15,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::address::Link;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
@@ -323,12 +324,12 @@ impl<W: Wiring> DaemonService<W> {
     /// http, https or ftp, as the command line's must, and a form body must
     /// be readable.
     fn check_download(&self, download: &Download) -> Result<(), ServiceError> {
-        if !uidm_domain::batch::is_download_url(&download.url) {
-            Err(ServiceError::NotDownloadAddress(download.url.clone()))
+        if !download.url.is_address() {
+            Err(ServiceError::NotDownloadAddress(download.url.to_string()))
         } else if self.intake.sendable(download) {
             Ok(())
         } else {
-            Err(ServiceError::BadBody(download.url.clone()))
+            Err(ServiceError::BadBody(download.url.to_string()))
         }
     }
 
@@ -453,7 +454,7 @@ impl<W: Wiring> DaemonService<W> {
             .into_iter()
             .filter_map(|id| self.store.entry(id))
             .filter(|e| urls.contains(e.url.as_str()))
-            .map(|e| (e.id, e.url))
+            .map(|e| (e.id, e.url.into_string()))
             .unzip();
         let changed = ids
             .into_iter()
@@ -705,7 +706,7 @@ impl<W: Wiring> DaemonService<W> {
     /// that. If its address is already in the list, the duplicate setting
     /// decides first, asking in the save-as dialog under `Ask` even when
     /// that dialog is off.
-    pub fn add(self: &Arc<Self>, mut download: Download) -> (DownloadId, String) {
+    pub fn add(self: &Arc<Self>, mut download: Download) -> (DownloadId, Link) {
         if let Some(old) = self.duplicate_of(&download) {
             let choice = download.duplicate.unwrap_or(self.settings_now().if_duplicate);
             info!(url = %download.url, download_id = old.id.get(), choice = ?choice, "already in the list");
@@ -720,15 +721,17 @@ impl<W: Wiring> DaemonService<W> {
         if download.start == Some(false) || (download.start.is_none() && settings.add_only) {
             return self.add_later(download);
         }
-        let name = uidm_domain::filename::proposed_name(&download.url, download.filename.as_deref());
+        let name = uidm_domain::filename::proposed_name(download.url.as_str(), download.filename.as_deref());
         // A folder UIDM may not write to asks first, so the dialog can offer
         // administrator rights or another folder.
         let folder = match download.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
             Some(f) => f.to_path_buf(),
-            None => settings.folders_for(&download.url, &self.files.downloads_dir()).for_name(&name),
+            None => settings.folders_for(download.url.as_str(), &self.files.downloads_dir()).for_name(name.as_str()),
         };
         let denied = !download.elevate && !self.files.can_write(&folder);
-        if denied || download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(&name)) {
+        if denied
+            || download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(name.as_str()))
+        {
             self.ask(download, None)
         } else {
             self.start(download)
@@ -752,7 +755,7 @@ impl<W: Wiring> DaemonService<W> {
         download: &mut Download,
         old: &DownloadEntry,
         choice: Duplicate,
-    ) -> Option<(DownloadId, String)> {
+    ) -> Option<(DownloadId, Link)> {
         match download.settle_duplicate(old, choice) {
             DuplicateStep::Add => None,
             DuplicateStep::UseExisting => self.use_existing(old),
@@ -768,7 +771,7 @@ impl<W: Wiring> DaemonService<W> {
     /// Point the user at download `old` instead of adding its address again
     /// (see `UseExisting`). `None` when the finished file is gone, so the new
     /// download should be added after all.
-    pub fn use_existing(self: &Arc<Self>, old: &DownloadEntry) -> Option<(DownloadId, String)> {
+    pub fn use_existing(self: &Arc<Self>, old: &DownloadEntry) -> Option<(DownloadId, Link)> {
         match UseExisting::new(&*self.store, &*self.store, &*self.transfers, &*self.files, &*self.front).run(old) {
             Existing::Gone => None,
             Existing::Shown { id, url } | Existing::Resumed { id, url } => Some((id, url)),
@@ -782,7 +785,7 @@ impl<W: Wiring> DaemonService<W> {
     /// Add `download` to a queue (the one it names, else the one Download
     /// later goes to, else the main one) without starting it or opening a
     /// connection.
-    pub fn add_later(&self, download: Download) -> (DownloadId, String) {
+    pub fn add_later(&self, download: Download) -> (DownloadId, Link) {
         let later = self.settings_now().later_queue;
         AddLater::new(&*self.store, &self.intake).run(download, later)
     }
@@ -1147,7 +1150,7 @@ impl<W: Wiring> DaemonService<W> {
     /// as `confirming` with the proposed file until a window answers.
     /// `duplicate_of` is another download with the same address, for the
     /// dialog to ask about.
-    pub fn ask(self: &Arc<Self>, download: Download, duplicate_of: Option<DownloadId>) -> (DownloadId, String) {
+    pub fn ask(self: &Arc<Self>, download: Download, duplicate_of: Option<DownloadId>) -> (DownloadId, Link) {
         let url = download.url.clone();
         let id = self.transfers.reserve_id();
         self.store.keep_request(id, download.clone());
@@ -1200,14 +1203,14 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Queue `download`, remember it for retries, and announce it.
     /// `reuse_path` is a partial file an earlier attempt left behind.
-    pub fn start(&self, download: Download) -> (DownloadId, String) {
+    pub fn start(&self, download: Download) -> (DownloadId, Link) {
         self.transfers.start(download)
     }
 
     /// Re-queue a failed, canceled or interrupted download from its stored
     /// request, or from its URL alone when the request was not kept (see
     /// `RetryDownload`).
-    pub fn retry(&self, id: DownloadId) -> Result<(DownloadId, String), ServiceError> {
+    pub fn retry(&self, id: DownloadId) -> Result<(DownloadId, Link), ServiceError> {
         RetryDownload::new(&*self.store, &*self.store, &*self.transfers).run(id).map_err(ServiceError::from)
     }
 

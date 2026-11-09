@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use uidm_domain::address::Link;
 use uidm_domain::download::{DownloadEntry, DownloadError, Status};
 use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{Attention, DownloadControl, DownloadFiles, DownloadList, QueueStore};
@@ -13,11 +14,11 @@ pub enum Existing {
     Gone,
     /// It was pointed at: its completion dialog shown again, or the window
     /// brought up for a running one.
-    Shown { id: DownloadId, url: String },
+    Shown { id: DownloadId, url: Link },
     /// It was stopped and started again, as a new row.
-    Resumed { id: DownloadId, url: String },
+    Resumed { id: DownloadId, url: Link },
     /// It was stopped and could not start again.
-    NotResumed { id: DownloadId, url: String, error: DownloadError },
+    NotResumed { id: DownloadId, url: Link, error: DownloadError },
 }
 
 /// Point the user at an older download instead of adding its address again:
@@ -81,7 +82,7 @@ mod tests {
         let (control, shown) = (Control::default(), Shown::default());
         let files = Files::with_existing(&["/dl/1.zip"]);
         let use_existing = UseExisting::new(&queues, &downloads, &control, &files, &shown);
-        let url = "https://dl.example/1.zip".to_string();
+        let url = Link::new("https://dl.example/1.zip");
         assert_eq!(use_existing.run(&with_file(1, Status::Done)), Existing::Shown { id: DownloadId::new(1), url });
         assert_eq!(shown.done(), [1]);
         let no_files = Files::default();

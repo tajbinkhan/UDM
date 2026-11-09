@@ -16,6 +16,7 @@ pub use table::{apply, change_of};
 use std::fmt;
 use std::sync::Arc;
 
+use uidm_domain::address::Link;
 use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
@@ -256,7 +257,7 @@ pub enum Event {
     /// An `Add` or `Retry` was taken as download `id`.
     Ack {
         id: DownloadId,
-        url: String,
+        url: Link,
         status: String,
     },
     /// What a `ProbeMedia` stream offers.
@@ -281,12 +282,12 @@ pub enum Event {
     /// A download was queued.
     Added {
         id: DownloadId,
-        url: String,
+        url: Link,
     },
     /// A download has begun.
     Started {
         id: DownloadId,
-        url: String,
+        url: Link,
         path: String,
         total: Option<ByteCount>,
         resumable: bool,
@@ -297,7 +298,7 @@ pub enum Event {
     /// Progress of a running download.
     Progress {
         id: DownloadId,
-        url: String,
+        url: Link,
         done: ByteCount,
         total: Option<ByteCount>,
         parts: Option<[u64; 2]>,
@@ -306,18 +307,18 @@ pub enum Event {
     /// A download finished; `path` is the saved file.
     Done {
         id: DownloadId,
-        url: String,
+        url: Link,
         path: String,
         note: Option<String>,
     },
     Failed {
         id: DownloadId,
-        url: String,
+        url: Link,
         error: String,
     },
     Canceled {
         id: DownloadId,
-        url: String,
+        url: Link,
     },
     /// A download left the list.
     Removed {
@@ -365,7 +366,7 @@ pub enum Event {
     /// `path`, the taken file, for the save-as dialog.
     NameTaken {
         id: DownloadId,
-        url: String,
+        url: Link,
         path: String,
         total: Option<ByteCount>,
     },
@@ -373,7 +374,7 @@ pub enum Event {
     /// `Failure::Mismatch` (or, from an older daemon, `Other`).
     RefreshMismatch {
         id: DownloadId,
-        url: String,
+        url: Link,
         reason: Failure,
     },
     /// Downloads an `AddMany` added, and those skipped as duplicates.
@@ -443,7 +444,7 @@ pub enum Event {
     },
     /// An `Add` the daemon did not take, and why.
     Rejected {
-        url: String,
+        url: Link,
         error: Failure,
     },
 }

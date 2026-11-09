@@ -6,8 +6,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
+use crate::address::Link;
 use crate::bytes::ByteCount;
 use crate::download::{Download, DownloadEntry, Scan, Status, ZipEntry};
+use crate::filename::FileName;
 use crate::grab::{GrabRequest, Outcome, Project, RenderedPage};
 use crate::id::{DownloadId, QueueId};
 use crate::media::{Conversion, MediaInfo};
@@ -91,7 +93,7 @@ pub trait DownloadIntake: Send + Sync {
 
     /// Add `download` to the list as waiting, in no queue yet, without
     /// opening a connection. Returns its id and address.
-    fn stage(&self, download: Download) -> (DownloadId, String);
+    fn stage(&self, download: Download) -> (DownloadId, Link);
 }
 
 /// Stops and restarts downloads.
@@ -147,7 +149,7 @@ pub trait DownloadControl: Send + Sync {
         path: Option<PathBuf>,
         partial: Option<PathBuf>,
         remember_limit: bool,
-    ) -> (DownloadId, String);
+    ) -> (DownloadId, Link);
 }
 
 /// Why a download's files could not be removed.
@@ -361,7 +363,7 @@ pub trait SettingsStore: Send + Sync {
 pub trait EarlyStarts: Send + Sync {
     /// Start download `id` from `download` while its dialog is open, into a
     /// folder of its own and as `filename`, where the clients do not see it.
-    fn start(&self, id: DownloadId, download: Download, filename: &str);
+    fn start(&self, id: DownloadId, download: Download, filename: &FileName);
 
     /// If download `id` started early, stop that copy and move what it
     /// fetched to the file chosen, then start the download (`start`) or put
@@ -427,7 +429,7 @@ pub struct LinkFacts {
 /// What the save-as dialog for a download proposes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileFacts {
-    pub filename: String,
+    pub filename: FileName,
     /// The folder for its category, then the name.
     pub path: PathBuf,
     pub total: Option<ByteCount>,
@@ -504,7 +506,7 @@ pub trait TransferEngine: Send + Sync {
 
     /// Queue `download` now, remember its request for retries, and announce
     /// it. Returns its id and address.
-    fn start(&self, download: Download) -> (DownloadId, String);
+    fn start(&self, download: Download) -> (DownloadId, Link);
 
     /// Save the download list and the requests kept for retries.
     fn save_history(&self);
@@ -526,7 +528,7 @@ pub trait Notifications: Send + Sync {
 pub trait ProxyFallback: Send + Sync {
     /// Note that `url` is retried through the browser's proxy. False when
     /// it already was: each address gets one such retry.
-    fn claim_retry(&self, url: String) -> bool;
+    fn claim_retry(&self, url: Link) -> bool;
 }
 
 /// The downloads a crawl's finds become.

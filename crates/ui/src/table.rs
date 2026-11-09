@@ -245,7 +245,7 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
     match column {
         Column::Name => {
             ui.add(egui::Label::new(display_name(e)).truncate().selectable(false))
-                .on_hover_text(e.path.as_deref().unwrap_or(&e.url));
+                .on_hover_text(e.path.as_deref().unwrap_or(e.url.as_str()));
         }
         Column::Queue => {
             if let Some(n) = place {

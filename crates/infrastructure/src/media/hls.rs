@@ -9,8 +9,9 @@
 //! (`SAMPLE-AES`, or any `KEYFORMAT` other than `identity`, such as FairPlay
 //! or Widevine) are DRM, and refused.
 
+use uidm_domain::address::AddressError;
 use uidm_domain::media::{
-    resolve, AddressError, MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED,
+    resolve, MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED,
 };
 
 /// Why a playlist cannot be downloaded. The message is shown to the user

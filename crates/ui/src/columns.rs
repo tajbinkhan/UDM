@@ -531,7 +531,7 @@ mod tests {
     fn entry(id: u64, name: &str, total: Option<u64>, status: Status) -> DownloadEntry {
         DownloadEntry {
             id: DownloadId::new(id),
-            url: format!("https://x/{name}"),
+            url: format!("https://x/{name}").into(),
             path: None,
             total: total.map(ByteCount::new),
             done: ByteCount::ZERO,

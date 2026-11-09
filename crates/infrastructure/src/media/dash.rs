@@ -17,8 +17,9 @@
 
 use roxmltree::{Document, Node};
 
+use uidm_domain::address::AddressError;
 use uidm_domain::media::{
-    resolve, AddressError, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED,
+    resolve, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED, LIVE_REFUSED,
 };
 
 /// More segments than this in one track means a broken manifest.

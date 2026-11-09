@@ -1,4 +1,3 @@
-use uidm_domain::batch;
 use uidm_domain::download::{same_address, Download, DownloadError, DuplicateStep};
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::ports::{DownloadControl, DownloadFiles, DownloadIntake, DownloadList, QueueStore};
@@ -49,7 +48,7 @@ where
         let queue = self.queues.edit(|qs| queue::existing_or_main(qs, queue));
         let mut added = AddedMany::default();
         for mut d in items {
-            if !batch::is_download_url(&d.url) || !self.intake.sendable(&d) {
+            if !d.url.is_address() || !self.intake.sendable(&d) {
                 continue;
             }
             let old =
@@ -87,12 +86,13 @@ where
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Files, Intake, Queues};
+    use uidm_domain::address::Link;
     use uidm_domain::download::Status;
     use uidm_domain::queue::MAIN_QUEUE;
     use uidm_domain::settings::FileExists;
 
     fn links(urls: &[&str]) -> Vec<Download> {
-        urls.iter().map(|u| Download { url: u.to_string(), ..Download::default() }).collect()
+        urls.iter().map(|u| Download { url: Link::new(*u), ..Download::default() }).collect()
     }
 
     #[test]

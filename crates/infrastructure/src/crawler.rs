@@ -53,7 +53,7 @@ impl SiteCrawler for Crawler {
         progress: &mut dyn FnMut(&Outcome),
     ) -> Outcome {
         let settings = self.settings.lock().clone();
-        let start = Download { url: req.start.clone(), ..Download::default() };
+        let start = Download { url: req.start.as_str().into(), ..Download::default() };
         let mut net = self.transfers.net_for(&start, &settings);
         if let (Some(user), Ok(url)) =
             (req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()), url::Url::parse(&req.start))

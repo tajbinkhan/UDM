@@ -162,7 +162,7 @@ mod tests {
     fn entry(id: u64, status: Status) -> DownloadEntry {
         DownloadEntry {
             id: DownloadId::new(id),
-            url: format!("https://x/{id}.zip"),
+            url: format!("https://x/{id}.zip").into(),
             path: Some(format!("C:\\dl\\{id}.zip")),
             total: Some(ByteCount::new(1000)),
             done: ByteCount::new(400),
@@ -364,6 +364,52 @@ mod tests {
         let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(saved["items"][0], item);
         fs::remove_file(&path).ok();
+    }
+
+    /// Addresses and file names in the history read from an old file as
+    /// plain strings and are saved back the same, even an address UIDM
+    /// would not take now: the row is kept, not dropped with the file.
+    #[test]
+    fn addresses_keep_their_file_shape_and_odd_ones_load() {
+        let path = temp_path("address_shape.json");
+        let mut good = serde_json::to_value(entry(5, Status::Done)).unwrap();
+        good["url"] = "HTTPS://x/a b.zip?q=1#f".into();
+        good["path"] = "/dl/a b.zip".into();
+        let mut odd = serde_json::to_value(entry(6, Status::Failed)).unwrap();
+        odd["url"] = "file:///etc/passwd".into();
+        let mut empty = serde_json::to_value(entry(7, Status::Canceled)).unwrap();
+        empty["url"] = "".into();
+        let old = serde_json::json!({ "next_id": 8, "items": [good, odd, empty], "queues": [] });
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let h = History::load(&path).unwrap();
+        assert_eq!(h.items.len(), 3, "no row is dropped");
+        assert!(h.items[0].url.is_address());
+        assert_eq!((h.items[1].url.as_str(), h.items[1].url.is_address()), ("file:///etc/passwd", false));
+        assert!(h.items[2].url.is_empty());
+        h.save(&path).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["items"], old["items"]);
+        fs::remove_file(&path).ok();
+    }
+
+    /// The saved requests keep their addresses and suggested file names as
+    /// they were, odd ones too.
+    #[test]
+    fn saved_requests_keep_odd_addresses_and_names() {
+        let req_path = temp_path("odd-requests.bin");
+        let plain = br#"[[2,{"url":"javascript:void(0)","filename":"../a:b.zip"}],[3,{"url":"ftp://f/c.iso"}]]"#;
+        fs::write(&req_path, dpapi::protect(plain).unwrap()).unwrap();
+        let back = load_requests(&req_path).unwrap();
+        assert_eq!(back[&DownloadId::new(2)].url.as_str(), "javascript:void(0)");
+        assert_eq!(back[&DownloadId::new(2)].filename.as_deref(), Some("../a:b.zip"));
+        assert!(back[&DownloadId::new(3)].url.is_address());
+        save_requests(&req_path, &back).unwrap();
+        let again = dpapi::unprotect(&fs::read(&req_path).unwrap()).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&again).unwrap(),
+            serde_json::from_slice::<serde_json::Value>(plain).unwrap()
+        );
+        fs::remove_file(&req_path).ok();
     }
 
     #[test]

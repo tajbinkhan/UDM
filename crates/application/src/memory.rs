@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use uidm_domain::address::Link;
 use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{Download, DownloadEntry, Status};
+use uidm_domain::filename::FileName;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::media::Conversion;
 use uidm_domain::ports::{
@@ -347,7 +349,7 @@ impl DownloadControl for Control {
         path: Option<PathBuf>,
         partial: Option<PathBuf>,
         remember_limit: bool,
-    ) -> (DownloadId, String) {
+    ) -> (DownloadId, Link) {
         let mut restarted = self.restarted.lock().unwrap();
         let url = download.url.clone();
         restarted.push(Restart { download, path, partial, remember_limit });
@@ -751,10 +753,10 @@ impl<'a> Intake<'a> {
 
 impl DownloadIntake for Intake<'_> {
     fn sendable(&self, download: &Download) -> bool {
-        !download.url.ends_with(".bad")
+        !download.url.as_str().ends_with(".bad")
     }
 
-    fn stage(&self, download: Download) -> (DownloadId, String) {
+    fn stage(&self, download: Download) -> (DownloadId, Link) {
         let n = self.next.fetch_add(1, Ordering::SeqCst) as u64;
         let id = DownloadId::new(n);
         let mut e = row(id, Status::Waiting);
@@ -849,7 +851,7 @@ impl Early {
 }
 
 impl EarlyStarts for Early {
-    fn start(&self, id: DownloadId, _download: Download, filename: &str) {
+    fn start(&self, id: DownloadId, _download: Download, filename: &FileName) {
         self.began.lock().unwrap().push((id.get(), filename.to_string()));
     }
 

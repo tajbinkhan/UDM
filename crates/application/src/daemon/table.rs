@@ -8,10 +8,10 @@ use super::Event;
 /// The change `event` makes to the download list, if it makes one.
 pub fn change_of(event: &Event) -> Option<Change<'_>> {
     Some(match event {
-        Event::Added { id, url } => Change::Added { id: *id, url },
+        Event::Added { id, url } => Change::Added { id: *id, url: url.as_str() },
         Event::Started { id, url, path, total, resumable, connections, partial, validator } => Change::Started {
             id: *id,
-            url,
+            url: url.as_str(),
             path,
             total: *total,
             resumable: *resumable,
@@ -20,12 +20,14 @@ pub fn change_of(event: &Event) -> Option<Change<'_>> {
             validator: validator.as_ref(),
         },
         Event::Progress { id, url, done, total, parts, .. } => {
-            Change::Progress { id: *id, url, done: *done, total: *total, parts: *parts }
+            Change::Progress { id: *id, url: url.as_str(), done: *done, total: *total, parts: *parts }
         }
-        Event::Done { id, url, path, note } => Change::Done { id: *id, url, path, note: note.as_deref() },
-        Event::Failed { id, url, error } => Change::Failed { id: *id, url, error },
-        Event::Canceled { id, url } => Change::Canceled { id: *id, url },
-        Event::NameTaken { id, url, path, total } => Change::NameTaken { id: *id, url, path, total: *total },
+        Event::Done { id, url, path, note } => Change::Done { id: *id, url: url.as_str(), path, note: note.as_deref() },
+        Event::Failed { id, url, error } => Change::Failed { id: *id, url: url.as_str(), error },
+        Event::Canceled { id, url } => Change::Canceled { id: *id, url: url.as_str() },
+        Event::NameTaken { id, url, path, total } => {
+            Change::NameTaken { id: *id, url: url.as_str(), path, total: *total }
+        }
         Event::Removed { id } => Change::Removed { id: *id },
         Event::Updated { item } => Change::Updated(item),
         Event::Downloads { items } => Change::Downloads(items),

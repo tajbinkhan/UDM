@@ -42,14 +42,15 @@ impl Probes for ServerProbes {
         // page or a stream is no file either: its address is a web page or
         // a playlist, and the video is made from it only when it runs.
         let found = if crate::app::post_body(download).is_some() || download.media.is_some() {
-            let mut found = engine::Inspection::unprobed(&download.url, download.filename.as_deref());
+            let mut found = engine::Inspection::unprobed(download.url.as_str(), download.filename.as_deref());
             found.total = download.size;
             found.content_type = download.content_type.clone();
             found
         } else {
-            engine::inspect(&download.url, download.filename.as_deref(), &req.headers, &req.net).map_err(probe_error)?
+            engine::inspect(download.url.as_str(), download.filename.as_deref(), &req.headers, &req.net)
+                .map_err(probe_error)?
         };
-        let path = req.folders.for_name(&found.filename).join(&found.filename);
+        let path = req.folders.for_name(found.filename.as_str()).join(&found.filename);
         Ok(FileFacts { filename: found.filename, path, total: found.total, resumable: found.resumable })
     }
 
@@ -105,7 +106,7 @@ mod tests {
     }
 
     fn download(url: &str) -> Download {
-        Download { url: url.to_string(), ..Download::default() }
+        Download { url: url.into(), ..Download::default() }
     }
 
     #[test]

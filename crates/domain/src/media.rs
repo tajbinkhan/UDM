@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::address::AddressError;
 use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 
@@ -48,7 +49,7 @@ pub struct Conversion {
     /// The download converted.
     pub from: crate::id::DownloadId,
     /// Its address, which the new row shows.
-    pub url: String,
+    pub url: crate::address::Link,
     pub input: PathBuf,
     /// A free name beside the input.
     pub output: PathBuf,
@@ -306,17 +307,6 @@ pub fn iso639_2(tag: &str) -> Option<String> {
 /// Why a stream is refused, in words for the user.
 pub const DRM_REFUSED: &str = "This video is protected by DRM (copy protection), so UIDM will not download it.";
 pub const LIVE_REFUSED: &str = "This is a live stream. UIDM downloads recorded videos, which have an end.";
-
-/// Why an address in a playlist or manifest cannot be fetched.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum AddressError {
-    /// The address, and why it does not parse.
-    #[error("bad address {0}: {1}")]
-    Bad(String, String),
-    /// The scheme of an address that is not http or https.
-    #[error("{0}: addresses are not supported in a stream")]
-    Scheme(String),
-}
 
 /// `url` resolved against `base`, as a browser would.
 pub fn resolve(base: &str, url: &str) -> Result<String, AddressError> {

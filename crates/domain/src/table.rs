@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::address::Link;
 use crate::bytes::ByteCount;
 use crate::download::{DownloadEntry, Status, Validator};
 use crate::id::DownloadId;
@@ -191,7 +192,7 @@ impl DownloadTable {
 fn blank(id: DownloadId, url: &str, status: Status) -> DownloadEntry {
     DownloadEntry {
         id,
-        url: url.to_string(),
+        url: Link::new(url),
         path: None,
         total: None,
         done: ByteCount::ZERO,

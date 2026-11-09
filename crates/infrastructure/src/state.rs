@@ -46,10 +46,10 @@ impl DerefMut for DownloadTable {
 /// The change `msg` makes to the download list, if it makes one.
 fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
     Some(match msg {
-        Outgoing::Added { id, url } => Change::Added { id: *id, url },
+        Outgoing::Added { id, url } => Change::Added { id: *id, url: url.as_str() },
         Outgoing::Started { id, url, path, total, resumable, connections, partial, validator } => Change::Started {
             id: *id,
-            url,
+            url: url.as_str(),
             path,
             total: *total,
             resumable: *resumable,
@@ -58,12 +58,16 @@ fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
             validator: validator.as_ref(),
         },
         Outgoing::Progress { id, url, done, total, parts, .. } => {
-            Change::Progress { id: *id, url, done: *done, total: *total, parts: *parts }
+            Change::Progress { id: *id, url: url.as_str(), done: *done, total: *total, parts: *parts }
         }
-        Outgoing::Done { id, url, path, note } => Change::Done { id: *id, url, path, note: note.as_deref() },
-        Outgoing::Failed { id, url, error } => Change::Failed { id: *id, url, error },
-        Outgoing::Canceled { id, url } => Change::Canceled { id: *id, url },
-        Outgoing::NameTaken { id, url, path, total } => Change::NameTaken { id: *id, url, path, total: *total },
+        Outgoing::Done { id, url, path, note } => {
+            Change::Done { id: *id, url: url.as_str(), path, note: note.as_deref() }
+        }
+        Outgoing::Failed { id, url, error } => Change::Failed { id: *id, url: url.as_str(), error },
+        Outgoing::Canceled { id, url } => Change::Canceled { id: *id, url: url.as_str() },
+        Outgoing::NameTaken { id, url, path, total } => {
+            Change::NameTaken { id: *id, url: url.as_str(), path, total: *total }
+        }
         Outgoing::Removed { id } => Change::Removed { id: *id },
         Outgoing::Updated { item } => Change::Updated(item),
         Outgoing::Downloads { items } => Change::Downloads(items),

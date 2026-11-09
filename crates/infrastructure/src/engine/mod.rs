@@ -29,7 +29,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use uidm_domain::bytes::ByteCount;
 use uidm_domain::filename::name_from_url;
-use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename};
+use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename, FileName};
 use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
@@ -734,7 +734,7 @@ fn run_inner(
         return run_post(id, token, &agent, req, body, reporter, shared).map(Saved::from);
     }
     let probe = http::probe(&agent, &req.url, &req.headers)?;
-    let filename = pick_filename(req.filename.as_deref(), &probe);
+    let filename = pick_filename(req.filename.as_deref(), &probe).into_string();
     let dir = req.folders.for_name(&filename);
     writable(&dir)?;
     let claim = choose_output(&shared.claimed, &dir, &filename, req, &probe)?;
@@ -871,7 +871,7 @@ fn run_post(
     shared: &Shared,
 ) -> Result<PathBuf, EngineError> {
     let (probe, mut reader) = http::post(agent, &req.url, &req.headers, body)?;
-    let filename = pick_filename(req.filename.as_deref(), &probe);
+    let filename = pick_filename(req.filename.as_deref(), &probe).into_string();
     let dir = req.folders.for_name(&filename);
     writable(&dir)?;
     let claim = choose_output(&shared.claimed, &dir, &filename, req, &probe)?;
@@ -926,11 +926,10 @@ fn run_post(
 
 /// Filename priority: explicit request, then Content-Disposition, then the URL
 /// path, then a generic fallback.
-fn pick_filename(requested: Option<&str>, probe: &http::Probe) -> String {
+fn pick_filename(requested: Option<&str>, probe: &http::Probe) -> FileName {
     requested
-        .map(sanitize_filename)
-        .filter(|s| !s.is_empty())
-        .or_else(|| probe.suggested_filename.as_deref().map(sanitize_filename).filter(|s| !s.is_empty()))
+        .and_then(sanitize_filename)
+        .or_else(|| probe.suggested_filename.as_deref().and_then(sanitize_filename))
         .unwrap_or_else(|| name_from_url(&probe.final_url))
 }
 
@@ -1005,7 +1004,7 @@ pub fn probe_media(
 #[derive(Debug, Clone)]
 pub struct Inspection {
     /// The name the file would be saved under.
-    pub filename: String,
+    pub filename: FileName,
     pub total: Option<ByteCount>,
     pub resumable: bool,
     pub etag: Option<String>,

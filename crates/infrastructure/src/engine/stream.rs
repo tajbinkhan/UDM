@@ -267,9 +267,9 @@ pub(super) fn stem(req: &DownloadRequest) -> String {
     let name = req
         .filename
         .as_deref()
-        .map(sanitize_filename)
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| uidm_domain::filename::name_from_url(&req.url));
+        .and_then(sanitize_filename)
+        .unwrap_or_else(|| uidm_domain::filename::name_from_url(&req.url))
+        .into_string();
     let stem = Path::new(&name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or(name);
     if stem.is_empty() {
         "video".into()

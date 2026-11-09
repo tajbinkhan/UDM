@@ -1,3 +1,4 @@
+use uidm_domain::address::Link;
 use uidm_domain::download::{DownloadError, Status};
 use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadControl, DownloadFiles, DownloadList};
@@ -18,7 +19,7 @@ impl<'a, D: DownloadList, X: DownloadControl, F: DownloadFiles> Redownload<'a, D
     }
 
     /// Returns the address it downloads again.
-    pub fn run(&self, id: DownloadId) -> Result<String, DownloadError> {
+    pub fn run(&self, id: DownloadId) -> Result<Link, DownloadError> {
         let entry = self.downloads.entry(id).ok_or(DownloadError::NoDownload(id))?;
         let download = entry.redownload_request(self.downloads.request(id))?;
         // No resume record may be left: a partial file still there is a

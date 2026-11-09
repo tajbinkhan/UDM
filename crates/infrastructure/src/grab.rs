@@ -90,7 +90,7 @@ pub fn download_for(
     login_cookies: Option<&str>,
 ) -> Option<uidm_domain::download::Download> {
     let mut d = uidm_domain::download::Download {
-        url: f.url.clone(),
+        url: f.url.as_str().into(),
         referrer: Some(f.page.clone()),
         page: Some(f.page.clone()),
         cookies: crawl_cookies(req, &f.url, None, login_cookies),

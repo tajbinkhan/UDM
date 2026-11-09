@@ -119,7 +119,7 @@ impl GitHub {
     /// Fetch `url` through the proxy the settings choose, up to `limit` bytes.
     fn fetch(&self, url: &str, headers: &[(String, String)], limit: ByteCount) -> Result<Vec<u8>, engine::EngineError> {
         let settings = self.settings.get();
-        let net = config_for(&Download { url: url.to_string(), ..Download::default() }, &settings, &self.retries);
+        let net = config_for(&Download { url: url.into(), ..Download::default() }, &settings, &self.retries);
         engine::fetch(url, headers, &net, limit).map(|page| page.body)
     }
 }

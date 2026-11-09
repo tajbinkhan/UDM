@@ -76,7 +76,8 @@ impl FindBar {
         if self.in_description && e.description.as_deref().is_some_and(words) {
             return true;
         }
-        self.in_links && [Some(&e.url), e.referrer.as_ref(), e.page.as_ref()].into_iter().flatten().any(|s| words(s))
+        self.in_links
+            && [Some(e.url.as_str()), e.referrer.as_deref(), e.page.as_deref()].into_iter().flatten().any(words)
     }
 
     /// The places to look, ticked: at least one stays ticked.

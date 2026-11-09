@@ -38,7 +38,8 @@ impl ProxyRetries {
 /// the browser's proxy when the settings say so: always, or once it failed
 /// through UIDM's own setting (`retries`).
 pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> NetConfig {
-    let browser_wanted = s.use_browser_proxy && (!s.browser_proxy_after_errors || retries.contains(&download.url));
+    let browser_wanted =
+        s.use_browser_proxy && (!s.browser_proxy_after_errors || retries.contains(download.url.as_str()));
     // The browser's whole setting when it sent one (its direct
     // connection too, as `Some(None)`), else the fixed proxy an older
     // extension sends.
@@ -108,7 +109,7 @@ pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> 
         .collect();
     // The download's own login takes the place of the site logins for
     // its host, even those for one of its folders.
-    let host = url::Url::parse(&download.url).ok().and_then(|u| u.host_str().map(str::to_string));
+    let host = url::Url::parse(download.url.as_str()).ok().and_then(|u| u.host_str().map(str::to_string));
     if let (Some(l), Some(host)) = (&download.login, host) {
         logins.retain(|s| !uidm_domain::site::site_matches(uidm_domain::site::split_login_pattern(&s.site).0, &host));
         logins.push(Login {
@@ -131,8 +132,8 @@ pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> 
 }
 
 impl uidm_domain::ports::ProxyFallback for ProxyRetries {
-    fn claim_retry(&self, url: String) -> bool {
-        self.insert(url)
+    fn claim_retry(&self, url: uidm_domain::address::Link) -> bool {
+        self.insert(url.into_string())
     }
 }
 
@@ -144,13 +145,13 @@ mod tests {
     fn the_browsers_proxy_can_wait_for_a_failure() {
         let d = Download { url: "https://x/a.zip".into(), proxy: Some("http://bp:3128".into()), ..Download::default() };
         let retries = ProxyRetries::default();
-        let through = |s: &Settings| config_for(&d, s, &retries).proxy.and_then(|p| p.proxy_for(&d.url));
+        let through = |s: &Settings| config_for(&d, s, &retries).proxy.and_then(|p| p.proxy_for(d.url.as_str()));
         let after = Settings { use_browser_proxy: true, browser_proxy_after_errors: true, ..Settings::default() };
         assert_eq!(through(&after), None, "not before it failed");
         let always = Settings { browser_proxy_after_errors: false, ..after.clone() };
         assert_eq!(through(&always).as_deref(), Some("http://bp:3128"));
-        assert!(retries.insert(d.url.clone()));
-        assert!(!retries.insert(d.url.clone()), "one retry each");
+        assert!(retries.insert(d.url.to_string()));
+        assert!(!retries.insert(d.url.to_string()), "one retry each");
         assert_eq!(through(&after).as_deref(), Some("http://bp:3128"), "once it failed");
     }
 
@@ -170,7 +171,7 @@ mod tests {
                 browser_proxy: setting,
                 ..Download::default()
             };
-            config_for(&d, s, &ProxyRetries::default()).proxy.and_then(|p| p.proxy_for(&d.url))
+            config_for(&d, s, &ProxyRetries::default()).proxy.and_then(|p| p.proxy_for(d.url.as_str()))
         };
         // The browser connects directly: so does the download, whatever
         // UIDM's own setting and the older field say.

@@ -1,3 +1,4 @@
+use uidm_domain::address::Link;
 use uidm_domain::download::Download;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::ports::{DownloadIntake, QueueStore};
@@ -18,7 +19,7 @@ impl<'a, Q: QueueStore, I: DownloadIntake> AddLater<'a, Q, I> {
 
     /// `later` is the queue the settings send "Download later" to. Returns
     /// the new download's id and address.
-    pub fn run(&self, download: Download, later: Option<QueueId>) -> (DownloadId, String) {
+    pub fn run(&self, download: Download, later: Option<QueueId>) -> (DownloadId, Link) {
         let wanted = download.queue.or(later);
         let queue = self.queues.edit(|qs| queue::existing_or_main(qs, wanted));
         let (id, url) = self.intake.stage(download);

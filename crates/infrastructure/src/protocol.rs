@@ -9,6 +9,7 @@ use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
+use uidm_domain::address::Link;
 use uidm_domain::bytes::ByteCount;
 use uidm_domain::grab::{GrabFile, GrabRequest};
 use uidm_domain::id::{DownloadId, QueueId};
@@ -259,18 +260,18 @@ pub enum Outgoing {
     /// identifies it in later events and requests.
     Ack {
         id: DownloadId,
-        url: String,
+        url: Link,
         status: String,
     },
     /// A download was queued. Sent to every client.
     Added {
         id: DownloadId,
-        url: String,
+        url: Link,
     },
     /// A download has begun; totals may be unknown for a non-ranged server.
     Started {
         id: DownloadId,
-        url: String,
+        url: Link,
         /// The file being written.
         path: String,
         total: Option<ByteCount>,
@@ -287,7 +288,7 @@ pub enum Outgoing {
     /// Periodic progress for a running download.
     Progress {
         id: DownloadId,
-        url: String,
+        url: Link,
         done: ByteCount,
         total: Option<ByteCount>,
         /// For a stream: segments fetched and segments in all.
@@ -300,7 +301,7 @@ pub enum Outgoing {
     /// A download finished; `path` is the saved file.
     Done {
         id: DownloadId,
-        url: String,
+        url: Link,
         path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
@@ -308,13 +309,13 @@ pub enum Outgoing {
     /// A download failed partway.
     Failed {
         id: DownloadId,
-        url: String,
+        url: Link,
         error: String,
     },
     /// A download was canceled; its partial file and resume sidecar are kept.
     Canceled {
         id: DownloadId,
-        url: String,
+        url: Link,
     },
     /// A download was removed from the list (removed or retried).
     Removed {
@@ -373,7 +374,7 @@ pub enum Outgoing {
     /// until a window answers with `confirm`.
     NameTaken {
         id: DownloadId,
-        url: String,
+        url: Link,
         path: String,
         total: Option<ByteCount>,
     },
@@ -382,7 +383,7 @@ pub enum Outgoing {
     /// `restart: true` to start over.
     RefreshMismatch {
         id: DownloadId,
-        url: String,
+        url: Link,
         reason: String,
         /// The reason's kind and values (see `wire`), for clients that
         /// translate it; `reason` is its English text.
@@ -530,7 +531,7 @@ pub enum Outgoing {
     /// Reply to `add` when the download was not taken, so the client can
     /// keep it: `message` says why.
     Rejected {
-        url: String,
+        url: Link,
         message: String,
         /// The error's kind and values (see `wire`), for clients that
         /// translate it; `message` is its English text.
@@ -708,6 +709,42 @@ mod tests {
     /// Ids travel as plain numbers: messages from clients and daemons
     /// that predate the id types read the same and are written back
     /// unchanged.
+    /// Addresses and file names travel as plain strings, and a request
+    /// whose address UIDM does not take still decodes, so the daemon can
+    /// refuse it by name (`rejected`) and the browser keep the download.
+    #[test]
+    fn addresses_and_names_keep_their_wire_shape() {
+        for raw in [
+            r#"{"op":"add","url":"https://x/a.zip","filename":"a.zip","referrer":"https://p/"}"#,
+            r#"{"op":"add","url":"javascript:void(0)","filename":"../a:b?.zip"}"#,
+            r#"{"op":"add_many","items":[{"url":"HTTP://x/a"},{"url":"mailto:a@b"},{"url":""}],"queue":1}"#,
+            r#"{"op":"refresh_link","id":3,"download":{"url":"file:///x"},"restart":false}"#,
+            r#"{"op":"probe_links","request":2,"links":[{"url":"ftp://f/c.iso"},{"url":"data:,x"}]}"#,
+        ] {
+            let msg: Incoming = serde_json::from_str(raw).unwrap();
+            let want: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(&msg).unwrap(), want, "{raw}");
+        }
+        match serde_json::from_str(r#"{"op":"add","url":"javascript:x","filename":"a/b"}"#).unwrap() {
+            Incoming::Add(d) => {
+                assert_eq!((d.url.as_str(), d.url.is_address()), ("javascript:x", false));
+                assert_eq!(d.filename.as_deref(), Some("a/b"));
+            }
+            other => panic!("expected add, got {other:?}"),
+        }
+        for raw in [
+            r#"{"op":"added","id":1,"url":"https://x/a"}"#,
+            r#"{"op":"canceled","id":1,"url":"not an address"}"#,
+            r#"{"op":"failed","id":2,"url":"ftp://f/c","error":"gone"}"#,
+            r#"{"op":"rejected","url":"javascript:x","message":"m"}"#,
+            r#"{"op":"ack","id":4,"url":"https://x/b","status":"queued"}"#,
+        ] {
+            let msg: Outgoing = serde_json::from_str(raw).unwrap();
+            let want: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(&msg).unwrap(), want, "{raw}");
+        }
+    }
+
     #[test]
     fn ids_keep_their_wire_shape() {
         for raw in [

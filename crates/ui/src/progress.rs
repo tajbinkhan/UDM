@@ -248,7 +248,7 @@ fn status_tab(ui: &mut egui::Ui, e: &DownloadEntry, fraction: Option<f32>, runni
         ui.label(tr("Address"));
         ui.allocate_ui_with_layout(egui::vec2(380.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_width(380.0);
-            ui.add(egui::Label::new(&e.url).truncate()).on_hover_text(&e.url);
+            ui.add(egui::Label::new(e.url.as_str()).truncate()).on_hover_text(e.url.as_str());
         });
         ui.end_row();
 

@@ -12,7 +12,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::address::Link;
 use uidm_domain::bytes::ByteCount;
+use uidm_domain::filename::FileName;
 use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
@@ -375,7 +377,7 @@ impl Transfers {
     /// id of its own (whose events clients never see) and into a folder of
     /// its own. Answering the dialog keeps what it fetched: see
     /// `settle_early`.
-    pub fn start_early(&self, id: DownloadId, download: Download, filename: &str) {
+    pub fn start_early(&self, id: DownloadId, download: Download, filename: &FileName) {
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
         let root = early_root();
@@ -520,7 +522,7 @@ impl Transfers {
         download: Download,
         reuse_path: Option<PathBuf>,
         reuse_partial: Option<PathBuf>,
-    ) -> (DownloadId, String) {
+    ) -> (DownloadId, Link) {
         let url = download.url.clone();
         let mut req = self.request_for(download.clone());
         req.reuse_path = reuse_path;
@@ -677,8 +679,8 @@ impl DownloadControl for Transfers {
         partial: &str,
     ) -> Result<Option<uidm_domain::download::Mismatch>, ControlError> {
         let req = self.request_for(download.clone());
-        let found =
-            engine::inspect(&download.url, None, &req.headers, &req.net).map_err(|e| ControlError(e.to_string()))?;
+        let found = engine::inspect(download.url.as_str(), None, &req.headers, &req.net)
+            .map_err(|e| ControlError(e.to_string()))?;
         let ignore_date = self.settings.lock().resume_ignores_date;
         Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err())
     }
@@ -697,7 +699,7 @@ impl DownloadControl for Transfers {
         path: Option<PathBuf>,
         partial: Option<PathBuf>,
         remember_limit: bool,
-    ) -> (DownloadId, String) {
+    ) -> (DownloadId, Link) {
         let (id, url) = self.start_resuming(download, path, partial);
         if !remember_limit {
             let _ = self.store.update(id, |e| {
@@ -831,7 +833,7 @@ impl EarlyHandOver {
 }
 
 impl uidm_domain::ports::EarlyStarts for EarlyHandOver {
-    fn start(&self, id: DownloadId, download: Download, filename: &str) {
+    fn start(&self, id: DownloadId, download: Download, filename: &FileName) {
         self.transfers.start_early(id, download, filename);
     }
 
@@ -858,7 +860,7 @@ impl uidm_domain::ports::TransferEngine for Transfers {
         self.engine.active_count()
     }
 
-    fn start(&self, download: Download) -> (DownloadId, String) {
+    fn start(&self, download: Download) -> (DownloadId, Link) {
         self.start_resuming(download, None, None)
     }
 
@@ -924,7 +926,7 @@ mod tests {
         let w = world("runs");
         let server = TestServer::start(engine::testserver::body(10_000));
         let (id, _) =
-            w.transfers.start_resuming(Download { url: server.url.clone(), ..Download::default() }, None, None);
+            w.transfers.start_resuming(Download { url: server.url.as_str().into(), ..Download::default() }, None, None);
         let done = wait_for(&w, id.get(), Status::Done);
         let path = PathBuf::from(done.path.unwrap());
         assert_eq!(path.parent(), Some(w.dir.as_path()));
@@ -981,8 +983,12 @@ mod tests {
         let body = engine::testserver::body(LEN);
         let server = TestServer::start(body.clone());
         let id = w.transfers.engine().reserve_id();
-        w.store.publish(&Outgoing::Added { id, url: server.url.clone() });
-        w.transfers.start_early(id, Download { url: server.url.clone(), ..Download::default() }, "big.bin");
+        w.store.publish(&Outgoing::Added { id, url: server.url.as_str().into() });
+        w.transfers.start_early(
+            id,
+            Download { url: server.url.as_str().into(), ..Download::default() },
+            &FileName::parse("big.bin").unwrap(),
+        );
         let shadow = w.transfers.early().early_of(id).unwrap();
         let until = Instant::now() + Duration::from_secs(10);
         while w.transfers.early().runs()[&shadow].end.is_none() {

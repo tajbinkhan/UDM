@@ -48,10 +48,12 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
             out.push((i, Question::InList(crate::display_name(old))));
         }
         if d.file_exists.unwrap_or(settings.file_exists) == FileExists::Ask {
-            let name = uidm_domain::filename::proposed_name(&d.url, d.filename.as_deref());
+            let name = uidm_domain::filename::proposed_name(d.url.as_str(), d.filename.as_deref());
             let folder = match d.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
                 Some(f) => f.to_path_buf(),
-                None => settings.folders_for(&d.url, &crate::ports::ports().downloads_dir()).for_name(&name),
+                None => {
+                    settings.folders_for(d.url.as_str(), &crate::ports::ports().downloads_dir()).for_name(name.as_str())
+                }
             };
             let path = folder.join(&name);
             if crate::ports::ports().files.is_file(&path) {

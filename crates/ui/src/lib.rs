@@ -1708,13 +1708,13 @@ impl App {
                 if last_offered.as_deref() == Some(url.as_str()) {
                     continue;
                 }
-                last_offered = Some(url.clone());
+                last_offered = Some(url.to_string());
                 // Started at once, it goes the way a pasted link does, save-as
                 // dialog and all; only the offer is skipped.
-                if start && daemon.send(Command::Add(Download { url: url.clone(), ..Download::default() })) {
+                if start && daemon.send(Command::Add(Download { url: url.clone().into(), ..Download::default() })) {
                     continue;
                 }
-                let _ = outbox.send(UiMessage::ClipboardOffer(url));
+                let _ = outbox.send(UiMessage::ClipboardOffer(url.into_string()));
                 win::show();
                 reopen::repaint();
             }
@@ -1733,7 +1733,7 @@ impl App {
                     let text = win::clipboard_text().unwrap_or_default();
                     let url = text.trim();
                     if is_download_url(url) {
-                        daemon.send(Command::Add(Download { url: url.to_string(), ..Download::default() }));
+                        daemon.send(Command::Add(Download { url: url.into(), ..Download::default() }));
                     } else {
                         let _ = outbox.send(UiMessage::Error(tr("The clipboard holds no http or https link.").into()));
                         win::show();
@@ -1823,7 +1823,7 @@ impl App {
     fn perform(&mut self, action: Action) {
         match action {
             Action::Add(url) => {
-                self.daemon.send(Command::Add(Download { url, ..Download::default() }));
+                self.daemon.send(Command::Add(Download { url: url.into(), ..Download::default() }));
             }
             Action::CancelSaveAs(id) => {
                 self.daemon.send(Command::Cancel { id });
@@ -1833,9 +1833,9 @@ impl App {
                 };
                 let offer = settings.is_some_and(|s| s.offer_exceptions);
                 if let Some(e) = entry.filter(|e| e.from_browser && offer) {
-                    if !self.canceled_once.insert(e.url.clone()) {
-                        self.canceled_once.remove(&e.url);
-                        self.exception_offer = Some((e.url, false));
+                    if !self.canceled_once.insert(e.url.to_string()) {
+                        self.canceled_once.remove(e.url.as_str());
+                        self.exception_offer = Some((e.url.into_string(), false));
                     }
                 }
             }
@@ -2079,7 +2079,7 @@ impl App {
                 state::apply(&mut self.state, UiMessage::Forget(Forget::RefreshMismatch));
                 self.daemon.send(Command::RefreshLink {
                     id,
-                    download: Some(Download { url, ..Download::default() }),
+                    download: Some(Download { url: url.into(), ..Download::default() }),
                     restart,
                 });
             }
@@ -2299,8 +2299,9 @@ impl App {
             if let Some((first, wanted)) = waiting.first().cloned() {
                 let (same, other): (Vec<_>, Vec<_>) = waiting.iter().partition(|(_, w)| w.host == wanted.host);
                 state::apply(&mut self.state, UiMessage::LoginsWaiting(other.iter().map(|(e, _)| e.id).collect()));
-                let own_site =
-                    same.iter().all(|(e, _)| uidm_domain::site::host_of(&e.url).eq_ignore_ascii_case(&wanted.host));
+                let own_site = same
+                    .iter()
+                    .all(|(e, _)| uidm_domain::site::host_of(e.url.as_str()).eq_ignore_ascii_case(&wanted.host));
                 let username = settings
                     .as_ref()
                     .and_then(|s| s.site_logins.iter().find(|l| l.site.eq_ignore_ascii_case(&wanted.host)))
@@ -2309,7 +2310,7 @@ impl App {
                     .unwrap_or_default();
                 let ids = same.iter().map(|(e, _)| e.id).collect();
                 let mut prompt = login::LoginPrompt::new(ids, wanted, own_site, username);
-                prompt.plain = same.iter().any(|(e, _)| !e.url.to_ascii_lowercase().starts_with("https:"));
+                prompt.plain = same.iter().any(|(e, _)| !e.url.as_str().to_ascii_lowercase().starts_with("https:"));
                 self.login = Some(prompt);
             }
         }
@@ -2357,7 +2358,7 @@ impl App {
                 .and_then(|p| p.file_name())
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| display_name(entry));
-            let category = settings.listed_under(entry.category.as_deref(), &filename, &entry.url).to_string();
+            let category = settings.listed_under(entry.category.as_deref(), &filename, entry.url.as_str()).to_string();
             self.confirm = Some(ConfirmDraft {
                 id: entry.id,
                 later_queue: MAIN_QUEUE,
@@ -2411,7 +2412,9 @@ impl App {
         let replaced = other.filter(|_| draft.duplicate == Duplicate::Overwrite).and_then(|o| o.path.as_deref());
         // Under Ask, a name taken by a file in the folder needs an answer,
         // unless the duplicate question already covers it.
-        let name = uidm_domain::filename::sanitize_filename(draft.filename.trim());
+        let name = uidm_domain::filename::sanitize_filename(draft.filename.trim())
+            .map(uidm_domain::filename::FileName::into_string)
+            .unwrap_or_default();
         let taken = ask
             && other.is_none()
             && !name.is_empty()
@@ -2440,7 +2443,7 @@ impl App {
             .show(ctx, |ui| {
                 egui::Grid::new("confirm_grid").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
                     ui.label(tr("Address"));
-                    ui.add(egui::Label::new(&entry.url).truncate()).on_hover_text(&entry.url);
+                    ui.add(egui::Label::new(entry.url.as_str()).truncate()).on_hover_text(entry.url.as_str());
                     ui.end_row();
 
                     ui.label(tr("File name"));
@@ -2686,7 +2689,7 @@ impl App {
                     ui.add_enabled_ui(connected, |ui| {
                         // The category goes with it only when it is not the one
                         // the file's type gives anyway.
-                        let by_type = settings.category_name(&name, &entry.url);
+                        let by_type = settings.category_name(&name, entry.url.as_str());
                         let category = (!draft.category.eq_ignore_ascii_case(by_type)).then(|| draft.category.clone());
                         let description = draft.description.trim();
                         let remember_folder = (replaced.is_none()
@@ -4076,7 +4079,7 @@ impl App {
                         ui.strong(display_name(&e));
                         ui.end_row();
                         ui.label(tr("Address"));
-                        ui.add(egui::Label::new(&e.url).truncate()).on_hover_text(&e.url);
+                        ui.add(egui::Label::new(e.url.as_str()).truncate()).on_hover_text(e.url.as_str());
                         ui.end_row();
                         if let Some(t) = e.total {
                             ui.label(tr("Size"));
@@ -4368,7 +4371,7 @@ impl eframe::App for App {
         let shown_settings = settings.clone().unwrap_or_default();
         let listed: Vec<String> = rows
             .iter()
-            .map(|e| shown_settings.listed_under(e.category.as_deref(), &display_name(e), &e.url).to_string())
+            .map(|e| shown_settings.listed_under(e.category.as_deref(), &display_name(e), e.url.as_str()).to_string())
             .collect();
         let queue_list = self.state.queues.clone();
         // With the panel hidden, nothing is left to pick another view with.
@@ -4891,7 +4894,7 @@ impl App {
                 droptarget::open(
                     Arc::new(move |url: String| {
                         // Each dropped link goes through the save-as dialog.
-                        daemon.send(Command::Add(Download { url, ask: Some(true), ..Download::default() }));
+                        daemon.send(Command::Add(Download { url: url.into(), ask: Some(true), ..Download::default() }));
                         win::show();
                         ctx.request_repaint();
                     }),
@@ -5318,10 +5321,10 @@ fn display_name(e: &DownloadEntry) -> String {
     if let Some(name) = e.path.as_deref().and_then(|p| Path::new(p).file_name()) {
         return name.to_string_lossy().into_owned();
     }
-    let no_query = e.url.split(['?', '#']).next().unwrap_or(&e.url);
+    let no_query = e.url.as_str().split(['?', '#']).next().unwrap_or(e.url.as_str());
     match no_query.rsplit('/').next() {
         Some(tail) if !tail.is_empty() => tail.to_string(),
-        _ => e.url.clone(),
+        _ => e.url.to_string(),
     }
 }
 

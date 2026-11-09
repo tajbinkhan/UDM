@@ -154,7 +154,7 @@ impl Notifier {
 pub fn toast_for(e: &DownloadEntry, failed: bool) -> Toast {
     let path = e.path.as_deref().map(Path::new);
     let name =
-        path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| e.url.clone());
+        path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| e.url.to_string());
     let id = e.id;
     if failed {
         return Toast {
