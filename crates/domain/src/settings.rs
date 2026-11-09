@@ -1346,7 +1346,7 @@ fn check_extensions(what: SettingsField, exts: &[String]) -> Result<(), InvalidS
 }
 
 /// A part of the settings that a message names.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SettingsField {
     DownloadFolder,
     /// The folder of the category with this name.
@@ -1374,7 +1374,7 @@ impl std::fmt::Display for SettingsField {
 }
 
 /// One of the manual proxies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProxyEntry {
     Http,
     Https,
@@ -1395,7 +1395,7 @@ impl std::fmt::Display for ProxyEntry {
 
 /// Why settings are not valid (see [`Settings::validate`]). The window
 /// shows these, translated.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum InvalidSettings {
     #[error("The configuration script must be an http or https address.")]
     ScriptNotWeb,

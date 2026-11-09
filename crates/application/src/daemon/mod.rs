@@ -6,9 +6,11 @@
 //! These are plain values: how they travel (the framing, the JSON shapes,
 //! the handshake) is the adapters' business, in `uidm-infrastructure`.
 
+mod failure;
 pub mod service;
 mod table;
 
+pub use failure::Failure;
 pub use table::{apply, change_of};
 
 use std::sync::Arc;
@@ -358,7 +360,7 @@ pub enum Event {
         index: usize,
         total: Option<u64>,
         content_type: Option<String>,
-        error: Option<String>,
+        error: Option<Failure>,
     },
     /// Links from a page for the link picker.
     PickLinks {
@@ -381,16 +383,16 @@ pub enum Event {
     /// What the update check found: a newer release, none, or why not.
     Update {
         newer: Option<Release>,
-        error: Option<String>,
+        error: Option<Failure>,
     },
     UpdateFailed {
-        error: String,
+        error: Failure,
     },
     /// The files inside a zip download, or why they could not be listed.
     ZipPreview {
         id: u64,
         entries: Vec<ZipEntry>,
-        error: Option<String>,
+        error: Option<Failure>,
     },
     /// A crawl's progress.
     GrabProgress {
@@ -410,12 +412,12 @@ pub enum Event {
     },
     /// A failure the client should hear about.
     Error {
-        message: String,
+        error: Failure,
     },
     /// An `Add` the daemon did not take, and why.
     Rejected {
         url: String,
-        message: String,
+        error: Failure,
     },
 }
 
@@ -433,8 +435,8 @@ pub enum DaemonError {
     Connect(String),
     #[error("the daemon closed the connection")]
     Closed,
-    #[error("{0}")]
-    Refused(String),
+    #[error(transparent)]
+    Refused(Failure),
 }
 
 /// The connection to the daemon.

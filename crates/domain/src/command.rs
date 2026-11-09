@@ -1,7 +1,7 @@
 //! The scanner command line typed in Options.
 
 /// Why a scanner command line cannot be run.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum CommandError {
     #[error("The scanner command has an unclosed quote.")]
     UnclosedQuote,

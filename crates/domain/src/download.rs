@@ -550,7 +550,7 @@ pub struct OnDone {
 
 /// Why a change to a download was refused. The messages are shown to the
 /// user.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum DownloadError {
     #[error("no download with id {0}")]
     NoDownload(u64),

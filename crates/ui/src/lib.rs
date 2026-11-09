@@ -164,7 +164,8 @@ pub fn run(start: Start) -> eframe::Result {
             Err(e) => {
                 let error = match e {
                     DaemonError::Closed => tr("the daemon closed the connection").to_string(),
-                    DaemonError::Connect(why) | DaemonError::Refused(why) => why,
+                    DaemonError::Connect(why) => why,
+                    DaemonError::Refused(failure) => errors::daemon(&failure),
                 };
                 startup_error = Some(trf!("Could not pass the command line to UIDM: {error}", error = error));
             }

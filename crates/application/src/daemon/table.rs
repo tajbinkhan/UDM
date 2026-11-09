@@ -49,7 +49,7 @@ mod tests {
     fn download_events_change_the_list_and_others_do_not() {
         let mut t = DownloadTable::new();
         apply(&mut t, &Event::Added { id: 1, url: "u".into() }, 0);
-        apply(&mut t, &Event::Error { message: "x".into() }, 0);
+        apply(&mut t, &Event::Error { error: crate::daemon::Failure::Other("x".into()) }, 0);
         apply(&mut t, &Event::Show, 0);
         assert_eq!(t.len(), 1);
         apply(&mut t, &Event::Failed { id: 1, url: "u".into(), error: "timed out".into() }, 0);

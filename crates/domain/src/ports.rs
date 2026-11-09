@@ -74,7 +74,7 @@ pub trait DownloadList: Send + Sync {
 
 /// Why a download could not be started again. The message is shown to
 /// the user or logged.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 #[error("{0}")]
 pub struct ControlError(pub String);
 
@@ -325,7 +325,7 @@ pub trait Converter: Send + Sync {
 
 /// Why the settings could not be saved. The message is shown to the user
 /// or logged.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SettingsError {
     /// A value breaks a rule of [`crate::settings::Settings::validate`].
     #[error(transparent)]

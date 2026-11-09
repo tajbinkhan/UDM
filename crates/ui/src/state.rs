@@ -12,7 +12,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
-use uidm_application::daemon::{self, Event, Lost};
+use uidm_application::daemon::{self, Event, Failure, Lost};
 use uidm_application::window::BrowserSlot;
 use uidm_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
 use uidm_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
@@ -20,7 +20,7 @@ use uidm_domain::queue::{Queue, WhenDone};
 use uidm_domain::settings::{AddedBrowser, Notify, Settings};
 use uidm_domain::table::DownloadTable;
 
-use crate::errors::UiError;
+use crate::errors::{self, UiError};
 use crate::i18n::{tr, trf};
 use crate::{columns, links, progress};
 
@@ -217,7 +217,7 @@ impl AppState {
             }
             // An older daemon than this window cannot read its newer
             // requests; its parser's complaint means nothing to the user.
-            Event::Error { message } if message.starts_with("invalid message: unknown variant") => {
+            Event::Error { error: Failure::InvalidMessage(why) } if why.starts_with("unknown variant") => {
                 self.saving = false;
                 self.stale_daemon = true;
                 self.last_error = Some(
@@ -225,9 +225,9 @@ impl AppState {
                         .into(),
                 );
             }
-            Event::Error { message } if self.saving => {
+            Event::Error { error } if self.saving => {
                 self.saving = false;
-                self.save_result = Some(Err(UiError::new(message.clone())));
+                self.save_result = Some(Err(UiError::from(error.clone())));
             }
             Event::Progress { id, done, segments, .. } => {
                 self.sample_speed(*id, *done);
@@ -266,11 +266,11 @@ impl AppState {
                 };
             }
             Event::UpdateFailed { error } => {
-                self.installing = Some(Some(error.clone()));
+                self.installing = Some(Some(errors::daemon(error)));
             }
             Event::Update { newer, error } => {
                 self.update = Some(match error {
-                    Some(e) => Err(UiError::new(e.clone())),
+                    Some(e) => Err(UiError::from(e.clone())),
                     None => Ok(newer.clone()),
                 });
                 if newer.is_some() {
@@ -289,7 +289,7 @@ impl AppState {
             }
             Event::LinkInfo { request, index, total, content_type, error } => {
                 let probed = match error {
-                    Some(e) => links::Probed::Failed(e.clone()),
+                    Some(e) => links::Probed::Failed(errors::daemon(e)),
                     None => links::Probed::Found { total: *total, content_type: content_type.clone() },
                 };
                 self.link_info.push((*request, *index, probed));
@@ -330,7 +330,7 @@ impl AppState {
                     self.segments.remove(id);
                 }
             }
-            Event::Error { message } | Event::Rejected { message, .. } => self.last_error = Some(message.clone()),
+            Event::Error { error } | Event::Rejected { error, .. } => self.last_error = Some(errors::daemon(error)),
             _ => {}
         }
     }
@@ -824,6 +824,25 @@ mod tests {
         assert_eq!(take_save_result(&mut s), Some(Ok(())));
         apply(&mut s, UiMessage::SaveFailed("not connected".into()));
         assert_eq!(take_save_result(&mut s), Some(Err("not connected".into())));
+        // The daemon's refusal comes typed, and reads as the window says it.
+        apply(&mut s, UiMessage::SavingSettings);
+        let refused = uidm_domain::ports::SettingsError::Invalid(uidm_domain::settings::InvalidSettings::QuotaZero);
+        daemon(&mut s, Event::Error { error: refused.into() });
+        assert_eq!(take_save_result(&mut s), Some(Err("The quota must be at least 1 MB.".into())));
+    }
+
+    #[test]
+    fn the_daemons_errors_are_shown_as_the_window_says_them() {
+        let mut s = AppState::default();
+        let error = Failure::from(uidm_domain::queue::QueueError::MainQueue);
+        daemon(&mut s, Event::Error { error });
+        assert_eq!(s.last_error.as_deref(), Some("The main queue cannot be deleted."));
+        daemon(&mut s, Event::Rejected { url: "x".into(), error: Failure::Other("as the daemon said".into()) });
+        assert_eq!(s.last_error.as_deref(), Some("as the daemon said"));
+        // A daemon older than the window did not know a request.
+        assert!(!s.stale_daemon);
+        daemon(&mut s, Event::Error { error: Failure::InvalidMessage("unknown variant `x`".into()) });
+        assert!(s.stale_daemon);
     }
 
     #[test]

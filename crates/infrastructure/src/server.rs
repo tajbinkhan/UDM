@@ -26,7 +26,7 @@ use std::time::Instant;
 
 use tracing::{info, warn};
 
-use uidm_application::daemon::{ClientList, Event, Reply, Requests};
+use uidm_application::daemon::{ClientList, Event, Failure, Reply, Requests};
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::front::Windows;
@@ -271,7 +271,7 @@ pub fn receive(clients: &Clients, requests: &dyn Requests, client: u64, raw: &[u
     let msg: Incoming = match serde_json::from_slice(raw) {
         Ok(msg) => msg,
         Err(e) => {
-            reply.send(Event::Error { message: format!("invalid message: {e}") });
+            reply.send(Event::Error { error: Failure::InvalidMessage(e.to_string()) });
             return;
         }
     };
@@ -434,7 +434,7 @@ mod tests {
         receive(&clients, &handler, 1, b"{\"op\":\"nonsense\"}", &reply);
         receive(&clients, &handler, 1, br#"{"op":"ping"}"#, &reply);
         let got = got(&frames);
-        assert!(matches!(&got[0], Outgoing::Error { message } if message.starts_with("invalid message")));
+        assert!(matches!(&got[0], Outgoing::Error { message, .. } if message.starts_with("invalid message")));
         assert!(matches!(got[1], Outgoing::Pong));
     }
 
