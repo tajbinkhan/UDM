@@ -3577,7 +3577,7 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "pullbay-app"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "eframe",
@@ -3592,7 +3592,7 @@ dependencies = [
 
 [[package]]
 name = "pullbay-application"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "pullbay-domain",
  "serde_json",
@@ -3602,7 +3602,7 @@ dependencies = [
 
 [[package]]
 name = "pullbay-domain"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "percent-encoding",
  "serde",
@@ -3613,7 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "pullbay-infrastructure"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -3648,7 +3648,7 @@ dependencies = [
 
 [[package]]
 name = "pullbay-ui"
-version = "0.3.3"
+version = "0.4.0"
 dependencies = [
  "arboard",
  "eframe",
