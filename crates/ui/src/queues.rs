@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
+use uidm_domain::sync::LockExt;
 
 use eframe::egui;
 use uidm_domain::queue::{
@@ -57,20 +58,20 @@ pub fn named(queues: &[Queue], name: &str) -> Option<u64> {
 /// until it has. A worker reads it again at most every ten seconds, since
 /// the dialogs draw many times a second and the read asks the system.
 fn wake_timers_allowed(ctx: &egui::Context) -> Option<(bool, bool)> {
-    use std::sync::{Mutex, PoisonError};
+    use std::sync::Mutex;
     use std::time::Duration;
     /// When a read was last started, and what the last one found.
     type Cached = (Option<Instant>, Option<(bool, bool)>);
     static CACHE: Mutex<Cached> = Mutex::new((None, None));
     // The cache is two plain values that a panicking thread cannot leave
     // half-changed.
-    let mut cache = CACHE.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut cache = CACHE.lock_or_recover();
     if cache.0.is_none_or(|at| at.elapsed() >= Duration::from_secs(10)) {
         cache.0 = Some(Instant::now());
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let value = crate::ports::ports().system.wake_timers_allowed();
-            CACHE.lock().unwrap_or_else(PoisonError::into_inner).1 = value;
+            CACHE.lock_or_recover().1 = value;
             ctx.request_repaint();
         });
     }
@@ -152,7 +153,7 @@ pub fn open_file_button(ui: &mut egui::Ui, field: &str, slot: &Picked) {
         std::thread::spawn(move || {
             let title = tr("Open this file when done");
             if let Some(file) = crate::ports::ports().pickers.pick_file(title, &[], start.as_deref()) {
-                *slot.lock().unwrap() = Some(file);
+                *slot.lock_or_recover() = Some(file);
                 ctx.request_repaint();
             }
         });

@@ -8,9 +8,10 @@
 
 use std::io::{self, ErrorKind};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+use uidm_domain::sync::LockExt;
 
 use uidm_application::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
 use uidm_domain::download::CommandLine;
@@ -39,7 +40,7 @@ pub struct IpcDaemonClient {
 /// Lock `m`. The guarded value is a plain stream slot, so one a panicking
 /// thread left behind is still usable.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 impl IpcDaemonClient {

@@ -2,7 +2,8 @@
 //! settings, the download's own login and the proxy its browser reported.
 
 use std::collections::HashSet;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
+use uidm_domain::sync::LockExt;
 
 use uidm_domain::download::Download;
 
@@ -18,7 +19,7 @@ impl ProxyRetries {
     /// Only single inserts change the set, so a lock poisoned by a
     /// panicking thread still holds a usable one.
     fn urls(&self) -> MutexGuard<'_, HashSet<String>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.0.lock_or_recover()
     }
 
     /// Whether `url` was retried through the browser's proxy.

@@ -16,7 +16,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
+use uidm_domain::sync::LockExt;
 
 use tracing::warn;
 use uidm_application::daemon::Event;
@@ -92,7 +93,7 @@ pub struct DownloadStore {
 /// left plain data behind (a table, a map, a list), which is still the best
 /// the daemon has, so a poisoned lock is used as it is.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 impl DownloadStore {

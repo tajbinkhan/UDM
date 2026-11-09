@@ -20,9 +20,10 @@ use std::io;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Instant;
+use uidm_domain::sync::LockExt;
 
 use tracing::{info, warn};
 
@@ -80,7 +81,7 @@ pub struct Clients {
 /// and removals, or a plain value, so one poisoned by a panicking thread
 /// still holds a usable value.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 impl Clients {

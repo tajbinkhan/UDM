@@ -12,9 +12,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::sync::LockExt;
 
 use tracing::{info, warn};
 use uidm_domain::download::{
@@ -100,7 +101,7 @@ pub enum Note {
 /// inserts and removals, or a plain value, so one a panicking thread left
 /// behind still holds a usable value.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 /// A clock stopped at one moment, for a scheduler pass that looks at
