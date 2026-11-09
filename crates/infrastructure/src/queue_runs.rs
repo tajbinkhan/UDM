@@ -4,14 +4,15 @@
 //! `PausedDownloads`). Both live in memory only; a restart starts afresh.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
+use uidm_domain::sync::LockExt;
 
 use uidm_domain::ports::{PausedDownloads, QueueRuns};
 
 /// Every change below is a single insert or removal, so a lock poisoned by
 /// a panicking thread still holds consistent sets.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 /// Each started queue's run: what it started, and the retries counted.
