@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use uidm_domain::sync::LockExt;
 
 use eframe::egui;
 use uidm_application::window::{FileKind, GrabLibrary, ListFormat};
@@ -39,7 +40,7 @@ pub fn pick_text_file(ctx: &egui::Context, title: &'static str, slot: &Loaded) {
             .read(&path)
             .map(|text| (name, text))
             .map_err(|e| trf!("Could not read {path}: {error}", path = path.display(), error = e));
-        *slot.lock().unwrap() = Some(read.map_err(UiError::from));
+        *slot.lock_or_recover() = Some(read.map_err(UiError::from));
         ctx.request_repaint();
     });
 }
@@ -153,8 +154,11 @@ impl BatchDialog {
                     };
                     self.expanded = Some((key, result.map_err(UiError::from)));
                 }
-                let (_, result) = self.expanded.as_ref().unwrap();
-                result.clone().map(|u| (u, 0))
+                // Just filled in when it was missing.
+                match &self.expanded {
+                    Some((_, result)) => result.clone().map(|u| (u, 0)),
+                    None => Ok((Vec::new(), 0)),
+                }
             }
             Source::List => batch::parse_list(&self.list).map_err(UiError::from),
             Source::Imported => Ok((Vec::new(), 0)),
@@ -205,7 +209,7 @@ pub fn batch_dialog(
     actions: &mut Vec<Action>,
 ) -> bool {
     take_picked(&d.picked, &mut d.folder);
-    if let Some(loaded) = d.loaded.lock().unwrap().take() {
+    if let Some(loaded) = d.loaded.lock_or_recover().take() {
         match loaded {
             Ok((_, text)) => {
                 d.list = text;
@@ -455,7 +459,7 @@ pub fn export_dialog(
     selected: &HashSet<u64>,
     queues: &[Queue],
 ) -> bool {
-    if let Some(r) = d.result.lock().unwrap().take() {
+    if let Some(r) = d.result.lock_or_recover().take() {
         d.message = Some(r);
     }
     let in_queue = |id: u64| -> Vec<&DownloadEntry> {
@@ -537,7 +541,7 @@ pub fn export_dialog(
                             .write(&path, &text)
                             .map(|_| trf!("Saved {count} downloads to {path}.", count = count, path = path.display()))
                             .map_err(|e| trf!("Could not save {path}: {error}", path = path.display(), error = e));
-                        *slot.lock().unwrap() = Some(result.map_err(UiError::from));
+                        *slot.lock_or_recover() = Some(result.map_err(UiError::from));
                         ctx.request_repaint();
                     });
                 }
@@ -1266,7 +1270,7 @@ pub fn grab_dialog(
     take_picked(&d.mirror_picked, &mut d.mirror_folder);
     take_picked(&d.save_picked, &mut d.save_folder);
     take_picked(&d.open_picked, &mut d.open_when_done);
-    let file = d.file_picked.lock().unwrap().take();
+    let file = d.file_picked.lock_or_recover().take();
     if let Some(path) = file {
         match crate::ports::ports().grab.as_deref() {
             Some(lib) => d.opening.start(ctx, move || match lib.load_file(&path) {
@@ -1512,7 +1516,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
                     let kinds = [FileKind::new(tr("Grabber projects"), &["json"])];
                     let title = tr("Open a grabber project");
                     if let Some(file) = crate::ports::ports().pickers.pick_file(title, &kinds, start.as_deref()) {
-                        *slot.lock().unwrap() = Some(file);
+                        *slot.lock_or_recover() = Some(file);
                         ctx.request_repaint();
                     }
                 });
@@ -2163,7 +2167,7 @@ fn file_tree(files: &[GrabFile], by_page: bool) -> Vec<TreeNode> {
     }
     fn join(mut node: TreeNode) -> TreeNode {
         while node.files.is_empty() && node.children.len() == 1 {
-            let child = node.children.pop().unwrap();
+            let Some(child) = node.children.pop() else { break };
             node.name = format!("{}/{}", node.name, child.name);
             node.files = child.files;
             node.children = child.children;

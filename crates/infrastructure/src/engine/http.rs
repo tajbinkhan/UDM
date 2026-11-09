@@ -24,22 +24,34 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The runtime every download's requests run on. Two workers are plenty:
-/// they only move bytes between sockets and the engine's threads.
-fn runtime() -> &'static tokio::runtime::Runtime {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("uidm-http")
-            .enable_all()
-            .build()
-            .expect("the HTTP runtime starts")
-    })
+/// they only move bytes between sockets and the engine's threads. An error
+/// if the system would not start it (no threads or no event queue left),
+/// which every request then fails with.
+fn runtime() -> Result<&'static tokio::runtime::Runtime, EngineError> {
+    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("uidm-http")
+                .enable_all()
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|e| EngineError::Io(format!("the HTTP runtime did not start: {e}")))
+}
+
+/// Drop `value` inside the runtime, which a response's connection belongs
+/// to. Without a runtime there is no response, so it is just dropped.
+fn drop_in_runtime<T>(value: T) {
+    let _guard = runtime().ok().map(|r| r.enter());
+    drop(value);
 }
 
 /// Run `future` to its end on the runtime, giving up after `READ_TIMEOUT`.
 fn block_on<T>(future: impl std::future::Future<Output = T>) -> Result<T, EngineError> {
-    runtime()
+    runtime()?
         .block_on(async { tokio::time::timeout(READ_TIMEOUT, future).await })
         .map_err(|_| EngineError::Http("timed out".into()))
 }
@@ -128,7 +140,8 @@ impl Read for Body {
             let Some(resp) = self.inner.as_mut() else {
                 return Ok(0);
             };
-            match runtime().block_on(async { tokio::time::timeout(READ_TIMEOUT, resp.chunk()).await }) {
+            let runtime = runtime().map_err(io::Error::other)?;
+            match runtime.block_on(async { tokio::time::timeout(READ_TIMEOUT, resp.chunk()).await }) {
                 Ok(Ok(Some(chunk))) => self.chunk = chunk,
                 Ok(Ok(None)) => {
                     self.close();
@@ -149,8 +162,7 @@ impl Body {
     /// Drop the response inside the runtime, which its connection belongs to.
     fn close(&mut self) {
         if let Some(resp) = self.inner.take() {
-            let _guard = runtime().enter();
-            drop(resp);
+            drop_in_runtime(resp);
         }
     }
 }
@@ -164,8 +176,7 @@ impl Drop for Body {
 impl Drop for Response {
     fn drop(&mut self) {
         if let Some(resp) = self.inner.take() {
-            let _guard = runtime().enter();
-            drop(resp);
+            drop_in_runtime(resp);
         }
     }
 }
@@ -233,7 +244,7 @@ impl Client {
             if let Some(one) = ntlm {
                 builder = builder.http1_only().connector_layer(one);
             }
-            let _guard = runtime().enter();
+            let _guard = runtime()?.enter();
             builder.build().map_err(|e| EngineError::Tls(error_text(&e)))
         };
         Ok(Client {
