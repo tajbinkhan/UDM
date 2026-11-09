@@ -3,7 +3,15 @@
 //! connection use it: the window's `daemon_client` sends commands and reads
 //! events, and the daemon's `server` reads commands and sends events.
 
-use uidm_application::daemon::{Command, Event};
+use serde::{Deserialize, Serialize};
+use uidm_application::daemon::service::ServiceError;
+use uidm_application::daemon::{Command, Event, Failure};
+use uidm_application::downloads::{ConfirmError, StartOrWaitError};
+use uidm_domain::download::{DownloadError, Mismatch};
+use uidm_domain::grab::InvalidGrab;
+use uidm_domain::ports::{ControlError, SettingsError};
+use uidm_domain::queue::QueueError;
+use uidm_domain::update::UpdateError;
 
 use crate::protocol::{Incoming, Outgoing};
 
@@ -137,25 +145,31 @@ pub fn event(msg: Outgoing) -> Event {
         Outgoing::Quit => Event::Quit,
         Outgoing::RefreshWaiting { id } => Event::RefreshWaiting { id },
         Outgoing::NameTaken { id, url, path, total } => Event::NameTaken { id, url, path, total },
-        Outgoing::RefreshMismatch { id, url, reason } => Event::RefreshMismatch { id, url, reason },
+        Outgoing::RefreshMismatch { id, url, reason, error_kind } => {
+            Event::RefreshMismatch { id, url, reason: failure(reason, error_kind) }
+        }
         Outgoing::AddedMany { count, skipped } => Event::AddedMany { count, skipped },
-        Outgoing::LinkInfo { request, index, total, content_type, error } => {
-            Event::LinkInfo { request, index, total, content_type, error }
+        Outgoing::LinkInfo { request, index, total, content_type, error, error_kind } => {
+            Event::LinkInfo { request, index, total, content_type, error: error.map(|e| failure(e, error_kind)) }
         }
         Outgoing::PickLinks { page, links, user_agent } => Event::PickLinks { page, links, user_agent },
         Outgoing::Quota { used, limit, paused, resumes_at } => Event::Quota { used, limit, paused, resumes_at },
         Outgoing::BrowserLink { connected, last_seen } => Event::BrowserLink { connected, last_seen },
-        Outgoing::Update { newer, error } => Event::Update { newer, error },
-        Outgoing::UpdateFailed { error } => Event::UpdateFailed { error },
-        Outgoing::ZipPreview { id, entries, error } => Event::ZipPreview { id, entries, error },
+        Outgoing::Update { newer, error, error_kind } => {
+            Event::Update { newer, error: error.map(|e| failure(e, error_kind)) }
+        }
+        Outgoing::UpdateFailed { error, error_kind } => Event::UpdateFailed { error: failure(error, error_kind) },
+        Outgoing::ZipPreview { id, entries, error, error_kind } => {
+            Event::ZipPreview { id, entries, error: error.map(|e| failure(e, error_kind)) }
+        }
         Outgoing::GrabProgress { pages, bytes, found, explored, added } => {
             Event::GrabProgress { pages, bytes, found, explored, added }
         }
         Outgoing::GrabDone { files, pages, explored, stopped, login_cookies } => {
             Event::GrabDone { files, pages, explored, stopped, login_cookies }
         }
-        Outgoing::Error { message } => Event::Error { message },
-        Outgoing::Rejected { url, message } => Event::Rejected { url, message },
+        Outgoing::Error { message, error_kind } => Event::Error { error: failure(message, error_kind) },
+        Outgoing::Rejected { url, message, error_kind } => Event::Rejected { url, error: failure(message, error_kind) },
     }
 }
 
@@ -193,26 +207,179 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
         Event::Quit => Outgoing::Quit,
         Event::RefreshWaiting { id } => Outgoing::RefreshWaiting { id },
         Event::NameTaken { id, url, path, total } => Outgoing::NameTaken { id, url, path, total },
-        Event::RefreshMismatch { id, url, reason } => Outgoing::RefreshMismatch { id, url, reason },
+        Event::RefreshMismatch { id, url, reason } => {
+            let (reason, error_kind) = text_and_kind(reason);
+            Outgoing::RefreshMismatch { id, url, reason, error_kind }
+        }
         Event::AddedMany { count, skipped } => Outgoing::AddedMany { count, skipped },
         Event::LinkInfo { request, index, total, content_type, error } => {
-            Outgoing::LinkInfo { request, index, total, content_type, error }
+            let (error, error_kind) = optional(error);
+            Outgoing::LinkInfo { request, index, total, content_type, error, error_kind }
         }
         Event::PickLinks { page, links, user_agent } => Outgoing::PickLinks { page, links, user_agent },
         Event::Quota { used, limit, paused, resumes_at } => Outgoing::Quota { used, limit, paused, resumes_at },
         Event::BrowserLink { connected, last_seen } => Outgoing::BrowserLink { connected, last_seen },
-        Event::Update { newer, error } => Outgoing::Update { newer, error },
-        Event::UpdateFailed { error } => Outgoing::UpdateFailed { error },
-        Event::ZipPreview { id, entries, error } => Outgoing::ZipPreview { id, entries, error },
+        Event::Update { newer, error } => {
+            let (error, error_kind) = optional(error);
+            Outgoing::Update { newer, error, error_kind }
+        }
+        Event::UpdateFailed { error } => {
+            let (error, error_kind) = text_and_kind(error);
+            Outgoing::UpdateFailed { error, error_kind }
+        }
+        Event::ZipPreview { id, entries, error } => {
+            let (error, error_kind) = optional(error);
+            Outgoing::ZipPreview { id, entries, error, error_kind }
+        }
         Event::GrabProgress { pages, bytes, found, explored, added } => {
             Outgoing::GrabProgress { pages, bytes, found, explored, added }
         }
         Event::GrabDone { files, pages, explored, stopped, login_cookies } => {
             Outgoing::GrabDone { files, pages, explored, stopped, login_cookies }
         }
-        Event::Error { message } => Outgoing::Error { message },
-        Event::Rejected { url, message } => Outgoing::Rejected { url, message },
+        Event::Error { error } => {
+            let (message, error_kind) = text_and_kind(error);
+            Outgoing::Error { message, error_kind }
+        }
+        Event::Rejected { url, error } => {
+            let (message, error_kind) = text_and_kind(error);
+            Outgoing::Rejected { url, message, error_kind }
+        }
     })
+}
+
+/// A failure as the wire carries it: its English text, which clients that
+/// do not translate show (the browser extension, `uidm-host send`), and its
+/// kind and values as `error_kind`. A failure known only by its text has no
+/// kind.
+pub fn text_and_kind(failure: Failure) -> (String, Option<serde_json::Value>) {
+    let text = failure.to_string();
+    let kind = WireFailure::of(failure).and_then(|w| serde_json::to_value(w).ok());
+    (text, kind)
+}
+
+fn optional(failure: Option<Failure>) -> (Option<String>, Option<serde_json::Value>) {
+    match failure.map(text_and_kind) {
+        Some((text, kind)) => (Some(text), kind),
+        None => (None, None),
+    }
+}
+
+/// The failure that `text` and `kind` describe. Without a kind this
+/// client can read (a daemon from before kinds, or a kind newer than this
+/// client), it is the text alone; an older daemon's "invalid message: ..."
+/// is still known for what it is.
+pub fn failure(text: String, kind: Option<serde_json::Value>) -> Failure {
+    if let Some(w) = kind.and_then(|k| serde_json::from_value::<WireFailure>(k).ok()) {
+        return w.into();
+    }
+    match text.strip_prefix(INVALID_MESSAGE) {
+        Some(why) => Failure::InvalidMessage(why.to_string()),
+        None => Failure::Other(text),
+    }
+}
+
+/// How `Failure::InvalidMessage` reads, which daemons sent as text alone.
+const INVALID_MESSAGE: &str = "invalid message: ";
+
+/// `Failure`'s shape on the wire: the application's enums, which do not know
+/// the wire, mirrored here around the domain's, which serialize themselves.
+/// These variant names, and the domain enums', are the wire format: renaming
+/// one changes what clients read (the golden tests below pin them).
+#[derive(Serialize, Deserialize)]
+enum WireFailure {
+    Service(WireService),
+    Settings(SettingsError),
+    Mismatch(Mismatch),
+    InvalidMessage(String),
+    Probe(String),
+}
+
+#[derive(Serialize, Deserialize)]
+enum WireService {
+    Queue(QueueError),
+    Download(DownloadError),
+    Confirm(WireConfirm),
+    Update(UpdateError),
+    Grab(InvalidGrab),
+    CrawlRunning,
+    BadBody(String),
+    NotDownloadAddress(String),
+}
+
+#[derive(Serialize, Deserialize)]
+enum WireConfirm {
+    Download(DownloadError),
+    StartControl(ControlError),
+    StartQueue(QueueError),
+}
+
+impl WireFailure {
+    /// `None` for `Failure::Other`, which is its text alone.
+    fn of(f: Failure) -> Option<WireFailure> {
+        Some(match f {
+            Failure::Service(e) => WireFailure::Service(WireService::of(e)),
+            Failure::Settings(e) => WireFailure::Settings(e),
+            Failure::Mismatch(e) => WireFailure::Mismatch(e),
+            Failure::InvalidMessage(why) => WireFailure::InvalidMessage(why),
+            Failure::Probe(why) => WireFailure::Probe(why),
+            Failure::Other(_) => return None,
+        })
+    }
+}
+
+impl From<WireFailure> for Failure {
+    fn from(w: WireFailure) -> Self {
+        match w {
+            WireFailure::Service(e) => Failure::Service(e.into()),
+            WireFailure::Settings(e) => Failure::Settings(e),
+            WireFailure::Mismatch(e) => Failure::Mismatch(e),
+            WireFailure::InvalidMessage(why) => Failure::InvalidMessage(why),
+            WireFailure::Probe(why) => Failure::Probe(why),
+        }
+    }
+}
+
+impl WireService {
+    fn of(e: ServiceError) -> WireService {
+        match e {
+            ServiceError::Queue(e) => WireService::Queue(e),
+            ServiceError::Download(e) => WireService::Download(e),
+            ServiceError::Confirm(ConfirmError::Download(e)) => WireService::Confirm(WireConfirm::Download(e)),
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(e))) => {
+                WireService::Confirm(WireConfirm::StartControl(e))
+            }
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(e))) => {
+                WireService::Confirm(WireConfirm::StartQueue(e))
+            }
+            ServiceError::Update(e) => WireService::Update(e),
+            ServiceError::Grab(e) => WireService::Grab(e),
+            ServiceError::CrawlRunning => WireService::CrawlRunning,
+            ServiceError::BadBody(url) => WireService::BadBody(url),
+            ServiceError::NotDownloadAddress(url) => WireService::NotDownloadAddress(url),
+        }
+    }
+}
+
+impl From<WireService> for ServiceError {
+    fn from(w: WireService) -> Self {
+        match w {
+            WireService::Queue(e) => ServiceError::Queue(e),
+            WireService::Download(e) => ServiceError::Download(e),
+            WireService::Confirm(WireConfirm::Download(e)) => ServiceError::Confirm(ConfirmError::Download(e)),
+            WireService::Confirm(WireConfirm::StartControl(e)) => {
+                ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(e)))
+            }
+            WireService::Confirm(WireConfirm::StartQueue(e)) => {
+                ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(e)))
+            }
+            WireService::Update(e) => ServiceError::Update(e),
+            WireService::Grab(e) => ServiceError::Grab(e),
+            WireService::CrawlRunning => ServiceError::CrawlRunning,
+            WireService::BadBody(url) => ServiceError::BadBody(url),
+            WireService::NotDownloadAddress(url) => ServiceError::NotDownloadAddress(url),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -260,11 +427,213 @@ mod tests {
             Outgoing::Ack { id: 1, url: "u".into(), status: "accepted".into() },
             Outgoing::CommandLine { window_open: true },
             Outgoing::RenderPage { request: 2, url: "u".into() },
-            Outgoing::Error { message: "no".into() },
+            Outgoing::Error { message: "no".into(), error_kind: None },
         ] {
             let value = json(&msg);
             assert_eq!(json(&outgoing(event(msg)).unwrap()), value);
         }
         assert!(outgoing(Event::Connected).is_none());
+    }
+
+    /// `event` as the JSON a client reads, and that JSON read back.
+    fn round_trip(event: Event) -> (serde_json::Value, Event) {
+        let value = json(&outgoing(event).unwrap());
+        let back: Outgoing = serde_json::from_value(value.clone()).unwrap();
+        (value, super::event(back))
+    }
+
+    #[test]
+    fn typed_failures_keep_their_kind_and_values() {
+        let failures: Vec<Failure> = vec![
+            ServiceError::NotDownloadAddress("javascript:x".into()).into(),
+            ServiceError::CrawlRunning.into(),
+            QueueError::NameTaken("Night".into()).into(),
+            QueueError::Invalid(uidm_domain::queue::InvalidQueue::StartTime("25:00".into())).into(),
+            DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
+            ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(4)))).into(),
+            UpdateError::Save { path: "/t/s".into(), reason: "denied".into() }.into(),
+            ServiceError::Grab(InvalidGrab::Depth).into(),
+            SettingsError::Invalid(uidm_domain::settings::InvalidSettings::FolderNotFull(
+                uidm_domain::settings::SettingsField::CategoryFolder("Music".into()),
+                "rel".into(),
+            ))
+            .into(),
+            SettingsError::Refused("read-only".into()).into(),
+            Failure::InvalidMessage("expected value".into()),
+            Failure::Probe("HTTP 404".into()),
+        ];
+        for f in failures {
+            let text = f.to_string();
+            let (value, back) = round_trip(Event::Error { error: f.clone() });
+            assert_eq!(value["message"], text.as_str(), "text-only clients read the message");
+            assert!(value.get("error_kind").is_some(), "{f:?}");
+            assert_eq!(back, Event::Error { error: f.clone() });
+
+            let (value, back) = round_trip(Event::Rejected { url: "u".into(), error: f.clone() });
+            assert_eq!(value["message"], text.as_str());
+            assert_eq!(back, Event::Rejected { url: "u".into(), error: f.clone() });
+
+            let (value, back) = round_trip(Event::UpdateFailed { error: f.clone() });
+            assert_eq!(value["error"], text.as_str());
+            assert_eq!(back, Event::UpdateFailed { error: f.clone() });
+
+            let (value, back) = round_trip(Event::Update { newer: None, error: Some(f.clone()) });
+            assert_eq!(value["error"], text.as_str());
+            assert_eq!(back, Event::Update { newer: None, error: Some(f.clone()) });
+
+            let zip = Event::ZipPreview { id: 1, entries: Vec::new(), error: Some(f.clone()) };
+            let (value, back) = round_trip(zip.clone());
+            assert_eq!(value["error"], text.as_str());
+            assert_eq!(back, zip);
+
+            let link = Event::LinkInfo { request: 1, index: 0, total: None, content_type: None, error: Some(f) };
+            let (value, back) = round_trip(link.clone());
+            assert_eq!(value["error"], text.as_str());
+            assert_eq!(back, link);
+        }
+    }
+
+    #[test]
+    fn a_failure_known_only_by_its_text_goes_as_text() {
+        let (value, back) = round_trip(Event::Error { error: Failure::Other("as said".into()) });
+        assert_eq!(value, serde_json::json!({"op": "error", "message": "as said"}));
+        assert_eq!(back, Event::Error { error: Failure::Other("as said".into()) });
+        let (value, _) = round_trip(Event::Update { newer: None, error: None });
+        assert_eq!(value, serde_json::json!({"op": "update"}), "no error, no kind");
+    }
+
+    /// Messages from a daemon that sent only text, or a kind this client
+    /// does not know, still read.
+    #[test]
+    fn text_only_messages_read_as_their_text() {
+        let read = |raw: &str| super::event(serde_json::from_str::<Outgoing>(raw).unwrap());
+        assert_eq!(
+            read(r#"{"op":"error","message":"no queue with id 7"}"#),
+            Event::Error { error: Failure::Other("no queue with id 7".into()) }
+        );
+        assert_eq!(
+            read(r#"{"op":"error","message":"invalid message: unknown variant `x`"}"#),
+            Event::Error { error: Failure::InvalidMessage("unknown variant `x`".into()) }
+        );
+        assert_eq!(
+            read(r#"{"op":"rejected","url":"u","message":"m","error_kind":{"FromTheFuture":1}}"#),
+            Event::Rejected { url: "u".into(), error: Failure::Other("m".into()) }
+        );
+        assert_eq!(
+            read(r#"{"op":"update_failed","error":"e"}"#),
+            Event::UpdateFailed { error: Failure::Other("e".into()) }
+        );
+        assert_eq!(
+            read(r#"{"op":"link_info","request":1,"index":2,"error":"refused"}"#),
+            Event::LinkInfo {
+                request: 1,
+                index: 2,
+                total: None,
+                content_type: None,
+                error: Some(Failure::Other("refused".into()))
+            }
+        );
+        assert_eq!(
+            read(r#"{"op":"zip_preview","id":3,"error":"not a zip"}"#),
+            Event::ZipPreview { id: 3, entries: Vec::new(), error: Some(Failure::Other("not a zip".into())) }
+        );
+    }
+
+    /// What a typed failure looks like on the wire. The variant names of
+    /// the wire mirrors and of the domain enums are the wire format, so a
+    /// rename shows up here rather than in the clients.
+    #[test]
+    fn the_kind_names_the_error_and_its_values() {
+        use serde_json::json;
+        use uidm_domain::command::CommandError;
+        use uidm_domain::queue::InvalidQueue;
+        use uidm_domain::settings::{InvalidSettings, ProxyEntry, SettingsField};
+        let golden: Vec<(Failure, serde_json::Value)> = vec![
+            (ServiceError::CrawlRunning.into(), json!({"Service": "CrawlRunning"})),
+            (ServiceError::BadBody("http://a/".into()).into(), json!({"Service": {"BadBody": "http://a/"}})),
+            (ServiceError::NotDownloadAddress("x:y".into()).into(), json!({"Service": {"NotDownloadAddress": "x:y"}})),
+            (QueueError::NoQueue(7).into(), json!({"Service": {"Queue": {"NoQueue": 7}}})),
+            (QueueError::MainQueue.into(), json!({"Service": {"Queue": "MainQueue"}})),
+            (QueueError::NameTaken("N".into()).into(), json!({"Service": {"Queue": {"NameTaken": "N"}}})),
+            (
+                QueueError::Invalid(InvalidQueue::StartTime("25:00".into())).into(),
+                json!({"Service": {"Queue": {"Invalid": {"StartTime": "25:00"}}}}),
+            ),
+            (DownloadError::NoDownload(3).into(), json!({"Service": {"Download": {"NoDownload": 3}}})),
+            (
+                DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
+                json!({"Service": {"Download": {"BadSpeedLimit": {"kbps": 1, "lo": 2, "hi": 3}}}}),
+            ),
+            (
+                DownloadError::FilesStay { url: "u".into(), reason: "r".into() }.into(),
+                json!({"Service": {"Download": {"FilesStay": {"url": "u", "reason": "r"}}}}),
+            ),
+            (UpdateError::NewestAlready.into(), json!({"Service": {"Update": "NewestAlready"}})),
+            (
+                UpdateError::Save { path: "/t/s".into(), reason: "denied".into() }.into(),
+                json!({"Service": {"Update": {"Save": {"path": "/t/s", "reason": "denied"}}}}),
+            ),
+            (ServiceError::Grab(InvalidGrab::Depth).into(), json!({"Service": {"Grab": "Depth"}})),
+            (
+                ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
+                json!({"Service": {"Confirm": {"Download": "AnswerNoFolder"}}}),
+            ),
+            (
+                ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
+                json!({"Service": {"Confirm": {"StartControl": "busy"}}}),
+            ),
+            (
+                ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(4)))).into(),
+                json!({"Service": {"Confirm": {"StartQueue": {"NoQueue": 4}}}}),
+            ),
+            (SettingsError::Refused("read-only".into()).into(), json!({"Settings": {"Refused": "read-only"}})),
+            (SettingsError::Invalid(InvalidSettings::QuotaZero).into(), json!({"Settings": {"Invalid": "QuotaZero"}})),
+            (
+                SettingsError::Invalid(InvalidSettings::FolderNotFull(
+                    SettingsField::CategoryFolder("Music".into()),
+                    "rel".into(),
+                ))
+                .into(),
+                json!({"Settings": {"Invalid": {"FolderNotFull": [{"CategoryFolder": "Music"}, "rel"]}}}),
+            ),
+            (
+                SettingsError::Invalid(InvalidSettings::ProxyNotHostPort(ProxyEntry::Socks)).into(),
+                json!({"Settings": {"Invalid": {"ProxyNotHostPort": "Socks"}}}),
+            ),
+            (
+                SettingsError::Invalid(InvalidSettings::Scanner(CommandError::NoPath)).into(),
+                json!({"Settings": {"Invalid": {"Scanner": "NoPath"}}}),
+            ),
+            (Mismatch::Changed.into(), json!({"Mismatch": "Changed"})),
+            (Mismatch::Size { new: 1, partial: 2 }.into(), json!({"Mismatch": {"Size": {"new": 1, "partial": 2}}})),
+            (Failure::InvalidMessage("eof".into()), json!({"InvalidMessage": "eof"})),
+            (Failure::Probe("HTTP 404".into()), json!({"Probe": "HTTP 404"})),
+        ];
+        for (failure, kind) in golden {
+            let (value, back) = round_trip(Event::Error { error: failure.clone() });
+            assert_eq!(value["error_kind"], kind, "{failure:?}");
+            assert_eq!(back, Event::Error { error: failure });
+        }
+    }
+
+    #[test]
+    fn a_new_links_mismatch_keeps_its_reason_and_kind() {
+        let reason = Failure::from(Mismatch::Size { new: 2 << 20, partial: 1 << 20 });
+        let (value, back) = round_trip(Event::RefreshMismatch { id: 1, url: "u".into(), reason: reason.clone() });
+        assert_eq!(value["reason"], "The new link is for a 2.0 MB file; the partial download is of a 1.0 MB file.");
+        assert_eq!(
+            value["error_kind"],
+            serde_json::json!({"Mismatch": {"Size": {"new": 2 << 20, "partial": 1 << 20}}})
+        );
+        assert_eq!(back, Event::RefreshMismatch { id: 1, url: "u".into(), reason });
+        // From a daemon that sent the reason as text alone.
+        let old: Outgoing =
+            serde_json::from_str(r#"{"op":"refresh_mismatch","id":1,"url":"u","reason":"other file"}"#).unwrap();
+        assert_eq!(
+            super::event(old),
+            Event::RefreshMismatch { id: 1, url: "u".into(), reason: Failure::Other("other file".into()) }
+        );
     }
 }

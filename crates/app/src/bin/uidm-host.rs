@@ -241,7 +241,7 @@ fn send(sent: Sent) -> io::Result<Option<u64>> {
         match serde_json::from_slice::<Outgoing>(&raw) {
             Ok(Outgoing::Ack { id, .. }) if one => return Ok(Some(id)),
             Ok(Outgoing::Pong) if !one => return Ok(None),
-            Ok(Outgoing::Rejected { message, .. } | Outgoing::Error { message }) => {
+            Ok(Outgoing::Rejected { message, .. } | Outgoing::Error { message, .. }) => {
                 return Err(io::Error::other(message))
             }
             _ => {}

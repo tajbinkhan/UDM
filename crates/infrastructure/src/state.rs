@@ -215,7 +215,7 @@ mod tests {
     fn ignores_non_download_messages() {
         let mut t = DownloadTable::new();
         t.apply(&Outgoing::Pong);
-        t.apply(&Outgoing::Error { message: "x".into() });
+        t.apply(&Outgoing::Error { message: "x".into(), error_kind: None });
         assert!(t.is_empty());
     }
 }

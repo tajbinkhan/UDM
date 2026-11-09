@@ -669,12 +669,16 @@ impl DownloadControl for Transfers {
         *self.waiting()
     }
 
-    fn check_partial(&self, download: &Download, partial: &str) -> Result<Option<String>, ControlError> {
+    fn check_partial(
+        &self,
+        download: &Download,
+        partial: &str,
+    ) -> Result<Option<uidm_domain::download::Mismatch>, ControlError> {
         let req = self.request_for(download.clone());
         let found =
             engine::inspect(&download.url, None, &req.headers, &req.net).map_err(|e| ControlError(e.to_string()))?;
         let ignore_date = self.settings.lock().resume_ignores_date;
-        Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err().map(|e| e.to_string()))
+        Ok(engine::partial_matches(Path::new(partial), &found, ignore_date).err())
     }
 
     fn forget(&self, id: u64) {

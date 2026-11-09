@@ -34,7 +34,7 @@ use uidm_domain::queue::{
 use uidm_domain::quota::QuotaLimit;
 use uidm_domain::settings::{Duplicate, Settings};
 
-use super::{ClientList, Command, Countdowns, DownloadFeed, Event, Reply, Requests};
+use super::{ClientList, Command, Countdowns, DownloadFeed, Event, Failure, Reply, Requests};
 use crate::downloads::{
     AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
     Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
@@ -49,8 +49,8 @@ use crate::queues::{
 use crate::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
 
-/// Why the daemon refused a client's command. Clients hear the message
-/// (see #234 for sending it typed).
+/// Why the daemon refused a client's command. Clients hear it as a
+/// [`Failure`], kind and values, so the window can translate it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ServiceError {
     #[error(transparent)]
@@ -500,7 +500,7 @@ impl<W: Wiring> DaemonService<W> {
                     info!("start the main queue from the command line");
                     let _ = self.wake.send(());
                 }
-                Err(e) => self.clients.to_windows(Event::Error { message: e.to_string() }),
+                Err(e) => self.clients.to_windows(Event::Error { error: e.into() }),
             }
         }
     }
@@ -1027,7 +1027,7 @@ impl<W: Wiring> DaemonService<W> {
         let github = (self.releases)(url);
         match CheckForUpdate::new(&github, &*self.settings, self.version).run(self.clock.unix_now()) {
             Ok(newer) => Event::Update { newer, error: None },
-            Err(e) => Event::Update { newer: None, error: Some(e.to_string()) },
+            Err(e) => Event::Update { newer: None, error: Some(e.into()) },
         }
     }
 
@@ -1064,17 +1064,17 @@ impl<W: Wiring> DaemonService<W> {
     pub fn preview_zip(&self, id: u64, reply: Reply) {
         let entry = self.entry(id);
         let download = self.store.request(id);
-        let answer = move |entries: Vec<ZipEntry>, error: Option<String>| {
+        let answer = move |entries: Vec<ZipEntry>, error: Option<Failure>| {
             reply.send(Event::ZipPreview { id, entries, error });
         };
         let Some(entry) = entry else {
-            return answer(Vec::new(), Some(format!("no download with id {id}")));
+            return answer(Vec::new(), Some(uidm_domain::download::DownloadError::NoDownload(id).into()));
         };
         let download = download.unwrap_or_else(|| Download { url: entry.url.clone(), ..Download::default() });
         let probes = Arc::clone(&self.probes);
         thread::spawn(move || match probes.zip(&download, entry.total) {
             Ok(entries) => answer(entries, None),
-            Err(e) => answer(Vec::new(), Some(e.0)),
+            Err(e) => answer(Vec::new(), Some(e.into())),
         });
     }
 
@@ -1124,7 +1124,7 @@ impl<W: Wiring> DaemonService<W> {
                         Event::LinkInfo { request, index, total: i.total, content_type: i.content_type, error: None }
                     }
                     Err(e) => {
-                        Event::LinkInfo { request, index, total: None, content_type: None, error: Some(e.to_string()) }
+                        Event::LinkInfo { request, index, total: None, content_type: None, error: Some(e.into()) }
                     }
                 };
                 // A send that fails means the client went.
@@ -1236,7 +1236,7 @@ impl<W: Wiring> DaemonService<W> {
         id: u64,
         download: Option<Download>,
         restart: bool,
-    ) -> Result<Option<String>, ServiceError> {
+    ) -> Result<Option<uidm_domain::download::Mismatch>, ServiceError> {
         match RefreshLink::new(&*self.store, &*self.store, &*self.transfers).run(id, download, restart)? {
             Refreshed::Waiting => Ok(None),
             Refreshed::Mismatch(reason) => Ok(Some(reason)),
@@ -1439,7 +1439,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::Add(mut download) => {
             download.limit_browser_request();
             if let Err(message) = daemon.check_download(&download) {
-                send(Event::Rejected { url: download.url, message: message.to_string() });
+                send(Event::Rejected { url: download.url, error: message.into() });
                 return;
             }
             let (id, url) = daemon.add(download);
@@ -1454,20 +1454,20 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::ProbeMedia { request, mut download } => {
             download.limit_browser_request();
             if let Err(message) = daemon.check_download(&download) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
                 return;
             }
             daemon.probe_media(request, download, reply.clone());
         }
         Command::Grab(req) => {
             if let Err(message) = daemon.grab(client, req, reply.clone()) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::CancelGrab => daemon.stop_grab(client),
         Command::ProbeLinks { request, links } => {
             if let Some(message) = links.iter().find_map(|d| daemon.check_download(d).err()) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
                 return;
             }
             daemon.probe_links(client, request, links, reply.clone());
@@ -1481,7 +1481,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
             let (id, start) = (answer.id, answer.start);
             match daemon.confirm(answer) {
                 Ok(()) => info!(download_id = id, start, "confirm"),
-                Err(message) => send(Event::Error { message: message.to_string() }),
+                Err(message) => send(Event::Error { error: message.into() }),
             }
         }
         Command::Retry { id } => match daemon.retry(id) {
@@ -1489,21 +1489,21 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 info!(download_id = id, new_id, "retry");
                 send(Event::Ack { id: new_id, url, status: "accepted".to_string() });
             }
-            Err(message) => send(Event::Error { message: message.to_string() }),
+            Err(message) => send(Event::Error { error: message.into() }),
         },
         Command::Remove { id, delete_files } => {
             if let Err(message) = daemon.remove(id, delete_files) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::List => daemon.send_list(reply),
         Command::SaveQueue { queue } => match daemon.save_queue(queue) {
             Ok(id) => info!(queue = %id, "queue saved"),
-            Err(message) => send(Event::Error { message: message.to_string() }),
+            Err(message) => send(Event::Error { error: message.into() }),
         },
         Command::DeleteQueue { id } => {
             if let Err(message) = daemon.delete_queue(id) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::StartQueue { id } => match daemon.start_queue(id, None) {
@@ -1511,27 +1511,27 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 info!(queue = %id, "start queue");
                 let _ = daemon.wake.send(());
             }
-            Err(message) => send(Event::Error { message: message.to_string() }),
+            Err(message) => send(Event::Error { error: message.into() }),
         },
         Command::StopQueue { id } => match daemon.stop_queue(id) {
             Ok(()) => info!(queue = %id, "stop queue"),
-            Err(message) => send(Event::Error { message: message.to_string() }),
+            Err(message) => send(Event::Error { error: message.into() }),
         },
         Command::SetQueueOnce { id, when_done } => {
             if let Err(message) = daemon.update_queue(id, |q| {
                 q.when_done_once = when_done;
             }) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::MoveToQueue { id, queue, position } => {
             if let Err(message) = daemon.move_to_queue(id, queue, position) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::RemoveFromQueue { id } => {
             if let Err(message) = daemon.remove_from_queue(id) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::CancelCountdown => daemon.cancel_countdown(),
@@ -1543,14 +1543,14 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
             let url = download.as_ref().map(|d| d.url.clone()).unwrap_or_default();
             if let Some(d) = &download {
                 if let Err(message) = daemon.check_download(d) {
-                    send(Event::Error { message: message.to_string() });
+                    send(Event::Error { error: message.into() });
                     return;
                 }
             }
             match daemon.refresh_link(id, download, restart) {
-                Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason }),
+                Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason: reason.into() }),
                 Ok(None) => {}
-                Err(message) => send(Event::Error { message: message.to_string() }),
+                Err(message) => send(Event::Error { error: message.into() }),
             }
         }
         Command::CancelRefresh => daemon.transfers.wait_for_link(None),
@@ -1570,14 +1570,14 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::PreviewZip { id } => daemon.preview_zip(id, reply.clone()),
         Command::Convert { id, to, delete_original } => {
             if let Err(message) = daemon.convert(id, to, delete_original) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::InstallUpdate => {
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
                 if let Err(error) = daemon.install_update() {
-                    reply.send(Event::UpdateFailed { error: error.to_string() });
+                    reply.send(Event::UpdateFailed { error: error.into() });
                 }
             });
         }
@@ -1597,22 +1597,22 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 .set_download_limit(id, bytes_per_sec)
                 .and_then(|()| remember.map_or(Ok(()), |r| daemon.set_limit_remember(id, r)));
             if let Err(message) = set {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::SetOnDone { id, on_done } => {
             if let Err(message) = daemon.set_on_done(id, on_done) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::Redownload { id } => {
             if let Err(message) = daemon.redownload(id) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::SetProperties { id, changes } => {
             if let Err(message) = daemon.set_properties(id, changes) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::PauseAll => {
@@ -1629,7 +1629,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 if daemon.clients.is_window(client) { settings } else { daemon.with_video_button(&settings) };
             match daemon.transfers.save_settings(settings) {
                 Ok(()) => info!("settings changed"),
-                Err(message) => send(Event::Error { message: message.to_string() }),
+                Err(message) => send(Event::Error { error: message.into() }),
             }
         }
     }

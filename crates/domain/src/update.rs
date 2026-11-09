@@ -59,7 +59,10 @@ pub fn check_due(on: bool, last: u64, now: u64) -> bool {
 
 /// Why looking for or installing an update failed. The messages are shown
 /// to the user.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum UpdateError {
     #[error("Could not reach GitHub: {0}")]
     Unreachable(String),

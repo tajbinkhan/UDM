@@ -394,8 +394,8 @@ mod tests {
     use std::sync::Mutex;
     use std::thread;
     use std::time::{Duration, Instant};
-    use uidm_application::daemon::service::COMMAND_LINE_WAIT;
-    use uidm_application::daemon::{Event, Reply};
+    use uidm_application::daemon::service::{ServiceError, COMMAND_LINE_WAIT};
+    use uidm_application::daemon::{Event, Failure, Reply};
     use uidm_domain::download::DownloadLogin;
     use uidm_domain::download::{Download, DownloadEntry, OnDone, Properties, Status};
     use uidm_domain::grab::GrabRequest;
@@ -664,8 +664,14 @@ mod tests {
             send(format!(r#"{{"op":"add","url":"{url}"}}"#).as_bytes(), &t, 2, &tx);
             let reply = rx.try_iter().filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok()).last().unwrap();
             assert!(
-                matches!(&reply, Outgoing::Rejected { url: u, message } if u == url && message.contains("is not an http, https or ftp address")),
+                matches!(&reply, Outgoing::Rejected { url: u, message, .. } if u == url && message.contains("is not an http, https or ftp address")),
                 "{url}: {reply:?}"
+            );
+            // The window hears the kind too, to say it in its language.
+            let Outgoing::Rejected { message, error_kind, .. } = reply else { unreachable!() };
+            assert_eq!(
+                uidm_infrastructure::wire::failure(message, error_kind),
+                Failure::Service(ServiceError::NotDownloadAddress(url.to_string()))
             );
         }
         assert_eq!(t.len(), 0, "nothing was added");
@@ -972,7 +978,7 @@ mod tests {
         let mut heard = std::collections::BTreeMap::new();
         while heard.len() < 3 {
             let frame = rx.recv_timeout(Duration::from_secs(10)).expect("every link is answered");
-            if let Ok(Outgoing::LinkInfo { request: 42, index, total, content_type, error }) =
+            if let Ok(Outgoing::LinkInfo { request: 42, index, total, content_type, error, .. }) =
                 serde_json::from_slice(&frame)
             {
                 heard.insert(index, (total, content_type, error));
@@ -1541,7 +1547,20 @@ mod tests {
             other => panic!("expected a newer release: {other:?}"),
         }
         assert!(matches!(t.daemon.check_update(&serve_tag("v0.0.1")), Event::Update { newer: None, error: None }));
-        assert!(matches!(t.daemon.check_update("http://127.0.0.1:1/none"), Event::Update { error: Some(_), .. }));
+        // Why not comes typed, for the window to translate.
+        let failed = t.daemon.check_update("http://127.0.0.1:1/none");
+        assert!(
+            matches!(
+                failed,
+                Event::Update {
+                    error: Some(Failure::Service(ServiceError::Update(uidm_domain::update::UpdateError::Unreachable(
+                        _
+                    )))),
+                    ..
+                }
+            ),
+            "{failed:?}"
+        );
         assert!(t.daemon.settings.lock().last_update_check > 0, "the check was noted");
     }
 

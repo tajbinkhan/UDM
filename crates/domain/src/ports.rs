@@ -74,7 +74,10 @@ pub trait DownloadList: Send + Sync {
 
 /// Why a download could not be started again. The message is shown to
 /// the user or logged.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 #[error("{0}")]
 pub struct ControlError(pub String);
 
@@ -123,7 +126,11 @@ pub trait DownloadControl: Send + Sync {
     /// Ask the server at `download`'s address whether it still has the file
     /// the partial copy at `partial` was taken from. Returns why not, or
     /// `None` when it does.
-    fn check_partial(&self, download: &Download, partial: &str) -> Result<Option<String>, ControlError>;
+    fn check_partial(
+        &self,
+        download: &Download,
+        partial: &str,
+    ) -> Result<Option<crate::download::Mismatch>, ControlError>;
 
     /// Remove download `id` from the list for good: its row, its kept
     /// request, and any wait for a new address for it.
@@ -325,7 +332,10 @@ pub trait Converter: Send + Sync {
 
 /// Why the settings could not be saved. The message is shown to the user
 /// or logged.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SettingsError {
     /// A value breaks a rule of [`crate::settings::Settings::validate`].
     #[error(transparent)]

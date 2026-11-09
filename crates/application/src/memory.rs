@@ -227,7 +227,7 @@ pub struct Control {
     waiting_for_link: Mutex<Option<u64>>,
     refuse: HashSet<u64>,
     /// What [`DownloadControl::check_partial`] answers.
-    partial_check: Option<Result<Option<String>, ControlError>>,
+    partial_check: Option<Result<Option<uidm_domain::download::Mismatch>, ControlError>>,
 }
 
 /// One call to [`DownloadControl::restart`].
@@ -281,7 +281,7 @@ impl Control {
     }
 
     /// A control whose partial-file checks answer `answer`.
-    pub fn checking(answer: Result<Option<String>, ControlError>) -> Self {
+    pub fn checking(answer: Result<Option<uidm_domain::download::Mismatch>, ControlError>) -> Self {
         Control { partial_check: Some(answer), ..Control::default() }
     }
 }
@@ -327,7 +327,11 @@ impl DownloadControl for Control {
         *self.waiting_for_link.lock().unwrap()
     }
 
-    fn check_partial(&self, _download: &Download, _partial: &str) -> Result<Option<String>, ControlError> {
+    fn check_partial(
+        &self,
+        _download: &Download,
+        _partial: &str,
+    ) -> Result<Option<uidm_domain::download::Mismatch>, ControlError> {
         self.partial_check.clone().expect("the test sets what the check answers")
     }
 

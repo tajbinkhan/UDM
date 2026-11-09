@@ -1,20 +1,27 @@
-//! The domain's errors in the window's language. Each English text matches
-//! the error's own message, which the daemon and the logs use.
+//! The domain's errors, and the daemon's, in the window's language. Each
+//! English text matches the error's own message, which the daemon, the
+//! logs and the clients that do not translate use.
 
+use uidm_application::daemon::service::ServiceError;
+use uidm_application::daemon::Failure;
+use uidm_application::downloads::{ConfirmError, StartOrWaitError};
 use uidm_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
 use uidm_domain::command::{CommandError, PATH_TOKEN};
+use uidm_domain::download::{megabytes, DownloadError, Mismatch};
 use uidm_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
 use uidm_domain::ports::SettingsError;
-use uidm_domain::queue::{InvalidQueue, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
+use uidm_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
 use uidm_domain::settings::{
     InvalidSettings, ProxyEntry, SettingsField, CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE,
     SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE,
 };
+use uidm_domain::update::UpdateError;
 
 use crate::i18n::{tr, trf};
 
-/// A failure to show the user: in their language where the window made
-/// it, in the daemon's own words where it came from the daemon (see #234).
+/// A failure to show the user, in their language. Only what a server, the
+/// disk or a daemon too old to send an error's kind said stays in its own
+/// words.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
 pub struct UiError(String);
@@ -70,6 +77,12 @@ impl From<InvalidQueue> for UiError {
 impl From<InvalidGrab> for UiError {
     fn from(e: InvalidGrab) -> Self {
         UiError(grab(&e))
+    }
+}
+
+impl From<Failure> for UiError {
+    fn from(e: Failure) -> Self {
+        UiError(daemon(&e))
     }
 }
 
@@ -298,9 +311,131 @@ pub fn grab(e: &InvalidGrab) -> String {
     }
 }
 
+/// A failure the daemon reported.
+pub fn daemon(e: &Failure) -> String {
+    match e {
+        Failure::Service(e) => service(e),
+        Failure::Settings(e) => settings_error(e),
+        Failure::Mismatch(e) => mismatch(e),
+        Failure::InvalidMessage(why) => trf!("invalid message: {why}", why = why),
+        Failure::Probe(why) | Failure::Other(why) => why.clone(),
+    }
+}
+
+/// Why a new link does not fit a partial download.
+pub fn mismatch(e: &Mismatch) -> String {
+    match e {
+        Mismatch::UnknownSize => {
+            tr("The new link does not say how big its file is, so it cannot be matched to the partial download.")
+                .to_string()
+        }
+        Mismatch::Size { new, partial } => trf!(
+            "The new link is for a {new} file; the partial download is of a {partial} file.",
+            new = megabytes(*new),
+            partial = megabytes(*partial)
+        ),
+        Mismatch::Changed => {
+            tr("The file at the new link has changed since the download started (its ETag or date differs).")
+                .to_string()
+        }
+        Mismatch::NotResumable => {
+            tr("The new link's server cannot resume downloads, so it must start over.").to_string()
+        }
+    }
+}
+
+/// A command the daemon refused.
+fn service(e: &ServiceError) -> String {
+    match e {
+        ServiceError::Queue(e) => queue_error(e),
+        ServiceError::Download(e) | ServiceError::Confirm(ConfirmError::Download(e)) => download(e),
+        ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(e))) => queue_error(e),
+        // The engine's own words.
+        ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(e))) => e.0.clone(),
+        ServiceError::Update(e) => update(e),
+        ServiceError::Grab(e) => grab(e),
+        ServiceError::CrawlRunning => tr("A site crawl is already running.").to_string(),
+        ServiceError::BadBody(url) => trf!("the form body of {url} is not valid base64", url = url),
+        ServiceError::NotDownloadAddress(url) => trf!("{url} is not an http, https or ftp address", url = url),
+    }
+}
+
+/// A change to the queues that was refused.
+fn queue_error(e: &QueueError) -> String {
+    match e {
+        QueueError::NoQueue(id) => trf!("no queue with id {id}", id = id),
+        QueueError::NoDownload(id) => trf!("no download with id {id}", id = id),
+        QueueError::NameTaken(name) => trf!("There is already a queue named \"{name}\".", name = name),
+        QueueError::MainQueue => tr("The main queue cannot be deleted.").to_string(),
+        QueueError::Finished => tr("Only a download that has not finished can wait in a queue.").to_string(),
+        QueueError::NotQueued => tr("That download is not in a queue.").to_string(),
+        QueueError::Invalid(e) => queue(e),
+    }
+}
+
+/// A change to a download that was refused.
+fn download(e: &DownloadError) -> String {
+    use DownloadError as E;
+    match e {
+        E::NoDownload(id) => trf!("no download with id {id}", id = id),
+        E::StillRunning(id) => trf!("download {id} is still running; cancel it first", id = id),
+        E::NotRetryable(id) => trf!("download {id} is not failed, canceled or interrupted", id = id),
+        E::NotFinishedOrStopped => tr("Only a finished or stopped download can be downloaded again.").to_string(),
+        E::PlaylistGone => {
+            tr("This stream's playlist is no longer known. Play it in the browser again to download it.").to_string()
+        }
+        E::StartedMeanwhile => tr("The download started again in the meantime.").to_string(),
+        E::BadSpeedLimit { kbps, lo, hi } => {
+            trf!("{kbps} KB/s is not a speed limit between {lo} and {hi} KB/s.", kbps = kbps, lo = lo, hi = hi)
+        }
+        E::NotStopped => tr("Stop the download before changing its properties.").to_string(),
+        E::LinkNeedsStop => tr("Only a stopped download can get a new link.").to_string(),
+        E::NotDownloadLink(url) => trf!("{url} is not an http, https or ftp link", url = url),
+        E::NotWebAddress(url) => trf!("{url} is not an http or https address", url = url),
+        E::LoginOnFinished => tr("A finished download keeps no login. Download it again to use one.").to_string(),
+        E::RenameUnfinished => tr("Only a finished download's file can be renamed.").to_string(),
+        E::RelativeFolder(dir) => trf!("The folder must be a full path: {path}", path = dir),
+        E::NoFile => tr("The download has no file.").to_string(),
+        E::NoFileName => tr("The download has no file name.").to_string(),
+        E::NoFolder => tr("The download has no folder.").to_string(),
+        E::Exists(path) => trf!("{path} already exists.", path = path),
+        E::StartedWhileSaving => tr("The download started while its properties were being saved.").to_string(),
+        E::NotConvertible => tr("Only a finished download whose file is still there can be converted.").to_string(),
+        E::NoFfmpeg => tr("Converting needs ffmpeg. Install it, or choose it in Options > General.").to_string(),
+        E::NotWaiting(id) => trf!("download {id} is not waiting to be started", id = id),
+        E::AnswerNoFileName => tr("the download has no file name").to_string(),
+        E::AnswerNoFolder => tr("the download has no folder").to_string(),
+        E::AnswerRelativeFolder(dir) => trf!("the folder must be a full path: {path}", path = dir),
+        E::AlreadyFinished => tr("This download has already finished.").to_string(),
+        E::Unreachable(why) => trf!("could not reach the new link: {why}", why = why),
+        // How moving the file failed, in the system's words.
+        E::Files(why) => why.clone(),
+        E::FilesStay { url, reason } => {
+            trf!("Removed {url} from the list, but its files stay: {reason}", url = url, reason = reason)
+        }
+    }
+}
+
+/// Looking for or installing an update failed.
+fn update(e: &UpdateError) -> String {
+    match e {
+        UpdateError::Unreachable(why) => trf!("Could not reach GitHub: {why}", why = why),
+        // How GitHub's answer or the Setup program was wrong.
+        UpdateError::Answer(why) | UpdateError::BadSetup(why) => why.clone(),
+        UpdateError::NewestAlready => tr("This is the newest version.").to_string(),
+        UpdateError::NoSetup => tr("This release has no Setup program; download it from its page.").to_string(),
+        UpdateError::Download(why) => trf!("Could not download the update: {why}", why = why),
+        UpdateError::Save { path, reason } => {
+            trf!("Could not save the update to {path}: {reason}", path = path, reason = reason)
+        }
+        UpdateError::Start { path, reason } => trf!("Could not start {path}: {reason}", path = path, reason = reason),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::ports::ControlError;
 
     /// `?` turns the domain's errors into the window's, in the user's words.
     #[test]
@@ -346,5 +481,48 @@ mod tests {
         for e in [InvalidGrab::Depth, InvalidGrab::Delay, InvalidGrab::Size, InvalidGrab::FolderNotFull("x".into())] {
             assert_eq!(grab(&e), e.to_string());
         }
+    }
+
+    /// The daemon's errors read in English as the daemon's own text, which
+    /// the clients that do not translate show.
+    #[test]
+    fn daemon_errors_match_their_messages() {
+        let failures: Vec<Failure> = vec![
+            Failure::InvalidMessage("expected value".into()),
+            Failure::Probe("HTTP 404".into()),
+            Failure::Other("from an old daemon".into()),
+            Mismatch::UnknownSize.into(),
+            Mismatch::Size { new: 3 << 20, partial: 1 << 20 }.into(),
+            Mismatch::Changed.into(),
+            Mismatch::NotResumable.into(),
+            SettingsError::Invalid(InvalidSettings::TextSize).into(),
+            ServiceError::CrawlRunning.into(),
+            ServiceError::BadBody("http://a/".into()).into(),
+            ServiceError::NotDownloadAddress("file:///x".into()).into(),
+            ServiceError::Grab(InvalidGrab::Depth).into(),
+            ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(4)))).into(),
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
+            QueueError::NameTaken("Night".into()).into(),
+            QueueError::Invalid(InvalidQueue::NoName).into(),
+            QueueError::NotQueued.into(),
+            DownloadError::NoDownload(3).into(),
+            DownloadError::StillRunning(3).into(),
+            DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
+            DownloadError::NotDownloadLink("javascript:".into()).into(),
+            DownloadError::Exists("/d/f.zip".into()).into(),
+            DownloadError::Unreachable("refused".into()).into(),
+            DownloadError::Files("disk full".into()).into(),
+            DownloadError::FilesStay { url: "http://a/f".into(), reason: "in use".into() }.into(),
+            UpdateError::Unreachable("offline".into()).into(),
+            UpdateError::Answer("no tag".into()).into(),
+            UpdateError::NewestAlready.into(),
+            UpdateError::Save { path: "/t/s.exe".into(), reason: "denied".into() }.into(),
+            UpdateError::Start { path: "/t/s.exe".into(), reason: "denied".into() }.into(),
+        ];
+        for e in &failures {
+            assert_eq!(daemon(e), e.to_string(), "{e:?}");
+        }
+        assert_eq!(UiError::from(Failure::from(QueueError::MainQueue)).text(), "The main queue cannot be deleted.");
     }
 }

@@ -19,7 +19,7 @@ use uidm_domain::download::CommandLine;
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::ipc;
 use crate::protocol::{read_message, write_frame, Incoming, Outgoing};
-use crate::wire::{event, incoming};
+use crate::wire::{self, event, incoming};
 
 /// How long a command line waits for the daemon's answer.
 const COMMAND_LINE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -125,7 +125,9 @@ impl DaemonClient for IpcDaemonClient {
             match serde_json::from_slice::<Outgoing>(&raw) {
                 Ok(Outgoing::CommandLine { window_open }) => return Ok(window_open),
                 // A daemon older than this window does not know the message.
-                Ok(Outgoing::Error { message }) => return Err(DaemonError::Refused(message)),
+                Ok(Outgoing::Error { message, error_kind }) => {
+                    return Err(DaemonError::Refused(wire::failure(message, error_kind)))
+                }
                 _ => {}
             }
         }
@@ -152,6 +154,7 @@ mod tests {
     use super::*;
     use std::net::TcpListener;
     use std::sync::mpsc::{channel, Receiver};
+    use uidm_application::daemon::Failure;
 
     /// A pretend daemon on a local port: it hands each accepted
     /// connection to `serve`.
@@ -241,14 +244,14 @@ mod tests {
                     send(&mut stream, &Outgoing::Pong);
                     send(&mut stream, &Outgoing::CommandLine { window_open: true });
                 }
-                _ => send(&mut stream, &Outgoing::Error { message: "unexpected".into() }),
+                _ => send(&mut stream, &Outgoing::Error { message: "unexpected".into(), error_kind: None }),
             }
         });
         let client = IpcDaemonClient::with_connector("window", connector);
         let cmd = CommandLine { start_queue: true, ..CommandLine::default() };
         assert_eq!(client.run_command_line(cmd), Ok(true));
         let refused = client.run_command_line(CommandLine::default());
-        assert_eq!(refused, Err(DaemonError::Refused("unexpected".into())));
+        assert_eq!(refused, Err(DaemonError::Refused(Failure::Other("unexpected".into()))));
     }
 
     #[test]

@@ -382,6 +382,10 @@ pub enum Outgoing {
         id: u64,
         url: String,
         reason: String,
+        /// The reason's kind and values (see `wire`), for clients that
+        /// translate it; `reason` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Reply to `add_many`: how many downloads were added, and how many were
     /// skipped because their address was already in the list.
@@ -407,6 +411,10 @@ pub enum Outgoing {
         content_type: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        /// The error's kind and values (see `wire`), for clients that
+        /// translate it; `error` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Links from a page for the window's link picker, as `pick_links` sent
     /// them. Sent to windows only.
@@ -450,10 +458,18 @@ pub enum Outgoing {
         newer: Option<uidm_domain::update::Release>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        /// The error's kind and values (see `wire`), for clients that
+        /// translate it; `error` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Update now could not get or start the new Setup, and why.
     UpdateFailed {
         error: String,
+        /// The error's kind and values (see `wire`), for clients that
+        /// translate it; `error` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// The files inside a zip download, answering `preview_zip`, or why
     /// they could not be listed.
@@ -463,6 +479,10 @@ pub enum Outgoing {
         entries: Vec<uidm_domain::download::ZipEntry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        /// The error's kind and values (see `wire`), for clients that
+        /// translate it; `error` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Asks the browser extension to open `url` in a background tab, let
     /// its scripts run, and answer with `rendered`.
@@ -500,12 +520,20 @@ pub enum Outgoing {
     /// Any failure the client should hear about.
     Error {
         message: String,
+        /// The error's kind and values (see `wire`), for clients that
+        /// translate it; `message` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Reply to `add` when the download was not taken, so the client can
     /// keep it: `message` says why.
     Rejected {
         url: String,
         message: String,
+        /// The error's kind and values (see `wire`), for clients that
+        /// translate it; `message` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Reply to `command_line`: whether a window was open to run it. When
     /// none was, the caller opens one and the command runs once it connects.
