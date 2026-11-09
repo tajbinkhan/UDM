@@ -21,6 +21,10 @@
 //! main window stays in the tray, as IDM's do. The tray or a click on a
 //! notification shows the window through Win32 directly.
 
+// Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
+// test exemptions do not cover (AGENTS.md section 9).
+#![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
+
 mod addurl;
 mod answers;
 mod banner;

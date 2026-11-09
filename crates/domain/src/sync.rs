@@ -4,10 +4,14 @@
 //! A lock is poisoned when a thread panicked while holding it. Recovering is
 //! right for UIDM because:
 //!
-//! - Every lock guards plain data (a list, a map, a set, settings, a flag),
-//!   changed by single inserts, removals or assignments. Rust keeps that data
-//!   memory-safe whatever the panic, so the worst a poisoned lock holds is
-//!   the last change half made, never a value that cannot be used.
+//! - Every lock guards plain data (a list, a map, a set, settings, a flag).
+//!   Most changes are single inserts, removals or assignments, but some
+//!   span a few statements (the engine marks a segment busy and then sets
+//!   its state, picks an output name and then claims it) or hold the lock
+//!   across a slower step. A panic in the middle of one is very unlikely,
+//!   and Rust keeps the data memory-safe whatever happens, so the worst a
+//!   poisoned lock holds is stale or half-updated bookkeeping, never a
+//!   value that cannot be used.
 //! - The panic was already logged: each program's `logging::init` hooks
 //!   panics into its log file.
 //! - The other choice, panicking again on every later lock, turns one bug in

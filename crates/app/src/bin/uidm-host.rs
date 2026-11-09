@@ -20,6 +20,10 @@
 //! (see `uidm_infrastructure::cli::parse_sent`) and hands it to the daemon, starting it if
 //! needed. It goes through the same authenticated connection as the relay.
 
+// Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
+// test exemptions do not cover (AGENTS.md section 9).
+#![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
+
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::path::PathBuf;

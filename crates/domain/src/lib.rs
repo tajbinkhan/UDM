@@ -1,6 +1,10 @@
 //! Entities, value objects, business rules and the port traits the other
 //! layers implement. Nothing here performs I/O, reads the clock or logs.
 
+// Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
+// test exemptions do not cover (AGENTS.md section 9).
+#![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
+
 pub mod batch;
 pub mod command;
 pub mod download;

@@ -25,21 +25,23 @@ const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The runtime every download's requests run on. Two workers are plenty:
 /// they only move bytes between sockets and the engine's threads. An error
-/// if the system would not start it (no threads or no event queue left),
-/// which every request then fails with.
+/// if the system would not start it (no threads or no event queue left);
+/// the next request tries again.
 fn runtime() -> Result<&'static tokio::runtime::Runtime, EngineError> {
-    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
-    RUNTIME
-        .get_or_init(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .thread_name("uidm-http")
-                .enable_all()
-                .build()
-                .map_err(|e| e.to_string())
-        })
-        .as_ref()
-        .map_err(|e| EngineError::Io(format!("the HTTP runtime did not start: {e}")))
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    if let Some(runtime) = RUNTIME.get() {
+        return Ok(runtime);
+    }
+    let built = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_name("uidm-http")
+        .enable_all()
+        .build()
+        .map_err(|e| EngineError::Io(format!("the HTTP runtime did not start: {e}")))?;
+    // Another thread may have set one meanwhile; then this one is dropped
+    // and theirs is used.
+    let _ = RUNTIME.set(built);
+    RUNTIME.get().ok_or_else(|| EngineError::Io("the HTTP runtime did not start".into()))
 }
 
 /// Drop `value` inside the runtime, which a response's connection belongs
