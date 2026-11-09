@@ -9,18 +9,20 @@
 //!
 //! The dialogs' own drafts still live in `App` (#199).
 
+use pullbay_domain::bytes::ByteCount;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
-use pullbay_application::daemon::{self, Event, Lost};
+use pullbay_application::daemon::{self, Event, Failure, Lost};
 use pullbay_application::window::BrowserSlot;
 use pullbay_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
 use pullbay_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
+use pullbay_domain::id::DownloadId;
 use pullbay_domain::queue::{Queue, WhenDone};
 use pullbay_domain::settings::{AddedBrowser, Notify, Settings};
 use pullbay_domain::table::DownloadTable;
 
-use crate::errors::UiError;
+use crate::errors::{self, UiError};
 use crate::i18n::{tr, trf};
 use crate::{columns, links, progress};
 
@@ -37,7 +39,7 @@ pub enum Link {
 /// Bytes per second, smoothed across progress events.
 pub struct Speed {
     at: Instant,
-    done: u64,
+    done: ByteCount,
     pub bytes_per_sec: f64,
 }
 
@@ -46,7 +48,7 @@ pub struct Speed {
 pub struct AppState {
     pub link: Link,
     pub table: DownloadTable,
-    pub speeds: HashMap<u64, Speed>,
+    pub speeds: HashMap<DownloadId, Speed>,
     /// The daemon's most recent `error` reply, shown under the toolbar.
     pub last_error: Option<String>,
     /// The daemon did not know a request this window sent: it is an older
@@ -60,7 +62,7 @@ pub struct AppState {
     /// That answer, for the Options dialog to pick up.
     pub save_result: Option<Result<(), UiError>>,
     /// Downloads to show a completion dialog for, and whether each failed.
-    pub completed: VecDeque<(u64, bool)>,
+    pub completed: VecDeque<(DownloadId, bool)>,
     /// The daemon's queues, the main queue first.
     pub queues: Vec<Queue>,
     /// A countdown before a finished queue or download sleeps or shuts down:
@@ -68,10 +70,10 @@ pub struct AppState {
     /// file name when one download asked for it.
     pub countdown: Option<(WhenDone, Instant, String, Option<String>)>,
     /// The download waiting for a new link from the browser, if any.
-    pub refresh_waiting: Option<u64>,
+    pub refresh_waiting: Option<DownloadId>,
     /// The daemon's answer that a new link is for another file: the
     /// download, the link and why.
-    pub refresh_mismatch: Option<(u64, String, String)>,
+    pub refresh_mismatch: Option<(DownloadId, String, String)>,
     /// A passing message for the status bar, such as how many downloads a
     /// batch added.
     pub notice: Option<String>,
@@ -82,12 +84,12 @@ pub struct AppState {
     /// The tray asked for a batch from the clipboard's links.
     pub clipboard_batch: bool,
     /// Downloads that failed for want of a login, to ask for one.
-    pub login_wanted: VecDeque<u64>,
+    pub login_wanted: VecDeque<DownloadId>,
     /// Each download's connections, from its latest progress.
-    pub segments: HashMap<u64, Vec<SegmentInfo>>,
+    pub segments: HashMap<DownloadId, Vec<SegmentInfo>>,
     /// Downloads that started since the last frame, and whether a queue
     /// started each.
-    pub started: Vec<(u64, bool)>,
+    pub started: Vec<(DownloadId, bool)>,
     /// Links from a page for the link picker, until the window opens it.
     pub picked_links: Option<links::LinksDialog>,
     /// The daemon's answers about the link picker's links, until the
@@ -164,7 +166,7 @@ pub struct BrowsersRead {
 pub enum GrabEvent {
     /// Pages read, bytes read, files kept, file links looked at, and the
     /// downloads added to a queue so far.
-    Progress(u64, u64, usize, u64, Vec<u64>),
+    Progress(u64, ByteCount, usize, u64, Vec<DownloadId>),
     /// The files kept, pages read, file links looked at, why it stopped,
     /// and the login page site's cookies it used.
     Done(Vec<GrabFile>, u64, u64, Option<String>, Option<String>),
@@ -189,7 +191,7 @@ impl AppState {
             (0, 0) => tr("Pullbay: no active downloads").to_string(),
             (0, q) => trf!("Pullbay: {queued} queued", queued = q),
             (a, _) => {
-                trf!("Pullbay: {active} downloading at {speed}/s", active = a, speed = crate::human_bytes(speed as u64))
+                trf!("Pullbay: {active} downloading at {speed}/s", active = a, speed = crate::human_rate(speed as u64))
             }
         }
     }
@@ -206,7 +208,7 @@ impl AppState {
             Event::CountdownCanceled => self.countdown = None,
             Event::RefreshWaiting { id } => self.refresh_waiting = *id,
             Event::RefreshMismatch { id, url, reason } => {
-                self.refresh_mismatch = Some((*id, url.clone(), reason.clone()));
+                self.refresh_mismatch = Some((*id, url.to_string(), errors::daemon(reason)));
             }
             Event::Settings { settings } => {
                 self.settings = Some(settings.clone());
@@ -217,7 +219,7 @@ impl AppState {
             }
             // An older daemon than this window cannot read its newer
             // requests; its parser's complaint means nothing to the user.
-            Event::Error { message } if message.starts_with("invalid message: unknown variant") => {
+            Event::Error { error: Failure::InvalidMessage(why) } if why.starts_with("unknown variant") => {
                 self.saving = false;
                 self.stale_daemon = true;
                 self.last_error = Some(
@@ -225,9 +227,9 @@ impl AppState {
                         .into(),
                 );
             }
-            Event::Error { message } if self.saving => {
+            Event::Error { error } if self.saving => {
                 self.saving = false;
-                self.save_result = Some(Err(UiError::new(message.clone())));
+                self.save_result = Some(Err(UiError::from(error.clone())));
             }
             Event::Progress { id, done, segments, .. } => {
                 self.sample_speed(*id, *done);
@@ -256,7 +258,7 @@ impl AppState {
                 } else if was_paused {
                     self.notice = Some(tr("The download quota allows downloads again; paused ones resumed.").into());
                     None
-                } else if *used >= *limit / 10 * 9 {
+                } else if pullbay_domain::quota::nearly_reached(*used, *limit) {
                     Some(trf!(
                         "Download quota nearly used: {amount}. Downloads pause when it runs out.",
                         amount = amount
@@ -266,11 +268,11 @@ impl AppState {
                 };
             }
             Event::UpdateFailed { error } => {
-                self.installing = Some(Some(error.clone()));
+                self.installing = Some(Some(errors::daemon(error)));
             }
             Event::Update { newer, error } => {
                 self.update = Some(match error {
-                    Some(e) => Err(UiError::new(e.clone())),
+                    Some(e) => Err(UiError::from(e.clone())),
                     None => Ok(newer.clone()),
                 });
                 if newer.is_some() {
@@ -289,7 +291,7 @@ impl AppState {
             }
             Event::LinkInfo { request, index, total, content_type, error } => {
                 let probed = match error {
-                    Some(e) => links::Probed::Failed(e.clone()),
+                    Some(e) => links::Probed::Failed(errors::daemon(e)),
                     None => links::Probed::Found { total: *total, content_type: content_type.clone() },
                 };
                 self.link_info.push((*request, *index, probed));
@@ -330,19 +332,19 @@ impl AppState {
                     self.segments.remove(id);
                 }
             }
-            Event::Error { message } | Event::Rejected { message, .. } => self.last_error = Some(message.clone()),
+            Event::Error { error } | Event::Rejected { error, .. } => self.last_error = Some(errors::daemon(error)),
             _ => {}
         }
     }
 
-    fn sample_speed(&mut self, id: u64, done: u64) {
+    fn sample_speed(&mut self, id: DownloadId, done: ByteCount) {
         let now = Instant::now();
         let s = self.speeds.entry(id).or_insert(Speed { at: now, done, bytes_per_sec: 0.0 });
         let dt = now.duration_since(s.at);
         if dt < SPEED_MIN_INTERVAL || done < s.done {
             return;
         }
-        let instant = (done - s.done) as f64 / dt.as_secs_f64();
+        let instant = (done - s.done).as_f64() / dt.as_secs_f64();
         s.bytes_per_sec = if s.bytes_per_sec == 0.0 { instant } else { 0.7 * s.bytes_per_sec + 0.3 * instant };
         s.at = now;
         s.done = done;
@@ -410,7 +412,7 @@ pub enum UiMessage {
     Error(String),
     /// Download `id` failed a moment ago and is still failed: its dialog
     /// can show now.
-    FailedSettled(u64),
+    FailedSettled(DownloadId),
     /// Update now was chosen; its answer is awaited.
     InstallStarted,
     /// A new update check was asked for; its answer is awaited.
@@ -418,10 +420,10 @@ pub enum UiMessage {
     /// The daemon is being restarted to run the new one.
     DaemonRestarting,
     /// The user asked to give download `id` a login: it goes first.
-    LoginAsked(u64),
+    LoginAsked(DownloadId),
     /// Downloads whose login prompt waits for another site's, to ask about
     /// next.
-    LoginsWaiting(Vec<u64>),
+    LoginsWaiting(Vec<DownloadId>),
     /// Options' settings went to the daemon; its answer is awaited.
     SavingSettings,
     /// A worker read the grabber's saved projects, templates, default
@@ -480,9 +482,9 @@ pub enum What {
 pub enum Taken {
     GrabEvents(Vec<GrabEvent>),
     ClipboardBatch(bool),
-    LoginWanted(Vec<u64>),
+    LoginWanted(Vec<DownloadId>),
     SaveResult(Option<Result<(), UiError>>),
-    Started(Vec<(u64, bool)>),
+    Started(Vec<(DownloadId, bool)>),
     ZipListed(Option<ZipListed>),
     PickedLinks(Option<Box<links::LinksDialog>>),
     LinkInfo(Vec<(u64, usize, links::Probed)>),
@@ -492,7 +494,7 @@ pub enum Taken {
 
 /// A zip preview's download and its files, or why they could not be
 /// listed.
-pub type ZipListed = (u64, Result<Vec<pullbay_domain::download::ZipEntry>, UiError>);
+pub type ZipListed = (DownloadId, Result<Vec<pullbay_domain::download::ZipEntry>, UiError>);
 
 /// Change `state` as `msg` says. The only place the window's state
 /// changes. A [`UiMessage::Take`] returns what was taken.
@@ -607,7 +609,7 @@ pub fn take_clipboard_batch(state: &mut AppState) -> bool {
 }
 
 /// The downloads waiting for a login prompt, the next first.
-pub fn take_login_wanted(state: &mut AppState) -> Vec<u64> {
+pub fn take_login_wanted(state: &mut AppState) -> Vec<DownloadId> {
     match apply(state, UiMessage::Take(What::LoginWanted)) {
         Some(Taken::LoginWanted(ids)) => ids,
         _ => Vec::new(),
@@ -624,7 +626,7 @@ pub fn take_save_result(state: &mut AppState) -> Option<Result<(), UiError>> {
 
 /// The downloads that started since the last frame, and whether a queue
 /// started each.
-pub fn take_started(state: &mut AppState) -> Vec<(u64, bool)> {
+pub fn take_started(state: &mut AppState) -> Vec<(DownloadId, bool)> {
     match apply(state, UiMessage::Take(What::Started)) {
         Some(Taken::Started(started)) => started,
         _ => Vec::new(),
@@ -682,7 +684,7 @@ pub enum Need {
     Wake,
     /// Wait a moment, then wake for download `id`'s failure if it is still
     /// failed.
-    WakeIfStillFailed(u64),
+    WakeIfStillFailed(DownloadId),
     /// Pullbay exits.
     Quit,
 }
@@ -696,8 +698,8 @@ pub enum Need {
 pub struct Watch {
     pub settings: Option<Settings>,
     /// Downloads that asked for their completion dialog.
-    done_dialog: HashSet<u64>,
-    failed: HashSet<u64>,
+    done_dialog: HashSet<DownloadId>,
+    failed: HashSet<DownloadId>,
 }
 
 impl Watch {
@@ -749,7 +751,7 @@ impl Watch {
     }
 
     /// Whether download `id` is still failed.
-    pub fn still_failed(&self, id: u64) -> bool {
+    pub fn still_failed(&self, id: DownloadId) -> bool {
         self.failed.contains(&id)
     }
 
@@ -800,16 +802,19 @@ mod tests {
     #[test]
     fn what_the_window_takes_is_handed_over_once() {
         let mut s = AppState::default();
-        daemon(&mut s, Event::GrabProgress { pages: 1, bytes: 2, found: 3, explored: 4, added: vec![] });
+        daemon(
+            &mut s,
+            Event::GrabProgress { pages: 1, bytes: ByteCount::new(2), found: 3, explored: 4, added: vec![] },
+        );
         apply(&mut s, UiMessage::ClipboardBatch);
         assert_eq!(take_grab_events(&mut s).len(), 1);
         assert!(take_grab_events(&mut s).is_empty(), "taken already");
         assert!(take_clipboard_batch(&mut s));
         assert!(!take_clipboard_batch(&mut s));
-        apply(&mut s, UiMessage::LoginAsked(7));
-        apply(&mut s, UiMessage::LoginAsked(7));
-        apply(&mut s, UiMessage::LoginsWaiting(vec![8]));
-        assert_eq!(take_login_wanted(&mut s), [7, 8]);
+        apply(&mut s, UiMessage::LoginAsked(DownloadId::new(7)));
+        apply(&mut s, UiMessage::LoginAsked(DownloadId::new(7)));
+        apply(&mut s, UiMessage::LoginsWaiting(vec![DownloadId::new(8)]));
+        assert_eq!(take_login_wanted(&mut s), [DownloadId::new(7), DownloadId::new(8)]);
         assert!(take_login_wanted(&mut s).is_empty());
     }
 
@@ -824,6 +829,26 @@ mod tests {
         assert_eq!(take_save_result(&mut s), Some(Ok(())));
         apply(&mut s, UiMessage::SaveFailed("not connected".into()));
         assert_eq!(take_save_result(&mut s), Some(Err("not connected".into())));
+        // The daemon's refusal comes typed, and reads as the window says it.
+        apply(&mut s, UiMessage::SavingSettings);
+        let refused =
+            pullbay_domain::ports::SettingsError::Invalid(pullbay_domain::settings::InvalidSettings::QuotaZero);
+        daemon(&mut s, Event::Error { error: refused.into() });
+        assert_eq!(take_save_result(&mut s), Some(Err("The quota must be at least 1 MB.".into())));
+    }
+
+    #[test]
+    fn the_daemons_errors_are_shown_as_the_window_says_them() {
+        let mut s = AppState::default();
+        let error = Failure::from(pullbay_domain::queue::QueueError::MainQueue);
+        daemon(&mut s, Event::Error { error });
+        assert_eq!(s.last_error.as_deref(), Some("The main queue cannot be deleted."));
+        daemon(&mut s, Event::Rejected { url: "x".into(), error: Failure::Other("as the daemon said".into()) });
+        assert_eq!(s.last_error.as_deref(), Some("as the daemon said"));
+        // A daemon older than the window did not know a request.
+        assert!(!s.stale_daemon);
+        daemon(&mut s, Event::Error { error: Failure::InvalidMessage("unknown variant `x`".into()) });
+        assert!(s.stale_daemon);
     }
 
     #[test]
@@ -856,9 +881,9 @@ mod tests {
         apply(&mut s, UiMessage::Forget(Forget::Error));
         assert_eq!(s.last_error, None);
         assert!(s.notice.is_some());
-        s.completed.extend([(1, false), (2, true)]);
+        s.completed.extend([(DownloadId::new(1), false), (DownloadId::new(2), true)]);
         apply(&mut s, UiMessage::Forget(Forget::Completed));
-        assert_eq!(s.completed, [(2, true)]);
+        assert_eq!(s.completed, [(DownloadId::new(2), true)]);
         apply(&mut s, UiMessage::Forget(Forget::AllCompleted));
         assert!(s.completed.is_empty());
         apply(&mut s, UiMessage::Error("stale".into()));
@@ -886,12 +911,18 @@ mod tests {
             ..entry(2, Status::Downloading)
         };
         daemon(&mut s, Event::Updated { item: asked });
-        daemon(&mut s, Event::Done { id: 1, url: "https://x/1.bin".into(), path: "/d/1.bin".into(), note: None });
-        daemon(&mut s, Event::Done { id: 2, url: "https://x/2.bin".into(), path: "/d/2.bin".into(), note: None });
-        assert_eq!(s.completed, [(2, false)], "only the one that asked");
+        daemon(
+            &mut s,
+            Event::Done { id: DownloadId::new(1), url: "https://x/1.bin".into(), path: "/d/1.bin".into(), note: None },
+        );
+        daemon(
+            &mut s,
+            Event::Done { id: DownloadId::new(2), url: "https://x/2.bin".into(), path: "/d/2.bin".into(), note: None },
+        );
+        assert_eq!(s.completed, [(DownloadId::new(2), false)], "only the one that asked");
         daemon(&mut s, Event::Settings { settings: settings(Notify::Dialog) });
-        daemon(&mut s, Event::ShowDone { id: 1 });
-        assert_eq!(s.completed.back(), Some(&(1, false)));
+        daemon(&mut s, Event::ShowDone { id: DownloadId::new(1) });
+        assert_eq!(s.completed.back(), Some(&(DownloadId::new(1), false)));
     }
 
     #[test]
@@ -900,13 +931,20 @@ mod tests {
         daemon(&mut s, Event::Settings { settings: settings(Notify::Dialog) });
         daemon(&mut s, Event::Downloads { items: vec![entry(1, Status::Downloading), entry(2, Status::Downloading)] });
         for id in [1, 2] {
-            daemon(&mut s, Event::Failed { id, url: format!("https://x/{id}.bin"), error: "gone".into() });
+            daemon(
+                &mut s,
+                Event::Failed {
+                    id: DownloadId::new(id),
+                    url: format!("https://x/{id}.bin").into(),
+                    error: "gone".into(),
+                },
+            );
         }
         assert!(s.completed.is_empty(), "not at once");
-        daemon(&mut s, Event::Removed { id: 2 });
-        apply(&mut s, UiMessage::FailedSettled(1));
-        apply(&mut s, UiMessage::FailedSettled(2));
-        assert_eq!(s.completed, [(1, true)]);
+        daemon(&mut s, Event::Removed { id: DownloadId::new(2) });
+        apply(&mut s, UiMessage::FailedSettled(DownloadId::new(1)));
+        apply(&mut s, UiMessage::FailedSettled(DownloadId::new(2)));
+        assert_eq!(s.completed, [(DownloadId::new(1), true)]);
     }
 
     #[test]
@@ -914,9 +952,16 @@ mod tests {
         let mut s = AppState::default();
         let error = pullbay_domain::download::needs_login_error("files.example.com", None);
         for _ in 0..2 {
-            daemon(&mut s, Event::Failed { id: 4, url: "https://files.example.com/f".into(), error: error.clone() });
+            daemon(
+                &mut s,
+                Event::Failed {
+                    id: DownloadId::new(4),
+                    url: "https://files.example.com/f".into(),
+                    error: error.clone(),
+                },
+            );
         }
-        assert_eq!(s.login_wanted, [4]);
+        assert_eq!(s.login_wanted, [DownloadId::new(4)]);
     }
 
     #[test]
@@ -939,26 +984,27 @@ mod tests {
         };
         assert_eq!(see(&mut w, Event::Show), Need::Show);
         assert_eq!(see(&mut w, Event::Quit), Need::Quit);
-        let done = |id| Event::Done { id, url: String::new(), path: String::new(), note: None };
-        assert_eq!(see(&mut w, done(1)), Need::Nothing, "no dialog asked for");
+        let done =
+            |id| Event::Done { id, url: pullbay_domain::address::Link::default(), path: String::new(), note: None };
+        assert_eq!(see(&mut w, done(DownloadId::new(1))), Need::Nothing, "no dialog asked for");
         let asked = DownloadEntry {
             on_done: Some(OnDone { dialog: true, ..OnDone::default() }),
             ..entry(2, Status::Downloading)
         };
         see(&mut w, Event::Updated { item: asked });
-        assert_eq!(see(&mut w, done(2)), Need::Wake);
-        let failed = |id| Event::Failed { id, url: String::new(), error: "gone".into() };
-        assert_eq!(see(&mut w, failed(3)), Need::Nothing, "notifications, not dialogs");
+        assert_eq!(see(&mut w, done(DownloadId::new(2))), Need::Wake);
+        let failed = |id| Event::Failed { id, url: pullbay_domain::address::Link::default(), error: "gone".into() };
+        assert_eq!(see(&mut w, failed(DownloadId::new(3))), Need::Nothing, "notifications, not dialogs");
         see(&mut w, Event::Settings { settings: Settings { progress_on_start: true, ..settings(Notify::Dialog) } });
-        assert_eq!(see(&mut w, failed(3)), Need::WakeIfStillFailed(3));
-        assert!(w.still_failed(3));
-        see(&mut w, Event::Removed { id: 3 });
-        assert!(!w.still_failed(3));
+        assert_eq!(see(&mut w, failed(DownloadId::new(3))), Need::WakeIfStillFailed(DownloadId::new(3)));
+        assert!(w.still_failed(DownloadId::new(3)));
+        see(&mut w, Event::Removed { id: DownloadId::new(3) });
+        assert!(!w.still_failed(DownloadId::new(3)));
         let confirming = Event::Updated { item: entry(5, Status::Confirming) };
         assert_eq!(see(&mut w, confirming), Need::Wake);
         let started = Event::Started {
-            id: 6,
-            url: String::new(),
+            id: DownloadId::new(6),
+            url: pullbay_domain::address::Link::default(),
             path: String::new(),
             total: None,
             resumable: false,

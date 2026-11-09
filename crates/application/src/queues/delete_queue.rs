@@ -1,3 +1,4 @@
+use pullbay_domain::id::QueueId;
 use pullbay_domain::ports::{DownloadList, QueueRuns, QueueStore};
 use pullbay_domain::queue::{self, QueueError};
 
@@ -14,7 +15,7 @@ impl<'a, Q: QueueStore, D: DownloadList, R: QueueRuns> DeleteQueue<'a, Q, D, R> 
         DeleteQueue { queues, downloads, runs }
     }
 
-    pub fn run(&self, id: u64) -> Result<(), QueueError> {
+    pub fn run(&self, id: QueueId) -> Result<(), QueueError> {
         let finished = self.downloads.finished();
         self.queues.edit(|qs| queue::delete(qs, id, &finished))?;
         self.runs.end(id);
@@ -28,19 +29,25 @@ mod tests {
     use super::*;
     use crate::memory::{Downloads, Queues, Runs};
     use pullbay_domain::download::Status;
+    use pullbay_domain::id::DownloadId;
     use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 
     #[test]
     fn its_unfinished_downloads_move_to_the_main_queue() {
         let queues = Queues::main();
-        queues.edit(|qs| qs.push(Queue { order: vec![5, 6], ..Queue::new(2, "Night") }));
+        queues.edit(|qs| {
+            qs.push(Queue {
+                order: vec![DownloadId::new(5), DownloadId::new(6)],
+                ..Queue::new(QueueId::new(2), "Night")
+            })
+        });
         let downloads = Downloads::with(&[(5, Status::Done), (6, Status::Failed)]);
         let runs = Runs::default();
-        runs.begin(2);
-        DeleteQueue::new(&queues, &downloads, &runs).run(2).unwrap();
+        runs.begin(QueueId::new(2));
+        DeleteQueue::new(&queues, &downloads, &runs).run(QueueId::new(2)).unwrap();
         assert!(!runs.running(2), "its run is forgotten");
         assert_eq!(queues.edit(|qs| qs.len()), 1);
-        assert_eq!(queues.get(MAIN_QUEUE).order, [6]);
+        assert_eq!(queues.get(MAIN_QUEUE).order, [DownloadId::new(6)]);
         assert_eq!(queues.changes(), 1);
     }
 
@@ -49,7 +56,7 @@ mod tests {
         let (queues, downloads, runs) = (Queues::main(), Downloads::default(), Runs::default());
         let delete = DeleteQueue::new(&queues, &downloads, &runs);
         assert_eq!(delete.run(MAIN_QUEUE), Err(QueueError::MainQueue));
-        assert_eq!(delete.run(9), Err(QueueError::NoQueue(9)));
+        assert_eq!(delete.run(QueueId::new(9)), Err(QueueError::NoQueue(QueueId::new(9))));
         assert_eq!(queues.changes(), 0);
     }
 }

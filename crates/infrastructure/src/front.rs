@@ -8,11 +8,14 @@
 //! window to answer a save-as dialog, and without one starts the download
 //! as proposed.
 
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::sync::LockExt;
 use std::collections::VecDeque;
 use std::io;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -69,11 +72,11 @@ pub struct Notifier {
     /// Recent notifications; dropping one can stop its buttons working.
     toasts: Mutex<VecDeque<notify::Shown>>,
     /// Retries a download, from a notification's button.
-    retry: Hook<u64>,
+    retry: Hook<DownloadId>,
 }
 
 impl Notifier {
-    pub fn new(store: Arc<DownloadStore>, windows: Arc<dyn Windows>, retry: Hook<u64>) -> Arc<Self> {
+    pub fn new(store: Arc<DownloadStore>, windows: Arc<dyn Windows>, retry: Hook<DownloadId>) -> Arc<Self> {
         Arc::new(Notifier { store, windows, toasts: Mutex::new(VecDeque::new()), retry })
     }
 
@@ -81,7 +84,7 @@ impl Notifier {
     /// with `failed`, failing), and show a notification when they ask for
     /// one, or when the download asked for its completion dialog and no
     /// window is open to show it.
-    pub fn notify(self: &Arc<Self>, id: u64, failed: bool, settings: &Settings) {
+    pub fn notify(self: &Arc<Self>, id: DownloadId, failed: bool, settings: &Settings) {
         let Some(entry) = self.store.table().get(id).cloned() else {
             return;
         };
@@ -118,13 +121,13 @@ impl Notifier {
     /// Only pushes and pops change the list, so a poisoned lock still holds
     /// a usable one.
     fn toasts(&self) -> MutexGuard<'_, VecDeque<notify::Shown>> {
-        self.toasts.lock().unwrap_or_else(PoisonError::into_inner)
+        self.toasts.lock_or_recover()
     }
 
     /// Act on a click on a notification or one of its buttons.
     fn on_toast(&self, arg: &str) {
         let (action, id) = match arg.split_once(':') {
-            Some((a, id)) => (a, id.parse::<u64>().ok()),
+            Some((a, id)) => (a, id.parse::<u64>().ok().map(DownloadId::new)),
             None => (arg, None),
         };
         let entry = id.and_then(|id| self.store.table().get(id).cloned());
@@ -154,7 +157,7 @@ impl Notifier {
 pub fn toast_for(e: &DownloadEntry, failed: bool) -> Toast {
     let path = e.path.as_deref().map(Path::new);
     let name =
-        path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| e.url.clone());
+        path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| e.url.to_string());
     let id = e.id;
     if failed {
         return Toast {
@@ -187,7 +190,8 @@ pub fn toast_for(e: &DownloadEntry, failed: bool) -> Toast {
     }
 }
 
-fn human_bytes(n: u64) -> String {
+fn human_bytes(n: ByteCount) -> String {
+    let n = n.get();
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut value = n as f64;
     let mut unit = 0;
@@ -216,7 +220,7 @@ impl Front {
 }
 
 impl Attention for Front {
-    fn show_done(&self, id: u64) {
+    fn show_done(&self, id: DownloadId) {
         if self.windows.window_open() {
             self.windows.announce(&Outgoing::ShowDone { id });
         } else {
@@ -253,7 +257,7 @@ impl AnswerWait {
     /// one if none is open. If none connects in time, the download starts as
     /// proposed: `fallback` decides what happens if its name is taken,
     /// `None` leaving that to the setting.
-    pub fn wait(&self, id: u64, fallback: Option<FileExists>) {
+    pub fn wait(&self, id: DownloadId, fallback: Option<FileExists>) {
         if !self.windows.window_open() {
             if let Err(e) = open_window() {
                 warn!(error = %e, "could not open the window");
@@ -265,7 +269,7 @@ impl AnswerWait {
             thread::sleep(patience);
             let status = store.table().get(id).map(|e| e.status);
             if status == Some(Status::Confirming) && !windows.window_open() {
-                info!(download_id = id, "no window to confirm; starting it as proposed");
+                info!(download_id = id.get(), "no window to confirm; starting it as proposed");
                 // A "download later" asked only about a duplicate keeps waiting.
                 let request = store.requests().get(&id).cloned().unwrap_or_default();
                 confirm(request.fallback_answer(id, fallback));
@@ -275,11 +279,11 @@ impl AnswerWait {
 }
 
 impl Answers for AnswerWait {
-    fn await_answer(&self, id: u64) {
+    fn await_answer(&self, id: DownloadId) {
         self.wait(id, None);
     }
 
-    fn await_new_name(&self, id: u64) {
+    fn await_new_name(&self, id: DownloadId) {
         self.wait(id, Some(FileExists::Rename));
     }
 }
@@ -288,7 +292,7 @@ impl Answers for AnswerWait {
 pub struct Notices(pub Arc<Notifier>);
 
 impl pullbay_domain::ports::Notifications for Notices {
-    fn notify(&self, id: u64, failed: bool, settings: &Settings) {
+    fn notify(&self, id: DownloadId, failed: bool, settings: &Settings) {
         self.0.notify(id, failed, settings);
     }
 }
@@ -330,18 +334,18 @@ mod tests {
         let notifier = Notifier::new(Arc::clone(&store), Arc::clone(&windows) as _, Arc::new(|_| {}));
         let front =
             Front::new(notifier, Arc::new(LiveSettings::new(Settings::default(), None)), Arc::clone(&windows) as _);
-        front.show_done(7);
+        front.show_done(DownloadId::new(7));
         front.show_window();
         let said = windows.said.lock().unwrap().clone();
-        assert!(matches!(said.as_slice(), [Outgoing::ShowDone { id: 7 }, Outgoing::Show]));
+        assert!(matches!(said.as_slice(), [Outgoing::ShowDone { id }, Outgoing::Show] if *id == DownloadId::new(7)));
     }
 
     #[test]
     fn a_dialog_nobody_answers_starts_as_proposed() {
         let windows = Arc::new(FakeWindows { open: AtomicBool::new(true), ..FakeWindows::default() });
         let store = store(&windows);
-        store.publish(&Outgoing::Added { id: 3, url: "http://x/a".into() });
-        let _ = store.update(3, |e| {
+        store.publish(&Outgoing::Added { id: DownloadId::new(3), url: "http://x/a".into() });
+        let _ = store.update(DownloadId::new(3), |e| {
             e.status = Status::Confirming;
             true
         });
@@ -354,7 +358,7 @@ mod tests {
         );
         wait.patience = Duration::from_millis(10);
         // The window that was open closes before answering.
-        wait.await_answer(3);
+        wait.await_answer(DownloadId::new(3));
         windows.open.store(false, Ordering::Relaxed);
         for _ in 0..200 {
             if !answered.lock().unwrap().is_empty() {
@@ -362,18 +366,18 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(*answered.lock().unwrap(), [3]);
+        assert_eq!(*answered.lock().unwrap(), [DownloadId::new(3)]);
     }
 
     #[test]
     fn notifications_name_the_file_and_offer_its_buttons() {
         let windows = Arc::new(FakeWindows::default());
         let store = store(&windows);
-        store.publish(&Outgoing::Added { id: 4, url: "http://x/a.zip".into() });
+        store.publish(&Outgoing::Added { id: DownloadId::new(4), url: "http://x/a.zip".into() });
         let e = store
-            .update(4, |e| {
+            .update(DownloadId::new(4), |e| {
                 e.path = Some(std::env::temp_dir().join("a.zip").display().to_string());
-                e.total = Some(2048);
+                e.total = Some(ByteCount::new(2048));
                 true
             })
             .unwrap();
@@ -384,6 +388,6 @@ mod tests {
         assert_eq!(done.buttons[0].1, "open:4");
         let failed = toast_for(&DownloadEntry { error: Some("gone".into()), ..e }, true);
         assert_eq!(failed.buttons, [("Retry".to_string(), "retry:4".to_string())]);
-        assert_eq!(human_bytes(10), "10 B");
+        assert_eq!(human_bytes(ByteCount::new(10)), "10 B");
     }
 }

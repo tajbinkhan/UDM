@@ -7,6 +7,7 @@
 //! of tokens. The limit can change or turn off at any time; sleepers notice
 //! within `SLICE` and stop waiting on the old rate.
 
+use pullbay_domain::sync::LockExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
@@ -54,7 +55,7 @@ impl RateLimiter {
     /// Change the limit; `None` (or 0) turns it off. Takes effect at once for
     /// every running download.
     pub fn set_rate(&self, rate: Option<u64>) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.state.lock_or_recover();
         let rate = rate.filter(|r| *r > 0);
         if s.rate != rate {
             s.rate = rate;
@@ -65,7 +66,7 @@ impl RateLimiter {
     }
 
     pub fn rate(&self) -> Option<u64> {
-        self.state.lock().unwrap().rate
+        self.state.lock_or_recover().rate
     }
 
     /// How many bytes one read should ask for: the full buffer when unlimited,
@@ -82,7 +83,7 @@ impl RateLimiter {
     /// Returns early if `cancel` is set.
     pub fn consume(&self, n: usize, cancel: &AtomicBool) {
         let (deadline, generation) = {
-            let mut s = self.state.lock().unwrap();
+            let mut s = self.state.lock_or_recover();
             let Some(rate) = s.rate else {
                 return;
             };
@@ -103,7 +104,7 @@ impl RateLimiter {
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
-            if self.state.lock().unwrap().generation != generation {
+            if self.state.lock_or_recover().generation != generation {
                 return;
             }
             let now = Instant::now();

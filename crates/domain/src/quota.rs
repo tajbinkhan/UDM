@@ -5,30 +5,32 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::bytes::ByteCount;
+use crate::id::DownloadId;
 use serde::{Deserialize, Serialize};
 
 /// Bytes received, by minute since 1970.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Usage {
-    minutes: VecDeque<(u64, u64)>,
+    minutes: VecDeque<(u64, ByteCount)>,
     /// Each running download's progress at its last report, so only new
     /// bytes count. Not saved: a restart starts every download afresh.
     #[serde(skip)]
-    last: HashMap<u64, u64>,
+    last: HashMap<DownloadId, ByteCount>,
 }
 
 impl Usage {
     /// A download (re)started with `done` bytes already in hand; those do
     /// not count again.
-    pub fn started(&mut self, id: u64, done: u64) {
+    pub fn started(&mut self, id: DownloadId, done: ByteCount) {
         self.last.insert(id, done);
     }
 
     /// Download `id` reports `done` bytes at minute `now`: count what is new.
-    pub fn progress(&mut self, id: u64, done: u64, now: u64) {
+    pub fn progress(&mut self, id: DownloadId, done: ByteCount, now: u64) {
         let before = self.last.insert(id, done).unwrap_or(done);
         let new = done.saturating_sub(before);
-        if new == 0 {
+        if new.is_zero() {
             return;
         }
         match self.minutes.back_mut() {
@@ -38,29 +40,29 @@ impl Usage {
     }
 
     /// The download stopped; forget its progress.
-    pub fn ended(&mut self, id: u64) {
+    pub fn ended(&mut self, id: DownloadId) {
         self.last.remove(&id);
     }
 
     /// Bytes received in the `window` minutes up to `now`. Older minutes are
     /// dropped.
-    pub fn used(&mut self, now: u64, window: u64) -> u64 {
+    pub fn used(&mut self, now: u64, window: u64) -> ByteCount {
         let start = now.saturating_sub(window.saturating_sub(1));
         while self.minutes.front().is_some_and(|(m, _)| *m < start) {
             self.minutes.pop_front();
         }
-        self.minutes.iter().map(|(_, b)| b).sum()
+        self.minutes.iter().map(|(_, b)| *b).sum()
     }
 
     /// The first minute after `now` at which the window holds less than
     /// `limit` bytes again, if no more arrive.
-    pub fn frees_at(&mut self, now: u64, window: u64, limit: u64) -> u64 {
+    pub fn frees_at(&mut self, now: u64, window: u64, limit: ByteCount) -> u64 {
         let mut used = self.used(now, window);
         for (m, b) in &self.minutes {
             if used < limit {
                 break;
             }
-            used -= b;
+            used -= *b;
             // Minute `m` leaves the window `window` minutes after it.
             if used < limit {
                 return m + window;
@@ -74,7 +76,7 @@ impl Usage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuotaLimit {
     /// Bytes allowed in the window.
-    pub bytes: u64,
+    pub bytes: ByteCount,
     /// The window, in minutes.
     pub window: u64,
     /// Warn when nine tenths are used.
@@ -96,14 +98,14 @@ pub enum QuotaStep {
 }
 
 /// Whether `used` bytes are nine tenths of `limit` or more.
-pub fn nearly_reached(used: u64, limit: u64) -> bool {
-    used >= limit / 10 * 9
+pub fn nearly_reached(used: ByteCount, limit: ByteCount) -> bool {
+    used.get() >= limit.get() / 10 * 9
 }
 
 /// What the quota asks for with `used` bytes received against `limit`,
 /// when downloads are `paused` for it or not and the nearly-reached warning
 /// was `warned` already.
-pub fn step(used: u64, limit: QuotaLimit, paused: bool, warned: bool) -> QuotaStep {
+pub fn step(used: ByteCount, limit: QuotaLimit, paused: bool, warned: bool) -> QuotaStep {
     if paused && used < limit.bytes {
         QuotaStep::Resume
     } else if used >= limit.bytes {
@@ -118,8 +120,8 @@ pub fn step(used: u64, limit: QuotaLimit, paused: bool, warned: bool) -> QuotaSt
 /// The quota's state as the clients show it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuotaNotice {
-    pub used: u64,
-    pub limit: u64,
+    pub used: ByteCount,
+    pub limit: ByteCount,
     /// Downloads are paused for the quota.
     pub paused: bool,
     /// When they resume, in seconds since 1970.
@@ -130,40 +132,54 @@ pub struct QuotaNotice {
 mod tests {
     use super::*;
 
-    const LIMIT: QuotaLimit = QuotaLimit { bytes: 1000, window: 60, warn: true };
+    fn b(n: u64) -> ByteCount {
+        ByteCount::new(n)
+    }
+
+    const LIMIT: QuotaLimit = QuotaLimit { bytes: ByteCount::new(1000), window: 60, warn: true };
 
     #[test]
     fn the_quota_pauses_warns_and_resumes() {
-        assert_eq!(step(500, LIMIT, false, false), QuotaStep::Keep);
-        assert_eq!(step(900, LIMIT, false, false), QuotaStep::Warn);
-        assert_eq!(step(900, LIMIT, false, true), QuotaStep::Keep, "once per window");
-        assert_eq!(step(900, QuotaLimit { warn: false, ..LIMIT }, false, false), QuotaStep::Keep);
-        assert_eq!(step(1000, LIMIT, false, false), QuotaStep::Pause { first: true });
-        assert_eq!(step(1200, LIMIT, true, false), QuotaStep::Pause { first: false });
-        assert_eq!(step(999, LIMIT, true, false), QuotaStep::Resume);
+        assert_eq!(step(b(500), LIMIT, false, false), QuotaStep::Keep);
+        assert_eq!(step(b(900), LIMIT, false, false), QuotaStep::Warn);
+        assert_eq!(step(b(900), LIMIT, false, true), QuotaStep::Keep, "once per window");
+        assert_eq!(step(b(900), QuotaLimit { warn: false, ..LIMIT }, false, false), QuotaStep::Keep);
+        assert_eq!(step(b(1000), LIMIT, false, false), QuotaStep::Pause { first: true });
+        assert_eq!(step(b(1200), LIMIT, true, false), QuotaStep::Pause { first: false });
+        assert_eq!(step(b(999), LIMIT, true, false), QuotaStep::Resume);
     }
 
     #[test]
     fn counts_only_new_bytes_in_the_window() {
         let mut u = Usage::default();
-        u.started(1, 500);
-        u.progress(1, 700, 10);
-        u.progress(1, 1000, 10);
-        u.started(2, 0);
-        u.progress(2, 50, 11);
-        assert_eq!(u.used(11, 60), 550, "resumed bytes do not count");
-        assert_eq!(u.used(70, 60), 50, "minute 10 left the window");
-        assert_eq!(u.used(200, 60), 0);
+        u.started(DownloadId::new(1), b(500));
+        u.progress(DownloadId::new(1), b(700), 10);
+        u.progress(DownloadId::new(1), b(1000), 10);
+        u.started(DownloadId::new(2), b(0));
+        u.progress(DownloadId::new(2), b(50), 11);
+        assert_eq!(u.used(11, 60), b(550), "resumed bytes do not count");
+        assert_eq!(u.used(70, 60), b(50), "minute 10 left the window");
+        assert_eq!(u.used(200, 60), b(0));
+    }
+
+    /// The saved count keeps its shape: minutes and byte counts as plain
+    /// numbers.
+    #[test]
+    fn the_saved_count_keeps_its_shape() {
+        let old = r#"{"minutes":[[10,200],[11,4000000000]]}"#;
+        let mut u: Usage = serde_json::from_str(old).unwrap();
+        assert_eq!(serde_json::to_string(&u).unwrap(), old);
+        assert_eq!(u.used(11, 60), b(4_000_000_200));
     }
 
     #[test]
     fn says_when_the_window_frees_up() {
         let mut u = Usage::default();
-        u.started(1, 0);
-        u.progress(1, 600, 0);
-        u.progress(1, 1000, 30);
+        u.started(DownloadId::new(1), b(0));
+        u.progress(DownloadId::new(1), b(600), 0);
+        u.progress(DownloadId::new(1), b(1000), 30);
         // 1000 bytes in an hour with a limit of 800: minute 0 must leave.
-        assert_eq!(u.frees_at(40, 60, 800), 60);
-        assert_eq!(u.frees_at(40, 60, 2000), 40, "already under the limit");
+        assert_eq!(u.frees_at(40, 60, b(800)), 60);
+        assert_eq!(u.frees_at(40, 60, b(2000)), 40, "already under the limit");
     }
 }

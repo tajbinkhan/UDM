@@ -7,6 +7,8 @@
 //! (libappindicator), which needs GTK's own loop: it gets a thread of its
 //! own, and the window's calls are posted to it.
 
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::sync::LockExt;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once};
@@ -82,7 +84,7 @@ struct DownloadsTray {
     icon: TrayIcon,
     menu: Menu,
     /// Each window's item, by download ID, in the order they went.
-    items: Vec<(u64, MenuItem)>,
+    items: Vec<(DownloadId, MenuItem)>,
     /// "Show all" and the line under it, at the top while two or more
     /// windows are hidden, as in IDM.
     show_all: MenuItem,
@@ -100,10 +102,10 @@ thread_local! {
 
 /// The download windows' menu items and their downloads, for the menu
 /// handler, which runs on another thread on Linux.
-static HIDDEN_IDS: Mutex<Vec<(MenuId, u64)>> = Mutex::new(Vec::new());
+static HIDDEN_IDS: Mutex<Vec<(MenuId, DownloadId)>> = Mutex::new(Vec::new());
 /// Downloads whose window was picked from that menu, until the window's
 /// next frame shows them.
-static RESTORE: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+static RESTORE: Mutex<Vec<DownloadId>> = Mutex::new(Vec::new());
 /// The "Show all" item's ID, while the icon is there.
 static SHOW_ALL_ID: Mutex<Option<MenuId>> = Mutex::new(None);
 
@@ -350,15 +352,15 @@ fn on_tray_thread(f: impl FnOnce() + Send + 'static) {
 /// the downloads tray icon's menu, adding the icon for the first and taking
 /// it away after the last. The window is woken (or opened again) when one,
 /// or Show all, is picked; see `take_restored`.
-pub fn set_hidden_windows(windows: Vec<(u64, String)>) {
+pub fn set_hidden_windows(windows: Vec<(DownloadId, String)>) {
     if !installed() {
         return;
     }
     static HANDLER: Once = Once::new();
     HANDLER.call_once(move || {
         crate::menubar::on_menu_event(move |id| {
-            let ids = HIDDEN_IDS.lock().unwrap();
-            let picked: Vec<u64> = if SHOW_ALL_ID.lock().unwrap().as_ref() == Some(id) {
+            let ids = HIDDEN_IDS.lock_or_recover();
+            let picked: Vec<DownloadId> = if SHOW_ALL_ID.lock_or_recover().as_ref() == Some(id) {
                 ids.iter().map(|(_, d)| *d).collect()
             } else {
                 ids.iter().filter(|(i, _)| i == id).map(|(_, d)| *d).collect()
@@ -367,7 +369,7 @@ pub fn set_hidden_windows(windows: Vec<(u64, String)>) {
             if picked.is_empty() {
                 return false;
             }
-            RESTORE.lock().unwrap().extend(picked);
+            RESTORE.lock_or_recover().extend(picked);
             // The window that draws them, opened again if it was closed.
             if !crate::reopen::want() {
                 crate::reopen::repaint();
@@ -378,12 +380,12 @@ pub fn set_hidden_windows(windows: Vec<(u64, String)>) {
     on_tray_thread(move || PROGRESS.with(|p| update_downloads_tray(&mut p.borrow_mut(), windows)));
 }
 
-fn update_downloads_tray(tray: &mut Option<DownloadsTray>, windows: Vec<(u64, String)>) {
+fn update_downloads_tray(tray: &mut Option<DownloadsTray>, windows: Vec<(DownloadId, String)>) {
     if windows.is_empty() {
         // Dropping the icon takes it out of the tray.
         *tray = None;
-        HIDDEN_IDS.lock().unwrap().clear();
-        *SHOW_ALL_ID.lock().unwrap() = None;
+        HIDDEN_IDS.lock_or_recover().clear();
+        *SHOW_ALL_ID.lock_or_recover() = None;
         return;
     }
     if tray.is_none() {
@@ -400,7 +402,7 @@ fn update_downloads_tray(tray: &mut Option<DownloadsTray>, windows: Vec<(u64, St
             .build();
         let Ok(icon) = built else { return };
         let show_all = MenuItem::new(tr("Show all"), true, None);
-        *SHOW_ALL_ID.lock().unwrap() = Some(show_all.id().clone());
+        *SHOW_ALL_ID.lock_or_recover() = Some(show_all.id().clone());
         *tray = Some(DownloadsTray {
             icon,
             menu,
@@ -444,7 +446,7 @@ fn update_downloads_tray(tray: &mut Option<DownloadsTray>, windows: Vec<(u64, St
         let _ = t.menu.remove(&t.separator);
         t.show_all_on = false;
     }
-    *HIDDEN_IDS.lock().unwrap() = t.items.iter().map(|(d, item)| (item.id().clone(), *d)).collect();
+    *HIDDEN_IDS.lock_or_recover() = t.items.iter().map(|(d, item)| (item.id().clone(), *d)).collect();
     let tip = match windows.as_slice() {
         [(_, title)] => title.clone(),
         _ => crate::i18n::trf!("{count} download windows", count = windows.len()),
@@ -459,8 +461,8 @@ fn show_all_wanted(hidden: usize) -> bool {
 }
 
 /// The downloads whose window was picked from the tray since the last call.
-pub fn take_restored() -> Vec<u64> {
-    std::mem::take(&mut *RESTORE.lock().unwrap())
+pub fn take_restored() -> Vec<DownloadId> {
+    std::mem::take(&mut *RESTORE.lock_or_recover())
 }
 
 const PROGRESS_ICON_SIZE: u32 = 32;

@@ -1,4 +1,5 @@
 use pullbay_domain::download::{DownloadError, OnDone};
+use pullbay_domain::id::DownloadId;
 use pullbay_domain::ports::DownloadList;
 
 /// Set or clear what a download does once it finishes.
@@ -11,7 +12,7 @@ impl<'a, D: DownloadList> SetOnDone<'a, D> {
         SetOnDone { downloads }
     }
 
-    pub fn run(&self, id: u64, on_done: Option<OnDone>) -> Result<(), DownloadError> {
+    pub fn run(&self, id: DownloadId, on_done: Option<OnDone>) -> Result<(), DownloadError> {
         let mut result = Ok(());
         self.downloads
             .update(id, |e| {
@@ -35,9 +36,9 @@ mod tests {
         let downloads = Downloads::with(&[(1, Status::Downloading), (2, Status::Done)]);
         let then = OnDone { then: WhenDone::Sleep, ..OnDone::default() };
         let set = SetOnDone::new(&downloads);
-        set.run(1, Some(then)).unwrap();
-        assert_eq!(downloads.entry(1).unwrap().on_done, Some(then));
-        assert_eq!(set.run(2, Some(then)), Err(DownloadError::AlreadyFinished));
-        assert_eq!(set.run(9, None), Err(DownloadError::NoDownload(9)));
+        set.run(DownloadId::new(1), Some(then)).unwrap();
+        assert_eq!(downloads.entry(DownloadId::new(1)).unwrap().on_done, Some(then));
+        assert_eq!(set.run(DownloadId::new(2), Some(then)), Err(DownloadError::AlreadyFinished));
+        assert_eq!(set.run(DownloadId::new(9), None), Err(DownloadError::NoDownload(DownloadId::new(9))));
     }
 }

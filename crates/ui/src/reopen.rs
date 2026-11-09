@@ -14,7 +14,8 @@
 //! Windows cloaks its window instead (see `win.rs`), and macOS keeps the
 //! window minimized, since its tray icon needs the main thread's loop.
 
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use pullbay_domain::sync::{recover, LockExt};
+use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Duration;
 
 use eframe::egui;
@@ -39,7 +40,7 @@ static WANTED: Condvar = Condvar::new();
 /// Lock `m`. Both hold plain values that a panicking thread cannot leave
 /// half-changed.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 /// The window just opened with `ctx`.
@@ -92,7 +93,7 @@ pub fn want() -> bool {
 /// Wait up to `timeout` for `want`. Returns whether the window is wanted.
 pub fn wait(timeout: Duration) -> bool {
     let p = lock(&PARKED);
-    let (p, _) = WANTED.wait_timeout_while(p, timeout, |p| !p.wanted).unwrap_or_else(PoisonError::into_inner);
+    let (p, _) = recover(WANTED.wait_timeout_while(p, timeout, |p| !p.wanted));
     p.wanted
 }
 

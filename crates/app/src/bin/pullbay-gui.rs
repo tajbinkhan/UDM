@@ -3,6 +3,9 @@
 //! (AGENTS.md section 8).
 
 #![windows_subsystem = "windows"]
+// Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
+// test exemptions do not cover (AGENTS.md section 9).
+#![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
 
 use std::sync::Arc;
 

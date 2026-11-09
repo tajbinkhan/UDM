@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use pullbay_domain::download::{DownloadError, Status};
 use pullbay_domain::filename::numbered_name;
+use pullbay_domain::id::DownloadId;
 use pullbay_domain::media::{Conversion, Target};
 use pullbay_domain::ports::{Converter, DownloadFiles, DownloadList};
 
@@ -20,7 +21,7 @@ impl<'a, D: DownloadList, F: DownloadFiles, C: Converter> ConvertDownload<'a, D,
     }
 
     /// Start converting download `id` to `to`. Returns the new file's path.
-    pub fn run(&self, id: u64, to: Target, delete_original: bool) -> Result<PathBuf, DownloadError> {
+    pub fn run(&self, id: DownloadId, to: Target, delete_original: bool) -> Result<PathBuf, DownloadError> {
         let entry = self.downloads.entry(id).ok_or(DownloadError::NoDownload(id))?;
         let input = entry
             .path
@@ -65,10 +66,14 @@ mod tests {
         let taken = Path::new("/dl").join("clip.mp4");
         let files = Files::with_existing(&["/dl/clip.webm", taken.to_str().unwrap()]);
         let converter = Convert::with_ffmpeg();
-        let out = ConvertDownload::new(&downloads, &files, &converter).run(1, Target::Mp4, true).unwrap();
+        let out =
+            ConvertDownload::new(&downloads, &files, &converter).run(DownloadId::new(1), Target::Mp4, true).unwrap();
         assert_eq!(out, Path::new("/dl").join("clip (1).mp4"));
         let c = &converter.started()[0];
-        assert_eq!((c.from, c.input.as_path(), c.delete_original), (1, Path::new("/dl/clip.webm"), true));
+        assert_eq!(
+            (c.from, c.input.as_path(), c.delete_original),
+            (DownloadId::new(1), Path::new("/dl/clip.webm"), true)
+        );
     }
 
     #[test]
@@ -77,18 +82,18 @@ mod tests {
         let with = Convert::with_ffmpeg();
         let gone = finished("/dl/moved.webm");
         assert_eq!(
-            ConvertDownload::new(&gone, &files, &with).run(1, Target::Mp3, false),
+            ConvertDownload::new(&gone, &files, &with).run(DownloadId::new(1), Target::Mp3, false),
             Err(DownloadError::NotConvertible)
         );
         let running = Downloads::with(&[(1, Status::Downloading)]);
         assert_eq!(
-            ConvertDownload::new(&running, &files, &with).run(1, Target::Mp3, false),
+            ConvertDownload::new(&running, &files, &with).run(DownloadId::new(1), Target::Mp3, false),
             Err(DownloadError::NotConvertible)
         );
         let without = Convert::default();
         let done = finished("/dl/clip.webm");
         assert_eq!(
-            ConvertDownload::new(&done, &files, &without).run(1, Target::Mp3, false),
+            ConvertDownload::new(&done, &files, &without).run(DownloadId::new(1), Target::Mp3, false),
             Err(DownloadError::NoFfmpeg)
         );
         assert!(with.started().is_empty() && without.started().is_empty());

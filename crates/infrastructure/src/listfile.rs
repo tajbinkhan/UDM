@@ -15,6 +15,7 @@
 //! from the list entries, which have none. An imported IDM file can bring
 //! its cookies, user agent, form body and a login with its downloads.
 
+use pullbay_domain::bytes::ByteCount;
 use std::path::Path;
 
 use base64::Engine as _;
@@ -41,7 +42,7 @@ pub struct ListItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<Status>,
     /// The page the download came from.
@@ -55,7 +56,7 @@ impl ListItem {
     pub fn from_entry(e: &DownloadEntry) -> Self {
         let path = e.path.as_deref().map(Path::new);
         ListItem {
-            url: e.url.clone(),
+            url: e.url.to_string(),
             filename: path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()),
             folder: path.and_then(|p| p.parent()).map(|p| p.display().to_string()).filter(|p| !p.is_empty()),
             size: e.total,
@@ -84,7 +85,7 @@ pub fn export_ef2(entries: &[&DownloadEntry]) -> String {
     let mut out = String::new();
     for e in entries {
         out.push_str("<\r\n");
-        out.push_str(&e.url);
+        out.push_str(e.url.as_str());
         out.push_str("\r\n");
         if let Some(r) = &e.referrer {
             out.push_str(&format!("referer: {r}\r\n"));
@@ -118,7 +119,7 @@ fn parse_ef2(text: &str) -> Vec<Download> {
                     continue;
                 };
                 if d.url.is_empty() {
-                    d.url = line.to_string();
+                    d.url = line.into();
                     continue;
                 }
                 let Some((key, value)) = line.split_once(':') else {
@@ -204,7 +205,10 @@ pub fn import(text: &str) -> Result<(Vec<Download>, usize), ImportError> {
     }
     if !trimmed.starts_with('{') {
         let (urls, rejected) = batch::parse_list(text)?;
-        let items = urls.into_iter().map(|url| Download { url, start: Some(false), ..Download::default() }).collect();
+        let items = urls
+            .into_iter()
+            .map(|url| Download { url: url.into(), start: Some(false), ..Download::default() })
+            .collect();
         return Ok((items, rejected));
     }
     let list: ListFile = serde_json::from_str(trimmed).map_err(ImportError::NotList)?;
@@ -215,7 +219,7 @@ pub fn import(text: &str) -> Result<(Vec<Download>, usize), ImportError> {
         list.items
             .into_iter()
             .map(|item| Download {
-                url: item.url,
+                url: item.url.into(),
                 filename: item.filename.filter(|n| !n.trim().is_empty()),
                 folder: item.folder.filter(|f| safe_folder(Path::new(f))),
                 referrer: item.referrer.filter(|r| batch::is_web_url(r)),
@@ -234,8 +238,8 @@ fn keep_valid(candidates: Vec<Download>) -> Result<(Vec<Download>, usize), Impor
     let mut items = Vec::new();
     let mut rejected = 0;
     for mut d in candidates {
-        d.url = d.url.trim().to_string();
-        if !batch::is_download_url(&d.url) || d.url.contains(char::is_whitespace) {
+        d.url = d.url.as_str().trim().into();
+        if !d.url.is_address() || d.url.as_str().contains(char::is_whitespace) {
             rejected += 1;
             continue;
         }
@@ -303,6 +307,7 @@ impl pullbay_application::window::ListFiles for ListFormats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pullbay_domain::id::DownloadId;
 
     #[test]
     fn a_written_list_reads_back() {
@@ -335,11 +340,11 @@ http://127.0.0.1/b.zip
 
     fn entry(id: u64, url: &str, path: Option<&str>, status: Status) -> DownloadEntry {
         DownloadEntry {
-            id,
+            id: DownloadId::new(id),
             url: url.into(),
             path: path.map(str::to_string),
-            total: Some(1234),
-            done: 0,
+            total: Some(ByteCount::new(1234)),
+            done: ByteCount::ZERO,
             status,
             error: None,
             resumable: true,

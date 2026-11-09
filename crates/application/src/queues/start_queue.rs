@@ -1,3 +1,4 @@
+use pullbay_domain::id::QueueId;
 use pullbay_domain::ports::{Clock, QueueRuns, QueueSounds, QueueStore};
 use pullbay_domain::queue::QueueError;
 
@@ -17,7 +18,7 @@ impl<'a, Q: QueueStore, R: QueueRuns, C: Clock, S: QueueSounds> StartQueue<'a, Q
 
     /// Start queue `id`. `scheduled_day` is the day whose scheduled run this
     /// is, or `None` when it is started by hand.
-    pub fn run(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), QueueError> {
+    pub fn run(&self, id: QueueId, scheduled_day: Option<i64>) -> Result<(), QueueError> {
         let now = self.clock.now();
         let was_running = self.queues.edit(|qs| {
             let q = qs.iter_mut().find(|q| q.id == id).ok_or(QueueError::NoQueue(id))?;
@@ -66,7 +67,7 @@ mod tests {
     fn an_unknown_queue_is_an_error() {
         let (queues, runs, sounds) = (Queues::main(), Runs::default(), Sounds::default());
         let start = StartQueue::new(&queues, &runs, &FIXED_NOW, &sounds);
-        assert_eq!(start.run(9, None), Err(QueueError::NoQueue(9)));
+        assert_eq!(start.run(QueueId::new(9), None), Err(QueueError::NoQueue(QueueId::new(9))));
         assert!(!runs.running(9));
         assert_eq!((queues.changes(), sounds.started()), (0, 0));
     }

@@ -41,3 +41,7 @@ arboard = { version = "3.7.0", default-features = false }
 # GTK's loop for the tray icon, which tray-icon builds on there.
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+
+# The workspace's lints: no unwrap, expect or panic outside tests.
+[lints]
+workspace = true

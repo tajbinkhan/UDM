@@ -14,9 +14,10 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::download::Status;
+pub use crate::id::{DownloadId, QueueId};
 
 /// The queue that always exists; "Download later" uses it by default.
-pub const MAIN_QUEUE: u64 = 1;
+pub const MAIN_QUEUE: QueueId = QueueId::MAIN;
 pub const MAIN_QUEUE_NAME: &str = "Main queue";
 /// Longest a countdown before shutting down or sleeping runs, in seconds.
 pub const COUNTDOWN_SECS: u32 = 60;
@@ -124,7 +125,7 @@ pub const REPEAT_MAX_MINUTES: u32 = 99 * 60 + 59;
 /// A queue as saved and as sent to clients.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Queue {
-    pub id: u64,
+    pub id: QueueId,
     pub name: String,
     /// How many of its downloads run at once.
     pub max_concurrent: usize,
@@ -133,7 +134,7 @@ pub struct Queue {
     pub running: bool,
     /// Its downloads, in the order they run.
     #[serde(default)]
-    pub order: Vec<u64>,
+    pub order: Vec<DownloadId>,
     #[serde(default)]
     pub schedule: Option<Schedule>,
     #[serde(default)]
@@ -187,7 +188,7 @@ pub const QUEUE_CONCURRENCY_RANGE: (usize, usize) = (1, 10);
 pub const QUEUE_RETRIES_MAX: u32 = 10;
 
 impl Queue {
-    pub fn new(id: u64, name: &str) -> Self {
+    pub fn new(id: QueueId, name: &str) -> Self {
         Queue {
             id,
             name: name.to_string(),
@@ -235,7 +236,7 @@ impl Queue {
     /// waiting, or asking about a taken file name, is still to do; a
     /// scheduled run that has started nothing yet stays open until its stop
     /// time, for downloads added meanwhile.
-    pub fn run_finished(&self, statuses: &[(u64, Status)], active: usize, started_any: bool) -> bool {
+    pub fn run_finished(&self, statuses: &[(DownloadId, Status)], active: usize, started_any: bool) -> bool {
         let busy = active > 0 || statuses.iter().any(|(_, s)| matches!(s, Status::Waiting | Status::Confirming));
         !busy && (started_any || !self.started_by_schedule)
     }
@@ -568,7 +569,10 @@ impl Schedule {
 
 /// Why a queue's own settings or its schedule are not valid (see
 /// [`Queue::validate`]). The window shows these, translated.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum InvalidQueue {
     #[error("A queue needs a name.")]
     NoName,
@@ -596,12 +600,15 @@ pub enum InvalidQueue {
 
 /// Why a change to the queues was refused. The messages are shown to the
 /// user, translated by the window.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum QueueError {
     #[error("no queue with id {0}")]
-    NoQueue(u64),
+    NoQueue(QueueId),
     #[error("no download with id {0}")]
-    NoDownload(u64),
+    NoDownload(DownloadId),
     #[error("There is already a queue named \"{0}\".")]
     NameTaken(String),
     #[error("The main queue cannot be deleted.")]
@@ -618,14 +625,14 @@ pub enum QueueError {
 /// Create a queue (`edited.id` 0) or change one, in `queues`, and return its
 /// id. Its downloads and running state are kept; only what the user edits
 /// changes. A one-time queue drops the `finished` downloads it held.
-pub fn save(queues: &mut Vec<Queue>, edited: Queue, finished: &HashSet<u64>) -> Result<u64, QueueError> {
+pub fn save(queues: &mut Vec<Queue>, edited: Queue, finished: &HashSet<DownloadId>) -> Result<QueueId, QueueError> {
     edited.validate().map_err(QueueError::Invalid)?;
     let name = edited.name.trim().to_string();
     if queues.iter().any(|q| q.id != edited.id && q.name.eq_ignore_ascii_case(&name)) {
         return Err(QueueError::NameTaken(name));
     }
-    let id = if edited.id == 0 {
-        let id = queues.iter().map(|q| q.id).max().unwrap_or(MAIN_QUEUE) + 1;
+    let id = if edited.id == QueueId::NEW {
+        let id = queues.iter().map(|q| q.id).max().unwrap_or(MAIN_QUEUE).next();
         queues.push(Queue::new(id, &name));
         id
     } else {
@@ -657,7 +664,7 @@ pub fn save(queues: &mut Vec<Queue>, edited: Queue, finished: &HashSet<u64>) -> 
 /// Delete queue `id` from `queues`. Its downloads move to the main queue,
 /// which cannot be deleted; finished ones go too unless the main queue
 /// synchronizes.
-pub fn delete(queues: &mut Vec<Queue>, id: u64, finished: &HashSet<u64>) -> Result<(), QueueError> {
+pub fn delete(queues: &mut Vec<Queue>, id: QueueId, finished: &HashSet<DownloadId>) -> Result<(), QueueError> {
     if id == MAIN_QUEUE {
         return Err(QueueError::MainQueue);
     }
@@ -671,17 +678,17 @@ pub fn delete(queues: &mut Vec<Queue>, id: u64, finished: &HashSet<u64>) -> Resu
 }
 
 /// `queue` if it exists in `queues`, else the main queue.
-pub fn existing_or_main(queues: &[Queue], queue: Option<u64>) -> u64 {
+pub fn existing_or_main(queues: &[Queue], queue: Option<QueueId>) -> QueueId {
     queue.filter(|q| queues.iter().any(|x| x.id == *q)).unwrap_or(MAIN_QUEUE)
 }
 
 /// The queue holding download `id`.
-pub fn queue_of(queues: &[Queue], id: u64) -> Option<u64> {
+pub fn queue_of(queues: &[Queue], id: DownloadId) -> Option<QueueId> {
     queues.iter().find(|q| q.order.contains(&id)).map(|q| q.id)
 }
 
 /// Take download `id` out of every queue. Returns whether it was in one.
-pub fn leave(queues: &mut [Queue], id: u64) -> bool {
+pub fn leave(queues: &mut [Queue], id: DownloadId) -> bool {
     let mut changed = false;
     for q in queues.iter_mut() {
         let before = q.order.len();
@@ -699,7 +706,7 @@ pub fn may_wait(status: Status, sync: bool) -> bool {
 
 /// Put download `id` in queue `queue` at `position` (or at the end), out of
 /// any queue it was in.
-pub fn place(queues: &mut [Queue], id: u64, queue: u64, position: Option<usize>) -> Result<(), QueueError> {
+pub fn place(queues: &mut [Queue], id: DownloadId, queue: QueueId, position: Option<usize>) -> Result<(), QueueError> {
     if !queues.iter().any(|q| q.id == queue) {
         return Err(QueueError::NoQueue(queue));
     }
@@ -883,7 +890,7 @@ mod tests {
         every.repeat_minutes = Some(90);
         assert!(every.validate().is_ok());
 
-        let mut q = Queue::new(2, "Night");
+        let mut q = Queue::new(QueueId::new(2), "Night");
         assert!(q.validate().is_ok());
         // Old queues, saved without a type, are one-time queues.
         let json = serde_json::to_value(&q).unwrap();
@@ -905,7 +912,7 @@ mod tests {
 
     #[test]
     fn a_schedule_starts_a_stopped_queue_once_a_day() {
-        let mut q = Queue { schedule: Some(nightly(&[2])), ..Queue::new(2, "Night") };
+        let mut q = Queue { schedule: Some(nightly(&[2])), ..Queue::new(QueueId::new(2), "Night") };
         // 2026-10-28 is a Wednesday.
         assert_eq!(q.schedule_step(at("2026-10-28", "22:59"), false), None);
         let step = q.schedule_step(at("2026-10-28", "23:00"), false);
@@ -920,7 +927,7 @@ mod tests {
     #[test]
     fn a_scheduled_run_stops_at_its_stop_time() {
         let day = parse_date("2026-10-28").unwrap();
-        let mut q = Queue { schedule: Some(nightly(&[2])), ..Queue::new(2, "Night") };
+        let mut q = Queue { schedule: Some(nightly(&[2])), ..Queue::new(QueueId::new(2), "Night") };
         q.start(Some(day), at("2026-10-28", "23:00"));
         assert_eq!(q.schedule_step(at("2026-10-29", "06:59"), true), None);
         assert_eq!(
@@ -936,7 +943,7 @@ mod tests {
     fn without_a_stop_time_only_an_idle_run_ends() {
         let day = parse_date("2026-10-28").unwrap();
         let schedule = Schedule { stop: None, ..nightly(&[2]) };
-        let mut q = Queue { schedule: Some(schedule), ..Queue::new(2, "Night") };
+        let mut q = Queue { schedule: Some(schedule), ..Queue::new(QueueId::new(2), "Night") };
         q.start(Some(day), at("2026-10-28", "23:00"));
         let midnight = at("2026-10-29", "00:00");
         assert_eq!(q.schedule_step(midnight, true), None, "it runs until it is done");
@@ -967,10 +974,10 @@ mod tests {
     #[test]
     fn a_run_ends_when_nothing_is_left_to_do() {
         let q = Queue::main();
-        assert!(q.run_finished(&[(1, Status::Done)], 0, true));
-        assert!(!q.run_finished(&[(1, Status::Done)], 1, true), "one is running");
-        assert!(!q.run_finished(&[(1, Status::Waiting)], 0, true));
-        assert!(!q.run_finished(&[(1, Status::Confirming)], 0, true));
+        assert!(q.run_finished(&[(DownloadId::new(1), Status::Done)], 0, true));
+        assert!(!q.run_finished(&[(DownloadId::new(1), Status::Done)], 1, true), "one is running");
+        assert!(!q.run_finished(&[(DownloadId::new(1), Status::Waiting)], 0, true));
+        assert!(!q.run_finished(&[(DownloadId::new(1), Status::Confirming)], 0, true));
         let scheduled = Queue { started_by_schedule: true, ..Queue::main() };
         assert!(!scheduled.run_finished(&[], 0, false), "it waits for downloads added before its stop time");
         assert!(scheduled.run_finished(&[], 0, true));

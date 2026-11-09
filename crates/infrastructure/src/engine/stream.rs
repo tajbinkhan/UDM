@@ -12,6 +12,9 @@
 //! fragmented MP4 segments), an HDS stream as its `.flv`, and a stream with
 //! separate audio is saved as two files, with a note saying so.
 
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::sync::LockExt;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -190,7 +193,10 @@ fn read_playlist(
     (&mut reader).take(SNIFF_BYTES).read_to_end(&mut body)?;
     if sniff(&String::from_utf8_lossy(&body)).is_none() {
         if let Some(ext) = pullbay_domain::media::sniff_file(&body) {
-            return Ok(Err(MediaInfo { file: Some(MediaFile { ext: ext.into(), size }), ..MediaInfo::default() }));
+            return Ok(Err(MediaInfo {
+                file: Some(MediaFile { ext: ext.into(), size: size.map(ByteCount::new) }),
+                ..MediaInfo::default()
+            }));
         }
         return Ok(Err(MediaInfo { not_stream: true, ..MediaInfo::failed(None, NOT_A_STREAM.into()) }));
     }
@@ -210,8 +216,9 @@ pub fn probe(url: &str, headers: &[(String, String)], net: &NetConfig) -> MediaI
         Err(e) => return MediaInfo::failed(None, e.to_string()),
     };
     match sniff(&text) {
-        None => unreachable!("read_playlist reads only playlists and manifests"),
-        Some(MediaKind::Page) => unreachable!("sniff finds only streams"),
+        // read_playlist answers anything else itself; should a page get
+        // through, it is not a stream either.
+        None | Some(MediaKind::Page) => MediaInfo { not_stream: true, ..MediaInfo::failed(None, NOT_A_STREAM.into()) },
         Some(MediaKind::Dash) => match dash::parse(&text, &base) {
             Ok(m) => dash::describe(&m),
             Err(e) => MediaInfo::failed(Some(MediaKind::Dash), e.to_string()),
@@ -261,9 +268,9 @@ pub(super) fn stem(req: &DownloadRequest) -> String {
     let name = req
         .filename
         .as_deref()
-        .map(sanitize_filename)
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| pullbay_domain::filename::name_from_url(&req.url));
+        .and_then(sanitize_filename)
+        .unwrap_or_else(|| pullbay_domain::filename::name_from_url(&req.url))
+        .into_string();
     let stem = Path::new(&name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or(name);
     if stem.is_empty() {
         "video".into()
@@ -274,7 +281,7 @@ pub(super) fn stem(req: &DownloadRequest) -> String {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -488,7 +495,7 @@ fn finish(
     let dir = output.parent().unwrap_or(Path::new("."));
     for (n, sub) in subs.iter().enumerate() {
         let name = subtitle_name(stem, sub, n);
-        let to = (0..).map(|k| dir.join(numbered_name(&name, k))).find(|p| !p.exists()).expect("some name is free");
+        let to = free_name(dir, &name);
         fs::rename(&sub.path, to)?;
     }
     let Some((audio, _, ext)) = tracks.get(1) else {
@@ -503,12 +510,18 @@ fn finish(
     } else {
         format!("{stem}.{ext}")
     };
-    let audio_path = (0..).map(|n| dir.join(numbered_name(&name, n))).find(|p| !p.exists()).expect("some name is free");
+    let audio_path = free_name(dir, &name);
     fs::rename(audio, &audio_path)?;
     Ok(Some(format!(
         "Saved as two files, video and audio ({}), because ffmpeg was not found. Install ffmpeg or set it in Options to get one video.",
         audio_path.file_name().unwrap_or_default().to_string_lossy()
     )))
+}
+
+/// The first of `name`, `name (1)`, `name (2)` and so on that `dir` does not
+/// hold yet; `name` itself, to be replaced, if every number is taken.
+fn free_name(dir: &Path, name: &str) -> PathBuf {
+    (0..=u32::MAX).map(|k| dir.join(numbered_name(name, k))).find(|p| !p.exists()).unwrap_or_else(|| dir.join(name))
 }
 
 /// Concatenate the segment files of one track, in order. With an HDS
@@ -533,7 +546,7 @@ fn join(jobs: &[Job], joined: &Path, header: Option<&[u8]>) -> Result<(), Engine
 
 /// What the segment threads share.
 struct Fetching<'a> {
-    id: u64,
+    id: DownloadId,
     token: &'a CancelToken,
     agent: &'a http::Client,
     req: &'a DownloadRequest,
@@ -549,7 +562,7 @@ struct Fetching<'a> {
 impl Fetching<'_> {
     fn report(&self, force: bool) {
         {
-            let mut last = self.last_report.lock().unwrap();
+            let mut last = self.last_report.lock_or_recover();
             if !force && last.elapsed() < REPORT_INTERVAL {
                 return;
             }
@@ -558,7 +571,7 @@ impl Fetching<'_> {
         self.reporter.send(Progress::Advanced {
             id: self.id,
             url: self.req.url.clone(),
-            done: self.done_bytes.load(Ordering::Relaxed),
+            done: ByteCount::new(self.done_bytes.load(Ordering::Relaxed)),
             total: None,
             parts: Some([self.done_parts.load(Ordering::Relaxed), self.total_parts]),
             segments: None,
@@ -568,7 +581,7 @@ impl Fetching<'_> {
     /// The key at `url`, fetched once. The lock is held while fetching, so
     /// segments waiting for the same key do not each fetch it.
     fn key(&self, url: &str) -> Result<[u8; 16], EngineError> {
-        let mut keys = self.keys.lock().unwrap();
+        let mut keys = self.keys.lock_or_recover();
         if let Some(k) = keys.get(url) {
             return Ok(*k);
         }
@@ -660,7 +673,7 @@ pub(crate) fn decrypt<'a>(key: &[u8; 16], iv: &[u8; 16], data: &'a mut [u8]) -> 
 /// Fetch every job not already on disk, `workers` at a time.
 #[allow(clippy::too_many_arguments)]
 fn fetch_all(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -698,7 +711,7 @@ fn fetch_all(
     thread::scope(|scope| {
         for _ in 0..workers.max(1) {
             scope.spawn(|| loop {
-                if token.load(Ordering::Relaxed) || first_error.lock().unwrap().is_some() {
+                if token.load(Ordering::Relaxed) || first_error.lock_or_recover().is_some() {
                     return;
                 }
                 let Some(&i) = todo.get(next.fetch_add(1, Ordering::Relaxed)) else {
@@ -711,14 +724,14 @@ fn fetch_all(
                     }
                     Ok(()) => return,
                     Err(e) => {
-                        first_error.lock().unwrap().get_or_insert(e);
+                        first_error.lock_or_recover().get_or_insert(e);
                         return;
                     }
                 }
             });
         }
     });
-    if let Some(e) = first_error.lock().unwrap().take() {
+    if let Some(e) = first_error.lock_or_recover().take() {
         return Err(e);
     }
     f.report(true);
@@ -1089,7 +1102,7 @@ mod tests {
             assert_eq!(info.duration, Some(20.0));
             let labels: Vec<&str> = info.video.iter().map(|o| o.label.as_str()).collect();
             assert_eq!(labels, ["720p, 3.0 Mbps", "360p, 900 kbps"]);
-            assert_eq!(info.video[0].size, Some(7_500_000));
+            assert_eq!(info.video[0].size, Some(ByteCount::new(7_500_000)));
             fs::remove_dir_all(&dir).ok();
         }
 
@@ -1102,7 +1115,7 @@ mod tests {
             files.insert("/f/page.m3u8".into(), b"<html>no</html>".to_vec());
             let server = TestServer::start_files(files);
             let info = probe(&format!("{}/f/movie.m3u8", server.url), &[], &NetConfig::default());
-            assert_eq!(info.file, Some(MediaFile { ext: "mp4".into(), size: Some(300_000) }));
+            assert_eq!(info.file, Some(MediaFile { ext: "mp4".into(), size: Some(ByteCount::new(300_000)) }));
             assert_eq!(info.error, None);
             let info = probe(&format!("{}/f/page.m3u8", server.url), &[], &NetConfig::default());
             assert!(info.not_stream);
@@ -1198,7 +1211,7 @@ mod tests {
             assert_eq!(info.kind, Some(MediaKind::Hds));
             let labels: Vec<&str> = info.video.iter().map(|o| o.label.as_str()).collect();
             assert_eq!(labels, ["720p, 1.2 Mbps", "240p, 300 kbps"]);
-            assert_eq!(info.video[0].size, Some(1_200_000));
+            assert_eq!(info.video[0].size, Some(ByteCount::new(1_200_000)));
 
             let (result, parts) = run(request(url.clone(), &dir, MediaChoice::default()));
             let (path, note) = result.unwrap();

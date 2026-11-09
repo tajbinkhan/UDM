@@ -5,6 +5,9 @@
 //! yt-dlp keeps `.part` files of what it fetched, so a canceled download
 //! carries on where it stopped when it is started again.
 
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::id::DownloadId;
+use pullbay_domain::sync::LockExt;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -63,7 +66,7 @@ fn kill_tree(child: &mut Child) {
 }
 
 pub(super) fn run(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     req: &DownloadRequest,
     choice: &MediaChoice,
@@ -149,32 +152,33 @@ pub(super) fn run(
             for line in BufReader::new(pipe).lines().map_while(Result::ok) {
                 let line = line.trim();
                 if let Some((done, size)) = ytdlp::progress_line(line) {
-                    let mut t = tally.lock().unwrap();
+                    let mut t = tally.lock_or_recover();
                     t.update(done, size);
                     reporter.send(Progress::Advanced {
                         id,
                         url: url.clone(),
-                        done: t.bytes(),
-                        total: t.total.filter(|total| *total >= t.bytes()),
+                        done: ByteCount::new(t.bytes()),
+                        total: t.total.filter(|total| *total >= t.bytes()).map(ByteCount::new),
                         parts: None,
                         segments: None,
                     });
                 } else if let Some(size) = line.strip_prefix(SIZE_TAG) {
-                    tally.lock().unwrap().total = size.trim().parse::<f64>().ok().map(|s| s as u64);
+                    tally.lock_or_recover().total = size.trim().parse::<f64>().ok().map(|s| s as u64);
                 } else if let Some(path) = line.strip_prefix(DONE_TAG) {
-                    *saved_as.lock().unwrap() = Some(path.to_string());
+                    *saved_as.lock_or_recover() = Some(path.to_string());
                 } else if keep && !line.is_empty() {
-                    let mut c = complaints.lock().unwrap();
+                    let mut c = complaints.lock_or_recover();
                     c.push_str(line);
                     c.push('\n');
                 }
             }
         })
     };
-    let readers = [
-        read(Box::new(child.stdout.take().expect("piped")), false),
-        read(Box::new(child.stderr.take().expect("piped")), true),
-    ];
+    // Invariant: the command above set Stdio::piped() for both, and a pipe
+    // set that way is always there to take once.
+    #[allow(clippy::expect_used)]
+    let (stdout, stderr) = (child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
+    let readers = [read(Box::new(stdout), false), read(Box::new(stderr), true)];
 
     // Wait for yt-dlp, ending it when the download is canceled.
     let status = loop {
@@ -195,9 +199,9 @@ pub(super) fn run(
         return Ok(output.into());
     };
     if !status.success() {
-        return Err(EngineError::Io(ytdlp::complaint(&complaints.lock().unwrap())));
+        return Err(EngineError::Io(ytdlp::complaint(&complaints.lock_or_recover())));
     }
-    let saved = saved_as.lock().unwrap().take().map(std::path::PathBuf::from).filter(|p| p.is_file());
+    let saved = saved_as.lock_or_recover().take().map(std::path::PathBuf::from).filter(|p| p.is_file());
     let path = match saved {
         Some(saved) => settle(&saved, &output),
         None => output,
@@ -212,7 +216,7 @@ pub(super) fn run(
 
 /// The name yt-dlp works under for download `id`, without an extension:
 /// the chosen file's, with the id added.
-fn working_stem(output: &Path, id: u64) -> PathBuf {
+fn working_stem(output: &Path, id: DownloadId) -> PathBuf {
     let mut stem = output.with_extension("").into_os_string();
     stem.push(format!(".pullbay-{id}"));
     stem.into()
@@ -235,10 +239,10 @@ mod tests {
 
     #[test]
     fn working_stem_adds_the_id() {
-        let stem = working_stem(Path::new("dl/Song.mp3"), 42);
+        let stem = working_stem(Path::new("dl/Song.mp3"), DownloadId::new(42));
         assert_eq!(stem, Path::new("dl/Song.pullbay-42"));
         // Dots in the title stay; only the extension goes.
-        assert_eq!(working_stem(Path::new("a.b.mp4"), 7), Path::new("a.b.pullbay-7"));
+        assert_eq!(working_stem(Path::new("a.b.mp4"), DownloadId::new(7)), Path::new("a.b.pullbay-7"));
     }
 
     #[test]

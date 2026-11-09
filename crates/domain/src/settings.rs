@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 
 /// Parallel connections per download unless the settings say otherwise.
@@ -488,7 +489,7 @@ pub struct Settings {
     pub general_last_folder: Option<String>,
     /// The queue "Download later" puts downloads in without asking; `None`
     /// asks in the save-as dialog.
-    pub later_queue: Option<u64>,
+    pub later_queue: Option<crate::id::QueueId>,
     /// File types and their folders. Files of no listed type are `General`.
     pub categories: Vec<Category>,
     /// File types that are `General` even when a category lists them, as
@@ -1139,8 +1140,8 @@ impl Settings {
     }
 
     /// The quota as bytes and a window in minutes, when it is on.
-    pub fn quota(&self) -> Option<(u64, u64)> {
-        self.quota_enabled.then(|| (self.quota_mb * 1024 * 1024, self.quota_hours * 60))
+    pub fn quota(&self) -> Option<(ByteCount, u64)> {
+        self.quota_enabled.then(|| (ByteCount::mib(self.quota_mb), self.quota_hours.saturating_mul(60)))
     }
 
     /// Where new downloads go, by category, for files from any site.
@@ -1232,7 +1233,7 @@ impl Settings {
         category: Option<&str>,
         remember_folder: Option<bool>,
         picked: bool,
-        later_queue: Option<u64>,
+        later_queue: Option<crate::id::QueueId>,
     ) -> bool {
         let mut changed = false;
         if let Some(path) = path {
@@ -1346,7 +1347,10 @@ fn check_extensions(what: SettingsField, exts: &[String]) -> Result<(), InvalidS
 }
 
 /// A part of the settings that a message names.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SettingsField {
     DownloadFolder,
     /// The folder of the category with this name.
@@ -1374,7 +1378,10 @@ impl std::fmt::Display for SettingsField {
 }
 
 /// One of the manual proxies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProxyEntry {
     Http,
     Https,
@@ -1395,7 +1402,10 @@ impl std::fmt::Display for ProxyEntry {
 
 /// Why settings are not valid (see [`Settings::validate`]). The window
 /// shows these, translated.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum InvalidSettings {
     #[error("The configuration script must be an http or https address.")]
     ScriptNotWeb,

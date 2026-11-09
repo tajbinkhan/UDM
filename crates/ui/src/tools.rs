@@ -2,6 +2,10 @@
 //! pattern, a pasted list or text file, or an imported list), exporting the
 //! list, the site grabber, and the clipboard offer.
 
+use pullbay_domain::address::Address;
+use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::sync::LockExt;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -39,13 +43,13 @@ pub fn pick_text_file(ctx: &egui::Context, title: &'static str, slot: &Loaded) {
             .read(&path)
             .map(|text| (name, text))
             .map_err(|e| trf!("Could not read {path}: {error}", path = path.display(), error = e));
-        *slot.lock().unwrap() = Some(read.map_err(UiError::from));
+        *slot.lock_or_recover() = Some(read.map_err(UiError::from));
         ctx.request_repaint();
     });
 }
 
 /// A queue picker.
-pub fn queue_combo(ui: &mut egui::Ui, id: &str, queue: &mut u64, queues: &[Queue]) {
+pub fn queue_combo(ui: &mut egui::Ui, id: &str, queue: &mut QueueId, queues: &[Queue]) {
     let name = queues.iter().find(|q| q.id == *queue).map_or(tr("Main queue").to_string(), |q| q.name.clone());
     egui::ComboBox::from_id_salt(id).selected_text(name).show_ui(ui, |ui| {
         for q in queues {
@@ -74,11 +78,11 @@ pub struct BatchDialog {
     wild_size: usize,
     /// The settings last expanded (pattern and wildcard settings), and what
     /// they gave, so the list is not rebuilt every frame.
-    expanded: Option<(String, Result<Vec<String>, UiError>)>,
+    expanded: Option<(String, Result<Vec<Address>, UiError>)>,
     list: String,
     /// An imported file's name, downloads and the entries left out.
     imported: Option<(String, Vec<Download>, usize)>,
-    queue: u64,
+    queue: QueueId,
     start: bool,
     /// Where to save; empty lets each file's category decide.
     folder: String,
@@ -113,8 +117,9 @@ impl BatchDialog {
 
     /// The dialog with `urls` in its list, such as every link on the
     /// clipboard.
-    pub fn with_list(urls: &[String]) -> Self {
-        BatchDialog { source: Source::List, list: urls.join("\n"), ..BatchDialog::new() }
+    pub fn with_list(urls: &[Address]) -> Self {
+        let list = urls.iter().map(Address::as_str).collect::<Vec<_>>().join("\n");
+        BatchDialog { source: Source::List, list, ..BatchDialog::new() }
     }
 
     /// The dialog for downloads imported from `name`.
@@ -123,7 +128,7 @@ impl BatchDialog {
     }
 
     /// The URLs to add, or why there are none.
-    fn urls(&mut self) -> Result<(Vec<String>, usize), UiError> {
+    fn urls(&mut self) -> Result<(Vec<Address>, usize), UiError> {
         match self.source {
             Source::Pattern => {
                 // A `*` means IDM's form, so its settings count too.
@@ -153,8 +158,11 @@ impl BatchDialog {
                     };
                     self.expanded = Some((key, result.map_err(UiError::from)));
                 }
-                let (_, result) = self.expanded.as_ref().unwrap();
-                result.clone().map(|u| (u, 0))
+                // Just filled in when it was missing.
+                match &self.expanded {
+                    Some((_, result)) => result.clone().map(|u| (u, 0)),
+                    None => Ok((Vec::new(), 0)),
+                }
             }
             Source::List => batch::parse_list(&self.list).map_err(UiError::from),
             Source::Imported => Ok((Vec::new(), 0)),
@@ -205,7 +213,7 @@ pub fn batch_dialog(
     actions: &mut Vec<Action>,
 ) -> bool {
     take_picked(&d.picked, &mut d.folder);
-    if let Some(loaded) = d.loaded.lock().unwrap().take() {
+    if let Some(loaded) = d.loaded.lock_or_recover().take() {
         match loaded {
             Ok((_, text)) => {
                 d.list = text;
@@ -300,7 +308,7 @@ pub fn batch_dialog(
                         line.push_str(&trf!(" (the most one batch can add is {max})", max = MAX_BATCH));
                     }
                     ui.label(line);
-                    let preview: Vec<&String> = if u.len() <= 6 {
+                    let preview: Vec<&Address> = if u.len() <= 6 {
                         u.iter().collect()
                     } else {
                         u.iter().take(3).chain(u.iter().skip(u.len() - 2)).collect()
@@ -376,7 +384,7 @@ pub fn batch_dialog(
                         (None, Ok((u, _))) => u
                             .into_iter()
                             .map(|url| Download {
-                                url,
+                                url: url.into(),
                                 start: Some(false),
                                 folder: folder.clone(),
                                 ..Download::default()
@@ -423,7 +431,7 @@ enum ExportScope {
 /// The Export dialog.
 pub struct ExportDialog {
     scope: ExportScope,
-    queue: u64,
+    queue: QueueId,
     format: ExportFormat,
     result: Arc<Mutex<Option<Result<String, UiError>>>>,
     message: Option<Result<String, UiError>>,
@@ -432,7 +440,7 @@ pub struct ExportDialog {
 impl ExportDialog {
     /// Starts on the ticked downloads if any, else on `queue` (the queue
     /// the list shows) if given.
-    pub fn new(any_selected: bool, queue: Option<u64>) -> Self {
+    pub fn new(any_selected: bool, queue: Option<QueueId>) -> Self {
         ExportDialog {
             scope: match (any_selected, queue) {
                 (true, _) => ExportScope::Ticked,
@@ -452,13 +460,13 @@ pub fn export_dialog(
     ctx: &egui::Context,
     d: &mut ExportDialog,
     rows: &[DownloadEntry],
-    selected: &HashSet<u64>,
+    selected: &HashSet<DownloadId>,
     queues: &[Queue],
 ) -> bool {
-    if let Some(r) = d.result.lock().unwrap().take() {
+    if let Some(r) = d.result.lock_or_recover().take() {
         d.message = Some(r);
     }
-    let in_queue = |id: u64| -> Vec<&DownloadEntry> {
+    let in_queue = |id: QueueId| -> Vec<&DownloadEntry> {
         let order = queues.iter().find(|q| q.id == id).map_or(&[][..], |q| q.order.as_slice());
         order.iter().filter_map(|i| rows.iter().find(|e| e.id == *i)).collect()
     };
@@ -537,7 +545,7 @@ pub fn export_dialog(
                             .write(&path, &text)
                             .map(|_| trf!("Saved {count} downloads to {path}.", count = count, path = path.display()))
                             .map_err(|e| trf!("Could not save {path}: {error}", path = path.display(), error = e));
-                        *slot.lock().unwrap() = Some(result.map_err(UiError::from));
+                        *slot.lock_or_recover() = Some(result.map_err(UiError::from));
                         ctx.request_repaint();
                     });
                 }
@@ -554,12 +562,12 @@ pub enum GrabPhase {
     Form,
     Running {
         pages: u64,
-        bytes: u64,
+        bytes: ByteCount,
         found: usize,
         explored: u64,
         /// The downloads the crawl added to a queue so far, to count the
         /// finished ones.
-        added: Vec<u64>,
+        added: Vec<DownloadId>,
     },
     Review {
         files: Vec<GrabFile>,
@@ -655,7 +663,7 @@ pub struct GrabDialog {
     mirror_folder: String,
     mirror_pages: bool,
     mirror_picked: Picked,
-    queue: u64,
+    queue: QueueId,
     start_queue: bool,
     error: Option<String>,
     /// The project's name, for saving.
@@ -679,7 +687,7 @@ pub struct GrabDialog {
     /// One-time downloading, or periodic synchronization of what earlier
     /// runs downloaded.
     sync: pullbay_domain::queue::QueueKind,
-    sched_queue: u64,
+    sched_queue: QueueId,
     when_done: pullbay_domain::queue::WhenDone,
     /// Shutting down when done closes programs that would hold it up; only
     /// kept with shutting down, as the Queues dialog does.
@@ -956,7 +964,7 @@ impl GrabDialog {
     /// Start the crawl for `req`, which is valid.
     fn begin_crawl(&mut self, req: GrabRequest, queues: &[Queue], actions: &mut Vec<Action>) {
         self.error = None;
-        self.phase = GrabPhase::Running { pages: 0, bytes: 0, found: 0, explored: 0, added: Vec::new() };
+        self.phase = GrabPhase::Running { pages: 0, bytes: ByteCount::ZERO, found: 0, explored: 0, added: Vec::new() };
         if let Some(q) = req.download_found.and_then(|id| queues.iter().find(|q| q.id == id)) {
             actions.push(Action::SaveQueue(Queue { max_concurrent: req.download_at_once as usize, ..q.clone() }));
         }
@@ -1005,7 +1013,7 @@ impl GrabDialog {
             same_site: d.same_site,
             types: d.types.join(", "),
             max_pages: d.max_pages,
-            max_mb: d.max_bytes / (1024 * 1024),
+            max_mb: d.max_bytes.whole_mib(),
             delay_secs: d.delay_ms as f64 / 1000.0,
             explore_only: d.explore_only.join("\n"),
             explore_skip: d.explore_skip.join("\n"),
@@ -1013,8 +1021,8 @@ impl GrabDialog {
             files_skip: d.files_skip.join("\n"),
             subdomains: d.subdomains,
             no_parent: d.no_parent,
-            min_mb: d.min_size.map(|b| b as f64 / MB),
-            max_mb_file: d.max_size.map(|b| b as f64 / MB),
+            min_mb: d.min_size.map(|b| b.as_f64() / MB),
+            max_mb_file: d.max_size.map(|b| b.as_f64() / MB),
             hide_duplicates: d.hide_duplicates,
             browser_cookies: d.browser_cookies,
             render_scripts: d.render_scripts,
@@ -1106,7 +1114,7 @@ impl GrabDialog {
             same_site: self.same_site,
             types: pullbay_domain::settings::parse_extensions(&self.types),
             max_pages: self.max_pages,
-            max_bytes: self.max_mb * 1024 * 1024,
+            max_bytes: ByteCount::mib(self.max_mb),
             delay_ms: (self.delay_secs * 1000.0).round() as u64,
             explore_only: pattern_list(&self.explore_only),
             explore_skip: pattern_list(&self.explore_skip),
@@ -1114,8 +1122,8 @@ impl GrabDialog {
             files_skip: pattern_list(&self.files_skip),
             subdomains: self.subdomains,
             no_parent: self.no_parent,
-            min_size: self.min_mb.map(|m| (m * MB).round() as u64),
-            max_size: self.max_mb_file.map(|m| (m * MB).round() as u64),
+            min_size: self.min_mb.map(|m| ByteCount::new((m * MB).round() as u64)),
+            max_size: self.max_mb_file.map(|m| ByteCount::new((m * MB).round() as u64)),
             hide_duplicates: self.hide_duplicates,
             browser_cookies: self.browser_cookies,
             render_scripts: self.render_scripts,
@@ -1166,7 +1174,7 @@ impl GrabDialog {
     }
 
     /// The daemon's report of the crawl.
-    pub fn progress(&mut self, pages: u64, bytes: u64, found: usize, explored: u64, added: Vec<u64>) {
+    pub fn progress(&mut self, pages: u64, bytes: ByteCount, found: usize, explored: u64, added: Vec<DownloadId>) {
         if matches!(self.phase, GrabPhase::Running { .. }) {
             self.phase = GrabPhase::Running { pages, bytes, found, explored, added };
         }
@@ -1266,7 +1274,7 @@ pub fn grab_dialog(
     take_picked(&d.mirror_picked, &mut d.mirror_folder);
     take_picked(&d.save_picked, &mut d.save_folder);
     take_picked(&d.open_picked, &mut d.open_when_done);
-    let file = d.file_picked.lock().unwrap().take();
+    let file = d.file_picked.lock_or_recover().take();
     if let Some(path) = file {
         match crate::ports::ports().grab.as_deref() {
             Some(lib) => d.opening.start(ctx, move || match lib.load_file(&path) {
@@ -1512,7 +1520,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
                     let kinds = [FileKind::new(tr("Grabber projects"), &["json"])];
                     let title = tr("Open a grabber project");
                     if let Some(file) = crate::ports::ports().pickers.pick_file(title, &kinds, start.as_deref()) {
-                        *slot.lock().unwrap() = Some(file);
+                        *slot.lock_or_recover() = Some(file);
                         ctx.request_repaint();
                     }
                 });
@@ -2109,7 +2117,7 @@ fn merge_update(mut files: Vec<GrabFile>, mut checked: Vec<bool>, found: Vec<Gra
 
 /// The downloads in `rows` of the ticked `files` that are running or
 /// waiting to run, which the review's Stop stops.
-fn stoppable_downloads(files: &[GrabFile], checked: &[bool], rows: &[DownloadEntry]) -> Vec<u64> {
+fn stoppable_downloads(files: &[GrabFile], checked: &[bool], rows: &[DownloadEntry]) -> Vec<DownloadId> {
     let ticked: HashSet<&str> = files.iter().zip(checked).filter(|(_, c)| **c).map(|(f, _)| f.url.as_str()).collect();
     rows.iter()
         .filter(|e| matches!(e.status, Status::Queued | Status::Downloading | Status::Confirming | Status::Waiting))
@@ -2163,7 +2171,7 @@ fn file_tree(files: &[GrabFile], by_page: bool) -> Vec<TreeNode> {
     }
     fn join(mut node: TreeNode) -> TreeNode {
         while node.files.is_empty() && node.children.len() == 1 {
-            let child = node.children.pop().unwrap();
+            let Some(child) = node.children.pop() else { break };
             node.name = format!("{}/{}", node.name, child.name);
             node.files = child.files;
             node.children = child.children;
@@ -2399,7 +2407,11 @@ mod tests {
             row(5, "https://other/a.pdf", "queued"),
             row(6, "https://s/a.pdf", "canceled"),
         ];
-        assert_eq!(stoppable_downloads(&files, &checked, &rows), [1, 3], "only ticked files, only running or waiting");
+        assert_eq!(
+            stoppable_downloads(&files, &checked, &rows),
+            [DownloadId::new(1), DownloadId::new(3)],
+            "only ticked files, only running or waiting"
+        );
     }
 
     #[test]

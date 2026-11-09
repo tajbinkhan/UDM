@@ -7,6 +7,8 @@
 //! the window's thread through muda's event handler, is queued here, and the
 //! window takes it on its next frame (`take`).
 
+use pullbay_domain::id::QueueId;
+use pullbay_domain::sync::LockExt;
 use std::sync::{Arc, Mutex, Once};
 
 use eframe::egui;
@@ -37,8 +39,8 @@ pub enum Command {
     Find,
     FindNext,
     Scheduler,
-    StartQueue(u64),
-    StopQueue(u64),
+    StartQueue(QueueId),
+    StopQueue(QueueId),
     SpeedLimit(bool),
     Options,
     ToggleCategories,
@@ -85,7 +87,7 @@ pub struct State {
     /// What the ticked downloads allow.
     pub ticked: Ticked,
     /// Every queue: id, name and whether it is running.
-    pub queues: Vec<(u64, String, bool)>,
+    pub queues: Vec<(QueueId, String, bool)>,
     pub sort: Option<Sort>,
     pub toolbar_small: bool,
     /// The list has a font of its own (View > Font).
@@ -304,11 +306,11 @@ static HANDLERS: Mutex<Vec<Handler>> = Mutex::new(Vec::new());
 /// which share muda's one event handler. It returns whether the ID was its
 /// own.
 pub fn on_menu_event(handler: impl Fn(&MenuId) -> bool + Send + Sync + 'static) {
-    HANDLERS.lock().unwrap().push(Arc::new(handler));
+    HANDLERS.lock_or_recover().push(Arc::new(handler));
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         MenuEvent::set_event_handler(Some(|event: MenuEvent| {
-            let handlers = HANDLERS.lock().unwrap().clone();
+            let handlers = HANDLERS.lock_or_recover().clone();
             for handler in handlers {
                 if handler(&event.id) {
                     break;
@@ -321,9 +323,9 @@ pub fn on_menu_event(handler: impl Fn(&MenuId) -> bool + Send + Sync + 'static) 
 /// Get ready to take choices from the native bar. Call once.
 pub fn init() {
     on_menu_event(|id| {
-        let command = IDS.lock().unwrap().iter().find(|(i, _)| i == id).map(|(_, c)| c.clone());
+        let command = IDS.lock_or_recover().iter().find(|(i, _)| i == id).map(|(_, c)| c.clone());
         let Some(command) = command else { return false };
-        PENDING.lock().unwrap().push(command);
+        PENDING.lock_or_recover().push(command);
         crate::reopen::repaint();
         true
     });
@@ -331,7 +333,7 @@ pub fn init() {
 
 /// The choices made since the last call.
 pub fn take() -> Vec<Command> {
-    std::mem::take(&mut *PENDING.lock().unwrap())
+    std::mem::take(&mut *PENDING.lock_or_recover())
 }
 
 /// Whether the menus are a native bar on the window rather than drawn by egui.
@@ -345,7 +347,7 @@ mod native_bar {
 
     use tray_icon::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 
-    use super::{Command, Node, IDS};
+    use super::{Command, LockExt, Node, IDS};
 
     struct Bar {
         hwnd: isize,
@@ -383,7 +385,11 @@ mod native_bar {
                     let items = build(children, ids);
                     let refs: Vec<&dyn IsMenuItem> = items.iter().map(|i| i.as_ref()).collect();
                     let id = format!("bar.menu.{}", ids.len());
-                    Box::new(Submenu::with_id_and_items(id, text, true, &refs).expect("a new submenu takes its items"))
+                    // A menu that will not take its items is shown empty
+                    // rather than taking the window down.
+                    let menu = Submenu::with_id_and_items(id.clone(), text, true, &refs)
+                        .unwrap_or_else(|_| Submenu::with_id(id, text, true));
+                    Box::new(menu)
                 }
             })
             .collect()
@@ -408,7 +414,7 @@ mod native_bar {
             let theme = if dark { tray_icon::menu::MenuTheme::Dark } else { tray_icon::menu::MenuTheme::Light };
             // SAFETY: `hwnd` is the main window's, which outlives the menu.
             if unsafe { menu.init_for_hwnd_with_theme(bar.hwnd, theme) }.is_ok() {
-                *IDS.lock().unwrap() = ids;
+                *IDS.lock_or_recover() = ids;
                 bar.menu = Some(menu);
                 bar.model = model;
                 bar.dark = dark;

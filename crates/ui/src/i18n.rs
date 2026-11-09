@@ -15,6 +15,8 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
+use pullbay_domain::sync::RwLockExt;
+
 pub struct Language {
     /// The ISO 639-1 code, as Windows names its display languages.
     pub code: &'static str,
@@ -68,12 +70,12 @@ pub fn resolve(setting: &str) -> &'static Language {
 pub fn set_language(setting: &str) {
     let language = resolve(setting);
     let index = LANGUAGES.iter().position(|l| std::ptr::eq(l, language)).unwrap_or(0);
-    *CURRENT.write().unwrap() = (index != 0).then(|| table(index));
+    *CURRENT.write_or_recover() = (index != 0).then(|| table(index));
 }
 
 /// `english` in the current language.
 pub fn tr(english: &'static str) -> &'static str {
-    match *CURRENT.read().unwrap() {
+    match *CURRENT.read_or_recover() {
         Some(table) => table.get(english).copied().unwrap_or(english),
         None => english,
     }

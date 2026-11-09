@@ -63,6 +63,7 @@ mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, FixedClock, Queues, Runs, Sounds, FIXED_NOW};
     use pullbay_domain::download::Status;
+    use pullbay_domain::id::{DownloadId, QueueId};
     use pullbay_domain::queue::{Moment, Queue, Schedule, StopReason};
 
     fn every_day_at(start: &str, stop: Option<&str>) -> Schedule {
@@ -80,8 +81,11 @@ mod tests {
     fn a_due_queue_starts_and_a_finished_run_stops() {
         let queues = Queues::main();
         queues.edit(|qs| {
-            qs.push(Queue { schedule: Some(every_day_at("09:00", Some("12:00"))), ..Queue::new(2, "Morning") });
-            qs.push(Queue { schedule: Some(every_day_at("10:00", None)), ..Queue::new(3, "Later") });
+            qs.push(Queue {
+                schedule: Some(every_day_at("09:00", Some("12:00"))),
+                ..Queue::new(QueueId::new(2), "Morning")
+            });
+            qs.push(Queue { schedule: Some(every_day_at("10:00", None)), ..Queue::new(QueueId::new(3), "Later") });
         });
         let (downloads, runs, control, sounds) =
             (Downloads::with(&[(7, Status::Downloading)]), Runs::default(), Control::default(), Sounds::default());
@@ -94,7 +98,7 @@ mod tests {
         assert_eq!(sounds.started(), 1);
 
         // 12:00: its stop time stops it, and its running download waits again.
-        queues.edit(|qs| qs[1].order = vec![7]);
+        queues.edit(|qs| qs[1].order = vec![DownloadId::new(7)]);
         runs.started(2, 7);
         let noon = FixedClock(Moment { minute: 12 * 60, ..FIXED_NOW.0 });
         let done = RunSchedules::new(&queues, &downloads, &runs, &control, &noon, &sounds).run();

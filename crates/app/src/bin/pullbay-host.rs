@@ -20,6 +20,10 @@
 //! (see `pullbay_infrastructure::cli::parse_sent`) and hands it to the daemon, starting it if
 //! needed. It goes through the same authenticated connection as the relay.
 
+// Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
+// test exemptions do not cover (AGENTS.md section 9).
+#![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
+
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::path::PathBuf;
@@ -33,6 +37,7 @@ use pullbay_infrastructure::app::MAX_MESSAGE_BYTES;
 /// After the browser closes, how long to wait for the daemon to deliver
 /// replies already in flight before giving up on them.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+use pullbay_domain::id::DownloadId;
 use pullbay_domain::settings::{FileExists, Folders, DEFAULT_CONNECTIONS};
 use pullbay_infrastructure::cli::Sent;
 use pullbay_infrastructure::engine::{self, DownloadRequest, Progress};
@@ -214,7 +219,7 @@ fn read_input(source: &str) -> io::Result<String> {
 
 /// Give `sent` to the daemon and wait for its answer: the new download's id
 /// for one link, `None` once a list has reached the picker.
-fn send(sent: Sent) -> io::Result<Option<u64>> {
+fn send(sent: Sent) -> io::Result<Option<DownloadId>> {
     let mut daemon = ipc::connect_or_spawn()?;
     daemon.set_read_timeout(Some(SEND_TIMEOUT))?;
     let hello =
@@ -240,7 +245,7 @@ fn send(sent: Sent) -> io::Result<Option<u64>> {
         match serde_json::from_slice::<Outgoing>(&raw) {
             Ok(Outgoing::Ack { id, .. }) if one => return Ok(Some(id)),
             Ok(Outgoing::Pong) if !one => return Ok(None),
-            Ok(Outgoing::Rejected { message, .. } | Outgoing::Error { message }) => {
+            Ok(Outgoing::Rejected { message, .. } | Outgoing::Error { message, .. }) => {
                 return Err(io::Error::other(message))
             }
             _ => {}
@@ -303,7 +308,9 @@ fn print_progress(p: Progress, ok: &AtomicBool) {
         }
         Progress::Advanced { done, total, .. } => {
             match total {
-                Some(t) if t > 0 => eprint!("\r[progress] {done}/{t} ({}%)   ", done * 100 / t),
+                Some(t) if !t.is_zero() => {
+                    eprint!("\r[progress] {done}/{t} ({}%)   ", done.get().saturating_mul(100) / t.get())
+                }
                 _ => eprint!("\r[progress] {done} bytes   "),
             }
             let _ = io::stderr().flush();

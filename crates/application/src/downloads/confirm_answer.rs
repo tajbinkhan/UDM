@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use pullbay_domain::download::{Answer, Download, DownloadError, DuplicateStep};
+use pullbay_domain::id::DownloadId;
 use pullbay_domain::ports::{
     Attention, DownloadControl, DownloadFiles, DownloadList, EarlyStarts, QueueStore, SettingsError, SettingsStore,
 };
@@ -14,7 +15,7 @@ use super::{Existing, RemoveDownload, StartOrWait, StartOrWaitError, UseExisting
 pub enum Confirmed {
     /// The download duplicated download `old`, which the user chose to use
     /// instead (as `kept`); the new one left the list.
-    UsedExisting { old: u64, kept: u64 },
+    UsedExisting { old: DownloadId, kept: DownloadId },
     /// It had started early; that copy carries on as the download.
     HandedOver,
     /// It started, or waits in a queue.
@@ -29,9 +30,9 @@ pub enum ConfirmWarning {
     /// The dialog's "remember" boxes were not kept in the settings.
     ChoicesNotRemembered(SettingsError),
     /// The download the new one replaces stayed in the list.
-    OldNotRemoved(u64, DownloadError),
+    OldNotRemoved(DownloadId, DownloadError),
     /// The download the user chose to use instead did not resume.
-    OldNotResumed(u64, DownloadError),
+    OldNotResumed(DownloadId, DownloadError),
 }
 
 /// Why [`ConfirmAnswer`] refused the answer.
@@ -165,7 +166,7 @@ where
         let picked = folder.as_deref().is_some_and(|f| !f.trim().is_empty());
         let later = (remember_queue && !start).then(|| queue.unwrap_or(MAIN_QUEUE));
         let path = item.path.as_deref().map(Path::new);
-        if s.remember_answer(path, &item.url, item.category.as_deref(), remember_folder, picked, later) {
+        if s.remember_answer(path, item.url.as_str(), item.category.as_deref(), remember_folder, picked, later) {
             if let Err(e) = self.settings.save_settings(s) {
                 warnings.push(ConfirmWarning::ChoicesNotRemembered(e));
             }
@@ -239,22 +240,25 @@ mod tests {
     #[test]
     fn starting_keeps_the_choices_and_hands_it_to_the_engine() {
         let w = World::with(vec![asking(1)]);
-        let answer =
-            Answer { category: Some(" Music ".into()), file_exists: Some(FileExists::Overwrite), ..Answer::start(1) };
+        let answer = Answer {
+            category: Some(" Music ".into()),
+            file_exists: Some(FileExists::Overwrite),
+            ..Answer::start(DownloadId::new(1))
+        };
         let (done, warnings) = w.confirm(answer).unwrap();
         assert_eq!((done, warnings), (Confirmed::Settled, vec![]));
         assert_eq!(w.control.dispatched(), [1]);
-        assert_eq!(w.downloads.entry(1).unwrap().category.as_deref(), Some("Music"));
-        let req = w.downloads.request(1).unwrap();
+        assert_eq!(w.downloads.entry(DownloadId::new(1)).unwrap().category.as_deref(), Some("Music"));
+        let req = w.downloads.request(DownloadId::new(1)).unwrap();
         assert_eq!((req.file_exists, req.category.as_deref()), (Some(FileExists::Overwrite), Some("Music")));
     }
 
     #[test]
     fn download_later_waits_and_can_remember_the_queue() {
         let w = World::with(vec![asking(1)]);
-        let answer = Answer { start: false, remember_queue: true, ..Answer::start(1) };
+        let answer = Answer { start: false, remember_queue: true, ..Answer::start(DownloadId::new(1)) };
         w.confirm(answer).unwrap();
-        assert_eq!(w.queues.get(MAIN_QUEUE).order, [1]);
+        assert_eq!(w.queues.get(MAIN_QUEUE).order, [DownloadId::new(1)]);
         assert_eq!(w.prefs.settings().later_queue, Some(MAIN_QUEUE));
         assert_eq!(w.prefs.saves(), 1, "the settings are saved once");
         assert!(w.control.dispatched().is_empty());
@@ -263,7 +267,7 @@ mod tests {
     #[test]
     fn an_early_start_carries_on() {
         let w = World { early: Early::started(&[1]), ..World::with(vec![asking(1)]) };
-        assert_eq!(w.confirm(Answer::start(1)).unwrap().0, Confirmed::HandedOver);
+        assert_eq!(w.confirm(Answer::start(DownloadId::new(1))).unwrap().0, Confirmed::HandedOver);
         assert_eq!(w.early.handed(), [(1, true, None)]);
         assert!(w.control.dispatched().is_empty());
     }
@@ -271,11 +275,15 @@ mod tests {
     #[test]
     fn a_duplicate_can_use_the_older_download_instead() {
         let mut new = asking(2);
-        new.duplicate_of = Some(1);
+        new.duplicate_of = Some(DownloadId::new(1));
         let w = World::with(vec![row(1, Status::Failed), new]);
-        let answer = Answer { duplicate: Some(Duplicate::Existing), remember_duplicate: true, ..Answer::start(2) };
+        let answer = Answer {
+            duplicate: Some(Duplicate::Existing),
+            remember_duplicate: true,
+            ..Answer::start(DownloadId::new(2))
+        };
         let (done, _) = w.confirm(answer).unwrap();
-        assert!(matches!(done, Confirmed::UsedExisting { old: 1, .. }));
+        assert!(matches!(done, Confirmed::UsedExisting { old, .. } if old == DownloadId::new(1)));
         assert_eq!(w.control.forgotten(), [2], "the new one leaves the list");
         assert_eq!(w.control.restarted().len(), 1, "the old one resumes");
         assert_eq!(w.prefs.settings().if_duplicate, Duplicate::Existing);
@@ -284,8 +292,11 @@ mod tests {
     #[test]
     fn an_answer_for_a_download_not_waiting_is_refused() {
         let w = World::with(vec![row(1, Status::Downloading)]);
-        let err = w.confirm(Answer::start(1)).unwrap_err();
-        assert_eq!(err, ConfirmError::Download(DownloadError::NotWaiting(1)));
-        assert_eq!(w.confirm(Answer::start(9)).unwrap_err(), ConfirmError::Download(DownloadError::NoDownload(9)));
+        let err = w.confirm(Answer::start(DownloadId::new(1))).unwrap_err();
+        assert_eq!(err, ConfirmError::Download(DownloadError::NotWaiting(DownloadId::new(1))));
+        assert_eq!(
+            w.confirm(Answer::start(DownloadId::new(9))).unwrap_err(),
+            ConfirmError::Download(DownloadError::NoDownload(DownloadId::new(9)))
+        );
     }
 }

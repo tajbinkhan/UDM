@@ -132,12 +132,13 @@ fn download(
         }
     });
     if let Some(name) = &filename {
-        if name.contains(['/', '\\']) || name == "." || name == ".." {
+        // An empty name is left to the usual naming, as before.
+        if !name.is_empty() && pullbay_domain::filename::FileName::parse(name).is_err() {
             return Err(CliError::NotFileName(name.clone(), folder_hint));
         }
     }
     Ok(Download {
-        url,
+        url: url.into(),
         folder: folder.map(|f| f.display().to_string()),
         filename,
         start: add.then_some(false),

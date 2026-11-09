@@ -9,13 +9,14 @@ use std::path::Path;
 
 use eframe::egui;
 use pullbay_domain::download::{DownloadEntry, DownloadLogin, OnDone, Properties, Status};
+use pullbay_domain::id::DownloadId;
 
 use crate::i18n::{tr, trf};
 
 use super::{browse_button, display_name, human_bytes, take_picked, Action, Picked};
 
 pub struct PropertiesDialog {
-    pub id: u64,
+    pub id: DownloadId,
     url: String,
     referrer: String,
     description: String,
@@ -40,7 +41,7 @@ impl PropertiesDialog {
         let path = e.path.as_deref().map(Path::new);
         let filename = path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let folder = path.and_then(|p| p.parent()).map(|d| d.display().to_string()).unwrap_or_default();
-        let url = e.url.clone();
+        let url = e.url.to_string();
         let referrer = e.referrer.clone().unwrap_or_default();
         let description = e.description.clone().unwrap_or_default();
         let username = e.login_user.clone().unwrap_or_default();
@@ -281,6 +282,7 @@ fn type_text(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pullbay_domain::bytes::ByteCount;
 
     #[test]
     fn the_type_names_the_extension() {
@@ -299,11 +301,11 @@ mod tests {
 
     fn entry(status: Status) -> DownloadEntry {
         DownloadEntry {
-            id: 3,
+            id: DownloadId::new(3),
             url: "https://x/a.zip".into(),
             path: Some(r"C:\dl\a.zip".into()),
-            total: Some(10),
-            done: 10,
+            total: Some(ByteCount::new(10)),
+            done: ByteCount::new(10),
             status,
             error: None,
             resumable: true,

@@ -6,6 +6,7 @@
 //! On macOS and Linux there is no script runner, so a script falls back
 //! to the fixed proxies.
 
+use pullbay_domain::sync::LockExt;
 use std::collections::HashMap;
 #[cfg(windows)]
 use std::ffi::c_void;
@@ -232,7 +233,7 @@ const SERVED_SCRIPTS: usize = 16;
 /// and nothing else. `None` when it cannot listen.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn served_script_url(script: &str) -> Option<String> {
-    let mut served = SERVED.lock().unwrap();
+    let mut served = SERVED.lock_or_recover();
     if served.is_none() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").ok()?;
         let addr = listener.local_addr().ok()?;
@@ -278,7 +279,7 @@ fn serve_script(mut stream: std::net::TcpStream) {
     let request = String::from_utf8_lossy(&head);
     let path = request.strip_prefix("GET ").and_then(|r| r.split(' ').next()).unwrap_or("");
     let n = path.strip_prefix('/').and_then(|p| p.strip_suffix(".pac")).and_then(|n| n.parse::<usize>().ok());
-    let script = n.and_then(|n| SERVED.lock().unwrap().as_ref().and_then(|s| s.scripts.get(n).cloned()));
+    let script = n.and_then(|n| SERVED.lock_or_recover().as_ref().and_then(|s| s.scripts.get(n).cloned()));
     let reply = match script {
         Some(body) => format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/x-ns-proxy-autoconfig\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -300,20 +301,20 @@ pub fn proxy_for(source: &PacSource, url: &str) -> Result<Option<String>, NoScri
     // other hosts: on a network without WPAD each try takes seconds.
     let any_host = (source.clone(), String::new());
     if *source == PacSource::AutoDetect {
-        if let Some((Err(NoScript), at)) = CACHE.lock().unwrap().get_or_insert_with(HashMap::new).get(&any_host) {
+        if let Some((Err(NoScript), at)) = CACHE.lock_or_recover().get_or_insert_with(HashMap::new).get(&any_host) {
             if at.elapsed() < CACHE_FOR {
                 return Err(NoScript);
             }
         }
     }
     let key = (source.clone(), pullbay_domain::site::host_of(url));
-    if let Some((answer, at)) = CACHE.lock().unwrap().get_or_insert_with(HashMap::new).get(&key) {
+    if let Some((answer, at)) = CACHE.lock_or_recover().get_or_insert_with(HashMap::new).get(&key) {
         if at.elapsed() < CACHE_FOR {
             return answer.clone();
         }
     }
     let answer = ask(source, url);
-    let mut cache = CACHE.lock().unwrap();
+    let mut cache = CACHE.lock_or_recover();
     let cache = cache.get_or_insert_with(HashMap::new);
     if answer.is_err() && *source == PacSource::AutoDetect {
         cache.insert(any_host, (Err(NoScript), Instant::now()));

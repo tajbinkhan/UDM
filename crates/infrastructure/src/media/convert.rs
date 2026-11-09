@@ -4,6 +4,7 @@
 //! reports how far it got on a pipe (`-progress`), which becomes a fraction
 //! of the input's length.
 
+use pullbay_domain::sync::LockExt;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -116,24 +117,30 @@ fn run_once(
     // stderr has the input's length and any complaint; read it aside.
     let duration = Arc::new(Mutex::new(None::<f64>));
     let last_error = Arc::new(Mutex::new(String::new()));
+    // Invariant: the command above set Stdio::piped() for it, and a pipe set
+    // that way is always there to take once.
+    #[allow(clippy::expect_used)]
     let stderr = child.stderr.take().expect("piped");
     let (d, e) = (Arc::clone(&duration), Arc::clone(&last_error));
     let reader = thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             if let Some(secs) = duration_in(&line) {
-                d.lock().unwrap().get_or_insert(secs);
+                d.lock_or_recover().get_or_insert(secs);
             } else if !line.trim().is_empty() {
-                *e.lock().unwrap() = line.trim().to_string();
+                *e.lock_or_recover() = line.trim().to_string();
             }
         }
     });
+    // Invariant: the command above set Stdio::piped() for it, and a pipe set
+    // that way is always there to take once.
+    #[allow(clippy::expect_used)]
     let stdout = child.stdout.take().expect("piped");
     for line in BufReader::new(stdout).lines().map_while(Result::ok) {
         if cancel.load(Ordering::Relaxed) {
             let _ = child.kill();
             break;
         }
-        if let (Some(at), Some(total)) = (progress_secs(&line), *duration.lock().unwrap()) {
+        if let (Some(at), Some(total)) = (progress_secs(&line), *duration.lock_or_recover()) {
             if total > 0.0 {
                 progress((at / total).clamp(0.0, 1.0));
             }
@@ -149,7 +156,7 @@ fn run_once(
         return Ok(());
     }
     let _ = std::fs::remove_file(output);
-    let why = last_error.lock().unwrap().clone();
+    let why = last_error.lock_or_recover().clone();
     Err(if why.is_empty() { FfmpegError::Failed } else { FfmpegError::Said(why) })
 }
 

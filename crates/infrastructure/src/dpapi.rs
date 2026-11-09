@@ -144,7 +144,7 @@ mod imp {
         }
         let mut key = [0u8; 32];
         getrandom::fill(&mut key).map_err(|e| io::Error::other(format!("getrandom: {e}")))?;
-        let dir = path.parent().unwrap();
+        let dir = path.parent().unwrap_or(std::path::Path::new("."));
         std::fs::create_dir_all(dir)?;
         // Two processes (the daemon and the window) or threads can both find
         // no key the first time. Each writes its key whole to a file of its
@@ -174,7 +174,11 @@ mod imp {
     fn keys() -> io::Result<([u8; 32], [u8; 32])> {
         let master = master_key()?;
         let derive = |label: &[u8]| -> [u8; 32] {
-            let mut mac = <hmac::Hmac<Sha256> as KeyInit>::new_from_slice(&master).expect("any key length");
+            // Invariant: HMAC hashes a long key and pads a short one, so
+            // `new_from_slice` never fails for it.
+            #[allow(clippy::expect_used)]
+            let mut mac =
+                <hmac::Hmac<Sha256> as KeyInit>::new_from_slice(&master).expect("HMAC takes a key of any length");
             mac.update(label);
             mac.finalize().into_bytes().into()
         };
@@ -182,7 +186,10 @@ mod imp {
     }
 
     fn tag(key: &[u8; 32], sealed: &[u8]) -> hmac::Hmac<Sha256> {
-        let mut mac = <hmac::Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("any key length");
+        // Invariant: HMAC hashes a long key and pads a short one, so
+        // `new_from_slice` never fails for it.
+        #[allow(clippy::expect_used)]
+        let mut mac = <hmac::Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("HMAC takes a key of any length");
         mac.update(sealed);
         mac
     }
@@ -213,7 +220,8 @@ mod imp {
         let (enc, auth) = keys()?;
         let (sealed, t) = data.split_at(data.len() - TAG);
         tag(&auth, sealed).verify_slice(t).map_err(|_| bad("sealed data was changed or sealed for another user"))?;
-        let iv: [u8; IV] = sealed[MAGIC.len()..MAGIC.len() + IV].try_into().unwrap();
+        let iv: [u8; IV] =
+            sealed[MAGIC.len()..MAGIC.len() + IV].try_into().map_err(|_| bad("not data Pullbay sealed"))?;
         let mut body = sealed[MAGIC.len() + IV..].to_vec();
         let plain = cbc::Decryptor::<aes::Aes256>::new(&enc.into(), &iv.into())
             .decrypt_padded_mut::<Pkcs7>(&mut body)

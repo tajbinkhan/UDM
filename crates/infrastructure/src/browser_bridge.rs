@@ -2,10 +2,11 @@
 //! by broadcasting a request to the clients (only the extension answers)
 //! and waits for the answer the daemon hands back.
 
+use pullbay_domain::sync::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use pullbay_application::daemon::Event;
@@ -35,7 +36,7 @@ pub struct BrowserBridge {
 /// Lock `m`. The maps change by single inserts and removals, so one a
 /// panicking thread left behind is still usable.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 impl BrowserBridge {
@@ -92,6 +93,7 @@ impl Browser for BrowserBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pullbay_application::daemon::ClientId;
     use std::thread;
 
     use crate::protocol::Outgoing;
@@ -103,8 +105,8 @@ mod tests {
     #[test]
     fn without_the_extension_nobody_is_asked() {
         let clients = clients();
-        let (_window, frames) = clients.connect(1);
-        clients.add_window(1);
+        let (_window, frames) = clients.connect(ClientId::new(1));
+        clients.add_window(ClientId::new(1));
         let bridge = BrowserBridge::new(clients);
         assert_eq!(bridge.cookies("https://site.net/"), None);
         assert!(frames.try_recv().is_err(), "nothing was sent");
@@ -113,7 +115,7 @@ mod tests {
     #[test]
     fn the_browsers_answer_comes_back_to_the_asker() {
         let clients = clients();
-        let (_extension, frames) = clients.connect(2);
+        let (_extension, frames) = clients.connect(ClientId::new(2));
         let bridge = Arc::new(BrowserBridge::new(clients));
         let asker = Arc::clone(&bridge);
         let asking = thread::spawn(move || asker.cookies("https://site.net/"));

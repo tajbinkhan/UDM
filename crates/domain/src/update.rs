@@ -2,6 +2,7 @@
 //! copy, and when to look again. Asking GitHub and checking the Setup
 //! program it offers is `pullbay_infrastructure::update`.
 
+use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 
 /// How often the window's check runs on its own: once a week.
@@ -25,7 +26,7 @@ pub struct SetupAsset {
     pub name: String,
     /// Where GitHub serves it, under this repository's release downloads.
     pub url: String,
-    pub size: u64,
+    pub size: ByteCount,
     /// Its SHA-256 in hex, when GitHub reports one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
@@ -59,7 +60,10 @@ pub fn check_due(on: bool, last: u64, now: u64) -> bool {
 
 /// Why looking for or installing an update failed. The messages are shown
 /// to the user.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum UpdateError {
     #[error("Could not reach GitHub: {0}")]
     Unreachable(String),

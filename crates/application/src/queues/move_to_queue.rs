@@ -1,4 +1,5 @@
 use pullbay_domain::download::Status;
+use pullbay_domain::id::{DownloadId, QueueId};
 use pullbay_domain::ports::{DownloadList, QueueStore};
 use pullbay_domain::queue::{self, QueueError};
 
@@ -14,7 +15,7 @@ impl<'a, Q: QueueStore, D: DownloadList> MoveToQueue<'a, Q, D> {
         MoveToQueue { queues, downloads }
     }
 
-    pub fn run(&self, id: u64, to: u64, position: Option<usize>) -> Result<(), QueueError> {
+    pub fn run(&self, id: DownloadId, to: QueueId, position: Option<usize>) -> Result<(), QueueError> {
         let status = self.downloads.status(id).ok_or(QueueError::NoDownload(id))?;
         let (sync, current) =
             self.queues.edit(|qs| (qs.iter().find(|q| q.id == to).map(|q| q.kind.is_sync()), queue::queue_of(qs, id)));
@@ -44,46 +45,50 @@ mod tests {
     fn a_stopped_download_joins_and_waits() {
         let queues = Queues::main();
         let downloads = Downloads::with(&[(1, Status::Failed)]);
-        MoveToQueue::new(&queues, &downloads).run(1, MAIN_QUEUE, None).unwrap();
-        assert_eq!(queues.get(MAIN_QUEUE).order, [1]);
-        assert_eq!(downloads.status(1), Some(Status::Waiting));
+        MoveToQueue::new(&queues, &downloads).run(DownloadId::new(1), MAIN_QUEUE, None).unwrap();
+        assert_eq!(queues.get(MAIN_QUEUE).order, [DownloadId::new(1)]);
+        assert_eq!(downloads.status(DownloadId::new(1)), Some(Status::Waiting));
         assert_eq!(queues.changes(), 1);
     }
 
     #[test]
     fn moving_within_its_queue_keeps_its_state() {
         let queues = Queues::main();
-        queues.edit(|qs| qs[0].order = vec![1, 2, 3]);
+        queues.edit(|qs| qs[0].order = vec![DownloadId::new(1), DownloadId::new(2), DownloadId::new(3)]);
         let downloads = Downloads::with(&[(1, Status::Waiting), (2, Status::Waiting), (3, Status::Canceled)]);
-        MoveToQueue::new(&queues, &downloads).run(3, MAIN_QUEUE, Some(0)).unwrap();
-        assert_eq!(queues.get(MAIN_QUEUE).order, [3, 1, 2]);
-        assert_eq!(downloads.status(3), Some(Status::Canceled));
+        MoveToQueue::new(&queues, &downloads).run(DownloadId::new(3), MAIN_QUEUE, Some(0)).unwrap();
+        assert_eq!(queues.get(MAIN_QUEUE).order, [DownloadId::new(3), DownloadId::new(1), DownloadId::new(2)]);
+        assert_eq!(downloads.status(DownloadId::new(3)), Some(Status::Canceled));
     }
 
     #[test]
     fn it_leaves_its_old_queue() {
         let queues = Queues::main();
         queues.edit(|qs| {
-            qs[0].order = vec![1];
-            qs.push(Queue::new(2, "Night"));
+            qs[0].order = vec![DownloadId::new(1)];
+            qs.push(Queue::new(QueueId::new(2), "Night"));
         });
         let downloads = Downloads::with(&[(1, Status::Waiting)]);
-        MoveToQueue::new(&queues, &downloads).run(1, 2, None).unwrap();
+        MoveToQueue::new(&queues, &downloads).run(DownloadId::new(1), QueueId::new(2), None).unwrap();
         assert!(queues.get(MAIN_QUEUE).order.is_empty());
-        assert_eq!(queues.get(2).order, [1]);
+        assert_eq!(queues.get(2).order, [DownloadId::new(1)]);
     }
 
     #[test]
     fn only_a_synchronizing_queue_takes_a_finished_download() {
         let queues = Queues::main();
-        queues.edit(|qs| qs.push(Queue { kind: QueueKind::Synchronize, ..Queue::new(2, "Mirror") }));
+        queues.edit(|qs| qs.push(Queue { kind: QueueKind::Synchronize, ..Queue::new(QueueId::new(2), "Mirror") }));
         let downloads = Downloads::with(&[(1, Status::Done), (2, Status::Confirming)]);
         let mv = MoveToQueue::new(&queues, &downloads);
-        assert_eq!(mv.run(1, MAIN_QUEUE, None), Err(QueueError::Finished));
-        mv.run(1, 2, None).unwrap();
-        assert_eq!(mv.run(2, 2, None), Err(QueueError::Finished), "the save-as dialog is still open");
-        assert_eq!(mv.run(9, 2, None), Err(QueueError::NoDownload(9)));
-        assert_eq!(mv.run(1, 7, None), Err(QueueError::NoQueue(7)));
+        assert_eq!(mv.run(DownloadId::new(1), MAIN_QUEUE, None), Err(QueueError::Finished));
+        mv.run(DownloadId::new(1), QueueId::new(2), None).unwrap();
+        assert_eq!(
+            mv.run(DownloadId::new(2), QueueId::new(2), None),
+            Err(QueueError::Finished),
+            "the save-as dialog is still open"
+        );
+        assert_eq!(mv.run(DownloadId::new(9), QueueId::new(2), None), Err(QueueError::NoDownload(DownloadId::new(9))));
+        assert_eq!(mv.run(DownloadId::new(1), QueueId::new(7), None), Err(QueueError::NoQueue(QueueId::new(7))));
         assert_eq!(queues.changes(), 1);
     }
 }

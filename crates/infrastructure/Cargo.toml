@@ -81,3 +81,7 @@ libc = "0.2"
 # The pickers' GTK backend on Linux.
 [target.'cfg(target_os = "linux")'.dependencies]
 rfd = { version = "0.15.4", default-features = false, features = ["gtk3"] }
+
+# The workspace's lints: no unwrap, expect or panic outside tests.
+[lints]
+workspace = true

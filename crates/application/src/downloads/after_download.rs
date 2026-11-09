@@ -1,4 +1,5 @@
 use pullbay_domain::download::OnDone;
+use pullbay_domain::id::DownloadId;
 use pullbay_domain::ports::{DownloadList, PowerControl};
 use pullbay_domain::queue::PowerRequest;
 
@@ -18,7 +19,7 @@ impl<'a, D: DownloadList, P: PowerControl> AfterDownload<'a, D, P> {
     }
 
     /// Returns what was asked, or `None` when it asked nothing.
-    pub fn run(&self, id: u64) -> Option<OnDone> {
+    pub fn run(&self, id: DownloadId) -> Option<OnDone> {
         let mut then = None;
         self.downloads.update(id, |e| {
             then = e.take_on_done();
@@ -47,10 +48,10 @@ mod tests {
         let downloads = Downloads::rows([e]);
         let power = Power::default();
         let after = AfterDownload::new(&downloads, &power);
-        assert!(after.run(1).is_some());
+        assert!(after.run(DownloadId::new(1)).is_some());
         let (request, _) = &power.started()[0];
         assert_eq!((request.action, request.file.as_deref()), (WhenDone::ShutDown, Some("movie.mkv")));
-        assert_eq!(after.run(1), None, "it was cleared");
+        assert_eq!(after.run(DownloadId::new(1)), None, "it was cleared");
         assert_eq!(power.started().len(), 1);
     }
 
@@ -60,8 +61,8 @@ mod tests {
         e.on_done = Some(OnDone { then: WhenDone::Exit, ..OnDone::default() });
         let downloads = Downloads::rows([e]);
         let power = Power::default();
-        assert_eq!(AfterDownload::new(&downloads, &power).run(1), None);
+        assert_eq!(AfterDownload::new(&downloads, &power).run(DownloadId::new(1)), None);
         assert_eq!(power.exits(), 0);
-        assert!(downloads.entry(1).unwrap().on_done.is_some(), "it keeps its choice");
+        assert!(downloads.entry(DownloadId::new(1)).unwrap().on_done.is_some(), "it keeps its choice");
     }
 }

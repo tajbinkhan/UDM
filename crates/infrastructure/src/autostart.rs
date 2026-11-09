@@ -22,7 +22,9 @@ pub fn set_autostart(enabled: bool) -> io::Result<()> {
                 _ => Ok(()),
             };
         }
-        std::fs::create_dir_all(path.parent().unwrap())?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
         std::fs::write(&path, entry(&gui, &first))
     }
 }

@@ -6,6 +6,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::address::{Address, Link};
+use crate::bytes::ByteCount;
+use crate::filename::FileName;
+use crate::id::{DownloadId, QueueId};
 use crate::media::MediaChoice;
 use crate::queue::WhenDone;
 use crate::settings::{Duplicate, FileExists, Settings, SPEED_LIMIT_RANGE_KBPS};
@@ -21,10 +25,11 @@ fn is_true(b: &bool) -> bool {
 
 /// The save-as dialog's answer for a `confirming` download, or the start of
 /// a `waiting` one. `filename` and `folder` replace the proposed ones when
-/// given. With `start` false the download waits until started.
+/// given; `filename` is what the user typed, cleaned into a `FileName`
+/// when it is used. With `start` false the download waits until started.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Answer {
-    pub id: u64,
+    pub id: DownloadId,
     #[serde(default)]
     pub filename: Option<String>,
     #[serde(default)]
@@ -34,7 +39,7 @@ pub struct Answer {
     /// With `start` false, the queue it waits in; missing uses the queue
     /// Download later is set to, else the main queue.
     #[serde(default)]
-    pub queue: Option<u64>,
+    pub queue: Option<QueueId>,
     /// What to do if the file name is taken (rename or overwrite); the
     /// setting decides when missing.
     #[serde(default)]
@@ -71,7 +76,7 @@ pub struct Answer {
 
 impl Answer {
     /// Start download `id` as proposed.
-    pub fn start(id: u64) -> Self {
+    pub fn start(id: DownloadId) -> Self {
         Answer {
             id,
             filename: None,
@@ -93,7 +98,9 @@ impl Answer {
 /// The payload a browser hand-off needs to reissue a request outside the page.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Download {
-    pub url: String,
+    /// The address as the client sent it; the daemon refuses one that is
+    /// not an `Address`.
+    pub url: Link,
     /// `POST` for a download a form started; anything else is a GET.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
@@ -119,7 +126,9 @@ pub struct Download {
     pub page: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
-    /// Suggested filename, when the client could derive one.
+    /// Suggested filename, when the client could derive one. Text as the
+    /// client sent it, which may be a path or empty: it is cleaned into a
+    /// `FileName` when the download is named (`filename::proposed_name`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
     /// `false` adds the download to a queue without starting it ("Download
@@ -133,7 +142,7 @@ pub struct Download {
     /// The queue a download added with `start: false` waits in; the main
     /// queue when missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub queue: Option<u64>,
+    pub queue: Option<QueueId>,
     /// The folder to save in, a full path, instead of the one its category
     /// picks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,7 +190,7 @@ pub struct Download {
     /// The size the browser's response gave (its `Content-Length`), shown
     /// until the daemon asks the server itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
     /// The `Content-Type` of the browser's response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
@@ -334,6 +343,7 @@ pub struct Properties {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub login: Option<DownloadLogin>,
     /// A new name for a finished download's file, which is renamed on disk.
+    /// What the user typed, cleaned into a `FileName` when it is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
     /// A new folder (a full path) for the download's file. A finished file
@@ -390,10 +400,10 @@ impl Status {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SegmentInfo {
     /// First and last byte of the range.
-    pub start: u64,
-    pub end: u64,
+    pub start: ByteCount,
+    pub end: ByteCount,
     /// Bytes of the range fetched so far.
-    pub done: u64,
+    pub done: ByteCount,
     pub state: SegmentState,
 }
 
@@ -428,12 +438,14 @@ pub enum Scan {
 /// One download as the daemon tracks it, sent in a `downloads` snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DownloadEntry {
-    pub id: u64,
-    pub url: String,
+    pub id: DownloadId,
+    /// Its address. A row read from a file with text that is no address
+    /// keeps it, and fails when started.
+    pub url: Link,
     /// Output file, once the engine has chosen it.
     pub path: Option<String>,
-    pub total: Option<u64>,
-    pub done: u64,
+    pub total: Option<ByteCount>,
+    pub done: ByteCount,
     pub status: Status,
     pub error: Option<String>,
     pub resumable: bool,
@@ -451,7 +463,7 @@ pub struct DownloadEntry {
     /// While `confirming`: another download in the list has the same
     /// address, and the save-as dialog asks what to do about it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub duplicate_of: Option<u64>,
+    pub duplicate_of: Option<DownloadId>,
     /// The Referer its request sends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub referrer: Option<String>,
@@ -503,7 +515,7 @@ pub struct DownloadEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Validator {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
+    pub size: Option<ByteCount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub etag: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -549,15 +561,16 @@ pub struct OnDone {
 }
 
 /// Why a change to a download was refused. The messages are shown to the
-/// user.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+/// user. The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum DownloadError {
     #[error("no download with id {0}")]
-    NoDownload(u64),
+    NoDownload(DownloadId),
     #[error("download {0} is still running; cancel it first")]
-    StillRunning(u64),
+    StillRunning(DownloadId),
     #[error("download {0} is not failed, canceled or interrupted")]
-    NotRetryable(u64),
+    NotRetryable(DownloadId),
     #[error("Only a finished or stopped download can be downloaded again.")]
     NotFinishedOrStopped,
     #[error("This stream's playlist is no longer known. Play it in the browser again to download it.")]
@@ -595,7 +608,7 @@ pub enum DownloadError {
     #[error("Converting needs ffmpeg. Install it, or choose it in Options > General.")]
     NoFfmpeg,
     #[error("download {0} is not waiting to be started")]
-    NotWaiting(u64),
+    NotWaiting(DownloadId),
     #[error("the download has no file name")]
     AnswerNoFileName,
     #[error("the download has no folder")]
@@ -612,6 +625,22 @@ pub enum DownloadError {
     /// It left the list, but its files could not go to the Recycle Bin.
     #[error("Removed {url} from the list, but its files stay: {reason}")]
     FilesStay { url: String, reason: String },
+}
+
+/// Why a partial download cannot continue from a new link. The window
+/// shows these, translated. The variant names are part of the wire format
+/// (the daemon's `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
+pub enum Mismatch {
+    #[error("The new link does not say how big its file is, so it cannot be matched to the partial download.")]
+    UnknownSize,
+    /// The new link's size and the partial download's, in bytes.
+    #[error("The new link is for a {} file; the partial download is of a {} file.", new.megabytes(), partial.megabytes())]
+    Size { new: ByteCount, partial: ByteCount },
+    #[error("The file at the new link has changed since the download started (its ETag or date differs).")]
+    Changed,
+    #[error("The new link's server cannot resume downloads, so it must start over.")]
+    NotResumable,
 }
 
 /// A download's own speed limit from `bytes_per_sec`: `None` (or 0) is no
@@ -661,7 +690,7 @@ impl DownloadEntry {
             .as_deref()
             .and_then(|p| Path::new(p).file_name())
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.url.clone())
+            .unwrap_or_else(|| self.url.to_string())
     }
 
     /// Hold it, probed, for the save-as dialog's answer (or with
@@ -671,9 +700,9 @@ impl DownloadEntry {
         &mut self,
         start_now: bool,
         path: &Path,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
-        duplicate_of: Option<u64>,
+        duplicate_of: Option<DownloadId>,
     ) -> bool {
         if self.status != Status::Queued {
             return false;
@@ -707,8 +736,8 @@ impl DownloadEntry {
         } else {
             let proposed = self.path.as_deref().map(Path::new);
             let name = filename
-                .map(crate::filename::sanitize_filename)
-                .filter(|n| !n.is_empty())
+                .and_then(crate::filename::sanitize_filename)
+                .map(FileName::into_string)
                 .or_else(|| proposed.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()))
                 .ok_or(DownloadError::AnswerNoFileName)?;
             let dir = match folder.map(str::trim) {
@@ -758,10 +787,10 @@ impl DownloadEntry {
             return Err(DownloadError::NotStopped);
         }
         let trimmed = |s: Option<String>| s.map(|s| s.trim().to_string());
-        let url = trimmed(p.url).filter(|u| *u != self.url);
-        if let Some(u) = url.as_deref().filter(|u| !crate::batch::is_download_url(u)) {
-            return Err(DownloadError::NotDownloadLink(u.to_string()));
-        }
+        let url = trimmed(p.url)
+            .filter(|u| self.url != u.as_str())
+            .map(|u| Address::parse(&u).map_err(|_| DownloadError::NotDownloadLink(u.clone())))
+            .transpose()?;
         let referrer = trimmed(p.referrer);
         if let Some(r) = referrer.as_deref().filter(|r| !r.is_empty() && !crate::batch::is_web_url(r)) {
             return Err(DownloadError::NotWebAddress(r.to_string()));
@@ -800,8 +829,8 @@ impl DownloadEntry {
                 let from = self.path.as_deref().map(PathBuf::from).ok_or(DownloadError::NoFile)?;
                 let name = filename
                     .as_deref()
-                    .map(crate::filename::sanitize_filename)
-                    .filter(|n| !n.is_empty())
+                    .and_then(crate::filename::sanitize_filename)
+                    .map(FileName::into_string)
                     .or_else(|| from.file_name().map(|n| n.to_string_lossy().into_owned()))
                     .ok_or(DownloadError::NoFileName)?;
                 let dir = match folder.as_deref().map(str::trim) {
@@ -842,7 +871,7 @@ impl DownloadEntry {
     /// byte under the same id.
     pub fn reset_for_redownload(&mut self) {
         self.status = Status::Queued;
-        self.done = 0;
+        self.done = ByteCount::ZERO;
         self.total = None;
         self.parts = None;
         self.error = None;
@@ -885,7 +914,7 @@ impl DownloadEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertiesPlan {
     /// A new address (trimmed, and different from the old one).
-    pub url: Option<String>,
+    pub url: Option<Address>,
     /// A new referrer; empty removes it.
     pub referrer: Option<String>,
     /// A new description; empty removes it.
@@ -902,7 +931,7 @@ impl PropertiesPlan {
     /// Apply the plan to the request a retry starts from.
     pub fn apply_to_request(&self, req: &mut Download) {
         if let Some(u) = &self.url {
-            req.url = u.clone();
+            req.url = u.clone().into();
         }
         if let Some(r) = &self.referrer {
             req.referrer = Some(r.clone()).filter(|r| !r.is_empty());
@@ -926,7 +955,7 @@ impl PropertiesPlan {
     /// its request now logs in with.
     pub fn apply_to_row(&self, e: &mut DownloadEntry, login_user: Option<String>) {
         if let Some(u) = &self.url {
-            e.url = u.clone();
+            e.url = u.clone().into();
         }
         if let Some(r) = &self.referrer {
             e.referrer = Some(r.clone()).filter(|r| !r.is_empty());
@@ -944,13 +973,13 @@ impl PropertiesPlan {
 /// Whether two download addresses name the same file: equal once parsed (so
 /// the case of the scheme and host and a default port do not matter) and with
 /// the fragment, which never reaches the server, dropped.
-pub fn same_address(a: &str, b: &str) -> bool {
-    let key = |u: &str| match url::Url::parse(u.trim()) {
+pub fn same_address(a: &Link, b: &Link) -> bool {
+    let key = |u: &Link| match url::Url::parse(u.as_str().trim()) {
         Ok(mut parsed) => {
             parsed.set_fragment(None);
             parsed.to_string()
         }
-        Err(_) => u.trim().split('#').next().unwrap_or("").to_string(),
+        Err(_) => u.as_str().trim().split('#').next().unwrap_or("").to_string(),
     };
     key(a) == key(b)
 }
@@ -1005,13 +1034,13 @@ impl Download {
     pub fn after_probe(
         &self,
         settings: &Settings,
-        filename: &str,
+        filename: &FileName,
         resumable: bool,
         size_known: bool,
         writable: bool,
         duplicate: bool,
     ) -> AfterProbe {
-        if !duplicate && self.ask != Some(true) && writable && settings.starts_without_asking(filename) {
+        if !duplicate && self.ask != Some(true) && writable && settings.starts_without_asking(filename.as_str()) {
             return AfterProbe::StartNow;
         }
         let plain = !self.is_post() && self.media.is_none();
@@ -1023,7 +1052,7 @@ impl Download {
     /// The answer given for download `id` when no window answers its
     /// dialog in time: start as proposed (a "download later" waits instead),
     /// with `file_exists` deciding a taken name.
-    pub fn fallback_answer(&self, id: u64, file_exists: Option<FileExists>) -> Answer {
+    pub fn fallback_answer(&self, id: DownloadId, file_exists: Option<FileExists>) -> Answer {
         Answer { start: self.start != Some(false), queue: self.queue, file_exists, ..Answer::start(id) }
     }
 
@@ -1113,7 +1142,7 @@ impl CommandLine {
 pub struct ZipEntry {
     pub name: String,
     /// Its size once unpacked.
-    pub size: u64,
+    pub size: ByteCount,
 }
 
 const NEEDS_LOGIN: &str = "This site needs a login: ";
@@ -1184,7 +1213,11 @@ mod tests {
     }
 
     fn v(size: Option<u64>, etag: Option<&str>, date: Option<&str>) -> Validator {
-        Validator { size, etag: etag.map(str::to_string), last_modified: date.map(str::to_string) }
+        Validator {
+            size: size.map(ByteCount::new),
+            etag: etag.map(str::to_string),
+            last_modified: date.map(str::to_string),
+        }
     }
 
     #[test]
@@ -1296,9 +1329,13 @@ mod tests {
 
     #[test]
     fn a_reset_starts_from_the_first_byte() {
-        let mut e = DownloadEntry { done: 500, partial: Some("/tmp/a.part".into()), ..entry(Status::Failed, 2) };
+        let mut e = DownloadEntry {
+            done: ByteCount::new(500),
+            partial: Some("/tmp/a.part".into()),
+            ..entry(Status::Failed, 2)
+        };
         e.reset_for_redownload();
-        assert_eq!((e.status, e.done, e.connections, e.partial), (Status::Queued, 0, 0, None));
+        assert_eq!((e.status, e.done, e.connections, e.partial), (Status::Queued, ByteCount::ZERO, 0, None));
     }
 
     fn full(p: &str) -> String {
@@ -1381,11 +1418,11 @@ mod tests {
 
     #[test]
     fn same_address_ignores_fragment_and_host_case() {
-        assert!(same_address("https://Example.com/a.zip", "https://example.com/a.zip#part"));
-        assert!(same_address("https://example.com:443/a.zip", " https://example.com/a.zip "));
-        assert!(!same_address("https://example.com/a.zip", "https://example.com/a.zip?v=2"));
-        assert!(!same_address("https://example.com/a.zip", "http://example.com/a.zip"));
-        assert!(!same_address("https://example.com/A.zip", "https://example.com/a.zip"));
+        assert!(same_address(&Link::new("https://Example.com/a.zip"), &Link::new("https://example.com/a.zip#part")));
+        assert!(same_address(&Link::new("https://example.com:443/a.zip"), &Link::new(" https://example.com/a.zip ")));
+        assert!(!same_address(&Link::new("https://example.com/a.zip"), &Link::new("https://example.com/a.zip?v=2")));
+        assert!(!same_address(&Link::new("https://example.com/a.zip"), &Link::new("http://example.com/a.zip")));
+        assert!(!same_address(&Link::new("https://example.com/A.zip"), &Link::new("https://example.com/a.zip")));
     }
 
     #[test]
@@ -1417,7 +1454,7 @@ mod tests {
         let dl = if cfg!(windows) { r"C:\dl" } else { "/dl" };
         let mut e = entry(Status::Confirming, 0);
         e.path = Some(Path::new(dl).join("a.zip").display().to_string());
-        e.duplicate_of = Some(7);
+        e.duplicate_of = Some(DownloadId::new(7));
         e.apply_answer(Some("b?.zip"), None, Some("Music"), Some("")).unwrap();
         assert_eq!(e.path, Some(Path::new(dl).join("b_.zip").display().to_string()));
         assert_eq!((e.status, e.duplicate_of, e.category.as_deref()), (Status::Waiting, None, Some("Music")));
@@ -1428,33 +1465,39 @@ mod tests {
             e.apply_answer(None, Some("rel"), None, None),
             Err(DownloadError::AnswerRelativeFolder("rel".into()))
         );
-        assert_eq!(entry(Status::Done, 1).apply_answer(None, None, None, None), Err(DownloadError::NotWaiting(1)));
+        assert_eq!(
+            entry(Status::Done, 1).apply_answer(None, None, None, None),
+            Err(DownloadError::NotWaiting(DownloadId::new(1)))
+        );
     }
     #[test]
     fn some_types_start_without_asking_and_some_files_start_early() {
         let mut settings = Settings { start_while_asking: true, ..Settings::default() };
         settings.auto_start_types = vec!["zip".into()];
         let plain = Download::default();
-        assert_eq!(plain.after_probe(&settings, "a.zip", true, true, true, false), AfterProbe::StartNow);
         assert_eq!(
-            plain.after_probe(&settings, "a.zip", true, true, true, true),
+            plain.after_probe(&settings, &FileName::parse("a.zip").unwrap(), true, true, true, false),
+            AfterProbe::StartNow
+        );
+        assert_eq!(
+            plain.after_probe(&settings, &FileName::parse("a.zip").unwrap(), true, true, true, true),
             AfterProbe::Ask { start_early: false }
         );
         assert_eq!(
-            plain.after_probe(&settings, "a.zip", true, true, false, false),
+            plain.after_probe(&settings, &FileName::parse("a.zip").unwrap(), true, true, false, false),
             AfterProbe::Ask { start_early: false }
         );
         assert_eq!(
-            plain.after_probe(&settings, "a.iso", true, true, true, false),
+            plain.after_probe(&settings, &FileName::parse("a.iso").unwrap(), true, true, true, false),
             AfterProbe::Ask { start_early: true }
         );
         assert_eq!(
-            plain.after_probe(&settings, "a.iso", false, true, true, false),
+            plain.after_probe(&settings, &FileName::parse("a.iso").unwrap(), false, true, true, false),
             AfterProbe::Ask { start_early: false }
         );
         let post = Download { method: Some("POST".into()), ..Download::default() };
         assert_eq!(
-            post.after_probe(&settings, "a.iso", true, true, true, false),
+            post.after_probe(&settings, &FileName::parse("a.iso").unwrap(), true, true, true, false),
             AfterProbe::Ask { start_early: false }
         );
     }
@@ -1462,12 +1505,21 @@ mod tests {
     #[test]
     fn a_probed_download_is_held_unless_canceled_meanwhile() {
         let mut e = entry(Status::Queued, 0);
-        assert!(e.hold_for_answer(false, Path::new("/dl/a.zip"), Some(10), true, Some(3)));
-        assert_eq!((e.status, e.total, e.duplicate_of), (Status::Confirming, Some(10), Some(3)));
+        assert!(e.hold_for_answer(
+            false,
+            Path::new("/dl/a.zip"),
+            Some(ByteCount::new(10)),
+            true,
+            Some(DownloadId::new(3))
+        ));
+        assert_eq!(
+            (e.status, e.total, e.duplicate_of),
+            (Status::Confirming, Some(ByteCount::new(10)), Some(DownloadId::new(3)))
+        );
         let mut canceled = entry(Status::Canceled, 0);
         assert!(!canceled.hold_for_answer(true, Path::new("/dl/a.zip"), None, false, None));
-        let later = Download { start: Some(false), queue: Some(4), ..Download::default() };
-        let answer = later.fallback_answer(9, Some(FileExists::Rename));
-        assert_eq!((answer.id, answer.start, answer.queue), (9, false, Some(4)));
+        let later = Download { start: Some(false), queue: Some(QueueId::new(4)), ..Download::default() };
+        let answer = later.fallback_answer(DownloadId::new(9), Some(FileExists::Rename));
+        assert_eq!((answer.id, answer.start, answer.queue), (DownloadId::new(9), false, Some(QueueId::new(4))));
     }
 }

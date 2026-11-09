@@ -871,6 +871,7 @@ mod credentials {
     use std::io;
     use std::sync::Mutex;
 
+    use pullbay_domain::sync::LockExt;
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
@@ -901,13 +902,15 @@ mod credentials {
     fn write(all: &BTreeMap<String, Entry>) -> io::Result<()> {
         let plain = serde_json::to_vec(all).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let path = path()?;
-        std::fs::create_dir_all(path.parent().unwrap())?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
         crate::platform::write_private(&path, &crate::dpapi::protect(&plain)?)
     }
 
     /// Store `password` for `username` under `target`.
     pub fn save_credential(target: &str, username: &str, password: &str) -> io::Result<()> {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = LOCK.lock_or_recover();
         let mut all = read()?;
         all.insert(target.to_string(), Entry { username: username.to_string(), password: password.to_string() });
         write(&all)
@@ -915,13 +918,13 @@ mod credentials {
 
     /// The password kept under `target`, if any.
     pub fn load_credential(target: &str) -> Option<String> {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = LOCK.lock_or_recover();
         read().ok()?.remove(target).map(|e| e.password)
     }
 
     /// Remove what is kept under `target`; a missing entry is not an error.
     pub fn delete_credential(target: &str) -> io::Result<()> {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = LOCK.lock_or_recover();
         let mut all = read()?;
         if all.remove(target).is_some() {
             write(&all)?;

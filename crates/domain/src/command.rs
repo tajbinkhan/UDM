@@ -1,7 +1,10 @@
 //! The scanner command line typed in Options.
 
 /// Why a scanner command line cannot be run.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// The variant names are part of the wire format (the daemon's
+/// `error_kind`): renaming one changes what clients read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum CommandError {
     #[error("The scanner command has an unclosed quote.")]
     UnclosedQuote,

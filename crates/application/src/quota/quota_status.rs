@@ -30,19 +30,21 @@ impl<'a, U: QuotaState> QuotaStatus<'a, U> {
 mod tests {
     use super::*;
     use crate::memory::Quota;
+    use pullbay_domain::bytes::ByteCount;
 
-    const LIMIT: QuotaLimit = QuotaLimit { bytes: 1000, window: 60, warn: true };
+    const LIMIT: QuotaLimit = QuotaLimit { bytes: ByteCount::new(1000), window: 60, warn: true };
 
     #[test]
     fn a_new_window_hears_of_a_paused_or_nearly_reached_quota() {
-        let quota = Quota::at(100, 0);
+        let quota = Quota::at(ByteCount::new(100), 0);
         assert_eq!(QuotaStatus::new(&quota).run(Some(LIMIT), 5), None);
         assert_eq!(QuotaStatus::new(&quota).run(None, 5), None, "the quota is off");
-        let quota = Quota::at(950, 0);
-        let notice = QuotaNotice { used: 950, limit: 1000, paused: false, resumes_at: None };
+        let quota = Quota::at(ByteCount::new(950), 0);
+        let notice =
+            QuotaNotice { used: ByteCount::new(950), limit: ByteCount::new(1000), paused: false, resumes_at: None };
         assert_eq!(QuotaStatus::new(&quota).run(Some(LIMIT), 5), Some(notice));
         assert_eq!(QuotaStatus::new(&quota).run(Some(QuotaLimit { warn: false, ..LIMIT }), 5), None);
-        let quota = Quota::at(1000, 70);
+        let quota = Quota::at(ByteCount::new(1000), 70);
         quota.hold(&[], &[]);
         let paused = QuotaStatus::new(&quota).run(Some(LIMIT), 5).unwrap();
         assert_eq!((paused.paused, paused.resumes_at), (true, Some(70 * 60)));

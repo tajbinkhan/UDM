@@ -8,11 +8,14 @@
 //! update check) runs on a thread of its own, and answers on the client's
 //! [`Reply`].
 
+use pullbay_domain::address::Link;
+use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -33,7 +36,7 @@ use pullbay_domain::quota::QuotaLimit;
 use pullbay_domain::settings::{Duplicate, Settings};
 use tracing::{info, warn};
 
-use super::{ClientList, Command, Countdowns, DownloadFeed, Event, Reply, Requests};
+use super::{ClientId, ClientList, Command, Countdowns, DownloadFeed, Event, Failure, Reply, Requests};
 use crate::downloads::{
     AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
     Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
@@ -48,8 +51,8 @@ use crate::queues::{
 use crate::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
 
-/// Why the daemon refused a client's command. Clients hear the message
-/// (see #234 for sending it typed).
+/// Why the daemon refused a client's command. Clients hear it as a
+/// [`Failure`], kind and values, so the window can translate it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ServiceError {
     #[error(transparent)]
@@ -88,19 +91,19 @@ pub const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
 /// Work for the notification thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Note {
-    Finished(u64),
-    Failed(u64),
+    Finished(DownloadId),
+    Failed(DownloadId),
     /// A finished download's virus scan is done.
-    Scanned(u64),
+    Scanned(DownloadId),
     /// A download stopped to ask about its taken file name.
-    NameTaken(u64),
+    NameTaken(DownloadId),
 }
 
 /// Lock `m`. Every mutex here holds a map or set changed by single
 /// inserts and removals, or a plain value, so one a panicking thread left
 /// behind still holds a usable value.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 /// A clock stopped at one moment, for a scheduler pass that looks at
@@ -238,9 +241,9 @@ pub struct DaemonService<W: Wiring> {
     /// Keeps two scheduler passes from running at once.
     tick_lock: Mutex<()>,
     /// Each client's running site crawl, by its stop flag.
-    pub grabs: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    pub grabs: Mutex<HashMap<ClientId, Arc<AtomicBool>>>,
     /// Each client's link picker probes, by their stop flag.
-    pub link_probes: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    pub link_probes: Mutex<HashMap<ClientId, Arc<AtomicBool>>>,
     /// Links from a page, held for the window that is being opened.
     pub picked_links: Mutex<Option<Event>>,
     /// A command line held for the window its `pullbay-gui` is opening, and
@@ -307,7 +310,7 @@ impl<W: Wiring> DaemonService<W> {
     /// clients.
     pub fn update_queue<T>(
         &self,
-        id: u64,
+        id: QueueId,
         f: impl FnOnce(&mut Queue) -> T,
     ) -> Result<T, pullbay_domain::queue::QueueError> {
         let result = self.store.edit(|queues| {
@@ -321,12 +324,12 @@ impl<W: Wiring> DaemonService<W> {
     /// http, https or ftp, as the command line's must, and a form body must
     /// be readable.
     fn check_download(&self, download: &Download) -> Result<(), ServiceError> {
-        if !pullbay_domain::batch::is_download_url(&download.url) {
-            Err(ServiceError::NotDownloadAddress(download.url.clone()))
+        if !download.url.is_address() {
+            Err(ServiceError::NotDownloadAddress(download.url.to_string()))
         } else if self.intake.sendable(download) {
             Ok(())
         } else {
-            Err(ServiceError::BadBody(download.url.clone()))
+            Err(ServiceError::BadBody(download.url.to_string()))
         }
     }
 
@@ -339,7 +342,7 @@ impl<W: Wiring> DaemonService<W> {
     /// start, and with "resume at startup", every interrupted download
     /// goes again.
     pub fn start_up(&self) {
-        let launch: Vec<u64> = self.queues().iter().filter(|q| q.start_on_launch).map(|q| q.id).collect();
+        let launch: Vec<QueueId> = self.queues().iter().filter(|q| q.start_on_launch).map(|q| q.id).collect();
         for id in launch {
             if let Err(e) = self.start_queue(id, None) {
                 warn!(queue = %id, error = %e, "could not start the queue");
@@ -373,30 +376,30 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Put download `id` in queue `queue` at `position` (or at the end). A
     /// download that is not running waits there.
-    pub fn move_to_queue(&self, id: u64, queue: u64, position: Option<usize>) -> Result<(), ServiceError> {
+    pub fn move_to_queue(&self, id: DownloadId, queue: QueueId, position: Option<usize>) -> Result<(), ServiceError> {
         MoveToQueue::new(&*self.store, &*self.store).run(id, queue, position).map_err(ServiceError::from)
     }
 
     /// Take download `id` out of its queue, keeping it in the list (see
     /// `RemoveFromQueue`).
-    pub fn remove_from_queue(&self, id: u64) -> Result<(), ServiceError> {
+    pub fn remove_from_queue(&self, id: DownloadId) -> Result<(), ServiceError> {
         RemoveFromQueue::new(&*self.store, &*self.store).run(id).map_err(ServiceError::from)
     }
 
     /// Create a queue (id 0) or change one.
-    pub fn save_queue(&self, edited: Queue) -> Result<u64, ServiceError> {
+    pub fn save_queue(&self, edited: Queue) -> Result<QueueId, ServiceError> {
         SaveQueue::new(&*self.store, &*self.store).run(edited).map_err(ServiceError::from)
     }
 
     /// Delete a queue. Its downloads move to the main queue; the running ones
     /// keep running.
-    pub fn delete_queue(&self, id: u64) -> Result<(), ServiceError> {
+    pub fn delete_queue(&self, id: QueueId) -> Result<(), ServiceError> {
         DeleteQueue::new(&*self.store, &*self.store, &self.run_book).run(id).map_err(ServiceError::from)
     }
 
     /// Start a queue: its waiting downloads run in order. `scheduled_day` is
     /// the day whose scheduled run this is, or `None` when started by hand.
-    pub fn start_queue(&self, id: u64, scheduled_day: Option<i64>) -> Result<(), ServiceError> {
+    pub fn start_queue(&self, id: QueueId, scheduled_day: Option<i64>) -> Result<(), ServiceError> {
         StartQueue::new(&*self.store, &self.run_book, &self.clock, &self.chimes)
             .run(id, scheduled_day)
             .map_err(ServiceError::from)
@@ -404,7 +407,7 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Stop a queue. Its running downloads stop and wait in it again, with
     /// their progress kept.
-    pub fn stop_queue(&self, id: u64) -> Result<(), ServiceError> {
+    pub fn stop_queue(&self, id: QueueId) -> Result<(), ServiceError> {
         StopQueue::new(&*self.store, &*self.store, &self.run_book, &*self.transfers).run(id).map_err(ServiceError::from)
     }
 
@@ -432,7 +435,7 @@ impl<W: Wiring> DaemonService<W> {
         for event in events {
             match event {
                 QueueEvent::Retried { queue, id, attempt, of } => {
-                    info!(queue = %queue, download_id = id, attempt, of, "queue retries a download")
+                    info!(queue = %queue, download_id = id.get(), attempt, of, "queue retries a download")
                 }
                 QueueEvent::Finished { queue } => info!(queue = %queue, "queue is done"),
             }
@@ -443,15 +446,15 @@ impl<W: Wiring> DaemonService<W> {
     /// whose server copy changed in `queue` to be downloaded again, starting
     /// it. Returns how many changed, and the addresses it found finished in
     /// the list (which need no new row).
-    pub fn resync(&self, urls: &[String], queue: u64) -> (usize, HashSet<String>) {
+    pub fn resync(&self, urls: &[String], queue: QueueId) -> (usize, HashSet<String>) {
         let urls: HashSet<&str> = urls.iter().map(String::as_str).collect();
-        let (ids, listed): (Vec<u64>, HashSet<String>) = self
+        let (ids, listed): (Vec<DownloadId>, HashSet<String>) = self
             .store
             .ids_where(|_, status| status == Status::Done)
             .into_iter()
             .filter_map(|id| self.store.entry(id))
             .filter(|e| urls.contains(e.url.as_str()))
-            .map(|e| (e.id, e.url))
+            .map(|e| (e.id, e.url.into_string()))
             .unzip();
         let changed = ids
             .into_iter()
@@ -473,7 +476,7 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Run what download `id` asked to happen once it finished, then clear
     /// it so downloading it again does not repeat it.
-    pub fn after_download(&self, id: u64) {
+    pub fn after_download(&self, id: DownloadId) {
         AfterDownload::new(&*self.store, &*self.power).run(id);
     }
 
@@ -485,11 +488,11 @@ impl<W: Wiring> DaemonService<W> {
         if let Some(mut download) = cmd.download {
             download.limit_browser_request();
             let (id, url) = self.add(download);
-            info!(download_id = id, url = %url, "add from the command line");
+            info!(download_id = id.get(), url = %url, "add from the command line");
             if cmd.quit_after && started {
                 let exit = OnDone { then: WhenDone::Exit, ..OnDone::default() };
                 if let Err(e) = self.set_on_done(id, Some(exit)) {
-                    warn!(download_id = id, error = %e, "could not set /q");
+                    warn!(download_id = id.get(), error = %e, "could not set /q");
                 }
             }
         }
@@ -499,13 +502,13 @@ impl<W: Wiring> DaemonService<W> {
                     info!("start the main queue from the command line");
                     let _ = self.wake.send(());
                 }
-                Err(e) => self.clients.to_windows(Event::Error { message: e.to_string() }),
+                Err(e) => self.clients.to_windows(Event::Error { error: e.into() }),
             }
         }
     }
 
     /// Set or clear what download `id` does once it finishes.
-    pub fn set_on_done(&self, id: u64, on_done: Option<OnDone>) -> Result<(), ServiceError> {
+    pub fn set_on_done(&self, id: DownloadId, on_done: Option<OnDone>) -> Result<(), ServiceError> {
         SetOnDone::new(&*self.store).run(id, on_done).map_err(ServiceError::from)
     }
 
@@ -579,7 +582,7 @@ impl<W: Wiring> DaemonService<W> {
         projects.names().iter().filter_map(|name| projects.load(name)).collect()
     }
 
-    pub fn entry(&self, id: u64) -> Option<DownloadEntry> {
+    pub fn entry(&self, id: DownloadId) -> Option<DownloadEntry> {
         self.store.entry(id)
     }
 
@@ -623,12 +626,12 @@ impl<W: Wiring> DaemonService<W> {
         );
         match check.run(self.quota_limit(), now) {
             Some(QuotaEvent::Reached { used, limit }) => {
-                info!(used, limit, "quota reached")
+                info!(used = used.get(), limit = limit.get(), "quota reached")
             }
             Some(QuotaEvent::Resumed { failed }) => {
                 info!("quota allows downloads again");
                 for (id, e) in failed {
-                    warn!(download_id = id, error = %e, "could not resume");
+                    warn!(download_id = id.get(), error = %e, "could not resume");
                 }
             }
             None => {}
@@ -648,7 +651,7 @@ impl<W: Wiring> DaemonService<W> {
         )
         .run();
         for (id, e) in resumed.failed {
-            warn!(download_id = id, error = %e, "could not resume");
+            warn!(download_id = id.get(), error = %e, "could not resume");
         }
     }
 
@@ -672,7 +675,7 @@ impl<W: Wiring> DaemonService<W> {
                 thread::spawn(move || {
                     let path = PathBuf::from(entry.path.unwrap_or_default());
                     let result = daemon.scanner.scan(&settings, &path);
-                    info!(download_id = id, result = ?result, "scanned");
+                    info!(download_id = id.get(), result = ?result, "scanned");
                     let _ = daemon.store.update(id, |e| {
                         e.scan = Some(result);
                         true
@@ -703,10 +706,10 @@ impl<W: Wiring> DaemonService<W> {
     /// that. If its address is already in the list, the duplicate setting
     /// decides first, asking in the save-as dialog under `Ask` even when
     /// that dialog is off.
-    pub fn add(self: &Arc<Self>, mut download: Download) -> (u64, String) {
+    pub fn add(self: &Arc<Self>, mut download: Download) -> (DownloadId, Link) {
         if let Some(old) = self.duplicate_of(&download) {
             let choice = download.duplicate.unwrap_or(self.settings_now().if_duplicate);
-            info!(url = %download.url, download_id = old.id, choice = ?choice, "already in the list");
+            info!(url = %download.url, download_id = old.id.get(), choice = ?choice, "already in the list");
             if choice == Duplicate::Ask {
                 return self.ask(download, Some(old.id));
             }
@@ -718,15 +721,17 @@ impl<W: Wiring> DaemonService<W> {
         if download.start == Some(false) || (download.start.is_none() && settings.add_only) {
             return self.add_later(download);
         }
-        let name = pullbay_domain::filename::proposed_name(&download.url, download.filename.as_deref());
+        let name = pullbay_domain::filename::proposed_name(download.url.as_str(), download.filename.as_deref());
         // A folder Pullbay may not write to asks first, so the dialog can offer
         // administrator rights or another folder.
         let folder = match download.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
             Some(f) => f.to_path_buf(),
-            None => settings.folders_for(&download.url, &self.files.downloads_dir()).for_name(&name),
+            None => settings.folders_for(download.url.as_str(), &self.files.downloads_dir()).for_name(name.as_str()),
         };
         let denied = !download.elevate && !self.files.can_write(&folder);
-        if denied || download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(&name)) {
+        if denied
+            || download.ask.unwrap_or(settings.ask_where_to_save && !settings.starts_without_asking(name.as_str()))
+        {
             self.ask(download, None)
         } else {
             self.start(download)
@@ -750,13 +755,13 @@ impl<W: Wiring> DaemonService<W> {
         download: &mut Download,
         old: &DownloadEntry,
         choice: Duplicate,
-    ) -> Option<(u64, String)> {
+    ) -> Option<(DownloadId, Link)> {
         match download.settle_duplicate(old, choice) {
             DuplicateStep::Add => None,
             DuplicateStep::UseExisting => self.use_existing(old),
             DuplicateStep::Replace => {
                 if let Err(e) = self.remove(old.id, false) {
-                    warn!(download_id = old.id, error = %e, "could not remove");
+                    warn!(download_id = old.id.get(), error = %e, "could not remove");
                 }
                 None
             }
@@ -766,12 +771,12 @@ impl<W: Wiring> DaemonService<W> {
     /// Point the user at download `old` instead of adding its address again
     /// (see `UseExisting`). `None` when the finished file is gone, so the new
     /// download should be added after all.
-    pub fn use_existing(self: &Arc<Self>, old: &DownloadEntry) -> Option<(u64, String)> {
+    pub fn use_existing(self: &Arc<Self>, old: &DownloadEntry) -> Option<(DownloadId, Link)> {
         match UseExisting::new(&*self.store, &*self.store, &*self.transfers, &*self.files, &*self.front).run(old) {
             Existing::Gone => None,
             Existing::Shown { id, url } | Existing::Resumed { id, url } => Some((id, url)),
             Existing::NotResumed { id, url, error } => {
-                warn!(download_id = id, error = %error, "could not resume");
+                warn!(download_id = id.get(), error = %error, "could not resume");
                 Some((id, url))
             }
         }
@@ -780,25 +785,25 @@ impl<W: Wiring> DaemonService<W> {
     /// Add `download` to a queue (the one it names, else the one Download
     /// later goes to, else the main one) without starting it or opening a
     /// connection.
-    pub fn add_later(&self, download: Download) -> (u64, String) {
+    pub fn add_later(&self, download: Download) -> (DownloadId, Link) {
         let later = self.settings_now().later_queue;
         AddLater::new(&*self.store, &self.intake).run(download, later)
     }
 
     /// Add `items` to wait in `queue` (see `AddMany`). Returns how many were
     /// added and how many were skipped as duplicates.
-    pub fn add_many(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (usize, usize) {
+    pub fn add_many(self: &Arc<Self>, items: Vec<Download>, queue: Option<QueueId>) -> (usize, usize) {
         let (ids, skipped) = self.add_many_ids(items, queue);
         (ids.len(), skipped)
     }
 
     /// `add_many`, answering with the new downloads' ids.
-    pub fn add_many_ids(self: &Arc<Self>, items: Vec<Download>, queue: Option<u64>) -> (Vec<u64>, usize) {
+    pub fn add_many_ids(self: &Arc<Self>, items: Vec<Download>, queue: Option<QueueId>) -> (Vec<DownloadId>, usize) {
         let choice = self.settings_now().if_duplicate;
         let added = AddMany::new(&*self.store, &*self.store, &*self.transfers, &*self.files, &self.intake)
             .run(items, queue, choice);
         for (id, e) in added.not_replaced {
-            warn!(download_id = id, error = %e, "could not remove");
+            warn!(download_id = id.get(), error = %e, "could not remove");
         }
         (added.ids, added.skipped)
     }
@@ -815,7 +820,7 @@ impl<W: Wiring> DaemonService<W> {
     /// Crawl a site for `client` on another thread, sending it progress and
     /// then what was found. With `download_found`, each file found goes to
     /// that queue at once, and the queue starts.
-    pub fn grab(self: &Arc<Self>, client: u64, req: GrabRequest, reply: Reply) -> Result<(), ServiceError> {
+    pub fn grab(self: &Arc<Self>, client: ClientId, req: GrabRequest, reply: Reply) -> Result<(), ServiceError> {
         req.validate()?;
         let stop = Arc::new(AtomicBool::new(false));
         {
@@ -830,7 +835,7 @@ impl<W: Wiring> DaemonService<W> {
             let send = |event: Event| {
                 reply.send(event);
             };
-            info!(client, url = %req.start, "crawl");
+            info!(client = client.get(), url = %req.start, "crawl");
             let mut handed = 0;
             let mut added = Vec::new();
             let login = daemon.login_cookies(&req);
@@ -851,7 +856,7 @@ impl<W: Wiring> DaemonService<W> {
                 })
             });
             lock(&daemon.grabs).remove(&client);
-            info!(client, pages = out.pages, files = out.files.len(), "crawl done");
+            info!(client = client.get(), pages = out.pages, files = out.files.len(), "crawl done");
             send(Event::GrabDone {
                 files: out.files,
                 pages: out.pages,
@@ -872,9 +877,9 @@ impl<W: Wiring> DaemonService<W> {
         req: &GrabRequest,
         login: Option<&str>,
         files: &[grab::GrabFile],
-        queue: u64,
+        queue: QueueId,
         first: bool,
-    ) -> Vec<u64> {
+    ) -> Vec<DownloadId> {
         let settings = self.settings_now();
         let items = files.iter().filter_map(|f| self.found.download_for(req, f, &settings, login)).collect();
         let (added, _) = self.add_many_ids(items, Some(queue));
@@ -1010,13 +1015,13 @@ impl<W: Wiring> DaemonService<W> {
     /// ffmpeg's complaint.
     pub fn convert(
         self: &Arc<Self>,
-        id: u64,
+        id: DownloadId,
         to: pullbay_domain::media::Target,
         delete_original: bool,
     ) -> Result<(), ServiceError> {
         let output =
             ConvertDownload::new(&*self.store, &*self.files, &self.conversions).run(id, to, delete_original)?;
-        info!(download_id = id, output = %output.display(), "converting");
+        info!(download_id = id.get(), output = %output.display(), "converting");
         Ok(())
     }
 
@@ -1026,7 +1031,7 @@ impl<W: Wiring> DaemonService<W> {
         let github = (self.releases)(url);
         match CheckForUpdate::new(&github, &*self.settings, self.version).run(self.clock.unix_now()) {
             Ok(newer) => Event::Update { newer, error: None },
-            Err(e) => Event::Update { newer: None, error: Some(e.to_string()) },
+            Err(e) => Event::Update { newer: None, error: Some(e.into()) },
         }
     }
 
@@ -1060,20 +1065,20 @@ impl<W: Wiring> DaemonService<W> {
     /// List the files inside zip download `id` on another thread, reading
     /// the end of the archive with its own request (cookies and all), and
     /// answer `reply` with `zip_preview`.
-    pub fn preview_zip(&self, id: u64, reply: Reply) {
+    pub fn preview_zip(&self, id: DownloadId, reply: Reply) {
         let entry = self.entry(id);
         let download = self.store.request(id);
-        let answer = move |entries: Vec<ZipEntry>, error: Option<String>| {
+        let answer = move |entries: Vec<ZipEntry>, error: Option<Failure>| {
             reply.send(Event::ZipPreview { id, entries, error });
         };
         let Some(entry) = entry else {
-            return answer(Vec::new(), Some(format!("no download with id {id}")));
+            return answer(Vec::new(), Some(pullbay_domain::download::DownloadError::NoDownload(id).into()));
         };
         let download = download.unwrap_or_else(|| Download { url: entry.url.clone(), ..Download::default() });
         let probes = Arc::clone(&self.probes);
         thread::spawn(move || match probes.zip(&download, entry.total) {
             Ok(entries) => answer(entries, None),
-            Err(e) => answer(Vec::new(), Some(e.0)),
+            Err(e) => answer(Vec::new(), Some(e.into())),
         });
     }
 
@@ -1086,7 +1091,7 @@ impl<W: Wiring> DaemonService<W> {
     }
 
     /// Stop `client`'s crawl, if it has one.
-    pub fn stop_grab(&self, client: u64) {
+    pub fn stop_grab(&self, client: ClientId) {
         if let Some(stop) = lock(&self.grabs).get(&client) {
             stop.store(true, Ordering::Relaxed);
         }
@@ -1098,7 +1103,7 @@ impl<W: Wiring> DaemonService<W> {
     /// long list neither waits on one slow server nor floods the sites, and
     /// each answer goes out as it comes. Any earlier probing for `client`
     /// stops.
-    pub fn probe_links(&self, client: u64, request: u64, links: Vec<Download>, reply: Reply) {
+    pub fn probe_links(&self, client: ClientId, request: u64, links: Vec<Download>, reply: Reply) {
         let stop = Arc::new(AtomicBool::new(false));
         if let Some(old) = lock(&self.link_probes).insert(client, Arc::clone(&stop)) {
             old.store(true, Ordering::Relaxed);
@@ -1123,7 +1128,7 @@ impl<W: Wiring> DaemonService<W> {
                         Event::LinkInfo { request, index, total: i.total, content_type: i.content_type, error: None }
                     }
                     Err(e) => {
-                        Event::LinkInfo { request, index, total: None, content_type: None, error: Some(e.to_string()) }
+                        Event::LinkInfo { request, index, total: None, content_type: None, error: Some(e.into()) }
                     }
                 };
                 // A send that fails means the client went.
@@ -1135,7 +1140,7 @@ impl<W: Wiring> DaemonService<W> {
     }
 
     /// Stop `client`'s link probes, if it has any.
-    pub fn stop_probe_links(&self, client: u64) {
+    pub fn stop_probe_links(&self, client: ClientId) {
         if let Some(stop) = lock(&self.link_probes).remove(&client) {
             stop.store(true, Ordering::Relaxed);
         }
@@ -1145,7 +1150,7 @@ impl<W: Wiring> DaemonService<W> {
     /// as `confirming` with the proposed file until a window answers.
     /// `duplicate_of` is another download with the same address, for the
     /// dialog to ask about.
-    pub fn ask(self: &Arc<Self>, download: Download, duplicate_of: Option<u64>) -> (u64, String) {
+    pub fn ask(self: &Arc<Self>, download: Download, duplicate_of: Option<DownloadId>) -> (DownloadId, Link) {
         let url = download.url.clone();
         let id = self.transfers.reserve_id();
         self.store.keep_request(id, download.clone());
@@ -1173,7 +1178,7 @@ impl<W: Wiring> DaemonService<W> {
                 &daemon.answers,
             );
             if let Held::Started(Err(e)) = hold.run(id, &download, probed, duplicate_of) {
-                warn!(download_id = id, error = %e, "could not start");
+                warn!(download_id = id.get(), error = %e, "could not start");
             }
         });
         (id, url)
@@ -1192,39 +1197,39 @@ impl<W: Wiring> DaemonService<W> {
     }
 
     /// Cancel a download, whether it waits for its dialog or is in the engine.
-    pub fn cancel(self: &Arc<Self>, id: u64) {
+    pub fn cancel(self: &Arc<Self>, id: DownloadId) {
         CancelDownload::new(&*self.store, &*self.transfers, &self.conversions).run(id);
     }
 
     /// Queue `download`, remember it for retries, and announce it.
     /// `reuse_path` is a partial file an earlier attempt left behind.
-    pub fn start(&self, download: Download) -> (u64, String) {
+    pub fn start(&self, download: Download) -> (DownloadId, Link) {
         self.transfers.start(download)
     }
 
     /// Re-queue a failed, canceled or interrupted download from its stored
     /// request, or from its URL alone when the request was not kept (see
     /// `RetryDownload`).
-    pub fn retry(&self, id: u64) -> Result<(u64, String), ServiceError> {
+    pub fn retry(&self, id: DownloadId) -> Result<(DownloadId, Link), ServiceError> {
         RetryDownload::new(&*self.store, &*self.store, &*self.transfers).run(id).map_err(ServiceError::from)
     }
 
     /// Set or clear download `id`'s own speed limit (see `SetSpeedLimit`).
-    pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) -> Result<(), ServiceError> {
+    pub fn set_download_limit(&self, id: DownloadId, bytes_per_sec: Option<u64>) -> Result<(), ServiceError> {
         SetSpeedLimit::new(&*self.store, &*self.transfers).run(id, bytes_per_sec).map_err(ServiceError::from)
     }
 
     /// Set whether download `id` keeps its own speed limit when it is
     /// stopped and resumed.
-    pub fn set_limit_remember(&self, id: u64, remember: bool) -> Result<(), ServiceError> {
+    pub fn set_limit_remember(&self, id: DownloadId, remember: bool) -> Result<(), ServiceError> {
         SetLimitRemember::new(&*self.store).run(id, remember).map_err(ServiceError::from)
     }
 
     /// Start download `id` again from the first byte, under the same id (see
     /// `Redownload`).
-    pub fn redownload(&self, id: u64) -> Result<(), ServiceError> {
+    pub fn redownload(&self, id: DownloadId) -> Result<(), ServiceError> {
         let url = Redownload::new(&*self.store, &*self.transfers, &*self.files).run(id)?;
-        info!(download_id = id, url = %url, "downloading again");
+        info!(download_id = id.get(), url = %url, "downloading again");
         Ok(())
     }
 
@@ -1232,25 +1237,25 @@ impl<W: Wiring> DaemonService<W> {
     /// `RefreshLink`). Returns why the new link was refused, if it was.
     pub fn refresh_link(
         &self,
-        id: u64,
+        id: DownloadId,
         download: Option<Download>,
         restart: bool,
-    ) -> Result<Option<String>, ServiceError> {
+    ) -> Result<Option<pullbay_domain::download::Mismatch>, ServiceError> {
         match RefreshLink::new(&*self.store, &*self.store, &*self.transfers).run(id, download, restart)? {
             Refreshed::Waiting => Ok(None),
             Refreshed::Mismatch(reason) => Ok(Some(reason)),
             Refreshed::NewLink(url) => {
-                info!(download_id = id, url = %url, "new link");
+                info!(download_id = id.get(), url = %url, "new link");
                 Ok(None)
             }
         }
     }
 
     /// Change a stopped or finished download's details (see `SetProperties`).
-    pub fn set_properties(&self, id: u64, p: Properties) -> Result<(), ServiceError> {
+    pub fn set_properties(&self, id: DownloadId, p: Properties) -> Result<(), ServiceError> {
         let moved = SetProperties::new(&*self.store, &*self.files).run(id, p)?;
         if let Some(to) = moved {
-            info!(download_id = id, to = %to.display(), "moved");
+            info!(download_id = id.get(), to = %to.display(), "moved");
         }
         Ok(())
     }
@@ -1258,7 +1263,7 @@ impl<W: Wiring> DaemonService<W> {
     /// Under "the browser's proxy only after download errors", retry failed
     /// download `id` once, through the proxy its browser reported. Returns
     /// whether it did.
-    pub fn retry_through_browser_proxy(&self, id: u64, s: &Settings) -> bool {
+    pub fn retry_through_browser_proxy(&self, id: DownloadId, s: &Settings) -> bool {
         if !(s.use_browser_proxy && s.browser_proxy_after_errors) {
             return false;
         }
@@ -1271,11 +1276,11 @@ impl<W: Wiring> DaemonService<W> {
         }
         match self.retry(id) {
             Ok((new_id, _)) => {
-                info!(download_id = id, new_id, "failed; retrying through the browser's proxy");
+                info!(download_id = id.get(), new_id = new_id.get(), "failed; retrying through the browser's proxy");
                 true
             }
             Err(e) => {
-                warn!(download_id = id, error = %e, "could not retry through the browser's proxy");
+                warn!(download_id = id.get(), error = %e, "could not retry through the browser's proxy");
                 false
             }
         }
@@ -1299,17 +1304,17 @@ impl<W: Wiring> DaemonService<W> {
         let ids = self.store.ids_where(|_, status| status == Status::Interrupted);
         for id in ids {
             match self.retry(id) {
-                Ok((new_id, url)) => info!(download_id = id, new_id, url = %url, "resuming"),
-                Err(e) => warn!(download_id = id, error = %e, "could not resume"),
+                Ok((new_id, url)) => info!(download_id = id.get(), new_id = new_id.get(), url = %url, "resuming"),
+                Err(e) => warn!(download_id = id.get(), error = %e, "could not resume"),
             }
         }
     }
 
     /// Forget a download that is no longer running. Its files stay on disk
     /// unless `delete_files`, which sends them to the Recycle Bin.
-    pub fn remove(&self, id: u64, delete_files: bool) -> Result<(), ServiceError> {
+    pub fn remove(&self, id: DownloadId, delete_files: bool) -> Result<(), ServiceError> {
         if delete_files {
-            info!(download_id = id, "removing with its files");
+            info!(download_id = id.get(), "removing with its files");
         }
         RemoveDownload::new(&*self.store, &*self.store, &*self.transfers, &*self.files)
             .run(id, delete_files)
@@ -1362,12 +1367,12 @@ pub fn confirm_answer<W: Wiring>(
             ConfirmWarning::ChoicesNotRemembered(e) => {
                 warn!(error = %e, "could not remember the dialog's choices")
             }
-            ConfirmWarning::OldNotRemoved(old, e) => warn!(download_id = old, error = %e, "could not remove"),
-            ConfirmWarning::OldNotResumed(old, e) => warn!(download_id = old, error = %e, "could not resume"),
+            ConfirmWarning::OldNotRemoved(old, e) => warn!(download_id = old.get(), error = %e, "could not remove"),
+            ConfirmWarning::OldNotResumed(old, e) => warn!(download_id = old.get(), error = %e, "could not resume"),
         }
     }
     if let Confirmed::UsedExisting { old, kept } = done {
-        info!(download_id = id, duplicates = old, kept, "duplicate");
+        info!(download_id = id.get(), duplicates = old.get(), kept = kept.get(), "duplicate");
     }
     Ok(())
 }
@@ -1377,11 +1382,11 @@ pub fn confirm_answer<W: Wiring>(
 pub struct Served<W: Wiring>(pub Arc<DaemonService<W>>);
 
 impl<W: Wiring> Requests for Served<W> {
-    fn handle(&self, client: u64, command: Command, reply: &Reply) {
+    fn handle(&self, client: ClientId, command: Command, reply: &Reply) {
         dispatch(command, &self.0, client, reply);
     }
 
-    fn gone(&self, client: u64) {
+    fn gone(&self, client: ClientId) {
         self.0.stop_grab(client);
         self.0.stop_probe_links(client);
     }
@@ -1389,7 +1394,7 @@ impl<W: Wiring> Requests for Served<W> {
 
 /// Handle request `incoming` from client `client`, sending any direct reply
 /// to `reply`.
-pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, client: u64, reply: &Reply) {
+pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, client: ClientId, reply: &Reply) {
     let send = |event: Event| {
         reply.send(event);
     };
@@ -1438,11 +1443,11 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::Add(mut download) => {
             download.limit_browser_request();
             if let Err(message) = daemon.check_download(&download) {
-                send(Event::Rejected { url: download.url, message: message.to_string() });
+                send(Event::Rejected { url: download.url, error: message.into() });
                 return;
             }
             let (id, url) = daemon.add(download);
-            info!(download_id = id, url = %url, "add");
+            info!(download_id = id.get(), url = %url, "add");
             send(Event::Ack { id, url, status: "accepted".to_string() });
         }
         Command::AddMany { items, queue } => {
@@ -1453,56 +1458,56 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::ProbeMedia { request, mut download } => {
             download.limit_browser_request();
             if let Err(message) = daemon.check_download(&download) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
                 return;
             }
             daemon.probe_media(request, download, reply.clone());
         }
         Command::Grab(req) => {
             if let Err(message) = daemon.grab(client, req, reply.clone()) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::CancelGrab => daemon.stop_grab(client),
         Command::ProbeLinks { request, links } => {
             if let Some(message) = links.iter().find_map(|d| daemon.check_download(d).err()) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
                 return;
             }
             daemon.probe_links(client, request, links, reply.clone());
         }
         Command::StopProbeLinks => daemon.stop_probe_links(client),
         Command::Cancel { id } => {
-            info!(download_id = id, "cancel");
+            info!(download_id = id.get(), "cancel");
             daemon.cancel(id);
         }
         Command::Confirm(answer) => {
             let (id, start) = (answer.id, answer.start);
             match daemon.confirm(answer) {
-                Ok(()) => info!(download_id = id, start, "confirm"),
-                Err(message) => send(Event::Error { message: message.to_string() }),
+                Ok(()) => info!(download_id = id.get(), start, "confirm"),
+                Err(message) => send(Event::Error { error: message.into() }),
             }
         }
         Command::Retry { id } => match daemon.retry(id) {
             Ok((new_id, url)) => {
-                info!(download_id = id, new_id, "retry");
+                info!(download_id = id.get(), new_id = new_id.get(), "retry");
                 send(Event::Ack { id: new_id, url, status: "accepted".to_string() });
             }
-            Err(message) => send(Event::Error { message: message.to_string() }),
+            Err(message) => send(Event::Error { error: message.into() }),
         },
         Command::Remove { id, delete_files } => {
             if let Err(message) = daemon.remove(id, delete_files) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::List => daemon.send_list(reply),
         Command::SaveQueue { queue } => match daemon.save_queue(queue) {
             Ok(id) => info!(queue = %id, "queue saved"),
-            Err(message) => send(Event::Error { message: message.to_string() }),
+            Err(message) => send(Event::Error { error: message.into() }),
         },
         Command::DeleteQueue { id } => {
             if let Err(message) = daemon.delete_queue(id) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::StartQueue { id } => match daemon.start_queue(id, None) {
@@ -1510,27 +1515,27 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 info!(queue = %id, "start queue");
                 let _ = daemon.wake.send(());
             }
-            Err(message) => send(Event::Error { message: message.to_string() }),
+            Err(message) => send(Event::Error { error: message.into() }),
         },
         Command::StopQueue { id } => match daemon.stop_queue(id) {
             Ok(()) => info!(queue = %id, "stop queue"),
-            Err(message) => send(Event::Error { message: message.to_string() }),
+            Err(message) => send(Event::Error { error: message.into() }),
         },
         Command::SetQueueOnce { id, when_done } => {
             if let Err(message) = daemon.update_queue(id, |q| {
                 q.when_done_once = when_done;
             }) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::MoveToQueue { id, queue, position } => {
             if let Err(message) = daemon.move_to_queue(id, queue, position) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::RemoveFromQueue { id } => {
             if let Err(message) = daemon.remove_from_queue(id) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::CancelCountdown => daemon.cancel_countdown(),
@@ -1542,14 +1547,14 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
             let url = download.as_ref().map(|d| d.url.clone()).unwrap_or_default();
             if let Some(d) = &download {
                 if let Err(message) = daemon.check_download(d) {
-                    send(Event::Error { message: message.to_string() });
+                    send(Event::Error { error: message.into() });
                     return;
                 }
             }
             match daemon.refresh_link(id, download, restart) {
-                Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason }),
+                Ok(Some(reason)) => send(Event::RefreshMismatch { id, url, reason: reason.into() }),
                 Ok(None) => {}
-                Err(message) => send(Event::Error { message: message.to_string() }),
+                Err(message) => send(Event::Error { error: message.into() }),
             }
         }
         Command::CancelRefresh => daemon.transfers.wait_for_link(None),
@@ -1569,14 +1574,14 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::PreviewZip { id } => daemon.preview_zip(id, reply.clone()),
         Command::Convert { id, to, delete_original } => {
             if let Err(message) = daemon.convert(id, to, delete_original) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::InstallUpdate => {
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
                 if let Err(error) = daemon.install_update() {
-                    reply.send(Event::UpdateFailed { error: error.to_string() });
+                    reply.send(Event::UpdateFailed { error: error.into() });
                 }
             });
         }
@@ -1596,22 +1601,22 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 .set_download_limit(id, bytes_per_sec)
                 .and_then(|()| remember.map_or(Ok(()), |r| daemon.set_limit_remember(id, r)));
             if let Err(message) = set {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::SetOnDone { id, on_done } => {
             if let Err(message) = daemon.set_on_done(id, on_done) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::Redownload { id } => {
             if let Err(message) = daemon.redownload(id) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::SetProperties { id, changes } => {
             if let Err(message) = daemon.set_properties(id, changes) {
-                send(Event::Error { message: message.to_string() });
+                send(Event::Error { error: message.into() });
             }
         }
         Command::PauseAll => {
@@ -1628,7 +1633,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 if daemon.clients.is_window(client) { settings } else { daemon.with_video_button(&settings) };
             match daemon.transfers.save_settings(settings) {
                 Ok(()) => info!("settings changed"),
-                Err(message) => send(Event::Error { message: message.to_string() }),
+                Err(message) => send(Event::Error { error: message.into() }),
             }
         }
     }
@@ -1648,10 +1653,10 @@ mod tests {
             ServiceError::BadBody("http://a/x".into()).to_string(),
             "the form body of http://a/x is not valid base64"
         );
-        assert_eq!(ServiceError::from(QueueError::NoQueue(7)).to_string(), "no queue with id 7");
+        assert_eq!(ServiceError::from(QueueError::NoQueue(QueueId::new(7))).to_string(), "no queue with id 7");
         assert_eq!(
-            ServiceError::from(DownloadError::NoDownload(3)).to_string(),
-            DownloadError::NoDownload(3).to_string()
+            ServiceError::from(DownloadError::NoDownload(DownloadId::new(3))).to_string(),
+            DownloadError::NoDownload(DownloadId::new(3)).to_string()
         );
     }
 }

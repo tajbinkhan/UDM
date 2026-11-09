@@ -3,6 +3,7 @@
 //! the end-of-central-directory record (and its ZIP64 form), then the
 //! central directory itself, through a function that fetches byte ranges.
 
+use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::download::ZipEntry;
 
 /// The longest a zip comment can make the end record's search.
@@ -126,7 +127,7 @@ fn parse_directory(dir: &[u8], count: u64) -> Result<Vec<ZipEntry>, ZipError> {
                 e += 4 + len;
             }
         }
-        entries.push(ZipEntry { name, size });
+        entries.push(ZipEntry { name, size: ByteCount::new(size) });
         at = name_start + name_len + extra_len + comment_len;
     }
     Ok(entries)
@@ -188,7 +189,10 @@ mod tests {
         let list = list(z.len() as u64, reader(&z)).unwrap();
         assert_eq!(
             list,
-            [ZipEntry { name: "readme.txt".into(), size: 120 }, ZipEntry { name: "Fotos/été.jpg".into(), size: 5000 }]
+            [
+                ZipEntry { name: "readme.txt".into(), size: ByteCount::new(120) },
+                ZipEntry { name: "Fotos/été.jpg".into(), size: ByteCount::new(5000) }
+            ]
         );
     }
 
@@ -203,7 +207,7 @@ mod tests {
             Ok(z[a as usize..=b as usize].to_vec())
         })
         .unwrap();
-        assert_eq!(got, [ZipEntry { name: "disk.img".into(), size: big }]);
+        assert_eq!(got, [ZipEntry { name: "disk.img".into(), size: ByteCount::new(big) }]);
         assert_eq!(reads.len(), 1, "the directory was inside the tail");
     }
 

@@ -12,6 +12,8 @@ use std::ptr;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use pullbay_domain::sync::LockExt;
+
 use crate::i18n::tr;
 
 type Hwnd = isize;
@@ -223,8 +225,8 @@ pub fn open(on_drop: OnDrop, on_open: Arc<dyn Fn() + Send + Sync>) {
     if is_open() {
         return;
     }
-    *ON_DROP.lock().unwrap() = Some(on_drop);
-    *ON_OPEN.lock().unwrap() = Some(on_open);
+    *ON_DROP.lock_or_recover() = Some(on_drop);
+    *ON_OPEN.lock_or_recover() = Some(on_open);
     WINDOW.store(OPENING, Ordering::Relaxed);
     std::thread::spawn(run);
 }
@@ -316,7 +318,7 @@ extern "system" fn window_proc(hwnd: Hwnd, msg: u32, wparam: usize, lparam: isiz
             // The whole window is a handle to drag it by.
             WM_NCHITTEST => HTCAPTION,
             WM_NCLBUTTONDBLCLK => {
-                if let Some(f) = ON_OPEN.lock().unwrap().clone() {
+                if let Some(f) = ON_OPEN.lock_or_recover().clone() {
                     f();
                 }
                 0
@@ -443,7 +445,7 @@ impl DropTarget {
     unsafe extern "system" fn drop(_: *mut c_void, data: *mut c_void, _: u32, _: Point, effect: *mut u32) -> i32 {
         let links = read_text(data).map(|t| links_in(&t)).unwrap_or_default();
         *effect = if links.is_empty() { DROPEFFECT_NONE } else { DROPEFFECT_COPY };
-        if let Some(f) = ON_DROP.lock().unwrap().clone() {
+        if let Some(f) = ON_DROP.lock_or_recover().clone() {
             for link in links {
                 f(link);
             }

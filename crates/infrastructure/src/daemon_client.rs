@@ -6,9 +6,10 @@
 //! frame and each `Outgoing` frame to an `Event`, and says when the
 //! connection goes.
 
+use pullbay_domain::sync::LockExt;
 use std::io::{self, ErrorKind};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
@@ -18,7 +19,7 @@ use pullbay_domain::download::CommandLine;
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::ipc;
 use crate::protocol::{read_message, write_frame, Incoming, Outgoing};
-use crate::wire::{event, incoming};
+use crate::wire::{self, event, incoming};
 
 /// How long a command line waits for the daemon's answer.
 const COMMAND_LINE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -39,7 +40,7 @@ pub struct IpcDaemonClient {
 /// Lock `m`. The guarded value is a plain stream slot, so one a panicking
 /// thread left behind is still usable.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
+    m.lock_or_recover()
 }
 
 impl IpcDaemonClient {
@@ -124,7 +125,9 @@ impl DaemonClient for IpcDaemonClient {
             match serde_json::from_slice::<Outgoing>(&raw) {
                 Ok(Outgoing::CommandLine { window_open }) => return Ok(window_open),
                 // A daemon older than this window does not know the message.
-                Ok(Outgoing::Error { message }) => return Err(DaemonError::Refused(message)),
+                Ok(Outgoing::Error { message, error_kind }) => {
+                    return Err(DaemonError::Refused(wire::failure(message, error_kind)))
+                }
                 _ => {}
             }
         }
@@ -149,6 +152,8 @@ fn for_window(event: &Event) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pullbay_application::daemon::Failure;
+    use pullbay_domain::id::DownloadId;
     use std::net::TcpListener;
     use std::sync::mpsc::{channel, Receiver};
 
@@ -200,9 +205,9 @@ mod tests {
             for _ in 0..3 {
                 let _ = lock(&got_tx).send(read(&mut stream));
             }
-            send(&mut stream, &Outgoing::Added { id: 4, url: "http://x/f".into() });
+            send(&mut stream, &Outgoing::Added { id: DownloadId::new(4), url: "http://x/f".into() });
             send(&mut stream, &Outgoing::Pong);
-            send(&mut stream, &Outgoing::Removed { id: 4 });
+            send(&mut stream, &Outgoing::Removed { id: DownloadId::new(4) });
             let _ = lock(&got_tx).send(read(&mut stream));
         });
         let client = IpcDaemonClient::with_connector("window", connector);
@@ -212,11 +217,13 @@ mod tests {
         assert!(matches!(hello, Some(Incoming::Hello { client: Some(ref c), .. }) if c == "window"));
         assert!(matches!(got.recv().unwrap(), Some(Incoming::List)));
         assert!(matches!(got.recv().unwrap(), Some(Incoming::GetSettings)));
-        assert_eq!(next(&rx), Event::Added { id: 4, url: "http://x/f".into() });
+        assert_eq!(next(&rx), Event::Added { id: DownloadId::new(4), url: "http://x/f".into() });
         // `pong` is not for a window.
-        assert_eq!(next(&rx), Event::Removed { id: 4 });
-        assert!(client.send(Command::Cancel { id: 4 }));
-        assert!(matches!(got.recv_timeout(Duration::from_secs(5)).unwrap(), Some(Incoming::Cancel { id: 4 })));
+        assert_eq!(next(&rx), Event::Removed { id: DownloadId::new(4) });
+        assert!(client.send(Command::Cancel { id: DownloadId::new(4) }));
+        assert!(
+            matches!(got.recv_timeout(Duration::from_secs(5)).unwrap(), Some(Incoming::Cancel { id }) if id == DownloadId::new(4))
+        );
         // The pretend daemon hangs up after that.
         assert_eq!(next(&rx), Event::Lost(Lost::Closed));
         assert!(!client.send(Command::List));
@@ -240,14 +247,14 @@ mod tests {
                     send(&mut stream, &Outgoing::Pong);
                     send(&mut stream, &Outgoing::CommandLine { window_open: true });
                 }
-                _ => send(&mut stream, &Outgoing::Error { message: "unexpected".into() }),
+                _ => send(&mut stream, &Outgoing::Error { message: "unexpected".into(), error_kind: None }),
             }
         });
         let client = IpcDaemonClient::with_connector("window", connector);
         let cmd = CommandLine { start_queue: true, ..CommandLine::default() };
         assert_eq!(client.run_command_line(cmd), Ok(true));
         let refused = client.run_command_line(CommandLine::default());
-        assert_eq!(refused, Err(DaemonError::Refused("unexpected".into())));
+        assert_eq!(refused, Err(DaemonError::Refused(Failure::Other("unexpected".into()))));
     }
 
     #[test]

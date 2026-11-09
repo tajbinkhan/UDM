@@ -24,9 +24,8 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use base64::Engine as _;
 use roxmltree::{Document, Node};
 
-use pullbay_domain::media::{
-    resolve, AddressError, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED,
-};
+use pullbay_domain::address::AddressError;
+use pullbay_domain::media::{resolve, MediaInfo, MediaKind, MediaOption, Segment, Track, DRM_REFUSED, LIVE_REFUSED};
 
 /// More fragments than this in one stream means a broken bootstrap.
 const MAX_FRAGMENTS: usize = 500_000;
@@ -302,10 +301,10 @@ impl<'a> Reader<'a> {
         Ok(self.bytes(1)?[0])
     }
     fn u32(&mut self) -> Result<u32, HdsError> {
-        Ok(u32::from_be_bytes(self.bytes(4)?.try_into().unwrap()))
+        Ok(u32::from_be_bytes(self.bytes(4)?.try_into().map_err(|_| HdsError::Truncated)?))
     }
     fn u64(&mut self) -> Result<u64, HdsError> {
-        Ok(u64::from_be_bytes(self.bytes(8)?.try_into().unwrap()))
+        Ok(u64::from_be_bytes(self.bytes(8)?.try_into().map_err(|_| HdsError::Truncated)?))
     }
     /// A NUL-terminated string.
     fn string(&mut self) -> Result<&'a [u8], HdsError> {
@@ -317,7 +316,7 @@ impl<'a> Reader<'a> {
     /// A box: its type and its body.
     fn boxed(&mut self) -> Result<([u8; 4], &'a [u8]), HdsError> {
         let size = self.u32()? as u64;
-        let kind: [u8; 4] = self.bytes(4)?.try_into().unwrap();
+        let kind: [u8; 4] = self.bytes(4)?.try_into().map_err(|_| HdsError::Truncated)?;
         let (size, header) = match size {
             1 => (self.u64()?, 16),
             0 => ((self.data.len() - self.at + 8) as u64, 8),
@@ -463,7 +462,7 @@ pub fn copy_mdat<R: Read + Seek, W: Write>(fragment: &mut R, out: &mut W) -> io:
             0 => break,
             _ => fragment.read_exact(&mut head[1..])?,
         }
-        let size = u32::from_be_bytes(head[..4].try_into().unwrap()) as u64;
+        let size = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as u64;
         let (body, to_end) = match size {
             0 => (0, true),
             1 => {
@@ -525,6 +524,7 @@ pub fn track(media: &Media, bootstrap: &[u8], duration: Option<f64>) -> Result<T
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use pullbay_domain::bytes::ByteCount;
     use pullbay_domain::media::sniff_hds as sniff;
 
     const URL: &str = "https://cdn.x/z/movie/manifest.f4m?hdnea=st=1~exp=2~hmac=abc";
@@ -668,7 +668,7 @@ pub(crate) mod tests {
         assert_eq!(info.kind, Some(MediaKind::Hds));
         let labels: Vec<&str> = info.video.iter().map(|o| o.label.as_str()).collect();
         assert_eq!(labels, ["720p, 1.5 Mbps", "360p, 500 kbps"]);
-        assert_eq!(info.video[1].size, Some(500_000));
+        assert_eq!(info.video[1].size, Some(ByteCount::new(500_000)));
 
         let low = pick(&m, Some("video_500"));
         let t = track(low, boot, m.duration).unwrap();

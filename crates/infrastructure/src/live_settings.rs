@@ -5,8 +5,9 @@
 //! the adapter for `UpdateChecks`. `QueueChimes` plays the queue sounds the
 //! settings ask for (`QueueSounds`).
 
+use pullbay_domain::sync::LockExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use pullbay_domain::ports::{QueueSounds, UpdateChecks};
 use tracing::warn;
@@ -32,7 +33,7 @@ impl LiveSettings {
     /// whole `Settings` values behind (every change replaces a field or the
     /// whole value), so a poisoned lock is still read.
     pub fn lock(&self) -> MutexGuard<'_, Settings> {
-        self.current.lock().unwrap_or_else(PoisonError::into_inner)
+        self.current.lock_or_recover()
     }
 
     /// A copy of the settings as they are now.

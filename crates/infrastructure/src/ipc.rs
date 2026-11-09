@@ -268,6 +268,9 @@ pub fn recv_handshake(stream: &mut impl Read) -> io::Result<Handshake> {
 /// field is length-prefixed so no two different inputs feed the MAC the same
 /// bytes.
 pub fn proof(token: &str, label: &str, client_nonce: &str, server_nonce: &str) -> String {
+    // Invariant: HMAC hashes a long key and pads a short one, so
+    // `new_from_slice` never fails for it.
+    #[allow(clippy::expect_used)]
     let mut mac = Hmac::<Sha256>::new_from_slice(token.as_bytes()).expect("HMAC accepts keys of any length");
     for field in [label, client_nonce, server_nonce] {
         mac.update(&(field.len() as u32).to_le_bytes());

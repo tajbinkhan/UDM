@@ -2,6 +2,8 @@
 //! Queues dialog where queues and their schedules are edited, and the
 //! countdown before a finished queue sleeps or shuts down the computer.
 
+use pullbay_domain::id::QueueId;
+use pullbay_domain::sync::LockExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -43,12 +45,12 @@ pub fn new_named(name: &str, queues: &[Queue]) -> Result<Queue, UiError> {
         return Err(trf!("There is already a queue named \"{name}\".", name = name).into());
     }
     // Id 0 asks the daemon to create it and pick the id.
-    Ok(Queue::new(0, name))
+    Ok(Queue::new(QueueId::NEW, name))
 }
 
 /// The queue called `name`, matched the way the daemon matches names (case
 /// ignored), so a queue just created can be found once it is listed.
-pub fn named(queues: &[Queue], name: &str) -> Option<u64> {
+pub fn named(queues: &[Queue], name: &str) -> Option<QueueId> {
     let name = name.trim();
     queues.iter().find(|q| q.name.eq_ignore_ascii_case(name)).map(|q| q.id)
 }
@@ -57,20 +59,20 @@ pub fn named(queues: &[Queue], name: &str) -> Option<u64> {
 /// until it has. A worker reads it again at most every ten seconds, since
 /// the dialogs draw many times a second and the read asks the system.
 fn wake_timers_allowed(ctx: &egui::Context) -> Option<(bool, bool)> {
-    use std::sync::{Mutex, PoisonError};
+    use std::sync::Mutex;
     use std::time::Duration;
     /// When a read was last started, and what the last one found.
     type Cached = (Option<Instant>, Option<(bool, bool)>);
     static CACHE: Mutex<Cached> = Mutex::new((None, None));
     // The cache is two plain values that a panicking thread cannot leave
     // half-changed.
-    let mut cache = CACHE.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut cache = CACHE.lock_or_recover();
     if cache.0.is_none_or(|at| at.elapsed() >= Duration::from_secs(10)) {
         cache.0 = Some(Instant::now());
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let value = crate::ports::ports().system.wake_timers_allowed();
-            CACHE.lock().unwrap_or_else(PoisonError::into_inner).1 = value;
+            CACHE.lock_or_recover().1 = value;
             ctx.request_repaint();
         });
     }
@@ -152,7 +154,7 @@ pub fn open_file_button(ui: &mut egui::Ui, field: &str, slot: &Picked) {
         std::thread::spawn(move || {
             let title = tr("Open this file when done");
             if let Some(file) = crate::ports::ports().pickers.pick_file(title, &[], start.as_deref()) {
-                *slot.lock().unwrap() = Some(file);
+                *slot.lock_or_recover() = Some(file);
                 ctx.request_repaint();
             }
         });
@@ -206,7 +208,7 @@ pub fn header(ui: &mut egui::Ui, q: &Queue, connected: bool, actions: &mut Vec<A
 /// One queue being edited in the Queues dialog.
 pub struct QueueDraft {
     /// 0 for a new queue.
-    id: u64,
+    id: QueueId,
     name: String,
     max_concurrent: usize,
     retries: u32,
@@ -234,7 +236,7 @@ pub struct QueueDraft {
 
 impl QueueDraft {
     fn new_queue() -> Self {
-        QueueDraft::from(&Queue::new(0, tr("New queue")))
+        QueueDraft::from(&Queue::new(QueueId::NEW, tr("New queue")))
     }
 
     fn from(q: &Queue) -> Self {
@@ -298,7 +300,7 @@ impl QueueDraft {
 /// The Queues dialog: the queues on the left, the selected one's settings on
 /// the right.
 pub struct QueuesDialog {
-    selected: u64,
+    selected: QueueId,
     draft: QueueDraft,
     /// A new queue just saved, to select once the daemon lists it.
     pending_name: Option<String>,
@@ -307,15 +309,18 @@ pub struct QueuesDialog {
 }
 
 impl QueuesDialog {
-    pub fn open(queues: &[Queue], select: Option<u64>) -> Self {
+    pub fn open(queues: &[Queue], select: Option<QueueId>) -> Self {
         let q = select.and_then(|id| queues.iter().find(|q| q.id == id)).or_else(|| queues.first());
         match q {
             Some(q) => {
                 QueuesDialog { selected: q.id, draft: QueueDraft::from(q), pending_name: None, schedule_note: false }
             }
-            None => {
-                QueuesDialog { selected: 0, draft: QueueDraft::new_queue(), pending_name: None, schedule_note: false }
-            }
+            None => QueuesDialog {
+                selected: QueueId::NEW,
+                draft: QueueDraft::new_queue(),
+                pending_name: None,
+                schedule_note: false,
+            },
         }
     }
 }
@@ -359,7 +364,7 @@ pub fn dialog(
                     }
                     ui.add_space(6.0);
                     if ui.button(tr("New queue")).clicked() {
-                        d.selected = 0;
+                        d.selected = QueueId::NEW;
                         d.draft = QueueDraft::new_queue();
                     }
                 });
@@ -532,7 +537,7 @@ fn form(
                     }
                     Ok(q) => {
                         draft.error = None;
-                        if q.id == 0 {
+                        if q.id == QueueId::NEW {
                             pending_name = Some(q.name.clone());
                         }
                         actions.push(Action::SaveQueue(q));
@@ -540,7 +545,7 @@ fn form(
                     Err(e) => draft.error = Some(e.to_string()),
                 }
             }
-            let deletable = draft.id != 0 && draft.id != MAIN_QUEUE;
+            let deletable = draft.id != QueueId::NEW && draft.id != MAIN_QUEUE;
             if ui
                 .add_enabled(deletable, egui::Button::new(tr("Delete")))
                 .on_hover_text(tr("Its downloads move to the main queue"))
@@ -553,7 +558,7 @@ fn form(
         ui.separator();
         // Start now and Stop act on the queue as saved, as IDM's do; a new
         // queue has nothing to start until it is saved.
-        let saved = queues.iter().find(|q| q.id == draft.id && draft.id != 0);
+        let saved = queues.iter().find(|q| q.id == draft.id && draft.id != QueueId::NEW);
         let running = saved.is_some_and(|q| q.running);
         ui.add_enabled_ui(connected && saved.is_some(), |ui| {
             if ui
@@ -641,9 +646,9 @@ mod tests {
 
     #[test]
     fn new_named_checks_the_name() {
-        let queues = [Queue::main(), Queue::new(2, "Night")];
+        let queues = [Queue::main(), Queue::new(QueueId::new(2), "Night")];
         let q = new_named("  Weekend ", &queues).unwrap();
-        assert_eq!((q.id, q.name.as_str()), (0, "Weekend"));
+        assert_eq!((q.id, q.name.as_str()), (QueueId::NEW, "Weekend"));
         assert!(q.validate().is_ok());
         assert!(new_named("   ", &queues).is_err());
         assert!(new_named("night", &queues).is_err(), "names differ by more than case");
@@ -660,14 +665,14 @@ mod tests {
 
     #[test]
     fn named_finds_a_queue_whatever_the_case() {
-        let queues = [Queue::main(), Queue::new(2, "Night")];
-        assert_eq!(named(&queues, "NIGHT "), Some(2));
+        let queues = [Queue::main(), Queue::new(QueueId::new(2), "Night")];
+        assert_eq!(named(&queues, "NIGHT "), Some(QueueId::new(2)));
         assert_eq!(named(&queues, "Day"), None);
     }
 
     #[test]
     fn draft_round_trips_a_queue() {
-        let mut q = Queue::new(3, "Night");
+        let mut q = Queue::new(QueueId::new(3), "Night");
         q.max_concurrent = 2;
         q.retries = 1;
         q.when_done = WhenDone::ShutDown;

@@ -11,11 +11,12 @@ use std::path::Path;
 use eframe::egui::{self, Align, Rect, Sense, Stroke};
 use egui_extras::TableBuilder;
 use pullbay_domain::download::{Answer, DownloadEntry, Status};
+use pullbay_domain::id::DownloadId;
 use pullbay_domain::queue::Queue;
 
 use crate::columns::{self, Column, Layout};
 use crate::i18n::{tr, trf};
-use crate::{display_name, human_bytes, human_duration, scan_label, Action};
+use crate::{display_name, human_bytes, human_duration, human_rate, scan_label, Action};
 
 /// IDM's rows are 17 px; the row's text sets the floor here.
 const ROW_HEIGHT: f32 = 18.0;
@@ -27,14 +28,14 @@ const DRAG_DISTANCE: f32 = 4.0;
 /// Everything the list needs for one frame.
 pub struct List<'a> {
     pub shown: &'a [&'a DownloadEntry],
-    pub speeds: &'a HashMap<u64, f64>,
-    pub selected: &'a HashSet<u64>,
+    pub speeds: &'a HashMap<DownloadId, f64>,
+    pub selected: &'a HashSet<DownloadId>,
     pub queues: &'a [Queue],
     /// In a queue's view: that queue, whose order the list shows.
     pub queue: Option<&'a Queue>,
     pub connected: bool,
     /// The match the find bar moved to, and whether to scroll to it.
-    pub found: Option<u64>,
+    pub found: Option<DownloadId>,
     pub scroll: bool,
 }
 
@@ -68,7 +69,7 @@ pub fn show(
     }
 
     // Each download's place in its queue, for the Q column.
-    let places: HashMap<u64, usize> =
+    let places: HashMap<DownloadId, usize> =
         list.queues.iter().flat_map(|q| q.order.iter().enumerate().map(|(i, id)| (*id, i + 1))).collect();
 
     // View > Font: the list's text, and rows tall enough for it.
@@ -244,7 +245,7 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
     match column {
         Column::Name => {
             ui.add(egui::Label::new(display_name(e)).truncate().selectable(false))
-                .on_hover_text(e.path.as_deref().unwrap_or(&e.url));
+                .on_hover_text(e.path.as_deref().unwrap_or(e.url.as_str()));
         }
         Column::Queue => {
             if let Some(n) = place {
@@ -256,7 +257,7 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
             // arrived. A stream counts segments.
             let size = match e.total {
                 Some(total) => human_bytes(total),
-                None if e.done > 0 => human_bytes(e.done),
+                None if !e.done.is_zero() => human_bytes(e.done),
                 None => String::new(),
             };
             let size = ui.add(egui::Label::new(size).selectable(false));
@@ -277,7 +278,7 @@ fn cell(ui: &mut egui::Ui, column: Column, e: &DownloadEntry, speed: Option<f64>
         }
         Column::Speed => {
             ui.add(
-                egui::Label::new(running.map(|bps| format!("{}/s", human_bytes(bps as u64))).unwrap_or_default())
+                egui::Label::new(running.map(|bps| format!("{}/s", human_rate(bps as u64))).unwrap_or_default())
                     .selectable(false),
             );
         }
@@ -333,7 +334,7 @@ fn status(ui: &mut egui::Ui, e: &DownloadEntry) {
         ui.weak(tr("(note)")).on_hover_text(note);
     }
     if let Some(limit) = e.speed_limit {
-        ui.weak(tr("(limited)")).on_hover_text(trf!("Limited to {speed}/s", speed = human_bytes(limit)));
+        ui.weak(tr("(limited)")).on_hover_text(trf!("Limited to {speed}/s", speed = human_rate(limit)));
     }
 }
 
@@ -390,7 +391,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
     if e.error.as_deref().and_then(pullbay_domain::download::login_wanted).is_some() {
         item(ui, on, tr("Log in..."), Action::OpenLogin(e.id));
     }
-    let ids: Vec<u64> = if list.selected.contains(&e.id) {
+    let ids: Vec<DownloadId> = if list.selected.contains(&e.id) {
         list.shown.iter().filter(|r| list.selected.contains(&r.id) && r.status.is_terminal()).map(|r| r.id).collect()
     } else {
         vec![e.id]

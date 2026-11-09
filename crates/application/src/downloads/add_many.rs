@@ -1,5 +1,5 @@
-use pullbay_domain::batch;
 use pullbay_domain::download::{same_address, Download, DownloadError, DuplicateStep};
+use pullbay_domain::id::{DownloadId, QueueId};
 use pullbay_domain::ports::{DownloadControl, DownloadFiles, DownloadIntake, DownloadList, QueueStore};
 use pullbay_domain::queue;
 use pullbay_domain::settings::Duplicate;
@@ -10,11 +10,11 @@ use super::RemoveDownload;
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AddedMany {
     /// The new downloads, in order.
-    pub ids: Vec<u64>,
+    pub ids: Vec<DownloadId>,
     /// How many were already in the list and not added again.
     pub skipped: usize,
     /// Older downloads a new one was to replace but that stayed.
-    pub not_replaced: Vec<(u64, DownloadError)>,
+    pub not_replaced: Vec<(DownloadId, DownloadError)>,
 }
 
 /// Add many downloads to wait in a queue, announcing the queue once rather
@@ -44,11 +44,11 @@ where
 
     /// Add `items` to `queue` (the main queue when it is gone). `if_duplicate`
     /// is the duplicate setting, for items that give no answer of their own.
-    pub fn run(&self, items: Vec<Download>, queue: Option<u64>, if_duplicate: Duplicate) -> AddedMany {
+    pub fn run(&self, items: Vec<Download>, queue: Option<QueueId>, if_duplicate: Duplicate) -> AddedMany {
         let queue = self.queues.edit(|qs| queue::existing_or_main(qs, queue));
         let mut added = AddedMany::default();
         for mut d in items {
-            if !batch::is_download_url(&d.url) || !self.intake.sendable(&d) {
+            if !d.url.is_address() || !self.intake.sendable(&d) {
                 continue;
             }
             let old =
@@ -86,12 +86,13 @@ where
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Files, Intake, Queues};
+    use pullbay_domain::address::Link;
     use pullbay_domain::download::Status;
     use pullbay_domain::queue::MAIN_QUEUE;
     use pullbay_domain::settings::FileExists;
 
     fn links(urls: &[&str]) -> Vec<Download> {
-        urls.iter().map(|u| Download { url: u.to_string(), ..Download::default() }).collect()
+        urls.iter().map(|u| Download { url: Link::new(*u), ..Download::default() }).collect()
     }
 
     #[test]
