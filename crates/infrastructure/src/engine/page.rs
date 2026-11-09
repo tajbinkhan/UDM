@@ -13,6 +13,8 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use uidm_domain::bytes::ByteCount;
+use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
 use super::{
@@ -64,7 +66,7 @@ fn kill_tree(child: &mut Child) {
 }
 
 pub(super) fn run(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     req: &DownloadRequest,
     choice: &MediaChoice,
@@ -155,8 +157,8 @@ pub(super) fn run(
                     reporter.send(Progress::Advanced {
                         id,
                         url: url.clone(),
-                        done: t.bytes(),
-                        total: t.total.filter(|total| *total >= t.bytes()),
+                        done: ByteCount::new(t.bytes()),
+                        total: t.total.filter(|total| *total >= t.bytes()).map(ByteCount::new),
                         parts: None,
                         segments: None,
                     });
@@ -214,7 +216,7 @@ pub(super) fn run(
 
 /// The name yt-dlp works under for download `id`, without an extension:
 /// the chosen file's, with the id added.
-fn working_stem(output: &Path, id: u64) -> PathBuf {
+fn working_stem(output: &Path, id: DownloadId) -> PathBuf {
     let mut stem = output.with_extension("").into_os_string();
     stem.push(format!(".uidm-{id}"));
     stem.into()
@@ -237,10 +239,10 @@ mod tests {
 
     #[test]
     fn working_stem_adds_the_id() {
-        let stem = working_stem(Path::new("dl/Song.mp3"), 42);
+        let stem = working_stem(Path::new("dl/Song.mp3"), DownloadId::new(42));
         assert_eq!(stem, Path::new("dl/Song.uidm-42"));
         // Dots in the title stay; only the extension goes.
-        assert_eq!(working_stem(Path::new("a.b.mp4"), 7), Path::new("a.b.uidm-7"));
+        assert_eq!(working_stem(Path::new("a.b.mp4"), DownloadId::new(7)), Path::new("a.b.uidm-7"));
     }
 
     #[test]

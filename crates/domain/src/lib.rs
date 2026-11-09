@@ -5,11 +5,14 @@
 // test exemptions do not cover (AGENTS.md section 9).
 #![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
 
+pub mod address;
 pub mod batch;
+pub mod bytes;
 pub mod command;
 pub mod download;
 pub mod filename;
 pub mod grab;
+pub mod id;
 pub mod media;
 pub mod ports;
 pub mod queue;

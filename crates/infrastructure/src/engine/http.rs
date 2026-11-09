@@ -14,6 +14,8 @@ use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
+use uidm_domain::bytes::ByteCount;
+
 use super::EngineError;
 use crate::net::{self, NetConfig};
 
@@ -80,7 +82,7 @@ impl Probe {
     /// the server's copy changed.
     pub fn validator(&self) -> uidm_domain::download::Validator {
         uidm_domain::download::Validator {
-            size: self.total,
+            size: self.total.map(ByteCount::new),
             etag: self.etag.clone(),
             last_modified: self.last_modified.clone(),
         }

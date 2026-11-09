@@ -217,6 +217,7 @@ impl uidm_application::window::SettingsChecks for DiskChecks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::id::QueueId;
 
     /// A Windows full path as a full path on this system: `C:\a\b` stays
     /// on Windows and is `/a/b` elsewhere.
@@ -261,7 +262,7 @@ mod tests {
             add_only: true,
             general_remember_folder: true,
             general_last_folder: Some(full("D:\\Misc")),
-            later_queue: Some(4),
+            later_queue: Some(QueueId::new(4)),
             categories: vec![Category::new("Books", &["epub"])],
             general_extensions: vec!["pdf".into()],
             capture_types: vec!["zip".into()],

@@ -7,13 +7,14 @@
 
 use eframe::egui;
 use uidm_domain::download::{DownloadEntry, OnDone, SegmentInfo, Status};
+use uidm_domain::id::DownloadId;
 use uidm_domain::queue::{Queue, WhenDone};
 use uidm_domain::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 
 use crate::dialog::Opening;
 use crate::i18n::{tr, trf};
 
-use super::{columns, connections, display_name, human_bytes, human_duration, theme, Action};
+use super::{columns, connections, display_name, human_bytes, human_duration, human_rate, theme, Action};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tab {
@@ -44,7 +45,7 @@ fn start_tab(t: ProgressTab) -> Tab {
 }
 
 pub struct ProgressWindow {
-    pub id: u64,
+    pub id: DownloadId,
     tab: Tab,
     /// The connections' bar and table are shown.
     details: bool,
@@ -93,7 +94,7 @@ impl ProgressWindow {
 
 /// Whether a queue started download `id`, which then is in a running
 /// queue. A queue keeps its downloads until they finish.
-pub fn started_by_queue(queues: &[Queue], id: u64) -> bool {
+pub fn started_by_queue(queues: &[Queue], id: DownloadId) -> bool {
     queues.iter().any(|q| q.running && q.order.contains(&id))
 }
 
@@ -102,7 +103,7 @@ fn status_text(e: &DownloadEntry) -> &'static str {
         Status::Queued => tr("Waiting in its queue"),
         Status::Confirming => tr("Waiting for the save-as dialog"),
         Status::Waiting => tr("Waiting to be started"),
-        Status::Downloading if e.done == 0 => tr("Connecting..."),
+        Status::Downloading if e.done.is_zero() => tr("Connecting..."),
         Status::Downloading => tr("Receiving data..."),
         Status::Done => tr("Done"),
         Status::Failed => tr("Failed"),
@@ -247,7 +248,7 @@ fn status_tab(ui: &mut egui::Ui, e: &DownloadEntry, fraction: Option<f32>, runni
         ui.label(tr("Address"));
         ui.allocate_ui_with_layout(egui::vec2(380.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_width(380.0);
-            ui.add(egui::Label::new(&e.url).truncate()).on_hover_text(&e.url);
+            ui.add(egui::Label::new(e.url.as_str()).truncate()).on_hover_text(e.url.as_str());
         });
         ui.end_row();
 
@@ -273,7 +274,7 @@ fn status_tab(ui: &mut egui::Ui, e: &DownloadEntry, fraction: Option<f32>, runni
 
         let downloading = e.status == Status::Downloading;
         ui.label(tr("Transfer rate"));
-        ui.label(running.map(|bps| format!("{}/s", human_bytes(bps as u64))).unwrap_or_default());
+        ui.label(running.map(|bps| format!("{}/s", human_rate(bps as u64))).unwrap_or_default());
         ui.end_row();
 
         ui.label(tr("Time left"));
@@ -309,7 +310,7 @@ fn limit_tab(
     ui.add_space(4.0);
     ui.label(trf!(
         "Transfer rate: {speed}",
-        speed = running.map(|bps| format!("{}/s", human_bytes(bps as u64))).unwrap_or_else(|| "-".into())
+        speed = running.map(|bps| format!("{}/s", human_rate(bps as u64))).unwrap_or_else(|| "-".into())
     ));
     ui.add_space(4.0);
     let wanted = w.limit_on.then_some(w.limit_kbps * 1024);
@@ -364,16 +365,21 @@ pub fn on_done_fields(ui: &mut egui::Ui, on_done: &mut OnDone) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::id::QueueId;
 
     fn queue(id: u64, running: bool, order: &[u64]) -> Queue {
-        Queue { running, order: order.to_vec(), ..Queue::new(id, "q") }
+        Queue {
+            running,
+            order: order.iter().copied().map(DownloadId::new).collect(),
+            ..Queue::new(QueueId::new(id), "q")
+        }
     }
 
     #[test]
     fn only_a_running_queue_starts_a_download() {
         let queues = [queue(1, true, &[7, 8]), queue(2, false, &[9])];
-        assert!(started_by_queue(&queues, 8));
-        assert!(!started_by_queue(&queues, 9), "its queue is stopped, so the user started it");
-        assert!(!started_by_queue(&queues, 5), "in no queue");
+        assert!(started_by_queue(&queues, DownloadId::new(8)));
+        assert!(!started_by_queue(&queues, DownloadId::new(9)), "its queue is stopped, so the user started it");
+        assert!(!started_by_queue(&queues, DownloadId::new(5)), "in no queue");
     }
 }

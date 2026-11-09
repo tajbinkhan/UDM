@@ -1,3 +1,4 @@
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadList, QueueStore};
 use uidm_domain::queue::{self, QueueError};
 
@@ -14,7 +15,7 @@ impl<'a, Q: QueueStore, D: DownloadList> RemoveFromQueue<'a, Q, D> {
         RemoveFromQueue { queues, downloads }
     }
 
-    pub fn run(&self, id: u64) -> Result<(), QueueError> {
+    pub fn run(&self, id: DownloadId) -> Result<(), QueueError> {
         self.downloads.status(id).ok_or(QueueError::NoDownload(id))?;
         if !self.queues.edit(|qs| queue::leave(qs, id)) {
             return Err(QueueError::NotQueued);
@@ -34,14 +35,14 @@ mod tests {
     #[test]
     fn it_leaves_the_queue_but_stays_listed() {
         let queues = Queues::main();
-        queues.edit(|qs| qs[0].order = vec![1]);
+        queues.edit(|qs| qs[0].order = vec![DownloadId::new(1)]);
         let downloads = Downloads::with(&[(1, Status::Waiting)]);
         let remove = RemoveFromQueue::new(&queues, &downloads);
-        remove.run(1).unwrap();
+        remove.run(DownloadId::new(1)).unwrap();
         assert!(queues.get(MAIN_QUEUE).order.is_empty());
-        assert_eq!(downloads.status(1), Some(Status::Waiting));
-        assert_eq!(remove.run(1), Err(QueueError::NotQueued), "it is in no queue now");
-        assert_eq!(remove.run(9), Err(QueueError::NoDownload(9)));
+        assert_eq!(downloads.status(DownloadId::new(1)), Some(Status::Waiting));
+        assert_eq!(remove.run(DownloadId::new(1)), Err(QueueError::NotQueued), "it is in no queue now");
+        assert_eq!(remove.run(DownloadId::new(9)), Err(QueueError::NoDownload(DownloadId::new(9))));
         assert_eq!(queues.changes(), 1);
     }
 }

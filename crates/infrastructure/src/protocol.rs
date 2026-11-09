@@ -9,7 +9,10 @@ use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
+use uidm_domain::address::Link;
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::grab::{GrabFile, GrabRequest};
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::media::MediaInfo;
 use uidm_domain::queue::{Queue, WhenDone};
 use uidm_domain::settings::Settings;
@@ -44,7 +47,7 @@ pub enum Incoming {
     AddMany {
         items: Vec<Download>,
         #[serde(default)]
-        queue: Option<u64>,
+        queue: Option<QueueId>,
     },
     /// Read a stream's playlist or manifest and answer with `media_info`: its
     /// qualities, or why it cannot be downloaded. `request` is echoed back.
@@ -70,24 +73,24 @@ pub enum Incoming {
     StopProbeLinks,
     /// Cancel a queued or running download.
     Cancel {
-        id: u64,
+        id: DownloadId,
     },
     /// Start a failed or canceled download again; it resumes from its partial
     /// file. The old entry is removed and the retry gets a new id.
     Retry {
-        id: u64,
+        id: DownloadId,
     },
     /// Download a finished, failed or canceled download again from the
     /// start, keeping its id, link, request, name and folder. A file still
     /// there is handled by the file-exists setting.
     Redownload {
-        id: u64,
+        id: DownloadId,
     },
     /// Forget a finished, failed or canceled download. Its files stay unless
     /// `delete_files`, which sends the finished or partial file, its resume
     /// sidecar and a stream's segments to the Recycle Bin.
     Remove {
-        id: u64,
+        id: DownloadId,
         #[serde(default)]
         delete_files: bool,
     },
@@ -107,27 +110,27 @@ pub enum Incoming {
     },
     /// Delete a queue; its waiting downloads move to the main queue.
     DeleteQueue {
-        id: u64,
+        id: QueueId,
     },
     StartQueue {
-        id: u64,
+        id: QueueId,
     },
     /// Stop a queue; its running downloads go back to waiting in it, with
     /// their progress kept.
     StopQueue {
-        id: u64,
+        id: QueueId,
     },
     /// What happens when this queue's current run ends, this time only.
     SetQueueOnce {
-        id: u64,
+        id: QueueId,
         #[serde(default)]
         when_done: Option<WhenDone>,
     },
     /// Put a download in a queue (or move it within one) at `position`, or at
     /// the end. A download that is not running waits there.
     MoveToQueue {
-        id: u64,
-        queue: u64,
+        id: DownloadId,
+        queue: QueueId,
         #[serde(default)]
         position: Option<usize>,
     },
@@ -136,7 +139,7 @@ pub enum Incoming {
     /// it starts by hand or goes back with `move_to_queue`. A running one
     /// keeps running.
     RemoveFromQueue {
-        id: u64,
+        id: DownloadId,
     },
     /// Stop the countdown before sleeping or shutting down.
     CancelCountdown,
@@ -146,7 +149,7 @@ pub enum Incoming {
     /// `restart` says to start over anyway. Without `download`, wait for the
     /// next download the browser hands over (`refresh_waiting`).
     RefreshLink {
-        id: u64,
+        id: DownloadId,
         #[serde(default)]
         download: Option<Download>,
         #[serde(default)]
@@ -173,7 +176,7 @@ pub enum Incoming {
     /// MP3 or M4A. The new file shows as a download of its own, with
     /// progress; the original stays unless `delete_original`.
     Convert {
-        id: u64,
+        id: DownloadId,
         to: uidm_domain::media::Target,
         #[serde(default)]
         delete_original: bool,
@@ -181,7 +184,7 @@ pub enum Incoming {
     /// List the files inside a waiting zip download, reading only the end
     /// of the archive; answered with `zip_preview`.
     PreviewZip {
-        id: u64,
+        id: DownloadId,
     },
     /// A page as the browser showed it, answering `render_page`: its HTML
     /// after its scripts ran and its address then, or nothing; and the
@@ -205,7 +208,7 @@ pub enum Incoming {
     /// Change a stopped or finished download's link, referrer, description,
     /// login, or (when finished) its file's name and folder.
     SetProperties {
-        id: u64,
+        id: DownloadId,
         changes: Properties,
     },
     /// Set or clear one download's own speed limit, in bytes per second. A
@@ -213,7 +216,7 @@ pub enum Incoming {
     /// limit stays when the download is stopped and resumed; missing leaves
     /// that as it was.
     SetSpeedLimit {
-        id: u64,
+        id: DownloadId,
         #[serde(default)]
         bytes_per_sec: Option<u64>,
         #[serde(default)]
@@ -223,7 +226,7 @@ pub enum Incoming {
     CountdownNow,
     /// Set or clear what one unfinished download does once it finishes.
     SetOnDone {
-        id: u64,
+        id: DownloadId,
         #[serde(default)]
         on_done: Option<OnDone>,
     },
@@ -256,22 +259,22 @@ pub enum Outgoing {
     /// Reply to `add` or `retry`, confirming the download was accepted. `id`
     /// identifies it in later events and requests.
     Ack {
-        id: u64,
-        url: String,
+        id: DownloadId,
+        url: Link,
         status: String,
     },
     /// A download was queued. Sent to every client.
     Added {
-        id: u64,
-        url: String,
+        id: DownloadId,
+        url: Link,
     },
     /// A download has begun; totals may be unknown for a non-ranged server.
     Started {
-        id: u64,
-        url: String,
+        id: DownloadId,
+        url: Link,
         /// The file being written.
         path: String,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
         connections: usize,
         /// Where the data goes until it is complete, when not at `path` (a
@@ -284,10 +287,10 @@ pub enum Outgoing {
     },
     /// Periodic progress for a running download.
     Progress {
-        id: u64,
-        url: String,
-        done: u64,
-        total: Option<u64>,
+        id: DownloadId,
+        url: Link,
+        done: ByteCount,
+        total: Option<ByteCount>,
         /// For a stream: segments fetched and segments in all.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         parts: Option<[u64; 2]>,
@@ -297,26 +300,26 @@ pub enum Outgoing {
     },
     /// A download finished; `path` is the saved file.
     Done {
-        id: u64,
-        url: String,
+        id: DownloadId,
+        url: Link,
         path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
     /// A download failed partway.
     Failed {
-        id: u64,
-        url: String,
+        id: DownloadId,
+        url: Link,
         error: String,
     },
     /// A download was canceled; its partial file and resume sidecar are kept.
     Canceled {
-        id: u64,
-        url: String,
+        id: DownloadId,
+        url: Link,
     },
     /// A download was removed from the list (removed or retried).
     Removed {
-        id: u64,
+        id: DownloadId,
     },
     /// A download's whole entry, replacing what clients had: used for the
     /// changes no other event covers (`confirming`, `waiting`, and back to
@@ -339,7 +342,7 @@ pub enum Outgoing {
     /// Show the completion dialog of finished download `id` again: a new
     /// download had the same address. Other clients ignore it.
     ShowDone {
-        id: u64,
+        id: DownloadId,
     },
     /// Every queue, in order: a reply to `list`, and sent to every client when
     /// one changes.
@@ -364,23 +367,23 @@ pub enum Outgoing {
     /// Which download waits for a new link from the browser, if any. Sent to
     /// every client when it changes, and after `downloads` in a `list` reply.
     RefreshWaiting {
-        id: Option<u64>,
+        id: Option<DownloadId>,
     },
     /// A download's file name is taken and the setting says to ask: nothing
     /// was written, and it waits as `confirming` with `path`, the taken file,
     /// until a window answers with `confirm`.
     NameTaken {
-        id: u64,
-        url: String,
+        id: DownloadId,
+        url: Link,
         path: String,
-        total: Option<u64>,
+        total: Option<ByteCount>,
     },
     /// Reply to `refresh_link`: the new link is for another file, so the
     /// partial file cannot be kept. Send `refresh_link` again with
     /// `restart: true` to start over.
     RefreshMismatch {
-        id: u64,
-        url: String,
+        id: DownloadId,
+        url: Link,
         reason: String,
         /// The reason's kind and values (see `wire`), for clients that
         /// translate it; `reason` is its English text.
@@ -406,7 +409,7 @@ pub enum Outgoing {
         request: u64,
         index: usize,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        total: Option<u64>,
+        total: Option<ByteCount>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         content_type: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -429,8 +432,8 @@ pub enum Outgoing {
     /// (`paused`, with when they resume, in seconds since 1970), when they
     /// resume, and to a window that connects while it matters.
     Quota {
-        used: u64,
-        limit: u64,
+        used: ByteCount,
+        limit: ByteCount,
         paused: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resumes_at: Option<u64>,
@@ -474,7 +477,7 @@ pub enum Outgoing {
     /// The files inside a zip download, answering `preview_zip`, or why
     /// they could not be listed.
     ZipPreview {
-        id: u64,
+        id: DownloadId,
         #[serde(default)]
         entries: Vec<uidm_domain::download::ZipEntry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -496,12 +499,12 @@ pub enum Outgoing {
     /// finished ones while they download.
     GrabProgress {
         pages: u64,
-        bytes: u64,
+        bytes: ByteCount,
         found: usize,
         #[serde(default)]
         explored: u64,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        added: Vec<u64>,
+        added: Vec<DownloadId>,
     },
     /// A crawl ended: what it found, and why it stopped early, if it did.
     GrabDone {
@@ -528,7 +531,7 @@ pub enum Outgoing {
     /// Reply to `add` when the download was not taken, so the client can
     /// keep it: `message` says why.
     Rejected {
-        url: String,
+        url: Link,
         message: String,
         /// The error's kind and values (see `wire`), for clients that
         /// translate it; `message` is its English text.
@@ -623,7 +626,7 @@ mod tests {
             [("Accept".to_string(), "*/*".to_string()), ("Sec-Fetch-Mode".into(), "navigate".into())]
         );
         assert_eq!(d.redirects, ["https://x/get/a"]);
-        assert_eq!((d.size, d.content_type.as_deref()), (Some(1048576), Some("application/zip")));
+        assert_eq!((d.size, d.content_type.as_deref()), (Some(ByteCount::new(1048576)), Some("application/zip")));
         let proxy = d.browser_proxy.clone().unwrap();
         assert_eq!(
             (proxy.mode, proxy.pac_url.as_deref(), proxy.bypass.len()),
@@ -703,6 +706,95 @@ mod tests {
         assert!(read_message(&mut cur, 1024).is_err());
     }
 
+    /// Ids travel as plain numbers: messages from clients and daemons
+    /// that predate the id types read the same and are written back
+    /// unchanged.
+    /// Addresses and file names travel as plain strings, and a request
+    /// whose address UIDM does not take still decodes, so the daemon can
+    /// refuse it by name (`rejected`) and the browser keep the download.
+    #[test]
+    fn addresses_and_names_keep_their_wire_shape() {
+        for raw in [
+            r#"{"op":"add","url":"https://x/a.zip","filename":"a.zip","referrer":"https://p/"}"#,
+            r#"{"op":"add","url":"javascript:void(0)","filename":"../a:b?.zip"}"#,
+            r#"{"op":"add_many","items":[{"url":"HTTP://x/a"},{"url":"mailto:a@b"},{"url":""}],"queue":1}"#,
+            r#"{"op":"refresh_link","id":3,"download":{"url":"file:///x"},"restart":false}"#,
+            r#"{"op":"probe_links","request":2,"links":[{"url":"ftp://f/c.iso"},{"url":"data:,x"}]}"#,
+        ] {
+            let msg: Incoming = serde_json::from_str(raw).unwrap();
+            let want: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(&msg).unwrap(), want, "{raw}");
+        }
+        match serde_json::from_str(r#"{"op":"add","url":"javascript:x","filename":"a/b"}"#).unwrap() {
+            Incoming::Add(d) => {
+                assert_eq!((d.url.as_str(), d.url.is_address()), ("javascript:x", false));
+                assert_eq!(d.filename.as_deref(), Some("a/b"));
+            }
+            other => panic!("expected add, got {other:?}"),
+        }
+        for raw in [
+            r#"{"op":"added","id":1,"url":"https://x/a"}"#,
+            r#"{"op":"canceled","id":1,"url":"not an address"}"#,
+            r#"{"op":"failed","id":2,"url":"ftp://f/c","error":"gone"}"#,
+            r#"{"op":"rejected","url":"javascript:x","message":"m"}"#,
+            r#"{"op":"ack","id":4,"url":"https://x/b","status":"queued"}"#,
+        ] {
+            let msg: Outgoing = serde_json::from_str(raw).unwrap();
+            let want: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(&msg).unwrap(), want, "{raw}");
+        }
+    }
+
+    #[test]
+    fn ids_keep_their_wire_shape() {
+        for raw in [
+            r#"{"op":"cancel","id":7}"#,
+            r#"{"op":"move_to_queue","id":3,"queue":2,"position":0}"#,
+            r#"{"op":"start_queue","id":2}"#,
+            r#"{"op":"add_many","items":[],"queue":4}"#,
+        ] {
+            let msg: Incoming = serde_json::from_str(raw).unwrap();
+            let want: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(&msg).unwrap(), want, "{raw}");
+        }
+        for raw in [
+            r#"{"op":"removed","id":7}"#,
+            r#"{"op":"refresh_waiting","id":4}"#,
+            r#"{"op":"show_done","id":9}"#,
+            r#"{"op":"grab_progress","pages":1,"bytes":2,"found":3,"explored":4,"added":[5,6]}"#,
+        ] {
+            let msg: Outgoing = serde_json::from_str(raw).unwrap();
+            let want: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(&msg).unwrap(), want, "{raw}");
+        }
+        match serde_json::from_str(r#"{"op":"move_to_queue","id":3,"queue":2}"#).unwrap() {
+            Incoming::MoveToQueue { id, queue, position: None } => {
+                assert_eq!((id, queue), (DownloadId::new(3), QueueId::new(2)));
+            }
+            other => panic!("expected move_to_queue, got {other:?}"),
+        }
+    }
+
+    /// Byte counts (`ByteCount`) are plain numbers on the wire: messages
+    /// carrying them read and write back unchanged.
+    #[test]
+    fn byte_counts_keep_their_wire_shape() {
+        for raw in [
+            r#"{"op":"started","id":1,"url":"u","path":"p","total":1048576,"resumable":true,"connections":4,"validator":{"size":1048576,"etag":"e"}}"#,
+            r#"{"op":"progress","id":1,"url":"u","done":524288,"total":1048576,"segments":[{"start":0,"end":524287,"done":1000,"state":"receiving"}]}"#,
+            r#"{"op":"name_taken","id":1,"url":"u","path":"p","total":5}"#,
+            r#"{"op":"link_info","request":3,"index":0,"total":10}"#,
+            r#"{"op":"quota","used":900,"limit":1000,"paused":false}"#,
+            r#"{"op":"zip_preview","id":2,"entries":[{"name":"a.txt","size":120}]}"#,
+        ] {
+            let msg: Outgoing = serde_json::from_str(raw).unwrap();
+            let want: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(&msg).unwrap(), want, "{raw}");
+        }
+        let add: Incoming = serde_json::from_str(r#"{"op":"add","url":"https://x/a.zip","size":1048576}"#).unwrap();
+        assert_eq!(serde_json::to_value(&add).unwrap()["size"], 1048576);
+    }
+
     /// An `add` message parses into the typed download.
     #[test]
     fn parse_add() {
@@ -726,7 +818,9 @@ mod tests {
             other => panic!("expected probe_links, got {other:?}"),
         }
         let info: Outgoing = serde_json::from_str(r#"{"op":"link_info","request":3,"index":0,"total":10}"#).unwrap();
-        assert!(matches!(info, Outgoing::LinkInfo { total: Some(10), content_type: None, error: None, .. }));
+        assert!(
+            matches!(info, Outgoing::LinkInfo { total: Some(t), content_type: None, error: None, .. } if t.get() == 10)
+        );
     }
 
     /// The save-as dialog's answer to a taken name, and a `confirm` without
@@ -736,14 +830,14 @@ mod tests {
         let raw = br#"{"op":"confirm","id":4,"file_exists":"overwrite"}"#;
         match serde_json::from_slice(raw).unwrap() {
             Incoming::Confirm(a) => {
-                assert_eq!(a.id, 4);
+                assert_eq!(a.id, DownloadId::new(4));
                 assert!(a.start, "start defaults to true");
                 assert_eq!(a.file_exists, Some(FileExists::Overwrite));
             }
             _ => panic!("expected confirm"),
         }
         match serde_json::from_slice(br#"{"op":"confirm","id":4}"#).unwrap() {
-            Incoming::Confirm(a) => assert_eq!(a, Answer::start(4)),
+            Incoming::Confirm(a) => assert_eq!(a, Answer::start(DownloadId::new(4))),
             _ => panic!("expected confirm"),
         }
         match serde_json::from_slice(br#"{"op":"confirm","id":4,"duplicate":"existing"}"#).unwrap() {
@@ -751,9 +845,11 @@ mod tests {
             _ => panic!("expected confirm"),
         }
         // The answer travels with its op, as the fields used to.
-        let sent =
-            serde_json::to_value(Incoming::Confirm(Answer { category: Some("Music".into()), ..Answer::start(7) }))
-                .unwrap();
+        let sent = serde_json::to_value(Incoming::Confirm(Answer {
+            category: Some("Music".into()),
+            ..Answer::start(DownloadId::new(7))
+        }))
+        .unwrap();
         assert_eq!(sent["op"], "confirm");
         assert_eq!(sent["id"], 7);
         assert_eq!(sent["category"], "Music");

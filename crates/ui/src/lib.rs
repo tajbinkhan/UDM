@@ -71,6 +71,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::bytes::ByteCount;
+use uidm_domain::id::{DownloadId, QueueId};
 use uidm_domain::sync::LockExt;
 
 use categories::Filter;
@@ -300,10 +302,10 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// What a click asked for, applied after drawing.
 enum Action {
     Add(String),
-    Cancel(u64),
+    Cancel(DownloadId),
     /// Cancel a download from its save-as dialog; the second time for the
     /// same captured address, offer an exception.
-    CancelSaveAs(u64),
+    CancelSaveAs(DownloadId),
     /// Keep a site (or with `site` false, one address) in the browser from
     /// now on, or only stop the offer, as the exception offer's buttons ask.
     Exception {
@@ -311,21 +313,21 @@ enum Action {
         add: Option<bool>,
         stop_offering: bool,
     },
-    Retry(u64),
+    Retry(DownloadId),
     /// Start a finished or stopped download over from the first byte.
-    Redownload(u64),
+    Redownload(DownloadId),
     /// Remove downloads, asking first if Options says so.
-    Remove(Vec<u64>),
+    Remove(Vec<DownloadId>),
     /// Remove downloads now, and maybe their files.
     RemoveNow {
-        ids: Vec<u64>,
+        ids: Vec<DownloadId>,
         delete_files: bool,
         /// Stop asking, and remember `delete_files`.
         dont_ask: bool,
     },
     ClearFinished,
     /// Open a finished download; asks first if its scan found a threat.
-    Open(u64),
+    Open(DownloadId),
     /// Open a file without asking (after the threat warning).
     OpenAnyway(String),
     /// Close the completion dialog on top.
@@ -334,10 +336,10 @@ enum Action {
     /// Show Windows' Open with picker for a file.
     OpenWith(String),
     /// List the files inside a waiting zip download.
-    PreviewZip(u64),
-    OpenConvert(u64),
+    PreviewZip(DownloadId),
+    OpenConvert(DownloadId),
     /// Convert a finished video, and maybe delete the original.
-    Convert(u64, uidm_domain::media::Target, bool),
+    Convert(DownloadId, uidm_domain::media::Target, bool),
     OpenAbout,
     /// Look for a newer release now.
     CheckUpdate,
@@ -349,7 +351,7 @@ enum Action {
     OpenOptions,
     /// Open Options at the Connection tab with a new login for this host.
     /// Ask for the login a failed download's site wants.
-    OpenLogin(u64),
+    OpenLogin(DownloadId),
     /// Add a download as it is (one with a login, from the URL bar).
     AddDownload(Download),
     SaveSettings(Settings),
@@ -363,41 +365,41 @@ enum Action {
     },
     /// Answer a save-as dialog, or start a waiting download.
     Confirm(Answer),
-    StartQueue(u64),
-    StopQueue(u64),
+    StartQueue(QueueId),
+    StopQueue(QueueId),
     SaveQueue(Queue),
-    DeleteQueue(u64),
+    DeleteQueue(QueueId),
     /// Put a download in a queue, at a position or at the end.
     MoveToQueue {
-        id: u64,
-        queue: u64,
+        id: DownloadId,
+        queue: QueueId,
         position: Option<usize>,
     },
     /// Take a download out of its queue, keeping it in the list.
-    RemoveFromQueue(u64),
+    RemoveFromQueue(DownloadId),
     /// What a queue does when this run ends, this time only.
-    SetQueueOnce(u64, Option<WhenDone>),
+    SetQueueOnce(QueueId, Option<WhenDone>),
     CancelCountdown,
     /// Sleep, hibernate or shut down without waiting for the countdown.
     CountdownNow,
     /// Open the New link dialog for a download.
-    OpenRefresh(u64),
+    OpenRefresh(DownloadId),
     /// Give a download this new link; `restart` starts over even if it is for
     /// another file.
     RefreshWith {
-        id: u64,
+        id: DownloadId,
         url: String,
         restart: bool,
     },
     /// Wait for the next download from the browser to give this one its link.
-    RefreshFromBrowser(u64),
+    RefreshFromBrowser(DownloadId),
     CancelRefresh,
     /// Open the Queues dialog, on a queue if given.
-    OpenQueues(Option<u64>),
+    OpenQueues(Option<QueueId>),
     /// Add downloads to wait in a queue, and maybe start it.
     AddMany {
         items: Vec<Download>,
-        queue: u64,
+        queue: QueueId,
         start_queue: bool,
     },
     OpenBatch,
@@ -421,27 +423,27 @@ enum Action {
     /// A click on a download's name: select only it, or with Ctrl add or
     /// take it away, or with Shift select the run from the last one clicked.
     Click {
-        id: u64,
+        id: DownloadId,
         ctrl: bool,
         shift: bool,
     },
-    OpenProperties(u64),
-    OpenConnections(u64),
+    OpenProperties(DownloadId),
+    OpenConnections(DownloadId),
     /// Open a download's own window with its status, Pause and Cancel.
-    OpenProgress(u64),
+    OpenProgress(DownloadId),
     /// Turn off one of the download window's tabs.
     HideProgressTab(progress::Tab),
     /// Set or clear what a download does once it finishes.
-    SetOnDone(u64, Option<OnDone>),
+    SetOnDone(DownloadId, Option<OnDone>),
     /// Stop showing the note that a queue's schedule needs UIDM running.
     HideScheduleNote,
     /// Open the speed limit dialog for a download.
-    OpenSpeedLimit(u64),
+    OpenSpeedLimit(DownloadId),
     /// Set or clear a download's own limit, in bytes per second, and
     /// whether it stays when the download is stopped and resumed.
-    SetSpeedLimit(u64, Option<u64>, bool),
+    SetSpeedLimit(DownloadId, Option<u64>, bool),
     SetProperties {
-        id: u64,
+        id: DownloadId,
         changes: Properties,
     },
 }
@@ -502,7 +504,7 @@ struct App {
     /// The Queues dialog, while it is open.
     queues_dialog: Option<queues::QueuesDialog>,
     /// The New link dialog: the download and the address typed so far.
-    refresh: Option<(u64, String)>,
+    refresh: Option<(DownloadId, String)>,
     /// The Batch dialog (also used for imports), while it is open.
     batch: Option<tools::BatchDialog>,
     export: Option<tools::ExportDialog>,
@@ -510,15 +512,15 @@ struct App {
     /// A list file being imported, read on the picker's thread.
     import: tools::Loaded,
     /// Downloads ticked in the list.
-    selected: HashSet<u64>,
+    selected: HashSet<DownloadId>,
     /// The find bar above the list, while it is open.
     find: Option<find::FindBar>,
     /// Downloads > Find Next was chosen; step to the next match.
     find_next: bool,
     /// The download a Shift+click selects from.
-    anchor: Option<u64>,
+    anchor: Option<DownloadId>,
     /// The downloads the list shows, in its order, for Shift+click and Ctrl+A.
-    order: Vec<u64>,
+    order: Vec<DownloadId>,
     /// The list's columns and sort order, saved when they change.
     layout: columns::Layout,
     /// The Columns dialog is open, with the layout it opened with, which
@@ -537,18 +539,18 @@ struct App {
     /// The speed limit dialog for one download.
     limit_dialog: Option<LimitDialog>,
     /// Downloads whose Connections dialog is open.
-    connection_dialogs: Vec<u64>,
+    connection_dialogs: Vec<DownloadId>,
     /// Open download windows, one per download.
     progress_windows: Vec<progress::ProgressWindow>,
     /// The download windows in the tray, as last given to it.
-    hidden_windows: Vec<(u64, String)>,
+    hidden_windows: Vec<(DownloadId, String)>,
     /// The link picker, while it is open.
     links: Option<links::LinksDialog>,
     /// A zip download's preview, asked for or shown.
     zip_preview: Option<ZipPreview>,
     /// The Convert dialog: the video, what it becomes, and whether the
     /// original goes.
-    convert: Option<(u64, uidm_domain::media::Target, bool)>,
+    convert: Option<(DownloadId, uidm_domain::media::Target, bool)>,
     /// This window opened the drop target, so finding it closed means the
     /// user closed it.
     drop_shown: bool,
@@ -567,7 +569,7 @@ struct App {
 
 /// A download's own speed limit being edited.
 struct LimitDialog {
-    id: u64,
+    id: DownloadId,
     enabled: bool,
     value: f64,
     unit: SpeedUnit,
@@ -577,13 +579,13 @@ struct LimitDialog {
 
 /// The files inside a zip download, once the daemon has listed them.
 struct ZipPreview {
-    id: u64,
+    id: DownloadId,
     result: Option<Result<Vec<uidm_domain::download::ZipEntry>, UiError>>,
 }
 
 /// Downloads about to be removed, and the confirmation's boxes.
 struct RemovePrompt {
-    ids: Vec<u64>,
+    ids: Vec<DownloadId>,
     delete_files: bool,
     dont_ask: bool,
 }
@@ -632,9 +634,9 @@ fn take_picked(slot: &Picked, field: &mut String) {
 
 /// The save-as dialog's fields.
 struct ConfirmDraft {
-    id: u64,
+    id: DownloadId,
     /// The queue "Download later" puts it in.
-    later_queue: u64,
+    later_queue: QueueId,
     filename: String,
     folder: String,
     picked: Picked,
@@ -752,7 +754,7 @@ type FfmpegLookup = (String, Option<PathBuf>);
 /// A batch's questions, worked out on a worker: the prompt, or the
 /// downloads when nothing needs asking; then their queue and whether to
 /// start it.
-type AskedBatch = (Result<answers::Prompt, Vec<Download>>, u64, bool);
+type AskedBatch = (Result<answers::Prompt, Vec<Download>>, QueueId, bool);
 
 /// What Save's worker did: each registration it made (the browser and
 /// whether it is now registered), and the settings to send, or why not.
@@ -948,7 +950,7 @@ struct OptionsDraft {
     /// Kept as it is; only the save-as dialog changes it.
     general_last_folder: Option<String>,
     /// The queue Download later uses without asking; `None` asks.
-    later_queue: Option<u64>,
+    later_queue: Option<QueueId>,
     categories: Vec<CategoryDraft>,
     /// General's own types, comma-separated.
     general_extensions: String,
@@ -1706,13 +1708,13 @@ impl App {
                 if last_offered.as_deref() == Some(url.as_str()) {
                     continue;
                 }
-                last_offered = Some(url.clone());
+                last_offered = Some(url.to_string());
                 // Started at once, it goes the way a pasted link does, save-as
                 // dialog and all; only the offer is skipped.
-                if start && daemon.send(Command::Add(Download { url: url.clone(), ..Download::default() })) {
+                if start && daemon.send(Command::Add(Download { url: url.clone().into(), ..Download::default() })) {
                     continue;
                 }
-                let _ = outbox.send(UiMessage::ClipboardOffer(url));
+                let _ = outbox.send(UiMessage::ClipboardOffer(url.into_string()));
                 win::show();
                 reopen::repaint();
             }
@@ -1731,7 +1733,7 @@ impl App {
                     let text = win::clipboard_text().unwrap_or_default();
                     let url = text.trim();
                     if is_download_url(url) {
-                        daemon.send(Command::Add(Download { url: url.to_string(), ..Download::default() }));
+                        daemon.send(Command::Add(Download { url: url.into(), ..Download::default() }));
                     } else {
                         let _ = outbox.send(UiMessage::Error(tr("The clipboard holds no http or https link.").into()));
                         win::show();
@@ -1821,7 +1823,7 @@ impl App {
     fn perform(&mut self, action: Action) {
         match action {
             Action::Add(url) => {
-                self.daemon.send(Command::Add(Download { url, ..Download::default() }));
+                self.daemon.send(Command::Add(Download { url: url.into(), ..Download::default() }));
             }
             Action::CancelSaveAs(id) => {
                 self.daemon.send(Command::Cancel { id });
@@ -1831,9 +1833,9 @@ impl App {
                 };
                 let offer = settings.is_some_and(|s| s.offer_exceptions);
                 if let Some(e) = entry.filter(|e| e.from_browser && offer) {
-                    if !self.canceled_once.insert(e.url.clone()) {
-                        self.canceled_once.remove(&e.url);
-                        self.exception_offer = Some((e.url, false));
+                    if !self.canceled_once.insert(e.url.to_string()) {
+                        self.canceled_once.remove(e.url.as_str());
+                        self.exception_offer = Some((e.url.into_string(), false));
                     }
                 }
             }
@@ -1882,7 +1884,7 @@ impl App {
                 }
             }
             Action::ClearFinished => {
-                let done: Vec<u64> = {
+                let done: Vec<DownloadId> = {
                     let s = &self.state;
                     s.table.entries().filter(|e| e.status == Status::Done).map(|e| e.id).collect()
                 };
@@ -2077,7 +2079,7 @@ impl App {
                 state::apply(&mut self.state, UiMessage::Forget(Forget::RefreshMismatch));
                 self.daemon.send(Command::RefreshLink {
                     id,
-                    download: Some(Download { url, ..Download::default() }),
+                    download: Some(Download { url: url.into(), ..Download::default() }),
                     restart,
                 });
             }
@@ -2166,7 +2168,7 @@ impl App {
                 self.daemon.send(Command::CancelGrab);
             }
             Action::Click { id, ctrl, shift } => {
-                let at = |x: u64| self.order.iter().position(|i| *i == x);
+                let at = |x: DownloadId| self.order.iter().position(|i| *i == x);
                 match self.anchor.and_then(at).zip(at(id)).filter(|_| shift) {
                     Some((from, to)) => {
                         if !ctrl {
@@ -2287,7 +2289,7 @@ impl App {
     ) {
         let settings = self.state.settings.clone();
         if self.login.is_none() {
-            let queued: Vec<u64> = state::take_login_wanted(&mut self.state);
+            let queued: Vec<DownloadId> = state::take_login_wanted(&mut self.state);
             // Only those still failed for a login.
             let waiting: Vec<(&DownloadEntry, uidm_domain::download::LoginWanted)> = queued
                 .iter()
@@ -2297,8 +2299,9 @@ impl App {
             if let Some((first, wanted)) = waiting.first().cloned() {
                 let (same, other): (Vec<_>, Vec<_>) = waiting.iter().partition(|(_, w)| w.host == wanted.host);
                 state::apply(&mut self.state, UiMessage::LoginsWaiting(other.iter().map(|(e, _)| e.id).collect()));
-                let own_site =
-                    same.iter().all(|(e, _)| uidm_domain::site::host_of(&e.url).eq_ignore_ascii_case(&wanted.host));
+                let own_site = same
+                    .iter()
+                    .all(|(e, _)| uidm_domain::site::host_of(e.url.as_str()).eq_ignore_ascii_case(&wanted.host));
                 let username = settings
                     .as_ref()
                     .and_then(|s| s.site_logins.iter().find(|l| l.site.eq_ignore_ascii_case(&wanted.host)))
@@ -2307,7 +2310,7 @@ impl App {
                     .unwrap_or_default();
                 let ids = same.iter().map(|(e, _)| e.id).collect();
                 let mut prompt = login::LoginPrompt::new(ids, wanted, own_site, username);
-                prompt.plain = same.iter().any(|(e, _)| !e.url.to_ascii_lowercase().starts_with("https:"));
+                prompt.plain = same.iter().any(|(e, _)| !e.url.as_str().to_ascii_lowercase().starts_with("https:"));
                 self.login = Some(prompt);
             }
         }
@@ -2319,7 +2322,7 @@ impl App {
     }
 
     /// Add `items` to wait in `queue`, and maybe start it.
-    fn add_many(&self, items: Vec<Download>, queue: u64, start_queue: bool) {
+    fn add_many(&self, items: Vec<Download>, queue: QueueId, start_queue: bool) {
         if items.is_empty() {
             return;
         }
@@ -2355,7 +2358,7 @@ impl App {
                 .and_then(|p| p.file_name())
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| display_name(entry));
-            let category = settings.listed_under(entry.category.as_deref(), &filename, &entry.url).to_string();
+            let category = settings.listed_under(entry.category.as_deref(), &filename, entry.url.as_str()).to_string();
             self.confirm = Some(ConfirmDraft {
                 id: entry.id,
                 later_queue: MAIN_QUEUE,
@@ -2409,7 +2412,9 @@ impl App {
         let replaced = other.filter(|_| draft.duplicate == Duplicate::Overwrite).and_then(|o| o.path.as_deref());
         // Under Ask, a name taken by a file in the folder needs an answer,
         // unless the duplicate question already covers it.
-        let name = uidm_domain::filename::sanitize_filename(draft.filename.trim());
+        let name = uidm_domain::filename::sanitize_filename(draft.filename.trim())
+            .map(uidm_domain::filename::FileName::into_string)
+            .unwrap_or_default();
         let taken = ask
             && other.is_none()
             && !name.is_empty()
@@ -2438,7 +2443,7 @@ impl App {
             .show(ctx, |ui| {
                 egui::Grid::new("confirm_grid").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
                     ui.label(tr("Address"));
-                    ui.add(egui::Label::new(&entry.url).truncate()).on_hover_text(&entry.url);
+                    ui.add(egui::Label::new(entry.url.as_str()).truncate()).on_hover_text(entry.url.as_str());
                     ui.end_row();
 
                     ui.label(tr("File name"));
@@ -2455,7 +2460,7 @@ impl App {
                             None => tr("Unknown").to_string(),
                         });
                         // Started early, while this dialog is open.
-                        if entry.done > 0 {
+                        if !entry.done.is_zero() {
                             ui.weak(trf!("{done} downloaded so far", done = human_bytes(entry.done)));
                         }
                         // A zip on a server that sends ranges can list its
@@ -2684,7 +2689,7 @@ impl App {
                     ui.add_enabled_ui(connected, |ui| {
                         // The category goes with it only when it is not the one
                         // the file's type gives anyway.
-                        let by_type = settings.category_name(&name, &entry.url);
+                        let by_type = settings.category_name(&name, entry.url.as_str());
                         let category = (!draft.category.eq_ignore_ascii_case(by_type)).then(|| draft.category.clone());
                         let description = draft.description.trim();
                         let remember_folder = (replaced.is_none()
@@ -4074,7 +4079,7 @@ impl App {
                         ui.strong(display_name(&e));
                         ui.end_row();
                         ui.label(tr("Address"));
-                        ui.add(egui::Label::new(&e.url).truncate()).on_hover_text(&e.url);
+                        ui.add(egui::Label::new(e.url.as_str()).truncate()).on_hover_text(e.url.as_str());
                         ui.end_row();
                         if let Some(t) = e.total {
                             ui.label(tr("Size"));
@@ -4234,7 +4239,7 @@ impl eframe::App for App {
         // Copy what this frame needs, then draw.
         let (link, rows, speeds, last_error, settings) = {
             let s = &self.state;
-            let speeds: HashMap<u64, f64> = s.speeds.iter().map(|(id, sp)| (*id, sp.bytes_per_sec)).collect();
+            let speeds: HashMap<DownloadId, f64> = s.speeds.iter().map(|(id, sp)| (*id, sp.bytes_per_sec)).collect();
             (
                 s.link.clone(),
                 s.table.entries().cloned().collect::<Vec<DownloadEntry>>(),
@@ -4366,7 +4371,7 @@ impl eframe::App for App {
         let shown_settings = settings.clone().unwrap_or_default();
         let listed: Vec<String> = rows
             .iter()
-            .map(|e| shown_settings.listed_under(e.category.as_deref(), &display_name(e), &e.url).to_string())
+            .map(|e| shown_settings.listed_under(e.category.as_deref(), &display_name(e), e.url.as_str()).to_string())
             .collect();
         let queue_list = self.state.queues.clone();
         // With the panel hidden, nothing is left to pick another view with.
@@ -4450,7 +4455,7 @@ impl eframe::App for App {
         let layout_before = self.layout.clone();
         let finding = self.find.as_ref().is_some_and(|b| b.active());
         if let Some(bar) = self.find.as_mut() {
-            let ids: Vec<u64> = shown.iter().map(|e| e.id).collect();
+            let ids: Vec<DownloadId> = shown.iter().map(|e| e.id).collect();
             find::step_keys(ctx, bar, &ids);
             if std::mem::take(&mut self.find_next) {
                 bar.step(&ids, false);
@@ -4588,7 +4593,7 @@ impl eframe::App for App {
             progress::window(ctx, w, entry, segments, speeds.get(&w.id).copied(), &tabs, connected, &mut actions)
         });
         // The windows hidden in the tray, for the downloads tray icon.
-        let in_tray: Vec<(u64, String)> =
+        let in_tray: Vec<(DownloadId, String)> =
             self.progress_windows.iter().filter(|w| w.hidden).map(|w| (w.id, w.title.clone())).collect();
         if in_tray != self.hidden_windows {
             tray::set_hidden_windows(in_tray.clone());
@@ -4762,7 +4767,7 @@ impl App {
     ) {
         use menubar::Command as C;
         let selected = &self.selected;
-        let ticked = |keep: fn(Status) -> bool| -> Vec<u64> {
+        let ticked = |keep: fn(Status) -> bool| -> Vec<DownloadId> {
             rows.iter().filter(|e| selected.contains(&e.id) && keep(e.status)).map(|e| e.id).collect()
         };
         // A setting changed from the menu, sent without the Options dialog.
@@ -4868,7 +4873,7 @@ impl App {
     /// Open download `id`'s window unless it has one or is done. It takes
     /// the focus when the user asked for it, and opens hidden in the tray
     /// for one a queue started.
-    fn open_download_window(&mut self, id: u64, focus: bool, hidden: bool) {
+    fn open_download_window(&mut self, id: DownloadId, focus: bool, hidden: bool) {
         if self.progress_windows.iter().any(|w| w.id == id) {
             return;
         }
@@ -4889,7 +4894,7 @@ impl App {
                 droptarget::open(
                     Arc::new(move |url: String| {
                         // Each dropped link goes through the save-as dialog.
-                        daemon.send(Command::Add(Download { url, ask: Some(true), ..Download::default() }));
+                        daemon.send(Command::Add(Download { url: url.into(), ask: Some(true), ..Download::default() }));
                         win::show();
                         ctx.request_repaint();
                     }),
@@ -5009,7 +5014,7 @@ impl App {
                     ui.colored_label(ui.visuals().warn_fg_color, e);
                 }
                 Ok(entries) => {
-                    let total: u64 = entries.iter().map(|e| e.size).sum();
+                    let total: ByteCount = entries.iter().map(|e| e.size).sum();
                     ui.label(trf!("{count} files, {size} unpacked", count = entries.len(), size = human_bytes(total)));
                     if entries.len() == uidm_domain::download::MAX_ZIP_ENTRIES {
                         ui.weak(trf!("Showing the first {count}.", count = uidm_domain::download::MAX_ZIP_ENTRIES));
@@ -5145,7 +5150,7 @@ impl App {
     }
 
     /// Remove `ids`, asking first unless Options says not to.
-    fn ask_remove(&mut self, ids: Vec<u64>) {
+    fn ask_remove(&mut self, ids: Vec<DownloadId>) {
         if ids.is_empty() {
             return;
         }
@@ -5316,16 +5321,16 @@ fn display_name(e: &DownloadEntry) -> String {
     if let Some(name) = e.path.as_deref().and_then(|p| Path::new(p).file_name()) {
         return name.to_string_lossy().into_owned();
     }
-    let no_query = e.url.split(['?', '#']).next().unwrap_or(&e.url);
+    let no_query = e.url.as_str().split(['?', '#']).next().unwrap_or(e.url.as_str());
     match no_query.rsplit('/').next() {
         Some(tail) if !tail.is_empty() => tail.to_string(),
-        _ => e.url.clone(),
+        _ => e.url.to_string(),
     }
 }
 
-fn human_bytes(n: u64) -> String {
+fn human_bytes(n: ByteCount) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = n as f64;
+    let mut value = n.as_f64();
     let mut unit = 0;
     while value >= 1024.0 && unit < UNITS.len() - 1 {
         value /= 1024.0;
@@ -5336,6 +5341,12 @@ fn human_bytes(n: u64) -> String {
     } else {
         format!("{value:.1} {}", tr(UNITS[unit]))
     }
+}
+
+/// A speed in bytes per second as `human_bytes` says one second's worth;
+/// callers add the "/s".
+fn human_rate(bytes_per_sec: u64) -> String {
+    human_bytes(ByteCount::new(bytes_per_sec))
 }
 
 fn human_duration(secs: f64) -> String {

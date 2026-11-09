@@ -57,6 +57,7 @@ use uidm_application::daemon::service::{
 };
 use uidm_application::downloads::{RemoveDownload, RetryDownload, StartOrWait};
 use uidm_domain::download::Answer;
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{Browser, Probes, SiteCrawler};
 use uidm_domain::settings::Settings;
 use uidm_infrastructure::background;
@@ -225,11 +226,11 @@ fn new_daemon(paths: Paths) -> Built {
             Box::new(move || front::show_window(&*shown)),
         ))
     };
-    let retry: Hook<u64> = {
+    let retry: Hook<DownloadId> = {
         let (store, transfers) = (Arc::clone(&store), Arc::clone(&transfers));
         Arc::new(move |id| {
             if let Err(e) = RetryDownload::new(&*store, &*store, &*transfers).run(id) {
-                warn!(download_id = id, error = %e, "could not retry from a notification");
+                warn!(download_id = id.get(), error = %e, "could not retry from a notification");
             }
         })
     };
@@ -240,7 +241,7 @@ fn new_daemon(paths: Paths) -> Built {
         Arc::new(move |id, start, queue| {
             let later = settings.lock().later_queue;
             if let Err(e) = StartOrWait::new(&*store, &*store, &*transfers).run(id, start, queue, later) {
-                warn!(download_id = id, error = %e, "could not go on with the download");
+                warn!(download_id = id.get(), error = %e, "could not go on with the download");
             }
         })
     };
@@ -251,16 +252,16 @@ fn new_daemon(paths: Paths) -> Built {
         Arc::new(move |answer: Answer| {
             let id = answer.id;
             if let Err(e) = confirm_answer::<Wired>(&store, &transfers, &files, &front, &early, answer) {
-                warn!(download_id = id, error = %e, "could not start");
+                warn!(download_id = id.get(), error = %e, "could not start");
             }
         })
     };
     let answers = AnswerWait::new(Arc::clone(&store), Arc::clone(&windows), confirm);
-    let remove_original: Hook<u64> = {
+    let remove_original: Hook<DownloadId> = {
         let (store, transfers) = (Arc::clone(&store), Arc::clone(&transfers));
         Arc::new(move |id| {
             if let Err(e) = RemoveDownload::new(&*store, &*store, &*transfers, &DiskFiles).run(id, true) {
-                warn!(download_id = id, error = %e, "kept the original of a converted download");
+                warn!(download_id = id.get(), error = %e, "kept the original of a converted download");
             }
         })
     };
@@ -395,10 +396,13 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
     use uidm_application::daemon::service::{ServiceError, COMMAND_LINE_WAIT};
+    use uidm_application::daemon::ClientId;
     use uidm_application::daemon::{Event, Failure, Reply};
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::download::DownloadLogin;
     use uidm_domain::download::{Download, DownloadEntry, OnDone, Properties, Status};
     use uidm_domain::grab::GrabRequest;
+    use uidm_domain::id::QueueId;
     use uidm_domain::ports::QuotaState;
     use uidm_domain::queue::{self, Queue, WhenDone, MAIN_QUEUE};
     use uidm_domain::quota::Usage;
@@ -492,7 +496,7 @@ mod tests {
 
     /// Hand `raw` to the daemon as client `client` sent it.
     fn send(raw: &[u8], t: &Setup, client: u64, reply: &Reply) {
-        server::receive(&t.connections, &Served(Arc::clone(&t.daemon)), client, raw, reply);
+        server::receive(&t.connections, &Served(Arc::clone(&t.daemon)), ClientId::new(client), raw, reply);
     }
 
     struct Setup {
@@ -518,33 +522,33 @@ mod tests {
             s.ask_where_to_save = false;
             s.if_duplicate = choice;
         }
-        let (_reply, window) = connections.connect(1);
-        connections.add_window(1);
+        let (_reply, window) = connections.connect(ClientId::new(1));
+        connections.add_window(ClientId::new(1));
         Setup { daemon: Arc::new(daemon), connections, dir, window }
     }
 
     impl Setup {
         /// Put a finished download of `url` in the list, its file at `path`
         /// holding `old`.
-        fn finished(&self, url: &str, path: &Path) -> u64 {
+        fn finished(&self, url: &str, path: &Path) -> DownloadId {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, b"old").unwrap();
             let id = self.daemon.transfers.engine().reserve_id();
-            let url = url.to_string();
+            let url = uidm_domain::address::Link::new(url);
             self.daemon.store.publish(&Outgoing::Added { id, url: url.clone() });
             self.daemon.store.publish(&Outgoing::Done { id, url, path: path.display().to_string(), note: None });
             id
         }
 
-        fn failed(&self, url: &str) -> u64 {
+        fn failed(&self, url: &str) -> DownloadId {
             let id = self.daemon.transfers.engine().reserve_id();
-            let url = url.to_string();
+            let url = uidm_domain::address::Link::new(url);
             self.daemon.store.publish(&Outgoing::Added { id, url: url.clone() });
             self.daemon.store.publish(&Outgoing::Failed { id, url, error: "gone".into() });
             id
         }
 
-        fn add(&self, url: &str) -> u64 {
+        fn add(&self, url: &str) -> DownloadId {
             self.daemon.add(Download { url: url.into(), ..Download::default() }).0
         }
 
@@ -553,7 +557,7 @@ mod tests {
         }
 
         /// Wait for download `id` to reach `status`, and return it.
-        fn wait(&self, id: u64, status: Status) -> DownloadEntry {
+        fn wait(&self, id: DownloadId, status: Status) -> DownloadEntry {
             let until = Instant::now() + Duration::from_secs(10);
             loop {
                 if let Some(e) = self.daemon.entry(id).filter(|e| e.status == status) {
@@ -575,15 +579,15 @@ mod tests {
         assert!(matches!(t.daemon.clients.browser_link(), Event::BrowserLink { connected: false, last_seen: None }));
 
         // The extension says hello with no `client`.
-        let (tx, _browser) = t.connections.connect(2);
+        let (tx, _browser) = t.connections.connect(ClientId::new(2));
         send(br#"{"op":"hello","version":"1"}"#, &t, 2, &tx);
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: true, .. })));
         assert!(t.connections.browser_seen().is_some());
 
         // A second one is no news; the first going is none either.
-        let (tx3, _browser3) = t.connections.connect(3);
+        let (tx3, _browser3) = t.connections.connect(ClientId::new(3));
         send(br#"{"op":"hello"}"#, &t, 3, &tx3);
-        t.connections.client_gone(2);
+        t.connections.client_gone(ClientId::new(2));
         assert!(!t.window_got(|m| matches!(m, Outgoing::BrowserLink { .. })));
 
         // Anything it sends keeps it seen.
@@ -592,7 +596,7 @@ mod tests {
         assert!(t.connections.browser_seen().is_some_and(|s| s > 1));
 
         // The last one going is, with when.
-        t.connections.client_gone(3);
+        t.connections.client_gone(ClientId::new(3));
         assert!(t.window_got(|m| matches!(m, Outgoing::BrowserLink { connected: false, last_seen: Some(s) } if *s > 1)));
     }
 
@@ -618,7 +622,7 @@ mod tests {
         assert_eq!(e.on_done, None);
 
         // No window: it waits for the one this call opens, then has /q.
-        t.connections.client_gone(1);
+        t.connections.client_gone(ClientId::new(1));
         let (reply, _) = ask("https://example.com/new.bin");
         assert!(matches!(reply, Outgoing::CommandLine { window_open: false }));
         assert!(entry("https://example.com/new.bin").is_none(), "held for the window");
@@ -628,7 +632,7 @@ mod tests {
         assert_eq!(e.on_done.map(|o| o.then), Some(WhenDone::Exit));
 
         // One held too long belonged to a window that never came.
-        t.connections.client_gone(1);
+        t.connections.client_gone(ClientId::new(1));
         ask("https://example.com/stale.bin");
         let held = t.daemon.command_line.lock().unwrap().take().unwrap().0;
         let old = Instant::now().checked_sub(COMMAND_LINE_WAIT + Duration::from_secs(1)).unwrap();
@@ -651,7 +655,7 @@ mod tests {
         assert!(t.window_got(|m| matches!(m, Outgoing::Show)));
 
         // None is: the new copy opens one, and nothing waits for it.
-        t.connections.client_gone(1);
+        t.connections.client_gone(ClientId::new(1));
         assert!(matches!(ask(), Outgoing::CommandLine { window_open: false }));
         assert!(t.daemon.command_line.lock().unwrap().is_none());
     }
@@ -709,7 +713,7 @@ mod tests {
         let t = setup("overwrite_running", Duplicate::Overwrite);
         let url = serve();
         let old = t.daemon.transfers.engine().reserve_id();
-        t.daemon.store.publish(&Outgoing::Added { id: old, url: url.clone() });
+        t.daemon.store.publish(&Outgoing::Added { id: old, url: url.as_str().into() });
         assert_eq!(t.daemon.transfers.status(old), Some(Status::Queued));
         assert_eq!(t.add(&url), old);
         assert_eq!(t.len(), 1);
@@ -794,7 +798,7 @@ mod tests {
     fn add_many_skips_duplicates_unless_told_to_add_them() {
         let url = serve();
         let items = |urls: &[&str]| {
-            urls.iter().map(|u| Download { url: u.to_string(), ..Download::default() }).collect::<Vec<_>>()
+            urls.iter().map(|u| Download { url: (*u).into(), ..Download::default() }).collect::<Vec<_>>()
         };
         let t = setup("many_ask", Duplicate::Ask);
         t.finished(&url, &t.dir.join("f.bin"));
@@ -971,10 +975,10 @@ mod tests {
     #[test]
     fn the_link_picker_hears_each_links_type_and_size() {
         let t = setup("probe_links", Duplicate::NewName);
-        let link = |url: String| Download { url, ..Download::default() };
+        let link = |url: String| Download { url: url.into(), ..Download::default() };
         let links = vec![link(serve()), link("http://127.0.0.1:1/gone.zip".into()), link(serve())];
         let (tx, rx) = server::reply_channel();
-        t.daemon.probe_links(7, 42, links, tx);
+        t.daemon.probe_links(ClientId::new(7), 42, links, tx);
         let mut heard = std::collections::BTreeMap::new();
         while heard.len() < 3 {
             let frame = rx.recv_timeout(Duration::from_secs(10)).expect("every link is answered");
@@ -984,18 +988,18 @@ mod tests {
                 heard.insert(index, (total, content_type, error));
             }
         }
-        let found = (Some(BODY.len() as u64), Some("application/octet-stream".to_string()), None);
+        let found = (Some(ByteCount::new(BODY.len() as u64)), Some("application/octet-stream".to_string()), None);
         assert_eq!(heard[&0], found);
         assert_eq!(heard[&2], found);
         assert!(heard[&1].2.is_some(), "a link that cannot be reached says why");
 
         // A new request stops the last; closing the picker stops the new one.
         let (tx, _rx) = server::reply_channel();
-        let before = Arc::clone(&t.daemon.link_probes.lock().unwrap()[&7]);
-        t.daemon.probe_links(7, 43, vec![link(serve())], tx);
+        let before = Arc::clone(&t.daemon.link_probes.lock().unwrap()[&ClientId::new(7)]);
+        t.daemon.probe_links(ClientId::new(7), 43, vec![link(serve())], tx);
         assert!(before.load(Ordering::Relaxed));
-        let now = Arc::clone(&t.daemon.link_probes.lock().unwrap()[&7]);
-        t.daemon.stop_probe_links(7);
+        let now = Arc::clone(&t.daemon.link_probes.lock().unwrap()[&ClientId::new(7)]);
+        t.daemon.stop_probe_links(ClientId::new(7));
         assert!(now.load(Ordering::Relaxed) && t.daemon.link_probes.lock().unwrap().is_empty());
     }
 
@@ -1003,13 +1007,13 @@ mod tests {
     fn the_browsers_proxy_can_wait_for_a_failure() {
         let t = setup("browser_proxy", Duplicate::NewName);
         let d = Download { url: "https://x/a.zip".into(), proxy: Some("http://bp:3128".into()), ..Download::default() };
-        let through = |s: &Settings| t.daemon.transfers.net_for(&d, s).proxy.and_then(|p| p.proxy_for(&d.url));
+        let through = |s: &Settings| t.daemon.transfers.net_for(&d, s).proxy.and_then(|p| p.proxy_for(d.url.as_str()));
         let after = Settings { use_browser_proxy: true, browser_proxy_after_errors: true, ..Settings::default() };
         assert_eq!(through(&after), None, "not before it failed");
-        t.daemon.browser_proxy_retries.insert(d.url.clone());
+        t.daemon.browser_proxy_retries.insert(d.url.to_string());
         assert_eq!(through(&after).as_deref(), Some("http://bp:3128"), "once it failed");
         // A download that never failed is not retried through it.
-        assert!(!t.daemon.retry_through_browser_proxy(999, &after));
+        assert!(!t.daemon.retry_through_browser_proxy(DownloadId::new(999), &after));
     }
 
     #[test]
@@ -1017,11 +1021,11 @@ mod tests {
         let t = setup("browser_size", Duplicate::NewName);
         let (id, _) = t.daemon.add_later(Download {
             url: "https://x/big.iso".into(),
-            size: Some(4_000_000_000),
+            size: Some(ByteCount::new(4_000_000_000)),
             content_type: Some("application/x-iso9660-image".into()),
             ..Download::default()
         });
-        assert_eq!(t.daemon.entry(id).unwrap().total, Some(4_000_000_000));
+        assert_eq!(t.daemon.entry(id).unwrap().total, Some(ByteCount::new(4_000_000_000)));
     }
 
     #[test]
@@ -1138,7 +1142,7 @@ mod tests {
         let id = t.daemon.transfers.engine().reserve_id();
         t.daemon.store.publish(&Outgoing::Added { id, url: "https://x/a".into() });
         assert!(t.daemon.redownload(id).is_err());
-        assert!(t.daemon.redownload(999).is_err());
+        assert!(t.daemon.redownload(DownloadId::new(999)).is_err());
     }
 
     #[test]
@@ -1358,7 +1362,11 @@ mod tests {
         let t = setup("queue_force_close", Duplicate::NewName);
         let id = t
             .daemon
-            .save_queue(Queue { when_done: WhenDone::ShutDown, force_close: true, ..Queue::new(0, "Night") })
+            .save_queue(Queue {
+                when_done: WhenDone::ShutDown,
+                force_close: true,
+                ..Queue::new(QueueId::new(0), "Night")
+            })
             .unwrap();
         let saved = |t: &Setup| t.daemon.store.queues().iter().find(|q| q.id == id).cloned().unwrap();
         assert!(saved(&t).force_close, "a new queue keeps it");
@@ -1380,7 +1388,7 @@ mod tests {
     #[test]
     fn the_save_as_dialog_remembers_its_choices() {
         let t = setup("remember_choices", Duplicate::Ask);
-        let queue = t.daemon.save_queue(Queue::new(0, "Night")).unwrap();
+        let queue = t.daemon.save_queue(Queue::new(QueueId::new(0), "Night")).unwrap();
 
         // "Remember this path" for General, and "Don't ask me again" for the
         // queue of a download added for later.
@@ -1430,8 +1438,8 @@ mod tests {
         // 2 MB came in this minute.
         {
             let mut q = t.daemon.store.quota();
-            q.started(99, 0);
-            q.progress(99, 2 << 20, uidm_infrastructure::quota::now_minute());
+            q.started(DownloadId::new(99), ByteCount::ZERO);
+            q.progress(DownloadId::new(99), ByteCount::new(2 << 20), uidm_infrastructure::quota::now_minute());
         }
         t.daemon.check_quota();
         assert!(t.window_got(|m| matches!(m, Outgoing::Quota { paused: true, resumes_at: Some(_), .. })));
@@ -1568,7 +1576,7 @@ mod tests {
     fn a_dropped_link_always_gets_the_save_as_dialog() {
         let t = setup("ask_flag", Duplicate::NewName);
         assert!(!t.daemon.settings.lock().ask_where_to_save);
-        let (id, _) = t.daemon.add(Download { url: serve(), ask: Some(true), ..Download::default() });
+        let (id, _) = t.daemon.add(Download { url: serve().into(), ask: Some(true), ..Download::default() });
         t.wait(id, Status::Confirming);
     }
 
@@ -1592,8 +1600,8 @@ mod tests {
     #[test]
     fn a_download_removed_from_its_queue_stays_listed_and_waits_for_a_hand_start() {
         let t = setup("remove_from_queue", Duplicate::NewName);
-        let (id, _) = t.daemon.add_later(Download { url: serve(), ..Download::default() });
-        let (kept, _) = t.daemon.add_later(Download { url: format!("{}#kept", serve()), ..Download::default() });
+        let (id, _) = t.daemon.add_later(Download { url: serve().into(), ..Download::default() });
+        let (kept, _) = t.daemon.add_later(Download { url: format!("{}#kept", serve()).into(), ..Download::default() });
         assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(MAIN_QUEUE));
 
         t.daemon.remove_from_queue(id).unwrap();
@@ -1658,9 +1666,9 @@ mod tests {
     impl Setup {
         /// Start queue `q` and run the scheduler until the run ends.
         fn run_queue(&self, q: u64) {
-            self.daemon.start_queue(q, None).unwrap();
+            self.daemon.start_queue(QueueId::new(q), None).unwrap();
             let until = Instant::now() + Duration::from_secs(10);
-            while self.daemon.store.queues().iter().any(|x| x.id == q && x.running) {
+            while self.daemon.store.queues().iter().any(|x| x.id == QueueId::new(q) && x.running) {
                 assert!(Instant::now() < until, "the run never ended");
                 self.daemon.tick();
                 thread::sleep(Duration::from_millis(20));
@@ -1680,14 +1688,14 @@ mod tests {
 
         // A one-time queue takes only what is still to do.
         assert!(t.daemon.move_to_queue(id, MAIN_QUEUE, None).is_err());
-        let mut mirror = Queue::new(0, "Mirror");
+        let mut mirror = Queue::new(QueueId::new(0), "Mirror");
         mirror.kind = queue::QueueKind::Synchronize;
         let q = t.daemon.save_queue(mirror.clone()).unwrap();
         t.daemon.move_to_queue(id, q, None).unwrap();
         assert_eq!(t.daemon.transfers.status(id), Some(Status::Done), "it stays finished in the queue");
 
         // Unchanged: left alone.
-        t.run_queue(q);
+        t.run_queue(q.get());
         assert_eq!(t.daemon.transfers.status(id), Some(Status::Done));
         assert_eq!(std::fs::read(&path).unwrap(), b"version 1");
         assert_eq!(queue::queue_of(&t.daemon.store.queues(), id), Some(q), "a finished download stays in its queue");
@@ -1695,7 +1703,7 @@ mod tests {
         // Same size, new ETag: downloaded again over the same file, in the
         // same row.
         *file.lock().unwrap() = (b"version 2".to_vec(), Some("\"v2\"".to_string()));
-        t.run_queue(q);
+        t.run_queue(q.get());
         let again = t.wait(id, Status::Done);
         assert_eq!(again.path, first.path, "the same file");
         assert_eq!(std::fs::read(&path).unwrap(), b"version 2");
@@ -1705,7 +1713,7 @@ mod tests {
 
         // A check that fails keeps the file.
         file.lock().unwrap().1 = None;
-        t.run_queue(q);
+        t.run_queue(q.get());
         let kept = t.wait(id, Status::Done);
         assert_eq!(std::fs::read(&path).unwrap(), b"version 2");
         assert!(kept.note.is_some_and(|n| n.contains("newer copy")), "it says why");
@@ -1713,7 +1721,7 @@ mod tests {
         // A gone file is downloaded again.
         file.lock().unwrap().1 = Some("\"v2\"".to_string());
         std::fs::remove_file(&path).unwrap();
-        t.run_queue(q);
+        t.run_queue(q.get());
         t.wait(id, Status::Done);
         assert_eq!(std::fs::read(&path).unwrap(), b"version 2");
 
@@ -1926,7 +1934,7 @@ mod tests {
             let asked = t.wait(id, Status::Confirming);
             let wanted = if finish_first { LEN as u64 } else { LEN as u64 / 4 };
             let until = Instant::now() + Duration::from_secs(30);
-            while t.daemon.entry(id).unwrap().done < wanted {
+            while t.daemon.entry(id).unwrap().done < ByteCount::new(wanted) {
                 assert!(Instant::now() < until, "the early download never got going");
                 thread::sleep(Duration::from_millis(20));
             }
@@ -2015,7 +2023,7 @@ mod tests {
         assert!(std::fs::metadata(&out).unwrap().len() > 0);
         assert_eq!(done.note.as_deref(), Some("Converted from talk.mkv"));
         assert!(t.daemon.entry(id).is_none() && !clip.exists(), "the original went, as asked");
-        assert!(t.daemon.convert(new + 100, uidm_domain::media::Target::Mp3, false).is_err());
+        assert!(t.daemon.convert(DownloadId::new(new.get() + 100), uidm_domain::media::Target::Mp3, false).is_err());
     }
 
     /// Each request's path and the Cookie header it brought.

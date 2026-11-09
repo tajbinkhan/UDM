@@ -12,7 +12,9 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{Download, PageLink};
+use uidm_domain::id::QueueId;
 use uidm_domain::queue::{Queue, MAIN_QUEUE};
 use uidm_domain::settings::{Settings, GENERAL};
 
@@ -40,7 +42,7 @@ pub enum Probed {
     /// Not answered yet.
     Asking,
     /// Its size and `Content-Type`, each when the server gave it.
-    Found { total: Option<u64>, content_type: Option<String> },
+    Found { total: Option<ByteCount>, content_type: Option<String> },
     /// It could not be asked, and why.
     Failed(String),
 }
@@ -59,7 +61,7 @@ pub struct LinksDialog {
     /// Only these types, comma-separated; empty shows every type.
     types: String,
     text_as_description: bool,
-    queue: u64,
+    queue: QueueId,
     start_queue: bool,
     target: Target,
     folder: String,
@@ -194,7 +196,7 @@ impl LinksDialog {
         let links = asking
             .iter()
             .map(|&i| Download {
-                url: self.links[i].url.clone(),
+                url: self.links[i].url.as_str().into(),
                 referrer: self.referrer(),
                 page: self.referrer(),
                 cookies: self.links[i].cookies.clone(),
@@ -277,7 +279,7 @@ impl LinksDialog {
                 let filename = (!self.rename.trim().is_empty())
                     .then(|| pattern_name(&self.rename, n + 1, ticked.len(), &link_type(l)));
                 Download {
-                    url: l.url.clone(),
+                    url: l.url.as_str().into(),
                     // The page the links were picked from is both.
                     referrer: self.referrer(),
                     page: self.referrer(),
@@ -639,12 +641,15 @@ mod tests {
         assert!(d.take_probe().is_none(), "asked once");
 
         // Answers map back to their links; the third asked is link 3.
-        let zip = Probed::Found { total: Some(2048), content_type: Some("application/x-zip-compressed".into()) };
+        let zip = Probed::Found {
+            total: Some(ByteCount::new(2048)),
+            content_type: Some("application/x-zip-compressed".into()),
+        };
         d.heard(first, 0, zip.clone());
         d.heard(first, 1, Probed::Found { total: None, content_type: Some("application/pdf; q=1".into()) });
         d.heard(first + 100, 2, zip.clone());
         assert_eq!(d.probed[3], Probed::Asking, "an answer to another request is dropped");
-        assert_eq!(link_columns(&d.links[0], &d.probed[0]), ("zip".into(), human_bytes(2048)));
+        assert_eq!(link_columns(&d.links[0], &d.probed[0]), ("zip".into(), human_bytes(ByteCount::new(2048))));
         assert_eq!(link_columns(&d.links[1], &d.probed[1]), ("pdf".into(), "Unknown".into()));
         assert_eq!(link_columns(&d.links[3], &d.probed[3]).1, "...");
 

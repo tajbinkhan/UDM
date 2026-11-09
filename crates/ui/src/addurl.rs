@@ -77,7 +77,7 @@ pub fn show(ctx: &egui::Context, d: &mut AddDialog, connected: bool) -> Outcome 
             if ok && can_add {
                 let login = (d.use_login && !d.user.trim().is_empty())
                     .then(|| DownloadLogin { username: d.user.trim().to_string(), password: Some(d.password.clone()) });
-                outcome = Outcome::Add(Box::new(Download { url, login, ..Download::default() }));
+                outcome = Outcome::Add(Box::new(Download { url: url.into(), login, ..Download::default() }));
             }
         });
     if !open {

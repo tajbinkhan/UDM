@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use uidm_domain::bytes::ByteCount;
 
 use tracing::info;
 use uidm_domain::download::Download;
@@ -24,7 +25,7 @@ pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/uidm/r
 /// Where release files are served from; a Setup anywhere else is not used.
 const DOWNLOADS: &str = "https://github.com/tajbinkhan/uidm/releases/download/";
 /// The largest Setup UIDM downloads.
-pub const MAX_SETUP_BYTES: u64 = 256 * 1024 * 1024;
+pub const MAX_SETUP_BYTES: ByteCount = ByteCount::mib(256);
 
 /// The Setup asset among a release's `assets`, if there is one UIDM can
 /// use: named `UIDM-Setup-*.exe`, served from the repository's releases,
@@ -33,13 +34,13 @@ fn setup_asset(assets: &serde_json::Value) -> Option<SetupAsset> {
     assets.as_array()?.iter().find_map(|a| {
         let name = a["name"].as_str()?;
         let url = a["browser_download_url"].as_str()?;
-        let size = a["size"].as_u64()?;
+        let size = ByteCount::new(a["size"].as_u64()?);
         let lower = name.to_ascii_lowercase();
         let usable = lower.starts_with("uidm-setup-")
             && lower.ends_with(".exe")
             && !name.contains(['/', '\\', ':'])
             && url.starts_with(DOWNLOADS)
-            && (1..=MAX_SETUP_BYTES).contains(&size);
+            && (ByteCount::new(1)..=MAX_SETUP_BYTES).contains(&size);
         let sha256 = a["digest"]
             .as_str()
             .and_then(|d| d.strip_prefix("sha256:"))
@@ -59,7 +60,7 @@ pub enum ReleaseError {
     NoRelease,
     /// The bytes downloaded and the size GitHub lists.
     #[error("The update is {0} bytes, not the {1} GitHub lists.")]
-    WrongSize(usize, u64),
+    WrongSize(ByteCount, ByteCount),
     #[error("The update is not a Windows program.")]
     NotProgram,
     #[error("The update does not match the checksum GitHub lists.")]
@@ -70,8 +71,9 @@ pub enum ReleaseError {
 /// its SHA-256 when given, and that it is a Windows program.
 pub fn check_setup(asset: &SetupAsset, bytes: &[u8]) -> Result<(), ReleaseError> {
     use sha2::Digest as _;
-    if bytes.len() as u64 != asset.size {
-        return Err(ReleaseError::WrongSize(bytes.len(), asset.size));
+    let got = ByteCount::new(bytes.len() as u64);
+    if got != asset.size {
+        return Err(ReleaseError::WrongSize(got, asset.size));
     }
     if !bytes.starts_with(b"MZ") {
         return Err(ReleaseError::NotProgram);
@@ -115,9 +117,9 @@ impl GitHub {
     }
 
     /// Fetch `url` through the proxy the settings choose, up to `limit` bytes.
-    fn fetch(&self, url: &str, headers: &[(String, String)], limit: u64) -> Result<Vec<u8>, engine::EngineError> {
+    fn fetch(&self, url: &str, headers: &[(String, String)], limit: ByteCount) -> Result<Vec<u8>, engine::EngineError> {
         let settings = self.settings.get();
-        let net = config_for(&Download { url: url.to_string(), ..Download::default() }, &settings, &self.retries);
+        let net = config_for(&Download { url: url.into(), ..Download::default() }, &settings, &self.retries);
         engine::fetch(url, headers, &net, limit).map(|page| page.body)
     }
 }
@@ -128,7 +130,8 @@ impl ReleaseSource for GitHub {
             ("User-Agent".to_string(), format!("UIDM/{VERSION}")),
             ("Accept".to_string(), "application/vnd.github+json".to_string()),
         ];
-        let body = self.fetch(&self.url, &headers, 1024 * 1024).map_err(|e| UpdateError::Unreachable(e.to_string()))?;
+        let body =
+            self.fetch(&self.url, &headers, ByteCount::mib(1)).map_err(|e| UpdateError::Unreachable(e.to_string()))?;
         let release = parse_release(&body).map_err(|e| UpdateError::Answer(e.to_string()))?;
         // Only Windows has a Setup to run; elsewhere the page is shown.
         Ok(Release { setup: release.setup.filter(|_| cfg!(windows)), ..release })
@@ -187,7 +190,12 @@ mod tests {
     #[test]
     fn a_setup_that_does_not_match_its_release_is_refused() {
         let server = TestServer::start(b"not a program".to_vec());
-        let setup = SetupAsset { name: "UIDM-Setup-9.exe".into(), url: server.url.clone(), size: 13, sha256: None };
+        let setup = SetupAsset {
+            name: "UIDM-Setup-9.exe".into(),
+            url: server.url.clone(),
+            size: ByteCount::new(13),
+            sha256: None,
+        };
         assert!(matches!(github(&server.url).fetch_setup(&setup), Err(UpdateError::BadSetup(_))));
     }
 
@@ -225,7 +233,10 @@ mod tests {
         assert_eq!(setup.sha256.as_deref(), Some(sha.as_str()));
         assert!(check_setup(&setup, body).is_ok());
         assert_eq!(check_setup(&setup, b"MZ setuP").unwrap_err(), ReleaseError::WrongChecksum);
-        assert_eq!(check_setup(&setup, b"MZ").unwrap_err(), ReleaseError::WrongSize(2, 8));
+        assert_eq!(
+            check_setup(&setup, b"MZ").unwrap_err(),
+            ReleaseError::WrongSize(ByteCount::new(2), ByteCount::new(8))
+        );
         assert_eq!(
             check_setup(&SetupAsset { sha256: None, ..setup.clone() }, b"XX setup").unwrap_err(),
             ReleaseError::NotProgram

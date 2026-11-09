@@ -18,6 +18,8 @@
 //! padded with zeros to a chosen wildcard size. People moving from IDM type
 //! addresses this way, so the same list comes out for the same settings.
 
+use crate::address::Address;
+
 /// The most URLs one batch may produce, so a mistyped pattern cannot add a
 /// million downloads.
 pub const MAX_BATCH: usize = 10_000;
@@ -192,7 +194,7 @@ pub fn count(pattern: &str) -> Result<u64, BatchError> {
 
 /// Every URL `pattern` produces, in order. Fails when the pattern is not a
 /// web address or produces more than `MAX_BATCH`.
-pub fn expand(pattern: &str) -> Result<Vec<String>, BatchError> {
+pub fn expand(pattern: &str) -> Result<Vec<Address>, BatchError> {
     let pattern = pattern.trim();
     if !is_download_url(pattern) {
         return Err(BatchError::PatternNotWeb);
@@ -211,7 +213,8 @@ pub fn expand(pattern: &str) -> Result<Vec<String>, BatchError> {
             pieces[k] = part.nth(i % n);
             i /= n;
         }
-        urls.push(pieces.concat());
+        // Each starts as the pattern does, which is a download address.
+        urls.extend(Address::parse(&pieces.concat()).ok());
     }
     Ok(urls)
 }
@@ -242,7 +245,7 @@ pub fn expand_asterisk(
     from: &str,
     to: &str,
     size: usize,
-) -> Result<Vec<String>, BatchError> {
+) -> Result<Vec<Address>, BatchError> {
     let address = address.trim();
     if !is_download_url(address) {
         return Err(BatchError::AddressNotWeb);
@@ -293,13 +296,14 @@ pub fn expand_asterisk(
     if total > MAX_BATCH as u64 {
         return Err(BatchError::RangeTooBig(from.to_string(), to.to_string(), total));
     }
-    Ok((0..total).map(|i| format!("{before}{}{after}", part.nth(i))).collect())
+    // Each starts as `address` does, which is a download address.
+    Ok((0..total).filter_map(|i| Address::parse(&format!("{before}{}{after}", part.nth(i))).ok()).collect())
 }
 
 /// The URLs in a pasted list or text file, one per line: blank lines,
 /// `#` comments and repeats are skipped. Also returns how many other lines
 /// were not web addresses. Fails when more than `MAX_BATCH` are left.
-pub fn parse_list(text: &str) -> Result<(Vec<String>, usize), BatchError> {
+pub fn parse_list(text: &str) -> Result<(Vec<Address>, usize), BatchError> {
     let mut seen = std::collections::HashSet::new();
     let mut urls = Vec::new();
     let mut rejected = 0;
@@ -308,12 +312,15 @@ pub fn parse_list(text: &str) -> Result<(Vec<String>, usize), BatchError> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if !is_download_url(line) || line.contains(char::is_whitespace) {
-            rejected += 1;
-            continue;
-        }
+        let address = match Address::parse(line) {
+            Ok(a) if !line.contains(char::is_whitespace) => a,
+            _ => {
+                rejected += 1;
+                continue;
+            }
+        };
         if seen.insert(line.to_string()) {
-            urls.push(line.to_string());
+            urls.push(address);
         }
     }
     if urls.len() > MAX_BATCH {
@@ -325,23 +332,24 @@ pub fn parse_list(text: &str) -> Result<(Vec<String>, usize), BatchError> {
 /// The download link in copied `text` worth offering: one http(s) or ftp address,
 /// alone on the clipboard, whose file type is one of `types` (any file type
 /// when `types` is empty).
-pub fn clipboard_link(text: &str, types: &[String]) -> Option<String> {
+pub fn clipboard_link(text: &str, types: &[String]) -> Option<Address> {
     let url = text.trim();
-    if !is_download_url(url) || url.contains(char::is_whitespace) || url.len() > 4096 {
+    if url.contains(char::is_whitespace) || url.len() > 4096 {
         return None;
     }
+    let address = Address::parse(url).ok()?;
     let parsed = url::Url::parse(url).ok()?;
     let last = parsed.path_segments()?.next_back()?;
     let (_, ext) = last.rsplit_once('.')?;
     let ext = ext.to_ascii_lowercase();
     let wanted = !ext.is_empty() && (types.is_empty() || types.contains(&ext));
-    wanted.then(|| url.to_string())
+    wanted.then_some(address)
 }
 
 /// Every http, https or ftp address in `text`, once each and in order:
 /// copied lines, a web page's text, or addresses in quotes or brackets.
 /// Punctuation that ends a sentence is not taken as part of an address.
-pub fn links_in(text: &str) -> Vec<String> {
+pub fn links_in(text: &str) -> Vec<Address> {
     let mut seen = std::collections::HashSet::new();
     let mut urls = Vec::new();
     let separators = |c: char| c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '`' | '|');
@@ -372,8 +380,12 @@ pub fn links_in(text: &str) -> Vec<String> {
         if url.len() > 4096 || url::Url::parse(url).ok().and_then(|u| u.host_str().map(|_| ())).is_none() {
             continue;
         }
+        // It starts with one of the schemes found above.
+        let Ok(address) = Address::parse(url) else {
+            continue;
+        };
         if seen.insert(url.to_string()) {
-            urls.push(url.to_string());
+            urls.push(address);
         }
     }
     urls
@@ -547,16 +559,22 @@ mod tests {
     fn clipboard_links() {
         let types = vec!["zip".to_string(), "mp4".to_string()];
         assert_eq!(
-            clipboard_link("  https://x.com/a/file.ZIP?sig=1 \n", &types).as_deref(),
+            clipboard_link("  https://x.com/a/file.ZIP?sig=1 \n", &types).as_ref().map(Address::as_str),
             Some("https://x.com/a/file.ZIP?sig=1")
         );
         assert_eq!(clipboard_link("https://x.com/page.html", &types), None);
         assert_eq!(clipboard_link("https://x.com/", &types), None);
         assert_eq!(clipboard_link("see https://x.com/a.zip", &types), None);
         assert_eq!(clipboard_link("https://x.com/a.zip https://x.com/b.zip", &types), None);
-        assert_eq!(clipboard_link("ftp://x.com/a.zip", &types).as_deref(), Some("ftp://x.com/a.zip"));
+        assert_eq!(
+            clipboard_link("ftp://x.com/a.zip", &types).as_ref().map(Address::as_str),
+            Some("ftp://x.com/a.zip")
+        );
         assert_eq!(clipboard_link("file://x.com/a.zip", &types), None);
-        assert_eq!(clipboard_link("https://x.com/a.html", &[]).as_deref(), Some("https://x.com/a.html"));
+        assert_eq!(
+            clipboard_link("https://x.com/a.html", &[]).as_ref().map(Address::as_str),
+            Some("https://x.com/a.html")
+        );
         assert_eq!(clipboard_link("https://x.com/download", &[]), None);
     }
 

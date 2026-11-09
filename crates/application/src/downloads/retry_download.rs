@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
+use uidm_domain::address::Link;
 use uidm_domain::download::DownloadError;
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueStore};
 use uidm_domain::queue;
 
@@ -22,7 +24,7 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl> RetryDownload<'a, Q
     }
 
     /// Returns the new row's id and its address.
-    pub fn run(&self, id: u64) -> Result<(u64, String), DownloadError> {
+    pub fn run(&self, id: DownloadId) -> Result<(DownloadId, Link), DownloadError> {
         let entry = self.downloads.entry(id).ok_or(DownloadError::NoDownload(id))?;
         if !entry.status.is_retryable() {
             return Err(DownloadError::NotRetryable(id));
@@ -57,16 +59,19 @@ mod tests {
     #[test]
     fn a_started_download_resumes_into_its_files_and_keeps_its_queue() {
         let queues = Queues::main();
-        queues.edit(|qs| qs[0].order = vec![1]);
+        queues.edit(|qs| qs[0].order = vec![DownloadId::new(1)]);
         let mut old = row(1, Status::Interrupted);
         old.connections = 4;
         old.path = Some("/dl/1.zip".into());
         old.partial = Some("/tmp/1.zip.part".into());
         old.limit_remember = false;
         let downloads = Downloads::rows([old]);
-        downloads.keep_request(1, Download { url: "https://dl.example/kept.zip".into(), ..Download::default() });
+        downloads.keep_request(
+            DownloadId::new(1),
+            Download { url: "https://dl.example/kept.zip".into(), ..Download::default() },
+        );
         let control = Control::default();
-        let (new_id, url) = RetryDownload::new(&queues, &downloads, &control).run(1).unwrap();
+        let (new_id, url) = RetryDownload::new(&queues, &downloads, &control).run(DownloadId::new(1)).unwrap();
         assert_eq!((new_id, url.as_str()), (RESTARTED_ID, "https://dl.example/kept.zip"));
         let r = &control.restarted()[0];
         assert_eq!(r.path, Some(PathBuf::from("/dl/1.zip")));
@@ -84,7 +89,7 @@ mod tests {
         old.path = Some("/dl/someone-elses.zip".into());
         let downloads = Downloads::rows([old]);
         let control = Control::default();
-        RetryDownload::new(&queues, &downloads, &control).run(1).unwrap();
+        RetryDownload::new(&queues, &downloads, &control).run(DownloadId::new(1)).unwrap();
         let r = &control.restarted()[0];
         assert_eq!((r.path.as_ref(), r.download.url.as_str()), (None, "https://dl.example/1.zip"));
     }
@@ -95,8 +100,8 @@ mod tests {
         let downloads = Downloads::with(&[(1, Status::Done)]);
         let control = Control::default();
         let retry = RetryDownload::new(&queues, &downloads, &control);
-        assert_eq!(retry.run(1), Err(DownloadError::NotRetryable(1)));
-        assert_eq!(retry.run(9), Err(DownloadError::NoDownload(9)));
+        assert_eq!(retry.run(DownloadId::new(1)), Err(DownloadError::NotRetryable(DownloadId::new(1))));
+        assert_eq!(retry.run(DownloadId::new(9)), Err(DownloadError::NoDownload(DownloadId::new(9))));
         assert!(control.restarted().is_empty());
     }
 }

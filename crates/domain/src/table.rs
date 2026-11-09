@@ -9,56 +9,59 @@
 
 use std::collections::BTreeMap;
 
+use crate::address::Link;
+use crate::bytes::ByteCount;
 use crate::download::{DownloadEntry, Status, Validator};
+use crate::id::DownloadId;
 
 /// One change to the list, borrowed from whatever message carried it, so
 /// applying one copies only what the table keeps.
 #[derive(Debug, Clone, Copy)]
 pub enum Change<'a> {
     Added {
-        id: u64,
+        id: DownloadId,
         url: &'a str,
     },
     Started {
-        id: u64,
+        id: DownloadId,
         url: &'a str,
         path: &'a str,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
         connections: usize,
         partial: Option<&'a str>,
         validator: Option<&'a Validator>,
     },
     Progress {
-        id: u64,
+        id: DownloadId,
         url: &'a str,
-        done: u64,
-        total: Option<u64>,
+        done: ByteCount,
+        total: Option<ByteCount>,
         parts: Option<[u64; 2]>,
     },
     Done {
-        id: u64,
+        id: DownloadId,
         url: &'a str,
         path: &'a str,
         note: Option<&'a str>,
     },
     Failed {
-        id: u64,
+        id: DownloadId,
         url: &'a str,
         error: &'a str,
     },
     Canceled {
-        id: u64,
+        id: DownloadId,
         url: &'a str,
     },
     NameTaken {
-        id: u64,
+        id: DownloadId,
         url: &'a str,
         path: &'a str,
-        total: Option<u64>,
+        total: Option<ByteCount>,
     },
     Removed {
-        id: u64,
+        id: DownloadId,
     },
     Updated(&'a DownloadEntry),
     Downloads(&'a [DownloadEntry]),
@@ -66,7 +69,7 @@ pub enum Change<'a> {
 
 #[derive(Debug, Default, Clone)]
 pub struct DownloadTable {
-    entries: BTreeMap<u64, DownloadEntry>,
+    entries: BTreeMap<DownloadId, DownloadEntry>,
 }
 
 impl DownloadTable {
@@ -154,7 +157,7 @@ impl DownloadTable {
         }
     }
 
-    pub fn get(&self, id: u64) -> Option<&DownloadEntry> {
+    pub fn get(&self, id: DownloadId) -> Option<&DownloadEntry> {
         self.entries.get(&id)
     }
 
@@ -177,22 +180,22 @@ impl DownloadTable {
     }
 
     /// Largest id in the table, or 0 when empty.
-    pub fn max_id(&self) -> u64 {
-        self.entries.keys().next_back().copied().unwrap_or(0)
+    pub fn max_id(&self) -> DownloadId {
+        self.entries.keys().next_back().copied().unwrap_or_default()
     }
 
-    fn entry(&mut self, id: u64, url: &str) -> &mut DownloadEntry {
+    fn entry(&mut self, id: DownloadId, url: &str) -> &mut DownloadEntry {
         self.entries.entry(id).or_insert_with(|| blank(id, url, Status::Queued))
     }
 }
 
-fn blank(id: u64, url: &str, status: Status) -> DownloadEntry {
+fn blank(id: DownloadId, url: &str, status: Status) -> DownloadEntry {
     DownloadEntry {
         id,
-        url: url.to_string(),
+        url: Link::new(url),
         path: None,
         total: None,
-        done: 0,
+        done: ByteCount::ZERO,
         status,
         error: None,
         resumable: false,
@@ -226,10 +229,10 @@ mod tests {
     fn started(t: &mut DownloadTable, id: u64) {
         t.change(
             Change::Started {
-                id,
+                id: DownloadId::new(id),
                 url: URL,
                 path: "/dl/f.zip",
-                total: Some(1000),
+                total: Some(ByteCount::new(1000)),
                 resumable: true,
                 connections: 4,
                 partial: None,
@@ -240,53 +243,67 @@ mod tests {
     }
 
     fn progress(id: u64, done: u64) -> Change<'static> {
-        Change::Progress { id, url: URL, done, total: Some(1000), parts: None }
+        Change::Progress {
+            id: DownloadId::new(id),
+            url: URL,
+            done: ByteCount::new(done),
+            total: Some(ByteCount::new(1000)),
+            parts: None,
+        }
     }
 
     #[test]
     fn a_download_goes_from_added_to_done() {
         let mut t = DownloadTable::new();
-        t.change(Change::Added { id: 1, url: URL }, NOW);
-        assert_eq!(t.get(1).unwrap().status, Status::Queued);
+        t.change(Change::Added { id: DownloadId::new(1), url: URL }, NOW);
+        assert_eq!(t.get(DownloadId::new(1)).unwrap().status, Status::Queued);
         started(&mut t, 1);
-        let e = t.get(1).unwrap();
+        let e = t.get(DownloadId::new(1)).unwrap();
         assert_eq!(e.status, Status::Downloading);
         assert_eq!(e.connections, 4);
         assert_eq!(e.last_try, Some(NOW));
         t.change(progress(1, 400), NOW);
-        assert_eq!(t.get(1).unwrap().done, 400);
-        t.change(Change::Done { id: 1, url: URL, path: "/dl/f.zip", note: None }, NOW);
-        let e = t.get(1).unwrap();
+        assert_eq!(t.get(DownloadId::new(1)).unwrap().done, ByteCount::new(400));
+        t.change(Change::Done { id: DownloadId::new(1), url: URL, path: "/dl/f.zip", note: None }, NOW);
+        let e = t.get(DownloadId::new(1)).unwrap();
         assert_eq!(e.status, Status::Done);
-        assert_eq!(e.done, 1000, "done fills to the total");
+        assert_eq!(e.done, ByteCount::new(1000), "done fills to the total");
     }
 
     #[test]
     fn started_before_added_is_not_reset() {
         let mut t = DownloadTable::new();
         started(&mut t, 7);
-        t.change(Change::Added { id: 7, url: URL }, NOW);
-        assert_eq!(t.get(7).unwrap().status, Status::Downloading);
+        t.change(Change::Added { id: DownloadId::new(7), url: URL }, NOW);
+        assert_eq!(t.get(DownloadId::new(7)).unwrap().status, Status::Downloading);
     }
 
     #[test]
     fn late_progress_does_not_revive_a_canceled_download() {
         let mut t = DownloadTable::new();
         started(&mut t, 2);
-        t.change(Change::Canceled { id: 2, url: URL }, NOW);
+        t.change(Change::Canceled { id: DownloadId::new(2), url: URL }, NOW);
         t.change(progress(2, 500), NOW);
-        assert_eq!(t.get(2).unwrap().status, Status::Canceled);
-        assert_eq!(t.get(2).unwrap().done, 500);
+        assert_eq!(t.get(DownloadId::new(2)).unwrap().status, Status::Canceled);
+        assert_eq!(t.get(DownloadId::new(2)).unwrap().done, ByteCount::new(500));
     }
 
     #[test]
     fn a_taken_name_waits_for_the_save_as_dialog() {
         let mut t = DownloadTable::new();
-        t.change(Change::Added { id: 6, url: URL }, NOW);
-        t.change(Change::NameTaken { id: 6, url: URL, path: "/dl/report.pdf", total: Some(42) }, NOW);
-        let e = t.get(6).unwrap();
+        t.change(Change::Added { id: DownloadId::new(6), url: URL }, NOW);
+        t.change(
+            Change::NameTaken {
+                id: DownloadId::new(6),
+                url: URL,
+                path: "/dl/report.pdf",
+                total: Some(ByteCount::new(42)),
+            },
+            NOW,
+        );
+        let e = t.get(DownloadId::new(6)).unwrap();
         assert_eq!(e.status, Status::Confirming);
-        assert_eq!(e.total, Some(42));
+        assert_eq!(e.total, Some(ByteCount::new(42)));
         assert_eq!(e.connections, 0, "never started, so a retry does not reuse the file");
     }
 
@@ -300,8 +317,8 @@ mod tests {
         started(&mut b, 9);
         b.change(Change::Downloads(&snap), NOW);
         assert_eq!(b.snapshot(), snap);
-        b.change(Change::Removed { id: 1 }, NOW);
-        assert_eq!(b.max_id(), 2);
+        b.change(Change::Removed { id: DownloadId::new(1) }, NOW);
+        assert_eq!(b.max_id(), DownloadId::new(2));
         assert_eq!(b.len(), 1);
     }
 }

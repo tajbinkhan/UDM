@@ -1,3 +1,4 @@
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{Converter, DownloadControl, DownloadList};
 
 /// How [`CancelDownload`] stopped a row.
@@ -24,7 +25,7 @@ impl<'a, D: DownloadList, X: DownloadControl, C: Converter> CancelDownload<'a, D
         CancelDownload { downloads, control, converter }
     }
 
-    pub fn run(&self, id: u64) -> Canceled {
+    pub fn run(&self, id: DownloadId) -> Canceled {
         if self.converter.stop(id) {
             return Canceled::Conversion;
         }
@@ -48,10 +49,10 @@ mod tests {
         let downloads = Downloads::with(&[(1, Status::Confirming), (2, Status::Waiting), (3, Status::Downloading)]);
         let (control, converter) = (Control::default(), Convert::running(&[9]));
         let cancel = CancelDownload::new(&downloads, &control, &converter);
-        assert_eq!(cancel.run(9), Canceled::Conversion);
-        assert_eq!(cancel.run(1), Canceled::Waiting);
-        assert_eq!(cancel.run(2), Canceled::Waiting);
-        assert_eq!(cancel.run(3), Canceled::Running);
+        assert_eq!(cancel.run(DownloadId::new(9)), Canceled::Conversion);
+        assert_eq!(cancel.run(DownloadId::new(1)), Canceled::Waiting);
+        assert_eq!(cancel.run(DownloadId::new(2)), Canceled::Waiting);
+        assert_eq!(cancel.run(DownloadId::new(3)), Canceled::Running);
         assert_eq!(converter.stopped(), [9]);
         assert_eq!(control.canceled_waiting(), [1, 2]);
         assert_eq!(control.stopped(), [3]);

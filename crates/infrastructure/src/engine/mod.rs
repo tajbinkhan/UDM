@@ -27,8 +27,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::filename::name_from_url;
-use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename};
+use uidm_domain::filename::{numbered_name, proposed_name, sanitize_filename, FileName};
+use uidm_domain::id::DownloadId;
 use uidm_domain::sync::LockExt;
 
 use crate::net::NetConfig;
@@ -121,11 +123,11 @@ pub struct DownloadRequest {
 /// Progress events over the course of a download. `id` matches the `Ack`.
 pub enum Progress {
     Started {
-        id: u64,
+        id: DownloadId,
         url: String,
         /// The file being written.
         path: PathBuf,
-        total: Option<u64>,
+        total: Option<ByteCount>,
         resumable: bool,
         connections: usize,
         /// Where the data goes until it is complete, when not at `path`.
@@ -134,38 +136,38 @@ pub enum Progress {
         validator: Option<Validator>,
     },
     Advanced {
-        id: u64,
+        id: DownloadId,
         url: String,
-        done: u64,
-        total: Option<u64>,
+        done: ByteCount,
+        total: Option<ByteCount>,
         /// For a stream: segments fetched and segments in all.
         parts: Option<[u64; 2]>,
         /// For a download in byte ranges: each connection's range and state.
         segments: Option<Vec<SegmentInfo>>,
     },
     Finished {
-        id: u64,
+        id: DownloadId,
         url: String,
         path: PathBuf,
         /// Something the user should know about the result.
         note: Option<String>,
     },
     Failed {
-        id: u64,
+        id: DownloadId,
         url: String,
         error: String,
     },
     Canceled {
-        id: u64,
+        id: DownloadId,
         url: String,
     },
     /// The file name is taken and the request says to ask: nothing was
     /// written. `path` is the taken file.
     NameTaken {
-        id: u64,
+        id: DownloadId,
         url: String,
         path: PathBuf,
-        total: Option<u64>,
+        total: Option<ByteCount>,
     },
 }
 
@@ -252,7 +254,7 @@ impl Reporter {
 
 /// One queued unit of work.
 struct Job {
-    id: u64,
+    id: DownloadId,
     token: CancelToken,
     req: DownloadRequest,
 }
@@ -272,7 +274,7 @@ struct Shared {
     limiter: RateLimiter,
     /// Each running download's limiter, by id, with the limit set for that
     /// download alone (`None` when it follows `per_file`).
-    own_limits: Mutex<HashMap<u64, OwnLimit>>,
+    own_limits: Mutex<HashMap<DownloadId, OwnLimit>>,
     /// The limit for each download that has none of its own, or `None`.
     /// Every such download gets a bucket of its own at this rate, so it caps
     /// each file rather than all of them together.
@@ -359,14 +361,14 @@ impl<'a> Gate<'a> {
 
 impl Shared {
     /// Download `id`'s own limiter; an unlimited one if it has none.
-    fn own_limiter(&self, id: u64) -> Arc<RateLimiter> {
+    fn own_limiter(&self, id: DownloadId) -> Arc<RateLimiter> {
         self.own_limits.lock_or_recover().get(&id).map(|(l, _)| Arc::clone(l)).unwrap_or_default()
     }
 }
 
 struct Inner {
     sched: Mutex<Sched>,
-    registry: Mutex<HashMap<u64, CancelToken>>,
+    registry: Mutex<HashMap<DownloadId, CancelToken>>,
     shared: Arc<Shared>,
     reporter: Reporter,
 }
@@ -401,7 +403,7 @@ impl Engine {
     }
 
     /// Queue `req` and return its id. It starts when a slot is free.
-    pub fn enqueue(&self, req: DownloadRequest) -> u64 {
+    pub fn enqueue(&self, req: DownloadRequest) -> DownloadId {
         let id = self.reserve_id();
         self.enqueue_as(id, req);
         id
@@ -409,12 +411,12 @@ impl Engine {
 
     /// Take the next id without queuing anything, for a download that waits
     /// (for the user to confirm it, say) before it is queued with `enqueue_as`.
-    pub fn reserve_id(&self) -> u64 {
-        self.counter.fetch_add(1, Ordering::Relaxed)
+    pub fn reserve_id(&self) -> DownloadId {
+        DownloadId::new(self.counter.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Queue `req` under an id from `reserve_id`.
-    pub fn enqueue_as(&self, id: u64, req: DownloadRequest) {
+    pub fn enqueue_as(&self, id: DownloadId, req: DownloadRequest) {
         let token: CancelToken = Arc::new(AtomicBool::new(false));
         self.inner.registry.lock_or_recover().insert(id, Arc::clone(&token));
         self.inner.sched.lock_or_recover().queue.push_back(Job { id, token, req });
@@ -423,13 +425,13 @@ impl Engine {
 
     /// Make the next id at least `next`, so ids keep increasing across
     /// restarts and never match one saved in the history.
-    pub fn set_next_id(&self, next: u64) {
-        self.counter.fetch_max(next.max(1), Ordering::Relaxed);
+    pub fn set_next_id(&self, next: DownloadId) {
+        self.counter.fetch_max(next.get().max(1), Ordering::Relaxed);
     }
 
     /// The id the next download will get.
-    pub fn next_id(&self) -> u64 {
-        self.counter.load(Ordering::Relaxed)
+    pub fn next_id(&self) -> DownloadId {
+        DownloadId::new(self.counter.load(Ordering::Relaxed))
     }
 
     /// Change how many downloads run at once. Running downloads are never
@@ -452,7 +454,7 @@ impl Engine {
     /// Set one download's own speed limit, or `None` to clear it. A running
     /// download slows down or speeds up at once; a queued one starts with it.
     /// Clearing it falls back to the limit per file, if one is set.
-    pub fn set_download_limit(&self, id: u64, bytes_per_sec: Option<u64>) {
+    pub fn set_download_limit(&self, id: DownloadId, bytes_per_sec: Option<u64>) {
         let shared = &self.inner.shared;
         let per_file = *shared.per_file.lock_or_recover();
         if let Some((limiter, own)) = shared.own_limits.lock_or_recover().get_mut(&id) {
@@ -492,7 +494,7 @@ impl Engine {
     /// Stop a download. A queued one is dropped from the queue and reported
     /// canceled at once; a running one stops at its next read. Unknown ids are
     /// ignored.
-    pub fn cancel(&self, id: u64) {
+    pub fn cancel(&self, id: DownloadId) {
         let Some(token) = self.inner.registry.lock_or_recover().get(&id).cloned() else {
             return;
         };
@@ -553,7 +555,7 @@ pub fn run_blocking(req: DownloadRequest, cb: Arc<dyn Fn(Progress) + Send + Sync
         resplit: AtomicBool::new(true),
         claimed: Mutex::new(HashSet::new()),
     };
-    run(0, Arc::new(AtomicBool::new(false)), req, Reporter(cb), &shared);
+    run(DownloadId::NONE, Arc::new(AtomicBool::new(false)), req, Reporter(cb), &shared);
 }
 
 /// Statuses that, on a retried or resumed download, usually mean the link or
@@ -561,7 +563,7 @@ pub fn run_blocking(req: DownloadRequest, cb: Arc<dyn Fn(Progress) + Send + Sync
 const EXPIRED_STATUSES: [u16; 4] = [401, 403, 404, 410];
 
 /// Run one download to completion (blocking), reporting a terminal event.
-fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, shared: &Shared) {
+fn run(id: DownloadId, token: CancelToken, req: DownloadRequest, reporter: Reporter, shared: &Shared) {
     let url = req.url.clone();
     if token.load(Ordering::Relaxed) {
         reporter.send(Progress::Canceled { id, url });
@@ -597,7 +599,9 @@ fn run(id: u64, token: CancelToken, req: DownloadRequest, reporter: Reporter, sh
     }
     match result {
         Ok(Saved { path, note }) => reporter.send(Progress::Finished { id, url, path, note }),
-        Err(EngineError::NameTaken { path, total }) => reporter.send(Progress::NameTaken { id, url, path, total }),
+        Err(EngineError::NameTaken { path, total }) => {
+            reporter.send(Progress::NameTaken { id, url, path, total: total.map(ByteCount::new) })
+        }
         Err(e) => {
             let mut error = e.to_string();
             if let EngineError::Status(code) = e {
@@ -625,7 +629,7 @@ fn writable(dir: &Path) -> Result<(), EngineError> {
 /// The staging folder of download `id` saved with administrator rights. A
 /// retry (which gets a new id) keeps the folder its file is already in, so
 /// it resumes, or goes straight to the move when the file is complete.
-fn staging_dir(req: &DownloadRequest, id: u64) -> PathBuf {
+fn staging_dir(req: &DownloadRequest, id: DownloadId) -> PathBuf {
     let earlier = req
         .reuse_path
         .as_deref()
@@ -650,7 +654,7 @@ const STAGED_DONE: &str = ".complete";
 /// a staging folder as the user, then move the finished file into its
 /// folder through the elevated helper.
 fn run_elevated(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     req: &mut DownloadRequest,
     reporter: &Reporter,
@@ -713,7 +717,7 @@ impl From<PathBuf> for Saved {
 }
 
 fn run_inner(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     req: &DownloadRequest,
     reporter: &Reporter,
@@ -730,7 +734,7 @@ fn run_inner(
         return run_post(id, token, &agent, req, body, reporter, shared).map(Saved::from);
     }
     let probe = http::probe(&agent, &req.url, &req.headers)?;
-    let filename = pick_filename(req.filename.as_deref(), &probe);
+    let filename = pick_filename(req.filename.as_deref(), &probe).into_string();
     let dir = req.folders.for_name(&filename);
     writable(&dir)?;
     let claim = choose_output(&shared.claimed, &dir, &filename, req, &probe)?;
@@ -750,7 +754,7 @@ fn run_inner(
         id,
         url: req.url.clone(),
         path: output.clone(),
-        total: probe.total,
+        total: probe.total.map(ByteCount::new),
         resumable: probe.resumable,
         connections,
         partial: (work != output).then(|| work.clone()),
@@ -858,7 +862,7 @@ pub fn http_date(s: &str) -> Option<std::time::SystemTime> {
 
 /// A download sent as a POST: one request, its response saved as one stream.
 fn run_post(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -867,7 +871,7 @@ fn run_post(
     shared: &Shared,
 ) -> Result<PathBuf, EngineError> {
     let (probe, mut reader) = http::post(agent, &req.url, &req.headers, body)?;
-    let filename = pick_filename(req.filename.as_deref(), &probe);
+    let filename = pick_filename(req.filename.as_deref(), &probe).into_string();
     let dir = req.folders.for_name(&filename);
     writable(&dir)?;
     let claim = choose_output(&shared.claimed, &dir, &filename, req, &probe)?;
@@ -876,7 +880,7 @@ fn run_post(
         id,
         url: req.url.clone(),
         path: output.clone(),
-        total: probe.total,
+        total: probe.total.map(ByteCount::new),
         resumable: false,
         connections: 1,
         partial: None,
@@ -904,8 +908,8 @@ fn run_post(
             reporter.send(Progress::Advanced {
                 id,
                 url: req.url.clone(),
-                done,
-                total: probe.total,
+                done: ByteCount::new(done),
+                total: probe.total.map(ByteCount::new),
                 parts: None,
                 segments: None,
             });
@@ -922,11 +926,10 @@ fn run_post(
 
 /// Filename priority: explicit request, then Content-Disposition, then the URL
 /// path, then a generic fallback.
-fn pick_filename(requested: Option<&str>, probe: &http::Probe) -> String {
+fn pick_filename(requested: Option<&str>, probe: &http::Probe) -> FileName {
     requested
-        .map(sanitize_filename)
-        .filter(|s| !s.is_empty())
-        .or_else(|| probe.suggested_filename.as_deref().map(sanitize_filename).filter(|s| !s.is_empty()))
+        .and_then(sanitize_filename)
+        .or_else(|| probe.suggested_filename.as_deref().and_then(sanitize_filename))
         .unwrap_or_else(|| name_from_url(&probe.final_url))
 }
 
@@ -940,9 +943,14 @@ pub struct Fetched {
 
 /// GET `url` with the download's headers, proxy and logins, reading at most
 /// `limit` bytes of the body (the rest is dropped).
-pub fn fetch(url: &str, headers: &[(String, String)], net: &NetConfig, limit: u64) -> Result<Fetched, EngineError> {
+pub fn fetch(
+    url: &str,
+    headers: &[(String, String)],
+    net: &NetConfig,
+    limit: ByteCount,
+) -> Result<Fetched, EngineError> {
     let agent = http::Client::new(net, url)?;
-    fetch_with(&agent, url, headers, limit)
+    fetch_with(&agent, url, headers, limit.get())
 }
 
 /// The bytes `start` through `end` (inclusive) of `url`, for a preview.
@@ -996,8 +1004,8 @@ pub fn probe_media(
 #[derive(Debug, Clone)]
 pub struct Inspection {
     /// The name the file would be saved under.
-    pub filename: String,
-    pub total: Option<u64>,
+    pub filename: FileName,
+    pub total: Option<ByteCount>,
     pub resumable: bool,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
@@ -1032,7 +1040,7 @@ pub fn inspect(
     let probe = http::probe(&agent, url, headers)?;
     Ok(Inspection {
         filename: pick_filename(filename, &probe),
-        total: probe.total,
+        total: probe.total.map(ByteCount::new),
         resumable: probe.resumable,
         etag: probe.etag,
         last_modified: probe.last_modified,
@@ -1085,8 +1093,8 @@ pub fn partial_matches(output: &Path, found: &Inspection, ignore_date: bool) -> 
     }
     match found.total {
         None => Err(Mismatch::UnknownSize),
-        Some(total) if total != m.total => Err(Mismatch::Size { new: total, partial: m.total }),
-        Some(total) if !m.matches(total, found.etag.as_deref(), found.last_modified.as_deref(), ignore_date) => {
+        Some(total) if total.get() != m.total => Err(Mismatch::Size { new: total, partial: ByteCount::new(m.total) }),
+        Some(total) if !m.matches(total.get(), found.etag.as_deref(), found.last_modified.as_deref(), ignore_date) => {
             Err(Mismatch::Changed)
         }
         Some(_) if !found.resumable => Err(Mismatch::NotResumable),
@@ -1306,9 +1314,9 @@ impl Work {
             .iter()
             .zip(&self.states)
             .map(|(s, state)| SegmentInfo {
-                start: s.start,
-                end: s.end,
-                done: s.done,
+                start: ByteCount::new(s.start),
+                end: ByteCount::new(s.end),
+                done: ByteCount::new(s.done),
                 state: if s.is_complete() { SegmentState::Done } else { *state },
             })
             .collect()
@@ -1318,7 +1326,7 @@ impl Work {
 /// Parallel, resumable path for a server that honors byte ranges.
 #[allow(clippy::too_many_arguments)]
 fn run_segmented(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -1457,8 +1465,8 @@ fn run_segmented(
     reporter.send(Progress::Advanced {
         id,
         url: url.clone(),
-        done,
-        total: Some(total),
+        done: ByteCount::new(done),
+        total: Some(ByteCount::new(total)),
         parts: None,
         segments: Some(segments),
     });
@@ -1468,7 +1476,7 @@ fn run_segmented(
 
 /// Shared references a segment thread needs; grouped to keep signatures short.
 struct SegmentCtx<'a> {
-    id: u64,
+    id: DownloadId,
     token: &'a CancelToken,
     agent: &'a http::Client,
     url: &'a str,
@@ -1525,8 +1533,8 @@ fn set_state(ctx: &SegmentCtx, idx: usize, state: SegmentState) {
     ctx.reporter.send(Progress::Advanced {
         id: ctx.id,
         url: ctx.url.to_string(),
-        done: ctx.global_done.load(Ordering::Relaxed),
-        total: Some(ctx.total),
+        done: ByteCount::new(ctx.global_done.load(Ordering::Relaxed)),
+        total: Some(ByteCount::new(ctx.total)),
         parts: None,
         segments: Some(segments),
     });
@@ -1609,8 +1617,8 @@ fn maybe_report(ctx: &SegmentCtx, global: u64) {
     ctx.reporter.send(Progress::Advanced {
         id: ctx.id,
         url: ctx.url.to_string(),
-        done: global,
-        total: Some(ctx.total),
+        done: ByteCount::new(global),
+        total: Some(ByteCount::new(ctx.total)),
         parts: None,
         segments,
     });
@@ -1620,7 +1628,7 @@ fn maybe_report(ctx: &SegmentCtx, global: u64) {
 /// transient failure restarts from the beginning, up to `MAX_RETRIES`.
 #[allow(clippy::too_many_arguments)]
 fn run_single(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -1657,7 +1665,7 @@ fn run_single(
 
 #[allow(clippy::too_many_arguments)]
 fn single_once(
-    id: u64,
+    id: DownloadId,
     token: &CancelToken,
     agent: &http::Client,
     req: &DownloadRequest,
@@ -1690,8 +1698,8 @@ fn single_once(
             reporter.send(Progress::Advanced {
                 id,
                 url: probe.final_url.clone(),
-                done,
-                total: probe.total,
+                done: ByteCount::new(done),
+                total: probe.total.map(ByteCount::new),
                 parts: None,
                 segments: None,
             });
@@ -1784,7 +1792,7 @@ mod tests {
         // No jobs are enqueued, so no download runs; cancel on an absent id
         // must simply do nothing.
         let engine = Engine::new(Arc::new(|_p: Progress| {}), 1);
-        engine.cancel(999);
+        engine.cancel(DownloadId::new(999));
         assert!(engine.inner.registry.lock().unwrap().is_empty());
     }
 
@@ -1792,13 +1800,13 @@ mod tests {
     fn a_retry_keeps_its_staging_folder() {
         let mut req = live::request("http://x/", Path::new("/dl"), FileExists::Rename);
         req.temp_dir = Some(PathBuf::from("/tmp/uidm"));
-        assert_eq!(staging_dir(&req, 7), Path::new("/tmp/uidm/elevated-7"));
+        assert_eq!(staging_dir(&req, DownloadId::new(7)), Path::new("/tmp/uidm/elevated-7"));
         // A retry gets a new id but resumes the file in the old folder.
         req.reuse_path = Some(PathBuf::from("/tmp/uidm/elevated-7/report.pdf"));
-        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/uidm/elevated-7"));
+        assert_eq!(staging_dir(&req, DownloadId::new(9)), Path::new("/tmp/uidm/elevated-7"));
         // A file chosen in the folder itself is not a staged one.
         req.reuse_path = Some(PathBuf::from("/dl/report.pdf"));
-        assert_eq!(staging_dir(&req, 9), Path::new("/tmp/uidm/elevated-9"));
+        assert_eq!(staging_dir(&req, DownloadId::new(9)), Path::new("/tmp/uidm/elevated-9"));
     }
 
     /// End-to-end checks against a local server.
@@ -1987,7 +1995,7 @@ mod tests {
             engine.enqueue(req);
             loop {
                 match rx.recv_timeout(Duration::from_secs(30)).expect("download timed out") {
-                    Progress::NameTaken { path, total, .. } => return (path, total),
+                    Progress::NameTaken { path, total, .. } => return (path, total.map(ByteCount::get)),
                     Progress::Started { .. } => panic!("the download started"),
                     Progress::Finished { .. } => panic!("the download finished"),
                     Progress::Failed { error, .. } => panic!("download failed: {error}"),
@@ -2165,7 +2173,7 @@ mod tests {
             // threshold there before the engine has kept a byte of them.
             loop {
                 if let Progress::Advanced { done, .. } = rx.recv_timeout(Duration::from_secs(10)).unwrap() {
-                    if done >= 512 * 1024 {
+                    if done >= ByteCount::new(512 * 1024) {
                         break;
                     }
                 }
@@ -2266,7 +2274,7 @@ mod tests {
         fn pages_for_the_grabber_answer_a_login_request() {
             let behavior = Behavior { basic_auth: Some("ann:secret".into()), ..Behavior::default() };
             let server = TestServer::start_with(b"<a href=x.pdf>".to_vec(), behavior);
-            assert!(fetch(&server.url, &[], &NetConfig::default(), 1024).is_err());
+            assert!(fetch(&server.url, &[], &NetConfig::default(), ByteCount::new(1024)).is_err());
             let net = |plain| NetConfig {
                 logins: vec![crate::net::Login {
                     site: "127.0.0.1".into(),
@@ -2278,8 +2286,11 @@ mod tests {
             };
             // Basic over plain http: a saved login goes only when allowed
             // there; otherwise the user is asked.
-            assert!(matches!(fetch(&server.url, &[], &net(false), 1024), Err(EngineError::NeedsLogin(..))));
-            assert_eq!(fetch(&server.url, &[], &net(true), 1024).unwrap().body, b"<a href=x.pdf>");
+            assert!(matches!(
+                fetch(&server.url, &[], &net(false), ByteCount::new(1024)),
+                Err(EngineError::NeedsLogin(..))
+            ));
+            assert_eq!(fetch(&server.url, &[], &net(true), ByteCount::new(1024)).unwrap().body, b"<a href=x.pdf>");
         }
 
         #[test]
@@ -2417,7 +2428,7 @@ mod tests {
                 }
             };
             assert!(last.len() >= 4, "one range per connection at least");
-            assert_eq!(last.iter().map(|s| s.done).sum::<u64>(), LEN as u64);
+            assert_eq!(last.iter().map(|s| s.done).sum::<ByteCount>(), ByteCount::new(LEN as u64));
             assert!(states.contains(&SegmentState::Connecting) && states.contains(&SegmentState::Receiving));
             fs::remove_dir_all(&dir).ok();
         }
@@ -2737,7 +2748,7 @@ mod tests {
             assert_eq!(found.etag.as_deref(), Some("\"v1\""));
             assert_eq!(partial_matches(&partial, &found, false), Ok(()));
 
-            let other_size = Inspection { total: Some(LEN as u64 + 1), ..found.clone() };
+            let other_size = Inspection { total: Some(ByteCount::new(LEN as u64 + 1)), ..found.clone() };
             assert!(partial_matches(&partial, &other_size, false).unwrap_err().to_string().contains("2.0 MB file"));
             let changed = Inspection { etag: Some("\"v2\"".into()), ..found.clone() };
             assert_eq!(partial_matches(&partial, &changed, false), Err(Mismatch::Changed));
@@ -2754,7 +2765,7 @@ mod tests {
             let server = TestServer::start(body(LEN));
             let found = inspect(&server.url, None, &[], &NetConfig::default()).unwrap();
             assert_eq!(found.filename, "file.bin");
-            assert_eq!(found.total, Some(LEN as u64));
+            assert_eq!(found.total, Some(ByteCount::new(LEN as u64)));
             assert!(found.resumable);
             let named = inspect(&server.url, Some("a/b:c.txt"), &[], &NetConfig::default()).unwrap();
             assert_eq!(named.filename, "a_b_c.txt");

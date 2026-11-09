@@ -166,7 +166,7 @@ mod fakes {
 
     impl GrabDownloads for Temp {
         fn download_for(&self, _: &GrabRequest, f: &GrabFile, _: &Settings, _: Option<&str>) -> Option<Download> {
-            Some(Download { url: f.url.clone(), ..Download::default() })
+            Some(Download { url: f.url.as_str().into(), ..Download::default() })
         }
     }
 

@@ -53,7 +53,7 @@ impl SiteCrawler for Crawler {
         progress: &mut dyn FnMut(&Outcome),
     ) -> Outcome {
         let settings = self.settings.lock().clone();
-        let start = Download { url: req.start.clone(), ..Download::default() };
+        let start = Download { url: req.start.as_str().into(), ..Download::default() };
         let mut net = self.transfers.net_for(&start, &settings);
         if let (Some(user), Ok(url)) =
             (req.login_user.as_deref().map(str::trim).filter(|u| !u.is_empty()), url::Url::parse(&req.start))
@@ -99,7 +99,7 @@ impl SiteCrawler for Crawler {
                     }
                 }
                 let mut body = shown.html.into_bytes();
-                body.truncate(uidm_domain::grab::MAX_PAGE_BYTES as usize);
+                body.truncate(usize::try_from(uidm_domain::grab::MAX_PAGE_BYTES.get()).unwrap_or(usize::MAX));
                 let page = Page { url: shown.url, content_type: Some("text/html".into()), body };
                 mirror(req, &page);
                 return Some(page);

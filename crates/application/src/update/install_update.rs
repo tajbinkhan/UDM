@@ -35,10 +35,16 @@ impl<'a, S: ReleaseSource, N: UpdateChecks> InstallUpdate<'a, S, N> {
 mod tests {
     use super::*;
     use crate::memory::{Checked, Releases};
+    use uidm_domain::bytes::ByteCount;
     use uidm_domain::update::{Release, SetupAsset};
 
     fn setup() -> SetupAsset {
-        SetupAsset { name: "UIDM-Setup-1.0.0.exe".into(), url: "https://x/".into(), size: 10, sha256: None }
+        SetupAsset {
+            name: "UIDM-Setup-1.0.0.exe".into(),
+            url: "https://x/".into(),
+            size: ByteCount::new(10),
+            sha256: None,
+        }
     }
 
     #[test]

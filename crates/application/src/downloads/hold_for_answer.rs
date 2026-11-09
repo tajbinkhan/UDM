@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
+use uidm_domain::bytes::ByteCount;
 use uidm_domain::download::{AfterProbe, Download};
+use uidm_domain::filename::FileName;
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{
     Answers, ControlError, DownloadControl, DownloadFiles, DownloadList, EarlyStarts, SettingsStore,
 };
@@ -9,10 +12,10 @@ use uidm_domain::ports::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Probed {
     /// The file name it proposes.
-    pub filename: String,
+    pub filename: FileName,
     /// Where the file would go: the folder for its category, then the name.
     pub path: PathBuf,
-    pub total: Option<u64>,
+    pub total: Option<ByteCount>,
     /// Whether it sends the file in ranges, so a download can resume.
     pub resumable: bool,
 }
@@ -56,7 +59,7 @@ where
 
     /// Hold download `id`, made from `download` and `probed`. `duplicate_of`
     /// is an older download with its address, for the dialog to ask about.
-    pub fn run(&self, id: u64, download: &Download, probed: Probed, duplicate_of: Option<u64>) -> Held {
+    pub fn run(&self, id: DownloadId, download: &Download, probed: Probed, duplicate_of: Option<DownloadId>) -> Held {
         // The other one may have been removed while this was probed.
         let duplicate_of = duplicate_of.filter(|o| self.downloads.status(*o).is_some());
         let settings = self.settings.settings();
@@ -99,7 +102,12 @@ mod tests {
     use uidm_domain::settings::Settings;
 
     fn probed(name: &str) -> Probed {
-        Probed { filename: name.into(), path: PathBuf::from("/dl").join(name), total: Some(100), resumable: true }
+        Probed {
+            filename: FileName::parse(name).unwrap(),
+            path: PathBuf::from("/dl").join(name),
+            total: Some(ByteCount::new(100)),
+            resumable: true,
+        }
     }
 
     struct World {
@@ -126,10 +134,10 @@ mod tests {
         fn hold(&self, name: &str, duplicate_of: Option<u64>) -> Held {
             let w = self;
             HoldForAnswer::new(&w.downloads, &w.control, &w.files, &w.prefs, &w.early, &w.waiting).run(
-                1,
+                DownloadId::new(1),
                 &Download::default(),
                 probed(name),
-                duplicate_of,
+                duplicate_of.map(DownloadId::new),
             )
         }
     }
@@ -139,7 +147,7 @@ mod tests {
         let w = World::new(Settings { auto_start_types: vec!["zip".into()], ..Settings::default() });
         assert_eq!(w.hold("a.zip", None), Held::Started(Ok(())));
         assert_eq!(w.control.dispatched(), [1]);
-        assert_eq!(w.downloads.entry(1).unwrap().status, Status::Waiting);
+        assert_eq!(w.downloads.entry(DownloadId::new(1)).unwrap().status, Status::Waiting);
         assert!(w.waiting.awaited().is_empty());
     }
 
@@ -147,8 +155,11 @@ mod tests {
     fn otherwise_it_waits_for_the_dialog_and_may_start_early() {
         let w = World::new(Settings { start_while_asking: true, ..Settings::default() });
         assert_eq!(w.hold("a.iso", Some(2)), Held::Asked { early: false }, "a duplicate does not start early");
-        let e = w.downloads.entry(1).unwrap();
-        assert_eq!((e.status, e.duplicate_of, e.total), (Status::Confirming, Some(2), Some(100)));
+        let e = w.downloads.entry(DownloadId::new(1)).unwrap();
+        assert_eq!(
+            (e.status, e.duplicate_of, e.total),
+            (Status::Confirming, Some(DownloadId::new(2)), Some(ByteCount::new(100)))
+        );
         assert_eq!(w.waiting.awaited(), [1]);
         w.downloads.set(1, Status::Queued);
         assert_eq!(w.hold("a.iso", Some(9)), Held::Asked { early: true }, "a duplicate of nothing is no duplicate");

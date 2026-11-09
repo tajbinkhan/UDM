@@ -1,4 +1,5 @@
 use uidm_domain::download::Status;
+use uidm_domain::id::DownloadId;
 use uidm_domain::ports::{DownloadControl, DownloadList, QueueFinish, QueueRuns, QueueStore, SyncChecks};
 
 use super::FinishRun;
@@ -7,7 +8,7 @@ use super::FinishRun;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueueEvent {
     /// A download that failed in this run waits to be tried again.
-    Retried { queue: String, id: u64, attempt: u32, of: u32 },
+    Retried { queue: String, id: DownloadId, attempt: u32, of: u32 },
     /// A run ended with nothing left to do.
     Finished { queue: String },
 }
@@ -42,7 +43,7 @@ where
         let mut events = Vec::new();
         let running: Vec<_> = self.queues.edit(|qs| qs.iter().filter(|q| q.running).cloned().collect());
         for q in running {
-            let statuses = |order: &[u64]| -> Vec<(u64, Status)> {
+            let statuses = |order: &[DownloadId]| -> Vec<(DownloadId, Status)> {
                 order.iter().filter_map(|id| self.downloads.status(*id).map(|s| (*id, s))).collect()
             };
             let started = self.runs.started_in_run(q.id);
@@ -92,13 +93,14 @@ where
 mod tests {
     use super::*;
     use crate::memory::{Checks, Control, Downloads, Finish, Queues, Runs};
+    use uidm_domain::id::QueueId;
     use uidm_domain::queue::{Queue, QueueKind, MAIN_QUEUE};
 
     fn running(order: &[u64], max: usize) -> Queues {
         let queues = Queues::main();
         queues.edit(|qs| {
             qs[0].running = true;
-            qs[0].order = order.to_vec();
+            qs[0].order = order.iter().copied().map(DownloadId::new).collect();
             qs[0].max_concurrent = max;
         });
         queues
@@ -115,7 +117,7 @@ mod tests {
         let events = RunQueues::new(&queues, &downloads, &runs, &control, &checks, &finish).run();
         assert!(events.is_empty());
         assert_eq!(control.dispatched(), [2], "one runs already, so one more fits");
-        assert!(runs.started_in_run(MAIN_QUEUE).contains(&2));
+        assert!(runs.started_in_run(MAIN_QUEUE).contains(&DownloadId::new(2)));
     }
 
     #[test]
@@ -126,10 +128,13 @@ mod tests {
         let (runs, control, checks, finish) =
             (Runs::default(), Control::default(), Checks::default(), Finish::default());
         runs.begin(MAIN_QUEUE);
-        runs.note_started(MAIN_QUEUE, 1);
+        runs.note_started(MAIN_QUEUE, DownloadId::new(1));
         let pass = RunQueues::new(&queues, &downloads, &runs, &control, &checks, &finish);
         let events = pass.run();
-        assert_eq!(events, [QueueEvent::Retried { queue: "Main queue".into(), id: 1, attempt: 1, of: 1 }]);
+        assert_eq!(
+            events,
+            [QueueEvent::Retried { queue: "Main queue".into(), id: DownloadId::new(1), attempt: 1, of: 1 }]
+        );
         assert_eq!(control.dispatched(), [1], "it starts again at once");
         // It fails again: no retries left, so the run ends.
         downloads.set(1, Status::Failed);
@@ -144,15 +149,15 @@ mod tests {
             qs.push(Queue {
                 running: true,
                 kind: QueueKind::Synchronize,
-                order: vec![1, 2],
+                order: vec![DownloadId::new(1), DownloadId::new(2)],
                 max_concurrent: 5,
-                ..Queue::new(2, "Mirror")
+                ..Queue::new(QueueId::new(2), "Mirror")
             })
         });
         let downloads = Downloads::with(&[(1, Status::Done), (2, Status::Done)]);
         let (runs, control, finish) = (Runs::default(), Control::default(), Finish::default());
         let checks = Checks::going_on(&[2]);
-        runs.begin(2);
+        runs.begin(QueueId::new(2));
         let pass = RunQueues::new(&queues, &downloads, &runs, &control, &checks, &finish);
         assert!(pass.run().is_empty(), "a check is going on");
         assert_eq!(checks.started(), [1], "2 is being checked already");

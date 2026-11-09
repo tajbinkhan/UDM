@@ -7,7 +7,7 @@ use uidm_application::daemon::Failure;
 use uidm_application::downloads::{ConfirmError, StartOrWaitError};
 use uidm_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
 use uidm_domain::command::{CommandError, PATH_TOKEN};
-use uidm_domain::download::{megabytes, DownloadError, Mismatch};
+use uidm_domain::download::{DownloadError, Mismatch};
 use uidm_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
 use uidm_domain::ports::SettingsError;
 use uidm_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
@@ -331,8 +331,8 @@ pub fn mismatch(e: &Mismatch) -> String {
         }
         Mismatch::Size { new, partial } => trf!(
             "The new link is for a {new} file; the partial download is of a {partial} file.",
-            new = megabytes(*new),
-            partial = megabytes(*partial)
+            new = new.megabytes(),
+            partial = partial.megabytes()
         ),
         Mismatch::Changed => {
             tr("The file at the new link has changed since the download started (its ETag or date differs).")
@@ -435,6 +435,8 @@ fn update(e: &UpdateError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uidm_domain::bytes::ByteCount;
+    use uidm_domain::id::{DownloadId, QueueId};
     use uidm_domain::ports::ControlError;
 
     /// `?` turns the domain's errors into the window's, in the user's words.
@@ -492,7 +494,7 @@ mod tests {
             Failure::Probe("HTTP 404".into()),
             Failure::Other("from an old daemon".into()),
             Mismatch::UnknownSize.into(),
-            Mismatch::Size { new: 3 << 20, partial: 1 << 20 }.into(),
+            Mismatch::Size { new: ByteCount::new(3 << 20), partial: ByteCount::new(1 << 20) }.into(),
             Mismatch::Changed.into(),
             Mismatch::NotResumable.into(),
             SettingsError::Invalid(InvalidSettings::TextSize).into(),
@@ -501,13 +503,14 @@ mod tests {
             ServiceError::NotDownloadAddress("file:///x".into()).into(),
             ServiceError::Grab(InvalidGrab::Depth).into(),
             ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
-            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(4)))).into(),
+            ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Queue(QueueError::NoQueue(QueueId::new(4)))))
+                .into(),
             ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
             QueueError::NameTaken("Night".into()).into(),
             QueueError::Invalid(InvalidQueue::NoName).into(),
             QueueError::NotQueued.into(),
-            DownloadError::NoDownload(3).into(),
-            DownloadError::StillRunning(3).into(),
+            DownloadError::NoDownload(DownloadId::new(3)).into(),
+            DownloadError::StillRunning(DownloadId::new(3)).into(),
             DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
             DownloadError::NotDownloadLink("javascript:".into()).into(),
             DownloadError::Exists("/d/f.zip".into()).into(),
