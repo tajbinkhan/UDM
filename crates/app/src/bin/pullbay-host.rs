@@ -86,6 +86,8 @@ fn main() {
     // Before the log, which would make Pullbay's data folder first.
     let moved = pullbay_infrastructure::from_uidm::move_from_uidm();
     logging::init(logging::Program::Host);
+    // A panic leaves a report in the data folder (`crash`).
+    pullbay_infrastructure::crash::install(logging::Program::Host);
     moved.log();
     let args: Vec<String> = std::env::args().collect();
     // The test and `send` modes print to stdout and stderr on purpose: that

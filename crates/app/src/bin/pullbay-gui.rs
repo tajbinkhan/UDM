@@ -15,6 +15,9 @@ fn main() -> eframe::Result {
     // Before the log, which would make Pullbay's data folder first.
     let moved = infra::from_uidm::move_from_uidm();
     infra::logging::init(infra::logging::Program::Gui);
+    // A panic leaves a report in the data folder, which the next window
+    // offers (`crash`).
+    infra::crash::install(infra::logging::Program::Gui);
     moved.log();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -33,6 +36,7 @@ fn main() -> eframe::Result {
         system: Arc::new(infra::system::ThisSystem),
         browsers: Arc::new(infra::browsers::Registry),
         pickers: Arc::new(infra::pickers::NativePicker),
+        reports: Arc::new(infra::crash::ReportFiles::new()),
         themes: Arc::new(infra::themes::ThemeDir::new()),
     };
     pullbay_ui::run(pullbay_ui::Start {

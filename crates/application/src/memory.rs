@@ -17,9 +17,9 @@ use pullbay_domain::id::{DownloadId, QueueId};
 use pullbay_domain::media::Conversion;
 use pullbay_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
-    EarlyStarts, FileHashes, FilesError, HashError, LimitLift, PausedDownloads, PowerControl, QueueFinish, QueueRuns,
-    QueueSounds, QueueStore, QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
-    UserIdle,
+    EarlyStarts, FileHashes, FilesError, HashError, LimitLift, PausedDownloads, PowerControl, ProblemReports,
+    QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SettingsError, SettingsStore,
+    SyncChecks, UpdateChecks, UserIdle,
 };
 use pullbay_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use pullbay_domain::quota::QuotaNotice;
@@ -1031,6 +1031,89 @@ impl DaemonClient for FakeDaemon {
 
     fn run_command_line(&self, _command: CommandLine) -> Result<bool, DaemonError> {
         Err(DaemonError::Closed)
+    }
+}
+
+/// A reports folder in memory: `add` puts a report in it, and `save`
+/// writes one unless `refuse`. This copy is version 9.9.9, and each
+/// program's log is `<program>.log` with one line.
+#[derive(Default)]
+pub struct Reports {
+    pub refuse: bool,
+    files: Mutex<Vec<(pullbay_domain::report::Report, bool)>>,
+}
+
+impl Reports {
+    /// A folder that refuses every write.
+    pub fn refusing() -> Self {
+        Reports { refuse: true, ..Reports::default() }
+    }
+
+    /// Put a report from `program` about `kind` at `at_ms` in the folder,
+    /// not yet offered.
+    pub fn add(&self, program: pullbay_domain::report::Program, kind: pullbay_domain::report::Kind, at_ms: u64) {
+        let report = pullbay_domain::report::Report {
+            program,
+            kind,
+            copy: self.this_copy(),
+            at_ms,
+            thread: None,
+            what: format!("{} {}", program.name(), kind.name()),
+            location: None,
+            backtrace: None,
+            log_name: String::new(),
+            log_tail: Vec::new(),
+        };
+        self.files.lock().unwrap().push((report, false));
+    }
+
+    /// The reports in the folder.
+    pub fn written(&self) -> Vec<pullbay_domain::report::Report> {
+        self.files.lock().unwrap().iter().map(|(r, _)| r.clone()).collect()
+    }
+
+    fn saved(r: &pullbay_domain::report::Report) -> pullbay_domain::report::SavedReport {
+        let name = r.file_name();
+        let summary = pullbay_domain::report::Summary::read(&name, &r.to_text()).unwrap();
+        pullbay_domain::report::SavedReport { path: PathBuf::from("/reports").join(name), summary }
+    }
+}
+
+impl ProblemReports for Reports {
+    fn this_copy(&self) -> pullbay_domain::report::ThisCopy {
+        pullbay_domain::report::ThisCopy { version: "9.9.9".into(), ..Default::default() }
+    }
+
+    fn log_tail(&self, program: pullbay_domain::report::Program) -> (String, Vec<String>) {
+        (format!("{}.log", program.name()), vec![format!("last {} line", program.name())])
+    }
+
+    fn save(&self, report: &pullbay_domain::report::Report) -> Result<pullbay_domain::report::SavedReport, FilesError> {
+        if self.refuse {
+            return Err(FilesError("the disk is full".into()));
+        }
+        self.files.lock().unwrap().push((report.clone(), false));
+        Ok(Self::saved(report))
+    }
+
+    fn delete(&self, report: &pullbay_domain::report::SavedReport) -> Result<(), FilesError> {
+        self.files.lock().unwrap().retain(|(r, _)| r.file_name() != report.file_name());
+        Ok(())
+    }
+
+    fn unoffered(&self) -> Vec<pullbay_domain::report::SavedReport> {
+        let files = self.files.lock().unwrap();
+        let mut found: Vec<_> = files.iter().filter(|(_, offered)| !offered).map(|(r, _)| Self::saved(r)).collect();
+        found.sort_by_key(|r| r.summary.at_ms);
+        found
+    }
+
+    fn mark_offered(&self, reports: &[pullbay_domain::report::SavedReport]) {
+        for (r, offered) in self.files.lock().unwrap().iter_mut() {
+            if reports.iter().any(|s| s.file_name() == r.file_name()) {
+                *offered = true;
+            }
+        }
     }
 }
 

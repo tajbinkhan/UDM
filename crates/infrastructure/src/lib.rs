@@ -27,6 +27,7 @@
 //! - `update`: checking GitHub for a newer release.
 //! - `package`: keeping the daemon out of an app package's copy of AppData.
 //! - `logging`: each program's log file in the data folder.
+//! - `crash`: problem reports: the panic hook and the reports folder.
 //! - `pickers`: the system's file and folder dialogs, for the window.
 //! - `server`: the daemon's listening socket, its clients and their handshake.
 //! - `wire`: mapping the wire messages to and from the application's commands and events.
@@ -50,6 +51,7 @@ pub mod cli;
 pub mod clock;
 pub mod connect;
 pub mod conversions;
+pub mod crash;
 pub mod crawler;
 pub mod daemon_client;
 pub mod dpapi;
