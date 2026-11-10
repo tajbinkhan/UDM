@@ -1,5 +1,23 @@
 # Verified
 
+- The MCP server for AI assistants (#255). Use case tests run each tool's
+  request against a pretend daemon (one connection kept between requests,
+  opened again when it went between them, a request that lost it failed,
+  files kept unless deleting them was asked for). Protocol tests feed
+  JSON-RPC lines through the server: the handshake and version choice, the
+  tool list and its schemas and hints, each tool's arguments and results,
+  wrong arguments as the tool's error, refusals, JSON-RPC errors and
+  batches. A daemon test runs `add_download` (now, into a folder, and into
+  the main queue), `list_downloads` with a status, `remove_download` and a
+  refused `pause_download` through the server on the real service and
+  engine against a local server. On Linux, the built `pullbay-mcp`, fed
+  `initialize`, `tools/list` and tool calls on standard input, started a
+  named copy's daemon, downloaded a file from a local server, queued another
+  in the main queue, listed them, refused to pause a finished one, removed
+  one keeping its file, refused an unknown queue and a `file://` address,
+  and exited when its input closed. It was not tried in a real assistant,
+  and the Windows and macOS code was linted from Linux but not run there.
+
 - The command-line tool and the automation API (#256). Use case tests run
   each `pullbay-cli` command against a pretend daemon; daemon tests run
   `get`, `list`, `remove`, `pause` and `resume` on the real service and

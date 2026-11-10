@@ -1,6 +1,7 @@
 //! A client's connection to the daemon: the adapter for
 //! `pullbay_application::daemon::DaemonClient` over `ipc` and `protocol`,
-//! for the desktop window (`new`) and for `pullbay-cli` (`program`).
+//! for the desktop window (`new`), for `pullbay-cli` (`program`) and for
+//! `pullbay-mcp` (`assistant`).
 //!
 //! It connects (starting or restarting the daemon as `ipc` does, with its
 //! handshake), introduces itself, maps each `Command` to an `Incoming`
@@ -61,6 +62,14 @@ impl IpcDaemonClient {
     /// among them, starting the daemon when none runs.
     pub fn program(client: &str) -> Self {
         IpcDaemonClient { hears: |_| true, ..Self::new(client) }
+    }
+
+    /// A program's connection that stays open between its requests, as
+    /// `pullbay-mcp`'s does: it hears what `program` hears but downloads'
+    /// progress, which nobody follows there and which would pile up unread
+    /// between requests.
+    pub fn assistant(client: &str) -> Self {
+        IpcDaemonClient { hears: |e| !matches!(e, Event::Progress { .. }), ..Self::new(client) }
     }
 
     /// A window's connection made by `connector` instead of `ipc`.
@@ -254,6 +263,21 @@ mod tests {
         assert_eq!(next(&rx), Event::Connected);
         assert_eq!(next(&rx), Event::Pong);
         assert!(matches!(next(&rx), Event::Ack { id, .. } if id == DownloadId::new(2)));
+    }
+
+    #[test]
+    fn an_assistant_hears_the_replies_but_not_the_progress() {
+        let hears = IpcDaemonClient::assistant("pullbay-mcp").hears;
+        assert!(hears(&Event::Pong));
+        assert!(hears(&Event::Ack { id: DownloadId::new(2), url: "http://x/f".into(), status: "s".into() }));
+        assert!(!hears(&Event::Progress {
+            id: DownloadId::new(2),
+            url: "http://x/f".into(),
+            done: pullbay_domain::bytes::ByteCount::new(1),
+            total: None,
+            parts: None,
+            segments: None,
+        }));
     }
 
     #[test]

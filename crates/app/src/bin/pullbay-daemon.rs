@@ -2299,4 +2299,57 @@ mod tests {
         assert_eq!(ResumeDownload::new(&session).run(new), Ok(Resumed::Running(new)));
         PauseDownload::new(&session).run(new).unwrap();
     }
+
+    #[test]
+    fn an_assistant_adds_lists_and_removes_downloads_through_the_mcp_server() {
+        use pullbay_application::remote::Assistant;
+        use pullbay_infrastructure::mcp::Server;
+        use serde_json::{json, Value};
+        let t = setup("mcp", Duplicate::Ask);
+        // An assistant's download starts with no dialog even under ask.
+        t.daemon.settings.lock().ask_where_to_save = true;
+        let url = serve();
+        let program = Program::new(&t, 9);
+        let mut assistant = Assistant::new(&program, Duration::from_secs(10));
+        let mut server = Server::new(&mut assistant, "test");
+        let mut ask = |id: u64, method: &str, params: Value| -> Value {
+            let line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string();
+            let answer = server.handle(&line).unwrap();
+            assert_eq!(answer["id"], id, "{answer}");
+            answer["result"].clone()
+        };
+        let init = ask(1, "initialize", json!({ "protocolVersion": "2025-06-18", "capabilities": {} }));
+        assert_eq!(init["protocolVersion"], "2025-06-18");
+        let call = |name: &str, arguments: Value| json!({ "name": name, "arguments": arguments });
+
+        // One to start now, into a folder of its own.
+        let folder = t.dir.join("from the assistant");
+        let added = ask(2, "tools/call", call("add_download", json!({ "url": url, "folder": folder })));
+        assert_eq!(added["isError"], false, "{added}");
+        let now = DownloadId::new(added["structuredContent"]["id"].as_u64().unwrap());
+        let done = t.wait(now, Status::Done);
+        assert_eq!(done.path.map(PathBuf::from), Some(folder.join("f.bin")));
+
+        // One to wait in the main queue.
+        let queued = ask(3, "tools/call", call("add_download", json!({ "url": url, "queue": MAIN_QUEUE.get() })));
+        let later = DownloadId::new(queued["structuredContent"]["id"].as_u64().unwrap());
+        assert_eq!(t.daemon.entry(later).map(|e| e.status), Some(Status::Waiting));
+
+        let listed = ask(4, "tools/call", call("list_downloads", json!({ "status": "waiting" })));
+        let waiting = listed["structuredContent"]["downloads"].as_array().unwrap();
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0]["id"], later.get());
+        let main = &listed["structuredContent"]["queues"][0];
+        assert!(main["downloads"].as_array().unwrap().contains(&json!(later.get())));
+
+        // Removing keeps the file unless deleting it is asked for.
+        let removed = ask(5, "tools/call", call("remove_download", json!({ "id": now.get() })));
+        assert_eq!(removed["structuredContent"]["files_deleted"], false, "{removed}");
+        assert!(t.daemon.entry(now).is_none());
+        assert!(folder.join("f.bin").exists());
+        let refused = ask(6, "tools/call", call("pause_download", json!({ "id": now.get() })));
+        assert_eq!(refused["isError"], true);
+        ask(7, "tools/call", call("remove_download", json!({ "id": later.get() })));
+        assert!(t.daemon.entry(later).is_none());
+    }
 }

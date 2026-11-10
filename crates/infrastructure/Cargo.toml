@@ -12,7 +12,8 @@ pullbay-domain.workspace = true
 # Only for the ports `pullbay-application` defines (AGENTS.md section 3): a
 # client's daemon connection (`daemon_client`, mapped by `wire`), and
 # `pullbay-cli`'s progress (`tool`, which maps its command line to the
-# `remote` use cases' requests).
+# `remote` use cases' requests), and `pullbay-mcp`'s tools (`mcp`, which
+# maps each tool call to a `remote::Request` for the `Tools` port).
 pullbay-application.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -30,6 +30,7 @@ differs.
 | `crates/app/src/bin/pullbay-gui.rs` | Desktop window: builds its adapters and starts `pullbay-ui` |
 | `crates/app/src/bin/pullbay-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
 | `crates/app/src/bin/pullbay-cli.rs`, `crates/application/src/remote/`, `crates/infrastructure/src/tool.rs` | The command-line tool: its wiring, its commands (use cases over the daemon connection), and its arguments, output and exit codes |
+| `crates/app/src/bin/pullbay-mcp.rs`, `crates/application/src/remote/assistant.rs`, `crates/infrastructure/src/mcp.rs` | The AI assistants' MCP server: its wiring, the requests it runs on one daemon connection, and the protocol and its tools |
 | `extension/` | MV3 extension: capture, context menu, popup |
 | `extension/_locales/` | The extension's text in each language |
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
@@ -148,9 +149,9 @@ The Rust tests also run on Linux under Wine, cross-compiled with
 `wine64` packages).
 
 `cargo build --release` produces `pullbay-host.exe`, `pullbay-daemon.exe`,
-`pullbay-gui.exe` and `pullbay-cli.exe` in `target\release`. The host, the window
-and the command-line tool start the daemon from their own folder, so keep them
-together. The window renders through
+`pullbay-gui.exe`, `pullbay-cli.exe` and `pullbay-mcp.exe` in `target\release`. The
+host, the window, the command-line tool and the MCP server start the daemon from
+their own folder, so keep them together. The window renders through
 OpenGL, which needs a working graphics driver.
 
 To run one download without the browser, window or daemon:

@@ -18,6 +18,8 @@ These pages were the README's manual. Each covers one part of Pullbay.
   tray, the download window, the video button, adding many links and Options.
 - **[Command line and automation](command-line.md)**: IDM's switches, the `pullbay-cli` tool,
   sending links from other programs, and the automation API for programs of your own.
+- **[AI assistants (MCP)](ai-assistants.md)**: letting Claude Desktop, Claude Code, Cursor or VS
+  Code list, add, pause, resume and remove downloads through `pullbay-mcp`.
 
 ## Downloading
 

@@ -66,6 +66,7 @@ Source: "{#Root}\target\release\pullbay-host.exe"; DestDir: "{app}"; Flags: igno
 Source: "{#Root}\target\release\pullbay-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\target\release\pullbay-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\target\release\pullbay-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\target\release\pullbay-mcp.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\extension\*"; DestDir: "{app}\extension"; Excludes: "test\*,firefox.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Made by build.ps1 with make-firefox.ps1.
 Source: "{#Root}\firefox\*"; DestDir: "{app}\firefox"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -188,7 +189,7 @@ begin
   StringChangeEx(Old, '''', '''''', True);
   Script :=
     '$d = ''' + Dir + '''; $o = ''' + Old + '''; ' +
-    '$p = @(Get-Process pullbay-gui,pullbay-daemon,pullbay-host,pullbay-cli,uidm-gui,uidm-daemon,uidm-host -ErrorAction SilentlyContinue | ' +
+    '$p = @(Get-Process pullbay-gui,pullbay-daemon,pullbay-host,pullbay-cli,pullbay-mcp,uidm-gui,uidm-daemon,uidm-host -ErrorAction SilentlyContinue | ' +
     'Where-Object { $_.Path -and ($_.Path.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) -or ' +
     '($o -and $_.Path.StartsWith($o, [StringComparison]::OrdinalIgnoreCase))) }); ' +
     'if ($p.Count -eq 0) { exit 0 }; ';

@@ -27,7 +27,7 @@ app="$work/dmg/Pullbay.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$root/dist"
 
 # One program for both kinds of Mac.
-for p in pullbay-gui pullbay-daemon pullbay-host pullbay-cli; do
+for p in pullbay-gui pullbay-daemon pullbay-host pullbay-cli pullbay-mcp; do
   lipo -create -output "$app/Contents/MacOS/$p" \
     "$root/target/aarch64-apple-darwin/release/$p" "$root/target/x86_64-apple-darwin/release/$p"
 done
