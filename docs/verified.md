@@ -1,5 +1,17 @@
 # Verified
 
+- Themes, high contrast and an interface size up to 200% (#264). Unit tests
+  cover colors and theme files (a base, overrides, comments, every wrong
+  line), the High contrast theme's 7:1 contrast, which look each Theme
+  setting gives with and without the system's contrast colors and with a
+  theme file gone, reading the old `settings.json` theme and odd values,
+  and the themes use case (sorting, a name two files give). On Linux, a
+  named copy started at 200% with High contrast, then with a theme file at
+  100%: the main window and Options drew in those looks, Options' pages
+  fit the screen with Save in view, and a broken theme file was reported
+  under the Theme list. Windows' contrast colors were linted from Linux but
+  not run there, and macOS was linted only.
+
 - The MCP server for AI assistants (#255). Use case tests run each tool's
   request against a pretend daemon (one connection kept between requests,
   opened again when it went between them, a request that lost it failed,

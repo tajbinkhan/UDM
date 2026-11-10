@@ -293,6 +293,12 @@ pub fn grabber_dir() -> io::Result<PathBuf> {
     grabber_dir_for(instance().as_deref())
 }
 
+/// The window's theme files, next to the settings file (in the copy's
+/// `Data` folder when it is portable).
+pub fn themes_dir() -> io::Result<PathBuf> {
+    Ok(config_dir()?.join("themes"))
+}
+
 /// The daemon's log, in [`data_dir`]. It holds download addresses, so it
 /// stays out of a shared `/tmp`.
 pub fn daemon_log() -> PathBuf {

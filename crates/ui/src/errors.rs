@@ -5,6 +5,7 @@
 use pullbay_application::daemon::service::ServiceError;
 use pullbay_application::daemon::Failure;
 use pullbay_application::downloads::{ConfirmError, StartOrWaitError};
+use pullbay_application::window::ThemeFileError;
 use pullbay_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
 use pullbay_domain::command::{CommandError, PATH_TOKEN};
 use pullbay_domain::download::{DownloadError, Mismatch};
@@ -15,6 +16,7 @@ use pullbay_domain::settings::{
     InvalidSettings, ProxyEntry, SettingsField, CONNECTIONS_RANGE, GENERAL, IDLE_MINUTES_RANGE, MAX_CONCURRENT_RANGE,
     QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE,
 };
+use pullbay_domain::theme::InvalidTheme;
 use pullbay_domain::update::UpdateError;
 
 use crate::i18n::{tr, trf};
@@ -179,7 +181,7 @@ pub fn settings(e: &InvalidSettings) -> String {
         E::ScriptNotWeb => tr("The configuration script must be an http or https address.").to_string(),
         E::Language(code) => trf!("\"{code}\" is not a language code, such as de or pt-BR.", code = code),
         E::TextSize => {
-            trf!("The text size must be between {lo}% and {hi}%.", lo = TEXT_SIZE_RANGE.0, hi = TEXT_SIZE_RANGE.1)
+            trf!("The interface size must be between {lo}% and {hi}%.", lo = TEXT_SIZE_RANGE.0, hi = TEXT_SIZE_RANGE.1)
         }
         E::QuotaHours => trf!(
             "The quota's window must be between {lo} and {hi} hours.",
@@ -437,6 +439,34 @@ fn update(e: &UpdateError) -> String {
     }
 }
 
+/// Why a theme file gives no theme.
+pub fn theme_file(e: &ThemeFileError) -> String {
+    match e {
+        ThemeFileError::Unreadable => tr("The file cannot be read.").to_string(),
+        ThemeFileError::NotASetting { line } => trf!("Line {line} is not a setting = value line.", line = line),
+        ThemeFileError::Invalid { line, error } => {
+            trf!("Line {line}: {error}", line = line, error = theme(error))
+        }
+        ThemeFileError::NoName => tr("The theme has no name; add a name = line.").to_string(),
+        ThemeFileError::NameTaken(name) => trf!("Another theme file already has the name {name}.", name = name),
+    }
+}
+
+fn theme(e: &InvalidTheme) -> String {
+    match e {
+        InvalidTheme::UnknownKey(key) => trf!("{key} is not a theme setting.", key = key),
+        InvalidTheme::BadColor(text) => trf!("{value} is not a color; write it as #rrggbb.", value = text),
+        InvalidTheme::BadSwitch(text) => trf!("{value} is not yes or no.", value = text),
+        InvalidTheme::BadBase(text) => {
+            trf!("{value} is not a built-in theme; use light, dark or high_contrast.", value = text)
+        }
+        InvalidTheme::BadSize { key, lo, hi } => {
+            trf!("{key} must be a whole number from {lo} to {hi}.", key = key, lo = lo, hi = hi)
+        }
+        InvalidTheme::BadName(_) => tr("A theme's name must be 1 to 40 characters on one line.").to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +514,24 @@ mod tests {
         }
         for e in [InvalidQueue::AtOnce, InvalidQueue::Retries, InvalidQueue::StartTime("25:00".into())] {
             assert_eq!(queue(&e), e.to_string());
+        }
+        let theme_errors = [
+            ThemeFileError::Unreadable,
+            ThemeFileError::NotASetting { line: 2 },
+            ThemeFileError::NoName,
+            ThemeFileError::NameTaken("Ocean".into()),
+            ThemeFileError::Invalid { line: 3, error: InvalidTheme::UnknownKey("colour".into()) },
+            ThemeFileError::Invalid { line: 4, error: InvalidTheme::BadColor("blue".into()) },
+            ThemeFileError::Invalid { line: 5, error: InvalidTheme::BadSwitch("maybe".into()) },
+            ThemeFileError::Invalid { line: 6, error: InvalidTheme::BadBase("sepia".into()) },
+            ThemeFileError::Invalid {
+                line: 7,
+                error: InvalidTheme::BadSize { key: "text_size".into(), lo: 9, hi: 24 },
+            },
+            ThemeFileError::Invalid { line: 8, error: InvalidTheme::BadName(String::new()) },
+        ];
+        for e in &theme_errors {
+            assert_eq!(theme_file(e), e.to_string());
         }
         for e in [InvalidGrab::Depth, InvalidGrab::Delay, InvalidGrab::Size, InvalidGrab::FolderNotFull("x".into())] {
             assert_eq!(grab(&e), e.to_string());

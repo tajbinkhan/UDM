@@ -94,6 +94,7 @@ pub mod settings;
 pub mod state;
 pub mod store;
 pub mod system;
+pub mod themes;
 pub mod tool;
 pub mod transfers;
 pub mod update;

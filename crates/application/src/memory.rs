@@ -1054,3 +1054,60 @@ impl DaemonClient for FakeDaemon {
         Err(DaemonError::Closed)
     }
 }
+
+/// A themes folder holding these files.
+pub struct Shelf(pub Vec<crate::window::ThemeFile>);
+
+impl crate::window::ThemeFiles for Shelf {
+    fn open_folder(&self) -> Result<PathBuf, FilesError> {
+        Ok(PathBuf::from("themes"))
+    }
+
+    fn read(&self) -> Vec<crate::window::ThemeFile> {
+        self.0.clone()
+    }
+}
+
+/// A system whose high-contrast setting gives these colors (or is off), and
+/// that is asked nothing else.
+pub struct Contrast(pub Option<pullbay_domain::theme::SystemContrast>);
+
+impl crate::window::SystemServices for Contrast {
+    fn fonts(&self) -> crate::window::SystemFonts {
+        crate::window::SystemFonts::default()
+    }
+
+    fn fixed_proxy(&self) -> Option<crate::window::SystemProxy> {
+        None
+    }
+
+    fn wake_timers_allowed(&self) -> Option<(bool, bool)> {
+        None
+    }
+
+    fn can_elevate(&self) -> bool {
+        false
+    }
+
+    fn can_set_creation_time(&self) -> bool {
+        false
+    }
+
+    fn is_portable(&self) -> bool {
+        false
+    }
+
+    fn play(&self, _sound: pullbay_domain::settings::Sound, _file: Option<&Path>) {}
+
+    fn save_credential(&self, _target: &str, _username: &str, _password: &str) -> Result<(), FilesError> {
+        Ok(())
+    }
+
+    fn start_window_in_tray(&self) -> Result<(), FilesError> {
+        Ok(())
+    }
+
+    fn contrast(&self) -> Option<pullbay_domain::theme::SystemContrast> {
+        self.0
+    }
+}

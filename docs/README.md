@@ -16,6 +16,8 @@ These pages were the README's manual. Each covers one part of Pullbay.
   folder.
 - **[Using Pullbay](using-pullbay.md)**: the window, the save-as dialog, categories, queues, the
   tray, the download window, the video button, adding many links and Options.
+- **[Themes and interface size](themes.md)**: the built-in themes, high contrast, an interface
+  up to 200%, and making a theme of your own.
 - **[Command line and automation](command-line.md)**: IDM's switches, the `pullbay-cli` tool,
   sending links from other programs, and the automation API for programs of your own.
 - **[AI assistants (MCP)](ai-assistants.md)**: letting Claude Desktop, Claude Code, Cursor or VS

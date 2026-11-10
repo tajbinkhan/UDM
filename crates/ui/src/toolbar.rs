@@ -135,36 +135,41 @@ pub fn show(ui: &mut egui::Ui, s: &State, small: bool) -> Option<Command> {
     ];
 
     let mut chosen = None;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
-        for (i, b) in buttons.iter().enumerate() {
-            // Gaps where the groups change, as in the menus.
-            if [1, 4, 6, 8, 10].contains(&i) {
-                ui.add_space(4.0);
-            }
-            if button(ui, b, small).clicked() {
-                chosen = Some(b.command.clone());
-            }
-            if let Some(start) = b.queues {
-                let arrow = ui.add_enabled_ui(b.enabled, |ui| {
-                    // A slim strip beside the button, framed only on hover.
-                    let style = ui.style_mut();
-                    style.spacing.button_padding = Vec2::new(1.0, 0.0);
-                    style.spacing.interact_size.y = if small { SMALL.y } else { LARGE.y };
-                    style.visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-                    style.visuals.widgets.inactive.bg_stroke = Stroke::NONE;
-                    ui.menu_button(egui::RichText::new("⏷").size(10.0), |ui| {
-                        for (id, name, running) in &s.queues {
-                            if ui.add_enabled(*running != start, egui::Button::new(name)).clicked() {
-                                chosen = Some(if start { Command::StartQueue(*id) } else { Command::StopQueue(*id) });
-                                ui.close_menu();
+    // At a large interface size the buttons can be wider than the window;
+    // the rest scroll into view instead of being cut off.
+    egui::ScrollArea::horizontal().id_salt("toolbar").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (i, b) in buttons.iter().enumerate() {
+                // Gaps where the groups change, as in the menus.
+                if [1, 4, 6, 8, 10].contains(&i) {
+                    ui.add_space(4.0);
+                }
+                if button(ui, b, small).clicked() {
+                    chosen = Some(b.command.clone());
+                }
+                if let Some(start) = b.queues {
+                    let arrow = ui.add_enabled_ui(b.enabled, |ui| {
+                        // A slim strip beside the button, framed only on hover.
+                        let style = ui.style_mut();
+                        style.spacing.button_padding = Vec2::new(1.0, 0.0);
+                        style.spacing.interact_size.y = if small { SMALL.y } else { LARGE.y };
+                        style.visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+                        style.visuals.widgets.inactive.bg_stroke = Stroke::NONE;
+                        ui.menu_button(egui::RichText::new("⏷").size(10.0), |ui| {
+                            for (id, name, running) in &s.queues {
+                                if ui.add_enabled(*running != start, egui::Button::new(name)).clicked() {
+                                    chosen =
+                                        Some(if start { Command::StartQueue(*id) } else { Command::StopQueue(*id) });
+                                    ui.close_menu();
+                                }
                             }
-                        }
-                    })
-                });
-                arrow.response.on_hover_text(b.tip);
+                        })
+                    });
+                    arrow.response.on_hover_text(b.tip);
+                }
             }
-        }
+        })
     });
     chosen
 }

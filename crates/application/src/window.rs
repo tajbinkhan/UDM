@@ -9,6 +9,7 @@ use pullbay_domain::download::{Download, DownloadEntry};
 use pullbay_domain::grab::{Filter, GrabRequest, Project, Template};
 use pullbay_domain::ports::{FilesError, SettingsError};
 use pullbay_domain::settings::{Settings, Sound};
+use pullbay_domain::theme::{CustomTheme, InvalidTheme, SystemContrast};
 
 /// The window's own files, such as its layout: small, rewritten whole, and
 /// kept per user.
@@ -197,6 +198,44 @@ pub trait SystemServices: Send + Sync {
     /// window until one is wanted. The window does this as it closes to the
     /// tray where a window cannot be hidden (Linux).
     fn start_window_in_tray(&self) -> Result<(), FilesError>;
+
+    /// The system's high-contrast colors while its high-contrast setting
+    /// is on, `None` while it is off or where the system has none.
+    fn contrast(&self) -> Option<SystemContrast>;
+}
+
+/// The theme files in the themes folder, beside the settings file.
+pub trait ThemeFiles: Send + Sync {
+    /// The themes folder, made if it is missing, for Options' Open themes
+    /// folder.
+    fn open_folder(&self) -> Result<PathBuf, FilesError>;
+
+    /// Every theme file in the folder, read: its theme, or why it is not
+    /// one. None when the folder is missing.
+    fn read(&self) -> Vec<ThemeFile>;
+}
+
+/// One file of the themes folder, as [`ThemeFiles::read`] found it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemeFile {
+    /// The file's name, such as `Ocean.theme`.
+    pub file: String,
+    pub theme: Result<CustomTheme, ThemeFileError>,
+}
+
+/// Why a theme file gives no theme.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ThemeFileError {
+    #[error("The file cannot be read.")]
+    Unreadable,
+    #[error("Line {line} is not a setting = value line.")]
+    NotASetting { line: usize },
+    #[error("Line {line}: {error}")]
+    Invalid { line: usize, error: InvalidTheme },
+    #[error("The theme has no name; add a name = line.")]
+    NoName,
+    #[error("Another theme file already has the name {0}.")]
+    NameTaken(String),
 }
 
 /// A browser Pullbay can register with: its name, and the place it looks for
