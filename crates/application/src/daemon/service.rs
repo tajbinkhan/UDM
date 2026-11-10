@@ -28,8 +28,8 @@ use pullbay_domain::ports::{
     Answers, Attention, Browser, Clock, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
     EarlyStarts, FileHashes, FileOpener, GrabDownloads, GrabProjects, GrabRuns, LimitLift, Notifications,
     PausedDownloads, PowerControl, Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
-    ReleaseSource, SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine, UpdateChecks,
-    UserIdle, VirusScanner,
+    ReleaseSource, RemoteListener, SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine,
+    UpdateChecks, UserIdle, VirusScanner,
 };
 use pullbay_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -46,6 +46,7 @@ use crate::downloads::{
     SetSpeedLimit, UseExisting,
 };
 use crate::grab::RunGrabSchedules;
+use crate::pairing::PairingDesk;
 use crate::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use crate::queues::{
     DeleteQueue, MoveToQueue, QueueEvent, RemoveFromQueue, RunQueues, RunSchedules, SaveQueue, Scheduled, StartQueue,
@@ -53,6 +54,7 @@ use crate::queues::{
 };
 use crate::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
+use pullbay_domain::pairing::{PairingError, PairingOffer, RemoteState};
 
 /// Why the daemon refused a client's command. Clients hear it as a
 /// [`Failure`], kind and values, so the window can translate it.
@@ -76,6 +78,9 @@ pub enum ServiceError {
     /// An address that is not http, https or ftp, such as `javascript:`.
     #[error("{0} is not an http, https or ftp address")]
     NotDownloadAddress(String),
+    /// Pairing a phone or removing one failed.
+    #[error(transparent)]
+    Pairing(#[from] pullbay_domain::pairing::PairingError),
 }
 
 /// Links the link picker's probes ask about at once.
@@ -211,6 +216,10 @@ pub struct Parts<W: Wiring> {
     pub wake: Sender<()>,
     /// This copy's version.
     pub version: &'static str,
+    /// The paired phones and the pairing code shown.
+    pub pairing: Arc<PairingDesk>,
+    /// The remote-control page's listener.
+    pub listener: Arc<dyn RemoteListener>,
     /// Where the daemon runs, which decides whether it exits when idle.
     pub seat: Seat,
 }
@@ -253,6 +262,8 @@ pub struct DaemonService<W: Wiring> {
     pub notes: Sender<Note>,
     pub wake: Sender<()>,
     version: &'static str,
+    pub pairing: Arc<PairingDesk>,
+    pub listener: Arc<dyn RemoteListener>,
     /// Where the daemon runs.
     seat: Seat,
     /// Keeps two scheduler passes from running at once.
@@ -310,6 +321,8 @@ impl<W: Wiring> DaemonService<W> {
             notes: p.notes,
             wake: p.wake,
             version: p.version,
+            pairing: p.pairing,
+            listener: p.listener,
             seat: p.seat,
             tick_lock: Mutex::new(()),
             grabs: Mutex::default(),
@@ -388,10 +401,33 @@ impl<W: Wiring> DaemonService<W> {
         self.settings_now().keep_awake && self.is_working()
     }
 
-    /// Whether the daemon has nothing to do: no clients, no downloads and
-    /// no queue that needs it.
+    /// Whether the daemon has nothing to do: no clients, no downloads, no
+    /// queue that needs it, and remote control off (a phone may ask for
+    /// something at any time while it is on).
     pub fn idle(&self) -> bool {
-        self.clients.is_empty() && self.transfers.active_count() == 0 && !self.queues_need_daemon()
+        self.clients.is_empty()
+            && self.transfers.active_count() == 0
+            && !self.queues_need_daemon()
+            && !self.settings_now().remote_enabled
+    }
+
+    /// How remote control stands, with the pairing code shown, if any.
+    pub fn remote_state(&self) -> RemoteState {
+        let listener = self.listener.state();
+        let pairing = self.pairing.pending().and_then(|p| {
+            let link = self.listener.link(&p.code)?;
+            Some(PairingOffer { link, code: p.code, expires_at: p.expires_at })
+        });
+        RemoteState { listener, devices: self.pairing.devices(), pairing }
+    }
+
+    /// Show a new pairing code, while the page is served.
+    pub fn start_pairing(&self) -> Result<RemoteState, ServiceError> {
+        if self.listener.state().page.is_none() {
+            return Err(PairingError::NotListening.into());
+        }
+        self.pairing.start()?;
+        Ok(self.remote_state())
     }
 
     /// Whether the daemon may exit now for having nothing to do: it is idle
@@ -1691,6 +1727,21 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
             daemon.resume_all();
         }
         Command::GetSettings => send(Event::Settings { settings: daemon.settings_now() }),
+        Command::RemoteStatus => send(Event::Remote { state: daemon.remote_state() }),
+        Command::StartPairing => match daemon.start_pairing() {
+            Ok(state) => send(Event::Remote { state }),
+            Err(message) => send(Event::Error { error: message.into() }),
+        },
+        Command::CancelPairing => {
+            daemon.pairing.cancel();
+            send(Event::Remote { state: daemon.remote_state() });
+        }
+        Command::RemoveDevice { id } => {
+            if let Err(message) = daemon.pairing.remove(id) {
+                send(Event::Error { error: ServiceError::from(message).into() });
+            }
+            send(Event::Remote { state: daemon.remote_state() });
+        }
         Command::SetSettings { settings } => {
             let settings =
                 if daemon.clients.is_window(client) { settings } else { daemon.with_video_button(&settings) };

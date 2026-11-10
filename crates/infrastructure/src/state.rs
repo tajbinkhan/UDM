@@ -99,7 +99,8 @@ fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
         | Outgoing::Update { .. }
         | Outgoing::UpdateFailed { .. }
         | Outgoing::GrabProgress { .. }
-        | Outgoing::GrabDone { .. } => return None,
+        | Outgoing::GrabDone { .. }
+        | Outgoing::Remote { .. } => return None,
     })
 }
 

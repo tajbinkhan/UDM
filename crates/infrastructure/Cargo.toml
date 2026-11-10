@@ -76,6 +76,25 @@ thiserror.workspace = true
 # tracing-appender.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
+# The remote-control page's self-signed certificate, made on this computer
+# the first time remote control is turned on (`web_remote::certificate`), and
+# the FTPS tests' test server certificate, made when the tests run so no
+# private key is committed. rcgen without its ring/aws-lc-rs backends writes
+# the certificate; rsa makes the key and signs it in pure Rust (SChannel's
+# `Identity::from_pkcs8` takes RSA keys only), so it builds for every target
+# without a C toolchain. The TLS itself is native-tls's. All three were
+# dev-dependencies already, so no new crate enters Cargo.lock. (rsa's
+# RUSTSEC-2023-0071 timing leak concerns decrypting and signing that an
+# attacker can time; rsa signs only the certificate, once, here, and the
+# handshakes are the system TLS library's.)
+rcgen = { version = "0.14", default-features = false, features = ["pem"] }
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# `pullbay-cli pair`'s QR code in the terminal (`tool::qr_text`): the same
+# pure-Rust encoder, with no dependencies, the window draws its code with.
+qrcode = { version = "0.14", default-features = false }
+
 # The window's file and folder pickers (IFileOpenDialog on Windows, through
 # windows-sys, so it builds on windows-gnu; panels on macOS).
 rfd = { version = "0.15.4", default-features = false }
@@ -98,12 +117,3 @@ rfd = { version = "0.15.4", default-features = false, features = ["gtk3"] }
 [lints]
 workspace = true
 
-# Tests only: the FTPS test server's certificate is made when the tests run,
-# so no private key is committed. rcgen without its ring/aws-lc-rs backends
-# writes the certificate; rsa signs it in pure Rust (SChannel's
-# `Identity::from_pkcs8` takes RSA keys only), so the tests build for every
-# target without a C toolchain.
-[dev-dependencies]
-rcgen = { version = "0.14", default-features = false, features = ["pem"] }
-rsa = { version = "0.9", features = ["sha2", "pem"] }
-rand_core = { version = "0.6", features = ["getrandom"] }

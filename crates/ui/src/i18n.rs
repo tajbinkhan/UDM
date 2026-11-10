@@ -116,6 +116,7 @@ mod tests {
         include_str!("progress.rs"),
         include_str!("properties.rs"),
         include_str!("queues.rs"),
+        include_str!("remote.rs"),
         include_str!("state.rs"),
         include_str!("table.rs"),
         include_str!("toolbar.rs"),

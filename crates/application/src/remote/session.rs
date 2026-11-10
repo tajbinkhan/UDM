@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use pullbay_domain::download::DownloadEntry;
 use pullbay_domain::id::DownloadId;
+use pullbay_domain::pairing::RemoteState;
 use pullbay_domain::queue::Queue;
 
 use crate::daemon::{Command, DaemonClient, Event, Failure, Lost};
@@ -167,6 +168,18 @@ impl<'a, C: DaemonClient + ?Sized> Session<'a, C> {
             Some(error) => Err(RemoteError::Refused(error)),
             None => Ok(heard),
         }
+    }
+
+    /// How remote control stands, as the daemon answers `command` (one of
+    /// the remote-control commands).
+    pub fn remote(&self, command: Command) -> Result<RemoteState, RemoteError> {
+        self.ask(command)?
+            .into_iter()
+            .find_map(|e| match e {
+                Event::Remote { state } => Some(state),
+                _ => None,
+            })
+            .ok_or(RemoteError::NoAnswer(self.wait.as_secs()))
     }
 
     /// Every download and queue.

@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use pullbay_domain::address::Link;
 use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::grab::{GrabFile, GrabRequest};
-use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::id::{DeviceId, DownloadId, QueueId};
 use pullbay_domain::media::MediaInfo;
+use pullbay_domain::pairing::RemoteState;
 use pullbay_domain::queue::{Queue, WhenDone};
 use pullbay_domain::settings::Settings;
 
@@ -241,6 +242,18 @@ pub enum Incoming {
     /// open it runs now; otherwise it waits for the window this process is
     /// about to open. Answered with `command_line`.
     CommandLine(CommandLine),
+    /// How remote control stands; answered with `remote`.
+    RemoteStatus,
+    /// Show a new pairing code for a phone; answered with `remote`, which
+    /// carries it, or `error` while remote control is not listening.
+    StartPairing,
+    /// Withdraw the pairing code shown; answered with `remote`.
+    CancelPairing,
+    /// Unpair a device at once; answered with `remote` (after `error` when
+    /// there was no such device).
+    RemoveDevice {
+        id: DeviceId,
+    },
 }
 
 /// A message from the daemon to a client.
@@ -552,6 +565,13 @@ pub enum Outgoing {
     /// none was, the caller opens one and the command runs once it connects.
     CommandLine {
         window_open: bool,
+    },
+    /// Reply to `remote_status`, `start_pairing`, `cancel_pairing` and
+    /// `remove_device`, to the client that asked only: where the
+    /// remote-control page listens, the paired devices (never their
+    /// secrets), and the pairing code shown.
+    Remote {
+        state: RemoteState,
     },
 }
 
