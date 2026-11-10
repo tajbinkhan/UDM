@@ -8,9 +8,12 @@
 use std::sync::Arc;
 
 use eframe::egui::{
-    self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Id, Margin, Shadow, Stroke, TextStyle,
-    Theme, Vec2, Visuals,
+    self,
+    epaint::text::{FontInsert, FontPriority, InsertFontFamily},
+    Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Id, Margin, Shadow, Stroke, TextStyle, Theme,
+    Vec2, Visuals,
 };
+use pullbay_application::window::{FontFile, ScriptFont};
 use pullbay_domain::theme::{Appearance, Color, Look, Palette, Sizes, DARK, LIGHT};
 
 /// Sets the fonts (the system's `system`, where it has them) and the
@@ -114,6 +117,31 @@ fn fonts(system: pullbay_application::window::SystemFonts) -> FontDefinitions {
     fonts
 }
 
+/// Adds a system font for `script` behind the window's fonts, so the
+/// characters they lack come from it. `false`, adding nothing, when egui
+/// could not use the file: it would stop the window on one it cannot read.
+pub fn add_script_font(ctx: &egui::Context, script: ScriptFont, file: FontFile) -> bool {
+    if !usable(&file) {
+        return false;
+    }
+    let data = FontData { index: file.index, ..FontData::from_owned(file.bytes) };
+    let families = [FontFamily::Proportional, FontFamily::Monospace]
+        .into_iter()
+        .map(|family| InsertFontFamily { family, priority: FontPriority::Lowest })
+        .collect();
+    ctx.add_font(FontInsert::new(&format!("system-{script:?}"), data, families));
+    ctx.request_repaint();
+    true
+}
+
+/// Whether egui can draw with the font: it parses, and its units per em
+/// are in the range egui accepts.
+fn usable(file: &FontFile) -> bool {
+    use ab_glyph::Font;
+    ab_glyph::FontRef::try_from_slice_and_index(&file.bytes, file.index)
+        .is_ok_and(|font| font.units_per_em().is_some_and(|units| (16.0..=16384.0).contains(&units)))
+}
+
 fn visuals(p: &Palette, sizes: &Sizes) -> Visuals {
     let mut v = if p.dark { Visuals::dark() } else { Visuals::light() };
     let radius = CornerRadius::same(sizes.corner_radius);
@@ -174,4 +202,24 @@ fn visuals(p: &Palette, sizes: &Sizes) -> Visuals {
     v.window_shadow = Shadow { offset: [0, 8], blur: 24, spread: 0, color: shadow };
     v.popup_shadow = Shadow { offset: [0, 4], blur: 12, spread: 0, color: shadow };
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_that_is_no_font_is_not_added() {
+        let ctx = egui::Context::default();
+        let junk = FontFile { bytes: b"not a font".to_vec(), index: 0 };
+        assert!(!add_script_font(&ctx, ScriptFont::Japanese, junk));
+    }
+
+    #[test]
+    fn a_font_egui_reads_is_added() {
+        // egui's own text font stands in for a system one.
+        let bytes = FontDefinitions::default().font_data["Ubuntu-Light"].font.to_vec();
+        assert!(usable(&FontFile { bytes: bytes.clone(), index: 0 }));
+        assert!(!usable(&FontFile { bytes, index: 3 }));
+    }
 }

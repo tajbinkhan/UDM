@@ -163,10 +163,36 @@ pub struct SystemFonts {
     pub code: Option<Vec<u8>>,
 }
 
+/// A script the window's text font may lack, whose glyphs come from a
+/// font of the system's: Chinese and Japanese share Han characters but
+/// draw them differently, so each has its own. Vietnamese is Latin with
+/// stacked accents that egui's own font lacks (Segoe UI has them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScriptFont {
+    SimplifiedChinese,
+    TraditionalChinese,
+    Japanese,
+    Korean,
+    Vietnamese,
+}
+
+/// A font file, and which of its faces to use when it is a collection
+/// (`.ttc`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontFile {
+    pub bytes: Vec<u8>,
+    pub index: u32,
+}
+
 /// What the window asks of the operating system.
 pub trait SystemServices: Send + Sync {
     /// The fonts the window draws with, read once as it opens.
     fn fonts(&self) -> SystemFonts;
+
+    /// A system font with the glyphs of `script`, for a language written
+    /// in it. `None` when the system has none. It reads a large file, so
+    /// the window asks on a worker.
+    fn script_font(&self, script: ScriptFont) -> Option<FontFile>;
 
     /// The system's fixed proxies, without a configuration script. `None`
     /// when none is set.

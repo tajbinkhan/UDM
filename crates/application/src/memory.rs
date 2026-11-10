@@ -1160,6 +1160,10 @@ impl crate::window::SystemServices for Contrast {
         crate::window::SystemFonts::default()
     }
 
+    fn script_font(&self, _: crate::window::ScriptFont) -> Option<crate::window::FontFile> {
+        None
+    }
+
     fn fixed_proxy(&self) -> Option<crate::window::SystemProxy> {
         None
     }

@@ -512,11 +512,21 @@
   and lists, pauses, resumes and removes downloads, `pullbay-host send` takes links as IDM's
   `SendLinkToIDM2` does, and programs of your own can use the automation API.
   [Command line and automation](command-line.md) covers all four.
-- **Languages**: the window comes in English, German, Spanish and French.
-  It starts in the first Windows display language it has, else English;
-  **Options > General > Language** picks another. The extension follows the
-  browser's language, with the same four. Messages from the daemon (errors,
-  notifications) are still in English.
+- **Languages**: the window comes in English, Bahasa Indonesia, German,
+  Spanish, French, Italian, Dutch, Polish, Brazilian Portuguese, Vietnamese,
+  Turkish, Russian, Ukrainian, Japanese, Korean and Chinese (Simplified and
+  Traditional). It starts in the first system display language it has, else
+  English; **View > Language** or **Options > General > Language** picks
+  another. Numbers and dates follow the language (`2,5 MB` and `07.03.2026` in
+  German). Chinese, Japanese, Korean and Vietnamese draw with a font of the
+  system's (Microsoft YaHei, JhengHei, Yu Gothic, Malgun Gothic or Segoe UI on
+  Windows, fontconfig's choice on Linux), read when the language is chosen;
+  until then Options shows their names in English. Most tables were made by
+  machine and wait for a native speaker's review
+  ([Help translate](translating.md)). The extension follows the browser's
+  language, with the same set. Messages from the daemon (errors,
+  notifications) are still in English. Right-to-left languages and scripts
+  that need shaping are not offered yet ([Known gaps](known-gaps.md)).
 
 Files are saved to your Downloads folder, sorted by category, unless Options
 says otherwise.

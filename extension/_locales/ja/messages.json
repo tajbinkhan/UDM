@@ -1,0 +1,313 @@
+{
+  "extDescription": {
+    "message": "ブラウザーのダウンロードを Pullbay ダウンロード マネージャーに送ります。"
+  },
+  "downloadWithPullbay": {
+    "message": "Pullbay でダウンロード"
+  },
+  "downloadLaterWithPullbay": {
+    "message": "Pullbay で後でダウンロード"
+  },
+  "downloadAllLinksWithPullbay": {
+    "message": "Pullbay ですべてのリンクをダウンロード"
+  },
+  "downloadSelectedLinksWithPullbay": {
+    "message": "Pullbay で選択したリンクをダウンロード"
+  },
+  "pullbayDisconnected": {
+    "message": "Pullbay との接続が切断されました"
+  },
+  "captureDownloads": {
+    "message": "ダウンロードを取り込む"
+  },
+  "captureDownloadsTitle": {
+    "message": "ブラウザーが開始したダウンロードを Pullbay に送ります"
+  },
+  "captureInTab": {
+    "message": "このタブで取り込む"
+  },
+  "captureInTabTitle": {
+    "message": "取り込みをオフにすると、このタブのダウンロードはブラウザーに任されます"
+  },
+  "captureOffInTab": {
+    "message": "このタブではオフ"
+  },
+  "statusConnected": {
+    "message": "接続済みです。ブラウザーで開始したダウンロードは Pullbay に送られます。"
+  },
+  "statusConnectedCaptureOff": {
+    "message": "接続済みです。取り込みがオフのため、ダウンロードはブラウザーで行われます。"
+  },
+  "statusNotConnected": {
+    "message": "Pullbay に接続されていません。ダウンロードはブラウザーに残ります。"
+  },
+  "statusNotConnectedReason": {
+    "message": "Pullbay に接続されていません: $REASON$。ダウンロードはブラウザーに残ります。",
+    "placeholders": {
+      "reason": { "content": "$1" }
+    }
+  },
+  "refreshWaiting": {
+    "message": "次のダウンロードで $NAME$ に新しいリンクが設定されます。",
+    "placeholders": {
+      "name": { "content": "$1" }
+    }
+  },
+  "stopWaiting": {
+    "message": "待機をやめる"
+  },
+  "skipNextDownload": {
+    "message": "次のダウンロードをスキップ"
+  },
+  "skipNextDownloadTitle": {
+    "message": "次のダウンロードをブラウザーに任せます"
+  },
+  "dontSkip": {
+    "message": "スキップしない"
+  },
+  "skippingNextDownloadTitle": {
+    "message": "次のダウンロードはブラウザーに任されます"
+  },
+  "allLinks": {
+    "message": "このページのすべてのリンク"
+  },
+  "allLinksTitle": {
+    "message": "このページのリンクを Pullbay に一覧表示し、ダウンロードするものを選びます"
+  },
+  "videoButton": {
+    "message": "動画ボタン"
+  },
+  "videoButtonTitle": {
+    "message": "ブラウザーで再生中の動画に表示されるダウンロード ボタン"
+  },
+  "videoButtonOnSite": {
+    "message": "$SITE$ で表示",
+    "placeholders": {
+      "site": { "content": "$1" }
+    }
+  },
+  "urlPlaceholder": {
+    "message": "ダウンロード URL を貼り付け"
+  },
+  "download": {
+    "message": "ダウンロード"
+  },
+  "noDownloads": {
+    "message": "ダウンロードはまだありません。"
+  },
+  "stateQueued": {
+    "message": "待機中"
+  },
+  "stateDownloading": {
+    "message": "ダウンロード中"
+  },
+  "stateDone": {
+    "message": "完了"
+  },
+  "stateFailed": {
+    "message": "失敗"
+  },
+  "stateCanceled": {
+    "message": "キャンセル済み"
+  },
+  "stateInterrupted": {
+    "message": "中断"
+  },
+  "stateConfirming": {
+    "message": "Pullbay で応答待ち"
+  },
+  "stateWaiting": {
+    "message": "開始待ち"
+  },
+  "threatFound": {
+    "message": "脅威が見つかりました"
+  },
+  "start": {
+    "message": "開始"
+  },
+  "cancel": {
+    "message": "キャンセル"
+  },
+  "retry": {
+    "message": "再試行"
+  },
+  "remove": {
+    "message": "削除"
+  },
+  "sizeProgress": {
+    "message": "$DONE$ / $TOTAL$",
+    "placeholders": {
+      "done": { "content": "$1" },
+      "total": { "content": "$2" }
+    }
+  },
+  "sizeBytes": {
+    "message": "$SIZE$ B",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeKB": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeMB": {
+    "message": "$SIZE$ MB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeGB": {
+    "message": "$SIZE$ GB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeTB": {
+    "message": "$SIZE$ TB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "downloadVideo": {
+    "message": "この動画をダウンロード"
+  },
+  "videoButtonHelp": {
+    "message": "動画ボタンのヘルプ"
+  },
+  "videoButtonClose": {
+    "message": "この動画では閉じる"
+  },
+  "lookingForVideo": {
+    "message": "動画を探しています..."
+  },
+  "subtitles": {
+    "message": "字幕:"
+  },
+  "videoProtected": {
+    "message": "この動画は DRM で保護されているため、Pullbay はダウンロードしません。"
+  },
+  "streamProtected": {
+    "message": "DRM で保護されているため、Pullbay はダウンロードしません。"
+  },
+  "pullbayNotConnected": {
+    "message": "Pullbay が実行されていないか、接続されていません。"
+  },
+  "noVideoFound": {
+    "message": "まだ動画が見つかりません。しばらく再生してから、もう一度お試しください。"
+  },
+  "sentToPullbay": {
+    "message": "Pullbay に送りました。"
+  },
+  "couldNotReachPullbay": {
+    "message": "Pullbay に接続できませんでした。"
+  },
+  "hlsStream": {
+    "message": "HLS ストリーム"
+  },
+  "dashStream": {
+    "message": "DASH ストリーム"
+  },
+  "hdsStream": {
+    "message": "HDS ストリーム"
+  },
+  "youtubeVideo": {
+    "message": "YouTube 動画"
+  },
+  "facebookVideo": {
+    "message": "Facebook 動画"
+  },
+  "instagramVideo": {
+    "message": "Instagram 動画"
+  },
+  "vimeoVideo": {
+    "message": "Vimeo 動画"
+  },
+  "mediaNoAnswer": {
+    "message": "Pullbay から応答がありませんでした。"
+  },
+  "soundOnly": {
+    "message": "音声のみ ($FORMAT$)",
+    "placeholders": {
+      "format": { "content": "$1" }
+    }
+  },
+  "videoFileType": {
+    "message": "$TYPE$ 動画",
+    "placeholders": {
+      "type": { "content": "$1" }
+    }
+  },
+  "audioFileType": {
+    "message": "$TYPE$ 音声",
+    "placeholders": {
+      "type": { "content": "$1" }
+    }
+  },
+  "videoFile": {
+    "message": "動画"
+  },
+  "audioFile": {
+    "message": "音声"
+  },
+  "takeoverFailed": {
+    "message": "Pullbay がダウンロードを引き継げませんでした"
+  },
+  "takeoverNotConnected": {
+    "message": "Pullbay が実行されていないか接続されていないため、$FILE$ はブラウザーでダウンロードされます。",
+    "placeholders": {
+      "file": { "content": "$1" }
+    }
+  },
+  "takeoverError": {
+    "message": "Pullbay が $FILE$ を開始できなかったため ($REASON$)、ブラウザーでダウンロードされます。",
+    "placeholders": {
+      "file": { "content": "$1" },
+      "reason": { "content": "$2" }
+    }
+  },
+  "dontShowAgain": {
+    "message": "今後表示しない"
+  },
+  "takeoverClickToStop": {
+    "message": "この通知をクリックすると、今後表示されなくなります。"
+  },
+  "downloadLastVideo": {
+    "message": "Pullbay で最後の動画をダウンロード"
+  },
+  "recentVideos": {
+    "message": "最近の動画 (Pullbay)"
+  },
+  "downloadPageWithPullbay": {
+    "message": "Pullbay でページをダウンロード"
+  },
+  "noLinksFound": {
+    "message": "このページにリンクが見つかりませんでした。"
+  },
+  "noSelectedLinksFound": {
+    "message": "選択範囲にリンクが見つかりませんでした。"
+  },
+  "linksUnreadable": {
+    "message": "このページのリンクは、ブラウザーの制限により Pullbay で読み取れません。"
+  },
+  "cannotReachPullbay": {
+    "message": "Pullbay に接続できません。Pullbay は実行中ですか？"
+  },
+  "cannotReachPullbayReason": {
+    "message": "Pullbay に接続できません ($REASON$)。",
+    "placeholders": {
+      "reason": { "content": "$1" }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "代わりにブラウザーでダウンロードします。"
+  },
+  "browserDownloadsHeading": {
+    "message": "ブラウザーでダウンロード中"
+  },
+  "sendToPullbay": {
+    "message": "Pullbay に送る"
+  }
+}

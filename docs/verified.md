@@ -1,5 +1,23 @@
 # Verified
 
+- More interface languages (#251). Thirteen tables were added to the window and
+  the extension: Indonesian, Italian, Dutch, Polish, Brazilian Portuguese,
+  Vietnamese, Turkish, Russian, Ukrainian, Japanese, Korean and Simplified and
+  Traditional Chinese. The window's tests check every table has every string
+  with its placeholders, that each language has one line whose code Options can
+  save and that resolves to it (`zh-HK` and `zh-Hant` to Traditional Chinese,
+  `pt-PT` to Brazilian Portuguese), that decimals and dates follow the language,
+  and that every character of a language without a system font of its own has
+  a glyph in egui's fonts (which caught Vietnamese's stacked accents, now drawn
+  with a system font). On Linux, fontconfig's Noto Sans CJK faces (JP, SC, TC)
+  and Noto Sans were loaded through the window's font path and covered every
+  character of the Japanese, Korean, both Chinese and the Vietnamese tables. A
+  file that is not a font is refused before egui could stop on it. The
+  extension's tests check every new locale. The Windows font files (Microsoft
+  YaHei, JhengHei, Yu Gothic, Malgun Gothic, Segoe UI) and macOS's were not
+  tried, the window was not looked at in each language, and no native speaker
+  has read the new tables.
+
 - Remote control from a phone (#254). Domain tests cover pairing codes (128
   bits, read back however typed), credentials, verifiers, device names, a code
   that works once and runs out, a new code replacing the old, the wrong-try
