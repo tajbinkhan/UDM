@@ -91,8 +91,8 @@ window's title. It does not end other daemons when it restarts its own.
 $env:PULLBAY_INSTANCE = "test"; .\target\debug\pullbay-gui.exe
 ```
 
-A string the window shows needs its German, Spanish and French translations
-in `crates/ui/src/lang/`; a test fails for one without them.
+A string the window shows needs its translation in every table in
+`crates/ui/src/lang/`; a test fails for one without them.
 `crates/ui/src/lang/untranslated.json` lists the strings that were untranslated before
 that test came in, and an entry leaves the list once it is translated.
 
@@ -167,11 +167,14 @@ each string's ID: `tr("Save")`, or `trf!("{count} files", count = n)` for text
 with values. A language is one JSON file in `crates/ui/src/lang/`, mapping each
 English string to its translation, plus a line in `LANGUAGES` in
 `crates/ui/src/i18n.rs`; a missing string shows in English. The tests check that
-every key is still used and keeps its `{placeholders}`. The extension's text is
+every key is still used and keeps its `{placeholders}`, and that a language
+without a system font of its own draws with egui's fonts. The extension's text is
 in `extension/_locales/<code>/messages.json`, as Chrome expects; its tests
 check that every locale has the same messages as `en`. egui draws text without
-shaping it, so scripts that need shaping, such as Bengali, Hindi or Arabic,
-would not display correctly yet.
+shaping it or laying it out right to left, so Arabic, Hebrew, Persian, Urdu and
+scripts that need shaping, such as Bengali or Hindi, would not display
+correctly yet. [Help translate](translating.md) has the steps and which tables
+wait for review.
 
 ---
 

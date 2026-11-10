@@ -218,6 +218,12 @@ mod fakes {
         fn fonts(&self) -> SystemFonts {
             SystemFonts::default()
         }
+        fn script_font(
+            &self,
+            _: pullbay_application::window::ScriptFont,
+        ) -> Option<pullbay_application::window::FontFile> {
+            None
+        }
         fn fixed_proxy(&self) -> Option<SystemProxy> {
             None
         }

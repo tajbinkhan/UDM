@@ -1,0 +1,313 @@
+{
+  "extDescription": {
+    "message": "Browserdownloads naar de downloadmanager Pullbay sturen."
+  },
+  "downloadWithPullbay": {
+    "message": "Downloaden met Pullbay"
+  },
+  "downloadLaterWithPullbay": {
+    "message": "Later downloaden met Pullbay"
+  },
+  "downloadAllLinksWithPullbay": {
+    "message": "Alle links downloaden met Pullbay"
+  },
+  "downloadSelectedLinksWithPullbay": {
+    "message": "De geselecteerde links downloaden met Pullbay"
+  },
+  "pullbayDisconnected": {
+    "message": "Pullbay is niet meer verbonden"
+  },
+  "captureDownloads": {
+    "message": "Downloads overnemen"
+  },
+  "captureDownloadsTitle": {
+    "message": "Downloads die de browser start naar Pullbay sturen"
+  },
+  "captureInTab": {
+    "message": "Overnemen in dit tabblad"
+  },
+  "captureInTabTitle": {
+    "message": "Schakel overname uit om de downloads van dit tabblad aan de browser over te laten"
+  },
+  "captureOffInTab": {
+    "message": "Uit in dit tabblad"
+  },
+  "statusConnected": {
+    "message": "Verbonden. Downloads die je in de browser start, gaan naar Pullbay."
+  },
+  "statusConnectedCaptureOff": {
+    "message": "Verbonden. Overname is uitgeschakeld, dus de browser houdt zijn eigen downloads."
+  },
+  "statusNotConnected": {
+    "message": "Niet verbonden met Pullbay. Downloads blijven in de browser."
+  },
+  "statusNotConnectedReason": {
+    "message": "Niet verbonden met Pullbay: $REASON$. Downloads blijven in de browser.",
+    "placeholders": {
+      "reason": { "content": "$1" }
+    }
+  },
+  "refreshWaiting": {
+    "message": "Je volgende download geeft $NAME$ een nieuwe link.",
+    "placeholders": {
+      "name": { "content": "$1" }
+    }
+  },
+  "stopWaiting": {
+    "message": "Niet meer wachten"
+  },
+  "skipNextDownload": {
+    "message": "Volgende download overslaan"
+  },
+  "skipNextDownloadTitle": {
+    "message": "De volgende download in de browser laten"
+  },
+  "dontSkip": {
+    "message": "Niet overslaan"
+  },
+  "skippingNextDownloadTitle": {
+    "message": "De volgende download blijft in de browser"
+  },
+  "allLinks": {
+    "message": "Alle links op deze pagina"
+  },
+  "allLinksTitle": {
+    "message": "De links van deze pagina in Pullbay weergeven om te kiezen welke je wilt downloaden"
+  },
+  "videoButton": {
+    "message": "Videoknop"
+  },
+  "videoButtonTitle": {
+    "message": "Een downloadknop boven video's die in de browser worden afgespeeld"
+  },
+  "videoButtonOnSite": {
+    "message": "op $SITE$",
+    "placeholders": {
+      "site": { "content": "$1" }
+    }
+  },
+  "urlPlaceholder": {
+    "message": "Plak een download-URL"
+  },
+  "download": {
+    "message": "Downloaden"
+  },
+  "noDownloads": {
+    "message": "Nog geen downloads."
+  },
+  "stateQueued": {
+    "message": "In wachtrij"
+  },
+  "stateDownloading": {
+    "message": "Downloaden"
+  },
+  "stateDone": {
+    "message": "Voltooid"
+  },
+  "stateFailed": {
+    "message": "Mislukt"
+  },
+  "stateCanceled": {
+    "message": "Geannuleerd"
+  },
+  "stateInterrupted": {
+    "message": "Onderbroken"
+  },
+  "stateConfirming": {
+    "message": "Wacht op jou in Pullbay"
+  },
+  "stateWaiting": {
+    "message": "Wacht om te starten"
+  },
+  "threatFound": {
+    "message": "Bedreiging gevonden"
+  },
+  "start": {
+    "message": "Starten"
+  },
+  "cancel": {
+    "message": "Annuleren"
+  },
+  "retry": {
+    "message": "Opnieuw proberen"
+  },
+  "remove": {
+    "message": "Verwijderen"
+  },
+  "sizeProgress": {
+    "message": "$DONE$ / $TOTAL$",
+    "placeholders": {
+      "done": { "content": "$1" },
+      "total": { "content": "$2" }
+    }
+  },
+  "sizeBytes": {
+    "message": "$SIZE$ B",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeKB": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeMB": {
+    "message": "$SIZE$ MB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeGB": {
+    "message": "$SIZE$ GB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeTB": {
+    "message": "$SIZE$ TB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "downloadVideo": {
+    "message": "Deze video downloaden"
+  },
+  "videoButtonHelp": {
+    "message": "Help bij de videoknop"
+  },
+  "videoButtonClose": {
+    "message": "Sluiten voor deze video"
+  },
+  "lookingForVideo": {
+    "message": "Video zoeken..."
+  },
+  "subtitles": {
+    "message": "Ondertitels:"
+  },
+  "videoProtected": {
+    "message": "Deze video is beveiligd met DRM, dus Pullbay downloadt hem niet."
+  },
+  "streamProtected": {
+    "message": "Beveiligd met DRM; Pullbay downloadt dit niet."
+  },
+  "pullbayNotConnected": {
+    "message": "Pullbay is niet actief of niet verbonden."
+  },
+  "noVideoFound": {
+    "message": "Nog geen video gevonden. Laat hem even afspelen en probeer het dan opnieuw."
+  },
+  "sentToPullbay": {
+    "message": "Naar Pullbay verzonden."
+  },
+  "couldNotReachPullbay": {
+    "message": "Kan Pullbay niet bereiken."
+  },
+  "hlsStream": {
+    "message": "HLS-stream"
+  },
+  "dashStream": {
+    "message": "DASH-stream"
+  },
+  "hdsStream": {
+    "message": "HDS-stream"
+  },
+  "youtubeVideo": {
+    "message": "YouTube-video"
+  },
+  "facebookVideo": {
+    "message": "Facebook-video"
+  },
+  "instagramVideo": {
+    "message": "Instagram-video"
+  },
+  "vimeoVideo": {
+    "message": "Vimeo-video"
+  },
+  "mediaNoAnswer": {
+    "message": "Pullbay heeft niet geantwoord."
+  },
+  "soundOnly": {
+    "message": "Alleen geluid ($FORMAT$)",
+    "placeholders": {
+      "format": { "content": "$1" }
+    }
+  },
+  "videoFileType": {
+    "message": "$TYPE$-video",
+    "placeholders": {
+      "type": { "content": "$1" }
+    }
+  },
+  "audioFileType": {
+    "message": "$TYPE$-audio",
+    "placeholders": {
+      "type": { "content": "$1" }
+    }
+  },
+  "videoFile": {
+    "message": "Video"
+  },
+  "audioFile": {
+    "message": "Audio"
+  },
+  "takeoverFailed": {
+    "message": "Pullbay kan de download niet overnemen"
+  },
+  "takeoverNotConnected": {
+    "message": "Pullbay is niet actief of niet verbonden, dus de browser downloadt $FILE$.",
+    "placeholders": {
+      "file": { "content": "$1" }
+    }
+  },
+  "takeoverError": {
+    "message": "Pullbay kan $FILE$ niet starten ($REASON$), dus de browser downloadt het.",
+    "placeholders": {
+      "file": { "content": "$1" },
+      "reason": { "content": "$2" }
+    }
+  },
+  "dontShowAgain": {
+    "message": "Niet meer weergeven"
+  },
+  "takeoverClickToStop": {
+    "message": "Klik op deze melding om deze niet meer weer te geven."
+  },
+  "downloadLastVideo": {
+    "message": "De laatste video downloaden met Pullbay"
+  },
+  "recentVideos": {
+    "message": "Recente video's (Pullbay)"
+  },
+  "downloadPageWithPullbay": {
+    "message": "Pagina downloaden met Pullbay"
+  },
+  "noLinksFound": {
+    "message": "Geen links gevonden op deze pagina."
+  },
+  "noSelectedLinksFound": {
+    "message": "Geen links gevonden in de selectie."
+  },
+  "linksUnreadable": {
+    "message": "De browser staat Pullbay niet toe de links van deze pagina te lezen."
+  },
+  "cannotReachPullbay": {
+    "message": "Kan Pullbay niet bereiken. Is Pullbay actief?"
+  },
+  "cannotReachPullbayReason": {
+    "message": "Kan Pullbay niet bereiken ($REASON$).",
+    "placeholders": {
+      "reason": { "content": "$1" }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "De browser downloadt het in plaats daarvan."
+  },
+  "browserDownloadsHeading": {
+    "message": "Downloaden in de browser"
+  },
+  "sendToPullbay": {
+    "message": "Naar Pullbay sturen"
+  }
+}

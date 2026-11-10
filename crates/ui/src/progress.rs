@@ -267,7 +267,13 @@ fn status_tab(ui: &mut egui::Ui, e: &DownloadEntry, fraction: Option<f32>, runni
 
         ui.label(tr("Downloaded"));
         ui.label(match fraction {
-            Some(f) => trf!("{done} ({percent}%)", done = human_bytes(e.done), percent = format!("{:.1}", f * 100.0)),
+            Some(f) => {
+                trf!(
+                    "{done} ({percent}%)",
+                    done = human_bytes(e.done),
+                    percent = crate::i18n::number(f64::from(f * 100.0), 1)
+                )
+            }
             None => human_bytes(e.done),
         });
         ui.end_row();

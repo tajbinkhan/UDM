@@ -1,0 +1,313 @@
+{
+  "extDescription": {
+    "message": "Wysyłaj pobierania z przeglądarki do menedżera pobierania Pullbay."
+  },
+  "downloadWithPullbay": {
+    "message": "Pobierz za pomocą Pullbay"
+  },
+  "downloadLaterWithPullbay": {
+    "message": "Pobierz później za pomocą Pullbay"
+  },
+  "downloadAllLinksWithPullbay": {
+    "message": "Pobierz wszystkie linki za pomocą Pullbay"
+  },
+  "downloadSelectedLinksWithPullbay": {
+    "message": "Pobierz zaznaczone linki za pomocą Pullbay"
+  },
+  "pullbayDisconnected": {
+    "message": "Pullbay rozłączony"
+  },
+  "captureDownloads": {
+    "message": "Przechwytuj pobierania"
+  },
+  "captureDownloadsTitle": {
+    "message": "Wysyłaj do Pullbay pobierania rozpoczęte w przeglądarce"
+  },
+  "captureInTab": {
+    "message": "Przechwytuj na tej karcie"
+  },
+  "captureInTabTitle": {
+    "message": "Wyłącz przechwytywanie, aby pozostawić pobierania z tej karty przeglądarce"
+  },
+  "captureOffInTab": {
+    "message": "Wyłączone na tej karcie"
+  },
+  "statusConnected": {
+    "message": "Połączono. Pobierania rozpoczęte w przeglądarce trafiają do Pullbay."
+  },
+  "statusConnectedCaptureOff": {
+    "message": "Połączono. Przechwytywanie jest wyłączone, więc przeglądarka zachowuje swoje pobierania."
+  },
+  "statusNotConnected": {
+    "message": "Brak połączenia z Pullbay. Pobierania pozostają w przeglądarce."
+  },
+  "statusNotConnectedReason": {
+    "message": "Brak połączenia z Pullbay: $REASON$. Pobierania pozostają w przeglądarce.",
+    "placeholders": {
+      "reason": { "content": "$1" }
+    }
+  },
+  "refreshWaiting": {
+    "message": "Twoje następne pobieranie nada nowy link dla $NAME$.",
+    "placeholders": {
+      "name": { "content": "$1" }
+    }
+  },
+  "stopWaiting": {
+    "message": "Przestań czekać"
+  },
+  "skipNextDownload": {
+    "message": "Pomiń następne pobieranie"
+  },
+  "skipNextDownloadTitle": {
+    "message": "Pozostaw następne pobieranie w przeglądarce"
+  },
+  "dontSkip": {
+    "message": "Nie pomijaj"
+  },
+  "skippingNextDownloadTitle": {
+    "message": "Następne pobieranie pozostanie w przeglądarce"
+  },
+  "allLinks": {
+    "message": "Wszystkie linki na tej stronie"
+  },
+  "allLinksTitle": {
+    "message": "Wyświetl linki tej strony w Pullbay, aby wybrać te do pobrania"
+  },
+  "videoButton": {
+    "message": "Przycisk wideo"
+  },
+  "videoButtonTitle": {
+    "message": "Przycisk pobierania nad wideo odtwarzanym w przeglądarce"
+  },
+  "videoButtonOnSite": {
+    "message": "w witrynie $SITE$",
+    "placeholders": {
+      "site": { "content": "$1" }
+    }
+  },
+  "urlPlaceholder": {
+    "message": "Wklej adres URL do pobrania"
+  },
+  "download": {
+    "message": "Pobierz"
+  },
+  "noDownloads": {
+    "message": "Brak pobierań."
+  },
+  "stateQueued": {
+    "message": "W kolejce"
+  },
+  "stateDownloading": {
+    "message": "Pobieranie"
+  },
+  "stateDone": {
+    "message": "Gotowe"
+  },
+  "stateFailed": {
+    "message": "Niepowodzenie"
+  },
+  "stateCanceled": {
+    "message": "Anulowano"
+  },
+  "stateInterrupted": {
+    "message": "Przerwano"
+  },
+  "stateConfirming": {
+    "message": "Czeka na Ciebie w Pullbay"
+  },
+  "stateWaiting": {
+    "message": "Oczekuje na uruchomienie"
+  },
+  "threatFound": {
+    "message": "Wykryto zagrożenie"
+  },
+  "start": {
+    "message": "Uruchom"
+  },
+  "cancel": {
+    "message": "Anuluj"
+  },
+  "retry": {
+    "message": "Ponów"
+  },
+  "remove": {
+    "message": "Usuń"
+  },
+  "sizeProgress": {
+    "message": "$DONE$ / $TOTAL$",
+    "placeholders": {
+      "done": { "content": "$1" },
+      "total": { "content": "$2" }
+    }
+  },
+  "sizeBytes": {
+    "message": "$SIZE$ B",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeKB": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeMB": {
+    "message": "$SIZE$ MB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeGB": {
+    "message": "$SIZE$ GB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeTB": {
+    "message": "$SIZE$ TB",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "downloadVideo": {
+    "message": "Pobierz to wideo"
+  },
+  "videoButtonHelp": {
+    "message": "Pomoc dotycząca przycisku wideo"
+  },
+  "videoButtonClose": {
+    "message": "Zamknij dla tego wideo"
+  },
+  "lookingForVideo": {
+    "message": "Wyszukiwanie wideo..."
+  },
+  "subtitles": {
+    "message": "Napisy:"
+  },
+  "videoProtected": {
+    "message": "To wideo jest chronione przez DRM, więc Pullbay go nie pobierze."
+  },
+  "streamProtected": {
+    "message": "Chronione przez DRM; Pullbay tego nie pobierze."
+  },
+  "pullbayNotConnected": {
+    "message": "Pullbay nie działa lub nie jest połączony."
+  },
+  "noVideoFound": {
+    "message": "Nie znaleziono jeszcze wideo. Pozwól mu chwilę się odtwarzać, a następnie spróbuj ponownie."
+  },
+  "sentToPullbay": {
+    "message": "Wysłano do Pullbay."
+  },
+  "couldNotReachPullbay": {
+    "message": "Nie można połączyć się z Pullbay."
+  },
+  "hlsStream": {
+    "message": "Strumień HLS"
+  },
+  "dashStream": {
+    "message": "Strumień DASH"
+  },
+  "hdsStream": {
+    "message": "Strumień HDS"
+  },
+  "youtubeVideo": {
+    "message": "Wideo YouTube"
+  },
+  "facebookVideo": {
+    "message": "Wideo Facebook"
+  },
+  "instagramVideo": {
+    "message": "Wideo Instagram"
+  },
+  "vimeoVideo": {
+    "message": "Wideo Vimeo"
+  },
+  "mediaNoAnswer": {
+    "message": "Pullbay nie odpowiedział."
+  },
+  "soundOnly": {
+    "message": "Tylko dźwięk ($FORMAT$)",
+    "placeholders": {
+      "format": { "content": "$1" }
+    }
+  },
+  "videoFileType": {
+    "message": "Wideo $TYPE$",
+    "placeholders": {
+      "type": { "content": "$1" }
+    }
+  },
+  "audioFileType": {
+    "message": "Audio $TYPE$",
+    "placeholders": {
+      "type": { "content": "$1" }
+    }
+  },
+  "videoFile": {
+    "message": "Wideo"
+  },
+  "audioFile": {
+    "message": "Audio"
+  },
+  "takeoverFailed": {
+    "message": "Pullbay nie mógł przejąć pobierania"
+  },
+  "takeoverNotConnected": {
+    "message": "Pullbay nie działa lub nie jest połączony, więc przeglądarka pobiera $FILE$.",
+    "placeholders": {
+      "file": { "content": "$1" }
+    }
+  },
+  "takeoverError": {
+    "message": "Pullbay nie mógł uruchomić $FILE$ ($REASON$), więc przeglądarka pobiera to sama.",
+    "placeholders": {
+      "file": { "content": "$1" },
+      "reason": { "content": "$2" }
+    }
+  },
+  "dontShowAgain": {
+    "message": "Nie pokazuj ponownie"
+  },
+  "takeoverClickToStop": {
+    "message": "Kliknij to powiadomienie, aby przestać je wyświetlać."
+  },
+  "downloadLastVideo": {
+    "message": "Pobierz ostatnie wideo za pomocą Pullbay"
+  },
+  "recentVideos": {
+    "message": "Ostatnie filmy (Pullbay)"
+  },
+  "downloadPageWithPullbay": {
+    "message": "Pobierz stronę za pomocą Pullbay"
+  },
+  "noLinksFound": {
+    "message": "Nie znaleziono linków na tej stronie."
+  },
+  "noSelectedLinksFound": {
+    "message": "Nie znaleziono linków w zaznaczeniu."
+  },
+  "linksUnreadable": {
+    "message": "Przeglądarka nie pozwala Pullbay odczytać linków tej strony."
+  },
+  "cannotReachPullbay": {
+    "message": "Nie można połączyć się z Pullbay. Czy jest uruchomiony?"
+  },
+  "cannotReachPullbayReason": {
+    "message": "Nie można połączyć się z Pullbay ($REASON$).",
+    "placeholders": {
+      "reason": { "content": "$1" }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "Zamiast tego pobiera przeglądarka."
+  },
+  "browserDownloadsHeading": {
+    "message": "Pobieranie w przeglądarce"
+  },
+  "sendToPullbay": {
+    "message": "Wyślij do Pullbay"
+  }
+}

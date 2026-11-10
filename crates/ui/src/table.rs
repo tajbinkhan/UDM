@@ -108,7 +108,7 @@ pub fn step(from: Option<usize>, len: usize, page: usize, m: Move) -> Option<usi
 pub fn row_label(e: &DownloadEntry, speed: Option<f64>) -> String {
     let running = speed.filter(|s| *s > 0.0 && e.status == Status::Downloading);
     let mut parts = vec![display_name(e), status_word(e.status).to_string()];
-    let percent = columns::fraction(e).map(|f| format!("{:.1}", f * 100.0));
+    let percent = columns::fraction(e).map(|f| crate::i18n::number(f64::from(f * 100.0), 1));
     match (percent, e.total) {
         (Some(percent), Some(total)) => {
             parts.push(trf!("{percent}% of {size}", percent = percent, size = human_bytes(total)))
@@ -594,7 +594,7 @@ fn status(ui: &mut egui::Ui, e: &DownloadEntry) {
         Status::Queued => (tr("Queued"), visuals.weak_text_color()),
         Status::Downloading => match columns::fraction(e).filter(|_| e.total.is_some()) {
             Some(f) => {
-                percent = format!("{:.2}%", f * 100.0);
+                percent = format!("{}%", crate::i18n::number(f64::from(f * 100.0), 2));
                 (percent.as_str(), visuals.text_color())
             }
             None => (tr("Downloading"), visuals.text_color()),

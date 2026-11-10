@@ -36,6 +36,10 @@ raw-window-handle = "0.6"
 # page: a pure-Rust encoder with no dependencies once its image and SVG
 # renderers are off; the window draws the modules itself.
 qrcode = { version = "0.14", default-features = false }
+# Checks a system font for Chinese, Japanese or Korean before egui takes
+# it: egui parses fonts with this crate and panics on one it cannot read.
+# The same version egui's epaint already uses, so Cargo.lock gains nothing.
+ab_glyph = "0.2"
 
 # Drag and drop out of the window, its taskbar button and its menu bar.
 [target.'cfg(windows)'.dependencies]
