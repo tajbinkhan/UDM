@@ -19,9 +19,11 @@ const MARGIN: i8 = 10;
 const DEFAULT_WIDTH: f32 = 360.0;
 /// The height a dialog opens at, before it fits its contents.
 const FIRST_HEIGHT: f32 = 160.0;
-/// The share of the screen's height a dialog may take; what is taller
-/// scrolls.
+/// The share of the screen's height, and of its width, a dialog may take;
+/// what is larger scrolls. At a large interface size a dialog's own width
+/// can be more than the screen's.
 const MAX_SCREEN_SHARE: f32 = 0.85;
+const MAX_SCREEN_WIDTH_SHARE: f32 = 0.95;
 /// The tallest a dialog gets when the screen's size is unknown.
 const FALLBACK_MAX_HEIGHT: f32 = 640.0;
 
@@ -183,7 +185,9 @@ impl<'o> Window<'o> {
         if ctx.embed_viewports() {
             return self.embedded(ctx, id, add);
         }
-        let width = self.width.unwrap_or(DEFAULT_WIDTH);
+        let max_width =
+            ctx.input(|i| i.viewport().monitor_size).map_or(f32::INFINITY, |m| (m.x * MAX_SCREEN_WIDTH_SHARE).floor());
+        let width = self.width.unwrap_or(DEFAULT_WIDTH).min(max_width);
 
         let pass = ctx.cumulative_pass_nr();
         let key = id.with("dialog_placement");
@@ -245,15 +249,16 @@ impl<'o> Window<'o> {
                 // The panel itself fills the window; the scroll area takes
                 // only what the dialog drew, up to the screen's limit, and
                 // scrolls the rest.
-                let shown = egui::ScrollArea::vertical()
+                let shown = egui::ScrollArea::new([max_width.is_finite(), true])
                     .id_salt("dialog_scroll")
+                    .max_width(max_width - 2.0 * MARGIN as f32)
                     .max_height(max_height)
                     .auto_shrink([true, true])
                     .show(ui, |ui| add.take().map(|add| add(ui)));
                 // The content's own size, not the visible part: that is
                 // never taller than the window it has yet to fit.
                 let content = shown.content_size;
-                (shown.inner, Vec2::new(content.x, content.y.min(max_height)))
+                (shown.inner, Vec2::new(content.x.min(max_width - 2.0 * MARGIN as f32), content.y.min(max_height)))
             });
             let (r, content) = panel.inner;
 

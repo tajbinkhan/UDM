@@ -1,5 +1,17 @@
 # Verified
 
+- Themes, high contrast and an interface size up to 200% (#264). Unit tests
+  cover colors and theme files (a base, overrides, comments, every wrong
+  line), the High contrast theme's 7:1 contrast, which look each Theme
+  setting gives with and without the system's contrast colors and with a
+  theme file gone, reading the old `settings.json` theme and odd values,
+  and the themes use case (sorting, a name two files give). On Linux, a
+  named copy started at 200% with High contrast, then with a theme file at
+  100%: the main window and Options drew in those looks, Options' pages
+  fit the screen with Save in view, and a broken theme file was reported
+  under the Theme list. Windows' contrast colors were linted from Linux but
+  not run there, and macOS was linted only.
+
 - The command-line tool and the automation API (#256). Use case tests run
   each `pullbay-cli` command against a pretend daemon; daemon tests run
   `get`, `list`, `remove`, `pause` and `resume` on the real service and
