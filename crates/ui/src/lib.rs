@@ -114,6 +114,18 @@ const ICON_SIZE: u32 = 64;
 const LIBRARY_EVERY: Duration = Duration::from_secs(5);
 const LIBRARY_OPEN_EVERY: Duration = Duration::from_secs(1);
 
+/// The smallest the main window gets at the normal interface size, in
+/// points. A larger interface size makes points larger, and the window then
+/// may get as small as the screen allows instead (see `App::fit_min_size`).
+const MAIN_MIN_SIZE: [f32; 2] = [860.0, 320.0];
+
+/// The share of the screen the main window's smallest size may take.
+const MIN_SIZE_SCREEN_SHARE: f32 = 0.9;
+
+/// How often the theme files and the system's contrast setting are read
+/// again, so a new or edited theme file shows within seconds.
+const THEMES_EVERY: Duration = Duration::from_secs(2);
+
 /// How often the clipboard's change counter is checked.
 const CLIPBOARD_POLL: Duration = Duration::from_millis(700);
 
@@ -221,7 +233,7 @@ pub fn run(start: Start) -> eframe::Result {
             .with_visible(!minimized || !cfg!(windows))
             .with_icon(egui::IconData { rgba: ICON_RGBA.to_vec(), width: ICON_SIZE, height: ICON_SIZE })
             .with_inner_size([1120.0, 560.0])
-            .with_min_inner_size([860.0, 320.0]),
+            .with_min_inner_size(MAIN_MIN_SIZE),
         ..Default::default()
     };
     eframe::run_native(
@@ -511,9 +523,12 @@ struct App {
     tray_shown: Option<bool>,
     /// The window was minimized last frame, so minimizing it is noticed once.
     was_minimized: bool,
-    /// The theme and text size last applied, so they are only set when the
-    /// settings change them (Ctrl+Plus and Ctrl+Minus zoom in between).
-    appearance: Option<(pullbay_domain::settings::Theme, u32)>,
+    /// The look and interface size last applied, so they are only set when
+    /// the settings, the theme files or the system's contrast setting
+    /// change them (Ctrl+Plus and Ctrl+Minus zoom in between).
+    appearance: Option<(pullbay_domain::theme::Appearance, u32)>,
+    /// The smallest size the main window was last allowed, in points.
+    min_size: Option<egui::Vec2>,
     /// The language setting last applied.
     language: Option<String>,
     /// Which downloads the list shows.
@@ -1028,6 +1043,8 @@ struct OptionsDraft {
     /// Save's disk checks and browser registrations, done on a worker:
     /// the registrations made, and the settings to send or why not.
     checking: Pending<SaveChecked>,
+    /// Open themes folder, done on a worker: whether the folder opened.
+    themes_folder: Pending<Result<(), UiError>>,
     /// Browsers found that read Chrome's registration.
     chrome_readers: Vec<String>,
     /// A browser's program chosen with "Add browser...".
@@ -1236,6 +1253,7 @@ impl OptionsDraft {
             added_saved: s.added_browsers.clone(),
             adding_browser: Pending::default(),
             checking: Pending::default(),
+            themes_folder: Pending::default(),
             system_proxy: Pending::default(),
             chrome_readers: Vec::new(),
             browser_picked: Picked::default(),
@@ -1272,7 +1290,7 @@ impl OptionsDraft {
             grab_save_unique_silently: s.grab_save_unique_silently,
             tips_on_startup: s.tips_on_startup,
             next_tip: s.next_tip,
-            theme: s.theme,
+            theme: s.theme.clone(),
             text_size: s.text_size,
             language: s.language.clone(),
             error: None,
@@ -1444,7 +1462,7 @@ impl OptionsDraft {
             grab_save_unique_silently: self.grab_save_unique_silently,
             tips_on_startup: self.tips_on_startup,
             next_tip: self.next_tip,
-            theme: self.theme,
+            theme: self.theme.clone(),
             text_size: self.text_size,
             language: self.language.clone(),
             // The daemon keeps its own.
@@ -1586,6 +1604,7 @@ impl App {
             tray_shown: None,
             was_minimized: false,
             appearance: None,
+            min_size: None,
             language: None,
             filter: Filter::default(),
             tree: categories::Tree::default(),
@@ -1626,6 +1645,7 @@ impl App {
         app.watch_clipboard();
         app.read_this_copy();
         watchdog::start(Arc::clone(&app.beats), Arc::clone(&app.daemon), app.outbox.clone());
+        app.watch_themes();
         app
     }
 
@@ -1679,7 +1699,43 @@ impl App {
     fn reopened(&mut self, ctx: &egui::Context) {
         self.ctx = ctx.clone();
         self.appearance = None;
+        self.min_size = None;
         self.was_minimized = false;
+    }
+
+    /// Keep the main window's smallest size on the screen: at 200 % its
+    /// normal smallest size, in points twice as large, can be wider than a
+    /// laptop's screen.
+    fn fit_min_size(&mut self, ctx: &egui::Context) {
+        let Some(screen) = ctx.input(|i| i.viewport().monitor_size) else {
+            return;
+        };
+        let wanted = egui::Vec2::from(MAIN_MIN_SIZE).min(screen * MIN_SIZE_SCREEN_SHARE).floor();
+        if self.min_size != Some(wanted) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(wanted));
+            self.min_size = Some(wanted);
+        }
+    }
+
+    /// Read the theme files and the system's contrast colors on a worker
+    /// every few seconds, and send them to the window when they change.
+    fn watch_themes(&self) {
+        let outbox = self.outbox.clone();
+        thread::spawn(move || {
+            let mut last = None;
+            loop {
+                let ports = crate::ports::ports();
+                let read = pullbay_application::themes::ReadThemes::new(&*ports.themes, &*ports.system).run();
+                if last.as_ref() != Some(&read) {
+                    last = Some(read.clone());
+                    if outbox.send(UiMessage::ThemesRead(read)).is_err() {
+                        return;
+                    }
+                    reopen::repaint();
+                }
+                thread::sleep(THEMES_EVERY);
+            }
+        });
     }
 
     /// Read the grabber's projects and templates again on a worker, every
@@ -2961,6 +3017,7 @@ impl App {
         let result = state::take_save_result(&mut self.state);
         let saving = self.state.saving;
         let queues = self.state.queues.clone();
+        let themes = self.state.themes.clone();
         let Some(draft) = self.options.as_mut() else {
             return;
         };
@@ -2977,6 +3034,9 @@ impl App {
         draft.add_picked_browser(ctx);
         if let Some(rules) = draft.system_proxy.take() {
             use_system_proxy(draft, rules);
+        }
+        if let Some(Err(e)) = draft.themes_folder.take() {
+            draft.error = Some(e.to_string());
         }
         if let Some((done, result)) = draft.checking.take() {
             draft.registered(done);
@@ -3006,6 +3066,13 @@ impl App {
             take_picked(&c.picked, &mut c.folder);
         }
 
+        // Shorter pages on a screen that has no room for the whole dialog
+        // (a large interface size makes the screen's points fewer), so the
+        // tabs and buttons stay in view.
+        let page_height = ctx.input(|i| i.viewport().monitor_size).map_or(OPTIONS_PAGE_HEIGHT, |screen| {
+            (screen.y * OPTIONS_SCREEN_SHARE - OPTIONS_CHROME_HEIGHT)
+                .clamp(OPTIONS_MIN_PAGE_HEIGHT, OPTIONS_PAGE_HEIGHT)
+        });
         let mut open = true;
         let mut close = false;
         crate::dialog::Window::new(tr("Options"))
@@ -3031,11 +3098,11 @@ impl App {
                 // scrolls, with the tabs and buttons left in place.
                 egui::ScrollArea::vertical()
                     .id_salt(("options_page", draft.tab))
-                    .min_scrolled_height(OPTIONS_PAGE_HEIGHT)
-                    .max_height(OPTIONS_PAGE_HEIGHT)
+                    .min_scrolled_height(page_height)
+                    .max_height(page_height)
                     .auto_shrink([false, false])
                     .show(ui, |ui| match draft.tab {
-                        OptionsTab::General => general_tab(ui, draft, &queues),
+                        OptionsTab::General => general_tab(ui, draft, &queues, &themes),
                         OptionsTab::Categories => categories_tab(ui, draft),
                         OptionsTab::Capture => capture_tab(ui, draft),
                         OptionsTab::Video => video_tab(ui, draft),
@@ -3076,16 +3143,89 @@ impl App {
 
 /// The height of an Options page, which scrolls past it.
 const OPTIONS_PAGE_HEIGHT: f32 = 420.0;
+/// The share of the screen's height the Options dialog may take, as for
+/// every dialog (`dialog::MAX_SCREEN_SHARE`).
+const OPTIONS_SCREEN_SHARE: f32 = 0.85;
+/// The height of the Options dialog without its page: the tabs, the
+/// buttons, an error line and the margins.
+const OPTIONS_CHROME_HEIGHT: f32 = 120.0;
+/// The shortest an Options page gets.
+const OPTIONS_MIN_PAGE_HEIGHT: f32 = 160.0;
 
-fn theme_label(t: pullbay_domain::settings::Theme) -> &'static str {
+fn theme_label(t: &pullbay_domain::settings::Theme) -> String {
+    use pullbay_domain::settings::Theme;
     match t {
-        pullbay_domain::settings::Theme::System => tr("Follow Windows"),
-        pullbay_domain::settings::Theme::Light => tr("Light"),
-        pullbay_domain::settings::Theme::Dark => tr("Dark"),
+        Theme::System => tr("Follow Windows").to_string(),
+        Theme::Light => tr("Light").to_string(),
+        Theme::Dark => tr("Dark").to_string(),
+        Theme::HighContrast => tr("High contrast").to_string(),
+        Theme::Custom(name) => name.to_string(),
     }
 }
 
-fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
+/// Options' Theme row: the built-in themes and the theme files' in one
+/// list, the button that opens the themes folder, and what is wrong with
+/// the files that give no theme.
+fn theme_row(ui: &mut egui::Ui, draft: &mut OptionsDraft, themes: &pullbay_application::themes::ThemesRead) {
+    use pullbay_domain::settings::Theme;
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("theme").selected_text(theme_label(&draft.theme)).show_ui(ui, |ui| {
+                for t in Theme::BUILT_IN {
+                    let label = theme_label(&t);
+                    ui.selectable_value(&mut draft.theme, t, label);
+                }
+                if !themes.themes.is_empty() {
+                    ui.separator();
+                }
+                for t in &themes.themes {
+                    ui.selectable_value(&mut draft.theme, Theme::Custom(t.name.clone()), t.name.as_str());
+                }
+            });
+            let open = ui
+                .add_enabled(!draft.themes_folder.busy(), egui::Button::new(tr("Open themes folder")))
+                .on_hover_text(tr("A .theme file put there is listed here within seconds"));
+            if open.clicked() {
+                draft.themes_folder.start(ui.ctx(), open_themes_folder);
+            }
+        });
+        let weak = ui.visuals().weak_text_color();
+        let warn = ui.visuals().warn_fg_color;
+        match &draft.theme {
+            Theme::System | Theme::HighContrast if themes.contrast.is_some() => {
+                ui.colored_label(weak, tr("Windows' contrast theme is on, so its colors are used"));
+            }
+            Theme::Custom(name) if !themes.themes.iter().any(|t| t.name.same(name)) => {
+                ui.colored_label(warn, tr("Its theme file is gone, so the window follows Windows"));
+            }
+            _ => {}
+        }
+        for b in &themes.broken {
+            ui.colored_label(
+                warn,
+                trf!("{file} is not a theme: {why}", file = b.file, why = errors::theme_file(&b.why)),
+            );
+        }
+    });
+}
+
+/// Make the themes folder if it is missing and open it, on a worker.
+fn open_themes_folder() -> Result<(), UiError> {
+    let ports = crate::ports::ports();
+    let folder = ports
+        .themes
+        .open_folder()
+        .map_err(|e| UiError::from(trf!("Could not open the themes folder: {error}", error = e)))?;
+    ports.opener.open(&folder.to_string_lossy());
+    Ok(())
+}
+
+fn general_tab(
+    ui: &mut egui::Ui,
+    draft: &mut OptionsDraft,
+    queues: &[Queue],
+    themes: &pullbay_application::themes::ThemesRead,
+) {
     egui::Grid::new("options").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
         ui.label(tr("Download folder"));
         ui.horizontal(|ui| {
@@ -3360,13 +3500,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         ui.end_row();
 
         ui.label(tr("Theme"));
-        egui::ComboBox::from_id_salt("theme")
-            .selected_text(theme_label(draft.theme))
-            .show_ui(ui, |ui| {
-                for t in pullbay_domain::settings::Theme::ALL {
-                    ui.selectable_value(&mut draft.theme, t, theme_label(t));
-                }
-            });
+        theme_row(ui, draft, themes);
         ui.end_row();
 
         ui.label(tr("Language"));
@@ -3384,7 +3518,7 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         });
         ui.end_row();
 
-        ui.label(tr("Text size"));
+        ui.label(tr("Interface size"));
         let (lo, hi) = TEXT_SIZE_RANGE;
         ui.add(egui::Slider::new(&mut draft.text_size, lo..=hi).step_by(10.0).suffix("%"))
             .on_hover_text(tr("Scales everything in the window"));
@@ -4466,10 +4600,13 @@ impl eframe::App for App {
             self.tooltip = tooltip;
         }
         if let Some(s) = &settings {
-            if self.appearance != Some((s.theme, s.text_size)) {
-                theme::set_appearance(ctx, s.theme, s.text_size);
-                self.appearance = Some((s.theme, s.text_size));
+            let themes = &self.state.themes;
+            let look = pullbay_domain::theme::appearance(&s.theme, themes.contrast.as_ref(), &themes.themes);
+            if self.appearance != Some((look, s.text_size)) {
+                theme::set_appearance(ctx, &look, s.text_size);
+                self.appearance = Some((look, s.text_size));
             }
+            self.fit_min_size(ctx);
             if self.language.as_deref() != Some(s.language.as_str()) {
                 i18n::set_language(&s.language);
                 tray::relabel();

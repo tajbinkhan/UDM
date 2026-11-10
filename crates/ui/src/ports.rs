@@ -1,5 +1,6 @@
 //! The ports the window's views reach beyond the daemon connection: the
-//! clock, the save folders, opening files and the window's own files.
+//! clock, the save folders, opening files, the window's own files and its
+//! theme files.
 //!
 //! `main` installs them once, before the window opens, with the adapters
 //! from `pullbay_infrastructure`. Views read them through [`ports`]. This is a
@@ -10,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use pullbay_application::window::{
-    BrowserRegistry, FilePicker, GrabLibrary, ListFiles, SettingsChecks, SystemServices, WindowFiles,
+    BrowserRegistry, FilePicker, GrabLibrary, ListFiles, SettingsChecks, SystemServices, ThemeFiles, WindowFiles,
 };
 use pullbay_domain::ports::{
     Clock, DownloadFiles, FileHashes, FileOpener, GrabDownloads, ProblemReports, SaveFolders, Timestamps,
@@ -52,6 +53,8 @@ pub struct Ports {
     /// The problem reports in the data folder, read and written on
     /// workers.
     pub reports: Arc<dyn ProblemReports>,
+    /// The theme files, read on a worker.
+    pub themes: Arc<dyn ThemeFiles>,
 }
 
 impl Ports {
@@ -97,8 +100,9 @@ pub fn ports() -> &'static Ports {
 /// Stand-ins for the tests: UTC as the local time, a Downloads folder in
 /// the temporary folder, every folder writable, no files opened or saved,
 /// no grabber library, empty lists and a system without proxies, wake
-/// timers or sounds, no browsers, pickers the user always cancels, and no
-/// problem reports, none of which can be saved.
+/// timers, sounds or contrast colors, no browsers, pickers the user always
+/// cancels, no theme files and no problem reports, none of which can be
+/// saved.
 #[cfg(test)]
 mod fakes {
     use super::*;
@@ -236,6 +240,18 @@ mod fakes {
         fn save_credential(&self, _: &str, _: &str, _: &str) -> Result<(), FilesError> {
             Ok(())
         }
+        fn contrast(&self) -> Option<pullbay_domain::theme::SystemContrast> {
+            None
+        }
+    }
+
+    impl ThemeFiles for Temp {
+        fn open_folder(&self) -> Result<PathBuf, FilesError> {
+            Err(FilesError("no themes folder in tests".into()))
+        }
+        fn read(&self) -> Vec<pullbay_application::window::ThemeFile> {
+            Vec::new()
+        }
     }
 
     impl FilePicker for Temp {
@@ -313,6 +329,7 @@ mod fakes {
             browsers: Arc::new(Temp),
             pickers: Arc::new(Temp),
             reports: Arc::new(Temp),
+            themes: Arc::new(Temp),
         }
     }
 }

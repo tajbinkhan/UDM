@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use pullbay_application::daemon::{self, Event, Failure, Lost};
+use pullbay_application::themes::ThemesRead;
 use pullbay_application::window::BrowserSlot;
 use pullbay_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
 use pullbay_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
@@ -139,6 +140,9 @@ pub struct AppState {
     pub this_copy: Option<ThisCopy>,
     /// The problems on offer to report, the one shown first.
     pub reports: VecDeque<ReportOffer>,
+    /// The theme files and the system's contrast colors, as a worker last
+    /// read them.
+    pub themes: ThemesRead,
 }
 
 /// A problem the window offers to report, in the strip under the toolbar.
@@ -434,6 +438,7 @@ impl Default for AppState {
             browsers_read: None,
             this_copy: None,
             reports: VecDeque::new(),
+            themes: ThemesRead::default(),
         }
     }
 }
@@ -478,6 +483,9 @@ pub enum UiMessage {
     GrabProjectRead(Result<Project, UiError>),
     /// A worker read the browsers for Options.
     BrowsersRead(BrowsersRead),
+    /// A worker found the theme files or the system's contrast setting
+    /// changed.
+    ThemesRead(ThemesRead),
     /// They could not be sent, and why.
     SaveFailed(String),
     /// A worker read this copy's version, system and install.
@@ -625,6 +633,7 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
         }
         UiMessage::GrabProjectRead(read) => state.grab_opened = Some(read),
         UiMessage::BrowsersRead(read) => state.browsers_read = Some(read),
+        UiMessage::ThemesRead(read) => state.themes = read,
         UiMessage::SavingSettings => {
             state.saving = true;
             state.save_result = None;
@@ -990,6 +999,18 @@ mod tests {
         apply(&mut s, UiMessage::BrowsersRead(read.clone()));
         assert_eq!(take_browsers_read(&mut s), Some(read));
         assert_eq!(take_browsers_read(&mut s), None, "taken once");
+    }
+
+    #[test]
+    fn the_themes_read_replace_the_last() {
+        use pullbay_domain::theme::{CustomTheme, ThemeName, DARK};
+        let mut s = AppState::default();
+        assert_eq!(s.themes, ThemesRead::default(), "none until the first read");
+        let ocean = CustomTheme { name: ThemeName::parse("Ocean").unwrap(), look: DARK };
+        apply(&mut s, UiMessage::ThemesRead(ThemesRead { themes: vec![ocean.clone()], ..ThemesRead::default() }));
+        assert_eq!(s.themes.themes, [ocean]);
+        apply(&mut s, UiMessage::ThemesRead(ThemesRead::default()));
+        assert!(s.themes.themes.is_empty(), "a deleted file's theme goes");
     }
 
     #[test]

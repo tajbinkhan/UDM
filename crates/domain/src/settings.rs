@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::bytes::ByteCount;
+use crate::theme::ThemeName;
 use serde::{Deserialize, Serialize};
 
 /// Parallel connections per download unless the settings say otherwise.
@@ -266,23 +267,79 @@ pub enum SocksVersion {
     V5,
 }
 
-/// The window's colors.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// The window's look (see `crate::theme`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(from = "ThemeRead", into = "ThemeWritten")]
 pub enum Theme {
-    /// Light or dark, as Windows' app mode is.
+    /// Light or dark, as Windows' app mode is, or Windows' contrast colors
+    /// while its high-contrast setting is on.
     #[default]
     System,
     Light,
     Dark,
+    /// Windows' contrast colors while its high-contrast setting is on, and
+    /// Pullbay's own otherwise.
+    HighContrast,
+    /// A theme file's theme, by its name.
+    Custom(ThemeName),
 }
 
 impl Theme {
-    pub const ALL: [Theme; 3] = [Theme::System, Theme::Light, Theme::Dark];
+    /// The built-in themes, as Options lists them before the theme files.
+    pub const BUILT_IN: [Theme; 4] = [Theme::System, Theme::Light, Theme::Dark, Theme::HighContrast];
 }
 
-/// The window's text size, in percent of the normal size.
-pub const TEXT_SIZE_RANGE: (u32, u32) = (80, 150);
+/// How `settings.json` keeps the theme: `"system"`, `"light"`, `"dark"`
+/// (as before there were theme files) or `"high_contrast"`, or
+/// `{"custom": "<name>"}` for a theme file's. What a newer Pullbay might
+/// write, or a name that is not one, reads as following the system rather
+/// than failing the whole file.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ThemeRead {
+    BuiltIn(String),
+    Custom { custom: String },
+    Other(serde::de::IgnoredAny),
+}
+
+/// The theme as [`ThemeRead`] reads it back.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum ThemeWritten {
+    BuiltIn(&'static str),
+    Custom { custom: String },
+}
+
+impl From<ThemeRead> for Theme {
+    fn from(read: ThemeRead) -> Theme {
+        match read {
+            ThemeRead::BuiltIn(name) => match name.as_str() {
+                "light" => Theme::Light,
+                "dark" => Theme::Dark,
+                "high_contrast" => Theme::HighContrast,
+                _ => Theme::System,
+            },
+            ThemeRead::Custom { custom } => ThemeName::parse(&custom).map_or(Theme::System, Theme::Custom),
+            ThemeRead::Other(_) => Theme::System,
+        }
+    }
+}
+
+impl From<Theme> for ThemeWritten {
+    fn from(theme: Theme) -> ThemeWritten {
+        match theme {
+            Theme::System => ThemeWritten::BuiltIn("system"),
+            Theme::Light => ThemeWritten::BuiltIn("light"),
+            Theme::Dark => ThemeWritten::BuiltIn("dark"),
+            Theme::HighContrast => ThemeWritten::BuiltIn("high_contrast"),
+            Theme::Custom(name) => ThemeWritten::Custom { custom: name.as_str().to_string() },
+        }
+    }
+}
+
+/// The window's interface size, in percent of the normal size: text,
+/// controls, the download list and every dialog scale along.
+pub const TEXT_SIZE_RANGE: (u32, u32) = (80, 200);
 
 /// Allowed lengths of the quota's window, in hours (up to a week).
 pub const QUOTA_HOURS_RANGE: (u64, u64) = (1, 168);
@@ -771,7 +828,8 @@ pub struct Settings {
     /// The tip to show next.
     pub next_tip: usize,
     pub theme: Theme,
-    /// The window's text size, in percent; everything in it scales along.
+    /// The window's interface size, in percent; everything in it scales
+    /// along. (Named for when it was the Text size option.)
     pub text_size: u32,
     /// The window's language as a code such as `de`; empty follows Windows.
     pub language: String,
@@ -1464,7 +1522,7 @@ pub enum InvalidSettings {
     ScriptNotWeb,
     #[error("\"{0}\" is not a language code, such as de or pt-BR.")]
     Language(String),
-    #[error("The text size must be between {lo}% and {hi}%.", lo = TEXT_SIZE_RANGE.0, hi = TEXT_SIZE_RANGE.1)]
+    #[error("The interface size must be between {lo}% and {hi}%.", lo = TEXT_SIZE_RANGE.0, hi = TEXT_SIZE_RANGE.1)]
     TextSize,
     #[error("The quota's window must be between {lo} and {hi} hours.", lo = QUOTA_HOURS_RANGE.0, hi = QUOTA_HOURS_RANGE.1)]
     QuotaHours,
@@ -1608,6 +1666,31 @@ mod tests {
     }
 
     #[test]
+    fn themes_read_the_old_format_and_keep_theme_files_by_name() {
+        // Before theme files, the theme was one of three words.
+        for (json, theme) in [("system", Theme::System), ("light", Theme::Light), ("dark", Theme::Dark)] {
+            let s: Settings = serde_json::from_str(&format!(r#"{{"theme":"{json}","text_size":150}}"#)).unwrap();
+            assert_eq!((s.theme, s.text_size), (theme, 150));
+        }
+        let ocean = Theme::Custom(ThemeName::parse("Ocean").unwrap());
+        for theme in [Theme::HighContrast, ocean.clone(), Theme::Dark] {
+            let s = Settings { theme: theme.clone(), ..Settings::default() };
+            let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+            assert_eq!(back.theme, theme);
+        }
+        let json = serde_json::to_value(Settings { theme: ocean, ..Settings::default() }).unwrap();
+        assert_eq!(json["theme"], serde_json::json!({"custom": "Ocean"}));
+        let json = serde_json::to_value(Settings { theme: Theme::HighContrast, ..Settings::default() }).unwrap();
+        assert_eq!(json["theme"], "high_contrast");
+        // A newer Pullbay's theme, or a name that is not one, follows the
+        // system instead of failing the whole file.
+        for odd in [r#""sepia""#, r#"{"custom":""}"#, r#"{"gradient":[1,2]}"#, "7"] {
+            let s: Settings = serde_json::from_str(&format!(r#"{{"theme":{odd},"connections":4}}"#)).unwrap();
+            assert_eq!((s.theme, s.connections), (Theme::System, 4), "{odd}");
+        }
+    }
+
+    #[test]
     fn older_settings_apply_the_limit_all_the_time_and_odd_idle_times_are_refused() {
         let old: Settings = serde_json::from_str(r#"{"speed_limit_enabled":true}"#).unwrap();
         assert!(!old.speed_limit_only_while_active);
@@ -1661,7 +1744,7 @@ mod tests {
             let s = Settings { speed_limit_per_file_kbps: per_file, ..Settings::default() };
             assert_eq!(s.validate().is_ok(), valid, "per file {per_file:?}");
         }
-        for (text_size, valid) in [(79, false), (80, true), (150, true), (151, false)] {
+        for (text_size, valid) in [(79, false), (80, true), (150, true), (200, true), (201, false)] {
             let s = Settings { text_size, ..Settings::default() };
             assert_eq!(s.validate().is_ok(), valid, "text_size {text_size}");
         }

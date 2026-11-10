@@ -37,6 +37,7 @@ fn main() -> eframe::Result {
         browsers: Arc::new(infra::browsers::Registry),
         pickers: Arc::new(infra::pickers::NativePicker),
         reports: Arc::new(infra::crash::ReportFiles::new()),
+        themes: Arc::new(infra::themes::ThemeDir::new()),
     };
     pullbay_ui::run(pullbay_ui::Start {
         ports,

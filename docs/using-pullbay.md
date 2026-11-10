@@ -435,9 +435,10 @@
   quits and the Start menu opens Pullbay again), whether closing the window
   keeps Pullbay in the tray, whether minimizing the window hides it in the
   tray (on by default, as in IDM), where ffmpeg
-  is, the **Language**, the **Theme** (follow Windows, light or dark) and the
-  **Text size** (80% to 150%, scaling the whole window). Language, theme and
-  text size change as soon as you save. **More > Hide categories** hides
+  is, the **Language**, the **Theme** (follow Windows, light, dark, high
+  contrast, or a theme file of your own; see [Themes](themes.md)) and the
+  **Interface size** (80% to 200%, scaling the whole window). Language, theme
+  and interface size change as soon as you save. **More > Hide categories** hides
   the categories and queues panel, and **More > Hide the tray icon** does
   what the Options box does; both are kept. **Categories**: as above. **Browser
   capture**: the browsers to capture from, the rules below, the special
