@@ -1059,5 +1059,17 @@
   "{value} is not yes or no.": "{value} n'est ni yes ni no.",
   "{value} is not a built-in theme; use light, dark or high_contrast.": "{value} n'est pas un thème intégré ; utilisez light, dark ou high_contrast.",
   "{key} must be a whole number from {lo} to {hi}.": "{key} doit être un nombre entier de {lo} à {hi}.",
-  "A theme's name must be 1 to 40 characters on one line.": "Le nom d'un thème doit faire de 1 à 40 caractères sur une ligne."
+  "A theme's name must be 1 to 40 characters on one line.": "Le nom d'un thème doit faire de 1 à 40 caractères sur une ligne.",
+  "Downloads": "Téléchargements",
+  "Each connection's part of the file": "La part du fichier de chaque connexion",
+  "Start a queue": "Démarrer une file",
+  "Stop a queue": "Arrêter une file",
+  "{column}, sorted ascending": "{column}, tri croissant",
+  "{column}, sorted descending": "{column}, tri décroissant",
+  "{percent}% done": "{percent} % effectué",
+  "{percent}% of {size}": "{percent} % de {size}",
+  "{size} downloaded": "{size} téléchargés",
+  "{time} left": "encore {time}",
+  "Width of {column}": "Largeur de {column}",
+  "Width of the categories": "Largeur des catégories"
 }

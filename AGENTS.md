@@ -14,7 +14,7 @@ The architecture below is the target. The code today is one crate that does not 
   - `pullbay-cli`, the command-line tool, another client of the daemon for terminals and scripts.
 - The browser extension lives in `extension/` (JavaScript). It is outside the Rust architecture but speaks the protocol defined in Rust.
 - Architecture: Hexagonal (Ports and Adapters) as a Cargo workspace, with a UI layer at the edge.
-- UI framework: **egui**, through `eframe` 0.31 (glow/OpenGL backend), with `egui_extras` for the download table, `tray-icon` for the tray, and `rfd` (behind the `FilePicker` port) for native file and folder pickers.
+- UI framework: **egui**, through `eframe` 0.31 (glow/OpenGL backend, with AccessKit for screen readers), with `egui_extras` for the download table, `tray-icon` for the tray, and `rfd` (behind the `FilePicker` port) for native file and folder pickers.
 
 ## 2. Workspace layout
 
@@ -97,6 +97,7 @@ egui-specific rules:
 - MUST NOT call the daemon, read files or sleep inside `update` or any `show` function. egui calls these every frame.
 - Every dialog and download window is drawn during the main window's frame (see `docs/adr/0001-cloak-the-main-window-in-the-tray.md`). Code that changes how windows are hidden MUST keep that frame running.
 - User-facing text goes through the translation tables in `ui` (`crates/ui/src/lang/*.json`). MUST NOT hardcode English strings in views.
+- A widget without text of its own (an icon, a symbol such as `×`, a hand-painted control or row) MUST get a name screen readers read, through `a11y.rs` and the translation tables. A key the window starts answering MUST be listed in `docs/keyboard-shortcuts.md`; a test in `help.rs` compares the page with the code.
 - Before copying an IDM window, dialog or tray behavior, observe IDM first (the `observe-idm` skill in `.claude/skills/`). Learn IDM only by running it as a user does. MUST NOT decompile, disassemble or unpack IDM's files, extract their icons, dialogs or strings, or copy IDM's text or images into Pullbay.
 
 ## 8. App (composition root) rules

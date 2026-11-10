@@ -25,6 +25,7 @@
 // test exemptions do not cover (AGENTS.md section 9).
 #![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
 
+mod a11y;
 mod addurl;
 mod answers;
 mod banner;
@@ -2584,6 +2585,7 @@ impl App {
                                     egui::Button::new("+"),
                                 )
                                 .on_hover_text(tr("Add a category"));
+                            a11y::label(&add, tr("Add a category"));
                             if add.clicked() {
                                 draft.new_category = Some(NewCategory {
                                     extensions: pullbay_domain::settings::extension_of(draft.filename.trim()).unwrap_or_default(),
@@ -2720,6 +2722,7 @@ impl App {
                                 egui::Button::new("+"),
                             )
                             .on_hover_text(tr("Add a queue"));
+                        a11y::label(&add, tr("Add a queue"));
                         if add.clicked() {
                             draft.new_queue = Some((String::new(), None));
                         }
@@ -4387,6 +4390,7 @@ fn file_icon(ui: &mut egui::Ui, path: &str) {
     }
     let cursor = if response.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab };
     let response = response.on_hover_cursor(cursor).on_hover_text(tr("Drag the file to a folder or another program"));
+    a11y::describe(&response, egui::accesskit::Role::Image, tr("Drag the file to a folder or another program"), |_| {});
     table::drag_out(&response, path);
 }
 
@@ -4586,6 +4590,10 @@ impl eframe::App for App {
                 .default_width(width)
                 .width_range(100.0..=400.0)
                 .show(ctx, |ui| categories::show(ui, &panel, &mut self.tree, &mut self.filter, &mut actions));
+            // The panel's edge, which drags its width; egui leaves it unnamed.
+            if let Some(grip) = ctx.read_response(egui::Id::new("categories").with("__resize")) {
+                a11y::describe(&grip, egui::accesskit::Role::Splitter, tr("Width of the categories"), |_| {});
+            }
             if shown.inner.hide {
                 self.menu_command(menubar::Command::ToggleCategories, &rows, settings.as_ref(), &mut actions);
             }
@@ -4615,7 +4623,10 @@ impl eframe::App for App {
         }
         self.order = shown.iter().map(|e| e.id).collect();
         self.selected.retain(|id| rows.iter().any(|e| e.id == *id));
-        if !ctx.wants_keyboard_input() {
+        // The list's keys work while one of its rows has the focus, or
+        // nothing has.
+        if table::list_has_keys(ctx, &self.table) {
+            table::keys(ctx, &mut self.table, &self.order, self.anchor, &mut actions);
             let (all, delete, enter) = ctx.input_mut(|i| {
                 (
                     i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::A)),
@@ -4829,6 +4840,10 @@ impl eframe::App for App {
             self.layout.save();
             self.layout_unsaved = false;
         }
+
+        let title = ctx.input(|i| i.viewport().title.clone()).unwrap_or_else(|| "Pullbay".to_string());
+        a11y::name_window(ctx, &title);
+        a11y::focus_ring(ctx);
 
         for action in actions {
             self.perform(action);

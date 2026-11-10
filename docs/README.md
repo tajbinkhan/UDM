@@ -18,6 +18,8 @@ These pages were the README's manual. Each covers one part of Pullbay.
   tray, the download window, the video button, adding many links and Options.
 - **[Themes and interface size](themes.md)**: the built-in themes, high contrast, an interface
   up to 200%, and making a theme of your own.
+- **[Keyboard shortcuts](keyboard-shortcuts.md)**: every key the window answers, and what a
+  screen reader reads in the download list.
 - **[Command line and automation](command-line.md)**: IDM's switches, the `pullbay-cli` tool,
   sending links from other programs, and the automation API for programs of your own.
 
