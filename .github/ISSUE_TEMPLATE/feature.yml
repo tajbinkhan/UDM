@@ -1,0 +1,62 @@
+name: Feature request
+description: Something Pullbay should do, or do differently.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. If IDM does this, say how it behaves there: Pullbay follows IDM's behavior.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+      description: What Pullbay should do, from your side.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What you're trying to get done, and what you do today instead.
+  - type: textarea
+    id: idm
+    attributes:
+      label: How IDM does it
+      description: If IDM has this, where it is and how it acts. Describe it in your own words; please don't paste IDM's text or screenshots of its dialogs.
+  - type: input
+    id: version
+    attributes:
+      label: Pullbay version
+      description: In the window, Help > About Pullbay.
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - Other
+        - All of them
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed Pullbay
+      options:
+        - Setup (Pullbay-Setup .exe)
+        - Windows portable zip
+        - macOS .dmg
+        - .deb package
+        - .rpm package
+        - AppImage
+        - .tar.gz with install.sh
+        - Built from source
+    validations:
+      required: true

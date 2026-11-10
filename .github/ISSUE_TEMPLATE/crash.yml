@@ -1,0 +1,77 @@
+name: Crash report
+description: A Pullbay program closed by itself, or stopped responding.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Pullbay usually writes what went wrong to its log before it closes, so the logs below help most.
+  - type: input
+    id: version
+    attributes:
+      label: Pullbay version
+      description: In the window, Help > About Pullbay. If the window won't open, the version of the file you installed.
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: system-details
+    attributes:
+      label: System details
+      description: The version, and on Linux the distribution, desktop, and X11 or Wayland.
+      placeholder: "Windows 11 24H2"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed Pullbay
+      options:
+        - Setup (Pullbay-Setup .exe)
+        - Windows portable zip
+        - macOS .dmg
+        - .deb package
+        - .rpm package
+        - AppImage
+        - .tar.gz with install.sh
+        - Built from source
+    validations:
+      required: true
+  - type: dropdown
+    id: program
+    attributes:
+      label: What closed or froze
+      options:
+        - The window
+        - The downloads stopped (the background service)
+        - The browser lost its connection to Pullbay
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What you were doing
+      description: What you clicked or started just before, and whether it happens again when you do the same.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The end of `pullbay-daemon.log`, `pullbay-gui.log` and `pullbay-host.log` from the data folder: `%LOCALAPPDATA%\Pullbay` on Windows, `~/Library/Application Support/Pullbay` on macOS, `~/.local/share/pullbay` on Linux (a portable copy keeps them in its `Data` folder). Look for a line with `panicked`. The logs show download addresses, so look them over before you paste.
+      render: text
+    validations:
+      required: true
