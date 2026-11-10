@@ -51,7 +51,10 @@ windows = { version = "0.61", features = [
 ] }
 
 [profile.release]
-strip = true
+# Debug info goes, function names stay, so a crash report's backtrace names
+# the functions on macOS and Linux (`crash`). Windows keeps them in a PDB,
+# which is not shipped.
+strip = "debuginfo"
 
 # The FTPS tests make an RSA key for their test server's certificate each run
 # (pullbay-infrastructure's dev-dependencies); unoptimized, finding its primes

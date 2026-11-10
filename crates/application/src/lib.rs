@@ -12,6 +12,7 @@ pub mod power;
 pub mod queues;
 pub mod quota;
 pub mod remote;
+pub mod report;
 pub mod update;
 pub mod window;
 

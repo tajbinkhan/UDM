@@ -8,6 +8,7 @@
 //! | settings, grabber projects ([`config_dir`]) | `%APPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `$XDG_CONFIG_HOME/pullbay` (`~/.config/pullbay`) |
 //! | list, token, quota, keys ([`data_dir`]) | `%LOCALAPPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `$XDG_DATA_HOME/pullbay` (`~/.local/share/pullbay`) |
 //! | logs ([`daemon_log`], [`host_log`], [`gui_log`], [`cli_log`]) | in [`data_dir`] | in [`data_dir`] | in [`data_dir`] |
+//! | problem reports ([`reports_dir`]) | `reports` in [`data_dir`] | `reports` in [`data_dir`] | `reports` in [`data_dir`] |
 //! | window layout ([`window_dir`]) | `%LOCALAPPDATA%\Pullbay` | none | none |
 //! | sign-in entry ([`autostart_dir`]) | the registry | `~/Library/LaunchAgents` | `$XDG_CONFIG_HOME/autostart` |
 //!
@@ -311,6 +312,23 @@ pub fn gui_log() -> PathBuf {
 /// The command-line tool's log, beside the daemon's.
 pub fn cli_log() -> PathBuf {
     log_for(instance().as_deref(), CLI_LOG)
+}
+
+/// The problem reports (`crash`), in a `reports` folder in [`data_dir`],
+/// or in the temp folder when the data folder cannot be found.
+pub fn reports_dir() -> PathBuf {
+    log_for(instance().as_deref(), "reports")
+}
+
+/// The desktop and the session type (`x11`, `wayland`) on Linux, for a
+/// problem report: `XDG_CURRENT_DESKTOP` and `XDG_SESSION_TYPE`, read here
+/// since this is the one module that reads `XDG_*`. Elsewhere `None`.
+pub fn desktop_session() -> (Option<String>, Option<String>) {
+    if !cfg!(all(unix, not(target_os = "macos"))) {
+        return (None, None);
+    }
+    let var = |name: &str| std::env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    (var("XDG_CURRENT_DESKTOP"), var("XDG_SESSION_TYPE"))
 }
 
 /// The Windows font folder, which the window's fonts come from. Elsewhere

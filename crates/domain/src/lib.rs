@@ -18,6 +18,7 @@ pub mod media;
 pub mod ports;
 pub mod queue;
 pub mod quota;
+pub mod report;
 pub mod settings;
 pub mod site;
 pub mod sync;

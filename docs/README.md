@@ -48,4 +48,6 @@ These pages were the README's manual. Each covers one part of Pullbay.
 - **[Known gaps](known-gaps.md)**: what doesn't work yet, or works differently on macOS and Linux.
 - **[Verified](verified.md)**: what each change was checked against.
 - **[Releases](https://github.com/tajbinkhan/pullbay/releases)**: download the latest version.
+- **[Problem reports](problem-reports.md)**: what Pullbay writes down when a program crashes or
+  freezes, where it keeps it, and Help > Report a problem.
 - **[Report a problem](https://github.com/tajbinkhan/pullbay/issues)**: or ask a question.

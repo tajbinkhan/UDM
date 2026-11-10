@@ -1041,5 +1041,22 @@
   "minutes without keyboard or mouse input": "minutos sin usar el teclado ni el ratón",
   "Downloads go at full speed while you are away and slow down again when you come back. Downloads with a speed limit of their own keep it.": "Las descargas van a toda velocidad mientras no está y vuelven a frenarse cuando regresa. Las descargas con un límite de velocidad propio lo conservan.",
   "The time away must be between {lo} and {hi} minutes.": "El tiempo de ausencia debe estar entre {lo} y {hi} minutos.",
-  "A portable copy does not start when you sign in, so it leaves the computer as it found it.": "Una copia portátil no se inicia al iniciar sesión, así que deja el equipo tal como lo encontró."
+  "A portable copy does not start when you sign in, so it leaves the computer as it found it.": "Una copia portátil no se inicia al iniciar sesión, así que deja el equipo tal como lo encontró.",
+  "&Report a problem...": "&Informar de un problema...",
+  "Could not save the report: {error}": "No se pudo guardar el informe: {error}",
+  "Open a new issue on GitHub in your browser with the version and system filled in, and show the report file to attach to it. Nothing is sent until you submit the issue.": "Abre en el navegador una nueva incidencia en GitHub con la versión y el sistema ya rellenados, y muestra el archivo del informe para adjuntarlo. No se envía nada hasta que envíe la incidencia.",
+  "Open an issue": "Abrir una incidencia",
+  "Pullbay saved a report on a problem it saw earlier.": "Pullbay guardó un informe sobre un problema que vio antes.",
+  "The Pullbay window closed unexpectedly and saved a report.": "La ventana de Pullbay se cerró inesperadamente y guardó un informe.",
+  "The Pullbay daemon closed unexpectedly and saved a report.": "El demonio de Pullbay se cerró inesperadamente y guardó un informe.",
+  "Pullbay's browser connection closed unexpectedly and saved a report.": "La conexión de Pullbay con el navegador se cerró inesperadamente y guardó un informe.",
+  "The Pullbay command-line tool closed unexpectedly and saved a report.": "La herramienta de línea de comandos de Pullbay se cerró inesperadamente y guardó un informe.",
+  "Save a report": "Guardar un informe",
+  "Saving the report...": "Guardando el informe...",
+  "Show the report": "Mostrar el informe",
+  "The Pullbay daemon has not answered for {seconds} seconds.": "El demonio de Pullbay no responde desde hace {seconds} segundos.",
+  "The report is saved.": "El informe está guardado.",
+  "The window stopped responding for {seconds} seconds.": "La ventana dejó de responder durante {seconds} segundos.",
+  "Write a report with the version, the system and the end of the log to Pullbay's data folder. Nothing is sent.": "Escribe en la carpeta de datos de Pullbay un informe con la versión, el sistema y el final del registro. No se envía nada.",
+  "{count} more are in the same folder.": "Hay {count} más en la misma carpeta."
 }

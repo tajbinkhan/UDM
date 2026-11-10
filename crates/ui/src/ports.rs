@@ -12,7 +12,9 @@ use std::sync::{Arc, OnceLock};
 use pullbay_application::window::{
     BrowserRegistry, FilePicker, GrabLibrary, ListFiles, SettingsChecks, SystemServices, WindowFiles,
 };
-use pullbay_domain::ports::{Clock, DownloadFiles, FileHashes, FileOpener, GrabDownloads, SaveFolders, Timestamps};
+use pullbay_domain::ports::{
+    Clock, DownloadFiles, FileHashes, FileOpener, GrabDownloads, ProblemReports, SaveFolders, Timestamps,
+};
 use pullbay_domain::queue::Moment;
 
 /// What the views reach through ports.
@@ -47,6 +49,9 @@ pub struct Ports {
     pub browsers: Arc<dyn BrowserRegistry>,
     /// The system's file and folder dialogs, called on workers.
     pub pickers: Arc<dyn FilePicker>,
+    /// The problem reports in the data folder, read and written on
+    /// workers.
+    pub reports: Arc<dyn ProblemReports>,
 }
 
 impl Ports {
@@ -92,7 +97,8 @@ pub fn ports() -> &'static Ports {
 /// Stand-ins for the tests: UTC as the local time, a Downloads folder in
 /// the temporary folder, every folder writable, no files opened or saved,
 /// no grabber library, empty lists and a system without proxies, wake
-/// timers or sounds, no browsers, and pickers the user always cancels.
+/// timers or sounds, no browsers, pickers the user always cancels, and no
+/// problem reports, none of which can be saved.
 #[cfg(test)]
 mod fakes {
     use super::*;
@@ -103,6 +109,7 @@ mod fakes {
     use pullbay_domain::download::{Download, DownloadEntry};
     use pullbay_domain::grab::{GrabFile, GrabRequest};
     use pullbay_domain::ports::{FilesError, HashError, SettingsError};
+    use pullbay_domain::report::{Program, Report, SavedReport, ThisCopy};
     use pullbay_domain::settings::{Settings, Sound};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -270,6 +277,25 @@ mod fakes {
         }
     }
 
+    impl ProblemReports for Temp {
+        fn this_copy(&self) -> ThisCopy {
+            ThisCopy { version: "0.0.0".into(), ..ThisCopy::default() }
+        }
+        fn log_tail(&self, _: Program) -> (String, Vec<String>) {
+            (String::new(), Vec::new())
+        }
+        fn save(&self, _: &Report) -> Result<SavedReport, FilesError> {
+            Err(FilesError("reports are not saved in tests".into()))
+        }
+        fn delete(&self, _: &SavedReport) -> Result<(), FilesError> {
+            Ok(())
+        }
+        fn unoffered(&self) -> Vec<SavedReport> {
+            Vec::new()
+        }
+        fn mark_offered(&self, _: &[SavedReport]) {}
+    }
+
     pub fn ports() -> Ports {
         Ports {
             clock: Arc::new(Utc),
@@ -286,6 +312,7 @@ mod fakes {
             system: Arc::new(Temp),
             browsers: Arc::new(Temp),
             pickers: Arc::new(Temp),
+            reports: Arc::new(Temp),
         }
     }
 }

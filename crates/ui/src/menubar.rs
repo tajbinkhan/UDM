@@ -56,6 +56,8 @@ pub enum Command {
     ToggleDarkMode,
     Language(&'static str),
     Help(&'static str),
+    /// Help > Report a problem: a new issue with this copy filled in.
+    ReportProblem,
     Tip,
     CheckUpdate,
     About,
@@ -279,6 +281,7 @@ pub fn model(s: &State) -> Vec<Node> {
         Node::Separator,
         item(tr("Pullbay &Home Page"), Command::Help(crate::help::HOME), true),
         item(tr("&Contact Support"), Command::Help(crate::help::SUPPORT), true),
+        item(tr("&Report a problem..."), Command::ReportProblem, true),
         Node::Separator,
         item(tr("Check for &updates..."), Command::CheckUpdate, on),
         Node::Separator,

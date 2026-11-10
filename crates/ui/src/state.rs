@@ -19,6 +19,7 @@ use pullbay_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status}
 use pullbay_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
 use pullbay_domain::id::DownloadId;
 use pullbay_domain::queue::{Queue, WhenDone};
+use pullbay_domain::report::{SavedReport, ThisCopy};
 use pullbay_domain::settings::{AddedBrowser, Notify, Settings};
 use pullbay_domain::table::DownloadTable;
 
@@ -133,6 +134,38 @@ pub struct AppState {
     pub grab_opened: Option<Result<Project, UiError>>,
     /// The browsers a worker found for Options, until Options takes them.
     pub browsers_read: Option<BrowsersRead>,
+    /// This copy's version, system and install, once a worker read them,
+    /// for the issues the window opens.
+    pub this_copy: Option<ThisCopy>,
+    /// The problems on offer to report, the one shown first.
+    pub reports: VecDeque<ReportOffer>,
+}
+
+/// A problem the window offers to report, in the strip under the toolbar.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReportOffer {
+    /// The window's frame stopped for `secs`; the report the watchdog wrote
+    /// meanwhile, if it could.
+    Froze { secs: u64, draft: Option<SavedReport> },
+    /// The daemon has not answered for `secs`, its connection open.
+    Silent { secs: u64 },
+    /// The report asked for is being written.
+    Saving,
+    /// A report is saved, to open an issue with. `earlier`: the window
+    /// found it rather than wrote it; `more`: other new reports found
+    /// with it.
+    Saved { report: SavedReport, earlier: bool, more: usize },
+}
+
+impl ReportOffer {
+    /// The report file this offer is about, if there is one yet.
+    fn report(&self) -> Option<&SavedReport> {
+        match self {
+            ReportOffer::Froze { draft, .. } => draft.as_ref(),
+            ReportOffer::Saved { report, .. } => Some(report),
+            ReportOffer::Silent { .. } | ReportOffer::Saving => None,
+        }
+    }
 }
 
 /// The grabber's saved lists, as a worker reads them.
@@ -399,6 +432,8 @@ impl Default for AppState {
             grab_filters: pullbay_domain::grab::default_filters(),
             grab_opened: None,
             browsers_read: None,
+            this_copy: None,
+            reports: VecDeque::new(),
         }
     }
 }
@@ -445,6 +480,23 @@ pub enum UiMessage {
     BrowsersRead(BrowsersRead),
     /// They could not be sent, and why.
     SaveFailed(String),
+    /// A worker read this copy's version, system and install.
+    ThisCopyRead(ThisCopy),
+    /// A worker found new problem reports, the newest first.
+    ReportsFound(Vec<SavedReport>),
+    /// The window's frame finished after `lasted_ms`; the watchdog wrote
+    /// `draft` while it was stuck.
+    FrameStalled { lasted_ms: u64, draft: Option<SavedReport> },
+    /// The daemon has not answered a ping for `secs`.
+    DaemonSilent { secs: u64 },
+    /// It answers again.
+    DaemonAnswering,
+    /// The report the first offer asks for is being written.
+    ReportSaving,
+    /// It was written, or why not.
+    ReportSaved(Result<SavedReport, UiError>),
+    /// The user keeps the report the watchdog wrote during a freeze.
+    ReportKept,
     /// The window is done with something: the state forgets it.
     Forget(Forget),
     /// The window takes something to show: [`apply`] hands it over as a
@@ -471,6 +523,8 @@ pub enum Forget {
     Completed,
     /// Every completion dialog waiting.
     AllCompleted,
+    /// The problem report offered first.
+    Report,
 }
 
 /// What the window takes from the state.
@@ -579,6 +633,54 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
             state.saving = false;
             state.save_result = Some(Err(UiError::new(why)));
         }
+        UiMessage::ThisCopyRead(copy) => state.this_copy = Some(copy),
+        UiMessage::ReportsFound(found) => {
+            // One the window offers already (a freeze's) is not offered
+            // twice.
+            let new: Vec<SavedReport> = found
+                .into_iter()
+                .filter(|r| !state.reports.iter().any(|o| o.report().is_some_and(|s| s.path == r.path)))
+                .collect();
+            if let Some(newest) = new.first() {
+                state.reports.push_back(ReportOffer::Saved {
+                    report: newest.clone(),
+                    earlier: true,
+                    more: new.len() - 1,
+                });
+            }
+        }
+        UiMessage::FrameStalled { lasted_ms, draft } => {
+            state.reports.push_back(ReportOffer::Froze { secs: lasted_ms.div_ceil(1000), draft });
+        }
+        UiMessage::DaemonSilent { secs } => {
+            if !state.reports.iter().any(|o| matches!(o, ReportOffer::Silent { .. })) {
+                state.reports.push_back(ReportOffer::Silent { secs });
+            }
+        }
+        UiMessage::DaemonAnswering => state.reports.retain(|o| !matches!(o, ReportOffer::Silent { .. })),
+        UiMessage::ReportSaving => {
+            if let Some(o @ (ReportOffer::Froze { .. } | ReportOffer::Silent { .. })) = state.reports.front_mut() {
+                *o = ReportOffer::Saving;
+            }
+        }
+        UiMessage::ReportSaved(saved) => {
+            if let Some(o @ ReportOffer::Saving) = state.reports.front_mut() {
+                match saved {
+                    Ok(report) => *o = ReportOffer::Saved { report, earlier: false, more: 0 },
+                    Err(e) => {
+                        state.reports.pop_front();
+                        state.last_error = Some(e.to_string());
+                    }
+                }
+            }
+        }
+        UiMessage::ReportKept => {
+            if let Some(o @ ReportOffer::Froze { draft: Some(_), .. }) = state.reports.front_mut() {
+                if let ReportOffer::Froze { draft: Some(report), .. } = std::mem::replace(o, ReportOffer::Saving) {
+                    *o = ReportOffer::Saved { report, earlier: false, more: 0 };
+                }
+            }
+        }
         UiMessage::Forget(what) => match what {
             Forget::Error => state.last_error = None,
             Forget::Notice => state.notice = None,
@@ -590,6 +692,9 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
                 state.completed.pop_front();
             }
             Forget::AllCompleted => state.completed.clear(),
+            Forget::Report => {
+                state.reports.pop_front();
+            }
         },
         UiMessage::Take(what) => {
             return Some(match what {
@@ -1027,5 +1132,59 @@ mod tests {
             validator: None,
         };
         assert_eq!(see(&mut w, started), Need::Wake, "its window opens");
+    }
+
+    fn saved(name: &str, at_ms: u64) -> SavedReport {
+        use pullbay_domain::report::{Kind, Program, Summary};
+        SavedReport {
+            path: std::path::PathBuf::from(format!("/reports/{name}")),
+            summary: Summary {
+                program: Program::Window,
+                kind: Kind::Freeze,
+                at_ms,
+                version: None,
+                what: String::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn a_freeze_offers_its_report_once() {
+        let mut s = AppState::default();
+        let draft = saved("freeze", 1);
+        apply(&mut s, UiMessage::FrameStalled { lasted_ms: 12_400, draft: Some(draft.clone()) });
+        assert_eq!(s.reports.front(), Some(&ReportOffer::Froze { secs: 13, draft: Some(draft.clone()) }));
+        // A reconnection finds the same file, and one more.
+        apply(&mut s, UiMessage::ReportsFound(vec![saved("crash", 9), draft.clone(), saved("older", 0)]));
+        assert_eq!(s.reports.len(), 2);
+        assert_eq!(s.reports[1], ReportOffer::Saved { report: saved("crash", 9), earlier: true, more: 1 });
+        apply(&mut s, UiMessage::ReportsFound(vec![draft.clone()]));
+        assert_eq!(s.reports.len(), 2, "nothing new");
+        apply(&mut s, UiMessage::ReportKept);
+        assert_eq!(s.reports[0], ReportOffer::Saved { report: draft, earlier: false, more: 0 });
+        apply(&mut s, UiMessage::Forget(Forget::Report));
+        assert_eq!(s.reports.len(), 1);
+    }
+
+    #[test]
+    fn a_silent_daemon_is_offered_until_it_answers_or_is_saved() {
+        let mut s = AppState::default();
+        apply(&mut s, UiMessage::DaemonSilent { secs: 30 });
+        apply(&mut s, UiMessage::DaemonSilent { secs: 31 });
+        assert_eq!(s.reports, [ReportOffer::Silent { secs: 30 }]);
+        apply(&mut s, UiMessage::DaemonAnswering);
+        assert!(s.reports.is_empty());
+        apply(&mut s, UiMessage::DaemonSilent { secs: 30 });
+        apply(&mut s, UiMessage::ReportSaving);
+        apply(&mut s, UiMessage::DaemonAnswering);
+        assert_eq!(s.reports, [ReportOffer::Saving], "the report asked for is still coming");
+        apply(&mut s, UiMessage::ReportSaved(Ok(saved("silent", 2))));
+        assert_eq!(s.reports, [ReportOffer::Saved { report: saved("silent", 2), earlier: false, more: 0 }]);
+        apply(&mut s, UiMessage::Forget(Forget::Report));
+        apply(&mut s, UiMessage::FrameStalled { lasted_ms: 10_000, draft: None });
+        apply(&mut s, UiMessage::ReportSaving);
+        apply(&mut s, UiMessage::ReportSaved(Err(UiError::new("disk full"))));
+        assert!(s.reports.is_empty());
+        assert_eq!(s.last_error.as_deref(), Some("disk full"));
     }
 }
