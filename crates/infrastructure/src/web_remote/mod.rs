@@ -233,8 +233,9 @@ mod tests {
 
     use super::devices::{DeviceFile, OsKeys};
 
-    /// What the tests pretend is the daemon's token; nothing must send it.
-    const TOKEN: &str = "6f1d0c3a9b8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a392817060504";
+    /// Stands for the daemon's token and every other secret a row can
+    /// hold; nothing the page answers may carry it.
+    const PLANTED: &str = "planted-value-the-page-must-never-show";
 
     /// A clock the tests move.
     #[derive(Default)]
@@ -256,10 +257,10 @@ mod tests {
     fn rows() -> Vec<DownloadEntry> {
         let row = |id: u64, status: Status, done: u64| {
             serde_json::from_value::<DownloadEntry>(json!({
-                "id": id, "url": format!("https://user:{TOKEN}@dl.example/files/{id}.iso?sig={TOKEN}"),
+                "id": id, "url": format!("https://someone:{PLANTED}@dl.example/files/{id}.iso?sig={PLANTED}"),
                 "status": status, "connections": 4, "done": done, "total": 1000, "resumable": true,
-                "path": format!("/home/someone/Downloads/{id}.iso"), "referrer": TOKEN,
-                "description": TOKEN, "login_user": TOKEN, "partial": format!("/tmp/{TOKEN}"),
+                "path": format!("/home/someone/Downloads/{id}.iso"), "referrer": PLANTED,
+                "description": PLANTED, "login_user": PLANTED, "partial": format!("/tmp/{PLANTED}"),
             }))
             .unwrap()
         };
@@ -592,7 +593,7 @@ mod tests {
             seen.push(body);
         }
         for text in seen {
-            assert!(!text.contains(TOKEN), "{text}");
+            assert!(!text.contains(PLANTED), "{text}");
             assert!(!text.contains(code.as_str()));
             assert!(!text.contains("/home/someone"), "no folders");
         }
