@@ -18,6 +18,45 @@
   tried, the window was not looked at in each language, and no native speaker
   has read the new tables.
 
+- Packages and unpacking (#258). Domain tests cover every split-archive
+  naming (`.part1.rar`, `.part01.rar`, `.rar` with `.r00`, `.7z.001`,
+  `.zip.001`, `.tar.001`, `.zip` with `.z01`), single archives (`.zip`,
+  `.7z`, `.rar`, `.tar`, `.tar.gz`, `.tgz`, `.tar.xz`, `.txz`, `.tar.bz2`,
+  `.gz`, `.xz`, `.bz2`), names that are not archives, parts in any order,
+  repeated and missing parts, archives of one name in different families
+  kept apart, package names (trimmed, too long, not a folder, a device name),
+  completeness, the space margin, numbered free names, a password that never
+  shows in `Debug`, and the entry paths unpacking refuses (`..`, absolute
+  paths, `\`, drives, NTFS streams, NUL). Use case tests, on in-memory ports,
+  keep links as one package or each split archive as its own, unpack from the
+  first part into the folder the settings name, ask for a password and go on
+  with the right one, refuse missing and unfinished parts and a package
+  without archives, keep a failure, recycle the archives only when asked
+  (through a fake, never the real Recycle Bin), and start only a complete
+  package with unpacking on. Infrastructure tests unpack into temporary
+  folders: a zip with folders, an AES-encrypted zip (no password, a wrong
+  one, the right one), `.tar.gz` and `.tar.xz` without their symbolic link,
+  a `.gz`, and a zip cut into three pieces; files already there kept and
+  the new ones numbered, a folder already there merged; zip and tar entries
+  leaving the folder (`../`, `/tmp/`, `C:\`) refusing the whole archive with
+  nothing written; eight megabytes of zeros refused before writing when they
+  would leave too little room. A stand-in 7-Zip (a shell script) shows the
+  password arriving on its standard input and not in its arguments, an
+  encrypted entry asking for the password before extracting, a listed path
+  leaving the folder refused before extracting, and a link in its output
+  refused with nothing moved. `history.json` keeps packages, drops missing
+  downloads and empty packages, waits again after unpacking was cut off,
+  and loads (and saves) a file from before packages without them. The wire
+  tests pin `add_many`'s `package` and `group_archives`, `unpack_package`
+  (its password hidden from `Debug`), `ungroup_package` and `packages`, and
+  an older client's `add_many` keeps no package. A daemon test downloads a
+  tar cut into two pieces from a local server, keeps them as one package,
+  and unpacks it on its own once both are in. The window was built and its
+  strings translated into German, Spanish and French, but not run: the link
+  picker's package box, the Packages branch, its menu, the password dialog
+  and the Options rows were not tried on screen. No real 7-Zip, RAR or 7z
+  archive was tried.
+
 - Remote control from a phone (#254). Domain tests cover pairing codes (128
   bits, read back however typed), credentials, verifiers, device names, a code
   that works once and runs out, a new code replacing the old, the wrong-try

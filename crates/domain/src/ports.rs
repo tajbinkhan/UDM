@@ -15,6 +15,7 @@ use crate::filename::FileName;
 use crate::grab::{GrabRequest, Outcome, Project, RenderedPage};
 use crate::id::{DownloadId, QueueId};
 use crate::media::{Conversion, MediaInfo};
+use crate::package::{ArchiveKind, Family, Package, Password, UnpackError};
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
 use crate::settings::Settings;
@@ -386,6 +387,50 @@ pub trait Converter: Send + Sync {
 
     /// Whether any conversion is running.
     fn any_running(&self) -> bool;
+}
+
+/// The packages: downloads kept together under a name and a folder.
+pub trait PackageStore: Send + Sync {
+    /// Run `f` on the packages under their lock.
+    fn edit_packages<T>(&self, f: impl FnOnce(&mut Vec<Package>) -> T) -> T;
+
+    /// Tell every client the packages changed, and save them.
+    fn packages_changed(&self);
+}
+
+/// One archive to unpack: its parts in order, the first the one opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnpackJob {
+    /// The first part's file name, for messages.
+    pub archive: String,
+    pub kind: ArchiveKind,
+    pub family: Family,
+    pub parts: Vec<PathBuf>,
+    /// The folder its files go into, made when missing.
+    pub into: PathBuf,
+}
+
+/// What unpacking one archive did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Unpacked {
+    pub files: u64,
+    pub bytes: ByteCount,
+}
+
+/// Unpacking archives: zip, tar, gz and xz itself, 7z and RAR through an
+/// installed 7-Zip.
+pub trait Unpacker: Send + Sync {
+    /// Unpack `job`, with `password` when it is encrypted. Entries that
+    /// would land outside `job.into` refuse the whole archive, files already
+    /// there are never replaced (the new one gets a numbered name), and an
+    /// archive that would leave too little room on the disk or holds too
+    /// many files is refused. `settings` say where 7-Zip is.
+    fn unpack(
+        &self,
+        job: &UnpackJob,
+        password: Option<&Password>,
+        settings: &Settings,
+    ) -> Result<Unpacked, UnpackError>;
 }
 
 /// Why the settings could not be saved. The message is shown to the user

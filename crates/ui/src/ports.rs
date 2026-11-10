@@ -212,6 +212,9 @@ mod fakes {
         fn ffmpeg(&self, _: &Settings) -> Option<PathBuf> {
             None
         }
+        fn seven_zip(&self, _: &Settings) -> Option<PathBuf> {
+            None
+        }
     }
 
     impl SystemServices for Temp {

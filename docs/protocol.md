@@ -44,6 +44,10 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "add", "url": "https://.../master.m3u8", "filename": "Talk.mp4",
   "media": { "kind": "hls", "video": "https://.../720/index.m3u8", "audio": null } }
 { "op": "add_many", "items": [ { "url": "https://...", "start": false, "folder": "D:\\Photos" } ], "queue": 1 }
+{ "op": "add_many", "items": [ ... ], "package": { "name": "Trip", "folder": "D:\\Downloads\\Trip" } }
+{ "op": "add_many", "items": [ ... ], "group_archives": true }
+{ "op": "unpack_package", "id": 3, "password": "..." }
+{ "op": "ungroup_package", "id": 3 }
 { "op": "probe_media", "request": 3, "download": { "url": "https://.../manifest.mpd", "cookies": "..." } }
 { "op": "probe_media", "request": 4, "download": { "url": "https://videos.example/clip/42", "media": { "kind": "page" } } }
 { "op": "pick_videos", "page": "https://www.youtube.com/playlist?list=...",
@@ -99,6 +103,9 @@ Daemon to clients:
 { "op": "queues", "items": [ { "id": 1, "name": "Main queue", "max_concurrent": 1, "running": false,
   "order": [7, 9], "schedule": null, "when_done": "nothing", "when_done_once": null, "retries": 0,
   "last_scheduled_day": null, "started_by_schedule": false } ] }
+{ "op": "packages", "items": [ { "id": 3, "name": "Trip", "folder": "D:\\Downloads\\Trip",
+  "downloads": [7, 9], "unpack": { "state": "failed", "reason": { "kind": "missing_part",
+  "archive": "show.part1.rar", "part": 2 } } } ] }
 { "op": "countdown", "action": "shut_down", "seconds": 60, "queue": "Night" }
 { "op": "countdown_canceled" }
 { "op": "quit" }
@@ -216,7 +223,21 @@ running; `quit` tells windows to close.
 answers with `added_many` and adds each item waiting, skipping items that are
 not web addresses, and items already in the list unless `if_duplicate` is
 `new_name`, or `overwrite` for a stopped download (`skipped` counts those);
-`folder`, a full path, fixes where an item is saved.
+`folder`, a full path, fixes where an item is saved. With `package` (a
+`name`, and a `folder` every item is saved in) the items added become one
+package; with `group_archives` the parts of each split archive among them
+(`x.part1.rar`, `x.rar` with `x.r00`, `x.7z.001`, `x.zip` with `x.z01`)
+become a package of their own. Older clients send neither, and nothing is
+kept. `packages` goes to the client that sent `list` (after `queues`) and to
+every client when one changes; a package's `unpack` `state` is `waiting`,
+`unpacking`, `needs_password` (with `wrong` after a wrong one), `done` (with
+the `folder` and `files`) or `failed` (with a `reason` whose `kind` is
+`no_archives`, `not_complete`, `missing_part`, `needs_seven_zip`, `unsafe`,
+`too_many_files`, `no_space`, `damaged` or `io`). `unpack_package` unpacks one
+in the background, with `password` for encrypted archives (never logged or
+saved), and is refused while it is unpacking; `ungroup_package` stops keeping
+one, and its downloads stay. A download that leaves the list leaves its
+package, and a package left empty goes.
 `probe_media` echoes `request` in its `media_info`, whose `error` says why a
 stream cannot be downloaded and `drm` whether that is because of DRM. With
 `media.kind` `page` any http or https page is read with yt-dlp; a playlist

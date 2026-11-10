@@ -7,6 +7,7 @@
 use eframe::egui;
 use pullbay_domain::id::QueueId;
 use pullbay_domain::media::{Playlist, PlaylistQuality, Target};
+use pullbay_domain::package::Packaging;
 use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 use pullbay_domain::settings::Settings;
 
@@ -179,7 +180,12 @@ pub fn dialog(
                         item.user_agent = d.user_agent.clone();
                         item.queue = Some(d.queue);
                     }
-                    actions.push(Action::AddMany { items, queue: d.queue, start_queue: d.start_queue });
+                    actions.push(Action::AddMany {
+                        items,
+                        queue: d.queue,
+                        start_queue: d.start_queue,
+                        packaging: Packaging::None,
+                    });
                     close = true;
                 }
                 if ui.button(tr("Cancel")).clicked() {

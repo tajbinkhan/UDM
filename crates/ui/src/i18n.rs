@@ -248,6 +248,7 @@ mod tests {
         include_str!("find.rs"),
         include_str!("help.rs"),
         include_str!("links.rs"),
+        include_str!("packages.rs"),
         include_str!("videos.rs"),
         include_str!("menubar.rs"),
         include_str!("login.rs"),

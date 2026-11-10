@@ -1,4 +1,4 @@
-//! The ids that name downloads, queues and paired devices. Each wraps the `u64` the wire
+//! The ids that name downloads, queues, packages and paired devices. Each wraps the `u64` the wire
 //! and the JSON files carry, and serializes as that number
 //! (`serde(transparent)`), so the files and the messages keep their shape.
 //! Any number is a valid id: the daemon hands them out, and an id that names
@@ -130,6 +130,42 @@ impl fmt::Display for DeviceId {
     }
 }
 
+/// A package: downloads kept together under one name and folder
+/// (`package`). The daemon hands them out in rising order from 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PackageId(u64);
+
+impl PackageId {
+    /// The package numbered `id`.
+    pub const fn new(id: u64) -> Self {
+        PackageId(id)
+    }
+
+    /// Its number, as the wire and the files carry it.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The id after this one, for giving a new package an id above every
+    /// other.
+    pub const fn next(self) -> Self {
+        PackageId(self.0.saturating_add(1))
+    }
+}
+
+impl From<u64> for PackageId {
+    fn from(id: u64) -> Self {
+        PackageId(id)
+    }
+}
+
+impl fmt::Display for PackageId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +184,7 @@ mod tests {
         assert_eq!(QueueId::MAIN.to_string(), "1");
         assert_eq!(DownloadId::new(7).next(), DownloadId::new(8));
         assert_eq!(QueueId::MAIN.next().get(), 2);
+        assert_eq!(PackageId::new(3).next(), PackageId::new(4));
+        assert_eq!(serde_json::to_string(&PackageId::new(5)).unwrap(), "5");
     }
 }

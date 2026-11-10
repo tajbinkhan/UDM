@@ -10,6 +10,7 @@ use pullbay_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
 use pullbay_domain::command::{CommandError, PATH_TOKEN};
 use pullbay_domain::download::{DownloadError, Mismatch};
 use pullbay_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
+use pullbay_domain::package::{PackageError, UnpackFailure, MAX_NAME};
 use pullbay_domain::pairing::{PairingError, RemoteFault, MAX_DEVICES};
 use pullbay_domain::ports::SettingsError;
 use pullbay_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
@@ -163,6 +164,7 @@ fn field(f: &SettingsField) -> String {
         SettingsField::VideoTypes => tr("The video types").to_string(),
         SettingsField::PlayerTypes => tr("The types taken from web players").to_string(),
         SettingsField::AutoStartTypes => tr("The file types that start without asking").to_string(),
+        SettingsField::UnpackFolder => tr("The folder to unpack into").to_string(),
     }
 }
 
@@ -253,6 +255,9 @@ pub fn settings(e: &InvalidSettings) -> String {
             trf!("\"{site}\" is not a site. Use a host name such as example.com or *.example.com.", site = site)
         }
         E::FfmpegNotFull(path) => trf!("ffmpeg must be the full path of ffmpeg.exe: {path}", path = path),
+        E::SevenZipNotFull(path) => {
+            trf!("7-Zip must be the full path of its program, such as 7z.exe: {path}", path = path)
+        }
         E::ProxyNotHostPort(p) => trf!("{proxy} must be host:port, such as proxy.example.com:8080.", proxy = proxy(*p)),
         E::NoProxy => tr("Set at least one proxy, or choose another proxy option.").to_string(),
         E::NotLoginSite(site) => trf!(
@@ -375,6 +380,50 @@ fn service(e: &ServiceError) -> String {
         ServiceError::NotDownloadAddress(url) => trf!("{url} is not an http, https or ftp address", url = url),
         ServiceError::Tool(e) => tool(e),
         ServiceError::Pairing(e) => pairing(e),
+        ServiceError::NoPackage(id) => trf!("There is no package {id}.", id = id),
+        ServiceError::PackageBusy => tr("The package is being unpacked already.").to_string(),
+    }
+}
+
+/// Why a package name was refused.
+pub fn package_name(e: &PackageError) -> String {
+    match e {
+        PackageError::EmptyName => tr("The package needs a name.").to_string(),
+        PackageError::LongName => trf!("A package name may be at most {max} characters long.", max = MAX_NAME),
+        PackageError::NotAFolder(name) => trf!("{name} cannot be used as a folder name.", name = name),
+    }
+}
+
+/// Why a package's archives could not be unpacked.
+pub fn unpack(e: &UnpackFailure) -> String {
+    match e {
+        UnpackFailure::NoArchives => tr("There are no archives among its files.").to_string(),
+        UnpackFailure::NotComplete => tr("Not all of its archives are downloaded yet.").to_string(),
+        UnpackFailure::MissingPart { archive, part } => {
+            trf!("Part {part} of {archive} is missing.", part = part, archive = archive)
+        }
+        UnpackFailure::NeedsSevenZip { archive } => trf!(
+            "{archive} needs 7-Zip, which was not found. Install 7-Zip, or set where it is in Options.",
+            archive = archive
+        ),
+        UnpackFailure::Unsafe { archive, entry } => trf!(
+            "{archive} holds a file that would be written outside the folder: {entry}",
+            archive = archive,
+            entry = entry
+        ),
+        UnpackFailure::TooManyFiles { archive, max } => {
+            trf!("{archive} holds more than {max} files.", archive = archive, max = max)
+        }
+        UnpackFailure::NoSpace { needed, free } => trf!(
+            "Unpacking needs {needed}, but only {free} is free.",
+            needed = crate::human_bytes(*needed),
+            free = crate::human_bytes(*free)
+        ),
+        // The archive's or the system's own words.
+        UnpackFailure::Damaged { archive, detail } => {
+            trf!("{archive} is damaged, or not an archive: {detail}", archive = archive, detail = detail)
+        }
+        UnpackFailure::Io { archive, detail } => format!("{archive}: {detail}"),
     }
 }
 

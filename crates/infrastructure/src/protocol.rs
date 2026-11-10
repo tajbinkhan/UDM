@@ -12,13 +12,35 @@ use serde::{Deserialize, Serialize};
 use pullbay_domain::address::Link;
 use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::grab::{GrabFile, GrabRequest};
-use pullbay_domain::id::{DeviceId, DownloadId, QueueId};
+use pullbay_domain::id::{DeviceId, DownloadId, PackageId, QueueId};
 use pullbay_domain::media::MediaInfo;
+use pullbay_domain::package::{Package, PackageName};
 use pullbay_domain::pairing::RemoteState;
 use pullbay_domain::queue::{Queue, WhenDone};
 use pullbay_domain::settings::Settings;
 
 use pullbay_domain::download::*;
+
+/// The package an `add_many` keeps its downloads in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewPackage {
+    pub name: PackageName,
+    /// The folder every download goes to; missing leaves each in its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+}
+
+/// Text that must not show in a log line, such as an archive's password:
+/// its `Debug` hides it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(pub String);
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(..)")
+    }
+}
 
 /// A request from a client (the browser via the host, or the desktop window)
 /// to the daemon.
@@ -49,6 +71,24 @@ pub enum Incoming {
         items: Vec<Download>,
         #[serde(default)]
         queue: Option<QueueId>,
+        /// Keep them all as one package, with this name and folder.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        package: Option<NewPackage>,
+        /// Without `package`, keep each split archive among them as a
+        /// package of its own.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        group_archives: bool,
+    },
+    /// Unpack a package's archives, with `password` for encrypted ones; its
+    /// state comes back in `packages`.
+    UnpackPackage {
+        id: PackageId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<Secret>,
+    },
+    /// Stop keeping a package; its downloads stay in the list.
+    UngroupPackage {
+        id: PackageId,
     },
     /// Read a stream's playlist or manifest and answer with `media_info`: its
     /// qualities, or why it cannot be downloaded. `request` is echoed back.
@@ -380,6 +420,11 @@ pub enum Outgoing {
     /// one changes.
     Queues {
         items: Vec<Queue>,
+    },
+    /// Every package, oldest first: a reply to `list`, and sent to every
+    /// client when one changes.
+    Packages {
+        items: Vec<Package>,
     },
     /// A finished queue or download will put the computer to sleep,
     /// hibernate it or shut it down in `seconds` unless someone sends

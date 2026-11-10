@@ -11,6 +11,8 @@ use super::RemoveDownload;
 pub struct AddedMany {
     /// The new downloads, in order.
     pub ids: Vec<DownloadId>,
+    /// Where each new download was among the items, by index.
+    pub positions: Vec<usize>,
     /// How many were already in the list and not added again.
     pub skipped: usize,
     /// Older downloads a new one was to replace but that stayed.
@@ -47,7 +49,7 @@ where
     pub fn run(&self, items: Vec<Download>, queue: Option<QueueId>, if_duplicate: Duplicate) -> AddedMany {
         let queue = self.queues.edit(|qs| queue::existing_or_main(qs, queue));
         let mut added = AddedMany::default();
-        for mut d in items {
+        for (i, mut d) in items.into_iter().enumerate() {
             if !d.url.is_address() || !self.intake.sendable(&d) {
                 continue;
             }
@@ -67,6 +69,7 @@ where
                 }
             }
             added.ids.push(self.intake.stage(d).0);
+            added.positions.push(i);
         }
         let joined = self.queues.edit(|qs| match qs.iter_mut().find(|q| q.id == queue) {
             Some(q) => {
@@ -106,6 +109,7 @@ mod tests {
         let added = add.run(items, None, Duplicate::Ask);
         assert_eq!((added.ids.len(), added.skipped), (1, 1), "not a web address, not sendable, already there");
         assert_eq!(queues.get(MAIN_QUEUE).order, added.ids);
+        assert_eq!(added.positions, [1]);
         let added = add.run(links(&["https://dl.example/1.zip"]), None, Duplicate::NewName);
         assert_eq!(added.ids.len(), 1);
         assert_eq!(downloads.request(added.ids[0]).unwrap().file_exists, Some(FileExists::Rename));

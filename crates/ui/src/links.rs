@@ -4,7 +4,9 @@
 //! address can be edited. Ticked links are added waiting in a queue, with the
 //! page as their referrer and the browser's cookies for their site, to each
 //! one's category, one chosen category or one folder, and optionally renamed
-//! by a pattern. As the dialog opens, the daemon asks each link's server for
+//! by a pattern. They can be kept together as a package, under a name and
+//! in a folder of its own; either way the parts of each split archive among
+//! them are kept as a package of their own. As the dialog opens, the daemon asks each link's server for
 //! its type and size, a few at a time, and the list fills them in as the
 //! answers come.
 
@@ -15,6 +17,7 @@ use eframe::egui;
 use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::download::{Download, PageLink};
 use pullbay_domain::id::QueueId;
+use pullbay_domain::package::{volume, PackageName, Packaging};
 use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 use pullbay_domain::settings::{Settings, GENERAL};
 
@@ -69,6 +72,10 @@ pub struct LinksDialog {
     /// Name the files by this pattern, `*` standing for their number in
     /// order; empty keeps their own names.
     rename: String,
+    /// Keep the ticked links together as a package named `package_name`,
+    /// in a folder of that name.
+    as_package: bool,
+    package_name: String,
     /// The link whose address is being edited, and the new address.
     editing: Option<(usize, String)>,
     error: Option<String>,
@@ -162,6 +169,8 @@ impl LinksDialog {
             folder: String::new(),
             picked: Picked::default(),
             rename: String::new(),
+            as_package: false,
+            package_name: String::new(),
             editing: None,
             error: None,
             probed: vec![Probed::Asking; count],
@@ -252,14 +261,19 @@ impl LinksDialog {
     /// The ticked links in view, as downloads waiting to start, saved where
     /// the dialog says (`settings` giving a category's folder), and named
     /// by the rename pattern when there is one.
-    fn downloads(&self, settings: &Settings) -> Result<Vec<Download>, UiError> {
+    fn downloads(&self, settings: &Settings) -> Result<(Vec<Download>, Packaging), UiError> {
         let folder = self.folder.trim().to_string();
+        let downloads_dir = crate::ports::ports().downloads_dir();
         let (folder, category) = match &self.target {
+            // A package keeps its files in one folder: in the general
+            // download folder unless one is chosen.
+            Target::ByType if self.as_package => {
+                (Some(settings.category_folder(GENERAL, &downloads_dir).display().to_string()), None)
+            }
             Target::ByType => (None, None),
-            Target::Category(name) => (
-                Some(settings.category_folder(name, &crate::ports::ports().downloads_dir()).display().to_string()),
-                Some(name.clone()),
-            ),
+            Target::Category(name) => {
+                (Some(settings.category_folder(name, &downloads_dir).display().to_string()), Some(name.clone()))
+            }
             Target::Folder if folder.is_empty() => return Err(tr("Choose the folder to save the files to.").into()),
             Target::Folder if !std::path::Path::new(&folder).is_absolute() => {
                 return Err(trf!("The folder must be a full path: {folder}", folder = folder).into());
@@ -269,8 +283,17 @@ impl LinksDialog {
         if self.rename.trim().chars().any(|c| matches!(c, '\\' | '/' | ':' | '"' | '<' | '>' | '|' | '?')) {
             return Err(tr("A file name cannot contain \\ / : \" < > | or ?").into());
         }
+        let (folder, packaging) = if self.as_package {
+            let name =
+                PackageName::parse(&self.package_name).map_err(|e| UiError::from(crate::errors::package_name(&e)))?;
+            let folder =
+                folder.map(|f| std::path::Path::new(&f).join(name.folder_name().as_str()).display().to_string());
+            (folder.clone(), Packaging::One { name, folder })
+        } else {
+            (folder, Packaging::Archives)
+        };
         let ticked = self.ticked();
-        Ok(ticked
+        let items = ticked
             .iter()
             .enumerate()
             .map(|(n, &i)| {
@@ -293,7 +316,20 @@ impl LinksDialog {
                     ..Download::default()
                 }
             })
-            .collect())
+            .collect();
+        Ok((items, packaging))
+    }
+
+    /// A name for the package of the ticked links: the archive's name when
+    /// one is among them, else the first file's name without its type, else
+    /// the page's site.
+    fn suggested_package(&self) -> String {
+        let names: Vec<String> = self.ticked().iter().map(|&i| link_name(&self.links[i])).collect();
+        let archive = names.iter().find_map(|n| volume(n)).map(|v| v.base);
+        let stem =
+            || names.first().map(|n| std::path::Path::new(n).file_stem().map(|s| s.to_string_lossy().into_owned()))?;
+        let site = || url::Url::parse(&self.page).ok().and_then(|u| u.host_str().map(str::to_string));
+        archive.or_else(stem).or_else(site).unwrap_or_default()
     }
 }
 
@@ -490,6 +526,21 @@ pub fn dialog(
                 ui.label("");
                 ui.checkbox(&mut d.text_as_description, tr("Use each link's text as its description"));
                 ui.end_row();
+                ui.label(tr("Package"));
+                ui.horizontal(|ui| {
+                    let keep = ui.checkbox(&mut d.as_package, tr("Keep them together as a package")).on_hover_text(tr(
+                        "The files go into a folder named after the package, and the list shows them together under Packages. Split archives are kept as packages of their own either way.",
+                    ));
+                    if keep.changed() && d.as_package && d.package_name.trim().is_empty() {
+                        d.package_name = d.suggested_package();
+                    }
+                    ui.add_enabled_ui(d.as_package, |ui| {
+                        ui.label(tr("Name"));
+                        let field = ui.add(egui::TextEdit::singleline(&mut d.package_name).desired_width(200.0));
+                        crate::a11y::label(&field, tr("Package name"));
+                    });
+                });
+                ui.end_row();
             });
             if let Some(e) = &d.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
@@ -499,8 +550,13 @@ pub fn dialog(
             ui.horizontal(|ui| {
                 if ui.add_enabled(connected && n > 0, egui::Button::new(trf!("Add {count}", count = n))).clicked() {
                     match d.downloads(settings) {
-                        Ok(items) => {
-                            actions.push(Action::AddMany { items, queue: d.queue, start_queue: d.start_queue });
+                        Ok((items, packaging)) => {
+                            actions.push(Action::AddMany {
+                                items,
+                                queue: d.queue,
+                                start_queue: d.start_queue,
+                                packaging,
+                            });
                             close = true;
                         }
                         Err(e) => d.error = Some(e.to_string()),
@@ -592,7 +648,8 @@ mod tests {
         d.text_as_description = true;
         d.target = Target::Folder;
         d.folder = DL.into();
-        let items = d.downloads(&Settings::default()).unwrap();
+        let (items, packaging) = d.downloads(&Settings::default()).unwrap();
+        assert_eq!(packaging, Packaging::Archives, "split archives are kept as packages");
         assert_eq!(items.len(), 1);
         let a = &items[0];
         assert_eq!(a.referrer.as_deref(), Some("https://x.net/list"));
@@ -607,12 +664,33 @@ mod tests {
     }
 
     #[test]
+    fn links_kept_as_a_package_go_to_a_folder_named_after_it() {
+        let links = vec![link("https://x.net/show.part1.rar", false), link("https://x.net/show.part2.rar", false)];
+        let mut d = LinksDialog::new("https://x.net/".into(), links, None);
+        assert_eq!(d.suggested_package(), "show", "the archive's name");
+        d.as_package = true;
+        d.package_name = "  ".into();
+        assert!(d.downloads(&Settings::default()).is_err(), "a package needs a name");
+        d.package_name = "Show: S1".into();
+        let settings = Settings { download_dir: Some(DL.into()), ..Settings::default() };
+        let (items, packaging) = d.downloads(&settings).unwrap();
+        let folder = std::path::Path::new(DL).join("Show_ S1").display().to_string();
+        assert!(items.iter().all(|i| i.folder.as_deref() == Some(folder.as_str())), "{items:?}");
+        assert_eq!(packaging, Packaging::One { name: PackageName::parse("Show: S1").unwrap(), folder: Some(folder) });
+        d.target = Target::Folder;
+        d.folder = DL.into();
+        let (_, packaging) = d.downloads(&settings).unwrap();
+        let in_folder = std::path::Path::new(DL).join("Show_ S1").display().to_string();
+        assert!(matches!(packaging, Packaging::One { folder: Some(f), .. } if f == in_folder));
+    }
+
+    #[test]
     fn one_category_takes_every_file() {
         let links = vec![link("https://x.net/a.zip", false), link("https://x.net/b.pdf", false)];
         let mut d = LinksDialog::new("https://x.net/".into(), links, None);
         d.target = Target::Category("Music".into());
         let settings = Settings { download_dir: Some(DL.into()), ..Settings::default() };
-        let items = d.downloads(&settings).unwrap();
+        let (items, _) = d.downloads(&settings).unwrap();
         let music = std::path::Path::new(DL).join("Music").display().to_string();
         for item in &items {
             assert_eq!(item.category.as_deref(), Some("Music"));
@@ -691,7 +769,7 @@ mod tests {
         d.checked[1] = false;
         d.rename = "photo_*".into();
         let names: Vec<_> =
-            d.downloads(&Settings::default()).unwrap().into_iter().map(|i| i.filename.unwrap()).collect();
+            d.downloads(&Settings::default()).unwrap().0.into_iter().map(|i| i.filename.unwrap()).collect();
         assert_eq!(names, ["photo_1.jpg", "photo_2.gif"]);
         d.rename = "a/b*".into();
         assert!(d.downloads(&Settings::default()).is_err());

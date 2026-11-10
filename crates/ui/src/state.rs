@@ -18,7 +18,8 @@ use pullbay_application::themes::ThemesRead;
 use pullbay_application::window::BrowserSlot;
 use pullbay_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
 use pullbay_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
-use pullbay_domain::id::DownloadId;
+use pullbay_domain::id::{DownloadId, PackageId};
+use pullbay_domain::package::{Package, Unpack};
 use pullbay_domain::queue::{Queue, WhenDone};
 use pullbay_domain::report::{SavedReport, ThisCopy};
 use pullbay_domain::settings::{AddedBrowser, Notify, Settings};
@@ -68,6 +69,11 @@ pub struct AppState {
     pub completed: VecDeque<(DownloadId, bool)>,
     /// The daemon's queues, the main queue first.
     pub queues: Vec<Queue>,
+    /// The daemon's packages, oldest first.
+    pub packages: Vec<Package>,
+    /// Packages whose archives came to need a password since the window
+    /// last took them, to ask for it.
+    pub password_wanted: Vec<PackageId>,
     /// A countdown before a finished queue or download sleeps or shuts down:
     /// the action, when it happens, the queue's name, and the download's
     /// file name when one download asked for it.
@@ -257,6 +263,20 @@ impl AppState {
         daemon::apply(&mut self.table, msg, crate::ports::ports().unix_now());
         match msg {
             Event::Queues { items } => self.queues = items.clone(),
+            Event::Packages { items } => {
+                // Ask once each time a package comes to need its password,
+                // not for one that needed it when the window connected.
+                let known = !self.packages.is_empty();
+                for p in items {
+                    let before = self.packages.iter().find(|o| o.id == p.id).map(|o| &o.unpack);
+                    let asks = matches!(p.unpack, Unpack::NeedsPassword { .. });
+                    let asked = matches!(before, Some(Unpack::NeedsPassword { .. }));
+                    if asks && !asked && (known || before.is_some()) && !self.password_wanted.contains(&p.id) {
+                        self.password_wanted.push(p.id);
+                    }
+                }
+                self.packages = items.clone();
+            }
             Event::Countdown { action, seconds, queue, file } => {
                 let deadline = Instant::now() + Duration::from_secs(*seconds as u64);
                 self.countdown = Some((*action, deadline, queue.clone(), file.clone()));
@@ -436,6 +456,8 @@ impl Default for AppState {
             save_result: None,
             completed: VecDeque::new(),
             queues: Vec::new(),
+            packages: Vec::new(),
+            password_wanted: Vec::new(),
             countdown: None,
             refresh_waiting: None,
             refresh_mismatch: None,
@@ -582,6 +604,7 @@ pub enum What {
     LinkInfo,
     BrowsersRead,
     GrabOpened,
+    PasswordWanted,
 }
 
 /// What [`apply`] hands over for a [`UiMessage::Take`].
@@ -597,6 +620,7 @@ pub enum Taken {
     LinkInfo(Vec<(u64, usize, links::Probed)>),
     BrowsersRead(Option<BrowsersRead>),
     GrabOpened(Option<Result<Box<Project>, UiError>>),
+    PasswordWanted(Vec<PackageId>),
 }
 
 /// A zip preview's download and its files, or why they could not be
@@ -757,10 +781,19 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
                 What::LinkInfo => Taken::LinkInfo(std::mem::take(&mut state.link_info)),
                 What::BrowsersRead => Taken::BrowsersRead(state.browsers_read.take()),
                 What::GrabOpened => Taken::GrabOpened(state.grab_opened.take().map(|r| r.map(Box::new))),
+                What::PasswordWanted => Taken::PasswordWanted(std::mem::take(&mut state.password_wanted)),
             });
         }
     }
     None
+}
+
+/// The packages to ask a password for, the first first.
+pub fn take_password_wanted(state: &mut AppState) -> Vec<PackageId> {
+    match apply(state, UiMessage::Take(What::PasswordWanted)) {
+        Some(Taken::PasswordWanted(ids)) => ids,
+        _ => Vec::new(),
+    }
 }
 
 /// The crawl's news since the last frame.

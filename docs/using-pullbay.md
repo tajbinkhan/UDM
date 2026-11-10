@@ -421,6 +421,28 @@
   by a pattern in list order: `photo_*` gives `photo_01.jpg`, `photo_02.jpg`
   and so on (the number is padded to the count, each file keeps its type
   unless the pattern names one).
+- **Packages**: **Keep them together as a package** in the link picker
+  keeps the ticked links as one package under a name (the archive's name is
+  offered), saved in a folder of that name, inside the folder they would go
+  to (the download folder when each would go to its category's). Ticked or
+  not, the parts of each split archive among them (`show.part1.rar`,
+  `show.part2.rar`; `show.rar` with `show.r00`; `backup.7z.001`; `site.zip`
+  with `site.z01`) are kept as a package of their own. The sidebar lists
+  packages under **Packages**, with how many of their files are in and how
+  unpacking went; picking one lists its files. Its menu has **Unpack** (once
+  every file is in), **Unpack with password...**, **Open unpacked folder** and
+  **Stop keeping as a package** (the downloads stay). Pullbay unpacks zip
+  (also with ZipCrypto or AES passwords), tar, `.tar.gz`, `.tar.xz`, `.gz`
+  and `.xz` itself, and joins pieces such as `.zip.001`; 7z, RAR, bzip2 and
+  spanned zips need 7-Zip (`7z`, `7zz` or `7za` on PATH, in Program Files,
+  or where Options says). Encrypted archives ask for their password, which
+  goes to 7-Zip on its standard input, never on its command line, and is not
+  kept. Unpacking never replaces a file already there (the new one gets a
+  numbered name); it refuses an archive with a file that would land outside
+  the folder (`..`, a full path or a drive) or with a link, one of more than
+  100,000 files, and one that would leave less than 64 MB free on the disk.
+  Each archive is unpacked into a hidden folder first and moved into place
+  once all of it came out, so one that fails leaves nothing behind.
 - **Options** (top right of the window) has five tabs. **General**: the
   download folder, connections per file (1 to 16), downloads at once (1 to
   10), a total speed limit (with, while it is on, a limit for each file
@@ -437,7 +459,11 @@
   quits and the Start menu opens Pullbay again), whether closing the window
   keeps Pullbay in the tray, whether minimizing the window hides it in the
   tray (on by default, as in IDM), where ffmpeg
-  is, the **Language**, the **Theme** (follow Windows, light, dark, high
+  is, **Archives** (unpack a package as soon as all its files are in, off
+  by default; unpack into a folder named after the package beside the
+  archives, into the archives' own folder, or into a folder named after the
+  package in a chosen folder; then send the archives to the Recycle Bin)
+  and where 7-Zip is, the **Language**, the **Theme** (follow Windows, light, dark, high
   contrast, or a theme file of your own; see [Themes](themes.md)) and the
   **Interface size** (80% to 200%, scaling the whole window). Language, theme
   and interface size change as soon as you save. **More > Hide categories** hides

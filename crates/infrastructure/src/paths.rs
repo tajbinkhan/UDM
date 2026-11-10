@@ -485,6 +485,31 @@ fn window_dir_in(place: Place) -> Option<PathBuf> {
     }
 }
 
+/// Folders programs install themselves in, apart from `PATH`, for finding
+/// 7-Zip (`unpack`): `%ProgramFiles%`, `%ProgramW6432%` and
+/// `%ProgramFiles(x86)%` on Windows (7-Zip goes in `7-Zip` there), and
+/// Homebrew's and MacPorts' `bin` folders on macOS, which a program started
+/// from the Dock does not have on its `PATH`. None on Linux, where packages
+/// install onto `PATH`.
+pub fn program_dirs() -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        for var in ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"] {
+            if let Some(dir) = std::env::var_os(var).map(PathBuf::from) {
+                if !dirs.contains(&dir) {
+                    dirs.push(dir);
+                }
+            }
+        }
+        dirs
+    }
+    #[cfg(target_os = "macos")]
+    return ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].iter().map(PathBuf::from).collect();
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    Vec::new()
+}
+
 /// The folder a portable copy downloads into when the settings name none:
 /// `Downloads` in the copy's folder, on the same drive. `None` for a copy
 /// that uses the system's Downloads folder.

@@ -15,11 +15,12 @@ use pullbay_domain::download::{CommandLine, Download, DownloadEntry, Status};
 use pullbay_domain::filename::FileName;
 use pullbay_domain::id::{DownloadId, QueueId};
 use pullbay_domain::media::Conversion;
+use pullbay_domain::package::{Package, Password, UnpackError};
 use pullbay_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
-    EarlyStarts, FileHashes, FilesError, HashError, LimitLift, PausedDownloads, PowerControl, ProblemReports,
-    QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SettingsError, SettingsStore,
-    SyncChecks, UpdateChecks, UserIdle,
+    EarlyStarts, FileHashes, FilesError, HashError, LimitLift, PackageStore, PausedDownloads, PowerControl,
+    ProblemReports, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SettingsError,
+    SettingsStore, SyncChecks, UnpackJob, Unpacked, Unpacker, UpdateChecks, UserIdle,
 };
 use pullbay_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use pullbay_domain::quota::QuotaNotice;
@@ -886,6 +887,80 @@ impl Answers for Waiting {
 
     fn await_new_name(&self, id: DownloadId) {
         self.0.lock().unwrap().push(id.get());
+    }
+}
+
+/// The packages, counting the changes announced.
+#[derive(Default)]
+pub struct Packages {
+    list: Mutex<Vec<Package>>,
+    changes: AtomicUsize,
+}
+
+impl Packages {
+    pub fn with(list: Vec<Package>) -> Self {
+        Packages { list: Mutex::new(list), ..Packages::default() }
+    }
+
+    pub fn list(&self) -> Vec<Package> {
+        self.list.lock().unwrap().clone()
+    }
+
+    pub fn get(&self, id: u64) -> Option<Package> {
+        self.list().into_iter().find(|p| p.id.get() == id)
+    }
+
+    pub fn changes(&self) -> usize {
+        self.changes.load(Ordering::SeqCst)
+    }
+}
+
+impl PackageStore for Packages {
+    fn edit_packages<T>(&self, f: impl FnOnce(&mut Vec<Package>) -> T) -> T {
+        f(&mut self.list.lock().unwrap())
+    }
+
+    fn packages_changed(&self) {
+        self.changes.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// An unpacker that records each job and the password it came with, and
+/// answers with what a test set: by default every archive unpacks one file.
+#[derive(Default)]
+pub struct Unpacks {
+    jobs: Mutex<Vec<(UnpackJob, Option<String>)>>,
+    answer: Mutex<Option<Result<Unpacked, UnpackError>>>,
+    /// The password that opens every archive, when they are encrypted.
+    password: Option<String>,
+}
+
+impl Unpacks {
+    /// Archives that need `password`.
+    pub fn locked(password: &str) -> Self {
+        Unpacks { password: Some(password.into()), ..Unpacks::default() }
+    }
+
+    /// Archives that fail as `answer` says.
+    pub fn answering(answer: Result<Unpacked, UnpackError>) -> Self {
+        Unpacks { answer: Mutex::new(Some(answer)), ..Unpacks::default() }
+    }
+
+    pub fn jobs(&self) -> Vec<(UnpackJob, Option<String>)> {
+        self.jobs.lock().unwrap().clone()
+    }
+}
+
+impl Unpacker for Unpacks {
+    fn unpack(&self, job: &UnpackJob, password: Option<&Password>, _: &Settings) -> Result<Unpacked, UnpackError> {
+        let given = password.map(|p| p.expose().to_string());
+        self.jobs.lock().unwrap().push((job.clone(), given.clone()));
+        match (&self.password, given) {
+            (Some(_), None) => return Err(UnpackError::NeedsPassword),
+            (Some(want), Some(got)) if *want != got => return Err(UnpackError::WrongPassword),
+            _ => {}
+        }
+        self.answer.lock().unwrap().clone().unwrap_or(Ok(Unpacked { files: 1, bytes: ByteCount::new(10) }))
     }
 }
 

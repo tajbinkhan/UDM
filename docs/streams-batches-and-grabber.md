@@ -198,6 +198,19 @@ in one queue and announces the queue once, so 10,000 downloads do not send
 10,000 queue updates. An item with a full-path `folder` is saved there under
 its own name.
 
+**Packages** come from the link picker's `add_many`: all its items as one
+package, or each split archive among them as its own. The daemon keeps them
+in `history.json` (an older file has none and still loads) and unpacks one
+on a thread of its own, when asked or, with Options' **Unpack a package as
+soon as all its files are in**, when its last download finishes and no try
+was made yet. The archive rules are in `pullbay_domain::package`; zip, tar,
+gzip and xz are unpacked in-process (`pullbay_infrastructure::unpack`, with
+the pure-Rust `zip`, `tar`, `flate2` and `lzma-rust2` crates), and the rest
+go to 7-Zip, which first lists the archive (`7z l -slt`) so a path that would
+leave the folder, a link, too many files or too little room is refused before
+it runs, then extracts it (`7z x -aou`) into a hidden staging folder whose
+files are checked again before they move.
+
 **The site grabber** runs in the daemon, so it uses the proxy settings, and
 reports to the window that started it. It reads `robots.txt` once per site
 (the group for `Pullbay` if there is one, else `*`; longest match wins, with `*`

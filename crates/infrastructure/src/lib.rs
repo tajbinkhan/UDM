@@ -101,6 +101,7 @@ pub mod system;
 pub mod themes;
 pub mod tool;
 pub mod transfers;
+pub mod unpack;
 pub mod update;
 pub mod video_tools;
 pub mod web_remote;

@@ -1,6 +1,7 @@
 //! The categories tree at the window's left, laid out like the one Pullbay's
 //! window follows: All Downloads, Unfinished and Finished, each opening to
-//! a branch per category, then the saved grabber projects and the queues.
+//! a branch per category, then the saved grabber projects, the queues and
+//! the packages.
 //! Picking a node filters the list. The panel stays up while the daemon is
 //! away, drawn from the last settings it sent.
 
@@ -8,11 +9,12 @@ use std::collections::HashSet;
 
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use pullbay_domain::download::{DownloadEntry, Status};
-use pullbay_domain::id::QueueId;
+use pullbay_domain::id::{PackageId, QueueId};
+use pullbay_domain::package::{Package, Unpack};
 use pullbay_domain::queue::Queue;
 use pullbay_domain::settings::GENERAL;
 
-use crate::i18n::tr;
+use crate::i18n::{tr, trf};
 use crate::Action;
 
 const ROW_HEIGHT: f32 = 18.0;
@@ -46,6 +48,8 @@ pub enum Filter {
     Downloads { progress: Progress, category: Option<String> },
     /// A queue's downloads, in its order.
     Queue(QueueId),
+    /// A package's downloads, in the order they were added.
+    Package(PackageId),
 }
 
 impl Default for Filter {
@@ -62,7 +66,7 @@ impl Filter {
             Filter::Downloads { progress, category: c } => {
                 progress.keeps(e) && c.as_deref().is_none_or(|c| c == category)
             }
-            Filter::Queue(_) => true,
+            Filter::Queue(_) | Filter::Package(_) => true,
         }
     }
 }
@@ -72,6 +76,7 @@ enum Branch {
     Progress(ProgressKey),
     Grabber,
     Queues,
+    Packages,
 }
 
 /// `Progress` as a hash key.
@@ -113,6 +118,25 @@ pub struct Panel<'a> {
     pub connected: bool,
     /// The grabber's saved projects, as a worker last read them.
     pub projects: &'a [String],
+    /// The packages, each with how many of its downloads are done.
+    pub packages: Vec<(&'a Package, usize)>,
+}
+
+/// A package's node: its name, how many of its files are in, and how its
+/// unpacking stands.
+pub fn package_label(p: &Package, done: usize) -> String {
+    let count = format!("{done}/{}", p.downloads.len());
+    let state = match &p.unpack {
+        Unpack::Waiting => None,
+        Unpack::Unpacking => Some(tr("unpacking")),
+        Unpack::NeedsPassword { .. } => Some(tr("needs a password")),
+        Unpack::Done { .. } => Some(tr("unpacked")),
+        Unpack::Failed { .. } => Some(tr("not unpacked")),
+    };
+    match state {
+        Some(state) => format!("{} ({count}, {state})", p.name),
+        None => format!("{} ({count})", p.name),
+    }
 }
 
 /// What the tree asked for besides actions.
@@ -240,9 +264,63 @@ pub fn show(
                     });
                 }
             }
+
+            // Packages, once there are any.
+            if panel.packages.is_empty() {
+                return;
+            }
+            let open = tree.open.contains(&Branch::Packages);
+            let r = row(ui, 0, Some(open), Icon::Folder, tr("Packages"), false);
+            if r.toggle || r.pick {
+                toggle(&mut tree.open, Branch::Packages);
+            }
+            if open {
+                for &(p, done) in &panel.packages {
+                    let here = Filter::Package(p.id);
+                    let r =
+                        row(ui, 1, None, Icon::Category(Kind::Compressed), &package_label(p, done), *filter == here);
+                    if r.pick {
+                        *filter = here;
+                    }
+                    let r = match &p.unpack {
+                        Unpack::Failed { reason } => r.response.on_hover_text(crate::errors::unpack(reason)),
+                        Unpack::Done { folder, files } => {
+                            r.response.on_hover_text(trf!("{files} files in {folder}", files = files, folder = folder))
+                        }
+                        _ => r.response,
+                    };
+                    r.context_menu(|ui| package_menu(ui, p, done, panel.connected, actions));
+                }
+            }
         })
     });
     outcome
+}
+
+/// A package's menu: unpack it, with a password, open where it went, or
+/// stop keeping it.
+fn package_menu(ui: &mut egui::Ui, p: &Package, done: usize, connected: bool, actions: &mut Vec<Action>) {
+    let all_in = done == p.downloads.len();
+    let can = connected && all_in && p.can_unpack();
+    let mut item = |ui: &mut egui::Ui, enabled: bool, text: &str, action: Action| {
+        if ui.add_enabled(enabled, egui::Button::new(text)).clicked() {
+            actions.push(action);
+            ui.close_menu();
+        }
+    };
+    let again = matches!(p.unpack, Unpack::Done { .. });
+    item(
+        ui,
+        can || (connected && all_in && again),
+        if again { tr("Unpack again") } else { tr("Unpack") },
+        Action::UnpackPackage(p.id, None),
+    );
+    item(ui, can, tr("Unpack with password..."), Action::AskPackagePassword(p.id));
+    if let Unpack::Done { folder, .. } = &p.unpack {
+        item(ui, true, tr("Open unpacked folder"), Action::OpenFolder(folder.clone()));
+    }
+    ui.separator();
+    item(ui, connected, tr("Stop keeping as a package"), Action::UngroupPackage(p.id));
 }
 
 fn toggle(open: &mut HashSet<Branch>, branch: Branch) {

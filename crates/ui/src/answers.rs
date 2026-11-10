@@ -69,6 +69,8 @@ pub struct Prompt {
     items: Vec<Download>,
     pub queue: QueueId,
     pub start_queue: bool,
+    /// Whether they are kept as packages once added.
+    pub packaging: pullbay_domain::package::Packaging,
     questions: Vec<(usize, Question)>,
     /// The question on screen.
     at: usize,
@@ -92,7 +94,16 @@ impl Prompt {
             return Err(items);
         }
         let left_out = vec![false; items.len()];
-        Ok(Prompt { items, queue, start_queue, questions, at: 0, left_out, all: [None, None] })
+        Ok(Prompt {
+            items,
+            queue,
+            start_queue,
+            packaging: pullbay_domain::package::Packaging::None,
+            questions,
+            at: 0,
+            left_out,
+            all: [None, None],
+        })
     }
 
     /// The question on screen, skipping those answered already: a "to all"

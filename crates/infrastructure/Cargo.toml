@@ -95,6 +95,18 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 # pure-Rust encoder, with no dependencies, the window draws its code with.
 qrcode = { version = "0.14", default-features = false }
 
+# Unpacking a package's archives in-process (`unpack`): zip (deflate,
+# deflate64, LZMA and XZ entries, ZipCrypto and AES passwords), tar, and
+# gzip and xz streams. All pure Rust, so they build for windows-gnu and
+# apple-darwin without a C toolchain: flate2 on its default miniz_oxide
+# backend (already in Cargo.lock through png), lzma-rust2 for xz, and zip
+# without its bzip2, zstd and ppmd C or extra codecs. 7z and RAR go to an
+# installed 7-Zip instead.
+zip = { version = "9.5", default-features = false, features = ["deflate-flate2", "deflate64", "aes-crypto", "lzma", "xz"] }
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
+lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "xz"] }
+
 # The window's file and folder pickers (IFileOpenDialog on Windows, through
 # windows-sys, so it builds on windows-gnu; panels on macOS).
 rfd = { version = "0.15.4", default-features = false }

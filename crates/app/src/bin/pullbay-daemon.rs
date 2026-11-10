@@ -318,6 +318,7 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         files,
         scanner: Arc::new(Antivirus),
         hashes: Arc::new(pullbay_infrastructure::hash::DiskHashes),
+        unpacker: Arc::new(pullbay_infrastructure::unpack::Unpacking),
         opener: Arc::new(Desktop),
         settings,
         transfers,
@@ -1263,6 +1264,69 @@ mod tests {
         t.daemon.store.publish(&Outgoing::Added { id, url: "https://x/a".into() });
         assert!(t.daemon.redownload(id).is_err());
         assert!(t.daemon.redownload(DownloadId::new(999)).is_err());
+    }
+
+    /// A tar holding one file, `name` with `text`, as tar writes it.
+    fn tar_of(name: &str, text: &[u8]) -> Vec<u8> {
+        let mut h = [0u8; 512];
+        h[..name.len()].copy_from_slice(name.as_bytes());
+        h[100..107].copy_from_slice(b"0000644");
+        h[108..115].copy_from_slice(b"0000000");
+        h[116..123].copy_from_slice(b"0000000");
+        h[124..135].copy_from_slice(format!("{:011o}", text.len()).as_bytes());
+        h[136..147].copy_from_slice(b"00000000000");
+        h[156] = b'0';
+        h[257..263].copy_from_slice(b"ustar\0");
+        h[263..265].copy_from_slice(b"00");
+        h[148..156].copy_from_slice(b"        ");
+        let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
+        h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+        let mut out = h.to_vec();
+        out.extend_from_slice(text);
+        out.resize(out.len().div_ceil(512) * 512 + 1024, 0);
+        out
+    }
+
+    #[test]
+    fn a_split_archive_is_kept_as_a_package_and_unpacked_once_its_parts_are_in() {
+        use pullbay_application::downloads::KeepPackages;
+        use pullbay_domain::package::{Packaging, Unpack};
+        use pullbay_domain::ports::PackageStore;
+        let t = setup("package", Duplicate::NewName);
+        {
+            let mut s = t.daemon.settings.lock();
+            s.sound_on_done = false;
+            s.sound_on_failed = false;
+            s.notify = pullbay_domain::settings::Notify::Off;
+            s.unpack_auto = true;
+        }
+        let tar = tar_of("hello.txt", b"hello from a package");
+        let (first, second) = tar.split_at(tar.len() / 2);
+        let mut added = Vec::new();
+        for (name, part) in [("bundle.tar.001", first), ("bundle.tar.002", second)] {
+            let url = serve_ranges(Arc::new(part.to_vec()), Arc::new(AtomicU64::new(0)));
+            let download = Download { url: url.as_str().into(), filename: Some(name.into()), ..Download::default() };
+            added.push((t.daemon.add(download).0, name.to_string()));
+        }
+        let kept = KeepPackages::new(&*t.daemon.store).keep(&added, &Packaging::Archives);
+        assert_eq!(kept.len(), 1, "the two pieces are one package");
+        for (id, _) in &added {
+            t.wait(*id, Status::Done);
+            t.daemon.on_note(Note::Finished(*id));
+        }
+        let until = Instant::now() + Duration::from_secs(10);
+        let state = loop {
+            let state = t.daemon.store.edit_packages(|list| list[0].unpack.clone());
+            if !matches!(state, Unpack::Waiting | Unpack::Unpacking) || Instant::now() > until {
+                break state;
+            }
+            thread::sleep(Duration::from_millis(20));
+        };
+        let folder = t.dir.join("bundle");
+        assert_eq!(state, Unpack::Done { folder: folder.display().to_string(), files: 1 });
+        assert_eq!(std::fs::read_to_string(folder.join("hello.txt")).unwrap(), "hello from a package");
+        assert!(t.dir.join("bundle.tar.001").exists(), "the archives stay unless Options says otherwise");
+        assert!(t.window_got(|m| matches!(m, Outgoing::Packages { items } if !items.is_empty())));
     }
 
     #[test]

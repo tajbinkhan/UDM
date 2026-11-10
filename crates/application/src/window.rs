@@ -136,6 +136,10 @@ pub trait SettingsChecks: Send + Sync {
     /// The ffmpeg `settings` would use: the one set if it exists, else the
     /// first on `PATH`.
     fn ffmpeg(&self, settings: &Settings) -> Option<PathBuf>;
+
+    /// The 7-Zip `settings` would use: the one set if it exists, else one
+    /// on `PATH` or where 7-Zip installs itself.
+    fn seven_zip(&self, settings: &Settings) -> Option<PathBuf>;
 }
 
 /// The system's fixed proxies, as Options' Get System copies them.
