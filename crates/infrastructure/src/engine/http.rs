@@ -206,7 +206,8 @@ pub struct Client {
     /// connection after its first.
     fresh_http1: Arc<dyn Fn(OneConnection) -> Result<reqwest::Client, EngineError> + Send + Sync>,
     logins: Arc<Vec<net::Login>>,
-    /// How to reach an `ftp://` address, which goes to the FTP module.
+    /// How to reach an `ftp://` or `ftps://` address, which goes to the FTP
+    /// module.
     ftp: super::ftp::FtpOptions,
 }
 
@@ -260,11 +261,12 @@ impl Client {
                 logins: net.logins.clone(),
                 proxy: net.ftp_proxy.clone(),
                 proxy_login: net.ftp_proxy_login.clone(),
-                // SOCKS for ftp:// only when no FTP proxy is set.
+                // SOCKS for ftp:// only when no FTP proxy is set; ftps://
+                // goes around the FTP proxy, so it can take SOCKS.
                 socks: net
                     .proxy
                     .as_ref()
-                    .filter(|_| ftp && net.ftp_proxy.is_none())
+                    .filter(|_| ftp && (net.ftp_proxy.is_none() || super::ftp::is_ftps(url)))
                     .and_then(|rules| rules.socks_for_ftp(url)),
             },
         })

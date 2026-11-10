@@ -34,7 +34,10 @@ Pullbay logs in to it first with its own login, when it has one (`USER`,
 proxy (`proxy_socks_ftp`, on by default): Pullbay opens both the control and
 the data connections with a SOCKS CONNECT itself (SOCKS4, SOCKS4a or SOCKS5,
 with the SOCKS login), and always in passive mode, since the server cannot
-connect back through the proxy.
+connect back through the proxy. `ftps://` downloads skip the FTP proxy,
+which would be the TLS end instead of the server, and take the SOCKS proxy
+as `ftp://` ones do without an FTP proxy; an `ftp://` server reached through
+an FTP proxy is not asked again with `AUTH TLS` when it wants TLS.
 A proxy's login goes to the proxy only (`Proxy-Authorization`, or the
 SOCKS handshake). Pullbay follows redirects itself, dropping `Cookie` and
 `Authorization` on every hop, so a site's cookies and logins never reach
@@ -73,7 +76,7 @@ password without sending it, so plain http is fine. A user name written
 `DOMAIN\user` gives the domain. Each segment's connection does its own
 handshake. Signing in as the current Windows user without a saved login is
 not supported. Basic over
-plain http, and any FTP login, needs a login allowed on plain connections
+plain http, and any FTP login over a plain connection, needs a login allowed on plain connections
 (a download's own login always is); otherwise the download asks for one,
 so a server offering only Basic cannot draw out a password saved for
 https. `Authorization` is never carried across a redirect, so a login

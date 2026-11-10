@@ -49,6 +49,11 @@ percent-encoding.workspace = true
 # request must come back as the bytes asked for.
 reqwest = { version = "0.12", default-features = false, features = ["native-tls-alpn", "http2", "socks"] }
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+# FTPS: TLS on the FTP engine's blocking control and data connections, through
+# the same OS TLS as reqwest (SChannel on Windows, Security.framework on macOS,
+# OpenSSL elsewhere). reqwest already pulls in this exact crate for
+# `native-tls-alpn`, so no new crate enters the lock file.
+native-tls = "0.2"
 bytes = "1"
 # The traits for the connector layer that keeps an NTLM handshake on one
 # connection. reqwest already depends on both.
@@ -89,3 +94,13 @@ rfd = { version = "0.15.4", default-features = false, features = ["gtk3"] }
 # The workspace's lints: no unwrap, expect or panic outside tests.
 [lints]
 workspace = true
+
+# Tests only: the FTPS test server's certificate is made when the tests run,
+# so no private key is committed. rcgen without its ring/aws-lc-rs backends
+# writes the certificate; rsa signs it in pure Rust (SChannel's
+# `Identity::from_pkcs8` takes RSA keys only), so the tests build for every
+# target without a C toolchain.
+[dev-dependencies]
+rcgen = { version = "0.14", default-features = false, features = ["pem"] }
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+rand_core = { version = "0.6", features = ["getrandom"] }

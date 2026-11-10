@@ -14,6 +14,12 @@
   choose a scanner program such as `clamscan`. These builds were tested on
   Linux; the macOS build is checked by the compiler and CI only.
 
+- FTPS data connections do not resume the control connection's TLS
+  session (the operating system's TLS, through `native-tls`, offers no way
+  to), so a server that requires it, such as vsftpd with
+  `require_ssl_reuse` on, may refuse the transfers. An `ftp://` server is
+  switched to TLS only when it refuses a plain login and asks for TLS, not
+  whenever it offers `AUTH TLS`.
 - The history is written about a second after each change, so a crash can
   lose the last second of progress; the sidecar still has it, so resuming is
   unaffected.

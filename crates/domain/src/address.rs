@@ -1,5 +1,5 @@
 //! Download addresses. `Address` is one Pullbay can download from: it starts
-//! with `http://`, `https://` or `ftp://` (in any case), the same check the
+//! with `http://`, `https://`, `ftp://` or `ftps://` (in any case), the same check the
 //! daemon makes before it takes a download (`batch::is_download_url`) and
 //! no stricter, so every address accepted before is accepted now. The text
 //! is kept as given, so the files and the wire carry it unchanged.
@@ -33,14 +33,14 @@ pub enum AddressError {
     NotDownload(String),
 }
 
-/// An http, https or ftp address, as given.
+/// An http, https, ftp or ftps address, as given.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct Address(String);
 
 impl Address {
     /// `text` as a download address: it must start with `http://`,
-    /// `https://` or `ftp://`, in any case. Nothing is trimmed or
+    /// `https://`, `ftp://` or `ftps://`, in any case. Nothing is trimmed or
     /// normalized.
     pub fn parse(text: &str) -> Result<Address, AddressError> {
         Address::try_from(text.to_string())
@@ -54,7 +54,7 @@ impl Address {
         self.0
     }
 
-    /// Whether it is an http or https address, not ftp.
+    /// Whether it is an http or https address, not ftp or ftps.
     pub fn is_web(&self) -> bool {
         crate::batch::is_web_url(&self.0)
     }
@@ -240,21 +240,38 @@ mod tests {
 
     #[test]
     fn download_addresses_are_http_https_or_ftp_in_any_case() {
-        for ok in
-            ["http://x/a", "https://x/a", "ftp://f.net/c.iso", "HTTPS://X/A", "Ftp://f/", "http://", "https://a b"]
-        {
+        for ok in [
+            "http://x/a",
+            "https://x/a",
+            "ftp://f.net/c.iso",
+            "ftps://f.net/c.iso",
+            "HTTPS://X/A",
+            "Ftp://f/",
+            "FTPS://f/",
+            "http://",
+            "https://a b",
+        ] {
             let a = Address::parse(ok).unwrap();
             assert_eq!(a.as_str(), ok, "kept as given");
             assert!(crate::batch::is_download_url(ok));
         }
-        for bad in
-            ["", "javascript:x", "file:///etc/passwd", " https://x/a", "mailto:a@b", "ftps://x/", "x:y", "www.x.com"]
-        {
+        for bad in [
+            "",
+            "javascript:x",
+            "file:///etc/passwd",
+            " https://x/a",
+            "mailto:a@b",
+            "ftpx://x/",
+            "ftps:/x",
+            "x:y",
+            "www.x.com",
+        ] {
             assert_eq!(Address::parse(bad), Err(AddressError::NotDownload(bad.to_string())), "{bad}");
             assert!(!crate::batch::is_download_url(bad));
         }
         assert!(Address::parse("https://x/").unwrap().is_web());
         assert!(!Address::parse("ftp://x/").unwrap().is_web());
+        assert!(!Address::parse("ftps://x/").unwrap().is_web());
     }
 
     #[test]

@@ -2319,6 +2319,44 @@ mod tests {
         }
 
         #[test]
+        fn ftps_downloads_in_parallel_tls_ranges_and_resumes() {
+            use crate::engine::ftp::server::{start_with, Tls};
+            let data = body(LEN);
+            for tls in [Tls::Implicit, Tls::Required] {
+                let server = start_with(data.clone(), None, tls);
+                let dir = temp_dir(&format!("ftps_{tls:?}"));
+                let mut req = request(&server.url, &dir, FileExists::Rename);
+                req.filename = None;
+                let path = download(|_| {}, req);
+                assert_eq!(path, dir.join("file.bin"));
+                assert_eq!(fs::read(&path).unwrap(), data);
+                let transfers = server.transfers.load(Ordering::Relaxed);
+                assert!(transfers >= 2, "{tls:?}: more than one connection");
+                assert_eq!(server.tls_transfers.load(Ordering::Relaxed), transfers, "{tls:?}: all of them TLS");
+
+                // The first half was fetched by an earlier run: only the
+                // second half is asked for.
+                let half = LEN / 2;
+                let mut on_disk = data[..half].to_vec();
+                on_disk.resize(LEN, 0);
+                fs::write(&path, &on_disk).unwrap();
+                let date = Some("Wed, 21 Oct 2015 07:28:00 GMT".to_string());
+                let mut m = Manifest::new(server.url.clone(), LEN as u64, None, date, &split(LEN as u64, 2));
+                m.segments[0].done = m.segments[0].len();
+                m.save(&Manifest::sidecar_path(&path)).unwrap();
+                server.rests.lock().unwrap().clear();
+                let mut req = request(&server.url, &dir, FileExists::Rename);
+                req.filename = None;
+                assert_eq!(download(|_| {}, req), path, "{tls:?}: resumes into the same file");
+                assert_eq!(fs::read(&path).unwrap(), data);
+                assert!(!Manifest::sidecar_path(&path).exists());
+                let rests = server.rests.lock().unwrap().clone();
+                assert!(!rests.is_empty() && rests.iter().all(|&r| r >= half as u64), "{tls:?}: {rests:?}");
+                fs::remove_dir_all(&dir).ok();
+            }
+        }
+
+        #[test]
         fn a_host_gate_hands_out_at_most_its_limit() {
             let shared = Shared {
                 limiter: RateLimiter::default(),
