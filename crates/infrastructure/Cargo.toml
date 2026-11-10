@@ -94,3 +94,13 @@ rfd = { version = "0.15.4", default-features = false, features = ["gtk3"] }
 # The workspace's lints: no unwrap, expect or panic outside tests.
 [lints]
 workspace = true
+
+# Tests only: the FTPS test server's certificate is made when the tests run,
+# so no private key is committed. rcgen without its ring/aws-lc-rs backends
+# writes the certificate; rsa signs it in pure Rust (SChannel's
+# `Identity::from_pkcs8` takes RSA keys only), so the tests build for every
+# target without a C toolchain.
+[dev-dependencies]
+rcgen = { version = "0.14", default-features = false, features = ["pem"] }
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+rand_core = { version = "0.6", features = ["getrandom"] }

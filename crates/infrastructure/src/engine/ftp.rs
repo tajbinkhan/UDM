@@ -616,10 +616,49 @@ pub(crate) mod server {
     use std::sync::Arc;
     use std::thread;
 
-    /// The test server's self-signed certificate (for `127.0.0.1` and
-    /// `localhost`, valid until 2126) and its key. Nothing else trusts it.
-    pub const CERT: &[u8] = include_bytes!("testdata/ftps-test-cert.pem");
-    const KEY: &[u8] = include_bytes!("testdata/ftps-test-key.pem");
+    /// The test servers' self-signed certificate for `127.0.0.1` and
+    /// `localhost` and its PKCS#8 key, both PEM, made once per test run so
+    /// no key is kept in the repository. Nothing else trusts it.
+    pub fn identity() -> &'static (String, String) {
+        static IDENTITY: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+        IDENTITY.get_or_init(make_identity)
+    }
+
+    /// An RSA key, which SChannel's `Identity::from_pkcs8` needs, signing
+    /// its own certificate in pure Rust.
+    fn make_identity() -> (String, String) {
+        use rsa::pkcs1::EncodeRsaPublicKey;
+        use rsa::pkcs8::EncodePrivateKey;
+        use rsa::signature::{SignatureEncoding, Signer};
+
+        struct Key {
+            signer: rsa::pkcs1v15::SigningKey<rsa::sha2::Sha256>,
+            public: Vec<u8>,
+        }
+        impl rcgen::PublicKeyData for Key {
+            fn der_bytes(&self) -> &[u8] {
+                &self.public
+            }
+            fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
+                &rcgen::PKCS_RSA_SHA256
+            }
+        }
+        impl rcgen::SigningKey for Key {
+            fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
+                Ok(self.signer.sign(msg).to_vec())
+            }
+        }
+
+        let private = rsa::RsaPrivateKey::new(&mut rand_core::OsRng, 2048).unwrap();
+        let key_pem = private.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF).unwrap().to_string();
+        let public = private.to_public_key().to_pkcs1_der().unwrap().as_bytes().to_vec();
+        let key = Key { signer: rsa::pkcs1v15::SigningKey::new(private), public };
+        let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()]).unwrap();
+        params.distinguished_name.push(rcgen::DnType::CommonName, "Pullbay FTPS test server");
+        params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        params.serial_number = Some(rcgen::SerialNumber::from(rand_core::RngCore::next_u64(&mut rand_core::OsRng)));
+        (params.self_signed(&key).unwrap().pem(), key_pem)
+    }
 
     /// How the server speaks TLS.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -669,8 +708,11 @@ pub(crate) mod server {
     pub fn start_with(body: Vec<u8>, login: Option<(&'static str, &'static str)>, tls: Tls) -> FtpServer {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
-        let acceptor = (tls != Tls::Off)
-            .then(|| native_tls::TlsAcceptor::new(native_tls::Identity::from_pkcs8(CERT, KEY).unwrap()).unwrap());
+        let acceptor = (tls != Tls::Off).then(|| {
+            let (cert, key) = identity();
+            let identity = native_tls::Identity::from_pkcs8(cert.as_bytes(), key.as_bytes()).unwrap();
+            native_tls::TlsAcceptor::new(identity).unwrap()
+        });
         let shared = Shared {
             body: Arc::new(body),
             login,
@@ -712,7 +754,7 @@ pub(crate) mod server {
             .unwrap();
         let tls = handshake(&connector, name, stream)?;
         let theirs = tls.peer_certificate().ok().flatten().and_then(|c| c.to_der().ok());
-        let ours = native_tls::Certificate::from_pem(CERT).unwrap().to_der().unwrap();
+        let ours = native_tls::Certificate::from_pem(identity().0.as_bytes()).unwrap().to_der().unwrap();
         if theirs != Some(ours) {
             return Err(EngineError::Tls("not the test server's certificate".into()));
         }
