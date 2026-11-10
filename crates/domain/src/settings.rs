@@ -29,6 +29,11 @@ pub const SPEED_LIMIT_RANGE_KBPS: (u64, u64) = (1, 10_000_000);
 /// only while the computer is in use is lifted, unless the settings say
 /// otherwise.
 pub const DEFAULT_IDLE_MINUTES: u32 = 5;
+/// The remote-control page's port unless the user picks another.
+pub const DEFAULT_REMOTE_PORT: u16 = 18443;
+/// The ports the remote-control page may use: none of the system's own,
+/// which need administrator rights.
+pub const REMOTE_PORT_RANGE: (u16, u16) = (1024, 65535);
 /// From one minute to four hours.
 pub const IDLE_MINUTES_RANGE: (u32, u32) = (1, 240);
 /// Up to 10 GB, in KB.
@@ -837,6 +842,21 @@ pub struct Settings {
     pub text_size: u32,
     /// The window's language as a code such as `de`; empty follows Windows.
     pub language: String,
+    /// Serve the remote-control page to paired phones on the network
+    /// (`pairing`). Off unless the user turns it on.
+    #[serde(default)]
+    pub remote_enabled: bool,
+    /// The port the remote-control page listens on.
+    #[serde(default = "default_remote_port")]
+    pub remote_port: u16,
+    /// The addresses of this computer it listens on; empty listens on
+    /// every network interface.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remote_addresses: Vec<String>,
+}
+
+fn default_remote_port() -> u16 {
+    DEFAULT_REMOTE_PORT
 }
 
 impl Default for Settings {
@@ -966,6 +986,9 @@ impl Default for Settings {
             theme: Theme::System,
             text_size: 100,
             language: String::new(),
+            remote_enabled: false,
+            remote_port: DEFAULT_REMOTE_PORT,
+            remote_addresses: Vec::new(),
         }
     }
 }
@@ -1058,6 +1081,13 @@ impl Settings {
         let (lo, hi) = IDLE_MINUTES_RANGE;
         if !(lo..=hi).contains(&self.speed_limit_idle_minutes) {
             return Err(E::IdleMinutes);
+        }
+        let (lo, hi) = REMOTE_PORT_RANGE;
+        if !(lo..=hi).contains(&self.remote_port) {
+            return Err(E::RemotePort);
+        }
+        if let Some(bad) = self.remote_addresses.iter().find(|a| a.trim().parse::<std::net::IpAddr>().is_err()) {
+            return Err(E::RemoteAddress(bad.clone()));
         }
         if let Some(dir) = &self.download_dir {
             check_folder(SettingsField::DownloadFolder, dir)?;
@@ -1555,6 +1585,11 @@ pub enum InvalidSettings {
     SpeedLimitPerFile,
     #[error("The time away must be between {lo} and {hi} minutes.", lo = IDLE_MINUTES_RANGE.0, hi = IDLE_MINUTES_RANGE.1)]
     IdleMinutes,
+    #[error("The remote-control port must be between {lo} and {hi}.", lo = REMOTE_PORT_RANGE.0, hi = REMOTE_PORT_RANGE.1)]
+    RemotePort,
+    /// An address to listen on that is not an IP address.
+    #[error("\"{0}\" is not an IP address of this computer, such as 192.168.1.20.")]
+    RemoteAddress(String),
     #[error("{0} is empty.")]
     FolderEmpty(SettingsField),
     #[error("{0} must be a full path: {1}")]
@@ -1693,6 +1728,29 @@ mod tests {
             let s: Settings = serde_json::from_str(&format!(r#"{{"theme":{odd},"connections":4}}"#)).unwrap();
             assert_eq!((s.theme, s.connections), (Theme::System, 4), "{odd}");
         }
+    }
+
+    #[test]
+    fn older_settings_keep_remote_control_off_and_odd_ports_and_addresses_are_refused() {
+        let old: Settings = serde_json::from_str(r#"{"connections":4,"language":"de"}"#).unwrap();
+        assert!(!old.remote_enabled);
+        assert_eq!(old.remote_port, DEFAULT_REMOTE_PORT);
+        assert!(old.remote_addresses.is_empty());
+        assert!(!Settings::default().remote_enabled, "off by default");
+        let saved = serde_json::to_value(Settings::default()).unwrap();
+        assert!(saved.get("remote_addresses").is_none(), "every interface is the field left out");
+        for port in [0, 80, 1023] {
+            let s = Settings { remote_port: port, ..Settings::default() };
+            assert_eq!(s.validate(), Err(InvalidSettings::RemotePort));
+        }
+        let s = Settings { remote_addresses: vec!["192.168.1.20".into(), "fe80::1".into()], ..Settings::default() };
+        assert_eq!(s.validate(), Ok(()));
+        let s = Settings { remote_addresses: vec!["my-pc.local".into()], ..Settings::default() };
+        assert_eq!(s.validate(), Err(InvalidSettings::RemoteAddress("my-pc.local".into())));
+        let on: Settings =
+            serde_json::from_str(r#"{"remote_enabled":true,"remote_port":20000,"remote_addresses":["10.0.0.2"]}"#)
+                .unwrap();
+        assert_eq!((on.remote_enabled, on.remote_port, on.remote_addresses), (true, 20000, vec!["10.0.0.2".into()]));
     }
 
     #[test]

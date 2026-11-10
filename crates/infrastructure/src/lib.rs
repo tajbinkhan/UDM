@@ -103,6 +103,7 @@ pub mod tool;
 pub mod transfers;
 pub mod update;
 pub mod video_tools;
+pub mod web_remote;
 pub mod window_files;
 pub mod wire;
 pub mod zip;

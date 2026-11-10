@@ -70,6 +70,10 @@ Client to daemon (the host relays the browser's unchanged):
   "start_with_windows": false, "notify": "toast", "sound_on_done": false,
   "sound_on_failed": false, "scan_after_download": false, "scanner": "defender",
   "scanner_command": "" } }
+{ "op": "remote_status" }
+{ "op": "start_pairing" }
+{ "op": "cancel_pairing" }
+{ "op": "remove_device", "id": 2 }
 ```
 
 Daemon to clients:
@@ -115,6 +119,10 @@ Daemon to clients:
 { "op": "grab_done", "files": [ { "url": "https://.../a.pdf", "name": "a.pdf", "page": "https://.../docs/" } ],
   "pages": 40, "stopped": "Stopped at the budget of 40 pages." }
 { "op": "command_line", "window_open": true }
+{ "op": "remote", "state": { "listening": ["0.0.0.0:18443"], "page": "https://192.168.1.20:18443/",
+  "fingerprint": "53:79:5D:...", "devices": [ { "id": 1, "name": "iPhone", "paired_at": 1762790000,
+  "last_seen": 1762790400 } ], "pairing": { "link": "https://192.168.1.20:18443/#pair=...",
+  "code": "...", "expires_at": 1762790300 } } }
 { "op": "error", "message": "..." }
 ```
 
@@ -129,7 +137,14 @@ open the daemon runs it at once and answers `window_open: true`; otherwise
 it holds it for up to a minute and runs it when the next window says
 `hello`.
 
-`ack`, `downloads` and `error` go only to the client that asked, as does
+`remote_status`, `start_pairing`, `cancel_pairing` and `remove_device` are
+Options' remote-control page (see [Remote control](remote-control.md)); each is
+answered with `remote`: where the phone page listens (or its `fault`), the
+paired devices (never their secrets), and the pairing code shown, if any.
+`start_pairing` is refused with `error` while the page is not served. The
+phone page itself speaks HTTPS, not these messages.
+
+`ack`, `downloads`, `remote` and `error` go only to the client that asked, as does
 `settings` when it answers `get_settings`; everything else goes to every
 client, including `settings` after a change. A status is one of `queued`,
 `downloading`, `done`, `failed`, `canceled`, `interrupted`, `confirming`

@@ -1,5 +1,41 @@
 # Verified
 
+- Remote control from a phone (#254). Domain tests cover pairing codes (128
+  bits, read back however typed), credentials, verifiers, device names, a code
+  that works once and runs out, a new code replacing the old, the wrong-try
+  limits per address and overall, removal, the device limit and the settings
+  (off in an old `settings.json`, odd ports and addresses refused). Use case
+  tests run pairing, checking, removing and each phone request against
+  in-memory ports and a pretend service: list, add (no folder, no name, no
+  dialog), pause, resume, remove with files kept unless asked, nothing reaching
+  the daemon without a paired credential, each request on a connection of its
+  own. Infrastructure tests run the real HTTPS server on 127.0.0.1 with its
+  own certificate: the page and its safety headers, no CORS header, 401 for
+  every API request without a paired credential, wrong and expired codes, the
+  rate limits (429 even for the right code), each action, a removed device
+  refused at once, other sites' requests and form posts refused, nothing
+  listening once turned off, a port in use reported, no response holding a
+  token-like secret planted in the list, the pairing code or a folder, and
+  (on Linux) the certificate verifying for `localhost`. The certificate and
+  device files are checked sealed and 0600. A daemon test pairs through the
+  window's `start_pairing` and drives the real service: list, add, pause,
+  resume, pause, remove, then the window's `remove_device` refuses the phone.
+  On Linux, a named copy with remote control on 127.0.0.1 made its
+  certificate, listened, answered curl (`200` for the page with its headers,
+  `401` and `403` for the API), showed the SAN and serverAuth in `openssl
+  s_client`, stayed running past the idle minute, and logged no token. The
+  phone page ran in a browser at phone size against a stand-in API: pairing
+  (wrong and right code), the list (a name with markup shown as text), add,
+  pause, remove with the file kept, and an unpaired credential sending it
+  back to pairing. Options' Remote control page was built and its strings
+  translated, but not looked at on screen; no real phone (iOS Safari, Android
+  Chrome) was tried; the Windows and macOS code (SChannel and
+  Security.framework serving the certificate) was linted from Linux only.
+  After server mode (#253) came in, the daemon test runs on a server's
+  daemon too, and `pullbay-cli pair`, `devices` and `unpair` have use case
+  and report tests (the QR code, `--host` in the link); the Docker
+  `ports` lines were not run.
+
 - Server mode and the Docker image (#253). Unit tests cover the daemon's
   command line (`--server` and its folders, a folder without `--server`,
   a missing or repeated one, unknown words, the elevated move), folders

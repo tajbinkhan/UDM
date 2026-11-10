@@ -25,7 +25,8 @@ use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::checksum::{Checksum, ChecksumError};
 use pullbay_domain::download::{DownloadEntry, Status};
 use pullbay_domain::filename::FileName;
-use pullbay_domain::id::DownloadId;
+use pullbay_domain::id::{DeviceId, DownloadId};
+use pullbay_domain::pairing::{DeviceInfo, RemoteState};
 use pullbay_domain::settings::CONNECTIONS_RANGE;
 
 /// The exit codes, for scripts to test.
@@ -64,6 +65,12 @@ Commands:
                      Take a download out of the list, and its files with --delete-files
   queue start|stop [QUEUE]
                      Start or stop a queue, by name or id (the main queue by default)
+  pair [--host HOST[:PORT]]
+                     Show a QR code and a one-time code that pair a phone with the
+                     remote-control page (remote control must be on); --host puts the
+                     address the phone reaches in the link, as for a container
+  devices            List the phones paired with the remote-control page
+  unpair ID          Unpair a phone at once
   help, version
 
 Pullbay starts in the background if it is not running. Exit codes: 0 done, 1 failed or
@@ -73,12 +80,29 @@ before it finished.";
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Invocation {
-    Get { request: GetRequest, quiet: bool },
-    List { json: bool },
+    Get {
+        request: GetRequest,
+        quiet: bool,
+    },
+    List {
+        json: bool,
+    },
     Pause(Which),
     Resume(Which),
-    Remove { id: DownloadId, delete_files: bool },
-    Queue { start: bool, name: Option<String> },
+    Remove {
+        id: DownloadId,
+        delete_files: bool,
+    },
+    Queue {
+        start: bool,
+        name: Option<String>,
+    },
+    /// Show a pairing code; `host` replaces the link's address and port.
+    Pair {
+        host: Option<String>,
+    },
+    Devices,
+    Unpair(DeviceId),
     Help,
     Version,
 }
@@ -121,6 +145,10 @@ pub enum UsageError {
     BadChecksum(String, #[source] ChecksumError),
     #[error("{0} is not a download id")]
     BadId(String),
+    #[error("{0} is not a device number")]
+    BadDevice(String),
+    #[error("{0} is not a host name or address, with or without a port")]
+    BadHost(String),
 }
 
 /// The command line's words after the command, as options and the rest.
@@ -224,9 +252,98 @@ pub fn parse<S: AsRef<str>>(args: &[S], cwd: &Path) -> Result<Invocation, UsageE
             let name = plain.collect::<Vec<_>>().join(" ");
             Invocation::Queue { start, name: (!name.is_empty()).then_some(name) }
         }
+        "pair" => {
+            let mut host = None;
+            while let Some((name, inline)) = words.next_option() {
+                match name.as_str() {
+                    "--host" => {
+                        let text = words.value(&name, inline, "a host name or address")?;
+                        host = Some(page_host(&text).ok_or(UsageError::BadHost(text))?);
+                    }
+                    _ => return Err(UsageError::UnknownOption(name)),
+                }
+            }
+            if let Some(extra) = words.plain.into_iter().next() {
+                return Err(UsageError::Extra(extra));
+            }
+            Invocation::Pair { host }
+        }
+        "devices" => {
+            if let Some((name, _)) = words.next_option() {
+                return Err(UsageError::UnknownOption(name));
+            }
+            if let Some(extra) = words.plain.into_iter().next() {
+                return Err(UsageError::Extra(extra));
+            }
+            Invocation::Devices
+        }
+        "unpair" => {
+            if let Some((name, _)) = words.next_option() {
+                return Err(UsageError::UnknownOption(name));
+            }
+            let id = one(&words.plain)?.ok_or(UsageError::Missing("a device number"))?;
+            let n = id.trim().parse::<u64>().map_err(|_| UsageError::BadDevice(id.clone()))?;
+            Invocation::Unpair(DeviceId::new(n))
+        }
         other => return Err(UsageError::UnknownCommand(other.to_string())),
     };
     Ok(invocation)
+}
+
+/// `text` as the host (and port) of an `https://` address, if it is one.
+fn page_host(text: &str) -> Option<String> {
+    let text = text.trim();
+    let url = url::Url::parse(&format!("https://{text}/")).ok()?;
+    let host = url.host_str()?;
+    (url.path() == "/" && url.username().is_empty() && url.query().is_none()).then(|| match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    })
+}
+
+/// `link` with its host and port replaced by `host` (a `HOST[:PORT]`);
+/// without a port in `host`, the link's own port stays.
+pub fn link_at(link: &str, host: &str) -> String {
+    let (Ok(mut url), Ok(given)) = (url::Url::parse(link), url::Url::parse(&format!("https://{host}/"))) else {
+        return link.to_string();
+    };
+    if url.set_host(given.host_str()).is_err() {
+        return link.to_string();
+    }
+    if let Some(port) = given.port() {
+        let _ = url.set_port(Some(port));
+    }
+    url.to_string()
+}
+
+/// `text` as a QR code in the terminal: two rows of modules per line of
+/// half blocks, dark on light, with the quiet zone around it.
+pub fn qr_text(text: &str) -> Option<String> {
+    let code = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::L).ok()?;
+    let width = code.width();
+    let colors = code.to_colors();
+    const QUIET: usize = 2;
+    let side = width + 2 * QUIET;
+    let dark = |x: usize, y: usize| {
+        x >= QUIET && y >= QUIET && x < QUIET + width && y < QUIET + width && {
+            colors[(y - QUIET) * width + (x - QUIET)] == qrcode::Color::Dark
+        }
+    };
+    let mut out = String::new();
+    for y in (0..side).step_by(2) {
+        for x in 0..side {
+            // Light modules print as blocks, so the code reads on a dark
+            // terminal as on paper.
+            out.push(match (dark(x, y), dark(x, y + 1)) {
+                (false, false) => '\u{2588}',
+                (false, true) => '\u{2580}',
+                (true, false) => '\u{2584}',
+                (true, true) => ' ',
+            });
+        }
+        out.push('\n');
+    }
+    Some(out)
 }
 
 /// The one plain word, if there is one.
@@ -500,6 +617,47 @@ impl Report {
         Self::telling(code, format!("pullbay-cli: {e}"))
     }
 
+    /// A pairing code shown: the QR code and what to do with it, with the
+    /// link pointed at `host` when it is given.
+    pub fn pairing(state: &RemoteState, host: Option<&str>, now: u64) -> Self {
+        let Some(offer) = &state.pairing else {
+            return Self::telling(exit::FAILED, "pullbay-cli: no pairing code was shown");
+        };
+        let link = host.map_or_else(|| offer.link.clone(), |h| link_at(&offer.link, h));
+        let page = link.split('#').next().unwrap_or(&link).to_string();
+        let mut out = qr_text(&link).unwrap_or_default();
+        out.push_str(&format!("Scan the QR code with the phone's camera, or open {page} and type the code:\n\n"));
+        out.push_str(&format!("    {}\n\n", offer.code.grouped()));
+        let left = offer.expires_at.saturating_sub(now);
+        out.push_str(&format!("The code works once, for {}:{:02} more.\n", left / 60, left % 60));
+        if let Some(fingerprint) = &state.listener.fingerprint {
+            out.push_str(&format!(
+                "Before going past the phone's certificate warning, check that the certificate's\nSHA-256 fingerprint is {fingerprint}"
+            ));
+        }
+        Self::printing(out.trim_end())
+    }
+
+    /// The paired devices, one a line: number, name, when paired and last
+    /// seen (UTC).
+    pub fn devices(devices: &[DeviceInfo]) -> Self {
+        if devices.is_empty() {
+            return Report { err: Some("No phone is paired.".into()), ..Self::ok() };
+        }
+        let when = |t: u64| {
+            let (y, m, d) = crate::web_remote::certificate::civil((t / 86_400) as i64);
+            format!("{y}-{m:02}-{d:02} {:02}:{:02} UTC", t % 86_400 / 3600, t % 3600 / 60)
+        };
+        let lines: Vec<String> = devices
+            .iter()
+            .map(|d| {
+                let seen = d.last_seen.map(|t| format!(", last seen {}", when(t))).unwrap_or_default();
+                format!("{}\t{}\tpaired {}{seen}", d.id, d.name.as_str(), when(d.paired_at))
+            })
+            .collect();
+        Self::printing(lines.join("\n"))
+    }
+
     /// How a download ended: its path on standard output when it is saved,
     /// its id when it was not followed.
     pub fn got(got: &Got) -> Self {
@@ -691,5 +849,52 @@ mod tests {
         assert_eq!(Report::usage(&UsageError::NoCommand).code, exit::USAGE);
         let retried = Report::resumed(Resumed::Retried { old: id, new: DownloadId::new(8) });
         assert_eq!((retried.code, retried.out.as_deref()), (exit::OK, Some("8")));
+    }
+
+    #[test]
+    fn pairing_commands_read_their_words() {
+        assert_eq!(args("pair"), Ok(Invocation::Pair { host: None }));
+        assert_eq!(args("pair --host 192.168.1.20"), Ok(Invocation::Pair { host: Some("192.168.1.20".into()) }));
+        assert_eq!(args("pair --host=nas.local:8443"), Ok(Invocation::Pair { host: Some("nas.local:8443".into()) }));
+        assert_eq!(args("pair --host a/b"), Err(UsageError::BadHost("a/b".into())));
+        assert_eq!(args("devices"), Ok(Invocation::Devices));
+        assert_eq!(args("unpair 3"), Ok(Invocation::Unpair(DeviceId::new(3))));
+        assert_eq!(args("unpair x"), Err(UsageError::BadDevice("x".into())));
+        assert_eq!(args("unpair"), Err(UsageError::Missing("a device number")));
+    }
+
+    #[test]
+    fn a_pairing_link_can_point_at_the_hosts_address() {
+        let link = "https://172.17.0.2:18443/#pair=ABCD";
+        assert_eq!(link_at(link, "192.168.1.20"), "https://192.168.1.20:18443/#pair=ABCD");
+        assert_eq!(link_at(link, "nas.local:8443"), "https://nas.local:8443/#pair=ABCD");
+    }
+
+    #[test]
+    fn the_pairing_report_has_a_qr_code_the_code_and_the_fingerprint() {
+        use pullbay_domain::pairing::{ListenerState, PairingCode, PairingOffer};
+        let code = PairingCode::from_random(&[5; 32]);
+        let state = RemoteState {
+            listener: ListenerState { fingerprint: Some("AB:CD".into()), ..ListenerState::default() },
+            pairing: Some(PairingOffer {
+                link: format!("https://172.17.0.2:18443/#pair={}", code.as_str()),
+                code: code.clone(),
+                expires_at: 1300,
+            }),
+            ..RemoteState::default()
+        };
+        let report = Report::pairing(&state, Some("192.168.1.20"), 1000);
+        let out = report.out.unwrap();
+        assert!(out.contains('\u{2588}'), "a QR code");
+        assert!(out.contains("open https://192.168.1.20:18443/ and type"));
+        assert!(out.contains(&code.grouped()));
+        assert!(out.contains("5:00 more") && out.contains("AB:CD"));
+        let devices = Report::devices(&[DeviceInfo {
+            id: DeviceId::new(2),
+            name: pullbay_domain::pairing::DeviceName::clean("Pixel"),
+            paired_at: 86_400 + 3_660,
+            last_seen: None,
+        }]);
+        assert_eq!(devices.out.as_deref(), Some("2\tPixel\tpaired 1970-01-02 01:01 UTC"));
     }
 }

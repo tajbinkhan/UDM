@@ -118,6 +118,34 @@ An AI assistant on the same machine can manage the downloads through `pullbay-mc
 
 Outside Docker, run `pullbay-cli` as the same user, with the same `PULLBAY_DATA_DIR` as the daemon.
 
+## From a phone
+
+A server's daemon serves the [remote-control page](remote-control.md) as a desktop's does, so a
+phone on the home network can list, add, pause, resume and remove downloads. It is off until the
+settings turn it on:
+
+1. Stop the container, add `"remote_enabled": true` to `settings.json` in the settings folder
+   (`/config/settings.json` in the image; `remote_port` changes the port, 18443 by default), and
+   start it again.
+2. Publish the port: uncomment the `ports` lines in `installer/docker/compose.yaml` (or add
+   `-p 18443:18443` to `docker run`). Publish it on the home network only, for example
+   `"192.168.1.20:18443:18443"` with the server's own address, and never forward it on the router.
+   With `network_mode: host` instead, nothing needs publishing.
+3. Pair the phone from a terminal, giving the address the phone reaches the server at (inside a
+   container the daemon sees only the container's own):
+
+   ```
+   docker exec -it pullbay pullbay-cli pair --host 192.168.1.20
+   ```
+
+   Scan the QR code it prints, check the certificate's fingerprint in the phone's warning against
+   the one printed, and go on. `pullbay-cli devices` lists the paired phones and `pullbay-cli
+   unpair ID` removes one at once.
+
+The page's certificate and the paired devices are kept in the data folder's `remote` folder
+(`/config/data/remote` in the image), sealed and readable by the daemon's user only. See
+[Remote control](remote-control.md) for the threat model.
+
 ## Settings
 
 The settings are `settings.json` in the settings folder. A missing file or field means the
@@ -179,8 +207,4 @@ and `PULLBAY_INSTANCE`, so the service manager sees it fail.
   started as your own user, with the usual data folder, does take the extension's downloads, since
   the host finds its token as usual (the host must be registered with the browser already, by an
   installed Pullbay; server mode registers nothing).
-- **A phone cannot reach it either.** Adding and watching downloads from a phone or another
-  computer on the home network is planned as a paired, HTTPS page served by the daemon
-  ([#254](https://github.com/tajbinkhan/pullbay/issues/254)). Until then, use `pullbay-cli` over
-  `docker exec` or SSH.
 - Settings other than the folders come from `settings.json` only, not from options or variables.

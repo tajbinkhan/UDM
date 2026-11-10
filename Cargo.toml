@@ -56,9 +56,9 @@ windows = { version = "0.61", features = [
 # which is not shipped.
 strip = "debuginfo"
 
-# The FTPS tests make an RSA key for their test server's certificate each run
-# (pullbay-infrastructure's dev-dependencies); unoptimized, finding its primes
-# takes tens of seconds instead of well under one.
+# The remote-control page's certificate and the FTPS tests' test server make
+# an RSA key (pullbay-infrastructure's `web_remote::certificate`); unoptimized,
+# finding its primes takes tens of seconds instead of well under one.
 [profile.dev.package.num-bigint-dig]
 opt-level = 3
 [profile.dev.package.rsa]

@@ -128,6 +128,8 @@ pub struct AppState {
     /// Whether the browser extension is connected, and when one last was,
     /// as the daemon last said.
     pub browser_link: Option<(bool, Option<u64>)>,
+    /// How remote control stands, as the daemon last answered Options.
+    pub remote: Option<pullbay_domain::pairing::RemoteState>,
     /// The grabber's saved projects, the most recently used first, as a
     /// worker last read them.
     pub grab_projects: Vec<String>,
@@ -293,6 +295,7 @@ impl AppState {
             }
             Event::BrowserLink { connected, last_seen } => self.browser_link = Some((*connected, *last_seen)),
             Event::LimitLifted { lifted } => self.limit_lifted = *lifted,
+            Event::Remote { state } => self.remote = Some(state.clone()),
             Event::Started { id, .. } => {
                 self.segments.remove(id);
                 self.started.push((*id, progress::started_by_queue(&self.queues, *id)));
@@ -457,6 +460,7 @@ impl Default for AppState {
             quota_paused: false,
             limit_lifted: false,
             browser_link: None,
+            remote: None,
             grab_projects: Vec::new(),
             grab_templates: pullbay_domain::grab::built_in_templates(),
             grab_template: GrabRequest::default(),

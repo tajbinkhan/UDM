@@ -1,6 +1,6 @@
 //! `pullbay-cli`, Pullbay's command-line tool: downloads a file and shows
-//! its progress, lists, pauses, resumes and removes downloads, and starts
-//! and stops queues, from a terminal or a script, with no window open.
+//! its progress, lists, pauses, resumes and removes downloads, starts
+//! and stops queues, and pairs phones with the remote-control page, from a terminal or a script, with no window open.
 //!
 //! It is a client of the daemon like the window, and starts the daemon when
 //! none runs. Its arguments, output and exit codes are
@@ -17,7 +17,8 @@
 use std::time::Duration;
 
 use pullbay_application::remote::{
-    ControlQueue, ForgetDownload, GetFile, ListDownloads, PauseDownload, ResumeDownload, Session,
+    ControlQueue, ForgetDownload, GetFile, ListDevices, ListDownloads, PairPhone, PauseDownload, ResumeDownload,
+    Session, UnpairDevice,
 };
 use pullbay_infrastructure as infra;
 use pullbay_infrastructure::tool::{self, exit, Invocation, Report, Which};
@@ -94,6 +95,11 @@ fn run(invocation: Invocation) -> Report {
         Invocation::Queue { start, name } => {
             ControlQueue::new(&session).run(name.as_deref(), start).map(|_| Report::ok())
         }
+        Invocation::Pair { host } => PairPhone::new(&session)
+            .run()
+            .map(|state| Report::pairing(&state, host.as_deref(), infra::state::unix_now())),
+        Invocation::Devices => ListDevices::new(&session).run().map(|devices| Report::devices(&devices)),
+        Invocation::Unpair(id) => UnpairDevice::new(&session).run(id).map(|()| Report::ok()),
         Invocation::Help | Invocation::Version => Ok(Report::ok()),
     };
     result.unwrap_or_else(|e| {

@@ -101,6 +101,17 @@ request. The squatter only ever sees a random nonce, never the token, cookies
 or URLs. A client that sends nothing, sends the wrong frame or sends a frame
 over 1 KiB is dropped, and each step times out after 5 seconds.
 
+## Remote control from a phone
+
+The daemon can also serve an HTTPS page to paired phones on the network (see
+[Remote control](remote-control.md), which has its threat model). It is off
+until the user turns it on, and it is not a client of the loopback port: the
+page's requests run inside the daemon, through the same commands a window sends,
+on a connection of their own (`pullbay_application::pairing::LocalClient`), so
+the token above never reaches the page or the phone. Each request carries the
+phone's own credential instead, which `PairingDesk` checks against the digests
+it keeps in `remote/devices.bin`.
+
 ## The download engine
 
 The engine talks HTTP/2 when the server offers it (through TLS ALPN, as IDM

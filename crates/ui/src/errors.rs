@@ -10,11 +10,12 @@ use pullbay_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
 use pullbay_domain::command::{CommandError, PATH_TOKEN};
 use pullbay_domain::download::{DownloadError, Mismatch};
 use pullbay_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
+use pullbay_domain::pairing::{PairingError, RemoteFault, MAX_DEVICES};
 use pullbay_domain::ports::SettingsError;
 use pullbay_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
 use pullbay_domain::settings::{
     InvalidSettings, ProxyEntry, SettingsField, CONNECTIONS_RANGE, GENERAL, IDLE_MINUTES_RANGE, MAX_CONCURRENT_RANGE,
-    QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE,
+    QUOTA_HOURS_RANGE, REMOTE_PORT_RANGE, SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE,
 };
 use pullbay_domain::theme::InvalidTheme;
 use pullbay_domain::update::UpdateError;
@@ -220,6 +221,14 @@ pub fn settings(e: &InvalidSettings) -> String {
             lo = SPEED_LIMIT_RANGE_KBPS.0,
             hi = SPEED_LIMIT_RANGE_KBPS.1
         ),
+        E::RemotePort => trf!(
+            "The remote-control port must be between {lo} and {hi}.",
+            lo = REMOTE_PORT_RANGE.0,
+            hi = REMOTE_PORT_RANGE.1
+        ),
+        E::RemoteAddress(address) => {
+            trf!("\"{address}\" is not an IP address of this computer, such as 192.168.1.20.", address = address)
+        }
         E::IdleMinutes => trf!(
             "The time away must be between {lo} and {hi} minutes.",
             lo = IDLE_MINUTES_RANGE.0,
@@ -365,6 +374,7 @@ fn service(e: &ServiceError) -> String {
         ServiceError::BadBody(url) => trf!("the form body of {url} is not valid base64", url = url),
         ServiceError::NotDownloadAddress(url) => trf!("{url} is not an http, https or ftp address", url = url),
         ServiceError::Tool(e) => tool(e),
+        ServiceError::Pairing(e) => pairing(e),
     }
 }
 
@@ -393,6 +403,39 @@ pub fn tool(e: &pullbay_domain::tools::ToolError) -> String {
         E::Save { path, reason } => trf!("Could not save {path}: {reason}", path = path, reason = reason),
         E::UpToDate(tool) => trf!("{tool} is up to date.", tool = tool),
         E::Busy(tool) => trf!("{tool} is being installed already.", tool = tool),
+    }
+}
+
+/// Why pairing a phone, or removing one, failed.
+pub fn pairing(e: &PairingError) -> String {
+    match e {
+        PairingError::WrongCode => {
+            tr("That pairing code is wrong or has run out. Show a new one in Pullbay's Options.").to_string()
+        }
+        PairingError::TooManyTries { wait } => trf!("Too many wrong tries. Try again in {wait} seconds.", wait = wait),
+        PairingError::NotPaired => tr("This device is not paired with Pullbay.").to_string(),
+        PairingError::TooManyDevices => {
+            trf!("{count} devices are paired already. Remove one in Options first.", count = MAX_DEVICES)
+        }
+        PairingError::NoDevice(id) => trf!("There is no paired device {id}.", id = id),
+        PairingError::NotListening => tr("Remote control is not on.").to_string(),
+        // The device list's or the random source's own words.
+        PairingError::Store(why) => why.clone(),
+    }
+}
+
+/// Why remote control is on but its page is not served.
+pub fn remote_fault(e: &RemoteFault) -> String {
+    match e {
+        RemoteFault::PortInUse { address } => {
+            trf!("Another program is using {address}. Choose another port.", address = address)
+        }
+        RemoteFault::AddressUnavailable { address } => {
+            trf!("This computer has no address {address}. Choose another, or every interface.", address = address)
+        }
+        RemoteFault::NoPermission { address } => trf!("Pullbay may not listen on {address}.", address = address),
+        RemoteFault::Certificate(why) => trf!("Could not make the page's certificate: {why}", why = why),
+        RemoteFault::Other(why) => why.clone(),
     }
 }
 
@@ -537,6 +580,8 @@ mod tests {
             InvalidSettings::ProxyNotHostPort(ProxyEntry::Socks),
             InvalidSettings::NotLoginSite("a b".into()),
             InvalidSettings::Scanner(CommandError::NoPath),
+            InvalidSettings::RemotePort,
+            InvalidSettings::RemoteAddress("pc.local".into()),
         ];
         for e in &settings_errors {
             assert_eq!(settings(e), e.to_string());
@@ -604,6 +649,13 @@ mod tests {
             UpdateError::NewestAlready.into(),
             UpdateError::Save { path: "/t/s.exe".into(), reason: "denied".into() }.into(),
             UpdateError::Start { path: "/t/s.exe".into(), reason: "denied".into() }.into(),
+            ServiceError::Pairing(PairingError::WrongCode).into(),
+            ServiceError::Pairing(PairingError::TooManyTries { wait: 30 }).into(),
+            ServiceError::Pairing(PairingError::NotPaired).into(),
+            ServiceError::Pairing(PairingError::TooManyDevices).into(),
+            ServiceError::Pairing(PairingError::NoDevice(pullbay_domain::id::DeviceId::new(4))).into(),
+            ServiceError::Pairing(PairingError::NotListening).into(),
+            ServiceError::Pairing(PairingError::Store("disk full".into())).into(),
         ];
         for e in &failures {
             assert_eq!(daemon(e), e.to_string(), "{e:?}");

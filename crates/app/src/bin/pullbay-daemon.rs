@@ -61,7 +61,9 @@ use std::sync::Arc;
 use pullbay_application::daemon::service::{
     confirm_answer, when_done, DaemonService, Note, Parts, RunProject, Served, Wiring,
 };
+use pullbay_application::daemon::Requests;
 use pullbay_application::downloads::{RemoveDownload, RetryDownload, StartOrWait};
+use pullbay_application::pairing::{PairingDesk, Phone};
 use pullbay_domain::download::Answer;
 use pullbay_domain::id::DownloadId;
 use pullbay_domain::ports::{Browser, Probes, SiteCrawler};
@@ -88,11 +90,13 @@ use pullbay_infrastructure::probes::ServerProbes;
 use pullbay_infrastructure::queue_runs::{PauseBook, RunBook};
 use pullbay_infrastructure::quota::QuotaHold;
 use pullbay_infrastructure::scan::Antivirus;
-use pullbay_infrastructure::server::{Clients, Server};
+use pullbay_infrastructure::server::{next_client, Clients, Server};
 use pullbay_infrastructure::settings;
 use pullbay_infrastructure::store::{DownloadStore, Ended, StoreEvents, StoreFiles, StoreIntake};
 use pullbay_infrastructure::transfers::{self, EarlyHandOver, GoOn, SyncChecker, Transfers};
 use pullbay_infrastructure::update::{GitHub, LATEST_RELEASE};
+use pullbay_infrastructure::web_remote::devices::{DeviceFile, OsKeys};
+use pullbay_infrastructure::web_remote::WebRemote;
 use tracing::{error, info, warn};
 
 /// This copy's version.
@@ -136,6 +140,8 @@ type Daemon = DaemonService<Wired>;
 struct Paths {
     settings: Option<PathBuf>,
     store: StoreFiles,
+    /// The remote-control page's certificate and the paired devices.
+    remote: Option<PathBuf>,
 }
 
 impl Paths {
@@ -148,6 +154,7 @@ impl Paths {
                 requests: warn("saved requests", history::requests_path()),
                 quota: warn("quota", pullbay_infrastructure::quota::quota_path()),
             },
+            remote: warn("remote control", pullbay_infrastructure::paths::remote_dir()),
         }
     }
 }
@@ -163,6 +170,9 @@ struct Built {
     notes: Receiver<Note>,
     /// Wakes the scheduler.
     wake: Receiver<()>,
+    /// The remote-control page's listener, which serves nothing until
+    /// `run` hands it the service.
+    remote: Arc<WebRemote>,
 }
 
 /// Load settings, history and saved requests, start the engine with them,
@@ -292,6 +302,12 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
     let tool_releases =
         Arc::new(pullbay_infrastructure::video_tools::GitHubTools::new(Arc::clone(&settings), Arc::clone(&retries)));
     let tool_folder = Arc::new(pullbay_infrastructure::video_tools::ToolDir::new(Arc::clone(&settings)));
+    let remote = Arc::new(WebRemote::new(paths.remote.clone()));
+    let pairing = Arc::new(PairingDesk::open(
+        Arc::new(DeviceFile::in_dir(paths.remote.as_deref())),
+        Arc::new(OsKeys),
+        Arc::new(LocalClock),
+    ));
 
     let daemon = DaemonService::new(Parts {
         intake: StoreIntake { store: Arc::clone(&store), engine },
@@ -332,9 +348,11 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         notes,
         wake,
         version: VERSION,
+        pairing,
+        listener: Arc::clone(&remote) as _,
         seat,
     });
-    Built { daemon, clients, dirty: dirty_rx, notes: notes_rx, wake: wake_rx }
+    Built { daemon, clients, dirty: dirty_rx, notes: notes_rx, wake: wake_rx, remote }
 }
 
 fn main() {
@@ -424,7 +442,7 @@ fn run(seat: Seat) -> anyhow::Result<()> {
         );
     }
 
-    let Built { daemon, clients, dirty, notes, wake } = new_daemon(Paths::from_env(), seat);
+    let Built { daemon, clients, dirty, notes, wake, remote } = new_daemon(Paths::from_env(), seat);
     transfers::clean_early_folders(&daemon.store);
     let daemon = Arc::new(daemon);
     {
@@ -460,7 +478,16 @@ fn run(seat: Seat) -> anyhow::Result<()> {
         background::spawn_stop_on_signal(move || transfers.save_history());
     }
 
-    server.serve(clients, Arc::new(Served(daemon)));
+    // The remote-control page asks the service what a client would, inside
+    // this process; it listens only while the settings have it on.
+    let requests: Arc<dyn Requests> = Arc::new(Served(Arc::clone(&daemon)));
+    remote.serve_with(Arc::new(Phone::new(Arc::clone(&daemon.pairing), Arc::clone(&requests), Box::new(next_client))));
+    {
+        let settings = Arc::clone(&daemon.settings);
+        remote.watch(move || settings.get());
+    }
+
+    server.serve(clients, requests);
     Ok(())
 }
 
@@ -593,7 +620,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let Built { daemon, clients: connections, .. } =
-            new_daemon(Paths { settings: None, store: StoreFiles::default() }, Seat::Desktop);
+            new_daemon(Paths { settings: None, store: StoreFiles::default(), remote: None }, Seat::Desktop);
         {
             let mut s = daemon.settings.lock();
             s.download_dir = Some(dir.display().to_string());
@@ -721,12 +748,17 @@ mod tests {
 
     #[test]
     fn a_server_daemon_runs_on_when_it_has_nothing_to_do() {
-        let built = |seat| new_daemon(Paths { settings: None, store: StoreFiles::default() }, seat).daemon;
+        let built =
+            |seat| new_daemon(Paths { settings: None, store: StoreFiles::default(), remote: None }, seat).daemon;
         let desktop = built(Seat::Desktop);
         assert!(desktop.idle() && desktop.may_exit(), "a desktop daemon with nothing to do exits");
         let server = built(Seat::Server);
         assert!(server.idle(), "the server has nothing to do either");
         assert!(!server.may_exit(), "but runs until it is stopped");
+        // Remote control keeps a desktop's daemon running too, and a server's
+        // serves the phone page the same way.
+        desktop.settings.lock().remote_enabled = true;
+        assert!(!desktop.idle() && !desktop.may_exit(), "a phone may ask at any time");
     }
 
     #[test]
@@ -1335,7 +1367,7 @@ mod tests {
                 ..Settings::default()
             };
             settings::save(&s, &path).unwrap();
-            let paths = Paths { settings: Some(path.clone()), store: StoreFiles::default() };
+            let paths = Paths { settings: Some(path.clone()), store: StoreFiles::default(), remote: None };
             let daemon = new_daemon(paths, Seat::Desktop).daemon;
             let s = daemon.settings.lock().clone();
             (s, daemon.transfers.engine().per_file_limit())
@@ -2435,5 +2467,136 @@ mod tests {
         assert_eq!(refused["isError"], true);
         ask(7, "tools/call", call("remove_download", json!({ "id": later.get() })));
         assert!(t.daemon.entry(later).is_none());
+    }
+
+    /// A phone pairs through the code the window asked the daemon for, and
+    /// then lists, adds, pauses, resumes and removes downloads through the
+    /// real service, until the window removes it.
+    #[test]
+    fn a_paired_phone_controls_the_daemon_until_it_is_removed() {
+        phone_controls(Seat::Desktop, "desktop");
+    }
+
+    /// A server's daemon (`--server`, no window) serves the phone page the
+    /// same way, its pairing asked for as `pullbay-cli pair` asks.
+    #[test]
+    fn a_servers_daemon_serves_the_phone_page_too() {
+        phone_controls(Seat::Server, "server");
+    }
+
+    fn phone_controls(seat: Seat, name: &str) {
+        use pullbay_application::daemon::Command;
+        use pullbay_application::pairing::Phone;
+        use pullbay_domain::id::DeviceId;
+        use pullbay_domain::settings::Notify;
+        use pullbay_infrastructure::web_remote::{http, serve};
+        use serde_json::{json, Value};
+
+        let dir = std::env::temp_dir().join(format!("pullbay_phone_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let Built { daemon, clients: connections, remote, .. } =
+            new_daemon(Paths { settings: None, store: StoreFiles::default(), remote: Some(dir.join("remote")) }, seat);
+        {
+            let mut s = daemon.settings.lock();
+            s.download_dir = Some(dir.display().to_string());
+            s.ask_where_to_save = false;
+            s.notify = Notify::Off;
+            s.if_duplicate = Duplicate::NewName;
+        }
+        let (_window_reply, _window) = connections.connect(ClientId::new(1));
+        connections.add_window(ClientId::new(1));
+        let daemon = Arc::new(daemon);
+        let requests: Arc<dyn Requests> = Arc::new(Served(Arc::clone(&daemon)));
+        let gate = Arc::new(Phone::new(Arc::clone(&daemon.pairing), Arc::clone(&requests), Box::new(next_client)));
+        remote.serve_with(Arc::clone(&gate) as _);
+
+        // Nothing to pair with while remote control is off.
+        let (reply, frames) = server::reply_channel();
+        requests.handle(ClientId::new(1), Command::StartPairing, &reply);
+        let heard = |frames: &Receiver<Vec<u8>>| -> Vec<Outgoing> {
+            frames.try_iter().filter_map(|f| serde_json::from_slice::<Outgoing>(&f).ok()).collect()
+        };
+        assert!(heard(&frames).iter().any(|m| matches!(m, Outgoing::Error { .. })));
+
+        remote.apply(&Settings {
+            remote_enabled: true,
+            remote_port: 0,
+            remote_addresses: vec!["127.0.0.1".into()],
+            ..Settings::default()
+        });
+        requests.handle(ClientId::new(1), Command::StartPairing, &reply);
+        let offer = heard(&frames)
+            .into_iter()
+            .find_map(|m| match m {
+                Outgoing::Remote { state } => state.pairing,
+                _ => None,
+            })
+            .expect("a pairing code");
+        assert!(offer.link.starts_with("https://127.0.0.1:") && offer.link.ends_with(offer.code.as_str()));
+
+        let ask = |method: &str, path: &str, credential: Option<&str>, body: Value| -> (u16, Value) {
+            let auth = credential.map(|c| format!("Authorization: Bearer {c}\r\n")).unwrap_or_default();
+            let body = if body.is_null() { String::new() } else { body.to_string() };
+            let raw = format!(
+                "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n{auth}Content-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            let request =
+                http::read_request(&mut raw.as_bytes(), &mut Vec::new(), Instant::now() + Duration::from_secs(5))
+                    .unwrap();
+            let answer = serve::route(&request, "127.0.0.1".parse().unwrap(), &*gate);
+            (answer.status, serde_json::from_slice(&answer.body).unwrap_or(Value::Null))
+        };
+        let wait = |id: DownloadId, status: Status| {
+            let until = Instant::now() + Duration::from_secs(10);
+            while daemon.entry(id).is_none_or(|e| e.status != status) {
+                assert!(Instant::now() < until, "#{id} never became {status:?}: {:?}", daemon.entry(id));
+                thread::sleep(Duration::from_millis(20));
+            }
+        };
+
+        assert_eq!(ask("GET", "/api/downloads", None, Value::Null).0, 401);
+        let (status, paired) = ask("POST", "/api/pair", None, json!({ "code": offer.code.as_str(), "name": "Phone" }));
+        assert_eq!(status, 200, "{paired}");
+        let me = paired["credential"].as_str().unwrap().to_string();
+        assert_eq!(ask("POST", "/api/pair", None, json!({ "code": offer.code.as_str() })).0, 403, "used up");
+
+        let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
+        let (status, added) = ask("POST", "/api/add", Some(&me), json!({ "url": url }));
+        assert_eq!(status, 200, "{added}");
+        let id = DownloadId::new(added["id"].as_u64().unwrap());
+        wait(id, Status::Downloading);
+        let (_, list) = ask("GET", "/api/downloads", Some(&me), Value::Null);
+        let row = list["downloads"].as_array().unwrap().iter().find(|d| d["id"] == id.get()).cloned().unwrap();
+        assert_eq!((row["name"].as_str(), row["host"].as_str()), (Some("big.bin"), Some("127.0.0.1")));
+        assert!(!list.to_string().contains(&dir.display().to_string()), "no folders");
+
+        assert_eq!(ask("POST", "/api/pause", Some(&me), json!({ "id": id.get() })).0, 200);
+        wait(id, Status::Canceled);
+        assert_eq!(ask("POST", "/api/resume", Some(&me), json!({ "id": id.get() })).0, 200);
+        let until = Instant::now() + Duration::from_secs(10);
+        let resumed = loop {
+            let running = daemon.store.table().entries().find(|e| e.status == Status::Downloading).cloned();
+            if let Some(e) = running {
+                break e.id;
+            }
+            assert!(Instant::now() < until, "never resumed");
+            thread::sleep(Duration::from_millis(20));
+        };
+        assert_eq!(ask("POST", "/api/pause", Some(&me), json!({ "id": resumed.get() })).0, 200);
+        wait(resumed, Status::Canceled);
+        assert_eq!(ask("POST", "/api/remove", Some(&me), json!({ "id": resumed.get() })).0, 200);
+        assert!(daemon.entry(resumed).is_none());
+
+        requests.handle(ClientId::new(1), Command::RemoveDevice { id: DeviceId::new(1) }, &reply);
+        let state = heard(&frames).into_iter().find_map(|m| match m {
+            Outgoing::Remote { state } => Some(state),
+            _ => None,
+        });
+        assert!(state.is_some_and(|s| s.devices.is_empty()));
+        assert_eq!(ask("GET", "/api/downloads", Some(&me), Value::Null).0, 401, "removed at once");
+        remote.stop();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -20,6 +20,15 @@
   `require_ssl_reuse` on, may refuse the transfers. An `ftp://` server is
   switched to TLS only when it refuses a plain login and asks for TLS, not
   whenever it offers `AUTH TLS`.
+- Remote control from a phone (`docs/remote-control.md`): listening on
+  every interface covers IPv4 only; name an IPv6 address under *Only these
+  addresses* to listen on it. The page has no live push: it asks for the list
+  every 2 seconds. It adds links into the folder the settings choose, with
+  the server's name, and cannot pick a queue, a folder or a name, or pause
+  and resume everything at once. Its text is English, German, Spanish or
+  French; the daemon's own refusals are English. The page was not tried on
+  a real iPhone or Android phone, and the certificate was served by OpenSSL
+  only (SChannel and Security.framework were built, not run).
 - The history is written about a second after each change, so a crash can
   lose the last second of progress; the sidecar still has it, so resuming is
   unaffected.

@@ -53,6 +53,7 @@ pub use ports::Ports;
 mod progress;
 mod properties;
 mod queues;
+mod remote;
 mod reopen;
 mod state;
 mod table;
@@ -378,6 +379,9 @@ enum Action {
     /// Show its report file in the file manager.
     ShowReport,
     OpenOptions,
+    /// Ask the daemon about remote control: how it stands, a pairing
+    /// code, or a device's removal.
+    Remote(Command),
     /// Open Options at the Connection tab with a new login for this host.
     /// Ask for the login a failed download's site wants.
     OpenLogin(DownloadId),
@@ -767,6 +771,7 @@ enum OptionsTab {
     Video,
     Notifications,
     Connection,
+    Remote,
 }
 
 /// One proxy's login being edited.
@@ -931,6 +936,8 @@ struct CategoryDraft {
 /// The Options dialog's fields, edited freely and checked on Save.
 struct OptionsDraft {
     tab: OptionsTab,
+    /// The Remote control page.
+    remote: remote::RemoteDraft,
     close_to_tray: bool,
     minimize_to_tray: bool,
     tray_icon: bool,
@@ -1123,6 +1130,7 @@ impl OptionsDraft {
         let limit_unit = if kbps >= 1024 && kbps.is_multiple_of(1024) { SpeedUnit::Mb } else { SpeedUnit::Kb };
         OptionsDraft {
             tab: OptionsTab::General,
+            remote: remote::RemoteDraft::new(s),
             close_to_tray: s.close_to_tray,
             minimize_to_tray: s.minimize_to_tray,
             tray_icon: s.tray_icon,
@@ -1478,6 +1486,9 @@ impl OptionsDraft {
             theme: self.theme.clone(),
             text_size: self.text_size,
             language: self.language.clone(),
+            remote_enabled: self.remote.enabled,
+            remote_port: self.remote.port,
+            remote_addresses: self.remote.address_list(),
             // The daemon keeps its own.
             last_update_check: 0,
         };
@@ -2152,6 +2163,9 @@ impl App {
                 if let Some(ReportOffer::Saved { report, .. }) = self.state.reports.front() {
                     self.reveal_report(report);
                 }
+            }
+            Action::Remote(command) => {
+                self.daemon.send(command);
             }
             Action::OpenOptions => {
                 if let Some(settings) = &self.state.settings {
@@ -3051,6 +3065,7 @@ impl App {
         };
         match result {
             Some(Ok(())) => {
+                actions.extend(draft.remote.closing().map(Action::Remote));
                 self.options = None;
                 return;
             }
@@ -3101,6 +3116,14 @@ impl App {
             (screen.y * OPTIONS_SCREEN_SHARE - OPTIONS_CHROME_HEIGHT)
                 .clamp(OPTIONS_MIN_PAGE_HEIGHT, OPTIONS_PAGE_HEIGHT)
         });
+        draft.remote.take_state(self.state.remote.as_ref());
+        let unix_now = crate::ports::ports().unix_now();
+        let mut remote_asks = Vec::new();
+        if draft.tab == OptionsTab::Remote && connected {
+            remote_asks.extend(draft.remote.poll());
+            // The code's countdown, and a phone pairing meanwhile.
+            ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        }
         let mut open = true;
         let mut close = false;
         crate::dialog::Window::new(tr("Options"))
@@ -3119,6 +3142,7 @@ impl App {
                     ui.selectable_value(&mut draft.tab, OptionsTab::Video, tr("Videos and menus"));
                     ui.selectable_value(&mut draft.tab, OptionsTab::Notifications, tr("When done"));
                     ui.selectable_value(&mut draft.tab, OptionsTab::Connection, tr("Connection"));
+                    ui.selectable_value(&mut draft.tab, OptionsTab::Remote, tr("Remote control"));
                 });
                 ui.separator();
                 // Every page is the same height, as on a property sheet, so
@@ -3136,6 +3160,7 @@ impl App {
                         OptionsTab::Video => video_tab(ui, draft),
                         OptionsTab::Notifications => notifications_tab(ui, draft),
                         OptionsTab::Connection => connection_tab(ui, draft),
+                        OptionsTab::Remote => remote::tab(ui, &mut draft.remote, unix_now, &mut remote_asks),
                     });
 
                 if let Some(err) = &draft.error {
@@ -3166,7 +3191,12 @@ impl App {
         if let Some(tool) = draft.install_tool.take() {
             actions.push(Action::InstallTool(tool));
         }
-        if !open || close {
+        let closing = !open || close;
+        if closing {
+            remote_asks.extend(draft.remote.closing());
+        }
+        actions.extend(remote_asks.into_iter().map(Action::Remote));
+        if closing {
             self.options = None;
         }
     }
