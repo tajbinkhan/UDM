@@ -222,7 +222,9 @@ pub fn model(s: &State) -> Vec<Node> {
         .iter()
         .map(|l| {
             let current = set.is_some_and(|c| i18n::resolve(&c.language).code == l.code);
-            check(l.name, Command::Language(l.code), set.is_some(), current)
+            // Windows draws its native menu bar with its own fonts.
+            let name = if cfg!(windows) { l.name } else { l.shown_name() };
+            check(name, Command::Language(l.code), set.is_some(), current)
         })
         .collect();
     let view = vec![

@@ -95,9 +95,16 @@ The window's strings are written in English in the code, and that English is eac
 - The tests check that every key is still used, keeps its `{placeholders}`, and that every
   extension locale has the same messages as `en`.
 
-A new string in the window needs its German, Spanish and French translations, or a test fails.
-egui draws text without shaping it, so scripts that need shaping, such as Bengali, Hindi or
-Arabic, don't display correctly yet. More in
+A new string in the window needs its translation in every table, or a test fails. If you
+cannot translate it yourself, say so in the pull request.
+
+Most tables (all but German, Spanish and French) were made with a language model and wait for a
+native speaker's review. If you speak one of them, reading it in the running window and fixing
+what reads wrong is very welcome; [Help translate](docs/translating.md) says how, and which
+tables are reviewed.
+
+egui draws text without shaping it or laying it out right to left, so Arabic, Hebrew, Persian,
+Urdu and scripts that need shaping, such as Bengali or Hindi, don't display correctly yet. More in
 [Building Pullbay](docs/building.md#adding-a-language).
 
 ## Pull requests

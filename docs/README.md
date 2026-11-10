@@ -52,6 +52,8 @@ These pages were the README's manual. Each covers one part of Pullbay.
   [JSON Schema](automation-api.schema.json).
 - **[Building Pullbay](building.md)**: where the code lives, building and packaging it on each
   system, and adding a language.
+- **[Help translate](translating.md)**: the languages, which ones wait for review, and how to
+  review or add one.
 
 ## Status
 

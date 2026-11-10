@@ -539,6 +539,10 @@ struct App {
     min_size: Option<egui::Vec2>,
     /// The language setting last applied.
     language: Option<String>,
+    /// The scripts whose system font is installed or being read, and the
+    /// read in progress (see `want_script_font`).
+    script_fonts: std::collections::HashSet<pullbay_application::window::ScriptFont>,
+    reading_font: Pending<(pullbay_application::window::ScriptFont, Option<pullbay_application::window::FontFile>)>,
     /// Which downloads the list shows.
     filter: Filter,
     /// The categories tree between frames.
@@ -1630,6 +1634,8 @@ impl App {
             appearance: None,
             min_size: None,
             language: None,
+            script_fonts: Default::default(),
+            reading_font: Pending::default(),
             filter: Filter::default(),
             tree: categories::Tree::default(),
             queues_dialog: None,
@@ -1726,6 +1732,25 @@ impl App {
         self.appearance = None;
         self.min_size = None;
         self.was_minimized = false;
+    }
+
+    /// Installs the system font the current language's script needs
+    /// (Chinese, Japanese, Korean, Vietnamese), read on a worker the first
+    /// time; until it comes, those characters show as boxes.
+    fn want_script_font(&mut self, ctx: &egui::Context) {
+        // A font that is missing or unusable leaves the boxes; the adapter
+        // logs which file it tried.
+        if let Some((script, Some(file))) = self.reading_font.take() {
+            if theme::add_script_font(ctx, script, file) {
+                i18n::font_installed(script);
+            }
+        }
+        let Some(script) = i18n::current().font else {
+            return;
+        };
+        if !self.reading_font.busy() && self.script_fonts.insert(script) {
+            self.reading_font.start(ctx, move || (script, crate::ports::ports().system.script_font(script)));
+        }
     }
 
     /// Keep the main window's smallest size on the screen: at 200 % its
@@ -3619,15 +3644,15 @@ fn general_tab(
 
         ui.label(tr("Language"));
         let windows = i18n::resolve("");
-        let follow = trf!("Follow Windows ({language})", language = windows.name);
+        let follow = trf!("Follow Windows ({language})", language = windows.shown_name());
         let selected = i18n::LANGUAGES
             .iter()
             .find(|l| l.code == draft.language)
-            .map_or(follow.clone(), |l| l.name.to_string());
+            .map_or(follow.clone(), |l| l.shown_name().to_string());
         egui::ComboBox::from_id_salt("language").selected_text(selected).show_ui(ui, |ui| {
             ui.selectable_value(&mut draft.language, String::new(), follow);
             for l in i18n::LANGUAGES {
-                ui.selectable_value(&mut draft.language, l.code.to_string(), l.name);
+                ui.selectable_value(&mut draft.language, l.code.to_string(), l.shown_name());
             }
         });
         ui.end_row();
@@ -4746,6 +4771,7 @@ impl eframe::App for App {
                 tray::relabel();
                 self.language = Some(s.language.clone());
             }
+            self.want_script_font(ctx);
             tray::set_speed_limit_checked(s.speed_limit_enabled);
             self.sync_drop_target(s, &mut actions);
         }
@@ -5822,7 +5848,7 @@ fn human_bytes(n: ByteCount) -> String {
     if unit == 0 {
         format!("{n} {}", tr(UNITS[0]))
     } else {
-        format!("{value:.1} {}", tr(UNITS[unit]))
+        format!("{} {}", i18n::number(value, 1), tr(UNITS[unit]))
     }
 }
 
