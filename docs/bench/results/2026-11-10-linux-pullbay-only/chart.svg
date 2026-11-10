@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="536" viewBox="0 0 760 536" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="536" fill="#ffffff"/>
+<text x="16" y="24" font-size="14" font-weight="600" fill="#1d2430">Median seconds to download the file (shorter is better; each scenario has its own scale)</text>
+<text x="16" y="58" font-weight="600" fill="#1d2430">clean</text>
+<text x="112" y="81" text-anchor="end" fill="#3b4656">pullbay</text>
+<rect x="120" y="68" width="510.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="636.0" y="81" fill="#1d2430">0.17 s</text>
+<text x="16" y="120" font-weight="600" fill="#1d2430">per-connection-limit</text>
+<text x="112" y="143" text-anchor="end" fill="#3b4656">pullbay</text>
+<rect x="120" y="130" width="510.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="636.0" y="143" fill="#1d2430">2.12 s</text>
+<text x="16" y="182" font-weight="600" fill="#1d2430">slow-link</text>
+<text x="112" y="205" text-anchor="end" fill="#3b4656">pullbay</text>
+<rect x="120" y="192" width="510.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="636.0" y="205" fill="#1d2430">4.13 s</text>
+<text x="16" y="244" font-weight="600" fill="#1d2430">drops</text>
+<text x="112" y="267" text-anchor="end" fill="#3b4656">pullbay</text>
+<rect x="120" y="254" width="510.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="636.0" y="267" fill="#1d2430">1.53 s</text>
+<text x="16" y="306" font-weight="600" fill="#1d2430">two-per-client</text>
+<text x="112" y="329" text-anchor="end" fill="#3b4656">pullbay</text>
+<rect x="120" y="316" width="510.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="636.0" y="329" fill="#1d2430">8.12 s</text>
+<text x="16" y="368" font-weight="600" fill="#1d2430">slow-start</text>
+<text x="112" y="391" text-anchor="end" fill="#3b4656">pullbay</text>
+<rect x="120" y="378" width="510.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="636.0" y="391" fill="#1d2430">4.12 s</text>
+<text x="16" y="430" font-weight="600" fill="#1d2430">wrong-ranges</text>
+<text x="112" y="453" text-anchor="end" fill="#3b4656">pullbay</text>
+<rect x="120" y="440" width="510.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="636.0" y="453" fill="#1d2430">3.37 s</text>
+<text x="16" y="492" font-weight="600" fill="#1d2430">no-ranges</text>
+<text x="112" y="515" text-anchor="end" fill="#3b4656">pullbay</text>
+<rect x="120" y="502" width="510.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="636.0" y="515" fill="#1d2430">4.13 s</text>
+</svg>

@@ -133,7 +133,15 @@ Given an `add`, the engine:
    as well. Only Windows and macOS keep a creation time that can be set;
    on Linux that option is greyed out.
 4. Retries a segment that fails with exponential backoff (400 ms doubling to a
-   10 s ceiling, up to 5 times), resuming from that segment's own cursor.
+   10 s ceiling, up to 5 failures in a row), resuming from that segment's own
+   cursor. A try that got part of its range starts the count again, so a server
+   that keeps dropping connections partway still gets the whole file. A
+   connection that fails before any of its bytes come (the server refused it,
+   answered with an error, or sent another range than the one asked for) while
+   other connections go on gives its range to them and stops, so a server that
+   limits connections per client gets fewer; the last connection retries. The
+   tests check each of these against a local server that injects those faults
+   (`engine/testserver.rs`, and `tools/bench/` for whole programs).
 
 The output filename is, in priority order: an explicit name on the request, the
 server's `Content-Disposition` (including the RFC 5987

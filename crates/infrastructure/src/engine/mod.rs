@@ -55,7 +55,9 @@ const BUF_SIZE: usize = 64 * 1024;
 const REPORT_EVERY: u64 = 1024 * 1024;
 /// Byte-driven reports carry each connection's progress at most this often.
 const SEGMENTS_EVERY: Duration = Duration::from_millis(500);
-/// Transient-failure retries per segment before giving up.
+/// Transient failures in a row a connection retries before the download
+/// gives up. An attempt that got part of its range starts the count again,
+/// so a server that keeps dropping connections partway still gets there.
 const MAX_RETRIES: u32 = 5;
 /// Backoff base and ceiling for retries.
 const RETRY_BASE_MS: u64 = 400;
@@ -1276,6 +1278,20 @@ struct Work {
     /// them at most every `SEGMENTS_EVERY`, so a fast download does not
     /// flood clients with them.
     segments_at: Option<Instant>,
+    /// Connections still taking ranges. One leaves when it finds nothing
+    /// to take, or when the server refuses it while others go on (see
+    /// `hand_over`); the last one never leaves a range behind.
+    live: usize,
+}
+
+/// How a connection's work on one range ended, when it did not fail.
+enum RangeEnd {
+    /// The range is done, or the download was canceled.
+    Done,
+    /// The server refused this connection, so it gave the range back for
+    /// the others to finish and stops: the download goes on with fewer
+    /// connections, as a server that limits them wants.
+    HandedOver,
 }
 
 impl Work {
@@ -1371,14 +1387,14 @@ fn run_segmented(
     let resumed = manifest.bytes_done();
     let busy = vec![false; manifest.segments.len()];
     let states = vec![SegmentState::Waiting; manifest.segments.len()];
-    let shared = Arc::new(Mutex::new(Work { manifest, busy, states, segments_at: None }));
+    // Each connection takes segments until none is left to take or split.
+    let workers = plan.connections.min(unfinished).max(1);
+    let shared = Arc::new(Mutex::new(Work { manifest, busy, states, segments_at: None, live: workers }));
     let global_done = Arc::new(AtomicU64::new(resumed));
     let last_report = Arc::new(AtomicU64::new(resumed));
     let first_error: Arc<Mutex<Option<EngineError>>> = Arc::new(Mutex::new(None));
 
-    // Each connection takes segments until none is left to take or split.
     // Scoped threads may borrow the shared limiter.
-    let workers = plan.connections.min(unfinished).max(1);
     thread::scope(|scope| {
         for _ in 0..workers {
             let agent = agent.clone();
@@ -1418,21 +1434,38 @@ fn run_segmented(
                     // A host at its limit: wait for a connection to free up,
                     // as long as some range is waiting for one.
                     let Some(slot) = gate.take() else {
-                        let waiting = {
-                            let w = shared.lock_or_recover();
-                            w.manifest.segments.iter().zip(&w.busy).any(|(s, b)| !*b && !s.is_complete())
-                        };
-                        if !waiting {
-                            return;
+                        {
+                            let mut w = shared.lock_or_recover();
+                            let waiting = w.manifest.segments.iter().zip(&w.busy).any(|(s, b)| !*b && !s.is_complete());
+                            if !waiting {
+                                w.live = w.live.saturating_sub(1);
+                                return;
+                            }
                         }
                         thread::sleep(GATE_POLL);
                         continue;
                     };
-                    let Some(idx) = shared.lock_or_recover().next(plan.resplit) else {
+                    // Leaving is counted under the same lock that found
+                    // nothing to take, so a range handed over meanwhile
+                    // always has a connection to go to.
+                    let next = {
+                        let mut w = shared.lock_or_recover();
+                        let next = w.next(plan.resplit);
+                        if next.is_none() {
+                            w.live = w.live.saturating_sub(1);
+                        }
+                        next
+                    };
+                    let Some(idx) = next else {
                         return;
                     };
                     let result = download_segment(&ctx, idx);
                     drop(slot);
+                    if let Ok(RangeEnd::HandedOver) = result {
+                        // `hand_over` gave the range back and counted the
+                        // leaving; another connection may have it already.
+                        return;
+                    }
                     {
                         let mut w = shared.lock_or_recover();
                         w.busy[idx] = false;
@@ -1461,10 +1494,16 @@ fn run_segmented(
         return Err(err);
     }
 
-    let (done, segments) = {
+    let (done, segments, whole) = {
         let w = shared.lock_or_recover();
-        (w.manifest.bytes_done(), w.snapshot())
+        (w.manifest.bytes_done(), w.snapshot(), w.manifest.segments.iter().all(|s| s.is_complete()))
     };
+    if !whole {
+        // Every connection stopped with a range left; the sidecar keeps
+        // what came, for a retry.
+        shared.lock_or_recover().manifest.save(&sidecar).ok();
+        return Err(EngineError::Protocol("the connections stopped before the whole file came".into()));
+    }
     reporter.send(Progress::Advanced {
         id,
         url: url.clone(),
@@ -1497,18 +1536,32 @@ struct SegmentCtx<'a> {
 /// Fetch one segment, retrying transient failures with backoff. Each attempt
 /// resumes from the segment's current cursor, so a retry refetches only what is
 /// still missing. Stops early if the download is canceled.
-fn download_segment(ctx: &SegmentCtx, idx: usize) -> Result<(), EngineError> {
+///
+/// An attempt that failed before any of its bytes came (the server refused
+/// the connection, answered with an error or with the wrong range) while
+/// other connections go on hands the range over to them instead of
+/// retrying: a server that limits connections per client then gets fewer.
+/// The last connection retries as before.
+fn download_segment(ctx: &SegmentCtx, idx: usize) -> Result<RangeEnd, EngineError> {
     let mut attempt = 0u32;
     loop {
         if ctx.token.load(Ordering::Relaxed) {
-            return Ok(());
+            return Ok(RangeEnd::Done);
         }
+        let before = segment_cursor(ctx, idx);
         match download_segment_once(ctx, idx) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(RangeEnd::Done),
             Err(e) if e.is_permanent() => return Err(e),
             Err(e) => {
                 if ctx.token.load(Ordering::Relaxed) {
-                    return Ok(());
+                    return Ok(RangeEnd::Done);
+                }
+                if segment_cursor(ctx, idx) > before {
+                    // Dropped partway: count failures in a row only.
+                    attempt = 0;
+                } else if hand_over(ctx, idx) {
+                    tracing::debug!(download_id = ctx.id.get(), error = %e, "connection refused; fewer connections");
+                    return Ok(RangeEnd::HandedOver);
                 }
                 attempt += 1;
                 if attempt > MAX_RETRIES {
@@ -1520,6 +1573,25 @@ fn download_segment(ctx: &SegmentCtx, idx: usize) -> Result<(), EngineError> {
             }
         }
     }
+}
+
+/// Where segment `idx`'s next byte comes from.
+fn segment_cursor(ctx: &SegmentCtx, idx: usize) -> u64 {
+    ctx.shared.lock_or_recover().manifest.segments[idx].cursor()
+}
+
+/// Give segment `idx` back for another connection and count this one as
+/// gone, unless it is the last one taking ranges. Both happen under one
+/// lock, so the range is never left with no connection to finish it.
+fn hand_over(ctx: &SegmentCtx, idx: usize) -> bool {
+    let mut w = ctx.shared.lock_or_recover();
+    if w.live <= 1 {
+        return false;
+    }
+    w.live = w.live.saturating_sub(1);
+    w.busy[idx] = false;
+    w.states[idx] = SegmentState::Waiting;
+    true
 }
 
 /// Record what segment `idx`'s connection is doing and report it. These
@@ -2429,6 +2501,7 @@ mod tests {
                 busy: vec![true],
                 states: vec![SegmentState::Receiving],
                 segments_at: None,
+                live: 2,
             };
             w.manifest.segments[0].done = 1 << 20;
             let i = w.next(true).unwrap();
@@ -2810,6 +2883,139 @@ mod tests {
             assert!(found.resumable);
             let named = inspect(&server.url, Some("a/b:c.txt"), &[], &NetConfig::default()).unwrap();
             assert_eq!(named.filename, "a_b_c.txt");
+        }
+
+        // A server that drops, limits, stalls, misanswers or throttles
+        // connections (the test server's faults).
+
+        #[test]
+        fn dropped_connections_resume_where_they_stopped() {
+            // 1 MiB in four 256 KiB ranges, every connection dropped after
+            // 32 KiB: eight tries a range, more than the retries allowed in
+            // a row, so the tries that got bytes must not count against it.
+            const LEN: usize = 1024 * 1024;
+            let data = body(LEN);
+            let server =
+                TestServer::start_with(data.clone(), Behavior { drop_after: Some(32 * 1024), ..Behavior::default() });
+            let dir = temp_dir("dropped");
+            let path = download(|e| e.set_resplit(false), request(&server.url, &dir, FileExists::Rename));
+            assert_eq!(fs::read(&path).unwrap(), data);
+            // Each try asked only for what was still missing.
+            assert_eq!(server.served.load(Ordering::Relaxed), 1 + LEN as u64);
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn a_connection_limit_leaves_fewer_connections() {
+            // Two connections at a time, each sent 1 MiB/s, so each 512 KiB
+            // range takes longer than the first retry's wait. The two refused
+            // give their ranges to the two that got in instead of asking
+            // again (and being refused again) until the download fails.
+            let data = body(LEN);
+            let behavior =
+                Behavior { max_per_client: Some(2), bytes_per_sec: Some(1024 * 1024), ..Behavior::default() };
+            let server = TestServer::start_with(data.clone(), behavior);
+            let dir = temp_dir("per_client");
+            let path = download(|_| {}, request(&server.url, &dir, FileExists::Rename));
+            assert_eq!(fs::read(&path).unwrap(), data);
+            assert_eq!(server.peak_per_client.load(Ordering::Relaxed), 2);
+            assert_eq!(server.refused.load(Ordering::Relaxed), 2, "each extra connection was refused once");
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn a_slow_start_is_waited_for() {
+            let data = body(LEN);
+            let server = TestServer::start_with(
+                data.clone(),
+                Behavior { slow_start: Some(Duration::from_millis(300)), ..Behavior::default() },
+            );
+            let dir = temp_dir("slow_start");
+            let start = Instant::now();
+            let path = download(|_| {}, request(&server.url, &dir, FileExists::Rename));
+            assert_eq!(fs::read(&path).unwrap(), data);
+            // The probe waited, then the ranges did.
+            assert!(start.elapsed() >= Duration::from_millis(600), "{:?}", start.elapsed());
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn wrong_ranges_are_never_written() {
+            // Of the four ranges' requests, two get a range 1 KiB off and
+            // one the whole file. None of it may land in the file; those
+            // connections give their ranges to the one that got its own.
+            let data = body(LEN);
+            let server = TestServer::start_with(
+                data.clone(),
+                Behavior { shifted_ranges: 2, ignored_ranges: 1, ..Behavior::default() },
+            );
+            let dir = temp_dir("wrong_ranges");
+            let path = download(|_| {}, request(&server.url, &dir, FileExists::Rename));
+            assert_eq!(fs::read(&path).unwrap(), data);
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn the_last_connection_asks_again_after_a_wrong_range() {
+            // One connection has no one to give its range to: it gets a
+            // range 1 KiB off, then the whole file, then the right one.
+            let data = body(LEN);
+            let server = TestServer::start_with(
+                data.clone(),
+                Behavior { shifted_ranges: 1, ignored_ranges: 1, ..Behavior::default() },
+            );
+            let dir = temp_dir("wrong_range_retry");
+            let mut req = request(&server.url, &dir, FileExists::Rename);
+            req.connections = 1;
+            let path = download(|_| {}, req);
+            assert_eq!(fs::read(&path).unwrap(), data);
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn more_connections_beat_a_speed_limit_per_connection() {
+            // 1 MiB from a server that sends each connection 1 MiB/s.
+            const LEN: usize = 1024 * 1024;
+            let data = body(LEN);
+            let behavior = Behavior { bytes_per_sec: Some(1024 * 1024), ..Behavior::default() };
+            let time = |connections: usize| {
+                let server = TestServer::start_with(data.clone(), behavior.clone());
+                let dir = temp_dir(&format!("per_connection_{connections}"));
+                let mut req = request(&server.url, &dir, FileExists::Rename);
+                req.connections = connections;
+                let start = Instant::now();
+                let path = download(|_| {}, req);
+                let secs = start.elapsed().as_secs_f64();
+                assert_eq!(fs::read(&path).unwrap(), data);
+                fs::remove_dir_all(&dir).ok();
+                secs
+            };
+            let one = time(1);
+            let four = time(4);
+            assert!(one >= 0.9, "one connection is held to the server's speed: {one:.2}s");
+            assert!(four < one / 2.0, "four connections took {four:.2}s, one {one:.2}s");
+        }
+
+        #[test]
+        fn a_server_with_every_fault_still_gives_the_whole_file() {
+            // Three connections at a time, each dropped after 256 KiB, slow
+            // to start, sent 4 MiB/s, and one wrong range.
+            let data = body(LEN);
+            let behavior = Behavior {
+                drop_after: Some(256 * 1024),
+                max_per_client: Some(3),
+                slow_start: Some(Duration::from_millis(50)),
+                shifted_ranges: 1,
+                bytes_per_sec: Some(4 * 1024 * 1024),
+                ..Behavior::default()
+            };
+            let server = TestServer::start_with(data.clone(), behavior);
+            let dir = temp_dir("every_fault");
+            let path = download(|_| {}, request(&server.url, &dir, FileExists::Rename));
+            assert_eq!(fs::read(&path).unwrap(), data);
+            assert!(server.peak_per_client.load(Ordering::Relaxed) <= 3);
+            assert!(!Manifest::sidecar_path(&path).exists());
+            fs::remove_dir_all(&dir).ok();
         }
 
         #[test]

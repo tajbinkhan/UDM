@@ -130,7 +130,8 @@ egui-specific rules:
 
 - Domain: pure unit tests, no mocks needed.
 - Application: test use cases with in-memory adapters that implement the port traits.
-- Infrastructure: integration tests against temporary files and directories (and a temporary database, if one is added), and against the local test HTTP server (today `crates/infrastructure/src/engine/testserver.rs`). Tests MUST NOT reach the internet.
+- Infrastructure: integration tests against temporary files and directories (and a temporary database, if one is added), and against the local test HTTP server (today `crates/infrastructure/src/engine/testserver.rs`). The test server can also misbehave (`Behavior`: dropped connections, a limit per client, slow starts, wrong ranges, speed limits); tests of how the engine copes with a bad server use those faults. Tests MUST NOT reach the internet.
+- Benchmarks: `tools/bench/` (Python, standard library only) times whole programs, Pullbay against IDM and others, on `tools/bench/faultserver.py`, which offers the test server's faults outside the tests. It is not a quality gate and is not shipped; its results go in `docs/bench/`.
 - Every new use case MUST come with tests.
 - Changes to the browser extension MUST pass `node --test extension/test/*.test.js`.
 

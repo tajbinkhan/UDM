@@ -1,0 +1,123 @@
+{
+  "started_utc": "2026-11-10T10:40:00Z",
+  "os": "Linux-7.0.0-43-generic-x86_64-with-glibc2.43",
+  "cpu": "AMD Ryzen 7 9800X3D 8-Core Processor",
+  "logical_cpus": 16,
+  "ram_bytes": 32167809024,
+  "python": "3.14.4",
+  "file_bytes": 67108864,
+  "runs": 5,
+  "warmup": 1,
+  "server": "tools/bench/faultserver.py on 127.0.0.1",
+  "scenarios": {
+    "clean": {
+      "about": "A well-behaved server, as fast as loopback goes",
+      "faults": {
+        "drop_after": null,
+        "max_per_client": null,
+        "slow_start": 0.0,
+        "shifted_ranges": 0,
+        "ignored_ranges": 0,
+        "rate": null,
+        "total_rate": null,
+        "no_ranges": false
+      }
+    },
+    "per-connection-limit": {
+      "about": "Each connection held to 4 MiB/s",
+      "faults": {
+        "drop_after": null,
+        "max_per_client": null,
+        "slow_start": 0.0,
+        "shifted_ranges": 0,
+        "ignored_ranges": 0,
+        "rate": 4194304,
+        "total_rate": null,
+        "no_ranges": false
+      }
+    },
+    "slow-link": {
+      "about": "All connections together held to 16 MiB/s",
+      "faults": {
+        "drop_after": null,
+        "max_per_client": null,
+        "slow_start": 0.0,
+        "shifted_ranges": 0,
+        "ignored_ranges": 0,
+        "rate": null,
+        "total_rate": 16777216,
+        "no_ranges": false
+      }
+    },
+    "drops": {
+      "about": "Each connection dropped after 4 MiB; 8 MiB/s each",
+      "faults": {
+        "drop_after": 4194304,
+        "max_per_client": null,
+        "slow_start": 0.0,
+        "shifted_ranges": 0,
+        "ignored_ranges": 0,
+        "rate": 8388608,
+        "total_rate": null,
+        "no_ranges": false
+      }
+    },
+    "two-per-client": {
+      "about": "Two connections at once (503 for more); 4 MiB/s each",
+      "faults": {
+        "drop_after": null,
+        "max_per_client": 2,
+        "slow_start": 0.0,
+        "shifted_ranges": 0,
+        "ignored_ranges": 0,
+        "rate": 4194304,
+        "total_rate": null,
+        "no_ranges": false
+      }
+    },
+    "slow-start": {
+      "about": "1 s before every answer; 4 MiB/s each",
+      "faults": {
+        "drop_after": null,
+        "max_per_client": null,
+        "slow_start": 1.0,
+        "shifted_ranges": 0,
+        "ignored_ranges": 0,
+        "rate": 4194304,
+        "total_rate": null,
+        "no_ranges": false
+      }
+    },
+    "wrong-ranges": {
+      "about": "Two ranges answered 1 KiB off, one with the whole file; 4 MiB/s each",
+      "faults": {
+        "drop_after": null,
+        "max_per_client": null,
+        "slow_start": 0.0,
+        "shifted_ranges": 2,
+        "ignored_ranges": 1,
+        "rate": 4194304,
+        "total_rate": null,
+        "no_ranges": false
+      }
+    },
+    "no-ranges": {
+      "about": "No range support (one connection, no resume); 16 MiB/s",
+      "faults": {
+        "drop_after": null,
+        "max_per_client": null,
+        "slow_start": 0.0,
+        "shifted_ranges": 0,
+        "ignored_ranges": 0,
+        "rate": 16777216,
+        "total_rate": null,
+        "no_ranges": true
+      }
+    }
+  },
+  "tools": {
+    "pullbay": "pullbay-cli 0.4.0 (repository at 7006e77)"
+  },
+  "note": "Sample run: Pullbay only, no IDM and no other manager. Release build of commit 7006e77 on Linux, against the local fault server on loopback. It shows the harness and the faults working; it is not a comparison.",
+  "file_sha256": "98dc891b284e4d84ac25b0c0a24fdbe39a7f0dbd643ad5e8aa06e02fc6258254"
+}
