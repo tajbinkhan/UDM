@@ -375,7 +375,7 @@ pub fn time_left(e: &DownloadEntry, bytes_per_sec: Option<f64>) -> Option<f64> {
     (estimate > e.done).then(|| (estimate - e.done).as_f64() / bps)
 }
 
-/// `2026-10-27 14:05` in local time.
+/// `2026-10-27 14:05` in local time, as the window's language writes dates.
 pub fn local_date(unix: u64) -> String {
     let now = crate::ports::ports().now();
     let local_now = now.day * 1440 + now.minute as i64;
@@ -384,8 +384,7 @@ pub fn local_date(unix: u64) -> String {
     let offset = ((local_now - utc_now) as f64 / 15.0).round() as i64 * 15;
     let minutes = unix as i64 / 60 + offset;
     let (y, m, d) = queue::civil_from_days(minutes.div_euclid(1440));
-    let minute = minutes.rem_euclid(1440);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}", minute / 60, minute % 60)
+    crate::i18n::current().date_time((y, m, d), minutes.rem_euclid(1440) as u32)
 }
 
 /// What the font dialog ended with.

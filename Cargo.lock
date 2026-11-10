@@ -3894,6 +3894,7 @@ dependencies = [
 name = "pullbay-ui"
 version = "0.4.0"
 dependencies = [
+ "ab_glyph",
  "arboard",
  "eframe",
  "egui_extras",

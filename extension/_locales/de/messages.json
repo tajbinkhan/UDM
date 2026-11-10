@@ -225,6 +225,29 @@
   "vimeoVideo": {
     "message": "Vimeo-Video"
   },
+  "pageVideo": {
+    "message": "Video auf dieser Seite",
+    "description": "The video button's menu: heading for a video on a page of another site, which Pullbay read with yt-dlp."
+  },
+  "playlistTitled": {
+    "message": "Playlist: $TITLE$ ($COUNT$ Videos)",
+    "description": "The video button's menu: heading for a playlist or channel Pullbay read with yt-dlp. TITLE is its name, COUNT how many videos it lists.",
+    "placeholders": {
+      "title": { "content": "$1", "example": "Lectures" },
+      "count": { "content": "$2", "example": "24" }
+    }
+  },
+  "playlistVideos": {
+    "message": "Playlist ($COUNT$ Videos)",
+    "description": "The video button's menu: heading for a playlist without a name. COUNT is how many videos it lists.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "24" }
+    }
+  },
+  "chooseVideos": {
+    "message": "Videos in Pullbay auswählen...",
+    "description": "The video button's menu item that opens Pullbay's window to tick the playlist's videos to download."
+  },
   "mediaNoAnswer": {
     "message": "Pullbay hat nicht geantwortet."
   },

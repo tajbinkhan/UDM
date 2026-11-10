@@ -63,6 +63,7 @@ mod toolbar;
 mod tools;
 mod tray;
 mod verify;
+mod videos;
 mod watchdog;
 #[cfg(windows)]
 mod win;
@@ -457,6 +458,8 @@ enum Action {
     OpenGrabProject(String),
     Grab(GrabRequest),
     CancelGrab,
+    /// Install yt-dlp or ffmpeg (Options > General).
+    InstallTool(pullbay_domain::tools::Tool),
     /// Ask the servers of the link picker's links for their type and size.
     ProbeLinks {
         request: u64,
@@ -550,6 +553,10 @@ struct App {
     min_size: Option<egui::Vec2>,
     /// The language setting last applied.
     language: Option<String>,
+    /// The scripts whose system font is installed or being read, and the
+    /// read in progress (see `want_script_font`).
+    script_fonts: std::collections::HashSet<pullbay_application::window::ScriptFont>,
+    reading_font: Pending<(pullbay_application::window::ScriptFont, Option<pullbay_application::window::FontFile>)>,
     /// Which downloads the list shows.
     filter: Filter,
     /// The categories tree between frames.
@@ -599,6 +606,8 @@ struct App {
     hidden_windows: Vec<(DownloadId, String)>,
     /// The link picker, while it is open.
     links: Option<links::LinksDialog>,
+    /// The playlist dialog, while open.
+    videos: Option<videos::VideosDialog>,
     /// A zip download's preview, asked for or shown.
     zip_preview: Option<ZipPreview>,
     /// The Convert dialog: the video, what it becomes, and whether the
@@ -1053,6 +1062,10 @@ struct OptionsDraft {
     /// The 7-Zip field as it was last looked up, and what the worker found.
     seven_zip_asked: Option<String>,
     seven_zip_found: Arc<Mutex<Option<FfmpegLookup>>>,
+    /// Look for a newer yt-dlp once a day.
+    ytdlp_auto_update: bool,
+    /// The Install button asked for this tool.
+    install_tool: Option<pullbay_domain::tools::Tool>,
     confirm_remove: bool,
     remove_deletes_files: bool,
     server_file_date: bool,
@@ -1282,6 +1295,8 @@ impl OptionsDraft {
             seven_zip_picked: Picked::default(),
             seven_zip_asked: None,
             seven_zip_found: Arc::default(),
+            ytdlp_auto_update: s.ytdlp_auto_update,
+            install_tool: None,
             confirm_remove: s.confirm_remove,
             remove_deletes_files: s.remove_deletes_files,
             server_file_date: s.server_file_date,
@@ -1464,6 +1479,7 @@ impl OptionsDraft {
             unpack_to: self.unpack_to,
             unpack_folder: self.unpack_folder.trim().to_string(),
             unpack_recycle: self.unpack_recycle,
+            ytdlp_auto_update: self.ytdlp_auto_update,
             confirm_remove: self.confirm_remove,
             remove_deletes_files: self.remove_deletes_files,
             server_file_date: self.server_file_date,
@@ -1658,6 +1674,8 @@ impl App {
             appearance: None,
             min_size: None,
             language: None,
+            script_fonts: Default::default(),
+            reading_font: Pending::default(),
             filter: Filter::default(),
             tree: categories::Tree::default(),
             queues_dialog: None,
@@ -1683,6 +1701,7 @@ impl App {
             progress_windows: Vec::new(),
             hidden_windows: Vec::new(),
             links: None,
+            videos: None,
             zip_preview: None,
             about: None,
             tip: None,
@@ -1753,6 +1772,25 @@ impl App {
         self.appearance = None;
         self.min_size = None;
         self.was_minimized = false;
+    }
+
+    /// Installs the system font the current language's script needs
+    /// (Chinese, Japanese, Korean, Vietnamese), read on a worker the first
+    /// time; until it comes, those characters show as boxes.
+    fn want_script_font(&mut self, ctx: &egui::Context) {
+        // A font that is missing or unusable leaves the boxes; the adapter
+        // logs which file it tried.
+        if let Some((script, Some(file))) = self.reading_font.take() {
+            if theme::add_script_font(ctx, script, file) {
+                i18n::font_installed(script);
+            }
+        }
+        let Some(script) = i18n::current().font else {
+            return;
+        };
+        if !self.reading_font.busy() && self.script_fonts.insert(script) {
+            self.reading_font.start(ctx, move || (script, crate::ports::ports().system.script_font(script)));
+        }
     }
 
     /// Keep the main window's smallest size on the screen: at 200 % its
@@ -2198,6 +2236,8 @@ impl App {
                 if let Some(settings) = &self.state.settings {
                     let added = settings.added_browsers.clone();
                     self.options = Some(OptionsDraft::new(settings));
+                    // Where yt-dlp and ffmpeg are, for the General page.
+                    self.daemon.send(Command::ListTools);
                     let (outbox, ctx) = (self.outbox.clone(), self.ctx.clone());
                     thread::spawn(move || {
                         let _ = outbox.send(UiMessage::BrowsersRead(read_browsers(&added)));
@@ -2435,6 +2475,10 @@ impl App {
             }
             Action::ProbeLinks { request, links } => {
                 self.daemon.send(Command::ProbeLinks { request, links });
+            }
+            Action::InstallTool(tool) => {
+                state::apply(&mut self.state, UiMessage::ToolInstalling(tool));
+                self.daemon.send(Command::InstallTool { tool });
             }
             Action::StopProbeLinks => {
                 self.daemon.send(Command::StopProbeLinks);
@@ -3094,6 +3138,12 @@ impl App {
         let saving = self.state.saving;
         let queues = self.state.queues.clone();
         let themes = self.state.themes.clone();
+        let tools = ToolsView {
+            tools: self.state.tools.clone(),
+            busy: self.state.tools_busy.clone(),
+            note: self.state.tools_note.clone(),
+            connected,
+        };
         let Some(draft) = self.options.as_mut() else {
             return;
         };
@@ -3190,7 +3240,7 @@ impl App {
                     .max_height(page_height)
                     .auto_shrink([false, false])
                     .show(ui, |ui| match draft.tab {
-                        OptionsTab::General => general_tab(ui, draft, &queues, &themes),
+                        OptionsTab::General => general_tab(ui, draft, &queues, &themes, &tools),
                         OptionsTab::Categories => categories_tab(ui, draft),
                         OptionsTab::Capture => capture_tab(ui, draft),
                         OptionsTab::Video => video_tab(ui, draft),
@@ -3224,6 +3274,9 @@ impl App {
                     }
                 });
             });
+        if let Some(tool) = draft.install_tool.take() {
+            actions.push(Action::InstallTool(tool));
+        }
         let closing = !open || close;
         if closing {
             remote_asks.extend(draft.remote.closing());
@@ -3233,6 +3286,58 @@ impl App {
             self.options = None;
         }
     }
+}
+
+/// What Options' General page shows about yt-dlp and ffmpeg.
+struct ToolsView {
+    tools: Vec<pullbay_domain::tools::ToolState>,
+    busy: HashSet<pullbay_domain::tools::Tool>,
+    note: Option<Result<String, String>>,
+    connected: bool,
+}
+
+/// One tool's row: where it is, and the button that installs or updates it
+/// (or the package manager's command where Pullbay installs none).
+fn tool_row(ui: &mut egui::Ui, draft: &mut OptionsDraft, view: &ToolsView, tool: pullbay_domain::tools::Tool) {
+    let Some(state) = view.tools.iter().find(|t| t.tool == tool) else {
+        // The daemon has not said yet.
+        return;
+    };
+    ui.horizontal_wrapped(|ui| match (&state.installed, &state.path) {
+        (Some(version), Some(path)) => {
+            ui.weak(trf!("Installed by Pullbay ({version}): {path}", version = version, path = path));
+        }
+        (None, Some(path)) => {
+            ui.weak(trf!("Using {path}", path = path));
+        }
+        (_, None) => {
+            ui.colored_label(ui.visuals().warn_fg_color, trf!("{tool} was not found.", tool = tool.name()));
+        }
+    });
+    ui.horizontal(|ui| {
+        if state.installable {
+            let label = if state.installed.is_some() {
+                trf!("Update {tool}", tool = tool.name())
+            } else {
+                trf!("Install {tool}", tool = tool.name())
+            };
+            let busy = view.busy.contains(&tool);
+            if ui
+                .add_enabled(view.connected && !busy, egui::Button::new(label))
+                .on_hover_text(tr(
+                    "Downloads the official build from GitHub and checks it against its published checksum",
+                ))
+                .clicked()
+            {
+                draft.install_tool = Some(tool);
+            }
+            if busy {
+                ui.spinner();
+            }
+        } else {
+            ui.weak(trf!("Pullbay cannot install it here. Install it with: {command}", command = state.command));
+        }
+    });
 }
 
 /// The height of an Options page, which scrolls past it.
@@ -3319,6 +3424,7 @@ fn general_tab(
     draft: &mut OptionsDraft,
     queues: &[Queue],
     themes: &pullbay_application::themes::ThemesRead,
+    tools: &ToolsView,
 ) {
     egui::Grid::new("options").num_columns(2).spacing([12.0, 10.0]).show(ui, |ui| {
         ui.label(tr("Download folder"));
@@ -3599,15 +3705,15 @@ fn general_tab(
 
         ui.label(tr("Language"));
         let windows = i18n::resolve("");
-        let follow = trf!("Follow Windows ({language})", language = windows.name);
+        let follow = trf!("Follow Windows ({language})", language = windows.shown_name());
         let selected = i18n::LANGUAGES
             .iter()
             .find(|l| l.code == draft.language)
-            .map_or(follow.clone(), |l| l.name.to_string());
+            .map_or(follow.clone(), |l| l.shown_name().to_string());
         egui::ComboBox::from_id_salt("language").selected_text(selected).show_ui(ui, |ui| {
             ui.selectable_value(&mut draft.language, String::new(), follow);
             for l in i18n::LANGUAGES {
-                ui.selectable_value(&mut draft.language, l.code.to_string(), l.name);
+                ui.selectable_value(&mut draft.language, l.code.to_string(), l.shown_name());
             }
         });
         ui.end_row();
@@ -3687,6 +3793,25 @@ fn general_tab(
                 None => {}
             }
             ui.weak(tr("Joins streamed videos into one .mp4. Without it they are saved as .ts, or as separate video and audio."));
+            tool_row(ui, draft, tools, pullbay_domain::tools::Tool::Ffmpeg);
+        });
+        ui.end_row();
+
+        ui.label("yt-dlp");
+        ui.vertical(|ui| {
+            tool_row(ui, draft, tools, pullbay_domain::tools::Tool::YtDlp);
+            ui.checkbox(&mut draft.ytdlp_auto_update, tr("Keep yt-dlp up to date (looks once a day)"))
+                .on_hover_text(tr("Only a yt-dlp Pullbay installed is updated"));
+            ui.weak(tr("Reads YouTube, playlists and the other sites yt-dlp knows. Downloads come from github.com/yt-dlp and are checked against the SHA-256 checksums published with them."));
+            match &tools.note {
+                Some(Ok(done)) => {
+                    ui.label(done);
+                }
+                Some(Err(why)) => {
+                    ui.colored_label(ui.visuals().error_fg_color, why);
+                }
+                None => {}
+            }
         });
         ui.end_row();
 
@@ -4772,6 +4897,7 @@ impl eframe::App for App {
                 tray::relabel();
                 self.language = Some(s.language.clone());
             }
+            self.want_script_font(ctx);
             tray::set_speed_limit_checked(s.speed_limit_enabled);
             self.sync_drop_target(s, &mut actions);
         }
@@ -5066,6 +5192,15 @@ impl eframe::App for App {
         if let Some(d) = state::take_picked_links(&mut self.state) {
             self.links = Some(d);
         }
+        if let Some(d) = state::take_picked_videos(&mut self.state) {
+            self.videos = Some(d);
+        }
+        if let Some(d) = self.videos.as_mut() {
+            let settings = settings.clone().unwrap_or_default();
+            if !videos::dialog(ctx, d, &queue_list, &settings, connected, &mut actions) {
+                self.videos = None;
+            }
+        }
         let link_info = state::take_link_info(&mut self.state);
         if let Some(d) = self.links.as_mut() {
             for (request, index, probed) in link_info {
@@ -5176,7 +5311,7 @@ impl eframe::App for App {
 }
 
 impl App {
-    /// The Convert dialog: an MP4, or the sound alone as an MP3 or M4A.
+    /// The Convert dialog: an MP4, or the sound alone as an MP3, M4A, Opus or FLAC.
     fn convert_window(
         &mut self,
         ctx: &egui::Context,
@@ -5210,6 +5345,12 @@ impl App {
                 }
                 if ui.radio(*to == Target::M4a, tr("Its sound as an M4A")).clicked() {
                     *to = Target::M4a;
+                }
+                if ui.radio(*to == Target::Opus, tr("Its sound as an Opus file")).clicked() {
+                    *to = Target::Opus;
+                }
+                if ui.radio(*to == Target::Flac, tr("Its sound as a FLAC file")).clicked() {
+                    *to = Target::Flac;
                 }
                 ui.checkbox(delete, tr("Then send the original to the Recycle Bin"));
                 ui.weak(tr("It shows in the list with its progress. Streams are copied when they fit, else encoded."));
@@ -5868,7 +6009,7 @@ fn human_bytes(n: ByteCount) -> String {
     if unit == 0 {
         format!("{n} {}", tr(UNITS[0]))
     } else {
-        format!("{value:.1} {}", tr(UNITS[unit]))
+        format!("{} {}", i18n::number(value, 1), tr(UNITS[unit]))
     }
 }
 

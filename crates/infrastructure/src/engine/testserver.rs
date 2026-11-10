@@ -152,6 +152,15 @@ impl TestServer {
 
     /// Serve `files` by path; `url` is the server's root, without the
     /// trailing slash.
+    /// Like `start_files`, with the files made knowing the server's
+    /// address (`http://127.0.0.1:PORT`), for answers that link to it.
+    pub fn start_files_linking(files: impl FnOnce(&str) -> HashMap<String, Vec<u8>>) -> TestServer {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let behavior = Behavior { files: Some(Arc::new(files(&url))), ..Behavior::default() };
+        Self::serve_on(listener, url, Vec::new(), behavior)
+    }
+
     pub fn start_files(files: HashMap<String, Vec<u8>>) -> TestServer {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());

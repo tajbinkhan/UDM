@@ -57,19 +57,81 @@ For these sites the worker keeps the tab's video page instead
 
 The page is taken from the tab's address as these sites move between videos
 without loading a page (`tabs.onUpdated` and
-`webNavigation.onHistoryStateUpdated`). The daemon sends only these
-addresses to yt-dlp (`ytdlp::supports`); any other goes to the stream
-reader. `probe_media` on such an address runs
-`yt-dlp -J` and offers one video per height (H.264 first, then the highest
-bit rate) and the sound per language. The download runs yt-dlp with the
-chosen formats and `--ffmpeg-location`, so ffmpeg joins them into an `.mp4`;
-the sound alone is `-x --audio-format mp3|m4a`. Pullbay reads yt-dlp's progress
-lines, and canceling ends yt-dlp and its children (`taskkill /T` on
-Windows); its `.part` files let a retry carry on. Without ffmpeg the best
-format with both video and sound in one file is saved, with a note. Live
-streams are refused. Pullbay does not send the browser's cookies to yt-dlp, so
-only videos anyone can watch signed out are offered (on Facebook and
-Instagram that is public posts only).
+`webNavigation.onHistoryStateUpdated`). The daemon sends these addresses to
+yt-dlp (`ytdlp::supports`), and any other web page the extension marks as
+one (`media: {"kind": "page"}`); everything else goes to the stream reader.
+`probe_media` on such a page runs `yt-dlp -J --flat-playlist` (given up
+after 55 seconds, just under the extension's 60) and offers one video per
+height (H.264 first, then the highest bit rate), the sound per language,
+and the page's own subtitle tracks (not the automatic ones). The download
+runs yt-dlp with the chosen formats and `--ffmpeg-location`, so ffmpeg joins
+them into an `.mp4`; the sound alone is `-x --audio-format
+mp3|m4a|opus|flac` (Opus keeps a site's Opus sound as it is). Ticked
+subtitles are fetched with `--write-subs --sub-langs ^LANG$` (only ids made
+of letters, digits, `-` and `_`) and, with ffmpeg, put in the video
+(`--embed-subs`); without it they are saved beside the video under its name
+(`Video.en.vtt`). Pullbay reads yt-dlp's progress lines, and canceling ends
+yt-dlp and its children (`taskkill /T` on Windows); its `.part` files let a
+retry carry on. Without ffmpeg the best format with both video and sound in
+one file is saved, with a note. Live streams are refused. Pullbay does not
+send the browser's cookies to yt-dlp, so only videos anyone can watch signed
+out are offered (on Facebook and Instagram that is public posts only).
+
+**Any other site.** When the video button's menu opens on a page that is
+none of the sites above and the browser saw no file or stream in that tab,
+the worker asks Pullbay to read the page (the frame that holds the player)
+with yt-dlp. This runs only when the menu is opened, never on a page load,
+so no yt-dlp starts for pages nobody asked about; one probe per address is
+in flight at a time, a find is kept for the tab, and a page yt-dlp found
+nothing on is not asked about again for ten minutes. The menu shows the page
+("Video on this page") only when yt-dlp found a video or a playlist.
+
+**Playlists and channels.** A page yt-dlp reads as a playlist (a YouTube
+playlist or channel, or a page with several videos) answers with its
+videos instead of qualities (`playlist`: its title and each video's page,
+title and length, at most 1000, only http and https pages, without
+repeats). On a YouTube video that is part of a playlist (`list=` in its
+address, not a personal mix), the menu also asks about the playlist's own
+page. The menu's "Choose videos in Pullbay..." sends the list to the window
+(`pick_videos`), which opens the playlist dialog: every video ticked, a
+filter by title, one quality for all (best, up to 1080p, 720p, 480p or
+360p, or the sound alone as MP3, M4A, Opus or FLAC) and the queue they
+wait in. **Add** adds the ticked videos as one batch, which asks the batch
+questions (a name already taken in its folder) like the link picker's.
+Each video is read by yt-dlp when its download starts, with the quality as
+a height limit (`bestvideo*[height<=720]+bestaudio/...`).
+
+**yt-dlp and ffmpeg.** Options > General has **Install yt-dlp** and
+**Install ffmpeg** (or **Update**) buttons, which the daemon carries out
+(`install_tool`, answered with `tools`). Nothing is downloaded without a
+click, except that **Keep yt-dlp up to date** (off unless turned on) looks
+once a day for a newer release of a yt-dlp Pullbay installed. What is
+downloaded, from where:
+
+| Tool | System | From | Checked against |
+|---|---|---|---|
+| yt-dlp | Windows (x64, ARM64, x86) | `github.com/yt-dlp/yt-dlp/releases/latest`: `yt-dlp.exe`, `yt-dlp_arm64.exe`, `yt-dlp_x86.exe` | `SHA2-256SUMS` in the same release |
+| yt-dlp | macOS | the same release: `yt-dlp_macos` | `SHA2-256SUMS` |
+| yt-dlp | Linux (x64, ARM64) | the same release: `yt-dlp_linux`, `yt-dlp_linux_aarch64` | `SHA2-256SUMS` |
+| ffmpeg | Windows (x64, ARM64, x86) | `github.com/yt-dlp/FFmpeg-Builds/releases/latest`: `ffmpeg-master-latest-win64-gpl.zip` (or `winarm64`, `win32`) | `checksums.sha256` in the same release |
+| ffmpeg | Linux (x64, ARM64) | the same release: `ffmpeg-master-latest-linux64-gpl.tar.xz` (or `linuxarm64`) | `checksums.sha256` |
+| ffmpeg | macOS | nothing: no build there publishes a checksum, so Options shows `brew install ffmpeg` instead | |
+
+The release is read from GitHub's API, and only files served from that
+repository's releases on `github.com` are used. The file is downloaded to
+`tools/.downloads` under a name nothing runs, its SHA-256 compared with the
+one the release's checksum file lists (and with GitHub's own digest of the
+file, when the API gives one), and only a match is put in place and made
+executable, in the `tools` folder of Pullbay's data folder (the copy's
+`Data` folder when it is portable). A mismatch is deleted and nothing is
+installed; a release without a listed checksum is not downloaded at all.
+ffmpeg's archive is unpacked with the system's `tar` (System32's on Windows
+10 and later), keeping only `ffmpeg` and `ffprobe`. `tools/tools.json`
+records each tool's release and last check. Both checksums come from the
+same GitHub release as the file, so they catch a damaged or swapped
+download, not a release the project's own account published; yt-dlp's GPG
+signature (`SHA2-256SUMS.sig`) is not checked. Pullbay uses a tool from its
+own folder first, then the one set in Options (ffmpeg), then `PATH`.
 
 **HLS.** Pullbay reads master playlists (qualities, separate audio tracks) and
 media playlists (segments, `#EXT-X-BYTERANGE`, `#EXT-X-MAP` headers,

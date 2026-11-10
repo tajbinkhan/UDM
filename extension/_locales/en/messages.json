@@ -295,6 +295,29 @@
     "message": "Vimeo video",
     "description": "The video button's menu: heading for a Vimeo video, which Pullbay reads with yt-dlp."
   },
+  "pageVideo": {
+    "message": "Video on this page",
+    "description": "The video button's menu: heading for a video on a page of another site, which Pullbay read with yt-dlp."
+  },
+  "playlistTitled": {
+    "message": "Playlist: $TITLE$ ($COUNT$ videos)",
+    "description": "The video button's menu: heading for a playlist or channel Pullbay read with yt-dlp. TITLE is its name, COUNT how many videos it lists.",
+    "placeholders": {
+      "title": { "content": "$1", "example": "Lectures" },
+      "count": { "content": "$2", "example": "24" }
+    }
+  },
+  "playlistVideos": {
+    "message": "Playlist ($COUNT$ videos)",
+    "description": "The video button's menu: heading for a playlist without a name. COUNT is how many videos it lists.",
+    "placeholders": {
+      "count": { "content": "$1", "example": "24" }
+    }
+  },
+  "chooseVideos": {
+    "message": "Choose videos in Pullbay...",
+    "description": "The video button's menu item that opens Pullbay's window to tick the playlist's videos to download."
+  },
   "mediaNoAnswer": {
     "message": "Pullbay did not answer.",
     "description": "The video button's menu, under a stream Pullbay gave no details for."

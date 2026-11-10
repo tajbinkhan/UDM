@@ -52,6 +52,12 @@ impl From<UpdateError> for Failure {
     }
 }
 
+impl From<pullbay_domain::tools::ToolError> for Failure {
+    fn from(e: pullbay_domain::tools::ToolError) -> Self {
+        Failure::Service(e.into())
+    }
+}
+
 impl From<ProbeError> for Failure {
     fn from(e: ProbeError) -> Self {
         Failure::Probe(e.0)

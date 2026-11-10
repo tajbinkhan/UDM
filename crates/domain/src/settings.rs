@@ -753,6 +753,10 @@ pub struct Settings {
     pub unpack_folder: String,
     /// Send a package's archives to the Recycle Bin once they are unpacked.
     pub unpack_recycle: bool,
+    /// Look for a newer yt-dlp once a day and install it, when Pullbay
+    /// installed yt-dlp (Options > General). Off unless the user turns it on.
+    #[serde(default)]
+    pub ytdlp_auto_update: bool,
     /// Ask before removing downloads from the list.
     pub confirm_remove: bool,
     /// Removing a download also sends its files to the Recycle Bin. The
@@ -970,6 +974,7 @@ impl Default for Settings {
             unpack_to: UnpackTo::Subfolder,
             unpack_folder: String::new(),
             unpack_recycle: false,
+            ytdlp_auto_update: false,
             confirm_remove: true,
             remove_deletes_files: false,
             server_file_date: true,

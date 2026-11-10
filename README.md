@@ -105,9 +105,11 @@ On macOS and Linux, Pullbay connects itself to every browser it finds the first 
 ### Videos from YouTube and other sites
 
 For streamed videos to end up as one `.mp4`, install [ffmpeg](https://ffmpeg.org/). For YouTube,
-Facebook, Instagram and Vimeo, install [yt-dlp](https://github.com/yt-dlp/yt-dlp) too. On Windows,
-`winget install yt-dlp.yt-dlp` installs both, and Setup offers to run it for you
-([more](docs/install.md#windows)).
+Facebook, Instagram, Vimeo, playlists and the other sites it reads, install
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) too. **Install yt-dlp** and **Install ffmpeg** in
+**Options > General** download their official builds and check them against their published
+checksums (ffmpeg on Windows and Linux). On Windows, `winget install yt-dlp.yt-dlp` installs both,
+and Setup offers to run it for you ([more](docs/install.md#windows)).
 
 ### Coming from UIDM?
 
@@ -148,7 +150,7 @@ and half-finished downloads move over on the first start ([more](docs/install.md
   list, add, pause, resume and remove downloads and start queues for you
   ([setup](docs/ai-assistants.md)).
 - **Day and dark mode**, text from 80 % to 150 %, a tray icon for light or dark taskbars, and
-  four languages.
+  17 languages.
 - **No ads, no trial, no account**. Free and open source.
 
 Step by step: [install](docs/install.md) · [using Pullbay](docs/using-pullbay.md) ·
@@ -263,8 +265,9 @@ Linux; the macOS build is checked by the compiler and CI only.
 
 - **Not yet**: code signing, and the extension in the Chrome Web Store and on Firefox Add-ons (it
   is loaded by hand, and in Firefox only until Firefox closes).
-- **Translations**: German, Spanish and French. Adding a language is one JSON file
-  ([how](docs/building.md#adding-a-language)).
+- **Translations**: 16 besides English; most were made by machine and wait for native speakers'
+  review ([help translate](docs/translating.md)). Right-to-left and shaped scripts are not
+  supported yet.
 - **What's missing or different** on each system: [Known gaps](docs/known-gaps.md).
 
 Bug reports and ideas are welcome in [Issues](https://github.com/tajbinkhan/pullbay/issues);

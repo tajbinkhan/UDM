@@ -932,6 +932,7 @@ mod tests {
                 audio: None,
                 audio_only: Some(pullbay_domain::media::Target::Mp3),
                 subtitles: None,
+                max_height: None,
             };
             // Refused before anything is fetched, so no server is needed.
             let (result, _) = run(request("http://127.0.0.1:1/master.m3u8".into(), &dir, choice));

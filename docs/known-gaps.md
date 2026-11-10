@@ -29,6 +29,30 @@
   French; the daemon's own refusals are English. The page was not tried on
   a real iPhone or Android phone, and the certificate was served by OpenSSL
   only (SChannel and Security.framework were built, not run).
+- Languages (#251, `docs/translating.md`): the window has no right-to-left
+  layout and does not shape text, so Arabic, Hebrew, Persian and Urdu, and
+  scripts that need shaping (Hindi, Bengali, Marathi, Tamil, Telugu, Thai),
+  are not offered. That leaves out about half of the 20 most-spoken
+  languages. egui 0.31 maps each character to one glyph and lays a line out
+  left to right; it has no shaping (no joining of Arabic letters, no Indic
+  conjuncts or mark placement) and no bidirectional reordering, so Hebrew
+  would read backwards. Reordering or shaping the text before egui sees it
+  (with `unicode-bidi` or `rustybuzz`) does not hold up: egui wraps lines
+  after that, which puts a wrapped right-to-left sentence's lines in the wrong
+  order, values filled into `{placeholders}` come later, text fields edit the
+  reordered text, and a shaped Indic run has no characters to hand egui.
+  Mirroring the layout means rebuilding every panel, table and dialog from
+  the right, since egui has no switch for it. Both wait for an egui that
+  shapes text, or a text engine such as `cosmic-text` or `parley` drawn into
+  egui. Also missing: a language picker on first start (Pullbay follows the
+  system's display language, and **View > Language** changes it), Setup's own
+  languages (the installer is English), the phone page's languages beyond the
+  first four, and plural forms (where a language needs them, its table words
+  a count as "Downloads: 3"). The 13 newest tables were made by machine and have not been
+  read by a native speaker. Chinese, Japanese, Korean and Vietnamese need a
+  font of the system's (they show as boxes without one, and their names in
+  the menu are in English until it is read); the macOS font files are
+  guessed from macOS's usual fonts, not tried.
 - The history is written about a second after each change, so a crash can
   lose the last second of progress; the sidecar still has it, so resuming is
   unaffected.
@@ -69,9 +93,27 @@
   there it is still taken from the browser as it starts; Firefox cancels it
   at the headers.
 - Streams: live streams, DASH manifests split into several periods (often
-  ads), and HLS `SAMPLE-AES` without a key system are refused. Subtitles are
-  not downloaded. The size shown for a quality is an estimate from its bit
-  rate. Without ffmpeg, separate video and audio stay two files.
+  ads), and HLS `SAMPLE-AES` without a key system are refused. The size
+  shown for a quality is an estimate from its bit rate. Without ffmpeg,
+  separate video and audio stay two files.
+- Video pages: Pullbay does not give yt-dlp the browser's cookies, so videos
+  that need signing in (private or members-only ones, most of Facebook and
+  Instagram) are not offered. yt-dlp's automatic captions are not offered,
+  only a page's own subtitles. A page on another site is tried with yt-dlp
+  only when the browser saw no stream in its tab and only when the video
+  button's menu opens; a page without any player gets no button, so its
+  video can only be added by its address. A playlist's videos are added as
+  one batch with one quality for all; the same video added twice is not
+  asked about as a duplicate (video pages, like streams, are never
+  duplicates), only a taken file name is. A pasted playlist address in Add
+  URL is downloaded as a page, not listed.
+- Installing yt-dlp and ffmpeg: Pullbay checks each download against the
+  SHA-256 published in the same GitHub release, not against yt-dlp's GPG
+  signature. There is no ffmpeg to install on macOS (no build there
+  publishes a checksum), so Options names Homebrew. Unpacking ffmpeg needs
+  the system's `tar` (Windows 10 version 1803 and later have it). A yt-dlp
+  that is running cannot be replaced on Windows, so an update waits for the
+  next day's look. Only a yt-dlp Pullbay installed is kept up to date.
 - The video button sits outside a video in full screen, so it is hidden
   then, and it only knows the media its tab loaded after the extension
   started; reloading the page fills the list.

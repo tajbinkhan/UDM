@@ -388,6 +388,13 @@ pub fn themes_dir() -> io::Result<PathBuf> {
     Ok(config_dir()?.join("themes"))
 }
 
+/// The programs Pullbay installs for video pages (yt-dlp, ffmpeg), in a
+/// `tools` folder in [`data_dir`] (the copy's `Data` folder when it is
+/// portable). `None` when the data folder cannot be found.
+pub fn tools_dir() -> Option<PathBuf> {
+    data_dir().ok().map(|d| d.join("tools"))
+}
+
 /// The daemon's log, in [`data_dir`]. It holds download addresses, so it
 /// stays out of a shared `/tmp`.
 pub fn daemon_log() -> PathBuf {
@@ -438,6 +445,24 @@ pub fn fonts_dir() -> Option<PathBuf> {
     return std::env::var_os("WINDIR").map(|w| PathBuf::from(w).join("Fonts"));
     #[cfg(not(windows))]
     None
+}
+
+/// The folders the system keeps fonts in, where the window looks for a
+/// script's font (`system::ThisSystem::script_font`): the Windows font
+/// folder and the user's own, or macOS's. Linux asks fontconfig instead.
+pub fn system_font_dirs() -> Vec<PathBuf> {
+    #[cfg(windows)]
+    return fonts_dir()
+        .into_iter()
+        .chain(root(Root::Local).map(|local| local.join("Microsoft").join("Windows").join("Fonts")))
+        .collect();
+    #[cfg(target_os = "macos")]
+    return ["/System/Library/Fonts", "/System/Library/Fonts/Supplemental", "/Library/Fonts"]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    Vec::new()
 }
 
 /// The folder the window keeps its layout and the drop target's place in:

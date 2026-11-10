@@ -1,5 +1,5 @@
 //! Converting a finished video with ffmpeg: to an MP4, or its sound alone to
-//! an MP3 or M4A. Each conversion first tries to copy the streams as they
+//! an MP3, M4A, Opus or FLAC. Each conversion first tries to copy the streams as they
 //! are (fast, no loss), and encodes them only when the copy fails. ffmpeg
 //! reports how far it got on a pipe (`-progress`), which becomes a fraction
 //! of the input's length.
@@ -70,6 +70,15 @@ fn attempts(target: Target) -> [&'static [&'static str]; 2] {
         Target::Mp3 => [
             &["-vn", "-map", "0:a:0", "-c:a", "copy", "-f", "mp3"],
             &["-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "2"],
+        ],
+        // Opus sound (most sites') is copied into an Ogg file as it is.
+        Target::Opus => [
+            &["-vn", "-map", "0:a:0", "-c:a", "copy", "-f", "opus"],
+            &["-vn", "-map", "0:a:0", "-c:a", "libopus", "-b:a", "160k", "-f", "opus"],
+        ],
+        Target::Flac => [
+            &["-vn", "-map", "0:a:0", "-c:a", "copy", "-f", "flac"],
+            &["-vn", "-map", "0:a:0", "-c:a", "flac", "-f", "flac"],
         ],
     }
 }
@@ -241,7 +250,7 @@ mod tests {
             .status()
             .unwrap();
         assert!(made.success());
-        for target in [Target::Mp4, Target::M4a, Target::Mp3] {
+        for target in [Target::Mp4, Target::M4a, Target::Mp3, Target::Opus, Target::Flac] {
             let out = dir.join(format!("out.{}", target.extension()));
             let mut seen = Vec::new();
             convert(&ffmpeg, &clip, &out, target, &AtomicBool::new(false), |f| seen.push(f)).unwrap();

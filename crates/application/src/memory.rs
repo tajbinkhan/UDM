@@ -1235,6 +1235,10 @@ impl crate::window::SystemServices for Contrast {
         crate::window::SystemFonts::default()
     }
 
+    fn script_font(&self, _: crate::window::ScriptFont) -> Option<crate::window::FontFile> {
+        None
+    }
+
     fn fixed_proxy(&self) -> Option<crate::window::SystemProxy> {
         None
     }
@@ -1267,5 +1271,119 @@ impl crate::window::SystemServices for Contrast {
 
     fn contrast(&self) -> Option<pullbay_domain::theme::SystemContrast> {
         self.0
+    }
+}
+
+/// A tool's latest release as a test sets it: its files (with GitHub's
+/// digest, if any) and the checksum file's text. Downloads land in `/dl`.
+pub struct ToolSite {
+    release: pullbay_domain::ports::ToolRelease,
+    sums: String,
+    asked: Mutex<Vec<String>>,
+    downloaded: Mutex<Vec<String>>,
+}
+
+impl ToolSite {
+    pub fn release(version: &str, files: &[(&str, Option<&str>)], sums: &str) -> Self {
+        let files = files
+            .iter()
+            .map(|(name, sha)| pullbay_domain::ports::ReleaseFile {
+                name: name.to_string(),
+                url: format!("https://github.test/{name}"),
+                sha256: sha.map(String::from),
+            })
+            .collect();
+        ToolSite {
+            release: pullbay_domain::ports::ToolRelease { version: version.into(), files },
+            sums: sums.into(),
+            asked: Mutex::default(),
+            downloaded: Mutex::default(),
+        }
+    }
+
+    pub fn asked(&self) -> Vec<String> {
+        self.asked.lock().unwrap().clone()
+    }
+
+    pub fn downloaded(&self) -> Vec<String> {
+        self.downloaded.lock().unwrap().clone()
+    }
+}
+
+impl pullbay_domain::ports::ToolReleases for ToolSite {
+    fn latest(&self, repository: &str) -> Result<pullbay_domain::ports::ToolRelease, pullbay_domain::tools::ToolError> {
+        self.asked.lock().unwrap().push(repository.to_string());
+        Ok(self.release.clone())
+    }
+
+    fn text(&self, _: &pullbay_domain::ports::ReleaseFile) -> Result<String, pullbay_domain::tools::ToolError> {
+        Ok(self.sums.clone())
+    }
+
+    fn download(
+        &self,
+        file: &pullbay_domain::ports::ReleaseFile,
+        _: ByteCount,
+    ) -> Result<PathBuf, pullbay_domain::tools::ToolError> {
+        self.downloaded.lock().unwrap().push(file.name.clone());
+        Ok(PathBuf::from("/dl").join(&file.name))
+    }
+}
+
+/// Pullbay's tools folder in memory: what it installed, at `/tools`.
+#[derive(Default)]
+pub struct ToolShelf {
+    tools: Mutex<HashMap<pullbay_domain::tools::Tool, pullbay_domain::tools::InstalledTool>>,
+    installs: Mutex<Vec<(pullbay_domain::tools::Tool, String, u64)>>,
+    discarded: Mutex<Vec<PathBuf>>,
+}
+
+impl ToolShelf {
+    pub fn with(tool: pullbay_domain::tools::Tool, installed: pullbay_domain::tools::InstalledTool) -> Self {
+        let shelf = ToolShelf::default();
+        shelf.tools.lock().unwrap().insert(tool, installed);
+        shelf
+    }
+
+    pub fn installs(&self) -> Vec<(pullbay_domain::tools::Tool, String, u64)> {
+        self.installs.lock().unwrap().clone()
+    }
+
+    pub fn discarded(&self) -> Vec<PathBuf> {
+        self.discarded.lock().unwrap().clone()
+    }
+}
+
+impl pullbay_domain::ports::ToolFolder for ToolShelf {
+    fn installed(&self, tool: pullbay_domain::tools::Tool) -> Option<pullbay_domain::tools::InstalledTool> {
+        self.tools.lock().unwrap().get(&tool).cloned()
+    }
+
+    fn install(
+        &self,
+        tool: pullbay_domain::tools::Tool,
+        _file: &Path,
+        _packing: pullbay_domain::tools::Packing,
+        version: &str,
+        now: u64,
+    ) -> Result<PathBuf, pullbay_domain::tools::ToolError> {
+        self.installs.lock().unwrap().push((tool, version.to_string(), now));
+        let installed = pullbay_domain::tools::InstalledTool { version: version.into(), checked: now };
+        self.tools.lock().unwrap().insert(tool, installed);
+        Ok(PathBuf::from("/tools").join(tool.name()))
+    }
+
+    fn discard(&self, file: &Path) {
+        self.discarded.lock().unwrap().push(file.to_path_buf());
+    }
+
+    fn note_checked(&self, tool: pullbay_domain::tools::Tool, now: u64) {
+        if let Some(t) = self.tools.lock().unwrap().get_mut(&tool) {
+            t.checked = now;
+        }
+    }
+
+    fn found(&self, tool: pullbay_domain::tools::Tool) -> Option<PathBuf> {
+        self.tools.lock().unwrap().contains_key(&tool).then(|| PathBuf::from("/tools").join(tool.name()))
     }
 }

@@ -6,7 +6,9 @@
 // (.f4m) playlists its pages loaded, and the YouTube, Facebook, Instagram or
 // Vimeo video it shows. Those sites' players fetch pieces that are none of
 // those, so their page is kept instead, and Pullbay reads the page with
-// yt-dlp. The segments a player fetches one by one are
+// yt-dlp. On any other page where the browser saw no stream, the menu asks
+// Pullbay to try the page with yt-dlp (otherVideoPage), and keeps it only
+// when yt-dlp finds a video or a playlist there. The segments a player fetches one by one are
 // left out: Pullbay fetches those itself from the playlist. These are plain
 // functions: the worker loads them with importScripts, the tests with
 // require. In the worker, rules.js is loaded first.
@@ -471,7 +473,7 @@ function recentMedia(store, n) {
 function streamLabel(entry) {
   if (entry.kind === "page") {
     const site = VIDEO_SITES.find((s) => s.site === (entry.site || (videoPage(entry.url) || {}).site));
-    return (site || VIDEO_SITES[0]).label();
+    return site ? site.label() : uiText("pageVideo");
   }
   if (entry.kind === "hls") return uiText("hlsStream");
   if (entry.kind === "hds") return uiText("hdsStream");
@@ -481,6 +483,41 @@ function streamLabel(entry) {
 // A media entry's kind for people: "MP4 video", "HLS stream".
 function mediaLabel(entry) {
   return entry.kind === "file" ? fileLabel(entry) : streamLabel(entry);
+}
+
+// The sound-only formats the menu offers (Pullbay converts with ffmpeg).
+const SOUND_FORMATS = ["m4a", "mp3", "opus", "flac"];
+const SOUND_NAMES = { m4a: "M4A", mp3: "MP3", opus: "Opus", flac: "FLAC" };
+
+// A YouTube video page that is part of a playlist (`list=` in its address):
+// the playlist's own page, whose videos Pullbay can list. null otherwise.
+function playlistPageUrl(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch (_) {
+    return null;
+  }
+  const site = VIDEO_SITES[0];
+  if (!/^https?:$/.test(u.protocol) || !site.hosts.includes(u.hostname.toLowerCase())) return null;
+  const list = u.searchParams.get("list");
+  // Mixes ("RD...") are made for each viewer and have no page of their own.
+  if (!list || !/^[\w-]+$/.test(list) || list.startsWith("RD")) return null;
+  return `https://www.youtube.com/playlist?list=${list}`;
+}
+
+// A page that is none of VIDEO_SITES' videos, for yt-dlp to try: its
+// http or https address without the part after "#", or null.
+function otherVideoPage(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch (_) {
+    return null;
+  }
+  if (!/^https?:$/.test(u.protocol) || videoPage(url)) return null;
+  u.hash = "";
+  return u.toString();
 }
 
 // The video button's menu for a tab's `entries`, newest first. `infos` maps a
@@ -514,6 +551,17 @@ function mediaMenu(entries, infos) {
       items.push({ entry: e.id, label, options: [], drm: !!info.drm, error: info.error || "", notStream: !!info.not_stream });
       continue;
     }
+    // A playlist or channel: its videos are picked in Pullbay's window.
+    const listed = ((info.playlist || {}).entries || []).length;
+    if (listed > 0) {
+      const title = String(info.playlist.title || "").trim();
+      items.push({
+        entry: e.id,
+        label: title ? uiText("playlistTitled", [title, String(listed)]) : uiText("playlistVideos", String(listed)),
+        options: [{ label: uiText("chooseVideos"), size: null, playlist: true }],
+      });
+      continue;
+    }
     // An audio choice only matters with several; the best video is first.
     const audio = (info.audio || []).length > 1 ? info.audio[0].id : undefined;
     const options = (info.video || []).map((o) => ({
@@ -530,9 +578,9 @@ function mediaMenu(entries, infos) {
     const sound = (info.audio || [])[0];
     const smallest = (info.video || []).at(-1);
     if (sound || smallest) {
-      for (const format of ["m4a", "mp3"]) {
+      for (const format of SOUND_FORMATS) {
         options.push({
-          label: uiText("soundOnly", format.toUpperCase()),
+          label: uiText("soundOnly", SOUND_NAMES[format]),
           size: sound ? sound.size || null : null,
           video: sound ? undefined : (smallest && smallest.id) || undefined,
           audio: sound ? sound.id : undefined,
@@ -570,5 +618,5 @@ function titleFileName(title, ext) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, START_GRACE_MS, adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, mediaRequest, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
+  module.exports = { SOUND_FORMATS, playlistPageUrl, otherVideoPage, siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, START_GRACE_MS, adoptFile, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaLabel, mediaMenu, mediaRequest, videoButtonAllowed, titleFileName, responseSize, uiText, MEDIA_PER_TAB };
 }
