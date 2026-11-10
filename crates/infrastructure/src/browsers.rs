@@ -680,17 +680,18 @@ fn move_uidm_registrations_with(registrar: &Registrar) -> io::Result<Vec<&'stati
     Ok(moved)
 }
 
-/// On macOS and Linux, where no Setup registers Pullbay: register every
-/// browser found the first time Pullbay runs (noted in `browsers.done` in the
-/// data folder, so one the user turns off in Options stays off), and point
-/// registrations at this copy of the host when Pullbay has moved, as an
-/// AppImage does. Returns the browsers registered.
+/// On macOS and Linux, and for a portable copy on Windows, where no Setup
+/// registers Pullbay: register every browser found the first time Pullbay
+/// runs (noted in `browsers.done` in the data folder, so one the user turns
+/// off in Options stays off), and point registrations at this copy of the
+/// host when Pullbay has moved, as an AppImage does or a USB stick that gets
+/// another drive letter. Returns the browsers registered.
 ///
 /// A copy named by `PULLBAY_INSTANCE` registers nothing: every copy shares the
 /// browsers' one `com.pullbay.host` manifest, so a test build would take the
 /// browsers away from the installed Pullbay. Options can still register it.
 pub fn register_found() -> io::Result<Vec<&'static str>> {
-    if !registers_found(cfg!(windows), crate::paths::instance().as_deref()) {
+    if !registers_found(cfg!(windows), crate::paths::is_portable(), crate::paths::instance().as_deref()) {
         return Ok(Vec::new());
     }
     let registrar = Registrar::for_this_user()?;
@@ -710,9 +711,11 @@ pub fn register_found() -> io::Result<Vec<&'static str>> {
 }
 
 /// Whether `register_found` registers anything: not on Windows, where Setup
-/// does, and not for the copy named `instance`.
-fn registers_found(windows: bool, instance: Option<&str>) -> bool {
-    !windows && instance.is_none()
+/// does, unless the copy is `portable` (which no Setup installed, and whose
+/// drive letter can change between computers), and not for the copy named
+/// `instance`.
+fn registers_found(windows: bool, portable: bool, instance: Option<&str>) -> bool {
+    (!windows || portable) && instance.is_none()
 }
 
 /// The `BrowserRegistry` adapter: the browsers above, registered for this
@@ -804,9 +807,12 @@ mod tests {
 
     #[test]
     fn only_the_usual_copy_registers_the_browsers_it_finds() {
-        assert!(registers_found(false, None));
-        assert!(!registers_found(false, Some("test")), "a named copy leaves the installed one's browsers alone");
-        assert!(!registers_found(true, None), "Setup registers on Windows");
+        assert!(registers_found(false, false, None));
+        assert!(!registers_found(false, false, Some("test")), "a named copy leaves the installed one's browsers alone");
+        assert!(!registers_found(true, false, None), "Setup registers on Windows");
+        assert!(registers_found(true, true, None), "no Setup installed a portable copy");
+        assert!(registers_found(false, true, None));
+        assert!(!registers_found(true, true, Some("test")));
     }
 
     #[test]

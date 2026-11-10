@@ -17,6 +17,12 @@
 //! beside the installed one without sharing its list, settings or daemon.
 //! The other folders have no instance name, as before.
 //!
+//! A portable copy, one with [`PORTABLE_MARKER`] beside its programs (see
+//! [`portable_root`]), keeps all of these in its own `Data` folder instead
+//! (`Data-test` for an instance), downloads into its own `Downloads` folder
+//! ([`portable_downloads_dir`]) and has no sign-in entry, so it can run from a
+//! USB stick and leave the computer as it found it (`docs/portable.md`).
+//!
 //! Two variables are read here rather than left to `directories`, so the
 //! folders stay where earlier versions resolved them:
 //!
@@ -31,7 +37,8 @@
 //!   files of a user who has one set.
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use directories::BaseDirs;
 
@@ -54,6 +61,67 @@ fn instance_name(value: Option<String>) -> Option<String> {
     let ok =
         !name.is_empty() && name.len() <= 32 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     ok.then_some(name)
+}
+
+/// The file that makes a copy portable when it sits beside the programs, or
+/// in the folder above `target\release` as in the portable zip. What it says
+/// does not matter.
+pub const PORTABLE_MARKER: &str = "portable.txt";
+
+/// The folder a portable copy keeps its settings, list and logs in, inside
+/// the copy's own folder.
+const PORTABLE_DATA: &str = "Data";
+
+/// The folder a portable copy downloads into by default.
+const PORTABLE_DOWNLOADS: &str = "Downloads";
+
+/// The folder of a portable copy: the one holding [`PORTABLE_MARKER`] next to
+/// the running program, or `None` for a copy that uses the system's
+/// folders. It is looked up once, since the programs do not move while they
+/// run.
+pub fn portable_root() -> Option<&'static Path> {
+    static ROOT: OnceLock<Option<PathBuf>> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let exe = std::env::current_exe().ok()?;
+        portable_root_from(exe.parent()?)
+    })
+    .as_deref()
+}
+
+/// Whether this is a portable copy (see [`portable_root`]).
+pub fn is_portable() -> bool {
+    portable_root().is_some()
+}
+
+/// The portable copy's folder for programs in `programs`: `programs` itself
+/// when the marker is there, or, for programs in `target\release` as the
+/// portable zip has them, the folder holding `target` when it is there.
+fn portable_root_from(programs: &Path) -> Option<PathBuf> {
+    let zip_root = programs
+        .parent()
+        .filter(|target| {
+            programs.file_name().is_some_and(|n| n == "release") && target.file_name().is_some_and(|n| n == "target")
+        })
+        .and_then(Path::parent);
+    std::iter::once(programs).chain(zip_root).find(|dir| dir.join(PORTABLE_MARKER).is_file()).map(Path::to_path_buf)
+}
+
+/// Where Pullbay's own folders go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place<'a> {
+    /// The system's folders for this user.
+    System,
+    /// A portable copy's folder.
+    Portable(&'a Path),
+}
+
+fn place() -> Place<'static> {
+    portable_root().map_or(Place::System, Place::Portable)
+}
+
+/// A portable copy's folder for its settings and data, for instance `name`.
+fn portable_data(root: &Path, name: Option<&str>) -> PathBuf {
+    root.join(folder_named(PORTABLE_DATA, name))
 }
 
 /// The folder name versions up to 0.3.3 used, when Pullbay was called UIDM.
@@ -150,11 +218,25 @@ fn data_base() -> io::Result<PathBuf> {
 }
 
 fn config_dir_for(name: Option<&str>) -> io::Result<PathBuf> {
-    Ok(config_base()?.join(own_folder(name)))
+    config_dir_in(place(), name)
+}
+
+fn config_dir_in(place: Place, name: Option<&str>) -> io::Result<PathBuf> {
+    match place {
+        Place::System => Ok(config_base()?.join(own_folder(name))),
+        Place::Portable(root) => Ok(portable_data(root, name)),
+    }
 }
 
 fn data_dir_for(name: Option<&str>) -> io::Result<PathBuf> {
-    Ok(data_base()?.join(own_folder(name)))
+    data_dir_in(place(), name)
+}
+
+fn data_dir_in(place: Place, name: Option<&str>) -> io::Result<PathBuf> {
+    match place {
+        Place::System => Ok(data_base()?.join(own_folder(name))),
+        Place::Portable(root) => Ok(portable_data(root, name)),
+    }
 }
 
 fn grabber_dir_for(name: Option<&str>) -> io::Result<PathBuf> {
@@ -173,8 +255,12 @@ const GUI_LOG: &str = "pullbay-gui.log";
 
 /// This copy's settings and data folders under UIDM's name, each with the
 /// Pullbay folder it moves to: `(old, new)`. macOS has one pair, since both
-/// are the same folder there.
+/// are the same folder there. A portable copy has none: UIDM's folders
+/// belong to an installed copy.
 pub fn uidm_folders() -> io::Result<Vec<(PathBuf, PathBuf)>> {
+    if is_portable() {
+        return Ok(Vec::new());
+    }
     uidm_folders_for(instance().as_deref())
 }
 
@@ -231,17 +317,53 @@ pub fn fonts_dir() -> Option<PathBuf> {
 }
 
 /// The folder the window keeps its layout and the drop target's place in:
-/// `%LOCALAPPDATA%\Pullbay` on Windows, shared by every instance. Elsewhere
-/// the window keeps neither.
+/// `%LOCALAPPDATA%\Pullbay` on Windows (a portable copy's `Data` folder),
+/// shared by every instance. Elsewhere the window keeps neither.
 pub fn window_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    return root(Root::Local).map(|base| base.join("Pullbay"));
-    #[cfg(not(windows))]
-    return None;
+    window_dir_in(place())
 }
 
+fn window_dir_in(place: Place) -> Option<PathBuf> {
+    #[cfg(windows)]
+    return match place {
+        Place::System => root(Root::Local).map(|base| base.join("Pullbay")),
+        Place::Portable(root) => Some(portable_data(root, None)),
+    };
+    #[cfg(not(windows))]
+    {
+        let _ = place;
+        None
+    }
+}
+
+/// The folder a portable copy downloads into when the settings name none:
+/// `Downloads` in the copy's folder, on the same drive. `None` for a copy
+/// that uses the system's Downloads folder.
+pub fn portable_downloads_dir() -> Option<PathBuf> {
+    portable_root().map(|root| root.join(PORTABLE_DOWNLOADS))
+}
+
+/// The folder the engine keeps a download's parts in when the settings name
+/// no temporary folder: the system's temporary folder, or a portable copy's
+/// `Data` folder, so a copy that stops halfway leaves nothing behind on the
+/// computer.
+pub fn parts_dir() -> PathBuf {
+    parts_dir_in(place(), instance().as_deref())
+}
+
+fn parts_dir_in(place: Place, name: Option<&str>) -> PathBuf {
+    match place {
+        Place::System => std::env::temp_dir().join(OWN_TEMP),
+        Place::Portable(root) => portable_data(root, name).join("parts"),
+    }
+}
+
+/// The folder in the system's temporary folder the engine keeps parts in.
+const OWN_TEMP: &str = "Pullbay";
+
 /// The folder the entry that starts Pullbay at sign-in goes in. Windows keeps
-/// it in the registry instead.
+/// it in the registry instead. A portable copy has no sign-in entry (see
+/// `autostart`), so this is the installed copy's folder.
 #[cfg(unix)]
 pub fn autostart_dir() -> io::Result<PathBuf> {
     #[cfg(target_os = "macos")]
@@ -299,6 +421,62 @@ mod tests {
 
     fn home() -> PathBuf {
         home_dir().expect("tests run with a home folder")
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("pullbay_paths_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_marker_beside_the_programs_makes_a_copy_portable() {
+        let dir = scratch("marker");
+        assert_eq!(portable_root_from(&dir), None, "no marker, the system's folders");
+        std::fs::create_dir(dir.join(PORTABLE_MARKER)).unwrap();
+        assert_eq!(portable_root_from(&dir), None, "a folder is not the marker");
+        std::fs::remove_dir(dir.join(PORTABLE_MARKER)).unwrap();
+        std::fs::write(dir.join(PORTABLE_MARKER), "").unwrap();
+        assert_eq!(portable_root_from(&dir), Some(dir.clone()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_portable_zip_keeps_its_marker_above_target_release() {
+        let dir = scratch("zip");
+        let release = dir.join("target").join("release");
+        std::fs::create_dir_all(&release).unwrap();
+        std::fs::write(dir.join(PORTABLE_MARKER), "").unwrap();
+        assert_eq!(portable_root_from(&release), Some(dir.clone()));
+        // Only above target\release, not above any folder.
+        let other = dir.join("bin").join("release");
+        std::fs::create_dir_all(&other).unwrap();
+        assert_eq!(portable_root_from(&other), None);
+        // A marker beside the programs wins.
+        std::fs::write(release.join(PORTABLE_MARKER), "").unwrap();
+        assert_eq!(portable_root_from(&release), Some(release.clone()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_portable_copy_keeps_everything_in_its_folder() {
+        let root = Path::new("portable-root");
+        let at = Place::Portable(root);
+        assert_eq!(config_dir_in(at, None).unwrap(), root.join("Data"));
+        assert_eq!(data_dir_in(at, None).unwrap(), root.join("Data"));
+        assert_eq!(config_dir_in(at, Some("test")).unwrap(), root.join("Data-test"));
+        assert_eq!(data_dir_in(at, Some("test")).unwrap(), root.join("Data-test"));
+        assert_eq!(parts_dir_in(at, None), root.join("Data").join("parts"));
+        assert_eq!(parts_dir_in(at, Some("test")), root.join("Data-test").join("parts"));
+        assert_eq!(window_dir_in(at), if cfg!(windows) { Some(root.join("Data")) } else { None });
+        assert_eq!(parts_dir_in(Place::System, None), std::env::temp_dir().join("Pullbay"));
+    }
+
+    #[test]
+    fn tests_run_as_an_installed_copy() {
+        assert_eq!(place(), Place::System);
+        assert_eq!(portable_downloads_dir(), None);
     }
 
     #[cfg(windows)]

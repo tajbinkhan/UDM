@@ -358,6 +358,9 @@ fn run() -> anyhow::Result<()> {
     // programs move one at once.
     logging::trim();
     info!(version = VERSION, "daemon started");
+    if let Some(folder) = pullbay_infrastructure::paths::portable_root() {
+        info!(folder = %folder.display(), "running as a portable copy");
+    }
     match pullbay_infrastructure::browsers::register_found() {
         Ok(names) if !names.is_empty() => info!(browsers = %names.join(", "), "registered with the browsers"),
         Ok(_) => {}

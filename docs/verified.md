@@ -1,5 +1,16 @@
 # Verified
 
+- Portable mode (#265). Unit tests cover finding `portable.txt` beside the
+  programs and above `target/release`, and every folder a portable copy
+  uses, named copies included. On Linux, a daemon copied into
+  `target/release` under a folder holding `portable.txt` and started as a
+  named copy wrote its token and log in that folder's `Data-<name>` and
+  nothing in `~/.config` or `~/.local/share`. The Windows code (no
+  notification registration or sign-in entry, registering the browsers it
+  finds, `install-host.ps1` and the release zip's marker) was linted for
+  Windows from Linux but not run on Windows, and the greyed-out Options
+  checkbox was not tried on screen.
+
 - Duplicate addresses (#30). Daemon tests run the real engine against a local
   server: with a new name the copy is saved as `f (1).bin` and the old file
   is untouched; replacing writes over the old file in the folder it was saved

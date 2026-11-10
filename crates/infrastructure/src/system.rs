@@ -41,6 +41,10 @@ impl SystemServices for ThisSystem {
         crate::engine::CAN_SET_CREATION_TIME
     }
 
+    fn is_portable(&self) -> bool {
+        crate::paths::is_portable()
+    }
+
     fn play(&self, sound: Sound, file: Option<&Path>) {
         crate::notify::play(sound, file);
     }

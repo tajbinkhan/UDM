@@ -1040,5 +1040,6 @@
   "Lift it after": "La lever après",
   "minutes without keyboard or mouse input": "minutes sans clavier ni souris",
   "Downloads go at full speed while you are away and slow down again when you come back. Downloads with a speed limit of their own keep it.": "Les téléchargements vont à pleine vitesse pendant votre absence et ralentissent de nouveau à votre retour. Ceux qui ont leur propre limite de vitesse la gardent.",
-  "The time away must be between {lo} and {hi} minutes.": "La durée d'absence doit être comprise entre {lo} et {hi} minutes."
+  "The time away must be between {lo} and {hi} minutes.": "La durée d'absence doit être comprise entre {lo} et {hi} minutes.",
+  "A portable copy does not start when you sign in, so it leaves the computer as it found it.": "Une copie portable ne démarre pas à l'ouverture de session et laisse donc l'ordinateur tel qu'elle l'a trouvé."
 }

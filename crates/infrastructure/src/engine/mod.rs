@@ -643,7 +643,7 @@ fn staging_dir(req: &DownloadRequest, id: DownloadId) -> PathBuf {
     match earlier {
         Some(dir) => dir.to_path_buf(),
         None => {
-            let base = req.temp_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("Pullbay"));
+            let base = req.temp_dir.clone().unwrap_or_else(crate::paths::parts_dir);
             base.join(format!("{STAGING_PREFIX}{id}"))
         }
     }

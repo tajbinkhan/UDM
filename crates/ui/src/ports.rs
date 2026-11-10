@@ -219,6 +219,9 @@ mod fakes {
         fn can_set_creation_time(&self) -> bool {
             false
         }
+        fn is_portable(&self) -> bool {
+            false
+        }
         fn play(&self, _: Sound, _: Option<&Path>) {}
         fn start_window_in_tray(&self) -> Result<(), FilesError> {
             Ok(())

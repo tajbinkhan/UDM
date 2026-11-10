@@ -171,7 +171,11 @@ pub fn settings_path() -> io::Result<PathBuf> {
 }
 
 /// The current user's Downloads folder, or the temp dir if it can't be found.
+/// A portable copy downloads into its own `Downloads` folder, on its drive.
 pub fn default_downloads_dir() -> PathBuf {
+    if let Some(dir) = crate::paths::portable_downloads_dir() {
+        return dir;
+    }
     if let Some(home) = crate::paths::home_dir() {
         let dir = home.join("Downloads");
         if dir.is_dir() {
