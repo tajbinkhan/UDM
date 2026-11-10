@@ -33,6 +33,7 @@
 //! - `probes`, `browser_bridge`, `crawler`: the `Probes`, `Browser` and
 //!   `SiteCrawler` adapters (asking servers, the browser extension, and
 //!   crawling for the site grabber).
+//! - `tool`: `pullbay-cli`'s command line, what it prints and its exit codes.
 //! - `background`: the daemon's background threads (scheduler, history
 //!   writer, notifications, awake keeper, idle exit).
 
@@ -90,6 +91,7 @@ pub mod settings;
 pub mod state;
 pub mod store;
 pub mod system;
+pub mod tool;
 pub mod transfers;
 pub mod update;
 pub mod window_files;

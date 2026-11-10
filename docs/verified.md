@@ -1,5 +1,19 @@
 # Verified
 
+- The command-line tool and the automation API (#256). Use case tests run
+  each `pullbay-cli` command against a pretend daemon; daemon tests run
+  `get`, `list`, `remove`, `pause` and `resume` on the real service and
+  engine against a local server (no dialog under ask, a second copy under a
+  new name, the checksum read back, the download's own connections kept for
+  its retry). On Linux, the built tool started a named copy's daemon, saved
+  a file with a matching checksum (exit 0) and failed one that did not
+  (exit 1), reported a 404 (exit 1), paused, resumed, paused all and resumed
+  all a running download, refused to remove a running one, started the main
+  queue and refused an unknown one, and drew the progress line under a
+  pseudo-terminal. A test checks the JSON Schema's examples and the messages
+  built in Rust against each other. The Windows and macOS code was linted
+  from Linux but not run there, and the installers were not built.
+
 - Portable mode (#265). Unit tests cover finding `portable.txt` beside the
   programs and above `target/release`, and every folder a portable copy
   uses, named copies included. On Linux, a daemon copied into

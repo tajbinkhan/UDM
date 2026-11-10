@@ -116,7 +116,7 @@ pub fn command(msg: Incoming) -> Command {
 /// The event wire message `msg` carries.
 pub fn event(msg: Outgoing) -> Event {
     match msg {
-        Outgoing::Hello { name, version } => Event::Hello { name, version },
+        Outgoing::Hello { name, version, api } => Event::Hello { name, version, api },
         Outgoing::Pong => Event::Pong,
         Outgoing::Ack { id, url, status } => Event::Ack { id, url, status },
         Outgoing::MediaInfo { request, info } => Event::MediaInfo { request, info },
@@ -179,7 +179,7 @@ pub fn event(msg: Outgoing) -> Event {
 pub fn outgoing(event: Event) -> Option<Outgoing> {
     Some(match event {
         Event::Connected | Event::Lost(_) => return None,
-        Event::Hello { name, version } => Outgoing::Hello { name, version },
+        Event::Hello { name, version, api } => Outgoing::Hello { name, version, api },
         Event::Pong => Outgoing::Pong,
         Event::Ack { id, url, status } => Outgoing::Ack { id, url, status },
         Event::MediaInfo { request, info } => Outgoing::MediaInfo { request, info },

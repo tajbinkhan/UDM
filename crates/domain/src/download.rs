@@ -178,6 +178,10 @@ pub struct Download {
     /// This download's own speed limit in bytes per second.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_limit: Option<u64>,
+    /// How many connections it opens, instead of the setting's number
+    /// (`connections_or`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connections: Option<usize>,
     /// Show the save-as dialog for it (`true`) or not, whatever the
     /// setting says; missing follows the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1031,6 +1035,13 @@ impl Duplicate {
 }
 
 impl Download {
+    /// How many connections it opens: its own number, brought into
+    /// `CONNECTIONS_RANGE`, or `setting` when it has none.
+    pub fn connections_or(&self, setting: usize) -> usize {
+        let (low, high) = crate::settings::CONNECTIONS_RANGE;
+        self.connections.map_or(setting, |n| n.clamp(low, high))
+    }
+
     /// Whether it is a form post, which cannot be probed or sent again
     /// without the browser's say.
     pub fn is_post(&self) -> bool {
@@ -1209,6 +1220,20 @@ pub const MAX_ZIP_ENTRIES: usize = 5000;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_download_of_its_own_connections_keeps_them_in_range() {
+        let with = |n: Option<usize>| Download { connections: n, ..Download::default() };
+        assert_eq!(with(None).connections_or(8), 8);
+        assert_eq!(with(Some(3)).connections_or(8), 3);
+        // A number from another program is brought into the range.
+        assert_eq!(with(Some(0)).connections_or(8), 1);
+        assert_eq!(with(Some(99)).connections_or(8), crate::settings::CONNECTIONS_RANGE.1);
+        // It travels as a plain number, and is left out when missing.
+        let json = serde_json::to_value(with(Some(4))).unwrap();
+        assert_eq!(json["connections"], 4);
+        assert!(!serde_json::to_string(&with(None)).unwrap().contains("connections"));
+    }
 
     #[test]
     fn a_login_error_reads_back_as_what_it_wants() {

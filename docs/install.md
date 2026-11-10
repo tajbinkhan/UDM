@@ -53,7 +53,7 @@ under [Build](building.md#build), run this from this folder:
 .\install-host.ps1
 ```
 
-That builds the three programs if needed, registers Pullbay with Chrome, Edge and
+That builds the programs if needed, registers Pullbay with Chrome, Edge and
 Firefox, makes the Firefox copy of the extension, and adds **Pullbay** to the
 Start menu.
 

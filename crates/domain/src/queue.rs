@@ -622,6 +622,16 @@ pub enum QueueError {
     Invalid(#[from] InvalidQueue),
 }
 
+/// The queue in `queues` that `text` names: by its name, ignoring case as
+/// names are unique ignoring case, or else by its id.
+pub fn named<'a>(queues: &'a [Queue], text: &str) -> Option<&'a Queue> {
+    let text = text.trim();
+    queues
+        .iter()
+        .find(|q| q.name.trim().eq_ignore_ascii_case(text))
+        .or_else(|| text.parse::<u64>().ok().and_then(|id| queues.iter().find(|q| q.id.get() == id)))
+}
+
 /// Create a queue (`edited.id` 0) or change one, in `queues`, and return its
 /// id. Its downloads and running state are kept; only what the user edits
 /// changes. A one-time queue drops the `finished` downloads it held.
@@ -720,6 +730,18 @@ pub fn place(queues: &mut [Queue], id: DownloadId, queue: QueueId, position: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_queue_is_named_by_its_name_or_its_id() {
+        let queues = [Queue::main(), Queue::new(QueueId::new(2), "Night"), Queue::new(QueueId::new(3), "7")];
+        assert_eq!(named(&queues, "night").map(|q| q.id), Some(QueueId::new(2)));
+        assert_eq!(named(&queues, " Main queue ").map(|q| q.id), Some(MAIN_QUEUE));
+        assert_eq!(named(&queues, "2").map(|q| q.id), Some(QueueId::new(2)));
+        // A name wins over an id that reads the same.
+        assert_eq!(named(&queues, "7").map(|q| q.id), Some(QueueId::new(3)));
+        assert_eq!(named(&queues, "3").map(|q| q.id), Some(QueueId::new(3)));
+        assert!(named(&queues, "Day").is_none() && named(&queues, "9").is_none());
+    }
 
     #[test]
     fn schedules_saved_before_the_wake_option_wake_the_computer() {

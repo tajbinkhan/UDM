@@ -1,5 +1,6 @@
-//! The window's connection to the daemon: the adapter for
-//! `pullbay_application::daemon::DaemonClient` over `ipc` and `protocol`.
+//! A client's connection to the daemon: the adapter for
+//! `pullbay_application::daemon::DaemonClient` over `ipc` and `protocol`,
+//! for the desktop window (`new`) and for `pullbay-cli` (`program`).
 //!
 //! It connects (starting or restarting the daemon as `ipc` does, with its
 //! handshake), introduces itself, maps each `Command` to an `Incoming`
@@ -35,6 +36,8 @@ pub struct IpcDaemonClient {
     /// The connection to write to, while there is one.
     writer: Arc<Mutex<Option<TcpStream>>>,
     connector: Arc<Connector>,
+    /// Which events the client hears.
+    hears: fn(&Event) -> bool,
 }
 
 /// Lock `m`. The guarded value is a plain stream slot, so one a panicking
@@ -53,9 +56,16 @@ impl IpcDaemonClient {
         )
     }
 
-    /// A connection made by `connector` instead of `ipc`.
+    /// A program's connection that names itself `client` and hears every
+    /// event, the replies a window leaves out (`ack`, `pong`, `hello`)
+    /// among them, starting the daemon when none runs.
+    pub fn program(client: &str) -> Self {
+        IpcDaemonClient { hears: |_| true, ..Self::new(client) }
+    }
+
+    /// A window's connection made by `connector` instead of `ipc`.
     pub fn with_connector(client: &str, connector: Arc<Connector>) -> Self {
-        IpcDaemonClient { client: client.to_string(), writer: Arc::new(Mutex::new(None)), connector }
+        IpcDaemonClient { client: client.to_string(), writer: Arc::new(Mutex::new(None)), connector, hears: for_window }
     }
 
     fn hello(client: &str) -> Incoming {
@@ -78,6 +88,7 @@ fn write(writer: &Mutex<Option<TcpStream>>, msg: &Incoming) -> bool {
 impl DaemonClient for IpcDaemonClient {
     fn connect(&self, restart: bool, mut on_event: Box<dyn FnMut(Event) + Send>) {
         let (writer, connector, client) = (Arc::clone(&self.writer), Arc::clone(&self.connector), self.client.clone());
+        let hears = self.hears;
         thread::spawn(move || {
             let stream = match connector(restart) {
                 Ok(s) => s,
@@ -94,7 +105,7 @@ impl DaemonClient for IpcDaemonClient {
             }
             while let Ok(Some(raw)) = read_message(&mut reader, MAX_MESSAGE_BYTES) {
                 // A message this build does not know is skipped.
-                if let Some(event) = serde_json::from_slice::<Outgoing>(&raw).ok().map(event).filter(for_window) {
+                if let Some(event) = serde_json::from_slice::<Outgoing>(&raw).ok().map(event).filter(hears) {
                     on_event(event);
                 }
             }
@@ -227,6 +238,22 @@ mod tests {
         // The pretend daemon hangs up after that.
         assert_eq!(next(&rx), Event::Lost(Lost::Closed));
         assert!(!client.send(Command::List));
+    }
+
+    #[test]
+    fn a_program_hears_the_replies_a_window_does_not() {
+        let connector = fake_daemon(move |mut stream| {
+            for _ in 0..3 {
+                let _ = read(&mut stream);
+            }
+            send(&mut stream, &Outgoing::Pong);
+            send(&mut stream, &Outgoing::Ack { id: DownloadId::new(2), url: "http://x/f".into(), status: "s".into() });
+        });
+        let client = IpcDaemonClient { hears: |_| true, ..IpcDaemonClient::with_connector("pullbay-cli", connector) };
+        let rx = events(&client);
+        assert_eq!(next(&rx), Event::Connected);
+        assert_eq!(next(&rx), Event::Pong);
+        assert!(matches!(next(&rx), Event::Ack { id, .. } if id == DownloadId::new(2)));
     }
 
     #[test]

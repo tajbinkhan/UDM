@@ -2160,4 +2160,143 @@ mod tests {
         let cookies: Vec<_> = ids.iter().map(|id| requests.get(id).and_then(|d| d.cookies.clone())).collect();
         assert_eq!(cookies, [Some("session=abc".to_string()), None]);
     }
+
+    /// `pullbay-cli`'s connection, in this process: its commands go to the
+    /// daemon's server code as frames, and what the server queues for it
+    /// comes back as events, as over the socket.
+    struct Program {
+        daemon: Arc<Daemon>,
+        connections: Arc<Clients>,
+        client: ClientId,
+        reply: Reply,
+        frames: Mutex<Option<Receiver<Vec<u8>>>>,
+    }
+
+    impl Program {
+        fn new(t: &Setup, client: u64) -> Self {
+            let client = ClientId::new(client);
+            let (reply, frames) = t.connections.connect(client);
+            Program {
+                daemon: Arc::clone(&t.daemon),
+                connections: Arc::clone(&t.connections),
+                client,
+                reply,
+                frames: Mutex::new(Some(frames)),
+            }
+        }
+    }
+
+    impl pullbay_application::daemon::DaemonClient for Program {
+        fn connect(&self, _restart: bool, mut on_event: Box<dyn FnMut(Event) + Send>) {
+            let frames = self.frames.lock().unwrap().take().expect("connected once");
+            on_event(Event::Connected);
+            thread::spawn(move || {
+                for frame in frames {
+                    if let Ok(msg) = serde_json::from_slice::<Outgoing>(&frame) {
+                        on_event(pullbay_infrastructure::wire::event(msg));
+                    }
+                }
+            });
+            self.send(pullbay_application::daemon::Command::Hello {
+                version: None,
+                client: Some("pullbay-cli".into()),
+            });
+        }
+
+        fn send(&self, command: pullbay_application::daemon::Command) -> bool {
+            let raw = serde_json::to_vec(&pullbay_infrastructure::wire::incoming(command)).unwrap();
+            server::receive(&self.connections, &Served(Arc::clone(&self.daemon)), self.client, &raw, &self.reply);
+            true
+        }
+
+        fn run_command_line(
+            &self,
+            _command: pullbay_domain::download::CommandLine,
+        ) -> Result<bool, pullbay_application::daemon::DaemonError> {
+            unimplemented!("pullbay-cli sends no command line")
+        }
+    }
+
+    /// Progress nobody watches.
+    struct Unwatched;
+
+    impl pullbay_application::remote::Watch for Unwatched {
+        fn added(&mut self, _id: DownloadId) {}
+        fn started(&mut self, _path: &str, _total: Option<ByteCount>, _connections: usize) {}
+        fn progress(&mut self, _done: ByteCount, _total: Option<ByteCount>) {}
+        fn needs_answer(&mut self, _path: Option<&str>) {}
+    }
+
+    #[test]
+    fn the_command_line_tool_downloads_a_file_checks_it_and_forgets_it() {
+        use pullbay_application::remote::{ForgetDownload, GetFile, GetRequest, Got, ListDownloads, Session};
+        use pullbay_domain::ports::FileHashes;
+        let t = setup("cli_get", Duplicate::Ask);
+        // Asked for by a program, it starts at once even when the settings
+        // say to ask.
+        t.daemon.settings.lock().ask_where_to_save = true;
+        let url = serve();
+        let program = Program::new(&t, 7);
+        let session = Session::open(&program, Duration::from_secs(10)).unwrap();
+        let mut request = GetRequest::new(pullbay_domain::address::Address::parse(&url).unwrap());
+        let folder = t.dir.join("from the tool");
+        request.folder = Some(folder.display().to_string());
+        request.connections = Some(3);
+        let reference = t.dir.join("reference");
+        std::fs::write(&reference, BODY).unwrap();
+        let algorithm = pullbay_domain::checksum::Algorithm::Sha256;
+        let digest = pullbay_infrastructure::hash::DiskHashes.digest(&reference, algorithm).unwrap();
+        let sum = format!("sha256:{}", pullbay_domain::checksum::to_hex(&digest));
+        request.checksum = Some(pullbay_domain::checksum::Checksum::parse(&sum).unwrap());
+
+        let got = GetFile::new(&session, &pullbay_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
+        let Ok(Got::Saved { id, path, .. }) = got else {
+            panic!("not saved: {got:?}");
+        };
+        assert_eq!(Path::new(&path), folder.join("f.bin"));
+        assert_eq!(std::fs::read(&path).unwrap(), BODY);
+
+        // The same address again is a second file, not a question.
+        let again = GetFile::new(&session, &pullbay_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
+        assert!(
+            matches!(&again, Ok(Got::Saved { path, .. }) if Path::new(path) == folder.join("f (1).bin")),
+            "{again:?}"
+        );
+
+        let listing = ListDownloads::new(&session).run().unwrap();
+        assert_eq!(listing.downloads.iter().filter(|e| e.status == Status::Done).count(), 2);
+        ForgetDownload::new(&session).run(id, true).unwrap();
+        assert!(t.daemon.entry(id).is_none());
+    }
+
+    #[test]
+    fn the_command_line_tool_pauses_and_resumes_a_running_download() {
+        use pullbay_application::remote::{GetFile, GetRequest, Got, PauseDownload, ResumeDownload, Resumed, Session};
+        let t = setup("cli_pause", Duplicate::NewName);
+        let body = Arc::new(vec![7u8; 4 * 1024 * 1024]);
+        let url = serve_ranges(Arc::clone(&body), Arc::new(AtomicU64::new(0)));
+        let program = Program::new(&t, 8);
+        let session = Session::open(&program, Duration::from_secs(10)).unwrap();
+        let request = GetRequest {
+            follow: false,
+            connections: Some(2),
+            ..GetRequest::new(pullbay_domain::address::Address::parse(&url).unwrap())
+        };
+        let got = GetFile::new(&session, &pullbay_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
+        let Ok(Got::Added(id)) = got else {
+            panic!("not added: {got:?}");
+        };
+        let running = t.wait(id, Status::Downloading);
+        assert_eq!(running.connections, 2);
+        PauseDownload::new(&session).run(id).unwrap();
+        assert_eq!(t.daemon.entry(id).map(|e| e.status), Some(Status::Canceled));
+        let Ok(Resumed::Retried { new, .. }) = ResumeDownload::new(&session).run(id) else {
+            panic!("not resumed");
+        };
+        t.wait(new, Status::Downloading);
+        // The retry keeps the download's own number of connections.
+        assert_eq!(t.daemon.store.requests().get(&new).and_then(|d| d.connections), Some(2));
+        assert_eq!(ResumeDownload::new(&session).run(new), Ok(Resumed::Running(new)));
+        PauseDownload::new(&session).run(new).unwrap();
+    }
 }

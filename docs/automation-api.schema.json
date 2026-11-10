@@ -1,0 +1,381 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tajbinkhan/pullbay/blob/main/docs/automation-api.schema.json",
+  "title": "Pullbay automation API",
+  "description": "The messages other programs may exchange with Pullbay's daemon, version 1. Each message is one JSON object, framed by a 4-byte little-endian length, sent after the handshake that docs/architecture.md describes. A request is what a program sends; an event is what the daemon sends back or announces. Programs must ignore fields and messages they do not know: later versions add them without changing this version number. See docs/command-line.md.",
+  "x-pullbay-api": 1,
+  "oneOf": [{ "$ref": "#/$defs/request" }, { "$ref": "#/$defs/event" }],
+  "$defs": {
+    "download_id": {
+      "description": "A download's id, which every later message about it uses. A retried download gets a new one.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "queue_id": {
+      "description": "A queue's id; the main queue is 1.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "error_kind": {
+      "description": "The error's kind and values, for programs that show it in their own words; the message beside it is its English text. Its shape may grow.",
+      "type": "object"
+    },
+    "status": {
+      "description": "Where a download is: queued and downloading run; done, failed, canceled (stopped, partial file kept) and interrupted (running when Pullbay stopped) have ended; confirming waits for the window's save-as dialog; waiting waits in a queue.",
+      "enum": ["queued", "downloading", "done", "failed", "canceled", "interrupted", "confirming", "waiting"]
+    },
+    "entry": {
+      "description": "A download as the list holds it. Other fields may be present.",
+      "type": "object",
+      "required": ["id", "url", "path", "total", "done", "status", "error", "resumable", "connections"],
+      "properties": {
+        "id": { "$ref": "#/$defs/download_id" },
+        "url": { "type": "string" },
+        "path": { "description": "The file, once chosen.", "type": ["string", "null"] },
+        "total": { "description": "Its size, when the server said.", "type": ["integer", "null"], "minimum": 0 },
+        "done": { "$ref": "#/$defs/bytes" },
+        "status": { "$ref": "#/$defs/status" },
+        "error": { "description": "Why it failed.", "type": ["string", "null"] },
+        "resumable": { "type": "boolean" },
+        "connections": { "type": "integer", "minimum": 0 },
+        "checksum": { "description": "The checksum it was added with, such as sha256:...", "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "referrer": { "type": "string" },
+        "note": { "type": "string" },
+        "last_try": { "description": "When it last started, in seconds since 1970.", "type": "integer" },
+        "speed_limit": { "description": "Its own speed limit, in bytes per second.", "type": "integer", "minimum": 0 }
+      }
+    },
+    "queue": {
+      "description": "A queue. Other fields (schedule, when_done and more; see docs/protocol.md) may be present.",
+      "type": "object",
+      "required": ["id", "name", "max_concurrent", "running", "order"],
+      "properties": {
+        "id": { "$ref": "#/$defs/queue_id" },
+        "name": { "type": "string" },
+        "max_concurrent": { "type": "integer", "minimum": 1 },
+        "running": { "description": "Whether it is started.", "type": "boolean" },
+        "order": { "description": "Its downloads, in the order they run.", "type": "array", "items": { "$ref": "#/$defs/download_id" } }
+      }
+    },
+    "listing": {
+      "description": "What pullbay-cli list --json prints.",
+      "type": "object",
+      "required": ["downloads", "queues"],
+      "properties": {
+        "downloads": { "type": "array", "items": { "$ref": "#/$defs/entry" } },
+        "queues": { "type": "array", "items": { "$ref": "#/$defs/queue" } }
+      }
+    },
+
+    "request": {
+      "description": "A message from a program to the daemon.",
+      "oneOf": [
+        { "$ref": "#/$defs/hello" },
+        { "$ref": "#/$defs/ping" },
+        { "$ref": "#/$defs/add" },
+        { "$ref": "#/$defs/list" },
+        { "$ref": "#/$defs/cancel" },
+        { "$ref": "#/$defs/retry" },
+        { "$ref": "#/$defs/confirm" },
+        { "$ref": "#/$defs/remove" },
+        { "$ref": "#/$defs/pause_all" },
+        { "$ref": "#/$defs/resume_all" },
+        { "$ref": "#/$defs/start_queue" },
+        { "$ref": "#/$defs/stop_queue" }
+      ]
+    },
+    "hello": {
+      "description": "The first message after the handshake. client names the program; leave out window (the desktop window) and do not leave client out (that is the browser extension). Answered with hello_reply.",
+      "type": "object",
+      "required": ["op", "client"],
+      "properties": {
+        "op": { "const": "hello" },
+        "version": { "description": "The program's own version.", "type": ["string", "null"] },
+        "client": { "type": "string", "not": { "const": "window" } }
+      },
+      "examples": [{ "op": "hello", "version": "2.1", "client": "backup-script" }]
+    },
+    "ping": {
+      "description": "Answered with pong. The daemon handles a program's requests in order, so a pong also means every request sent before the ping was handled; a refused one was answered with error before it.",
+      "type": "object",
+      "required": ["op"],
+      "properties": { "op": { "const": "ping" } },
+      "examples": [{ "op": "ping" }]
+    },
+    "add": {
+      "description": "Download url. Answered with ack (with the new id) or rejected. Without ask: false the save-as dialog may open in the window, as the settings say.",
+      "type": "object",
+      "required": ["op", "url"],
+      "properties": {
+        "op": { "const": "add" },
+        "url": { "description": "An http, https or ftp address.", "type": "string" },
+        "folder": { "description": "A full path to save in, instead of the category's folder.", "type": "string" },
+        "filename": { "description": "The name to save as.", "type": "string" },
+        "headers": { "description": "Request headers, name to value.", "type": "object", "additionalProperties": { "type": "string" } },
+        "cookies": { "description": "The Cookie header's value.", "type": "string" },
+        "referrer": { "type": "string" },
+        "user_agent": { "type": "string" },
+        "connections": { "description": "Connections to open, instead of the setting's; brought into 1 to 16.", "type": "integer", "minimum": 1, "maximum": 16 },
+        "checksum": { "description": "md5:, sha1:, sha256:, sha512: or crc32: and the hex digest, or the bare digest. A file that does not match fails.", "type": "string" },
+        "start": { "description": "false puts it in queue as waiting instead of starting it.", "type": "boolean" },
+        "queue": { "$ref": "#/$defs/queue_id" },
+        "ask": { "description": "Show the save-as dialog (true) or not (false), whatever the setting says.", "type": "boolean" },
+        "duplicate": { "description": "What to do when its address is already in the list.", "enum": ["ask", "new_name", "overwrite", "existing"] },
+        "file_exists": { "description": "What to do when its file name is taken.", "enum": ["rename", "overwrite", "ask"] },
+        "description": { "type": "string" }
+      },
+      "examples": [
+        { "op": "add", "url": "https://example.com/files/setup.exe" },
+        { "op": "add", "url": "https://example.com/a.iso", "folder": "D:\\Downloads", "filename": "a.iso",
+          "headers": { "Accept-Language": "en" }, "connections": 4,
+          "checksum": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "ask": false, "duplicate": "new_name" },
+        { "op": "add", "url": "https://example.com/b.zip", "start": false, "queue": 1 }
+      ]
+    },
+    "list": {
+      "description": "Answered with downloads, then queues.",
+      "type": "object",
+      "required": ["op"],
+      "properties": { "op": { "const": "list" } },
+      "examples": [{ "op": "list" }]
+    },
+    "cancel": {
+      "description": "Stop a running or queued download, keeping its partial file (the window's Stop). It ends with canceled.",
+      "type": "object",
+      "required": ["op", "id"],
+      "properties": { "op": { "const": "cancel" }, "id": { "$ref": "#/$defs/download_id" } },
+      "examples": [{ "op": "cancel", "id": 7 }]
+    },
+    "retry": {
+      "description": "Start a failed, canceled or interrupted download again from its partial file. The old one is removed and the ack names the new id; refused with error otherwise.",
+      "type": "object",
+      "required": ["op", "id"],
+      "properties": { "op": { "const": "retry" }, "id": { "$ref": "#/$defs/download_id" } },
+      "examples": [{ "op": "retry", "id": 7 }]
+    },
+    "confirm": {
+      "description": "Start a waiting download now, keeping its id, or answer a confirming one's save-as dialog. filename and folder default to the proposed ones; start: false makes it waiting in queue.",
+      "type": "object",
+      "required": ["op", "id"],
+      "properties": {
+        "op": { "const": "confirm" },
+        "id": { "$ref": "#/$defs/download_id" },
+        "start": { "type": "boolean" },
+        "filename": { "type": ["string", "null"] },
+        "folder": { "type": ["string", "null"] },
+        "queue": { "anyOf": [{ "$ref": "#/$defs/queue_id" }, { "type": "null" }] }
+      },
+      "examples": [{ "op": "confirm", "id": 9 }, { "op": "confirm", "id": 9, "start": false, "queue": 2 }]
+    },
+    "remove": {
+      "description": "Take a download that is not running out of the list (removed follows); with delete_files, send its file or partial file to the Recycle Bin or trash. Refused with error while it runs.",
+      "type": "object",
+      "required": ["op", "id"],
+      "properties": {
+        "op": { "const": "remove" },
+        "id": { "$ref": "#/$defs/download_id" },
+        "delete_files": { "type": "boolean" }
+      },
+      "examples": [{ "op": "remove", "id": 7 }, { "op": "remove", "id": 7, "delete_files": true }]
+    },
+    "pause_all": {
+      "description": "Stop every started queue and every queued or running download.",
+      "type": "object",
+      "required": ["op"],
+      "properties": { "op": { "const": "pause_all" } },
+      "examples": [{ "op": "pause_all" }]
+    },
+    "resume_all": {
+      "description": "Start again what pause_all stopped, and every interrupted download.",
+      "type": "object",
+      "required": ["op"],
+      "properties": { "op": { "const": "resume_all" } },
+      "examples": [{ "op": "resume_all" }]
+    },
+    "start_queue": {
+      "description": "Start a queue; refused with error when there is no such queue.",
+      "type": "object",
+      "required": ["op", "id"],
+      "properties": { "op": { "const": "start_queue" }, "id": { "$ref": "#/$defs/queue_id" } },
+      "examples": [{ "op": "start_queue", "id": 1 }]
+    },
+    "stop_queue": {
+      "description": "Stop a queue; its running downloads wait in it again, progress kept.",
+      "type": "object",
+      "required": ["op", "id"],
+      "properties": { "op": { "const": "stop_queue" }, "id": { "$ref": "#/$defs/queue_id" } },
+      "examples": [{ "op": "stop_queue", "id": 2 }]
+    },
+
+    "event": {
+      "description": "A message from the daemon. hello_reply, pong, ack, rejected, error, downloads and queues (after list) answer the program that asked; the rest go to every client.",
+      "oneOf": [
+        { "$ref": "#/$defs/hello_reply" },
+        { "$ref": "#/$defs/pong" },
+        { "$ref": "#/$defs/ack" },
+        { "$ref": "#/$defs/rejected" },
+        { "$ref": "#/$defs/error" },
+        { "$ref": "#/$defs/added" },
+        { "$ref": "#/$defs/started" },
+        { "$ref": "#/$defs/progress" },
+        { "$ref": "#/$defs/done" },
+        { "$ref": "#/$defs/failed" },
+        { "$ref": "#/$defs/canceled" },
+        { "$ref": "#/$defs/removed" },
+        { "$ref": "#/$defs/updated" },
+        { "$ref": "#/$defs/downloads" },
+        { "$ref": "#/$defs/queues" }
+      ]
+    },
+    "hello_reply": {
+      "description": "The answer to hello. api is this API's version; a daemon older than the API leaves it out.",
+      "type": "object",
+      "required": ["op", "name", "version"],
+      "properties": {
+        "op": { "const": "hello" },
+        "name": { "const": "pullbay-daemon" },
+        "version": { "description": "Pullbay's version.", "type": "string" },
+        "api": { "type": "integer", "minimum": 1 }
+      },
+      "examples": [{ "op": "hello", "name": "pullbay-daemon", "version": "0.5.0", "api": 1 }]
+    },
+    "pong": {
+      "type": "object",
+      "required": ["op"],
+      "properties": { "op": { "const": "pong" } },
+      "examples": [{ "op": "pong" }]
+    },
+    "ack": {
+      "description": "The answer to add or retry: the download was taken as id. Events about it may come before the ack.",
+      "type": "object",
+      "required": ["op", "id", "url", "status"],
+      "properties": {
+        "op": { "const": "ack" },
+        "id": { "$ref": "#/$defs/download_id" },
+        "url": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "examples": [{ "op": "ack", "id": 7, "url": "https://example.com/a.iso", "status": "accepted" }]
+    },
+    "rejected": {
+      "description": "The answer to an add the daemon did not take, and why.",
+      "type": "object",
+      "required": ["op", "url", "message"],
+      "properties": {
+        "op": { "const": "rejected" },
+        "url": { "type": "string" },
+        "message": { "type": "string" },
+        "error_kind": { "$ref": "#/$defs/error_kind" }
+      },
+      "examples": [{ "op": "rejected", "url": "mailto:a@example.com", "message": "mailto:a@example.com is not an http, https or ftp address" }]
+    },
+    "error": {
+      "description": "A request was refused, and why.",
+      "type": "object",
+      "required": ["op", "message"],
+      "properties": {
+        "op": { "const": "error" },
+        "message": { "type": "string" },
+        "error_kind": { "$ref": "#/$defs/error_kind" }
+      },
+      "examples": [{ "op": "error", "message": "no queue with id 7" }]
+    },
+    "added": {
+      "type": "object",
+      "required": ["op", "id", "url"],
+      "properties": { "op": { "const": "added" }, "id": { "$ref": "#/$defs/download_id" }, "url": { "type": "string" } },
+      "examples": [{ "op": "added", "id": 7, "url": "https://example.com/a.iso" }]
+    },
+    "started": {
+      "description": "A download began writing path. total is null when the server did not say.",
+      "type": "object",
+      "required": ["op", "id", "url", "path", "total", "resumable", "connections"],
+      "properties": {
+        "op": { "const": "started" },
+        "id": { "$ref": "#/$defs/download_id" },
+        "url": { "type": "string" },
+        "path": { "type": "string" },
+        "total": { "type": ["integer", "null"], "minimum": 0 },
+        "resumable": { "type": "boolean" },
+        "connections": { "type": "integer", "minimum": 0 }
+      },
+      "examples": [{ "op": "started", "id": 7, "url": "https://example.com/a.iso", "path": "D:\\Downloads\\a.iso", "total": 1048576, "resumable": true, "connections": 4 }]
+    },
+    "progress": {
+      "description": "Sent a few times a second while a download runs.",
+      "type": "object",
+      "required": ["op", "id", "url", "done", "total"],
+      "properties": {
+        "op": { "const": "progress" },
+        "id": { "$ref": "#/$defs/download_id" },
+        "url": { "type": "string" },
+        "done": { "$ref": "#/$defs/bytes" },
+        "total": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "examples": [{ "op": "progress", "id": 7, "url": "https://example.com/a.iso", "done": 524288, "total": 1048576 }]
+    },
+    "done": {
+      "description": "A download finished; path is the saved file. A checksum is compared after this: a mismatch makes it failed (updated).",
+      "type": "object",
+      "required": ["op", "id", "url", "path"],
+      "properties": {
+        "op": { "const": "done" },
+        "id": { "$ref": "#/$defs/download_id" },
+        "url": { "type": "string" },
+        "path": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "examples": [{ "op": "done", "id": 7, "url": "https://example.com/a.iso", "path": "D:\\Downloads\\a.iso" }]
+    },
+    "failed": {
+      "type": "object",
+      "required": ["op", "id", "url", "error"],
+      "properties": {
+        "op": { "const": "failed" },
+        "id": { "$ref": "#/$defs/download_id" },
+        "url": { "type": "string" },
+        "error": { "type": "string" }
+      },
+      "examples": [{ "op": "failed", "id": 7, "url": "https://example.com/a.iso", "error": "server returned HTTP 404" }]
+    },
+    "canceled": {
+      "description": "A download stopped; its partial file is kept for retry.",
+      "type": "object",
+      "required": ["op", "id", "url"],
+      "properties": { "op": { "const": "canceled" }, "id": { "$ref": "#/$defs/download_id" }, "url": { "type": "string" } },
+      "examples": [{ "op": "canceled", "id": 7, "url": "https://example.com/a.iso" }]
+    },
+    "removed": {
+      "description": "A download left the list (removed, or retried under a new id).",
+      "type": "object",
+      "required": ["op", "id"],
+      "properties": { "op": { "const": "removed" }, "id": { "$ref": "#/$defs/download_id" } },
+      "examples": [{ "op": "removed", "id": 7 }]
+    },
+    "updated": {
+      "description": "A download's whole entry, for the changes no other event covers (confirming, waiting, a failed checksum).",
+      "type": "object",
+      "required": ["op", "item"],
+      "properties": { "op": { "const": "updated" }, "item": { "$ref": "#/$defs/entry" } },
+      "examples": [{ "op": "updated", "item": { "id": 7, "url": "https://example.com/a.iso", "path": "D:\\Downloads\\a.iso", "total": 1048576, "done": 0, "status": "waiting", "error": null, "resumable": true, "connections": 0 } }]
+    },
+    "downloads": {
+      "description": "The answer to list: every download, oldest first.",
+      "type": "object",
+      "required": ["op", "items"],
+      "properties": { "op": { "const": "downloads" }, "items": { "type": "array", "items": { "$ref": "#/$defs/entry" } } },
+      "examples": [{ "op": "downloads", "items": [] }]
+    },
+    "queues": {
+      "description": "Every queue, the main queue first: after downloads in the answer to list, and to every client when one changes.",
+      "type": "object",
+      "required": ["op", "items"],
+      "properties": { "op": { "const": "queues" }, "items": { "type": "array", "items": { "$ref": "#/$defs/queue" } } },
+      "examples": [{ "op": "queues", "items": [{ "id": 1, "name": "Main queue", "max_concurrent": 1, "running": false, "order": [] }] }]
+    }
+  }
+}

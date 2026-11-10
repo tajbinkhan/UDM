@@ -1,15 +1,16 @@
 #!/bin/sh
-# The AppImage's entry point. One AppImage holds Pullbay's three programs:
+# The AppImage's entry point. One AppImage holds Pullbay's four programs:
 #
 #   Pullbay.AppImage                      the window
 #   Pullbay.AppImage pullbay-daemon          a program by name (Pullbay starts its
 #                                      other programs this way)
+#   Pullbay.AppImage pullbay-cli get URL     the command-line tool
 #   Pullbay.AppImage chrome-extension://… a browser starting the native host
 #   Pullbay.AppImage <manifest> pullbay@pullbay.local   Firefox starting it
 HERE="$(dirname "$(readlink -f "$0")")"
 BIN="$HERE/usr/bin"
 case "$1" in
-  pullbay-gui|pullbay-daemon|pullbay-host)
+  pullbay-gui|pullbay-daemon|pullbay-host|pullbay-cli)
     prog="$1"
     shift
     exec "$BIN/$prog" "$@"

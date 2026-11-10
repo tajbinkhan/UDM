@@ -9,8 +9,10 @@ license.workspace = true
 # next to its I/O; AGENTS.md section 16 tracks what moves out.
 [dependencies]
 pullbay-domain.workspace = true
-# Only for the ports `pullbay-application` defines (AGENTS.md section 3): the
-# window's daemon connection (`daemon_client`).
+# Only for the ports `pullbay-application` defines (AGENTS.md section 3): a
+# client's daemon connection (`daemon_client`, mapped by `wire`), and
+# `pullbay-cli`'s progress (`tool`, which maps its command line to the
+# `remote` use cases' requests).
 pullbay-application.workspace = true
 serde.workspace = true
 serde_json.workspace = true

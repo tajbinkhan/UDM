@@ -1470,7 +1470,11 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                     daemon.run_command_line(cmd, true);
                 }
             }
-            send(Event::Hello { name: "pullbay-daemon".to_string(), version: env!("CARGO_PKG_VERSION").to_string() })
+            send(Event::Hello {
+                name: "pullbay-daemon".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                api: Some(super::AUTOMATION_API),
+            })
         }
         Command::Ping => send(Event::Pong),
         Command::CommandLine(cmd) => {

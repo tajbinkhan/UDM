@@ -7,7 +7,7 @@
 //! |---|---|---|---|
 //! | settings, grabber projects ([`config_dir`]) | `%APPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `$XDG_CONFIG_HOME/pullbay` (`~/.config/pullbay`) |
 //! | list, token, quota, keys ([`data_dir`]) | `%LOCALAPPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `$XDG_DATA_HOME/pullbay` (`~/.local/share/pullbay`) |
-//! | logs ([`daemon_log`], [`host_log`], [`gui_log`]) | in [`data_dir`] | in [`data_dir`] | in [`data_dir`] |
+//! | logs ([`daemon_log`], [`host_log`], [`gui_log`], [`cli_log`]) | in [`data_dir`] | in [`data_dir`] | in [`data_dir`] |
 //! | window layout ([`window_dir`]) | `%LOCALAPPDATA%\Pullbay` | none | none |
 //! | sign-in entry ([`autostart_dir`]) | the registry | `~/Library/LaunchAgents` | `$XDG_CONFIG_HOME/autostart` |
 //!
@@ -252,6 +252,7 @@ fn log_for(name: Option<&str>, file: &str) -> PathBuf {
 const DAEMON_LOG: &str = "pullbay-daemon.log";
 const HOST_LOG: &str = "pullbay-host.log";
 const GUI_LOG: &str = "pullbay-gui.log";
+const CLI_LOG: &str = "pullbay-cli.log";
 
 /// This copy's settings and data folders under UIDM's name, each with the
 /// Pullbay folder it moves to: `(old, new)`. macOS has one pair, since both
@@ -305,6 +306,11 @@ pub fn host_log() -> PathBuf {
 /// The window's log, beside the daemon's.
 pub fn gui_log() -> PathBuf {
     log_for(instance().as_deref(), GUI_LOG)
+}
+
+/// The command-line tool's log, beside the daemon's.
+pub fn cli_log() -> PathBuf {
+    log_for(instance().as_deref(), CLI_LOG)
 }
 
 /// The Windows font folder, which the window's fonts come from. Elsewhere
@@ -504,6 +510,7 @@ mod tests {
         assert_eq!(log_for(Some("test"), DAEMON_LOG), local.join(r"Pullbay-test\pullbay-daemon.log"));
         assert_eq!(log_for(None, HOST_LOG), local.join(r"Pullbay\pullbay-host.log"));
         assert_eq!(log_for(None, GUI_LOG), local.join(r"Pullbay\pullbay-gui.log"));
+        assert_eq!(log_for(None, CLI_LOG), local.join(r"Pullbay\pullbay-cli.log"));
         assert_eq!(packages_dir().unwrap(), local.join("Packages"));
     }
 
@@ -529,6 +536,7 @@ mod tests {
         assert_eq!(log_for(Some("test"), DAEMON_LOG), support.join("Pullbay-test/pullbay-daemon.log"));
         assert_eq!(log_for(None, HOST_LOG), support.join("Pullbay/pullbay-host.log"));
         assert_eq!(log_for(None, GUI_LOG), support.join("Pullbay/pullbay-gui.log"));
+        assert_eq!(log_for(None, CLI_LOG), support.join("Pullbay/pullbay-cli.log"));
         assert_eq!(autostart_dir().unwrap(), home().join("Library/LaunchAgents"));
         assert_eq!(window_dir(), None);
         assert_eq!(root(Root::Local), Some(home()));
@@ -558,6 +566,7 @@ mod tests {
         assert_eq!(log_for(Some("test"), DAEMON_LOG), data.join("pullbay-test/pullbay-daemon.log"));
         assert_eq!(log_for(None, HOST_LOG), data.join("pullbay/pullbay-host.log"));
         assert_eq!(log_for(None, GUI_LOG), data.join("pullbay/pullbay-gui.log"));
+        assert_eq!(log_for(None, CLI_LOG), data.join("pullbay/pullbay-cli.log"));
         assert_eq!(autostart_dir().unwrap(), config.join("autostart"));
         assert_eq!(window_dir(), None);
         assert_eq!(root(Root::Roaming), Some(home()));

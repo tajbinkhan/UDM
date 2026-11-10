@@ -1,6 +1,6 @@
 [package]
 name = "pullbay-app"
-description = "Pullbay's binaries: native-messaging host, persistent daemon and desktop window"
+description = "Pullbay's binaries: native-messaging host, persistent daemon, desktop window and command-line tool"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -20,6 +20,13 @@ path = "src/bin/pullbay-daemon.rs"
 [[bin]]
 name = "pullbay-gui"
 path = "src/bin/pullbay-gui.rs"
+
+# The command-line tool: downloads and controls Pullbay from a terminal or a
+# script, through the daemon like the window. (`pullbay` itself is the
+# window's name on Linux, so the tool has its own.)
+[[bin]]
+name = "pullbay-cli"
+path = "src/bin/pullbay-cli.rs"
 
 [dependencies]
 pullbay-domain.workspace = true

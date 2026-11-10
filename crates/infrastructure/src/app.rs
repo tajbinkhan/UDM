@@ -17,6 +17,7 @@ pub const MAX_MESSAGE_BYTES: u32 = 4 * 1024 * 1024;
 /// (user agent, cookies, referrer) into headers.
 pub fn to_request(d: Download, settings: &Settings) -> DownloadRequest {
     let post_body = post_body(&d);
+    let connections = d.connections_or(settings.connections);
     let mut headers: Vec<(String, String)> = d.headers.into_iter().collect();
     if let Some(ua) = d.user_agent {
         headers.push(("User-Agent".to_string(), ua));
@@ -43,7 +44,7 @@ pub fn to_request(d: Download, settings: &Settings) -> DownloadRequest {
         folders,
         filename: d.filename,
         headers,
-        connections: settings.connections,
+        connections,
         reuse_path: None,
         file_exists: d.file_exists.unwrap_or(settings.file_exists),
         post_body,
@@ -211,5 +212,14 @@ mod tests {
         assert_eq!(ua(browser), ["Browser/2.0"]);
         let none = to_request(by_hand, &Settings::default());
         assert!(!none.headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("user-agent")));
+    }
+
+    #[test]
+    fn a_download_of_its_own_connections_opens_that_many() {
+        let settings = Settings { connections: 6, ..Settings::default() };
+        let d = Download { url: "https://x/a".into(), ..Download::default() };
+        assert_eq!(to_request(d.clone(), &settings).connections, 6);
+        let own = Download { connections: Some(2), ..d };
+        assert_eq!(to_request(own, &settings).connections, 2);
     }
 }

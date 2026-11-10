@@ -1,5 +1,5 @@
 # Installs Pullbay for the current user:
-#   - builds pullbay-host, pullbay-daemon and pullbay-gui if they are missing,
+#   - builds pullbay-host, pullbay-daemon, pullbay-gui and pullbay-cli if they are missing,
 #   - registers the native-messaging host with Chrome, Edge and Firefox,
 #   - adds a "Pullbay" Start menu shortcut for the desktop window.
 #
@@ -75,7 +75,7 @@ if ($Uninstall) {
     return
 }
 
-$exes = "pullbay-host.exe", "pullbay-daemon.exe", "pullbay-gui.exe" | ForEach-Object { Join-Path $release $_ }
+$exes = "pullbay-host.exe", "pullbay-daemon.exe", "pullbay-gui.exe", "pullbay-cli.exe" | ForEach-Object { Join-Path $release $_ }
 if ($exes | Where-Object { -not (Test-Path $_) }) {
     Write-Host "Building release binaries..."
     Push-Location $root
