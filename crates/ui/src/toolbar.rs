@@ -166,6 +166,8 @@ pub fn show(ui: &mut egui::Ui, s: &State, small: bool) -> Option<Command> {
                             }
                         })
                     });
+                    let name = if start { tr("Start a queue") } else { tr("Stop a queue") };
+                    crate::a11y::label(&arrow.inner.response, name);
                     arrow.response.on_hover_text(b.tip);
                 }
             }
@@ -179,6 +181,12 @@ fn button(ui: &mut egui::Ui, b: &Button, small: bool) -> egui::Response {
     let sense = if b.enabled { egui::Sense::click() } else { egui::Sense::hover() };
     let (rect, response) = ui.allocate_exact_size(size, sense);
     let response = response.on_hover_text(if small { format!("{}: {}", b.label, b.tip) } else { b.tip.to_string() });
+    crate::a11y::describe(&response, egui::accesskit::Role::Button, b.label, |node| {
+        if !b.enabled {
+            node.set_disabled();
+        }
+        node.set_description(b.tip);
+    });
     if !ui.is_rect_visible(rect) {
         return response;
     }

@@ -1,5 +1,26 @@
 # Verified
 
+- Screen readers and the keyboard (#252). AccessKit was already on through
+  eframe's default features; it is now named in `crates/ui/Cargo.toml`, and
+  Cargo.lock is unchanged. Unit tests cover what a row reads (name, status,
+  progress, speed, time left, why it failed), where Up, Down, Page Up, Page
+  Down, Home and End land, and, on a headless egui context, that the keys
+  select rows with the focus following, Shift extends and Ctrl moves the
+  focus alone, Space selects, and Shift+F10 opens the row's menu with the
+  focus in it and Escape gives it back. A test checks that
+  `docs/keyboard-shortcuts.md` names every key the window's code answers.
+  On Linux, a named copy ran on a private session bus with its own AT-SPI
+  bus (no setting of the real session changed), and the tree read through
+  AT-SPI named the window, every menu and toolbar button, the categories
+  as a tree, the list as a list box with each row read as its name,
+  status, progress and failure, the column headers, and the column and
+  panel grips; nothing that takes the focus was left unnamed. Moving the
+  focus through AT-SPI was accepted but could not be seen, since the window
+  was not in front. Orca itself was not run, keys were not typed into the
+  real window, and the focus ring was not looked at on screen. Narrator,
+  NVDA and VoiceOver were not tried; the Windows and macOS code was linted
+  from Linux only.
+
 - Themes, high contrast and an interface size up to 200% (#264). Unit tests
   cover colors and theme files (a base, overrides, comments, every wrong
   line), the High contrast theme's 7:1 contrast, which look each Theme

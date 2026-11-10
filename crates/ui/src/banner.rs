@@ -248,7 +248,9 @@ fn strip(ui: &mut egui::Ui, tone: Tone, add: impl FnOnce(&mut egui::Ui)) {
 
 /// A small close box; true when clicked.
 fn close(ui: &mut egui::Ui) -> bool {
-    ui.add(egui::Button::new("×").frame(false)).on_hover_text(tr("Close")).clicked()
+    let close = ui.add(egui::Button::new("×").frame(false)).on_hover_text(tr("Close"));
+    crate::a11y::label(&close, tr("Close"));
+    close.clicked()
 }
 
 /// `a` moved `t` of the way to `b`.

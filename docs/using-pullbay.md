@@ -5,7 +5,9 @@
   progress, speed and time left. **Cancel** stops one and keeps the partial
   file; **Retry** resumes it; **Open** and **Show in folder** work on finished
   files; **Remove** takes a row off the list without deleting the file. Paste
-  a URL at the top to add one.
+  a URL at the top to add one. Everything works from the keyboard as well,
+  and screen readers read the window; [Keyboard shortcuts](keyboard-shortcuts.md)
+  lists the keys.
 - **Download in the browser as usual.** While Pullbay is connected, the extension
   takes each download away from the browser and hands it to Pullbay, cookies and
   referrer included, so sign-in-protected files work. Right-click a link,

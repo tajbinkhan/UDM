@@ -280,6 +280,8 @@ impl<'o> Window<'o> {
                 }
             }
             place.fitted = true;
+            crate::a11y::name_window(ctx, &self.title);
+            crate::a11y::focus_ring(ctx);
             // A dialog the user opens comes to the front with the focus,
             // even while another program had it. One that opens on its own
             // is made to stay on top (or not) by its builder instead.

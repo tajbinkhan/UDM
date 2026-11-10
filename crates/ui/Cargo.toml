@@ -20,8 +20,11 @@ serde_json.workspace = true
 url.workspace = true
 percent-encoding.workspace = true
 # Immediate-mode GUI for the desktop window. Pure Rust; the default glow
-# backend renders through OpenGL.
-eframe = "0.31.1"
+# backend renders through OpenGL. `accesskit` hands screen readers the
+# window's widgets (UI Automation on Windows, NSAccessibility on macOS,
+# AT-SPI on Linux). It is one of eframe's default features, named here so
+# turning the defaults off cannot drop it; it adds nothing to Cargo.lock.
+eframe = { version = "0.31.1", features = ["accesskit"] }
 # The download list's table: resizable columns and whole-row selection.
 egui_extras = { version = "0.31.1", default-features = false }
 # System tray icon and its menu (Win32 underneath, builds on windows-gnu;

@@ -1548,7 +1548,12 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
                         next = Some(GrabDialog::from_request(&t.request, lists.filters.to_vec()));
                         ui.close_menu();
                     }
-                    if !t.built_in && ui.small_button("x").on_hover_text(tr("Delete this template")).clicked() {
+                    let delete = (!t.built_in).then(|| {
+                        let delete = ui.small_button("x").on_hover_text(tr("Delete this template"));
+                        crate::a11y::label(&delete, tr("Delete this template"));
+                        delete
+                    });
+                    if delete.is_some_and(|d| d.clicked()) {
                         if let Some(lib) = dir {
                             let name = t.name.clone();
                             d.noting.start(ui.ctx(), move || {
