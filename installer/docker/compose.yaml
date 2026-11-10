@@ -1,0 +1,36 @@
+# Pullbay on a server or NAS (docs/server.md). Start it with
+#
+#   docker compose -f installer/docker/compose.yaml up -d
+#
+# and add downloads with
+#
+#   docker exec pullbay pullbay-cli get https://example.com/file.zip --no-wait
+#
+# No port is published: the daemon listens on 127.0.0.1 inside the
+# container only, and pullbay-cli reaches it through `docker exec`.
+services:
+  pullbay:
+    image: ghcr.io/tajbinkhan/pullbay:latest
+    # Or build it from this checkout:
+    # build: ../..
+    container_name: pullbay
+    restart: unless-stopped
+    # The user the files in the volumes belong to. The image's own is
+    # 1000:1000; Unraid's shares want 99:100.
+    # user: "1000:1000"
+    volumes:
+      # Settings, the download list, the daemon's token and keys.
+      - pullbay-config:/config
+      # Where downloads go when the settings name no folder.
+      - ./downloads:/downloads
+    environment:
+      # The folders the image uses; change them only together with the
+      # volumes above.
+      PULLBAY_CONFIG_DIR: /config
+      PULLBAY_DATA_DIR: /config/data
+      PULLBAY_DOWNLOADS_DIR: /downloads
+      # The local time zone, for queue schedules.
+      TZ: Etc/UTC
+
+volumes:
+  pullbay-config:

@@ -1,0 +1,8 @@
+# Only what `cargo build` needs goes into the Docker build.
+/target
+/dist
+/firefox
+.git
+.github
+.claude
+**/node_modules

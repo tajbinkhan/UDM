@@ -7,6 +7,11 @@
 //! adapter for `Attention`, and `AnswerWait` for `Answers`: it waits for a
 //! window to answer a save-as dialog, and without one starts the download
 //! as proposed.
+//!
+//! A server's daemon ([`Seat::Server`]) has no desktop: these adapters then
+//! start no window, play no sound and show no notification, and log what
+//! they would have shown instead. A save-as dialog still waits for a window
+//! that may connect, then starts the download as proposed.
 
 use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::id::DownloadId;
@@ -21,6 +26,7 @@ use std::time::Duration;
 
 use pullbay_domain::download::{Answer, DownloadEntry, Scan, Status};
 use pullbay_domain::ports::{Answers, Attention};
+use pullbay_domain::seat::Seat;
 use tracing::{info, warn};
 
 use crate::live_settings::LiveSettings;
@@ -56,10 +62,13 @@ pub fn open_window() -> io::Result<()> {
     )
 }
 
-/// Bring the window forward: ask an open one to show itself, or start one.
-pub fn show_window(windows: &dyn Windows) {
+/// Bring the window forward: ask an open one to show itself, or start one
+/// when the daemon runs on a desktop (`seat`).
+pub fn show_window(windows: &dyn Windows, seat: Seat) {
     if windows.window_open() {
         windows.announce(&Outgoing::Show);
+    } else if !seat.has_desktop() {
+        info!("no window to show on a server");
     } else if let Err(e) = open_window() {
         warn!(error = %e, "could not open the window");
     }
@@ -73,21 +82,34 @@ pub struct Notifier {
     toasts: Mutex<VecDeque<notify::Shown>>,
     /// Retries a download, from a notification's button.
     retry: Hook<DownloadId>,
+    /// Where the daemon runs: a server shows nothing.
+    seat: Seat,
 }
 
 impl Notifier {
-    pub fn new(store: Arc<DownloadStore>, windows: Arc<dyn Windows>, retry: Hook<DownloadId>) -> Arc<Self> {
-        Arc::new(Notifier { store, windows, toasts: Mutex::new(VecDeque::new()), retry })
+    pub fn new(store: Arc<DownloadStore>, windows: Arc<dyn Windows>, retry: Hook<DownloadId>, seat: Seat) -> Arc<Self> {
+        Arc::new(Notifier { store, windows, toasts: Mutex::new(VecDeque::new()), retry, seat })
     }
 
     /// Play the sound the settings choose for download `id` finishing (or
     /// with `failed`, failing), and show a notification when they ask for
     /// one, or when the download asked for its completion dialog and no
-    /// window is open to show it.
+    /// window is open to show it. A server only logs that the download
+    /// ended.
     pub fn notify(self: &Arc<Self>, id: DownloadId, failed: bool, settings: &Settings) {
         let Some(entry) = self.store.table().get(id).cloned() else {
             return;
         };
+        if !self.seat.has_desktop() {
+            match (failed, &entry.path) {
+                (true, _) => {
+                    info!(download_id = id.get(), url = %entry.url, error = entry.error.as_deref().unwrap_or(""), "download failed")
+                }
+                (false, Some(path)) => info!(download_id = id.get(), path = %path, "download complete"),
+                (false, None) => info!(download_id = id.get(), url = %entry.url, "download complete"),
+            }
+            return;
+        }
         if failed && settings.sound_on_failed {
             notify::play(Sound::Failed, settings.sound_file(Sound::Failed).as_deref());
         }
@@ -135,7 +157,7 @@ impl Notifier {
         match (action, path) {
             // A file with a threat is opened only from the window, which asks.
             ("open", Some(_)) if matches!(entry.as_ref().and_then(|e| e.scan.as_ref()), Some(Scan::Threat { .. })) => {
-                show_window(&*self.windows)
+                show_window(&*self.windows, self.seat)
             }
             ("open", Some(path)) => {
                 let _ = crate::platform::open(path.as_ref());
@@ -148,7 +170,7 @@ impl Notifier {
                     (self.retry)(id);
                 }
             }
-            _ => show_window(&*self.windows),
+            _ => show_window(&*self.windows, self.seat),
         }
     }
 }
@@ -234,7 +256,7 @@ impl Attention for Front {
     }
 
     fn show_window(&self) {
-        show_window(&*self.windows);
+        show_window(&*self.windows, self.notifier.seat);
     }
 }
 
@@ -246,19 +268,21 @@ pub struct AnswerWait {
     confirm: Hook<Answer>,
     /// How long a dialog waits for a window.
     patience: Duration,
+    /// Where the daemon runs: a server starts no window.
+    seat: Seat,
 }
 
 impl AnswerWait {
-    pub fn new(store: Arc<DownloadStore>, windows: Arc<dyn Windows>, confirm: Hook<Answer>) -> Self {
-        AnswerWait { store, windows, confirm, patience: CONFIRM_FALLBACK }
+    pub fn new(store: Arc<DownloadStore>, windows: Arc<dyn Windows>, confirm: Hook<Answer>, seat: Seat) -> Self {
+        AnswerWait { store, windows, confirm, patience: CONFIRM_FALLBACK, seat }
     }
 
     /// Wait for a window to answer download `id`'s save-as dialog, opening
-    /// one if none is open. If none connects in time, the download starts as
-    /// proposed: `fallback` decides what happens if its name is taken,
-    /// `None` leaving that to the setting.
+    /// one if none is open and the daemon runs on a desktop. If none
+    /// connects in time, the download starts as proposed: `fallback` decides
+    /// what happens if its name is taken, `None` leaving that to the setting.
     pub fn wait(&self, id: DownloadId, fallback: Option<FileExists>) {
-        if !self.windows.window_open() {
+        if !self.windows.window_open() && self.seat.has_desktop() {
             if let Err(e) = open_window() {
                 warn!(error = %e, "could not open the window");
             }
@@ -331,7 +355,7 @@ mod tests {
     fn an_open_window_shows_the_completion_dialog_itself() {
         let windows = Arc::new(FakeWindows { open: AtomicBool::new(true), ..FakeWindows::default() });
         let store = store(&windows);
-        let notifier = Notifier::new(Arc::clone(&store), Arc::clone(&windows) as _, Arc::new(|_| {}));
+        let notifier = Notifier::new(Arc::clone(&store), Arc::clone(&windows) as _, Arc::new(|_| {}), Seat::Desktop);
         let front =
             Front::new(notifier, Arc::new(LiveSettings::new(Settings::default(), None)), Arc::clone(&windows) as _);
         front.show_done(DownloadId::new(7));
@@ -355,6 +379,7 @@ mod tests {
             Arc::clone(&store),
             Arc::clone(&windows) as _,
             Arc::new(move |a: Answer| heard.lock().unwrap().push(a.id)),
+            Seat::Desktop,
         );
         wait.patience = Duration::from_millis(10);
         // The window that was open closes before answering.
@@ -367,6 +392,54 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(*answered.lock().unwrap(), [DownloadId::new(3)]);
+    }
+
+    #[test]
+    fn a_server_shows_nothing_and_starts_dialogs_as_proposed() {
+        let windows = Arc::new(FakeWindows::default());
+        let store = store(&windows);
+        let id = DownloadId::new(5);
+        store.publish(&Outgoing::Added { id, url: "http://x/a.zip".into() });
+        let _ = store.update(id, |e| {
+            e.status = Status::Confirming;
+            true
+        });
+        let notifier = Notifier::new(Arc::clone(&store), Arc::clone(&windows) as _, Arc::new(|_| {}), Seat::Server);
+        // Whatever the settings ask for, a server shows no notification.
+        let loud =
+            Settings { notify: Notify::Toast, sound_on_done: true, sound_on_failed: true, ..Settings::default() };
+        notifier.notify(id, false, &loud);
+        notifier.notify(id, true, &loud);
+        assert!(notifier.toasts().is_empty());
+        // No window is open and none is started; nothing is announced.
+        let before = windows.said.lock().unwrap().len();
+        show_window(&*windows, Seat::Server);
+        let front = Front::new(
+            Arc::clone(&notifier),
+            Arc::new(LiveSettings::new(Settings::default(), None)),
+            Arc::clone(&windows) as _,
+        );
+        front.show_done(id);
+        front.show_window();
+        assert_eq!(windows.said.lock().unwrap().len(), before);
+        // A save-as dialog waits, then starts as proposed.
+        let answered = Arc::new(Mutex::new(Vec::new()));
+        let heard = Arc::clone(&answered);
+        let mut wait = AnswerWait::new(
+            Arc::clone(&store),
+            Arc::clone(&windows) as _,
+            Arc::new(move |a: Answer| heard.lock().unwrap().push(a.id)),
+            Seat::Server,
+        );
+        wait.patience = Duration::from_millis(10);
+        wait.await_answer(id);
+        for _ in 0..200 {
+            if !answered.lock().unwrap().is_empty() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(*answered.lock().unwrap(), [id]);
     }
 
     #[test]

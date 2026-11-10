@@ -14,6 +14,8 @@ These pages were the README's manual. Each covers one part of Pullbay.
   and moving over from UIDM.
 - **[Portable mode](portable.md)**: running from a USB stick with everything in Pullbay's own
   folder.
+- **[Run Pullbay on a server](server.md)**: the daemon's server mode, the Docker image and its
+  Compose file and Unraid template, and adding downloads with `pullbay-cli`.
 - **[Using Pullbay](using-pullbay.md)**: the window, the save-as dialog, categories, queues, the
   tray, the download window, the video button, adding many links and Options.
 - **[Themes and interface size](themes.md)**: the built-in themes, high contrast, an interface

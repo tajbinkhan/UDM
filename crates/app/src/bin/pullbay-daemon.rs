@@ -19,6 +19,13 @@
 //! the browser closes. The daemon exits on its own once it has had no clients
 //! and no downloads for `background::IDLE_EXIT`.
 //!
+//! With `--server` (see `pullbay_infrastructure::daemon_args` and
+//! `docs/server.md`) it runs on a server or in a container instead: it stays
+//! running, takes its folders from the command line or the environment
+//! (`pullbay_infrastructure::paths::Folders`), logs to standard output, and
+//! starts no window and shows no notification (`Seat::Server`). It still
+//! listens on loopback only, with the same token handshake.
+//!
 //! The list survives restarts: every change is written to the history file
 //! (debounced, and again on exit), and the requests that may still be retried
 //! go to a DPAPI-encrypted file next to it (see `pullbay_infrastructure::history`). Settings are
@@ -58,6 +65,7 @@ use pullbay_application::downloads::{RemoveDownload, RetryDownload, StartOrWait}
 use pullbay_domain::download::Answer;
 use pullbay_domain::id::DownloadId;
 use pullbay_domain::ports::{Browser, Probes, SiteCrawler};
+use pullbay_domain::seat::Seat;
 use pullbay_domain::settings::Settings;
 use pullbay_infrastructure::background;
 use pullbay_infrastructure::browser_bridge::BrowserBridge;
@@ -65,6 +73,7 @@ use pullbay_infrastructure::clock::LocalClock;
 use pullbay_infrastructure::connect::ProxyRetries;
 use pullbay_infrastructure::conversions::Conversions;
 use pullbay_infrastructure::crawler::Crawler;
+use pullbay_infrastructure::daemon_args::{self, Invocation};
 use pullbay_infrastructure::files::DiskFiles;
 use pullbay_infrastructure::front::{self, AnswerWait, Front, Hook, Notices, Notifier, Windows};
 use pullbay_infrastructure::grab::{self, FoundFiles, ProjectFiles, ScheduledGrabs};
@@ -157,8 +166,8 @@ struct Built {
 }
 
 /// Load settings, history and saved requests, start the engine with them,
-/// and wire the adapters into the service.
-fn new_daemon(paths: Paths) -> Built {
+/// and wire the adapters into the service, for a daemon at `seat`.
+fn new_daemon(paths: Paths, seat: Seat) -> Built {
     let mut settings = match &paths.settings {
         Some(path) => settings::load(path).unwrap_or_else(|e| {
             warn!(path = %path.display(), error = %e, "ignoring the settings file");
@@ -225,7 +234,7 @@ fn new_daemon(paths: Paths) -> Built {
         Arc::new(PowerOff::new(
             Arc::clone(&events),
             Box::new(move || saver.save_history()),
-            Box::new(move || front::show_window(&*shown)),
+            Box::new(move || front::show_window(&*shown, seat)),
         ))
     };
     let retry: Hook<DownloadId> = {
@@ -236,7 +245,7 @@ fn new_daemon(paths: Paths) -> Built {
             }
         })
     };
-    let notifier = Notifier::new(Arc::clone(&store), Arc::clone(&windows), retry);
+    let notifier = Notifier::new(Arc::clone(&store), Arc::clone(&windows), retry, seat);
     let front = Arc::new(Front::new(Arc::clone(&notifier), Arc::clone(&settings), Arc::clone(&windows)));
     let go_on: GoOn = {
         let (store, transfers, settings) = (Arc::clone(&store), Arc::clone(&transfers), Arc::clone(&settings));
@@ -258,7 +267,7 @@ fn new_daemon(paths: Paths) -> Built {
             }
         })
     };
-    let answers = AnswerWait::new(Arc::clone(&store), Arc::clone(&windows), confirm);
+    let answers = AnswerWait::new(Arc::clone(&store), Arc::clone(&windows), confirm, seat);
     let remove_original: Hook<DownloadId> = {
         let (store, transfers) = (Arc::clone(&store), Arc::clone(&transfers));
         Arc::new(move |id| {
@@ -317,47 +326,74 @@ fn new_daemon(paths: Paths) -> Built {
         notes,
         wake,
         version: VERSION,
+        seat,
     });
     Built { daemon, clients, dirty: dirty_rx, notes: notes_rx, wake: wake_rx }
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let elevated = matches!(args.as_slice(), [_, flag, _, _] if flag == pullbay_infrastructure::elevate::MOVE_ARG);
-    // Before the log, which would make Pullbay's data folder first. Not
-    // when started with administrator rights, only to move one file.
-    let moved = (!elevated).then(pullbay_infrastructure::from_uidm::move_from_uidm);
-    logging::init(logging::Program::Daemon);
-    if let Some(moved) = moved {
-        moved.log();
-    }
-    // A panic leaves a report in the data folder, which the window offers
-    // (`crash`). Not for the administrator's copy that moves one file.
-    if !elevated {
-        pullbay_infrastructure::crash::install(logging::Program::Daemon);
-    }
-    // Started by a download saved with administrator rights (see
-    // `pullbay_infrastructure::elevate`): move its finished file into place and exit.
-    if let [_, flag, from, to] = args.as_slice() {
-        if flag == pullbay_infrastructure::elevate::MOVE_ARG {
-            if let Err(e) = pullbay_infrastructure::elevate::move_file(Path::new(from), Path::new(to)) {
-                error!(from = %from, to = %to, error = %e, "could not move the file");
-                std::process::exit(1);
-            }
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let (seat, folders) = match daemon_args::parse(&args, &cwd) {
+        Ok(Invocation::Run { seat, folders }) => (seat, folders),
+        Ok(Invocation::Move { from, to }) => move_elevated(&from, &to),
+        // The program's output, for the person who ran it.
+        Ok(Invocation::Help) => {
+            println!("{}", daemon_args::USAGE);
             return;
         }
+        Ok(Invocation::Version) => {
+            println!("pullbay-daemon {VERSION}");
+            return;
+        }
+        Err(e) => {
+            eprintln!("pullbay-daemon: {e}\nSee pullbay-daemon --help.");
+            std::process::exit(2);
+        }
+    };
+    // Before anything looks a folder up.
+    pullbay_infrastructure::paths::choose_folders(folders);
+    if seat.has_desktop() {
+        // Before the log, which would make Pullbay's data folder first.
+        let moved = pullbay_infrastructure::from_uidm::move_from_uidm();
+        logging::init(logging::Program::Daemon);
+        moved.log();
+    } else {
+        // A service manager or container keeps a server's log.
+        logging::init_stdout();
     }
-    if let Err(e) = run() {
+    // A panic leaves a report in the data folder, which the window offers
+    // (`crash`).
+    pullbay_infrastructure::crash::install(logging::Program::Daemon);
+    if let Err(e) = run(seat) {
         error!(error = format!("{e:#}"), "fatal");
         std::process::exit(1);
     }
 }
 
-fn run() -> anyhow::Result<()> {
+/// Started by a download saved with administrator rights (see
+/// `pullbay_infrastructure::elevate`): move its finished file into place and
+/// exit.
+fn move_elevated(from: &Path, to: &Path) -> ! {
+    logging::init(logging::Program::Daemon);
+    if let Err(e) = pullbay_infrastructure::elevate::move_file(from, to) {
+        error!(from = %from.display(), to = %to.display(), error = %e, "could not move the file");
+        std::process::exit(1);
+    }
+    std::process::exit(0);
+}
+
+fn run(seat: Seat) -> anyhow::Result<()> {
     use anyhow::Context as _;
     // Binding is the single-instance lock.
     let Some(server) = Server::bind().context("could not listen for clients")? else {
-        return Ok(());
+        // Another daemon has the list; a client started this one for
+        // nothing. A server's is started by a service manager that should
+        // hear that it did not run.
+        if seat.has_desktop() {
+            return Ok(());
+        }
+        anyhow::bail!("another Pullbay daemon is already running for this user and instance");
     };
     // Only the daemon holding the bind moves the logs aside, so no two
     // programs move one at once.
@@ -366,13 +402,23 @@ fn run() -> anyhow::Result<()> {
     if let Some(folder) = pullbay_infrastructure::paths::portable_root() {
         info!(folder = %folder.display(), "running as a portable copy");
     }
-    match pullbay_infrastructure::browsers::register_found() {
-        Ok(names) if !names.is_empty() => info!(browsers = %names.join(", "), "registered with the browsers"),
-        Ok(_) => {}
-        Err(e) => warn!(error = %e, "could not register with the browsers"),
+    if seat.has_desktop() {
+        match pullbay_infrastructure::browsers::register_found() {
+            Ok(names) if !names.is_empty() => info!(browsers = %names.join(", "), "registered with the browsers"),
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, "could not register with the browsers"),
+        }
+    } else {
+        let shown = |r: io::Result<PathBuf>| r.map(|p| p.display().to_string()).unwrap_or_else(|e| e.to_string());
+        info!(
+            settings = %shown(pullbay_infrastructure::paths::config_dir()),
+            data = %shown(pullbay_infrastructure::paths::data_dir()),
+            default_downloads = %settings::default_downloads_dir().display(),
+            "running as a server"
+        );
     }
 
-    let Built { daemon, clients, dirty, notes, wake } = new_daemon(Paths::from_env());
+    let Built { daemon, clients, dirty, notes, wake } = new_daemon(Paths::from_env(), seat);
     transfers::clean_early_folders(&daemon.store);
     let daemon = Arc::new(daemon);
     {
@@ -388,8 +434,10 @@ fn run() -> anyhow::Result<()> {
         background::spawn_each(notes, move |note| daemon.on_note(note));
     }
     #[cfg(windows)]
-    if let Err(e) = pullbay_infrastructure::notify::register_app() {
-        warn!(error = %e, "could not register for notifications");
+    if seat.has_desktop() {
+        if let Err(e) = pullbay_infrastructure::notify::register_app() {
+            warn!(error = %e, "could not register for notifications");
+        }
     }
     daemon.start_up();
     {
@@ -398,7 +446,12 @@ fn run() -> anyhow::Result<()> {
     }
     {
         let (idle, transfers) = (Arc::clone(&daemon), Arc::clone(&daemon.transfers));
-        background::spawn_idle_monitor(move || idle.idle(), move || transfers.save_history());
+        background::spawn_idle_monitor(move || idle.may_exit(), move || transfers.save_history());
+    }
+    if !seat.exits_when_idle() {
+        // Nothing else stops a server's daemon; `docker stop` asks.
+        let transfers = Arc::clone(&daemon.transfers);
+        background::spawn_stop_on_signal(move || transfers.save_history());
     }
 
     server.serve(clients, Arc::new(Served(daemon)));
@@ -534,7 +587,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let Built { daemon, clients: connections, .. } =
-            new_daemon(Paths { settings: None, store: StoreFiles::default() });
+            new_daemon(Paths { settings: None, store: StoreFiles::default() }, Seat::Desktop);
         {
             let mut s = daemon.settings.lock();
             s.download_dir = Some(dir.display().to_string());
@@ -658,6 +711,16 @@ mod tests {
         *t.daemon.command_line.lock().unwrap() = Some((held, old));
         send(br#"{"op":"hello","client":"window"}"#, &t, 1, &tx);
         assert!(entry("https://example.com/stale.bin").is_none());
+    }
+
+    #[test]
+    fn a_server_daemon_runs_on_when_it_has_nothing_to_do() {
+        let built = |seat| new_daemon(Paths { settings: None, store: StoreFiles::default() }, seat).daemon;
+        let desktop = built(Seat::Desktop);
+        assert!(desktop.idle() && desktop.may_exit(), "a desktop daemon with nothing to do exits");
+        let server = built(Seat::Server);
+        assert!(server.idle(), "the server has nothing to do either");
+        assert!(!server.may_exit(), "but runs until it is stopped");
     }
 
     #[test]
@@ -1266,7 +1329,8 @@ mod tests {
                 ..Settings::default()
             };
             settings::save(&s, &path).unwrap();
-            let daemon = new_daemon(Paths { settings: Some(path.clone()), store: StoreFiles::default() }).daemon;
+            let paths = Paths { settings: Some(path.clone()), store: StoreFiles::default() };
+            let daemon = new_daemon(paths, Seat::Desktop).daemon;
             let s = daemon.settings.lock().clone();
             (s, daemon.transfers.engine().per_file_limit())
         };
