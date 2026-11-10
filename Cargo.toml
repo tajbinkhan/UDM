@@ -53,6 +53,14 @@ windows = { version = "0.61", features = [
 [profile.release]
 strip = true
 
+# The FTPS tests make an RSA key for their test server's certificate each run
+# (pullbay-infrastructure's dev-dependencies); unoptimized, finding its primes
+# takes tens of seconds instead of well under one.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3
+
 # AGENTS.md section 9: no unwrap, expect or panic outside tests. Warnings,
 # which the quality gate's `-D warnings` turns into errors. clippy.toml lets
 # tests unwrap, expect and panic; a documented invariant takes a local

@@ -111,7 +111,7 @@
       "required": ["op", "url"],
       "properties": {
         "op": { "const": "add" },
-        "url": { "description": "An http, https or ftp address.", "type": "string" },
+        "url": { "description": "An http, https, ftp or ftps address.", "type": "string" },
         "folder": { "description": "A full path to save in, instead of the category's folder.", "type": "string" },
         "filename": { "description": "The name to save as.", "type": "string" },
         "headers": { "description": "Request headers, name to value.", "type": "object", "additionalProperties": { "type": "string" } },

@@ -55,6 +55,8 @@ const urls = (links) => links.map((l) => l.url);
 test("addresses are made absolute, web only, without their fragment", () => {
   assert.equal(resolveLink("../b.zip#part", "https://site.net/a/page"), "https://site.net/b.zip");
   assert.equal(resolveLink("ftp://files.net/x.iso"), "ftp://files.net/x.iso");
+  assert.equal(resolveLink("ftps://files.net:990/x.iso"), "ftps://files.net:990/x.iso");
+  assert.equal(resolveLink("ftpx://files.net/x.iso"), "");
   assert.equal(resolveLink("javascript:void(0)", "https://site.net/"), "");
   assert.equal(resolveLink("mailto:a@b.net", "https://site.net/"), "");
   assert.equal(resolveLink("", "https://site.net/"), "");
@@ -62,9 +64,10 @@ test("addresses are made absolute, web only, without their fragment", () => {
 });
 
 test("addresses in text, as a selection holds them", () => {
-  assert.deepEqual(linksFromText("see https://a.net/x.zip, and (ftp://b.net/y.iso). Not www.c.net", ""), [
+  assert.deepEqual(linksFromText("see https://a.net/x.zip, and (ftp://b.net/y.iso). Not www.c.net; ftps://d.net/z.iso", ""), [
     "https://a.net/x.zip",
     "ftp://b.net/y.iso",
+    "ftps://d.net/z.iso",
   ]);
 });
 

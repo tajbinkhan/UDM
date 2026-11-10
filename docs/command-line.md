@@ -41,7 +41,7 @@ pullbay-gui /s
 
 | Switch | Long form | What it does |
 |---|---|---|
-| `/d URL` | `--download` | Add URL (http, https or ftp) to the list and show the usual download dialog |
+| `/d URL` | `--download` | Add URL (http, https, ftp or ftps) to the list and show the usual download dialog |
 | `/p folder` | `--path` | Save in this folder (relative to the current one) |
 | `/f file_name` | `--file` | Save under this name |
 | `/c checksum` | `--checksum` | Compare the finished file with this checksum (`sha256:...` and the like, or a bare hex digest); a mismatch fails it. Pullbay's own, not IDM's |

@@ -329,7 +329,7 @@ pub fn parse_list(text: &str) -> Result<(Vec<Address>, usize), BatchError> {
     Ok((urls, rejected))
 }
 
-/// The download link in copied `text` worth offering: one http(s) or ftp address,
+/// The download link in copied `text` worth offering: one http(s) or ftp(s) address,
 /// alone on the clipboard, whose file type is one of `types` (any file type
 /// when `types` is empty).
 pub fn clipboard_link(text: &str, types: &[String]) -> Option<Address> {
@@ -346,7 +346,7 @@ pub fn clipboard_link(text: &str, types: &[String]) -> Option<Address> {
     wanted.then_some(address)
 }
 
-/// Every http, https or ftp address in `text`, once each and in order:
+/// Every http, https, ftp or ftps address in `text`, once each and in order:
 /// copied lines, a web page's text, or addresses in quotes or brackets.
 /// Punctuation that ends a sentence is not taken as part of an address.
 pub fn links_in(text: &str) -> Vec<Address> {
@@ -356,7 +356,8 @@ pub fn links_in(text: &str) -> Vec<Address> {
     for word in text.split(separators) {
         // An address may follow other text, as in `link:https://...`.
         let lower = word.to_ascii_lowercase();
-        let Some(start) = ["https://", "http://", "ftp://"].iter().filter_map(|p| lower.find(p)).min() else {
+        let Some(start) = ["https://", "http://", "ftp://", "ftps://"].iter().filter_map(|p| lower.find(p)).min()
+        else {
             continue;
         };
         let mut url = &word[start..];
@@ -391,9 +392,16 @@ pub fn links_in(text: &str) -> Vec<Address> {
     urls
 }
 
-/// Whether `s` starts like an address Pullbay can download: http, https or ftp.
+/// Whether `s` starts like an address Pullbay can download: http, https,
+/// ftp or ftps.
 pub fn is_download_url(s: &str) -> bool {
-    is_web_url(s) || s.get(..6).is_some_and(|p| p.eq_ignore_ascii_case("ftp://"))
+    is_web_url(s) || is_ftp_url(s)
+}
+
+/// Whether `s` starts like an FTP address: `ftp://`, or `ftps://` (FTP over
+/// TLS from the first byte), in any case.
+pub fn is_ftp_url(s: &str) -> bool {
+    ["ftp://", "ftps://"].iter().any(|p| s.get(..p.len()).is_some_and(|h| h.eq_ignore_ascii_case(p)))
 }
 
 /// Whether `s` starts like an http or https address.
@@ -409,7 +417,7 @@ mod tests {
     #[test]
     fn links_are_found_anywhere_in_copied_text() {
         let text = "Files:\n  https://x.com/a.zip, and (https://x.com/b.zip).\n\
-                    <a href=\"ftp://f.net/c.iso\">c</a> https://x.com/a.zip\n\
+                    <a href=\"ftp://f.net/c.iso\">c</a> https://x.com/a.zip FTPS://g.net/e.iso\n\
                     see https://en.wikipedia.org/wiki/Zip_(file_format) or link:http://y.org/d.pdf!\n\
                     not a link: https:// nor www.x.com/e.zip";
         assert_eq!(
@@ -418,6 +426,7 @@ mod tests {
                 "https://x.com/a.zip",
                 "https://x.com/b.zip",
                 "ftp://f.net/c.iso",
+                "FTPS://g.net/e.iso",
                 "https://en.wikipedia.org/wiki/Zip_(file_format)",
                 "http://y.org/d.pdf",
             ]
@@ -484,6 +493,7 @@ mod tests {
         assert!(expand("http://x/[1-99999999999999999999]").is_err());
         assert!(count("http://x/[0-18446744073709551615]/[1-9]").unwrap() == u64::MAX);
         assert_eq!(expand("ftp://x/[1-2]").unwrap(), ["ftp://x/1", "ftp://x/2"]);
+        assert_eq!(expand("ftps://x/[1-2]").unwrap(), ["ftps://x/1", "ftps://x/2"]);
         assert!(expand("file://x/[1-2]").is_err());
     }
 
@@ -569,6 +579,10 @@ mod tests {
         assert_eq!(
             clipboard_link("ftp://x.com/a.zip", &types).as_ref().map(Address::as_str),
             Some("ftp://x.com/a.zip")
+        );
+        assert_eq!(
+            clipboard_link("ftps://x.com/a.zip", &types).as_ref().map(Address::as_str),
+            Some("ftps://x.com/a.zip")
         );
         assert_eq!(clipboard_link("file://x.com/a.zip", &types), None);
         assert_eq!(

@@ -33,7 +33,7 @@ var LINKS_FILE_TYPES = [
 // pictures count too.
 var LINKS_IMAGE_TYPES = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tif", "tiff"];
 
-// `raw` as an absolute http, https or ftp address against `base`, without
+// `raw` as an absolute http, https, ftp or ftps address against `base`, without
 // its fragment (which never reaches the server, so `a#1` and `a#2` are one
 // file); "" when it is none.
 function resolveLink(raw, base) {
@@ -45,7 +45,7 @@ function resolveLink(raw, base) {
   } catch (_) {
     return "";
   }
-  if (!/^(https?|ftp):$/.test(u.protocol)) return "";
+  if (!/^(https?|ftps?):$/.test(u.protocol)) return "";
   u.hash = "";
   return u.href;
 }
@@ -58,7 +58,7 @@ function trimLinkEnd(s) {
 // The absolute addresses in free text, such as a selection.
 function linksFromText(text, base) {
   const out = [];
-  for (const m of String(text || "").matchAll(/\b(?:https?|ftp):\/\/[^\s<>"'`]+/gi)) {
+  for (const m of String(text || "").matchAll(/\b(?:https?|ftps?):\/\/[^\s<>"'`]+/gi)) {
     const url = resolveLink(trimLinkEnd(m[0]), base);
     if (url) out.push(url);
   }

@@ -107,7 +107,7 @@ pub enum UsageError {
     Missing(&'static str),
     #[error("did not expect {0}")]
     Extra(String),
-    #[error("{0} is not an http, https or ftp address")]
+    #[error("{0} is not an http, https, ftp or ftps address")]
     NotDownloadAddress(String),
     #[error("{0} is not a file name; give the folder with --folder")]
     NotFileName(String),
