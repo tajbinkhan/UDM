@@ -89,7 +89,7 @@ use pullbay_domain::settings::Sound;
 use pullbay_domain::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
     SelectionButton, ServerLimit, Settings, SiteLogin, SocksVersion, BROWSER_MENU_ITEMS, CAPTURE_MIN_SIZE_MAX_KB,
-    CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE,
+    CONNECTIONS_RANGE, GENERAL, IDLE_MINUTES_RANGE, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE,
     SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
 };
 #[cfg(windows)]
@@ -943,6 +943,9 @@ struct OptionsDraft {
     /// The limit for each file, and its value in KB/s, kept while it is off.
     per_file_on: bool,
     per_file_kbps: u64,
+    /// Lift the limit after `idle_minutes` without input.
+    limit_while_active: bool,
+    idle_minutes: u32,
     resume_at_startup: bool,
     file_exists: FileExists,
     if_duplicate: Duplicate,
@@ -1140,6 +1143,8 @@ impl OptionsDraft {
             limit_on_startup: s.speed_limit_on_startup,
             per_file_on: s.speed_limit_per_file_kbps.is_some(),
             per_file_kbps: s.speed_limit_per_file_kbps.unwrap_or(512),
+            limit_while_active: s.speed_limit_only_while_active,
+            idle_minutes: s.speed_limit_idle_minutes,
             resume_at_startup: s.resume_at_startup,
             file_exists: s.file_exists,
             if_duplicate: s.if_duplicate,
@@ -1276,6 +1281,8 @@ impl OptionsDraft {
             speed_limit_kbps: (self.limit_value * self.limit_unit.kb()).round() as u64,
             speed_limit_on_startup: self.limit_on_startup,
             speed_limit_per_file_kbps: self.per_file_on.then_some(self.per_file_kbps),
+            speed_limit_only_while_active: self.limit_while_active,
+            speed_limit_idle_minutes: self.idle_minutes,
             resume_at_startup: self.resume_at_startup,
             close_to_tray: self.close_to_tray,
             minimize_to_tray: self.minimize_to_tray,
@@ -3039,6 +3046,24 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         ui.end_row();
 
         ui.label("");
+        ui.add_enabled_ui(draft.limit_enabled, |ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut draft.limit_while_active, tr("Only while I'm using the computer"));
+                ui.add_enabled_ui(draft.limit_while_active, |ui| {
+                    ui.label(tr("Lift it after"));
+                    let (lo, hi) = IDLE_MINUTES_RANGE;
+                    ui.add(egui::DragValue::new(&mut draft.idle_minutes).range(lo..=hi));
+                    ui.label(tr("minutes without keyboard or mouse input"));
+                });
+            })
+            .response
+            .on_hover_text(tr(
+                "Downloads go at full speed while you are away and slow down again when you come back. Downloads with a speed limit of their own keep it.",
+            ));
+        });
+        ui.end_row();
+
+        ui.label("");
         ui.checkbox(&mut draft.limit_on_startup, tr("Always turn the speed limit on when Pullbay starts"));
         ui.end_row();
 
@@ -4354,6 +4379,7 @@ impl eframe::App for App {
             stale_daemon: self.state.stale_daemon,
             notice: notice.as_deref(),
             quota: quota.as_deref(),
+            limit_lifted: self.state.limit_lifted,
             // Closed for this version, it stays closed until a newer one.
             release: release.as_ref().filter(|r| self.layout.shows_release(&r.version)).map(|r| banner::Release {
                 version: &r.version,

@@ -451,6 +451,11 @@ impl Engine {
         self.inner.shared.limiter.set_rate(bytes_per_sec);
     }
 
+    /// The total speed limit, if any.
+    pub fn speed_limit(&self) -> Option<u64> {
+        self.inner.shared.limiter.rate()
+    }
+
     /// Set one download's own speed limit, or `None` to clear it. A running
     /// download slows down or speeds up at once; a queued one starts with it.
     /// Clearing it falls back to the limit per file, if one is set.

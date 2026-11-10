@@ -411,8 +411,12 @@
 - **Options** (top right of the window) has five tabs. **General**: the
   download folder, connections per file (1 to 16), downloads at once (1 to
   10), a total speed limit (with, while it is on, a limit for each file
-  that has no limit of its own, and **Always turn the speed limit on when
-  Pullbay starts**), a download quota (no more than so many MB every
+  that has no limit of its own, **Always turn the speed limit on when
+  Pullbay starts**, and **Only while I'm using the computer**, which lifts
+  the limit after so many minutes (5 by default) without keyboard or mouse
+  input and applies it again at the next one; the tray tooltip and a strip
+  under the toolbar say while it is lifted, and downloads with a limit of
+  their own keep it), a download quota (no more than so many MB every
   so many hours, with a warning at 90% that can be turned off), what to do when a file name is taken or an
   address is already in the list, the save-as
   dialog, whether to resume unfinished downloads when Pullbay starts, Start with

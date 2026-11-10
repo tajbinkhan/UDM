@@ -36,6 +36,8 @@ pub struct Notes<'a> {
     pub stale_daemon: bool,
     pub notice: Option<&'a str>,
     pub quota: Option<&'a str>,
+    /// The speed limit is lifted while nobody uses the computer.
+    pub limit_lifted: bool,
     pub release: Option<Release<'a>>,
 }
 
@@ -47,6 +49,7 @@ impl Notes<'_> {
             || self.error.is_some()
             || self.notice.is_some()
             || self.quota.is_some()
+            || self.limit_lifted
             || self.release.is_some()
     }
 }
@@ -106,6 +109,11 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
     if let Some(quota) = notes.quota {
         strip(ui, Tone::Warn, |ui| {
             ui.label(quota);
+        });
+    }
+    if notes.limit_lifted {
+        strip(ui, Tone::Info, |ui| {
+            ui.label(tr("The speed limit is lifted while you are away. It applies again when you use the computer."));
         });
     }
     if let Some(name) = &notes.refreshing {

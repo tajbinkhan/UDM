@@ -25,9 +25,10 @@ use pullbay_domain::download::{
 use pullbay_domain::grab::{self, GrabRequest, RenderedPage};
 use pullbay_domain::ports::{
     Answers, Attention, Browser, Clock, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
-    EarlyStarts, FileHashes, FileOpener, GrabDownloads, GrabProjects, GrabRuns, Notifications, PausedDownloads,
-    PowerControl, Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource,
-    SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine, UpdateChecks, VirusScanner,
+    EarlyStarts, FileHashes, FileOpener, GrabDownloads, GrabProjects, GrabRuns, LimitLift, Notifications,
+    PausedDownloads, PowerControl, Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
+    ReleaseSource, SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine, UpdateChecks,
+    UserIdle, VirusScanner,
 };
 use pullbay_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -39,8 +40,9 @@ use tracing::{info, warn};
 use super::{ClientId, ClientList, Command, Countdowns, DownloadFeed, Event, Failure, Reply, Requests};
 use crate::downloads::{
     AddLater, AddMany, AfterDownload, CancelDownload, CheckDownload, CheckOutcome, ConfirmAnswer, ConfirmWarning,
-    Confirmed, ConvertDownload, Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed,
-    RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit, UseExisting,
+    Confirmed, ConvertDownload, Existing, Held, HoldForAnswer, LiftLimitWhileAway, PauseAll, Probed, Redownload,
+    RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetOnDone, SetProperties,
+    SetSpeedLimit, UseExisting,
 };
 use crate::grab::RunGrabSchedules;
 use crate::power::{CancelCountdown, CountdownNow, RunWhenDone};
@@ -128,8 +130,9 @@ pub trait Wiring: 'static {
     type Store: QueueStore + DownloadList + DownloadFeed + 'static;
     /// New downloads going into the list.
     type Intake: DownloadIntake + 'static;
-    /// Starts, stops and checks downloads, and keeps the settings.
-    type Transfers: DownloadControl + SettingsStore + TransferEngine + 'static;
+    /// Starts, stops and checks downloads, keeps the settings, and lifts the
+    /// speed limit while nobody uses the computer.
+    type Transfers: DownloadControl + SettingsStore + TransferEngine + LimitLift + 'static;
     /// The settings' record of update checks.
     type Settings: UpdateChecks + 'static;
     /// Each started queue's current run, and its retries.
@@ -141,6 +144,8 @@ pub trait Wiring: 'static {
     type Sync: SyncChecks + 'static;
     type RunEnds: QueueFinish + 'static;
     type Quota: QuotaState + 'static;
+    /// The time since the last keyboard or mouse input.
+    type Idle: UserIdle + 'static;
     type Power: PowerControl + Countdowns + 'static;
     /// The downloads' files and the folders they are saved in.
     type Files: DownloadFiles + SaveFolders + 'static;
@@ -193,6 +198,7 @@ pub struct Parts<W: Wiring> {
     pub run_book: W::Runs,
     pub pause_book: W::Paused,
     pub quota: W::Quota,
+    pub idle: W::Idle,
     pub power: Arc<W::Power>,
     pub chimes: W::Chimes,
     pub releases: ReleasesAt<W::Releases>,
@@ -235,6 +241,7 @@ pub struct DaemonService<W: Wiring> {
     pub run_book: W::Runs,
     pub pause_book: W::Paused,
     pub quota: W::Quota,
+    pub idle: W::Idle,
     pub power: Arc<W::Power>,
     pub chimes: W::Chimes,
     releases: ReleasesAt<W::Releases>,
@@ -289,6 +296,7 @@ impl<W: Wiring> DaemonService<W> {
             run_book: p.run_book,
             pause_book: p.pause_book,
             quota: p.quota,
+            idle: p.idle,
             power: p.power,
             chimes: p.chimes,
             releases: p.releases,
@@ -423,6 +431,7 @@ impl<W: Wiring> DaemonService<W> {
     pub fn tick(self: &Arc<Self>) {
         let _guard = lock(&self.tick_lock);
         self.check_quota();
+        self.lift_limit_while_away();
         let scheduled =
             RunSchedules::new(&*self.store, &*self.store, &self.run_book, &*self.transfers, &self.clock, &self.chimes)
                 .run();
@@ -642,6 +651,21 @@ impl<W: Wiring> DaemonService<W> {
             }
             None => {}
         }
+    }
+
+    /// Lift the speed limit while nobody uses the computer, when the
+    /// settings ask for that, and apply it again once someone does (see
+    /// `LiftLimitWhileAway`). Runs with the scheduler.
+    pub fn lift_limit_while_away(&self) {
+        if let Some(lifted) = LiftLimitWhileAway::new(&*self.transfers, &self.idle, &*self.transfers).run() {
+            info!(lifted, "speed limit while away");
+        }
+    }
+
+    /// Whether the speed limit is lifted, for a window that just connected,
+    /// when it is.
+    pub fn limit_lift_message(&self) -> Option<Event> {
+        self.transfers.lifted().then_some(Event::LimitLifted { lifted: true })
     }
 
     /// Start again what `pause_all` stopped, and every interrupted download.
@@ -1431,6 +1455,9 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 }
                 if let Some(quota) = daemon.quota_message() {
                     send(quota);
+                }
+                if let Some(lift) = daemon.limit_lift_message() {
+                    send(lift);
                 }
                 daemon.weekly_update_check();
                 // Links picked from a page while no window was open.

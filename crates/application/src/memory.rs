@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use pullbay_domain::address::Link;
 use pullbay_domain::bytes::ByteCount;
@@ -16,8 +17,9 @@ use pullbay_domain::id::{DownloadId, QueueId};
 use pullbay_domain::media::Conversion;
 use pullbay_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
-    EarlyStarts, FileHashes, FilesError, HashError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds,
-    QueueStore, QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
+    EarlyStarts, FileHashes, FilesError, HashError, LimitLift, PausedDownloads, PowerControl, QueueFinish, QueueRuns,
+    QueueSounds, QueueStore, QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
+    UserIdle,
 };
 use pullbay_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use pullbay_domain::quota::QuotaNotice;
@@ -898,5 +900,52 @@ impl Hashes {
 impl FileHashes for Hashes {
     fn digest(&self, path: &Path, _algorithm: Algorithm) -> Result<Vec<u8>, HashError> {
         self.0.get(path).cloned().ok_or_else(|| HashError(format!("Could not read {}", path.display())))
+    }
+}
+
+/// The time since the last input, as a test sets it.
+#[derive(Default)]
+pub struct Idle {
+    idle: Mutex<Option<Duration>>,
+    asked: AtomicUsize,
+}
+
+impl Idle {
+    pub fn set(&self, idle: Option<Duration>) {
+        *self.idle.lock().unwrap() = idle;
+    }
+
+    /// How many times the time was asked for.
+    pub fn asked(&self) -> usize {
+        self.asked.load(Ordering::SeqCst)
+    }
+}
+
+impl UserIdle for Idle {
+    fn idle_for(&self) -> Option<Duration> {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        *self.idle.lock().unwrap()
+    }
+}
+
+/// Whether the speed limit is lifted, with each change.
+#[derive(Default)]
+pub struct Lift {
+    changes: Mutex<Vec<bool>>,
+}
+
+impl Lift {
+    pub fn changes(&self) -> Vec<bool> {
+        self.changes.lock().unwrap().clone()
+    }
+}
+
+impl LimitLift for Lift {
+    fn lifted(&self) -> bool {
+        self.changes.lock().unwrap().last().copied().unwrap_or(false)
+    }
+
+    fn set_lifted(&self, lifted: bool) {
+        self.changes.lock().unwrap().push(lifted);
     }
 }

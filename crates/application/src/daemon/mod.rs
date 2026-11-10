@@ -403,6 +403,11 @@ pub enum Event {
         paused: bool,
         resumes_at: Option<u64>,
     },
+    /// Whether the speed limit is lifted because nobody is using the
+    /// computer.
+    LimitLifted {
+        lifted: bool,
+    },
     /// Whether the browser extension is connected, and when one last was.
     BrowserLink {
         connected: bool,

@@ -161,6 +161,15 @@ running downloads within 100 ms. Each download also has a bucket of its own,
 at its own limit or, while the speed limit is on, at the limit per file;
 a read waits for both, so the lower limit wins.
 
+When the speed limit applies only while the computer is in use, the
+scheduler's pass (every 5 seconds) asks the system how long it has gone
+without keyboard or mouse input (`idle::SystemIdle`: `GetLastInputInfo` on
+Windows, `CGEventSourceSecondsSinceLastEventType` on macOS, GNOME's or KDE's
+idle time over D-Bus on Linux) and lifts the total and per-file limits once
+that reaches the chosen minutes (`LiftLimitWhileAway`). The next input puts
+them back on the following pass. Where the system does not say, the limit
+stays.
+
 The daemon keeps each download's original request, cookies included, while it
 can still be retried, so a retry resends the same headers. It drops the request
 once the download finishes or is removed. When a retried download is refused

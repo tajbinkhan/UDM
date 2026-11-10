@@ -13,13 +13,15 @@ use pullbay_domain::id::{DownloadId, QueueId};
 use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use pullbay_domain::download::{Download, DownloadEntry, Status, Validator};
-use pullbay_domain::ports::{ControlError, DownloadControl, DownloadList, SettingsError, SettingsStore, SyncChecks};
+use pullbay_domain::ports::{
+    ControlError, DownloadControl, DownloadList, LimitLift, SettingsError, SettingsStore, SyncChecks,
+};
 use tracing::{info, warn};
 
 use crate::app::{progress_to_outgoing, to_request};
@@ -30,7 +32,7 @@ use crate::net::{self, ProxyKind};
 use crate::protocol::Outgoing;
 use crate::settings;
 use crate::store::{DownloadStore, EditError, StoreEvents};
-use pullbay_domain::settings::{FileExists, Folders, Settings};
+use pullbay_domain::settings::{EngineLimits, FileExists, Folders, Settings};
 
 /// How long answering a save-as dialog waits for the download it started
 /// early to stop, before starting over without its bytes.
@@ -162,6 +164,8 @@ pub struct Transfers {
     early: Arc<EarlyRuns>,
     /// The download waiting for a new link from the browser, if any.
     refresh_waiting: Mutex<Option<DownloadId>>,
+    /// The speed limit is lifted while nobody uses the computer.
+    limit_lifted: AtomicBool,
 }
 
 impl Transfers {
@@ -186,8 +190,7 @@ impl Transfers {
             }),
             s.max_concurrent,
         );
-        engine.set_speed_limit(s.speed_limit_bytes());
-        engine.set_per_file_limit(s.per_file_limit_bytes());
+        set_limits(&engine, s.engine_limits(false));
         engine.set_next_id(next_id);
         Transfers {
             engine: Arc::new(engine),
@@ -197,6 +200,7 @@ impl Transfers {
             events,
             early,
             refresh_waiting: Mutex::new(None),
+            limit_lifted: AtomicBool::new(false),
         }
     }
 
@@ -606,10 +610,20 @@ impl Transfers {
             settings::save(&new, path).map_err(|source| SaveError::File { path: path.to_path_buf(), source })?;
         }
         self.engine.set_concurrency(new.max_concurrent);
-        self.engine.set_speed_limit(new.speed_limit_bytes());
-        self.engine.set_per_file_limit(new.per_file_limit_bytes());
-        *self.settings.lock() = new.clone();
+        let applied = {
+            let mut current = self.settings.lock();
+            // Settings that no longer lift the limit apply it again at once;
+            // otherwise the scheduler decides on its next pass.
+            let lifted = self.limit_lifted.load(Ordering::SeqCst) && new.lift_limit_after().is_some();
+            let was = self.limit_lifted.swap(lifted, Ordering::SeqCst);
+            set_limits(&self.engine, new.engine_limits(lifted));
+            *current = new.clone();
+            (was != lifted).then_some(lifted)
+        };
         self.events.announce(&Outgoing::Settings { settings: new });
+        if let Some(lifted) = applied {
+            self.events.announce(&Outgoing::LimitLifted { lifted });
+        }
         Ok(())
     }
 
@@ -618,6 +632,31 @@ impl Transfers {
     pub fn set_refresh_waiting(&self, id: Option<DownloadId>) {
         *self.waiting() = id;
         self.events.announce(&Outgoing::RefreshWaiting { id });
+    }
+}
+
+/// Give `engine` the total and per-file speed limits.
+fn set_limits(engine: &Engine, limits: EngineLimits) {
+    engine.set_speed_limit(limits.total);
+    engine.set_per_file_limit(limits.per_file);
+}
+
+impl LimitLift for Transfers {
+    fn lifted(&self) -> bool {
+        self.limit_lifted.load(Ordering::SeqCst)
+    }
+
+    fn set_lifted(&self, lifted: bool) {
+        {
+            // Under the settings' lock, so a change of settings cannot slip
+            // in between and leave the engine with the old limits.
+            let s = self.settings.lock();
+            if self.limit_lifted.swap(lifted, Ordering::SeqCst) == lifted {
+                return;
+            }
+            set_limits(&self.engine, s.engine_limits(lifted));
+        }
+        self.events.announce(&Outgoing::LimitLifted { lifted });
     }
 }
 
@@ -954,6 +993,39 @@ mod tests {
         let bad = Settings { max_concurrent: 0, ..w.transfers.settings() };
         assert!(w.transfers.save_settings(bad).is_err());
         assert_eq!(w.transfers.settings().max_concurrent, 2, "a refused change leaves them alone");
+        let _ = std::fs::remove_dir_all(&w.dir);
+    }
+
+    #[test]
+    fn the_speed_limit_is_lifted_while_away_and_back_when_the_setting_goes() {
+        let w = world("away");
+        let s = Settings {
+            speed_limit_enabled: true,
+            speed_limit_kbps: 100,
+            speed_limit_per_file_kbps: Some(50),
+            speed_limit_only_while_active: true,
+            ..w.transfers.settings()
+        };
+        w.transfers.save_settings(s.clone()).unwrap();
+        let limits = || (w.transfers.engine().speed_limit(), w.transfers.engine().per_file_limit());
+        let lifts = || w.heard.0.lock().unwrap().iter().filter(|m| matches!(m, Outgoing::LimitLifted { .. })).count();
+        assert_eq!(limits(), (Some(100 * 1024), Some(50 * 1024)));
+
+        w.transfers.set_lifted(true);
+        assert!(w.transfers.lifted());
+        assert_eq!(limits(), (None, None));
+        w.transfers.set_lifted(true);
+        assert_eq!(lifts(), 1, "only a change is announced");
+
+        // New limits wait while it is lifted; turning the option off applies them.
+        w.transfers.save_settings(Settings { speed_limit_kbps: 200, ..s.clone() }).unwrap();
+        assert_eq!(limits(), (None, None));
+        w.transfers
+            .save_settings(Settings { speed_limit_kbps: 200, speed_limit_only_while_active: false, ..s })
+            .unwrap();
+        assert!(!w.transfers.lifted());
+        assert_eq!(limits(), (Some(200 * 1024), Some(50 * 1024)));
+        assert!(matches!(w.heard.0.lock().unwrap().last(), Some(Outgoing::LimitLifted { lifted: false })));
         let _ = std::fs::remove_dir_all(&w.dir);
     }
 
