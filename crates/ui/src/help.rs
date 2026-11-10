@@ -1,21 +1,21 @@
-//! Help: links to the README's sections, and the tip of the day. The Help
+//! Help: links to the help pages in `docs/`, and the tip of the day. The Help
 //! menu itself is in `menubar`.
 
 use eframe::egui;
 
 use crate::i18n::tr;
 
-/// The README on GitHub, which is Pullbay's manual.
-pub const MANUAL: &str = "https://github.com/tajbinkhan/pullbay#readme";
-/// Its section on queues and their schedules.
-pub const SCHEDULER: &str = "https://github.com/tajbinkhan/pullbay#queues-and-the-scheduler";
-/// Its section on which browser downloads Pullbay takes: the capture rules.
-pub const CAPTURE: &str = "https://github.com/tajbinkhan/pullbay#what-the-extension-does-and-does-not-take";
-/// Its section on the site grabber.
-pub const GRABBER: &str = "https://github.com/tajbinkhan/pullbay#streams-batches-and-the-site-grabber";
-/// Its first steps: opening the window, sending downloads from the browser,
+/// The help pages on GitHub, which are Pullbay's manual.
+pub const MANUAL: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/README.md";
+/// The page on queues and their schedules.
+pub const SCHEDULER: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/queues-and-scheduler.md";
+/// The page on which browser downloads Pullbay takes: the capture rules.
+pub const CAPTURE: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/browser-capture.md";
+/// The page on streams, batches and the site grabber.
+pub const GRABBER: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/streams-batches-and-grabber.md";
+/// The first steps: opening the window, sending downloads from the browser,
 /// and the toolbar, menus and options from there.
-pub const TUTORIALS: &str = "https://github.com/tajbinkhan/pullbay#use";
+pub const TUTORIALS: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/using-pullbay.md";
 /// Pullbay's home page.
 pub const HOME: &str = "https://github.com/tajbinkhan/pullbay";
 /// Where to report a problem or ask for help.
@@ -78,29 +78,12 @@ pub fn tip_window(ctx: &egui::Context, t: &mut TipWindow) -> Option<(usize, bool
 mod tests {
     use super::*;
 
-    /// GitHub's anchor for a README heading: lower case, spaces to dashes,
-    /// other punctuation dropped.
-    fn anchor(heading: &str) -> String {
-        heading
-            .trim()
-            .to_lowercase()
-            .chars()
-            .filter_map(|c| match c {
-                ' ' => Some('-'),
-                c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c),
-                _ => None,
-            })
-            .collect()
-    }
-
     #[test]
-    fn every_help_link_names_a_readme_section() {
-        let readme = include_str!("../../../README.md");
-        let anchors: Vec<String> =
-            readme.lines().filter_map(|l| l.strip_prefix('#')).map(|l| anchor(l.trim_start_matches('#'))).collect();
-        for link in [SCHEDULER, GRABBER, TUTORIALS, CAPTURE] {
-            let (_, wanted) = link.split_once('#').unwrap();
-            assert!(anchors.iter().any(|a| a == wanted), "README has no section #{wanted}");
+    fn every_help_link_names_a_help_page() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for link in [MANUAL, SCHEDULER, GRABBER, TUTORIALS, CAPTURE] {
+            let page = link.strip_prefix("https://github.com/tajbinkhan/pullbay/blob/main/").unwrap();
+            assert!(root.join(page).is_file(), "no help page {page}");
         }
     }
 }

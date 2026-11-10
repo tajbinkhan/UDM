@@ -28,9 +28,8 @@ function pageNames() {
   return { title: document.title, ogTitle: meta("og:title"), siteName: meta("og:site_name") };
 }
 
-// The video button's "?": the README's part on streams and the video
-// button.
-var VIDEO_HELP = "https://github.com/tajbinkhan/pullbay#streams-batches-and-the-site-grabber";
+// The video button's "?": the help page on streams and the video button.
+var VIDEO_HELP = "https://github.com/tajbinkhan/pullbay/blob/main/docs/streams-batches-and-grabber.md";
 
 // The mini view's button face: a down arrow, drawn without page text.
 function pullbayArrow() {
