@@ -1,6 +1,7 @@
 <!--
 Copy this file to release-notes/vX.Y.Z.md before tagging vX.Y.Z. The
-Release workflow uses it as the release description.
+Release workflow uses it as the release description. Add the release to
+CHANGELOG.md too, with its date and the summary sentence.
 
 Release type, from the version number:
 - major (1.0.0 -> 2.0.0): something that worked before stops working or

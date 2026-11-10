@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security hole
+    url: https://github.com/tajbinkhan/pullbay/security/advisories/new
+    about: Please report vulnerabilities privately, not in a public issue. See SECURITY.md.
+  - name: Help pages
+    url: https://github.com/tajbinkhan/pullbay/blob/main/docs/README.md
+    about: How to install and use Pullbay, and what is known to be missing on each system.

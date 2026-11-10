@@ -262,8 +262,11 @@ Linux; the macOS build is checked by the compiler and CI only.
 - **What's missing or different** on each system: [Known gaps](docs/known-gaps.md).
 
 Bug reports and ideas are welcome in [Issues](https://github.com/tajbinkhan/pullbay/issues);
-**Help → Contact support** in the window opens it. Pull requests are welcome too: read
-[AGENTS.md](AGENTS.md) first, since it sets the rules every change follows.
+**Help → Contact support** in the window opens it. Pull requests are welcome too:
+[CONTRIBUTING.md](CONTRIBUTING.md) says how to build and check a change, and
+[AGENTS.md](AGENTS.md) sets the rules every change follows. Report security holes privately, as
+[SECURITY.md](SECURITY.md) describes. What changed in each release is in the
+[changelog](CHANGELOG.md).
 
 ## ⭐ Star history
 
