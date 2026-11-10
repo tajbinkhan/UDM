@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>Pullbay</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header><h1>Pullbay</h1><span id="state" role="status"></span></header>
+<main>
+  <section id="pair" hidden>
+    <h2 data-t="pair_title"></h2>
+    <p data-t="pair_help"></p>
+    <form id="pair-form" autocomplete="off">
+      <label for="code" data-t="code_label"></label>
+      <input id="code" name="code" inputmode="text" autocapitalize="characters" spellcheck="false" required>
+      <button type="submit" data-t="pair_button"></button>
+    </form>
+  </section>
+  <section id="list" hidden>
+    <form id="add-form" autocomplete="off">
+      <label for="url" data-t="add_label"></label>
+      <div class="row">
+        <input id="url" name="url" type="url" inputmode="url" placeholder="https://" required>
+        <button type="submit" data-t="add_button"></button>
+      </div>
+    </form>
+    <p id="empty" data-t="empty" hidden></p>
+    <ul id="downloads"></ul>
+    <p class="foot"><button id="unpair" type="button" class="link" data-t="unpair"></button></p>
+  </section>
+  <p id="message" role="alert" hidden></p>
+</main>
+<dialog id="remove-dialog">
+  <form method="dialog">
+    <p id="remove-question"></p>
+    <label class="check"><input id="remove-files" type="checkbox"> <span data-t="remove_files"></span></label>
+    <div class="row end">
+      <button value="cancel" data-t="cancel"></button>
+      <button value="remove" class="danger" data-t="remove"></button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>

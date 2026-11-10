@@ -280,6 +280,14 @@ pub fn receive(clients: &Clients, requests: &dyn Requests, client: ClientId, raw
     requests.handle(client, wire::command(msg), reply);
 }
 
+/// A client id no other client of this daemon has had: for each socket the
+/// server accepts, and each connection the remote-control page makes inside
+/// the daemon (`pullbay_application::pairing::LocalClient`).
+pub fn next_client() -> ClientId {
+    static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
+    ClientId::new(NEXT_CLIENT.fetch_add(1, Ordering::Relaxed))
+}
+
 /// The daemon's listening socket and the token clients must prove they
 /// hold.
 pub struct Server {
@@ -309,11 +317,10 @@ impl Server {
 
     /// Serve clients until the listener fails, each on its own thread.
     pub fn serve(self, clients: Arc<Clients>, requests: Arc<dyn Requests>) {
-        static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
         for conn in self.listener.incoming() {
             match conn {
                 Ok(stream) => {
-                    let id = ClientId::new(NEXT_CLIENT.fetch_add(1, Ordering::Relaxed));
+                    let id = next_client();
                     let (clients, requests, token) =
                         (Arc::clone(&clients), Arc::clone(&requests), Arc::clone(&self.token));
                     thread::spawn(move || handle_client(stream, id, &clients, &*requests, &token));

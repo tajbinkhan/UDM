@@ -288,6 +288,12 @@ pub fn data_dir() -> io::Result<PathBuf> {
     data_dir_for(instance().as_deref())
 }
 
+/// The remote-control page's certificate and the paired devices, in the
+/// data folder: they belong to this computer and do not roam.
+pub fn remote_dir() -> io::Result<PathBuf> {
+    Ok(data_dir()?.join("remote"))
+}
+
 /// The site grabber's projects, templates and filters, next to the
 /// settings file.
 pub fn grabber_dir() -> io::Result<PathBuf> {

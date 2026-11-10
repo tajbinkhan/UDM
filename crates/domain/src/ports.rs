@@ -634,3 +634,38 @@ pub trait ProblemReports: Send + Sync {
     /// Remember that these reports were offered, so they are not again.
     fn mark_offered(&self, reports: &[crate::report::SavedReport]);
 }
+
+/// Why the paired devices could not be read or saved, or no random bytes
+/// could be had, in the adapter's words.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct DevicesError(pub String);
+
+/// The devices paired with the remote-control page, kept between runs,
+/// sealed for the user as the saved requests are.
+pub trait PairedDevices: Send + Sync {
+    /// The devices kept; none when nothing was saved yet.
+    fn load(&self) -> Result<Vec<crate::pairing::Device>, DevicesError>;
+
+    /// Keep `devices` in place of those kept before.
+    fn save(&self, devices: &[crate::pairing::Device]) -> Result<(), DevicesError>;
+}
+
+/// What pairing needs from the system: random bytes and a digest.
+pub trait PairingKeys: Send + Sync {
+    /// Fresh bytes from the operating system's random source.
+    fn random(&self) -> Result<[u8; crate::pairing::RANDOM_BYTES], DevicesError>;
+
+    /// The SHA-256 digest of `secret`, which is all the daemon keeps of it.
+    fn verifier(&self, secret: &crate::pairing::DeviceSecret) -> crate::pairing::Verifier;
+}
+
+/// The remote-control page's listener, as far as the window needs it.
+pub trait RemoteListener: Send + Sync {
+    /// Whether and where it listens, or why not.
+    fn state(&self) -> crate::pairing::ListenerState;
+
+    /// The page's address carrying `code`, for the QR code, while it
+    /// listens.
+    fn link(&self, code: &crate::pairing::PairingCode) -> Option<String>;
+}

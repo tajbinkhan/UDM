@@ -18,16 +18,23 @@ impl<'a, 's, C: DaemonClient + ?Sized> PauseDownload<'a, 's, C> {
     /// Stop download `id`, and wait until it has stopped. A download
     /// waiting for its save-as dialog is stopped too.
     pub fn run(&self, id: DownloadId) -> Result<(), RemoteError> {
-        let status = self.session.list()?.download(id)?.status;
-        if !(status.is_active() || status == Status::Confirming) {
-            return Err(RemoteError::NotRunning(id));
-        }
-        if self.session.ask(Command::Cancel { id })?.iter().any(|e| stopped(e, id)) {
+        if self.ask(id)?.iter().any(|e| stopped(e, id)) {
             return Ok(());
         }
         // The engine stops it in its own time.
         while !stopped(&self.session.answer()?, id) {}
         Ok(())
+    }
+
+    /// Ask download `id` to stop, without waiting until it has: for a
+    /// connection that hears no announcements, such as the remote-control
+    /// page's, which sees it stop in the list. Returns what was heard.
+    pub fn ask(&self, id: DownloadId) -> Result<Vec<Event>, RemoteError> {
+        let status = self.session.list()?.download(id)?.status;
+        if !(status.is_active() || status == Status::Confirming) {
+            return Err(RemoteError::NotRunning(id));
+        }
+        self.session.ask(Command::Cancel { id })
     }
 
     /// Stop every started queue and every running download, as the

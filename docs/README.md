@@ -24,6 +24,8 @@ These pages were the README's manual. Each covers one part of Pullbay.
   sending links from other programs, and the automation API for programs of your own.
 - **[AI assistants (MCP)](ai-assistants.md)**: letting Claude Desktop, Claude Code, Cursor or VS
   Code list, add, pause, resume and remove downloads through `pullbay-mcp`.
+- **[Remote control from a phone](remote-control.md)**: turning on the page phones on the home
+  network use, pairing one with a QR code, removing it, the firewall, and how it is protected.
 
 ## Downloading
 

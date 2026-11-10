@@ -8,6 +8,7 @@ use pullbay_application::daemon::{Command, Event, Failure};
 use pullbay_application::downloads::{ConfirmError, StartOrWaitError};
 use pullbay_domain::download::{DownloadError, Mismatch};
 use pullbay_domain::grab::InvalidGrab;
+use pullbay_domain::pairing::PairingError;
 use pullbay_domain::ports::{ControlError, SettingsError};
 use pullbay_domain::queue::QueueError;
 use pullbay_domain::update::UpdateError;
@@ -61,6 +62,10 @@ pub fn incoming(command: Command) -> Incoming {
         Command::SetOnDone { id, on_done } => Incoming::SetOnDone { id, on_done },
         Command::GetSettings => Incoming::GetSettings,
         Command::SetSettings { settings } => Incoming::SetSettings { settings },
+        Command::RemoteStatus => Incoming::RemoteStatus,
+        Command::StartPairing => Incoming::StartPairing,
+        Command::CancelPairing => Incoming::CancelPairing,
+        Command::RemoveDevice { id } => Incoming::RemoveDevice { id },
     }
 }
 
@@ -110,6 +115,10 @@ pub fn command(msg: Incoming) -> Command {
         Incoming::SetOnDone { id, on_done } => Command::SetOnDone { id, on_done },
         Incoming::GetSettings => Command::GetSettings,
         Incoming::SetSettings { settings } => Command::SetSettings { settings },
+        Incoming::RemoteStatus => Command::RemoteStatus,
+        Incoming::StartPairing => Command::StartPairing,
+        Incoming::CancelPairing => Command::CancelPairing,
+        Incoming::RemoveDevice { id } => Command::RemoveDevice { id },
     }
 }
 
@@ -171,6 +180,7 @@ pub fn event(msg: Outgoing) -> Event {
         }
         Outgoing::Error { message, error_kind } => Event::Error { error: failure(message, error_kind) },
         Outgoing::Rejected { url, message, error_kind } => Event::Rejected { url, error: failure(message, error_kind) },
+        Outgoing::Remote { state } => Event::Remote { state },
     }
 }
 
@@ -247,6 +257,7 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
             let (message, error_kind) = text_and_kind(error);
             Outgoing::Rejected { url, message, error_kind }
         }
+        Event::Remote { state } => Outgoing::Remote { state },
     })
 }
 
@@ -307,6 +318,7 @@ enum WireService {
     CrawlRunning,
     BadBody(String),
     NotDownloadAddress(String),
+    Pairing(PairingError),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -359,6 +371,7 @@ impl WireService {
             ServiceError::CrawlRunning => WireService::CrawlRunning,
             ServiceError::BadBody(url) => WireService::BadBody(url),
             ServiceError::NotDownloadAddress(url) => WireService::NotDownloadAddress(url),
+            ServiceError::Pairing(e) => WireService::Pairing(e),
         }
     }
 }
@@ -380,6 +393,7 @@ impl From<WireService> for ServiceError {
             WireService::CrawlRunning => ServiceError::CrawlRunning,
             WireService::BadBody(url) => ServiceError::BadBody(url),
             WireService::NotDownloadAddress(url) => ServiceError::NotDownloadAddress(url),
+            WireService::Pairing(e) => ServiceError::Pairing(e),
         }
     }
 }
@@ -468,6 +482,8 @@ mod tests {
             SettingsError::Refused("read-only".into()).into(),
             Failure::InvalidMessage("expected value".into()),
             Failure::Probe("HTTP 404".into()),
+            ServiceError::Pairing(PairingError::NotListening).into(),
+            ServiceError::Pairing(PairingError::NoDevice(pullbay_domain::id::DeviceId::new(3))).into(),
         ];
         for f in failures {
             let text = f.to_string();
@@ -498,6 +514,66 @@ mod tests {
             assert_eq!(value["error"], text.as_str());
             assert_eq!(back, link);
         }
+    }
+
+    #[test]
+    fn remote_control_goes_as_its_ops() {
+        use pullbay_domain::id::DeviceId;
+        use pullbay_domain::pairing::{
+            DeviceInfo, DeviceName, ListenerState, PairingCode, PairingOffer, RemoteFault, RemoteState,
+        };
+        for (command, op) in [
+            (Command::RemoteStatus, serde_json::json!({"op": "remote_status"})),
+            (Command::StartPairing, serde_json::json!({"op": "start_pairing"})),
+            (Command::CancelPairing, serde_json::json!({"op": "cancel_pairing"})),
+            (Command::RemoveDevice { id: DeviceId::new(2) }, serde_json::json!({"op": "remove_device", "id": 2})),
+        ] {
+            let msg = incoming(command);
+            assert_eq!(json(&msg), op);
+            assert_eq!(json(&incoming(super::command(serde_json::from_value(op).unwrap()))), json(&msg));
+        }
+        let code = PairingCode::from_random(&[7; 32]);
+        let state = RemoteState {
+            listener: ListenerState {
+                listening: vec!["0.0.0.0:18443".into()],
+                page: Some("https://192.168.1.5:18443/".into()),
+                fault: None,
+                fingerprint: Some("AB:CD".into()),
+            },
+            devices: vec![DeviceInfo {
+                id: DeviceId::new(1),
+                name: DeviceName::clean("Pixel"),
+                paired_at: 5,
+                last_seen: None,
+            }],
+            pairing: Some(PairingOffer {
+                link: format!("https://192.168.1.5:18443/#pair={}", code.as_str()),
+                code: code.clone(),
+                expires_at: 300,
+            }),
+        };
+        let (value, back) = round_trip(Event::Remote { state: state.clone() });
+        assert_eq!(
+            value,
+            serde_json::json!({"op": "remote", "state": {
+                "listening": ["0.0.0.0:18443"],
+                "page": "https://192.168.1.5:18443/",
+                "fingerprint": "AB:CD",
+                "devices": [{"id": 1, "name": "Pixel", "paired_at": 5}],
+                "pairing": {"link": format!("https://192.168.1.5:18443/#pair={}", code.as_str()), "code": code.as_str(), "expires_at": 300},
+            }})
+        );
+        assert_eq!(back, Event::Remote { state });
+        let fault = RemoteState {
+            listener: ListenerState {
+                fault: Some(RemoteFault::PortInUse { address: "0.0.0.0:18443".into() }),
+                ..ListenerState::default()
+            },
+            ..RemoteState::default()
+        };
+        let (value, back) = round_trip(Event::Remote { state: fault.clone() });
+        assert_eq!(value["state"]["fault"], serde_json::json!({"PortInUse": {"address": "0.0.0.0:18443"}}));
+        assert_eq!(back, Event::Remote { state: fault });
     }
 
     #[test]

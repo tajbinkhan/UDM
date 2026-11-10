@@ -32,6 +32,10 @@ egui_extras = { version = "0.31.1", default-features = false }
 tray-icon = { version = "0.21", default-features = false }
 # The window's HWND, to show and hide it from the tray while egui is idle.
 raw-window-handle = "0.6"
+# The QR code Options shows for pairing a phone with the remote-control
+# page: a pure-Rust encoder with no dependencies once its image and SVG
+# renderers are off; the window draws the modules itself.
+qrcode = { version = "0.14", default-features = false }
 
 # Drag and drop out of the window, its taskbar button and its menu bar.
 [target.'cfg(windows)'.dependencies]

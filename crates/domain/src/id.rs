@@ -1,4 +1,4 @@
-//! The ids that name downloads and queues. Each wraps the `u64` the wire
+//! The ids that name downloads, queues and paired devices. Each wraps the `u64` the wire
 //! and the JSON files carry, and serializes as that number
 //! (`serde(transparent)`), so the files and the messages keep their shape.
 //! Any number is a valid id: the daemon hands them out, and an id that names
@@ -96,6 +96,35 @@ impl From<QueueId> for u64 {
 }
 
 impl fmt::Display for QueueId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A phone or other browser paired with the remote-control page
+/// (`pairing`). The daemon hands them out in rising order from 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DeviceId(u64);
+
+impl DeviceId {
+    /// The device numbered `id`.
+    pub const fn new(id: u64) -> Self {
+        DeviceId(id)
+    }
+
+    /// Its number, as the wire and the files carry it.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    /// The id after this one.
+    pub const fn next(self) -> Self {
+        DeviceId(self.0.saturating_add(1))
+    }
+}
+
+impl fmt::Display for DeviceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }

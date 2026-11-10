@@ -1,0 +1,34 @@
+:root { --bg: #f6f7f9; --fg: #1d2330; --card: #fff; --muted: #677085; --accent: #2563eb; --bar: #dfe3ea; --bad: #c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171d; --fg: #e8ebf0; --card: #1f242d; --muted: #98a1b3; --accent: #6ea0ff; --bar: #343b47; --bad: #ff7a7a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--fg); }
+header { display: flex; align-items: baseline; gap: 12px; padding: 12px 16px; }
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 18px; }
+#state { color: var(--muted); font-size: 14px; }
+main { padding: 0 16px 24px; max-width: 720px; margin: 0 auto; }
+label { display: block; margin: 8px 0 4px; color: var(--muted); font-size: 14px; }
+label.check { display: flex; gap: 8px; align-items: center; color: var(--fg); }
+input[type=url], input:not([type]) { width: 100%; padding: 10px; font-size: 16px; border: 1px solid var(--bar); border-radius: 8px; background: var(--card); color: var(--fg); }
+.row { display: flex; gap: 8px; align-items: center; }
+.row input { flex: 1; min-width: 0; }
+.end { justify-content: flex-end; }
+button { font: inherit; padding: 9px 14px; border-radius: 8px; border: 1px solid var(--bar); background: var(--card); color: var(--fg); }
+button[type=submit], button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--bad); }
+button.link { border: none; background: none; color: var(--muted); text-decoration: underline; padding: 4px; }
+button:disabled { opacity: .5; }
+ul { list-style: none; padding: 0; }
+li { background: var(--card); border-radius: 10px; padding: 12px; margin: 10px 0; }
+.name { font-weight: 600; overflow-wrap: anywhere; }
+.meta { color: var(--muted); font-size: 14px; margin: 2px 0 6px; overflow-wrap: anywhere; }
+.bar { height: 6px; background: var(--bar); border-radius: 3px; overflow: hidden; }
+.bar > div { height: 100%; background: var(--accent); width: 0; }
+.actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.error { color: var(--bad); font-size: 14px; }
+#message { background: var(--card); border-left: 4px solid var(--bad); padding: 10px; border-radius: 6px; }
+.foot { text-align: center; margin-top: 24px; }
+dialog { border: none; border-radius: 12px; background: var(--card); color: var(--fg); max-width: 90vw; }
+dialog::backdrop { background: rgba(0, 0, 0, .4); }

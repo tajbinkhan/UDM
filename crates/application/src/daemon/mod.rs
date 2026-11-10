@@ -22,8 +22,9 @@ use pullbay_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
 };
 use pullbay_domain::grab::{GrabFile, GrabRequest};
-use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::id::{DeviceId, DownloadId, QueueId};
 use pullbay_domain::media::{MediaInfo, Target};
+use pullbay_domain::pairing::RemoteState;
 use pullbay_domain::queue::{Queue, WhenDone};
 use pullbay_domain::quota::QuotaNotice;
 use pullbay_domain::settings::Settings;
@@ -231,6 +232,17 @@ pub enum Command {
     /// Replace the settings; answered with `Settings` or `Error`.
     SetSettings {
         settings: Settings,
+    },
+    /// Ask how remote control stands; answered with `Remote`.
+    RemoteStatus,
+    /// Show a new pairing code for a phone; answered with `Remote`, which
+    /// carries it, or `Error` while the page is not served.
+    StartPairing,
+    /// Withdraw the pairing code shown; answered with `Remote`.
+    CancelPairing,
+    /// Unpair a device at once; answered with `Remote` or `Error`.
+    RemoveDevice {
+        id: DeviceId,
     },
 }
 
@@ -459,6 +471,12 @@ pub enum Event {
     Rejected {
         url: Link,
         error: Failure,
+    },
+    /// How remote control stands: where the page listens, the paired
+    /// devices, and the pairing code shown. Sent only to the client that
+    /// asked.
+    Remote {
+        state: RemoteState,
     },
 }
 

@@ -376,6 +376,9 @@ mod tests {
             theme: Theme::Dark,
             text_size: 125,
             language: "de".into(),
+            remote_enabled: true,
+            remote_port: 20443,
+            remote_addresses: vec!["192.168.1.20".into()],
         };
         save(&s, &path).unwrap();
         assert_eq!(load(&path).unwrap(), s);
