@@ -591,7 +591,7 @@ def run(args) -> int:
         (out / "machine.json").write_text(json.dumps(info, indent=2) + "\n")
         log(f"results go to {out}")
         with open(out / "runs.csv", "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+            writer = csv.DictWriter(f, fieldnames=CSV_FIELDS, lineterminator="\n")
             writer.writeheader()
             for scenario in scenarios:
                 faults = SCENARIOS[scenario][1]
