@@ -17,7 +17,7 @@ In the folder holding `portable.txt`:
 
 | | |
 |---|---|
-| `Data` | the settings, the download list, the grabber's projects, the logs, the window's layout, the browsers' host manifests, and the parts of downloads under way (`Data\parts`) when Options names no temporary folder |
+| `Data` | the settings, the theme files (`Data\themes`), the download list, the grabber's projects, the logs, the window's layout, the browsers' host manifests, and the parts of downloads under way (`Data\parts`) when Options names no temporary folder |
 | `Downloads` | new downloads, unless Options or the save-as dialog names another folder |
 
 A named copy (`PULLBAY_INSTANCE`, see [Building](building.md)) uses
