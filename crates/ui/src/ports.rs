@@ -12,7 +12,7 @@ use std::sync::{Arc, OnceLock};
 use pullbay_application::window::{
     BrowserRegistry, FilePicker, GrabLibrary, ListFiles, SettingsChecks, SystemServices, WindowFiles,
 };
-use pullbay_domain::ports::{Clock, DownloadFiles, FileOpener, GrabDownloads, SaveFolders, Timestamps};
+use pullbay_domain::ports::{Clock, DownloadFiles, FileHashes, FileOpener, GrabDownloads, SaveFolders, Timestamps};
 use pullbay_domain::queue::Moment;
 
 /// What the views reach through ports.
@@ -27,6 +27,8 @@ pub struct Ports {
     pub files: Arc<dyn DownloadFiles>,
     /// Opening and showing files.
     pub opener: Arc<dyn FileOpener>,
+    /// Hashing files, to compare them with a checksum.
+    pub hashes: Arc<dyn FileHashes>,
     /// The window's layout and drop target files.
     pub window_files: Arc<dyn WindowFiles>,
     /// The grabber's projects, templates and filters, when their folder
@@ -97,9 +99,10 @@ mod fakes {
     use pullbay_application::window::{
         BrowserSlot, FileKind, IdentifiedBrowser, ListError, ListFormat, SystemFonts, SystemProxy,
     };
+    use pullbay_domain::checksum::Algorithm;
     use pullbay_domain::download::{Download, DownloadEntry};
     use pullbay_domain::grab::{GrabFile, GrabRequest};
-    use pullbay_domain::ports::{FilesError, SettingsError};
+    use pullbay_domain::ports::{FilesError, HashError, SettingsError};
     use pullbay_domain::settings::{Settings, Sound};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -155,6 +158,12 @@ mod fakes {
     impl FileOpener for Temp {
         fn open(&self, _: &str) {}
         fn reveal(&self, _: &str) {}
+    }
+
+    impl FileHashes for Temp {
+        fn digest(&self, path: &Path, _: Algorithm) -> Result<Vec<u8>, HashError> {
+            Err(HashError(format!("no file at {}", path.display())))
+        }
     }
 
     impl WindowFiles for Temp {
@@ -265,6 +274,7 @@ mod fakes {
             folders: Arc::new(Temp),
             files: Arc::new(Temp),
             opener: Arc::new(Temp),
+            hashes: Arc::new(Temp),
             window_files: Arc::new(Temp),
             grab: None,
             found: Arc::new(Temp),

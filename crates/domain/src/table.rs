@@ -208,6 +208,7 @@ fn blank(id: DownloadId, url: &str, status: Status) -> DownloadEntry {
         page: None,
         last_try: None,
         description: None,
+        checksum: None,
         category: None,
         login_user: None,
         speed_limit: None,

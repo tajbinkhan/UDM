@@ -121,6 +121,7 @@ mod tests {
         include_str!("toolbar.rs"),
         include_str!("tools.rs"),
         include_str!("tray.rs"),
+        include_str!("verify.rs"),
         // Labels the window passes through `tr`.
         include_str!("../../domain/src/queue.rs"),
         include_str!("../../domain/src/settings.rs"),

@@ -1019,5 +1019,19 @@
   "The new link does not say how big its file is, so it cannot be matched to the partial download.": "Le nouveau lien n'indique pas la taille de son fichier ; il ne peut donc pas être associé au téléchargement partiel.",
   "The new link is for a {new} file; the partial download is of a {partial} file.": "Le nouveau lien concerne un fichier de {new} ; le téléchargement partiel est un fichier de {partial}.",
   "The file at the new link has changed since the download started (its ETag or date differs).": "Le fichier du nouveau lien a changé depuis le début du téléchargement (son ETag ou sa date diffère).",
-  "The new link's server cannot resume downloads, so it must start over.": "Le serveur du nouveau lien ne peut pas reprendre les téléchargements ; il faut donc recommencer."
+  "The new link's server cannot resume downloads, so it must start over.": "Le serveur du nouveau lien ne peut pas reprendre les téléchargements ; il faut donc recommencer.",
+  "Verify checksum...": "Vérifier la somme de contrôle...",
+  "Verify checksum": "Vérifier la somme de contrôle",
+  "Paste the MD5, SHA-1, SHA-256, SHA-512 or CRC32 checksum the site gives for this file.": "Collez la somme MD5, SHA-1, SHA-256, SHA-512 ou CRC32 que le site donne pour ce fichier.",
+  "Algorithm: {name}": "Algorithme : {name}",
+  "This is not a checksum Pullbay knows.": "Pullbay ne reconnaît pas cette somme de contrôle.",
+  "Reading the file...": "Lecture du fichier...",
+  "The file matches the checksum.": "Le fichier correspond à la somme de contrôle.",
+  "The file does not match the checksum.": "Le fichier ne correspond pas à la somme de contrôle.",
+  "Expected: {digest}": "Attendue : {digest}",
+  "File: {digest}": "Fichier : {digest}",
+  "The file could not be read.": "Impossible de lire le fichier.",
+  "Verify": "Vérifier",
+  "Checksum": "Somme de contrôle",
+  "optional, checked when the download finishes": "facultative, vérifiée à la fin du téléchargement"
 }

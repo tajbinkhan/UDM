@@ -28,6 +28,10 @@ base64.workspace = true
 # sends the token itself.
 hmac = "0.13.0"
 sha2 = "0.11.1"
+# Checking a download against the SHA-1 or CRC32 checksum a site publishes
+# (MD5 and SHA-2 use md-5 and sha2). Both were already in the lock file.
+sha1 = "0.10"
+crc32fast = "1"
 # DASH manifests (.mpd) are XML; a small, read-only, pure-Rust parser.
 roxmltree = "0.20"
 # HLS segments encrypted with AES-128 (CBC with PKCS#7 padding).

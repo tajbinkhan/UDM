@@ -287,6 +287,7 @@ fn new_daemon(paths: Paths) -> Built {
         projects: grab::projects_dir().ok().map(|dir| Arc::new(ProjectFiles(dir))),
         files,
         scanner: Arc::new(Antivirus),
+        hashes: Arc::new(pullbay_infrastructure::hash::DiskHashes),
         opener: Arc::new(Desktop),
         settings,
         transfers,
@@ -1150,6 +1151,41 @@ mod tests {
         t.daemon.store.publish(&Outgoing::Added { id, url: "https://x/a".into() });
         assert!(t.daemon.redownload(id).is_err());
         assert!(t.daemon.redownload(DownloadId::new(999)).is_err());
+    }
+
+    #[test]
+    fn a_finished_download_is_checked_against_its_checksum() {
+        use pullbay_domain::checksum::{to_hex, Algorithm, Checksum};
+        let t = setup("checksum", Duplicate::NewName);
+        {
+            // No sound or toast from a test.
+            let mut s = t.daemon.settings.lock();
+            s.sound_on_done = false;
+            s.sound_on_failed = false;
+            s.notify = pullbay_domain::settings::Notify::Off;
+        }
+        let url = serve();
+        let digest = pullbay_infrastructure::hash::digest_of(BODY, Algorithm::Sha256).unwrap();
+        let right = Checksum::parse(&format!("sha256:{}", to_hex(&digest))).unwrap();
+        let wrong = Checksum::parse(&format!("sha256:{}", "0".repeat(64))).unwrap();
+        let mut ids = Vec::new();
+        for (name, checksum) in [("good.bin", right), ("bad.bin", wrong)] {
+            let download = Download {
+                url: url.as_str().into(),
+                filename: Some(name.into()),
+                checksum: Some(checksum),
+                ..Download::default()
+            };
+            let id = t.daemon.add(download).0;
+            let e = t.wait(id, Status::Done);
+            assert!(e.checksum.is_some(), "the row keeps the checksum it was added with");
+            t.daemon.on_note(Note::Finished(id));
+            ids.push(id);
+        }
+        let bad = t.wait(ids[1], Status::Failed);
+        assert!(bad.error.unwrap().starts_with("The file does not match its SHA-256 checksum"));
+        thread::sleep(Duration::from_millis(200));
+        assert_eq!(t.daemon.entry(ids[0]).unwrap().status, Status::Done, "a matching file stays done");
     }
 
     #[test]

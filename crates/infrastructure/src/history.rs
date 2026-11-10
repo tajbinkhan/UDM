@@ -178,6 +178,7 @@ mod tests {
             page: None,
             last_try: None,
             description: None,
+            checksum: None,
             category: None,
             login_user: None,
             speed_limit: None,

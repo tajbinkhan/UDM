@@ -1,18 +1,20 @@
 //! IDM's command-line switches for `pullbay-gui`:
 //!
 //! ```text
-//! pullbay-gui /d URL [/p folder] [/f file_name] [/q] [/h] [/n] [/a]
+//! pullbay-gui /d URL [/p folder] [/f file_name] [/c checksum] [/q] [/h] [/n] [/a]
 //! pullbay-gui /s
 //! ```
 //!
-//! `/d` downloads URL, `/p` and `/f` set its folder and file name, `/a` adds
+//! `/d` downloads URL, `/p` and `/f` set its folder and file name, `/c` gives
+//! a checksum to compare the file with when it finishes (Pullbay's own, not
+//! IDM's; `sha256:` and the like or a bare hex digest), `/a` adds
 //! it to the main queue without starting it, `/n` asks no questions, and `/q`
 //! exits Pullbay once it finishes. `/s` starts the main queue. `/h` (hang up the
 //! dial-up connection) is accepted and does nothing. As in IDM, `/p`, `/f`,
-//! `/q`, `/h`, `/n` and `/a` need `/d`; without it they are ignored.
+//! `/c`, `/q`, `/h`, `/n` and `/a` need `/d`; without it they are ignored.
 //!
 //! Each switch also has a `-x` and a long form (`--download`, `--path`,
-//! `--file`, `--quit`, `--hang-up`, `--silent`, `--add`, `--start-queue`), and
+//! `--file`, `--checksum`, `--quit`, `--hang-up`, `--silent`, `--add`, `--start-queue`), and
 //! the slash forms take either case.
 //!
 //! `parse_sent` reads the JSON another program hands to `pullbay-host send`:
@@ -23,6 +25,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use pullbay_domain::checksum::{Checksum, ChecksumError};
 use pullbay_domain::download::CommandLine;
 
 use pullbay_domain::download::{Download, DownloadLogin, PageLink};
@@ -56,6 +59,8 @@ pub enum CliError {
     EmptyList,
     #[error("{0} is not an http or https address")]
     NotWebAddress(String),
+    #[error("{0} is not a checksum: {1}")]
+    BadChecksum(String, #[source] ChecksumError),
     #[error("too many links: {0}, at most {max}", max = pullbay_domain::batch::MAX_BATCH)]
     TooManyLinks(usize),
 }
@@ -71,6 +76,7 @@ where
     let mut url = None;
     let mut folder = None;
     let mut filename = None;
+    let mut checksum = None;
     let (mut quit, mut silent, mut add, mut start_queue) = (false, false, false, false);
 
     let mut args = args.into_iter();
@@ -86,6 +92,7 @@ where
             Some('d') => url = Some(value("an address")?),
             Some('p') => folder = Some(value("a folder")?),
             Some('f') => filename = Some(value("a file name")?),
+            Some('c') => checksum = Some(value("a checksum")?),
             Some('q') => quit = true,
             Some('h') => {}
             Some('n') => silent = true,
@@ -98,13 +105,22 @@ where
 
     let download = match url {
         None => None,
-        Some(url) => Some(download(url, folder, filename, silent, add, cwd, "/p")?),
+        Some(url) => {
+            let mut d = download(url, folder, filename, silent, add, cwd, "/p")?;
+            d.checksum = checksum.map(|c| parse_checksum(&c)).transpose()?;
+            Some(d)
+        }
     };
     let quit_after = quit && download.is_some();
     if download.is_none() && !start_queue {
         return Ok(None);
     }
     Ok(Some(CommandLine { download, start_queue, quit_after }))
+}
+
+/// The checksum a caller gave, which must be one Pullbay can check.
+fn parse_checksum(text: &str) -> Result<Checksum, CliError> {
+    Checksum::parse(text).map_err(|e| CliError::BadChecksum(text.to_string(), e))
 }
 
 /// A download of `url` into `folder` (relative to `cwd`) as `filename`.
@@ -192,6 +208,9 @@ struct OneLink {
     filename: Option<String>,
     #[serde(default)]
     user_agent: Option<String>,
+    /// A checksum to compare the file with when it finishes.
+    #[serde(default)]
+    checksum: Option<String>,
     /// Add it with no dialog.
     #[serde(default)]
     silent: bool,
@@ -261,6 +280,7 @@ fn one_link(l: OneLink, cwd: &Path) -> Result<Sent, CliError> {
     d.referrer = given(l.referer);
     d.cookies = given(l.cookies);
     d.user_agent = given(l.user_agent);
+    d.checksum = given(l.checksum).map(|c| parse_checksum(&c)).transpose()?;
     if let Some(body) = l.post_data {
         use base64::Engine as _;
         d.method = Some("POST".into());
@@ -316,6 +336,7 @@ fn switch(arg: &str) -> Option<char> {
         "--download" => 'd',
         "--path" => 'p',
         "--file" => 'f',
+        "--checksum" => 'c',
         "--quit" => 'q',
         "--hang-up" => 'h',
         "--silent" => 'n',
@@ -329,7 +350,7 @@ fn switch(arg: &str) -> Option<char> {
                 return None;
             };
             let c = c.to_ascii_lowercase();
-            return "dpfqhnas".contains(c).then_some(c);
+            return "dpfcqhnas".contains(c).then_some(c);
         }
     };
     Some(long)
@@ -412,6 +433,26 @@ mod tests {
     fn switches_that_need_d_are_ignored_without_it() {
         assert!(run(&["/q", "/n", "/a", "/h", "/f", "x"]).unwrap().is_none());
         assert!(!run(&["/q", "/s"]).unwrap().unwrap().quit_after);
+    }
+
+    #[test]
+    fn c_gives_a_checksum_to_check_when_it_finishes() {
+        let hex = "d41d8cd98f00b204e9800998ecf8427e";
+        for c in ["/c", "/C", "-c", "--checksum"] {
+            let d = run(&["/d", "https://example.com/a", c, hex]).unwrap().unwrap().download.unwrap();
+            assert_eq!(d.checksum.unwrap().to_string(), format!("md5:{hex}"));
+        }
+        assert!(matches!(run(&["/d", "https://example.com/a", "/c", "nope"]), Err(CliError::BadChecksum(..))));
+        assert!(run(&["/c", hex]).unwrap().is_none(), "it needs /d");
+    }
+
+    #[test]
+    fn a_sent_link_can_carry_a_checksum() {
+        let json = r#"{"url": "https://example.com/a", "checksum": "sha1:da39a3ee5e6b4b0d3255bfef95601890afd80709"}"#;
+        let Sent::One(d) = parse_sent(json, &cwd()).unwrap() else { panic!("one link") };
+        assert_eq!(d.checksum.unwrap().algorithm(), pullbay_domain::checksum::Algorithm::Sha1);
+        let json = r#"{"url": "https://example.com/a", "checksum": "abc"}"#;
+        assert!(matches!(parse_sent(json, &cwd()), Err(CliError::BadChecksum(..))));
     }
 
     #[test]

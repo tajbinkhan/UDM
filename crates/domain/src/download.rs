@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::address::{Address, Link};
 use crate::bytes::ByteCount;
+use crate::checksum::Checksum;
 use crate::filename::FileName;
 use crate::id::{DownloadId, QueueId};
 use crate::media::MediaChoice;
@@ -162,6 +163,10 @@ pub struct Download {
     /// A note about the download, shown in the list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// A checksum the site published, compared with the file when it
+    /// finishes; a mismatch fails the download.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<Checksum>,
     /// The category the list files it under, chosen in the save-as dialog;
     /// missing goes by its file type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -478,6 +483,10 @@ pub struct DownloadEntry {
     /// The user's note about it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The checksum it was added with, compared with the file when it
+    /// finishes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<Checksum>,
     /// The category chosen for it in the save-as dialog; missing goes by
     /// its file type.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -858,6 +867,7 @@ impl DownloadEntry {
         }
         let mut download = stored.unwrap_or_else(|| self.base_request());
         download.description = self.description.clone();
+        download.checksum = self.checksum.clone();
         download.category = self.category.clone();
         download.speed_limit = self.speed_limit;
         if let Some(path) = self.path.as_deref().filter(|_| self.wrote_files()).map(Path::new) {
@@ -902,6 +912,7 @@ impl DownloadEntry {
         let download = stored.unwrap_or_else(|| self.base_request());
         Download {
             description: self.description.clone(),
+            checksum: self.checksum.clone(),
             category: self.category.clone(),
             speed_limit: self.speed_limit.filter(|_| self.limit_remember),
             ..download

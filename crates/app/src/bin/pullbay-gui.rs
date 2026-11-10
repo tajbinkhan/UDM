@@ -24,6 +24,7 @@ fn main() -> eframe::Result {
         folders: Arc::new(infra::files::DiskFiles),
         files: Arc::new(infra::files::DiskFiles),
         opener: Arc::new(infra::platform::Desktop),
+        hashes: Arc::new(infra::hash::DiskHashes),
         window_files: Arc::new(infra::window_files::WindowDir::new()),
         grab: infra::grab::projects_dir().ok().map(|dir| Arc::new(infra::grab::ProjectFiles(dir)) as _),
         found: Arc::new(infra::grab::FoundFiles),
