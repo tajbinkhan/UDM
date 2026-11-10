@@ -209,7 +209,7 @@ pub fn mark_from_internet(path: &std::path::Path, url: &str, referrer: Option<&s
 #[cfg(windows)]
 fn zone_url(url: &str) -> Option<String> {
     let mut parsed = url::Url::parse(url).ok()?;
-    if !matches!(parsed.scheme(), "http" | "https" | "ftp") {
+    if !matches!(parsed.scheme(), "http" | "https" | "ftp" | "ftps") {
         return None;
     }
     let _ = parsed.set_username("");

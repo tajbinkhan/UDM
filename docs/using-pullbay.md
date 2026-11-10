@@ -248,6 +248,17 @@
   own login, or with **Save this password** become the site's login in
   Options (always, when the file is on another site than its link). Other
   downloads from the same site waiting for a login go with the same answer.
+- **FTP and FTPS**: `ftp://` and `ftps://` addresses download like web ones,
+  over several connections and resuming where they stopped. `ftps://` is
+  FTP over TLS from the first byte (port 990 unless the address names
+  another). An `ftp://` server that will not take a plain login and asks
+  for TLS gets `AUTH TLS` on a new connection (explicit TLS), and so does
+  every later connection to it; one that does not ask stays plain. Over TLS
+  the data connections are TLS too, the server's certificate is checked as
+  for https, and a saved login goes even without its **Plain connections**
+  box. Pullbay does not resume the control connection's TLS session on the
+  data connections, so a server that insists on it (vsftpd's
+  `require_ssl_reuse`) may refuse the transfers.
   **Cancel** leaves it stopped, with a **Log in...** button in its row. A
   login can also go with an address from the start: **Login** next to the
   URL bar shows user name and password fields for the addresses added
@@ -384,7 +395,7 @@
   link is not offered twice in a row. **Start downloading it at once** skips
   the prompt: the link is added as a pasted one is, save-as dialog included.
   **More > Add batch download from clipboard** (also in the tray menu) opens
-  **Add many** with every http, https and ftp link in the copied text, of any
+  **Add many** with every http, https, ftp and ftps link in the copied text, of any
   file type, to check and add.
 - **Download all links with Pullbay** (the browser's menu on a page or a text
   selection, and the button over a selection) lists the links in the window
@@ -395,7 +406,7 @@
   their largest srcset picture), and the links in frames made from nothing
   (about:blank or srcdoc, up to three deep). **Download selected links**
   takes the same from what the selection touches, plus the addresses in its
-  text, or in the text selected in a text box. Only http, https and ftp
+  text, or in the text selected in a text box. Only http, https, ftp and ftps
   addresses are kept, each once (a `#fragment` makes no other file), at most
   5000 a page. In the window: filters hide web pages, images, repeated links, or keep some file
   types, and **Edit...** changes a link's address. Meanwhile the daemon asks
@@ -501,7 +512,7 @@
   pullbay-gui /s
   ```
 
-  `/d` adds URL to the list (http, https or ftp) and shows the usual
+  `/d` adds URL to the list (http, https, ftp or ftps) and shows the usual
   download dialog; `/p` and `/f` set its folder and file name, `/a` adds it
   to the main queue without starting it, and `/n` asks nothing (a taken name
   gets a numbered one). `/q` exits Pullbay once that download finishes, but only

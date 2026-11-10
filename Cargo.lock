@@ -3626,6 +3626,7 @@ dependencies = [
  "libc",
  "md-5",
  "md4",
+ "native-tls",
  "percent-encoding",
  "pullbay-application",
  "pullbay-domain",
