@@ -150,7 +150,7 @@ impl<'t, T: Tools> Server<'t, T> {
         let arguments = match params.get("arguments") {
             None | Some(Value::Null) => &empty,
             Some(a) if a.is_object() => a,
-            Some(_) => return Err((INVALID_PARAMS, "the arguments are a JSON object".to_string())),
+            Some(_) => return Err((INVALID_PARAMS, "the arguments must be a JSON object".to_string())),
         };
         if !TOOLS.iter().any(|t| t.name == name) {
             return Err((INVALID_PARAMS, format!("no tool {name}")));

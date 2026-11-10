@@ -331,6 +331,11 @@ fn main() {
     if let Some(moved) = moved {
         moved.log();
     }
+    // A panic leaves a report in the data folder, which the window offers
+    // (`crash`). Not for the administrator's copy that moves one file.
+    if !elevated {
+        pullbay_infrastructure::crash::install(logging::Program::Daemon);
+    }
     // Started by a download saved with administrator rights (see
     // `pullbay_infrastructure::elevate`): move its finished file into place and exit.
     if let [_, flag, from, to] = args.as_slice() {

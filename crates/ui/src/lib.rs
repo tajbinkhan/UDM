@@ -60,6 +60,7 @@ mod toolbar;
 mod tools;
 mod tray;
 mod verify;
+mod watchdog;
 #[cfg(windows)]
 mod win;
 #[cfg(not(windows))]
@@ -80,11 +81,13 @@ use categories::Filter;
 use eframe::egui;
 use i18n::{tr, trf};
 use pending::Pending;
-use pullbay_application::daemon::{Command, DaemonClient, DaemonError};
+use pullbay_application::daemon::{Command, DaemonClient, DaemonError, Event};
+use pullbay_application::report::{DiscardReport, FindNewReports, SaveReport};
 use pullbay_domain::download::CommandLine;
 use pullbay_domain::download::{Answer, Download, DownloadEntry, OnDone, Properties, Scan, Status};
 use pullbay_domain::grab::GrabRequest;
 use pullbay_domain::queue::{Queue, WhenDone, MAIN_QUEUE};
+use pullbay_domain::report::{Kind, Program, ThisCopy};
 use pullbay_domain::settings::Sound;
 use pullbay_domain::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
@@ -94,7 +97,7 @@ use pullbay_domain::settings::{
 };
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use state::{AppState, Forget, GrabEvent, Link, Need, UiMessage, Watch};
+use state::{AppState, Forget, GrabEvent, Link, Need, ReportOffer, UiMessage, Watch};
 
 /// The `client` this window names in its `hello`, so the daemon knows a
 /// window is open to show a save-as dialog. `main` builds the daemon client
@@ -363,6 +366,15 @@ enum Action {
     Reconnect,
     /// Stop the daemon and start a new one.
     RestartDaemon,
+    /// The first problem report offer: write its report, or keep the one
+    /// written during a freeze.
+    SaveReport,
+    /// Close it, deleting a freeze's report that was not kept.
+    DismissReport,
+    /// Open an issue in the browser for its saved report, and show the file.
+    OpenIssue,
+    /// Show its report file in the file manager.
+    ShowReport,
     OpenOptions,
     /// Open Options at the Connection tab with a new login for this host.
     /// Ask for the login a failed download's site wants.
@@ -472,6 +484,8 @@ struct App {
     outbox: Sender<UiMessage>,
     /// What those threads keep from the daemon's events.
     watch: Arc<Mutex<Watch>>,
+    /// The frame's and the daemon's signs of life, for the watchdog.
+    beats: Arc<watchdog::Beats>,
     /// The tray tooltip as the frame last made it, for the tray to read.
     tooltip_now: Arc<Mutex<String>>,
     /// When the grabber's projects and templates were last asked for.
@@ -1571,6 +1585,7 @@ impl App {
             inbox,
             outbox,
             watch: Arc::default(),
+            beats: Arc::default(),
             tooltip_now: Arc::default(),
             library_asked: None,
             daemon,
@@ -1628,8 +1643,54 @@ impl App {
         app.connect();
         app.install_tray();
         app.watch_clipboard();
+        app.read_this_copy();
+        watchdog::start(Arc::clone(&app.beats), Arc::clone(&app.daemon), app.outbox.clone());
         app.watch_themes();
         app
+    }
+
+    /// Read this copy's version, system and install on a worker, for the
+    /// issues the window opens.
+    fn read_this_copy(&self) {
+        let (outbox, ctx) = (self.outbox.clone(), self.ctx.clone());
+        thread::spawn(move || {
+            let copy = crate::ports::ports().reports.this_copy();
+            if outbox.send(UiMessage::ThisCopyRead(copy)).is_ok() {
+                ctx.request_repaint();
+            }
+        });
+    }
+
+    /// This copy, as far as the window knows it yet.
+    fn this_copy(&self) -> ThisCopy {
+        self.state
+            .this_copy
+            .clone()
+            .unwrap_or_else(|| ThisCopy { version: env!("CARGO_PKG_VERSION").to_string(), ..ThisCopy::default() })
+    }
+
+    /// Write the report the first offer asks for on a worker.
+    fn save_report(&mut self, program: Program, kind: Kind, what: String) {
+        state::apply(&mut self.state, UiMessage::ReportSaving);
+        let (outbox, ctx) = (self.outbox.clone(), self.ctx.clone());
+        thread::spawn(move || {
+            let ports = crate::ports::ports();
+            let saved = SaveReport::new(&*ports.reports).run(program, kind, &what, ports.unix_now() * 1000);
+            // It is on offer now; the next start need not offer it again.
+            if let Ok(report) = &saved {
+                ports.reports.mark_offered(std::slice::from_ref(report));
+            }
+            let saved = saved.map_err(|e| UiError::new(trf!("Could not save the report: {error}", error = e)));
+            if outbox.send(UiMessage::ReportSaved(saved)).is_ok() {
+                ctx.request_repaint();
+            }
+        });
+    }
+
+    /// Show `report`'s file in the file manager, from a worker.
+    fn reveal_report(&self, report: &pullbay_domain::report::SavedReport) {
+        let path = report.path.display().to_string();
+        thread::spawn(move || crate::ports::ports().opener.reveal(&path));
     }
 
     /// The window opened with `ctx` after this copy waited in the tray with
@@ -1853,10 +1914,30 @@ impl App {
     /// Connect, first restarting the daemon if `restart`.
     fn connect_with(&mut self, restart: bool) {
         let (watch, outbox) = (Arc::clone(&self.watch), self.outbox.clone());
+        let beats = Arc::clone(&self.beats);
         state::apply(&mut self.state, UiMessage::Connecting);
         self.daemon.connect(
             restart,
             Box::new(move |event| {
+                match &event {
+                    // The watchdog's ping, answered: nothing for the frame.
+                    Event::Pong => return beats.answered(),
+                    // A program that crashed since the last look, the
+                    // daemon this connection replaces among them, left a
+                    // report to offer.
+                    Event::Connected => {
+                        beats.connected(true);
+                        let outbox = outbox.clone();
+                        thread::spawn(move || {
+                            let found = FindNewReports::new(&*crate::ports::ports().reports).run();
+                            if !found.is_empty() && outbox.send(UiMessage::ReportsFound(found)).is_ok() {
+                                reopen::repaint();
+                            }
+                        });
+                    }
+                    Event::Lost(_) => beats.connected(false),
+                    _ => {}
+                }
                 let need = {
                     let mut w = lock(&watch);
                     w.observe(&event);
@@ -2015,6 +2096,48 @@ impl App {
             Action::RestartDaemon => {
                 state::apply(&mut self.state, UiMessage::DaemonRestarting);
                 self.connect_with(true);
+            }
+            Action::SaveReport => match self.state.reports.front().cloned() {
+                Some(ReportOffer::Froze { draft: Some(report), .. }) => {
+                    state::apply(&mut self.state, UiMessage::ReportKept);
+                    thread::spawn(move || {
+                        crate::ports::ports().reports.mark_offered(std::slice::from_ref(&report));
+                    });
+                }
+                Some(ReportOffer::Froze { secs, draft: None }) => self.save_report(
+                    Program::Window,
+                    Kind::Freeze,
+                    format!("The window's frame took {secs} seconds to finish."),
+                ),
+                Some(ReportOffer::Silent { secs }) => self.save_report(
+                    Program::Daemon,
+                    Kind::Silent,
+                    format!("The daemon had not answered a ping for {secs} seconds, with its connection open."),
+                ),
+                _ => {}
+            },
+            Action::DismissReport => {
+                if let Some(ReportOffer::Froze { draft: Some(report), .. }) = self.state.reports.front().cloned() {
+                    let outbox = self.outbox.clone();
+                    thread::spawn(move || {
+                        if let Err(e) = DiscardReport::new(&*crate::ports::ports().reports).run(&report) {
+                            let _ = outbox.send(UiMessage::Error(e.to_string()));
+                        }
+                    });
+                }
+                state::apply(&mut self.state, UiMessage::Forget(Forget::Report));
+            }
+            Action::OpenIssue => {
+                if let Some(ReportOffer::Saved { report, .. }) = self.state.reports.front().cloned() {
+                    let url = pullbay_domain::report::issue_url(&self.this_copy(), Some(&report));
+                    self.ctx.open_url(egui::OpenUrl::new_tab(url));
+                    self.reveal_report(&report);
+                }
+            }
+            Action::ShowReport => {
+                if let Some(ReportOffer::Saved { report, .. }) = self.state.reports.front() {
+                    self.reveal_report(report);
+                }
             }
             Action::OpenOptions => {
                 if let Some(settings) = &self.state.settings {
@@ -4410,6 +4533,9 @@ fn scan_label(ui: &mut egui::Ui, scan: &Scan) {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Under way until the frame ends, for the watchdog to see a freeze.
+        let beats = Arc::clone(&self.beats);
+        let _frame_under_way = beats.frame();
         self.drain_inbox();
         self.refresh_library();
         self.open_grab_project();
@@ -4505,9 +4631,15 @@ impl eframe::App for App {
         self.verify.retain_mut(|d| rows.iter().any(|e| e.id == d.id) && verify::show(ctx, d));
 
         // What the window has to say, under the toolbar.
-        let (refreshing, notice, quota, release) = {
+        let (refreshing, notice, quota, release, report) = {
             let sh = &self.state;
-            (sh.refresh_waiting, sh.notice.clone(), sh.quota.clone(), sh.newer_release.clone())
+            (
+                sh.refresh_waiting,
+                sh.notice.clone(),
+                sh.quota.clone(),
+                sh.newer_release.clone(),
+                sh.reports.front().cloned(),
+            )
         };
         let notes = banner::Notes {
             connection: match &link {
@@ -4527,6 +4659,7 @@ impl eframe::App for App {
                 url: &r.url,
                 installable: r.setup.is_some(),
             }),
+            report: report.as_ref(),
         };
         if notes.any() {
             let dismissed = egui::TopBottomPanel::top("banner")
@@ -5043,6 +5176,12 @@ impl App {
             })),
             C::Language(code) => actions.extend(changed(&|s| s.language = code.to_string())),
             C::Help(url) => self.ctx.open_url(egui::OpenUrl::new_tab(url)),
+            // Opens the browser on a form the user fills in and submits;
+            // nothing is sent from here.
+            C::ReportProblem => {
+                let url = pullbay_domain::report::issue_url(&self.this_copy(), None);
+                self.ctx.open_url(egui::OpenUrl::new_tab(url));
+            }
             C::Tip => {
                 self.tip = Some(help::TipWindow {
                     index: settings.map_or(0, |s| s.next_tip),

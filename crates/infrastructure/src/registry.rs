@@ -8,6 +8,9 @@
 //!   `paths::instance`) uses `Pullbay.DownloadManager.<name>`, so a test copy
 //!   does not overwrite the installed copy's name and icon.
 //! - Each browser's `NativeMessagingHosts\com.pullbay.host` (see `browsers`).
+//!
+//! It also reads, never writes, Windows' version under `HKEY_LOCAL_MACHINE`
+//! for problem reports ([`get_machine_string`]).
 
 use std::io;
 use std::path::Path;
@@ -16,6 +19,7 @@ use std::ptr;
 type Hkey = isize;
 
 const HKEY_CURRENT_USER: Hkey = 0x8000_0001u32 as i32 as isize;
+const HKEY_LOCAL_MACHINE: Hkey = 0x8000_0002u32 as i32 as isize;
 const KEY_QUERY_VALUE: u32 = 0x0001;
 const KEY_SET_VALUE: u32 = 0x0002;
 const REG_SZ: u32 = 1;
@@ -128,10 +132,15 @@ fn create(subkey: &str) -> io::Result<Key> {
 
 /// Open `subkey` if it exists.
 fn open(subkey: &str, sam: u32) -> io::Result<Option<Key>> {
+    open_in(HKEY_CURRENT_USER, subkey, sam)
+}
+
+/// Open `subkey` of `root` if it exists.
+fn open_in(root: Hkey, subkey: &str, sam: u32) -> io::Result<Option<Key>> {
     let mut key: Hkey = 0;
     let name = wide(subkey);
     // SAFETY: valid string and out pointer for the call.
-    let code = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, name.as_ptr(), 0, sam, &mut key) };
+    let code = unsafe { RegOpenKeyExW(root, name.as_ptr(), 0, sam, &mut key) };
     if code == ERROR_FILE_NOT_FOUND {
         return Ok(None);
     }
@@ -152,7 +161,17 @@ pub fn set_string(subkey: &str, name: &str, value: &str) -> io::Result<()> {
 
 /// Read a string value; `None` when the key or value does not exist.
 pub fn get_string(subkey: &str, name: &str) -> io::Result<Option<String>> {
-    let Some(key) = open(subkey, KEY_QUERY_VALUE)? else {
+    string_in(HKEY_CURRENT_USER, subkey, name)
+}
+
+/// Read a string value under `HKEY_LOCAL_MACHINE`, such as Windows'
+/// version; `None` when the key or value does not exist.
+pub fn get_machine_string(subkey: &str, name: &str) -> io::Result<Option<String>> {
+    string_in(HKEY_LOCAL_MACHINE, subkey, name)
+}
+
+fn string_in(root: Hkey, subkey: &str, name: &str) -> io::Result<Option<String>> {
+    let Some(key) = open_in(root, subkey, KEY_QUERY_VALUE)? else {
         return Ok(None);
     };
     let name = wide(name);

@@ -32,6 +32,8 @@ fn main() -> anyhow::Result<()> {
     // Before the log, which would make Pullbay's data folder first.
     let moved = infra::from_uidm::move_from_uidm();
     infra::logging::init(infra::logging::Program::Mcp);
+    // A panic leaves a report in the data folder (`crash`).
+    infra::crash::install(infra::logging::Program::Mcp);
     moved.log();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "pullbay-mcp starting");
     let client = infra::daemon_client::IpcDaemonClient::assistant(CLIENT);

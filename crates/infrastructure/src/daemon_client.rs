@@ -58,7 +58,7 @@ impl IpcDaemonClient {
     }
 
     /// A program's connection that names itself `client` and hears every
-    /// event, the replies a window leaves out (`ack`, `pong`, `hello`)
+    /// event, the replies a window leaves out (`ack`, `hello`)
     /// among them, starting the daemon when none runs.
     pub fn program(client: &str) -> Self {
         IpcDaemonClient { hears: |_| true, ..Self::new(client) }
@@ -155,12 +155,12 @@ impl DaemonClient for IpcDaemonClient {
 }
 
 /// Whether `event` is for a window. Replies only the host or the browser
-/// extension uses, and the command line's answer, are not.
+/// extension uses, and the command line's answer, are not. `Pong` is: the
+/// window pings to see that the daemon still answers.
 fn for_window(event: &Event) -> bool {
     !matches!(
         event,
         Event::Hello { .. }
-            | Event::Pong
             | Event::Ack { .. }
             | Event::MediaInfo { .. }
             | Event::CookiesWanted { .. }
@@ -238,7 +238,8 @@ mod tests {
         assert!(matches!(got.recv().unwrap(), Some(Incoming::List)));
         assert!(matches!(got.recv().unwrap(), Some(Incoming::GetSettings)));
         assert_eq!(next(&rx), Event::Added { id: DownloadId::new(4), url: "http://x/f".into() });
-        // `pong` is not for a window.
+        // The window pings to see that the daemon answers.
+        assert_eq!(next(&rx), Event::Pong);
         assert_eq!(next(&rx), Event::Removed { id: DownloadId::new(4) });
         assert!(client.send(Command::Cancel { id: DownloadId::new(4) }));
         assert!(
@@ -255,13 +256,13 @@ mod tests {
             for _ in 0..3 {
                 let _ = read(&mut stream);
             }
-            send(&mut stream, &Outgoing::Pong);
+            send(&mut stream, &Outgoing::Hello { name: "pullbay".into(), version: "1".into(), api: None });
             send(&mut stream, &Outgoing::Ack { id: DownloadId::new(2), url: "http://x/f".into(), status: "s".into() });
         });
         let client = IpcDaemonClient { hears: |_| true, ..IpcDaemonClient::with_connector("pullbay-cli", connector) };
         let rx = events(&client);
         assert_eq!(next(&rx), Event::Connected);
-        assert_eq!(next(&rx), Event::Pong);
+        assert!(matches!(next(&rx), Event::Hello { .. }));
         assert!(matches!(next(&rx), Event::Ack { id, .. } if id == DownloadId::new(2)));
     }
 
