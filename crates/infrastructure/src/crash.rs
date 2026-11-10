@@ -114,6 +114,7 @@ fn report_program(program: logging::Program) -> Program {
         logging::Program::Host => Program::Host,
         logging::Program::Gui => Program::Window,
         logging::Program::Cli => Program::Cli,
+        logging::Program::Mcp => Program::Mcp,
     }
 }
 
@@ -123,6 +124,7 @@ fn log_program(program: Program) -> logging::Program {
         Program::Host => logging::Program::Host,
         Program::Window => logging::Program::Gui,
         Program::Cli => logging::Program::Cli,
+        Program::Mcp => logging::Program::Mcp,
     }
 }
 

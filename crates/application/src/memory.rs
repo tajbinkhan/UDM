@@ -964,11 +964,18 @@ pub struct FakeDaemon {
     unreachable: Option<String>,
     sink: Mutex<Option<Sink>>,
     sent: Mutex<Vec<Command>>,
+    connections: Mutex<usize>,
 }
 
 impl FakeDaemon {
     pub fn new(answer: impl Fn(&Command) -> Vec<Event> + Send + Sync + 'static) -> Self {
-        FakeDaemon { answer: Box::new(answer), unreachable: None, sink: Mutex::new(None), sent: Mutex::new(Vec::new()) }
+        FakeDaemon {
+            answer: Box::new(answer),
+            unreachable: None,
+            sink: Mutex::new(None),
+            sent: Mutex::new(Vec::new()),
+            connections: Mutex::new(0),
+        }
     }
 
     /// A daemon that lists `downloads` and the main queue, and answers
@@ -1002,6 +1009,19 @@ impl FakeDaemon {
     pub fn sent(&self) -> Vec<Command> {
         self.sent.lock().unwrap().clone()
     }
+
+    /// Send `event` unasked, as the daemon tells its clients of a change or
+    /// that it is going.
+    pub fn tell(&self, event: Event) {
+        if let Some(sink) = self.sink.lock().unwrap().as_mut() {
+            sink(event);
+        }
+    }
+
+    /// How many times a client connected.
+    pub fn connections(&self) -> usize {
+        *self.connections.lock().unwrap()
+    }
 }
 
 impl DaemonClient for FakeDaemon {
@@ -1010,6 +1030,7 @@ impl DaemonClient for FakeDaemon {
             return on_event(Event::Lost(Lost::Failed(why.clone())));
         }
         on_event(Event::Connected);
+        *self.connections.lock().unwrap() += 1;
         *self.sink.lock().unwrap() = Some(on_event);
     }
 

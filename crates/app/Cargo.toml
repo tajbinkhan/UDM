@@ -1,6 +1,6 @@
 [package]
 name = "pullbay-app"
-description = "Pullbay's binaries: native-messaging host, persistent daemon, desktop window and command-line tool"
+description = "Pullbay's binaries: native-messaging host, persistent daemon, desktop window, command-line tool and AI assistants' server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -27,6 +27,12 @@ path = "src/bin/pullbay-gui.rs"
 [[bin]]
 name = "pullbay-cli"
 path = "src/bin/pullbay-cli.rs"
+
+# The Model Context Protocol server AI assistants start, which lists and
+# controls downloads through the daemon like the window.
+[[bin]]
+name = "pullbay-mcp"
+path = "src/bin/pullbay-mcp.rs"
 
 [dependencies]
 pullbay-domain.workspace = true

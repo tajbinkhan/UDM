@@ -35,6 +35,8 @@
 //!   `SiteCrawler` adapters (asking servers, the browser extension, and
 //!   crawling for the site grabber).
 //! - `tool`: `pullbay-cli`'s command line, what it prints and its exit codes.
+//! - `mcp`: `pullbay-mcp`'s Model Context Protocol server over standard
+//!   input and output, and its tools.
 //! - `background`: the daemon's background threads (scheduler, history
 //!   writer, notifications, awake keeper, idle exit).
 
@@ -68,6 +70,7 @@ pub mod ipc;
 pub mod listfile;
 pub mod live_settings;
 pub mod logging;
+pub mod mcp;
 pub mod media;
 pub mod net;
 pub mod notify;

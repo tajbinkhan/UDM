@@ -44,10 +44,12 @@ pub enum Program {
     Host,
     /// `pullbay-cli`.
     Cli,
+    /// `pullbay-mcp`, the AI assistants' server.
+    Mcp,
 }
 
 impl Program {
-    pub const ALL: [Program; 4] = [Program::Window, Program::Daemon, Program::Host, Program::Cli];
+    pub const ALL: [Program; 5] = [Program::Window, Program::Daemon, Program::Host, Program::Cli, Program::Mcp];
 
     /// The program's name in a report and its file name.
     pub fn name(self) -> &'static str {
@@ -56,6 +58,7 @@ impl Program {
             Program::Daemon => "daemon",
             Program::Host => "host",
             Program::Cli => "cli",
+            Program::Mcp => "mcp",
         }
     }
 
@@ -69,7 +72,7 @@ impl Program {
             Program::Window => "The window",
             Program::Daemon => "The downloads stopped (the background service)",
             Program::Host => "The browser lost its connection to Pullbay",
-            Program::Cli => "Not sure",
+            Program::Cli | Program::Mcp => "Not sure",
         }
     }
 }

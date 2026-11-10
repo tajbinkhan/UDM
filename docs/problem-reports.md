@@ -7,8 +7,8 @@ attach the report yourself.
 
 ## When Pullbay writes one
 
-- **A program crashes.** The window, the background service (the daemon), the browser's host and
-  `pullbay-cli` each write a report as they close. A program writes at most three in one run, so
+- **A program crashes.** The window, the background service (the daemon), the browser's host,
+  `pullbay-cli` and `pullbay-mcp` each write a report as they close. A program writes at most three in one run, so
   one that keeps failing doesn't fill the disk.
 - **The window freezes.** If the window takes more than 10 seconds to draw itself, a watchdog
   writes a report while it waits, so one is kept even if you close Pullbay by force. When the
