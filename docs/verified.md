@@ -1,5 +1,22 @@
 # Verified
 
+- Fault injection and the benchmark harness (#270). The engine's test server
+  drops connections, limits connections per client, starts slowly, answers
+  wrong ranges and limits speed; engine tests against it check that dropped
+  connections resume and fetch no byte twice, that refused connections hand
+  their ranges over (each refused once, the download finished with fewer
+  connections), that wrong ranges never reach the file, that more
+  connections beat a per-connection limit, and that a server with every
+  fault at once still gives a byte-identical file. Two of them failed on
+  the engine as it was, and pass now. On Linux, `tools/bench/bench.py` ran
+  a release build of `pullbay-cli` and its own daemon (a named copy in a
+  scratch folder, notifications off), curl and wget against
+  `tools/bench/faultserver.py` in every scenario; every Pullbay run was
+  byte-identical, curl failed `drops` as expected, and the daemon was gone
+  afterwards. The IDM side (`IDMan.exe /d`, its CPU time through
+  `GetProcessTimes`) and the harness on Windows and macOS were not run:
+  there is no IDM result yet.
+
 - Themes, high contrast and an interface size up to 200% (#264). Unit tests
   cover colors and theme files (a base, overrides, comments, every wrong
   line), the High contrast theme's 7:1 contrast, which look each Theme
