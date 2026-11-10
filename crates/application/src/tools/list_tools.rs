@@ -39,7 +39,9 @@ mod tests {
         let mac = Platform { system: System::MacOs, cpu: Cpu::Aarch64 };
         let list = ListTools::new(&shelf, mac).run();
         assert_eq!(list[0].tool, Tool::YtDlp);
-        assert_eq!(list[0].path.as_deref(), Some("/tools/yt-dlp"));
+        // The fake shelf joins with the system's separator (`/tools\yt-dlp` on Windows).
+        let expected = std::path::Path::new("/tools").join("yt-dlp").display().to_string();
+        assert_eq!(list[0].path.as_deref(), Some(expected.as_str()));
         assert_eq!(list[0].installed.as_deref(), Some("2026.10.26"));
         assert!(list[0].installable);
         assert_eq!((list[1].path.as_deref(), list[1].installable), (None, false));
