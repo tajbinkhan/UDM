@@ -24,6 +24,15 @@
 //! ([`portable_downloads_dir`]) and has no sign-in entry, so it can run from a
 //! USB stick and leave the computer as it found it (`docs/portable.md`).
 //!
+//! A server (`pullbay-daemon --server`, the Docker image) names its folders
+//! instead (see [`Folders`]): [`CONFIG_DIR_VAR`], [`DATA_DIR_VAR`] and
+//! [`DOWNLOADS_DIR_VAR`] in the environment, which every program it starts
+//! or that runs beside it (`pullbay-cli` in the container) reads too, or the
+//! daemon's own command line ([`choose_folders`]), which wins. A folder
+//! named so is used as given, without an instance name, ahead of a portable
+//! copy's and the system's; the engine's parts folder is then `parts` in the
+//! data folder, and UIDM's folders are left alone.
+//!
 //! Two variables are read here rather than left to `directories`, so the
 //! folders stay where earlier versions resolved them:
 //!
@@ -46,6 +55,73 @@ use directories::BaseDirs;
 /// The environment variable naming a separate copy of Pullbay. Programs Pullbay
 /// starts inherit it, so a whole copy (window, daemon, host) stays apart.
 pub const INSTANCE_VAR: &str = "PULLBAY_INSTANCE";
+
+/// The environment variable naming the folder for settings, themes and
+/// grabber projects (what [`config_dir`] returns), for a server.
+pub const CONFIG_DIR_VAR: &str = "PULLBAY_CONFIG_DIR";
+
+/// The environment variable naming the folder for the download list, the
+/// daemon's token, the keys and the logs (what [`data_dir`] returns), for a
+/// server.
+pub const DATA_DIR_VAR: &str = "PULLBAY_DATA_DIR";
+
+/// The environment variable naming the folder downloads go to when the
+/// settings name none (see [`chosen_downloads_dir`]), for a server.
+pub const DOWNLOADS_DIR_VAR: &str = "PULLBAY_DOWNLOADS_DIR";
+
+/// Folders named outright, rather than found from the system: each `None`
+/// one is found as usual.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Folders {
+    pub config: Option<PathBuf>,
+    pub data: Option<PathBuf>,
+    pub downloads: Option<PathBuf>,
+}
+
+impl Folders {
+    /// The folders the environment names ([`CONFIG_DIR_VAR`],
+    /// [`DATA_DIR_VAR`], [`DOWNLOADS_DIR_VAR`]); an empty variable names none.
+    pub fn from_env() -> Self {
+        let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+        Folders { config: var(CONFIG_DIR_VAR), data: var(DATA_DIR_VAR), downloads: var(DOWNLOADS_DIR_VAR) }
+    }
+
+    /// These folders, with `fallback`'s where these name none.
+    pub fn or(self, fallback: Folders) -> Folders {
+        Folders {
+            config: self.config.or(fallback.config),
+            data: self.data.or(fallback.data),
+            downloads: self.downloads.or(fallback.downloads),
+        }
+    }
+
+    /// Whether any folder is named.
+    pub fn any(&self) -> bool {
+        self.config.is_some() || self.data.is_some() || self.downloads.is_some()
+    }
+}
+
+static CHOSEN: OnceLock<Folders> = OnceLock::new();
+
+/// Use the folders `given` names (from the daemon's command line), with the
+/// environment's for the rest. Called first thing, before any folder is
+/// looked up; afterwards the folders are fixed, and this returns `false`
+/// and changes nothing.
+pub fn choose_folders(given: Folders) -> bool {
+    CHOSEN.set(given.or(Folders::from_env())).is_ok()
+}
+
+/// The folders named outright for this process: [`choose_folders`]'s, or the
+/// environment's.
+pub fn chosen() -> &'static Folders {
+    CHOSEN.get_or_init(Folders::from_env)
+}
+
+/// The folder downloads go to when the settings name none, when one is named
+/// outright (a server's). `None` for the usual Downloads folder.
+pub fn chosen_downloads_dir() -> Option<PathBuf> {
+    chosen().downloads.clone()
+}
 
 /// Pullbay's own folder name on this system, before any instance name.
 const OWN: &str = if cfg!(any(windows, target_os = "macos")) { "Pullbay" } else { "pullbay" };
@@ -219,7 +295,10 @@ fn data_base() -> io::Result<PathBuf> {
 }
 
 fn config_dir_for(name: Option<&str>) -> io::Result<PathBuf> {
-    config_dir_in(place(), name)
+    match &chosen().config {
+        Some(dir) => Ok(dir.clone()),
+        None => config_dir_in(place(), name),
+    }
 }
 
 fn config_dir_in(place: Place, name: Option<&str>) -> io::Result<PathBuf> {
@@ -230,7 +309,10 @@ fn config_dir_in(place: Place, name: Option<&str>) -> io::Result<PathBuf> {
 }
 
 fn data_dir_for(name: Option<&str>) -> io::Result<PathBuf> {
-    data_dir_in(place(), name)
+    match &chosen().data {
+        Some(dir) => Ok(dir.clone()),
+        None => data_dir_in(place(), name),
+    }
 }
 
 fn data_dir_in(place: Place, name: Option<&str>) -> io::Result<PathBuf> {
@@ -261,7 +343,7 @@ const MCP_LOG: &str = "pullbay-mcp.log";
 /// are the same folder there. A portable copy has none: UIDM's folders
 /// belong to an installed copy.
 pub fn uidm_folders() -> io::Result<Vec<(PathBuf, PathBuf)>> {
-    if is_portable() {
+    if is_portable() || chosen().any() {
         return Ok(Vec::new());
     }
     uidm_folders_for(instance().as_deref())
@@ -384,7 +466,10 @@ pub fn portable_downloads_dir() -> Option<PathBuf> {
 /// `Data` folder, so a copy that stops halfway leaves nothing behind on the
 /// computer.
 pub fn parts_dir() -> PathBuf {
-    parts_dir_in(place(), instance().as_deref())
+    match &chosen().data {
+        Some(data) => data.join("parts"),
+        None => parts_dir_in(place(), instance().as_deref()),
+    }
 }
 
 fn parts_dir_in(place: Place, name: Option<&str>) -> PathBuf {
@@ -513,6 +598,24 @@ mod tests {
     fn tests_run_as_an_installed_copy() {
         assert_eq!(place(), Place::System);
         assert_eq!(portable_downloads_dir(), None);
+        assert_eq!(chosen(), &Folders::default(), "the tests run without a server's folders");
+    }
+
+    #[test]
+    fn folders_named_on_the_command_line_win_over_the_environment() {
+        let given = Folders { config: Some("/given/config".into()), data: None, downloads: None };
+        let env = Folders {
+            config: Some("/env/config".into()),
+            data: Some("/env/data".into()),
+            downloads: Some("/env/downloads".into()),
+        };
+        let both = given.clone().or(env.clone());
+        assert_eq!(both.config.as_deref(), Some(Path::new("/given/config")));
+        assert_eq!(both.data.as_deref(), Some(Path::new("/env/data")));
+        assert_eq!(both.downloads.as_deref(), Some(Path::new("/env/downloads")));
+        assert!(given.any() && env.any());
+        assert!(!Folders::default().any());
+        assert_eq!(Folders::default().or(Folders::default()), Folders::default());
     }
 
     #[cfg(windows)]

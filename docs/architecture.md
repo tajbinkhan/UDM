@@ -15,7 +15,10 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
   its single-instance lock. Replies to a request go to the client that asked;
   download events go to every client, so the window, the popup and any open
   browser all stay in step. It exits by itself after 60 seconds with no
-  clients and no queued or running downloads. It also shows the
+  clients and no queued or running downloads, except in server mode
+  (`pullbay-daemon --server`, [Run Pullbay on a server](server.md)), where it
+  runs until it is stopped, logs to standard output and shows nothing on a
+  screen. It also shows the
   notifications, plays the sounds and runs the virus scans, since it is the
   one process running whenever a download ends. Its log is
   `pullbay-daemon.log` in the data folder, beside the host's `pullbay-host.log`,
@@ -29,7 +32,9 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
   | settings folder | `%APPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `~/.config/pullbay` |
   | data folder | `%LOCALAPPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `~/.local/share/pullbay` |
 
-  On Linux, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` move them.
+  On Linux, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` move them. On any system,
+  `PULLBAY_CONFIG_DIR` and `PULLBAY_DATA_DIR` name them outright, for a server
+  ([Run Pullbay on a server](server.md)).
   - `settings.json` (settings folder): the settings. A missing file or field
     means the default.
   - `history.json` (data folder): the download list and the next id,

@@ -100,7 +100,9 @@ pub fn spawn_awake_keeper(wanted: impl Fn() -> bool + Send + 'static) {
 }
 
 /// Exit the process once `idle` has said so for `IDLE_EXIT`, after running
-/// `before_exit`, so a daemon started by the browser does not linger.
+/// `before_exit`, so a daemon started by the browser does not linger. The
+/// daemon passes its service's `may_exit`, which a server's daemon
+/// (`Seat::Server`) never says, so that one runs until it is stopped.
 pub fn spawn_idle_monitor(idle: impl Fn() -> bool + Send + 'static, before_exit: impl FnOnce() + Send + 'static) {
     thread::spawn(move || {
         let mut idle_since: Option<Instant> = None;
@@ -118,6 +120,74 @@ pub fn spawn_idle_monitor(idle: impl Fn() -> bool + Send + 'static, before_exit:
             }
         }
     });
+}
+
+/// Exit the process cleanly, after running `before_exit`, when it is asked to
+/// stop (`SIGTERM`, as `docker stop` and service managers send, or `SIGINT`,
+/// Ctrl+C), for a server's daemon, which nothing else stops. Without this the
+/// signal ends the process at once: the list is saved a second after each
+/// change anyway, so this only keeps the last second's progress. Downloads
+/// still running load as interrupted next time, as after a crash. Programs
+/// the daemon starts get the default handlers back when they start. Does
+/// nothing on Windows, whose servers stop the daemon some other way.
+pub fn spawn_stop_on_signal(before_exit: impl FnOnce() + Send + 'static) {
+    #[cfg(unix)]
+    {
+        use std::sync::atomic::Ordering;
+        if let Err(e) = stop_signal::install() {
+            warn!(error = %e, "could not listen for the stop signal");
+            return;
+        }
+        thread::spawn(move || {
+            while !stop_signal::ASKED.load(Ordering::SeqCst) {
+                thread::sleep(STOP_POLL);
+            }
+            info!("asked to stop, exiting");
+            before_exit();
+            std::process::exit(0);
+        });
+    }
+    #[cfg(not(unix))]
+    drop(before_exit);
+}
+
+/// How often the stop watch looks for a stop signal.
+#[cfg(unix)]
+const STOP_POLL: Duration = Duration::from_millis(200);
+
+/// The handler `spawn_stop_on_signal` installs. It only sets a flag, which
+/// is all a signal handler may safely do.
+#[cfg(unix)]
+mod stop_signal {
+    use std::io;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Set once a stop signal came.
+    pub static ASKED: AtomicBool = AtomicBool::new(false);
+
+    extern "C" fn on_signal(_: libc::c_int) {
+        ASKED.store(true, Ordering::SeqCst);
+    }
+
+    /// Handle `SIGTERM` and `SIGINT` with [`on_signal`].
+    pub fn install() -> io::Result<()> {
+        for signal in [libc::SIGTERM, libc::SIGINT] {
+            // SAFETY: `action` is zeroed and then filled in before use, the
+            // handler only stores to an atomic (async-signal-safe), and
+            // `sigaction` is given valid pointers for the call.
+            let failed = unsafe {
+                let mut action: libc::sigaction = std::mem::zeroed();
+                action.sa_sigaction = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
+                action.sa_flags = libc::SA_RESTART;
+                libc::sigemptyset(&mut action.sa_mask);
+                libc::sigaction(signal, &action, std::ptr::null_mut()) != 0
+            };
+            if failed {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
