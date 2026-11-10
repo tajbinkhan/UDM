@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "Pullbay로 보내기"
+  },
+  "pageVideo": {
+    "message": "이 페이지의 동영상"
+  },
+  "playlistTitled": {
+    "message": "재생 목록: $TITLE$(동영상 $COUNT$개)",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "재생 목록(동영상 $COUNT$개)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "Pullbay에서 동영상 선택..."
   }
 }

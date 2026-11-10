@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "Pullbay に送る"
+  },
+  "pageVideo": {
+    "message": "このページの動画"
+  },
+  "playlistTitled": {
+    "message": "プレイリスト: $TITLE$ ($COUNT$ 本の動画)",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "プレイリスト ($COUNT$ 本の動画)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "Pullbay で動画を選ぶ..."
   }
 }

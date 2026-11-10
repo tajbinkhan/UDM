@@ -24,6 +24,9 @@ pub fn incoming(command: Command) -> Incoming {
         Command::CommandLine(c) => Incoming::CommandLine(c),
         Command::ProbeMedia { request, download } => Incoming::ProbeMedia { request, download },
         Command::PickLinks { page, links, user_agent } => Incoming::PickLinks { page, links, user_agent },
+        Command::PickVideos { page, playlist, user_agent } => Incoming::PickVideos { page, playlist, user_agent },
+        Command::InstallTool { tool } => Incoming::InstallTool { tool },
+        Command::ListTools => Incoming::ListTools,
         Command::Rendered { request, html, url, popups } => Incoming::Rendered { request, html, url, popups },
         Command::Cookies { request, cookies } => Incoming::Cookies { request, cookies },
         Command::Add(d) => Incoming::Add(d),
@@ -77,6 +80,9 @@ pub fn command(msg: Incoming) -> Command {
         Incoming::CommandLine(c) => Command::CommandLine(c),
         Incoming::ProbeMedia { request, download } => Command::ProbeMedia { request, download },
         Incoming::PickLinks { page, links, user_agent } => Command::PickLinks { page, links, user_agent },
+        Incoming::PickVideos { page, playlist, user_agent } => Command::PickVideos { page, playlist, user_agent },
+        Incoming::InstallTool { tool } => Command::InstallTool { tool },
+        Incoming::ListTools => Command::ListTools,
         Incoming::Rendered { request, html, url, popups } => Command::Rendered { request, html, url, popups },
         Incoming::Cookies { request, cookies } => Command::Cookies { request, cookies },
         Incoming::Add(d) => Command::Add(d),
@@ -162,6 +168,10 @@ pub fn event(msg: Outgoing) -> Event {
             Event::LinkInfo { request, index, total, content_type, error: error.map(|e| failure(e, error_kind)) }
         }
         Outgoing::PickLinks { page, links, user_agent } => Event::PickLinks { page, links, user_agent },
+        Outgoing::PickVideos { page, playlist, user_agent } => Event::PickVideos { page, playlist, user_agent },
+        Outgoing::Tools { tools, done, error, error_kind } => {
+            Event::Tools { tools, done, error: error.map(|e| failure(e, error_kind)) }
+        }
         Outgoing::Quota { used, limit, paused, resumes_at } => Event::Quota { used, limit, paused, resumes_at },
         Outgoing::LimitLifted { lifted } => Event::LimitLifted { lifted },
         Outgoing::BrowserLink { connected, last_seen } => Event::BrowserLink { connected, last_seen },
@@ -228,6 +238,11 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
             Outgoing::LinkInfo { request, index, total, content_type, error, error_kind }
         }
         Event::PickLinks { page, links, user_agent } => Outgoing::PickLinks { page, links, user_agent },
+        Event::PickVideos { page, playlist, user_agent } => Outgoing::PickVideos { page, playlist, user_agent },
+        Event::Tools { tools, done, error } => {
+            let (error, error_kind) = optional(error);
+            Outgoing::Tools { tools, done, error, error_kind }
+        }
         Event::Quota { used, limit, paused, resumes_at } => Outgoing::Quota { used, limit, paused, resumes_at },
         Event::LimitLifted { lifted } => Outgoing::LimitLifted { lifted },
         Event::BrowserLink { connected, last_seen } => Outgoing::BrowserLink { connected, last_seen },
@@ -318,6 +333,7 @@ enum WireService {
     CrawlRunning,
     BadBody(String),
     NotDownloadAddress(String),
+    Tool(pullbay_domain::tools::ToolError),
     Pairing(PairingError),
 }
 
@@ -371,6 +387,7 @@ impl WireService {
             ServiceError::CrawlRunning => WireService::CrawlRunning,
             ServiceError::BadBody(url) => WireService::BadBody(url),
             ServiceError::NotDownloadAddress(url) => WireService::NotDownloadAddress(url),
+            ServiceError::Tool(e) => WireService::Tool(e),
             ServiceError::Pairing(e) => WireService::Pairing(e),
         }
     }
@@ -393,6 +410,7 @@ impl From<WireService> for ServiceError {
             WireService::CrawlRunning => ServiceError::CrawlRunning,
             WireService::BadBody(url) => ServiceError::BadBody(url),
             WireService::NotDownloadAddress(url) => ServiceError::NotDownloadAddress(url),
+            WireService::Tool(e) => ServiceError::Tool(e),
             WireService::Pairing(e) => ServiceError::Pairing(e),
         }
     }
@@ -458,6 +476,44 @@ mod tests {
         let value = json(&outgoing(event).unwrap());
         let back: Outgoing = serde_json::from_value(value.clone()).unwrap();
         (value, super::event(back))
+    }
+
+    #[test]
+    fn playlists_and_tools_keep_their_shape() {
+        use pullbay_domain::media::{Playlist, PlaylistEntry};
+        use pullbay_domain::tools::{Tool, ToolError, ToolState};
+        let playlist = Playlist {
+            title: "T".into(),
+            entries: vec![PlaylistEntry { url: "https://v/1".into(), title: "One".into(), duration: None }],
+        };
+        let msg = incoming(Command::PickVideos { page: "https://v/l".into(), playlist, user_agent: None });
+        assert_eq!(
+            json(&msg),
+            serde_json::json!({"op": "pick_videos", "page": "https://v/l", "playlist": {"title": "T", "entries": [{"url": "https://v/1", "title": "One"}]}, "user_agent": null})
+        );
+        assert_eq!(
+            json(&incoming(Command::InstallTool { tool: Tool::YtDlp })),
+            serde_json::json!({"op": "install_tool", "tool": "yt_dlp"})
+        );
+        let state = ToolState {
+            tool: Tool::Ffmpeg,
+            path: None,
+            installed: None,
+            installable: false,
+            command: "brew install ffmpeg".into(),
+        };
+        let failed = Event::Tools {
+            tools: vec![state],
+            done: Some(Tool::Ffmpeg),
+            error: Some(ToolError::NoBuild("ffmpeg".into(), "brew install ffmpeg".into()).into()),
+        };
+        let (value, back) = round_trip(failed.clone());
+        assert_eq!(value["op"], "tools");
+        assert_eq!(
+            value["error_kind"],
+            serde_json::json!({"Service": {"Tool": {"NoBuild": ["ffmpeg", "brew install ffmpeg"]}}})
+        );
+        assert_eq!(back, failed);
     }
 
     #[test]
@@ -644,6 +700,10 @@ mod tests {
         use serde_json::json;
         let golden: Vec<(Failure, serde_json::Value)> = vec![
             (ServiceError::CrawlRunning.into(), json!({"Service": "CrawlRunning"})),
+            (
+                pullbay_domain::tools::ToolError::WrongChecksum("yt-dlp.exe".into()).into(),
+                json!({"Service": {"Tool": {"WrongChecksum": "yt-dlp.exe"}}}),
+            ),
             (ServiceError::BadBody("http://a/".into()).into(), json!({"Service": {"BadBody": "http://a/"}})),
             (ServiceError::NotDownloadAddress("x:y".into()).into(), json!({"Service": {"NotDownloadAddress": "x:y"}})),
             (QueueError::NoQueue(QueueId::new(7)).into(), json!({"Service": {"Queue": {"NoQueue": 7}}})),

@@ -459,6 +459,7 @@ pub fn describe(m: &Manifest) -> MediaInfo {
         error,
         not_stream: false,
         file: None,
+        playlist: None,
     }
 }
 

@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "Kirim ke Pullbay"
+  },
+  "pageVideo": {
+    "message": "Video di halaman ini"
+  },
+  "playlistTitled": {
+    "message": "Daftar putar: $TITLE$ ($COUNT$ video)",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "Daftar putar ($COUNT$ video)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "Pilih video di Pullbay..."
   }
 }

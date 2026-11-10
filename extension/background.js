@@ -285,13 +285,30 @@ const PROBE_TIMEOUT_MS = 20000;
 // yt-dlp takes longer: it reads the page and the player's code first.
 const PAGE_PROBE_TIMEOUT_MS = 60000;
 
+// Pages yt-dlp found nothing on, by address, with when: they are not asked
+// about again for PAGE_MISS_MS, so opening the menu again starts no new
+// yt-dlp. And the probes still waiting, by address, so two clicks share one.
+const pageMisses = new Map();
+const PAGE_MISS_MS = 10 * 60 * 1000;
+const probesOut = new Map();
+
 // Ask Pullbay what the stream at `url` offers, sending the page's cookies
 // along, and `sent`, what the player's own request carried (mediaRequest).
+// `page` says it is a web page for yt-dlp to read, whatever its site.
 // Resolves to a MediaInfo, or null without an answer.
-async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = null, sent = {}) {
-  if (mediaInfos.has(url)) return mediaInfos.get(url);
+function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = null, sent = {}, page = false) {
+  if (mediaInfos.has(url)) return Promise.resolve(mediaInfos.get(url));
+  if (!probesOut.has(url)) {
+    const asked = askProbe(url, referrer, timeout, from, sent, page).finally(() => probesOut.delete(url));
+    probesOut.set(url, asked);
+  }
+  return probesOut.get(url);
+}
+
+async function askProbe(url, referrer, timeout, from, sent, page) {
   const request = nextProbe++;
   const download = { url, user_agent: navigator.userAgent };
+  if (page) download.media = { kind: "page" };
   const cookies = await cookieHeader(url, from);
   if (cookies) download.cookies = cookies;
   if (sent.referrer || referrer) download.referrer = sent.referrer || referrer;
@@ -323,6 +340,7 @@ async function probeStream(url, referrer, timeout = PROBE_TIMEOUT_MS, from = nul
 async function videoMenu(tabId, referrer, tab, player = {}) {
   const page = privateAllowed(tab) && videoPageUrl(referrer);
   if (page) recordPage(media, tabId, page, Date.now());
+  if (privateAllowed(tab)) await otherPages(tabId, referrer, tab, !page);
   const entries = elementEntries(
     [...(media.get(tabId) || new Map()).values()],
     mediaStarts.get(tabId),
@@ -335,11 +353,55 @@ async function videoMenu(tabId, referrer, tab, player = {}) {
   await Promise.all(
     streams.map(async (e) => {
       const timeout = e.kind === "page" ? PAGE_PROBE_TIMEOUT_MS : PROBE_TIMEOUT_MS;
-      const info = await probeStream(e.url, referrer, timeout, tabContext(tab), mediaRequest(e));
+      const info = await probeStream(e.url, referrer, timeout, tabContext(tab), mediaRequest(e), e.kind === "page");
       if (info && !adoptFile(e, info)) infos.set(e.url, info);
     }),
   );
   return mediaMenu(entries, infos);
+}
+
+// Pages yt-dlp may read that the browser saw no stream on, asked about
+// only when the video button's menu opens (never on a page load, so no
+// yt-dlp runs for pages nobody asked about): the playlist a YouTube video
+// is part of, and, when `any` and the tab has nothing else to offer, the
+// page itself. Each is kept in the tab's list only when yt-dlp finds a
+// video or a playlist there; a miss is not asked about again for a while.
+async function otherPages(tabId, referrer, tab, any) {
+  const known = media.get(tabId) || new Map();
+  const wanted = [];
+  const list = playlistPageUrl(referrer);
+  if (list && !known.has(list)) wanted.push({ url: list, site: "playlist" });
+  const other = any && known.size === 0 && otherVideoPage(referrer);
+  if (other && !known.has(other)) wanted.push({ url: other, site: "other" });
+  const now = Date.now();
+  await Promise.all(
+    wanted
+      .filter((w) => !(pageMisses.get(w.url) > now - PAGE_MISS_MS))
+      .map(async (w) => {
+        const info = await probeStream(w.url, referrer, PAGE_PROBE_TIMEOUT_MS, tabContext(tab), {}, true);
+        const found = info && !info.error && ((info.video || []).length || (info.audio || []).length || (info.playlist || {}).entries);
+        if (!found) {
+          pageMisses.set(w.url, Date.now());
+          return;
+        }
+        const entry = recordMedia(media, tabId, w.url, { kind: "page", mime: "", size: 0 }, Date.now());
+        entry.site = w.site;
+        scheduleRecentMenu();
+      }),
+  );
+}
+
+// Send the playlist Pullbay found at media entry `entryId` of tab `tabId`
+// to Pullbay's window, which lists its videos to pick from.
+function sendPlaylist(tabId, entryId) {
+  const entry = [...(media.get(tabId) || new Map()).values()].find((e) => e.id === entryId && e.kind === "page");
+  const playlist = entry && (mediaInfos.get(entry.url) || {}).playlist;
+  if (!playlist || !connected) return false;
+  const entries = (playlist.entries || [])
+    .filter((v) => v && isWeb(v.url))
+    .slice(0, 1000)
+    .map((v) => ({ url: v.url, title: String(v.title || "").slice(0, 500), ...(typeof v.duration === "number" ? { duration: v.duration } : {}) }));
+  return send({ op: "pick_videos", page: entry.url, playlist: { title: String(playlist.title || "").slice(0, 500), entries }, user_agent: navigator.userAgent });
 }
 
 // What the top frame of tab `tabId` calls its page (pageNames, in
@@ -375,7 +437,7 @@ async function downloadMedia(tabId, msg, referrer, page = null) {
   if (entry.kind === "file") {
     download.filename = titleFileName(title, mediaFileExtension(entry));
   } else {
-    const soundOnly = ["m4a", "mp3"].includes(msg.audioOnly) ? msg.audioOnly : null;
+    const soundOnly = SOUND_FORMATS.includes(msg.audioOnly) ? msg.audioOnly : null;
     download.filename = titleFileName(title, soundOnly || "mp4");
     download.media = { kind: entry.kind };
     if (typeof msg.video === "string") download.media.video = msg.video;
@@ -421,6 +483,10 @@ function onContentMessage(msg, sender, sendResponse) {
         srcs: Array.isArray(msg.srcs) ? msg.srcs.filter((u) => typeof u === "string").slice(0, 20) : [],
       }).then((items) => sendResponse({ connected: true, items }));
       return true;
+    case "video:playlist":
+      // The menu's "Choose videos": the window lists the playlist.
+      sendResponse({ ok: Number.isInteger(msg.entry) && sendPlaylist(tabId, msg.entry) });
+      return false;
     case "video:started":
       // A player of this frame started loading or playing (see content.js).
       if (Number.isInteger(msg.element)) noteMediaStart(mediaStarts, tabId, sender.frameId || 0, msg.element, Date.now());

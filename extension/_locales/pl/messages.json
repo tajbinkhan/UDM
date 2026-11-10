@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "Wyślij do Pullbay"
+  },
+  "pageVideo": {
+    "message": "Film na tej stronie"
+  },
+  "playlistTitled": {
+    "message": "Lista odtwarzania: $TITLE$ (filmy: $COUNT$)",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "Lista odtwarzania (filmy: $COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "Wybierz filmy w Pullbay..."
   }
 }

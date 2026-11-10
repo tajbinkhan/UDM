@@ -569,6 +569,14 @@ function selectionHasLinks(sel) {
       for (const o of item.options) {
         menu.append(
           option(o.label, o.size, async () => {
+            // A playlist's videos are picked in Pullbay's window.
+            if (o.playlist) {
+              const listed = await ask({ type: "video:playlist", entry: item.entry });
+              const said = listed && listed.ok ? chrome.i18n.getMessage("sentToPullbay") : chrome.i18n.getMessage("couldNotReachPullbay");
+              menu.replaceChildren(el("div", "head", said));
+              closeTimer = setTimeout(() => (menu.hidden = true), 1500);
+              return;
+            }
             // The worker names it after the tab's top page (pageNames).
             const sent = await ask({
               type: "video:download",

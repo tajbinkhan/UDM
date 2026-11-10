@@ -105,9 +105,11 @@ On macOS and Linux, Pullbay connects itself to every browser it finds the first 
 ### Videos from YouTube and other sites
 
 For streamed videos to end up as one `.mp4`, install [ffmpeg](https://ffmpeg.org/). For YouTube,
-Facebook, Instagram and Vimeo, install [yt-dlp](https://github.com/yt-dlp/yt-dlp) too. On Windows,
-`winget install yt-dlp.yt-dlp` installs both, and Setup offers to run it for you
-([more](docs/install.md#windows)).
+Facebook, Instagram, Vimeo, playlists and the other sites it reads, install
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) too. **Install yt-dlp** and **Install ffmpeg** in
+**Options > General** download their official builds and check them against their published
+checksums (ffmpeg on Windows and Linux). On Windows, `winget install yt-dlp.yt-dlp` installs both,
+and Setup offers to run it for you ([more](docs/install.md#windows)).
 
 ### Coming from UIDM?
 

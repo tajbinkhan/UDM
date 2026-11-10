@@ -56,7 +56,8 @@ impl Probes for ServerProbes {
 
     fn media(&self, download: &Download) -> MediaInfo {
         let req = self.transfers.request_for(download.clone());
-        engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref())
+        let page = download.media.as_ref().is_some_and(|m| m.kind == Some(pullbay_domain::media::MediaKind::Page));
+        engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref(), page)
     }
 
     fn zip(&self, download: &Download, total: Option<ByteCount>) -> Result<Vec<ZipEntry>, ProbeError> {

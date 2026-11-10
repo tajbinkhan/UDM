@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "发送到 Pullbay"
+  },
+  "pageVideo": {
+    "message": "此页面上的视频"
+  },
+  "playlistTitled": {
+    "message": "播放列表：$TITLE$（$COUNT$ 个视频）",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "播放列表（$COUNT$ 个视频）",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "在 Pullbay 中选择视频..."
   }
 }

@@ -373,7 +373,36 @@ fn service(e: &ServiceError) -> String {
         ServiceError::CrawlRunning => tr("A site crawl is already running.").to_string(),
         ServiceError::BadBody(url) => trf!("the form body of {url} is not valid base64", url = url),
         ServiceError::NotDownloadAddress(url) => trf!("{url} is not an http, https or ftp address", url = url),
+        ServiceError::Tool(e) => tool(e),
         ServiceError::Pairing(e) => pairing(e),
+    }
+}
+
+/// Why yt-dlp or ffmpeg was not installed or updated.
+pub fn tool(e: &pullbay_domain::tools::ToolError) -> String {
+    use pullbay_domain::tools::ToolError as E;
+    match e {
+        E::NoBuild(tool, command) => {
+            trf!(
+                "Pullbay cannot install {tool} on this system. Install it with: {command}",
+                tool = tool,
+                command = command
+            )
+        }
+        E::Unreachable(why) => trf!("Could not reach GitHub: {why}", why = why),
+        E::Answer(why) => trf!("GitHub's answer could not be read: {why}", why = why),
+        E::NoAsset(name) => trf!("The latest release has no file {name}.", name = name),
+        E::NoChecksum(name) => {
+            trf!("The release publishes no checksum for {name}, so Pullbay will not install it.", name = name)
+        }
+        E::WrongChecksum(name) => {
+            trf!("{name} does not match its published checksum. It was deleted and nothing was installed.", name = name)
+        }
+        E::Download(why) => trf!("The download failed: {why}", why = why),
+        E::Unpack(name, why) => trf!("Could not unpack {name}: {why}", name = name, why = why),
+        E::Save { path, reason } => trf!("Could not save {path}: {reason}", path = path, reason = reason),
+        E::UpToDate(tool) => trf!("{tool} is up to date.", tool = tool),
+        E::Busy(tool) => trf!("{tool} is being installed already.", tool = tool),
     }
 }
 

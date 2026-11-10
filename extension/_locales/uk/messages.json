@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "Надіслати до Pullbay"
+  },
+  "pageVideo": {
+    "message": "Відео на цій сторінці"
+  },
+  "playlistTitled": {
+    "message": "Список відтворення: $TITLE$ (відео: $COUNT$)",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "Список відтворення (відео: $COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "Вибрати відео в Pullbay..."
   }
 }

@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "Gửi tới Pullbay"
+  },
+  "pageVideo": {
+    "message": "Video trên trang này"
+  },
+  "playlistTitled": {
+    "message": "Danh sách phát: $TITLE$ ($COUNT$ video)",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "Danh sách phát ($COUNT$ video)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "Chọn video trong Pullbay..."
   }
 }

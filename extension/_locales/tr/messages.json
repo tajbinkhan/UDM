@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "Pullbay'a gönder"
+  },
+  "pageVideo": {
+    "message": "Bu sayfadaki video"
+  },
+  "playlistTitled": {
+    "message": "Çalma listesi: $TITLE$ ($COUNT$ video)",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "Çalma listesi ($COUNT$ video)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "Pullbay'de video seç..."
   }
 }

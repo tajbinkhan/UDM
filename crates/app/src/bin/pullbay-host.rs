@@ -63,6 +63,7 @@ const BROWSER_OPS: &[&str] = &[
     "cancel_refresh",
     "probe_media",
     "pick_links",
+    "pick_videos",
     "rendered",
     "cookies",
 ];

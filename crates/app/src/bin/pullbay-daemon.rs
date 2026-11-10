@@ -299,6 +299,9 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         let (settings, retries) = (Arc::clone(&settings), Arc::clone(&retries));
         Box::new(move |url: &str| GitHub::new(Arc::clone(&settings), Arc::clone(&retries), url))
     };
+    let tool_releases =
+        Arc::new(pullbay_infrastructure::video_tools::GitHubTools::new(Arc::clone(&settings), Arc::clone(&retries)));
+    let tool_folder = Arc::new(pullbay_infrastructure::video_tools::ToolDir::new(Arc::clone(&settings)));
     let remote = Arc::new(WebRemote::new(paths.remote.clone()));
     let pairing = Arc::new(PairingDesk::open(
         Arc::new(DeviceFile::in_dir(paths.remote.as_deref())),
@@ -328,6 +331,9 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         browser,
         probes,
         crawler,
+        tool_releases,
+        tool_folder,
+        platform: pullbay_infrastructure::video_tools::platform(),
         found: FoundFiles,
         browser_proxy_retries: retries,
         run_book: RunBook::default(),
@@ -1720,6 +1726,15 @@ mod tests {
             "{failed:?}"
         );
         assert!(t.daemon.settings.lock().last_update_check > 0, "the check was noted");
+    }
+
+    #[test]
+    fn options_hears_where_the_video_tools_are() {
+        let t = setup("tools", Duplicate::NewName);
+        let tools = t.daemon.tools();
+        let names: Vec<_> = tools.iter().map(|s| s.tool).collect();
+        assert_eq!(names, pullbay_domain::tools::Tool::ALL);
+        assert!(tools.iter().all(|s| !s.command.is_empty()));
     }
 
     #[test]

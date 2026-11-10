@@ -15,6 +15,7 @@ pub mod quota;
 pub mod remote;
 pub mod report;
 pub mod themes;
+pub mod tools;
 pub mod update;
 pub mod window;
 

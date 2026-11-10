@@ -84,15 +84,19 @@ pub fn validate(settings: &Settings) -> Result<(), CheckError> {
     Ok(())
 }
 
-/// ffmpeg: the one set in Options if it exists, otherwise the first on
-/// `PATH`.
+/// ffmpeg: the one set in Options if it exists, otherwise the one Pullbay
+/// installed (`paths::tools_dir`), otherwise the first on `PATH`.
 pub fn ffmpeg(settings: &Settings) -> Option<PathBuf> {
     let set = settings.ffmpeg_path.trim();
     if !set.is_empty() {
         return Some(PathBuf::from(set)).filter(|p| p.is_file());
     }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|dir| dir.join(crate::platform::exe_name("ffmpeg"))).find(|p| p.is_file())
+    // The one Pullbay installed (Options > General), then the PATH's.
+    let own = crate::paths::tools_dir().map(|d| d.join(crate::platform::exe_name("ffmpeg")));
+    let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
+    own.into_iter()
+        .chain(path.into_iter().map(|dir| dir.join(crate::platform::exe_name("ffmpeg"))))
+        .find(|p| p.is_file())
 }
 
 /// Give a settings file from before the default exclusion list those
@@ -337,6 +341,7 @@ mod tests {
             browser_menu_hidden_firefox: vec!["recent_videos".into()],
             added_browsers: vec![AddedBrowser { name: "Thorium".into(), program: full("C:\\Thorium\\thorium.exe") }],
             ffmpeg_path: full("C:\\ffmpeg\\bin\\ffmpeg.exe"),
+            ytdlp_auto_update: true,
             confirm_remove: false,
             remove_deletes_files: true,
             server_file_date: false,

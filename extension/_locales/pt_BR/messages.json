@@ -309,5 +309,30 @@
   },
   "sendToPullbay": {
     "message": "Enviar ao Pullbay"
+  },
+  "pageVideo": {
+    "message": "Vídeo nesta página"
+  },
+  "playlistTitled": {
+    "message": "Playlist: $TITLE$ ($COUNT$ vídeos)",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "Playlist ($COUNT$ vídeos)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "Escolher vídeos no Pullbay..."
   }
 }

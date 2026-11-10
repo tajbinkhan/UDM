@@ -388,6 +388,13 @@ pub fn themes_dir() -> io::Result<PathBuf> {
     Ok(config_dir()?.join("themes"))
 }
 
+/// The programs Pullbay installs for video pages (yt-dlp, ffmpeg), in a
+/// `tools` folder in [`data_dir`] (the copy's `Data` folder when it is
+/// portable). `None` when the data folder cannot be found.
+pub fn tools_dir() -> Option<PathBuf> {
+    data_dir().ok().map(|d| d.join("tools"))
+}
+
 /// The daemon's log, in [`data_dir`]. It holds download addresses, so it
 /// stays out of a shared `/tmp`.
 pub fn daemon_log() -> PathBuf {

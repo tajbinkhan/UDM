@@ -79,17 +79,23 @@ content script runs on every page for the video button; it does nothing
 until a video plays.
 
 For streamed videos to end up as one `.mp4`, install
-[ffmpeg](https://ffmpeg.org/) and put `ffmpeg.exe` on `PATH`, or choose it in
-**Options > General**. Without it Pullbay still downloads streams, as `.ts`
-files or as separate video and audio files.
+[ffmpeg](https://ffmpeg.org/): **Install ffmpeg** in **Options > General**
+downloads the official build the yt-dlp project makes and checks it against
+its published checksum (on Windows and Linux), or put `ffmpeg.exe` on `PATH`,
+or choose it in **Options > General**. Without it Pullbay still downloads
+streams, as `.ts` files or as separate video and audio files.
 
-Videos on YouTube, Facebook, Instagram and Vimeo pages need
-[yt-dlp](https://github.com/yt-dlp/yt-dlp) as well:
-`winget install yt-dlp.yt-dlp` installs it with ffmpeg and Deno, which
-yt-dlp uses to read YouTube's player. Setup offers to run that command for
-you when winget is there and yt-dlp is not. Pullbay finds `yt-dlp.exe` on
-`PATH`, next to Pullbay's programs or next to ffmpeg. Restart Pullbay after
-installing it yourself, so it sees the new `PATH`.
+Videos on YouTube, Facebook, Instagram, Vimeo and the other sites
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) reads need yt-dlp as well:
+**Install yt-dlp** in **Options > General** downloads yt-dlp's own release
+for your system and checks it the same way, and **Keep yt-dlp up to date**
+updates it once a day. `winget install yt-dlp.yt-dlp` installs it with
+ffmpeg and Deno too, which yt-dlp uses to read YouTube's player; Setup offers
+to run that command for you when winget is there and yt-dlp is not. Pullbay
+finds yt-dlp in its own tools folder, on `PATH`, next to Pullbay's programs
+or next to ffmpeg. Restart Pullbay after installing it yourself, so it sees
+the new `PATH`. What the buttons download, from where, and how it is checked
+is in [Streams, batches and the grabber](streams-batches-and-grabber.md).
 
 To remove Pullbay, uninstall it from **Installed apps**. That closes Pullbay if it
 is running, removes the program, its browser registration, shortcuts, the
