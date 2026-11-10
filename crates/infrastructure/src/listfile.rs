@@ -357,6 +357,7 @@ http://127.0.0.1/b.zip
             page: None,
             last_try: None,
             description: None,
+            checksum: None,
             category: None,
             login_user: None,
             speed_limit: None,

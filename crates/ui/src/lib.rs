@@ -59,6 +59,7 @@ mod theme;
 mod toolbar;
 mod tools;
 mod tray;
+mod verify;
 #[cfg(windows)]
 mod win;
 #[cfg(not(windows))]
@@ -338,6 +339,8 @@ enum Action {
     /// List the files inside a waiting zip download.
     PreviewZip(DownloadId),
     OpenConvert(DownloadId),
+    /// Compare a finished download's file with a checksum.
+    OpenVerify(DownloadId),
     /// Convert a finished video, and maybe delete the original.
     Convert(DownloadId, pullbay_domain::media::Target, bool),
     OpenAbout,
@@ -466,6 +469,8 @@ struct App {
     ctx: egui::Context,
     /// Tasks > Add new download, while it is open.
     add_dialog: Option<addurl::AddDialog>,
+    /// The open Verify checksum dialogs, one per download.
+    verify: Vec<verify::VerifyDialog>,
     /// The Options dialog, while it is open.
     options: Option<OptionsDraft>,
     /// The save-as dialog for the oldest `confirming` download.
@@ -1546,6 +1551,7 @@ impl App {
             daemon,
             ctx: ctx.clone(),
             add_dialog: None,
+            verify: Vec::new(),
             options: None,
             confirm: None,
             answers: None,
@@ -2012,6 +2018,12 @@ impl App {
             }
             Action::SetQueueOnce(id, when_done) => {
                 self.daemon.send(Command::SetQueueOnce { id, when_done });
+            }
+            Action::OpenVerify(id) => {
+                let entry = self.state.table.get(id).cloned();
+                if let Some(e) = entry.filter(|_| !self.verify.iter().any(|d| d.id == id)) {
+                    self.verify.extend(verify::VerifyDialog::new(&e));
+                }
             }
             Action::OpenProperties(id) => {
                 let entry = self.state.table.get(id).cloned();
@@ -4323,6 +4335,8 @@ impl eframe::App for App {
                 addurl::Outcome::Close => self.add_dialog = None,
             }
         }
+        // A removed download's dialog closes with it.
+        self.verify.retain_mut(|d| rows.iter().any(|e| e.id == d.id) && verify::show(ctx, d));
 
         // What the window has to say, under the toolbar.
         let (refreshing, notice, quota, release) = {

@@ -8,6 +8,7 @@
 pub mod address;
 pub mod batch;
 pub mod bytes;
+pub mod checksum;
 pub mod command;
 pub mod download;
 pub mod filename;

@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicBool;
 
 use crate::address::Link;
 use crate::bytes::ByteCount;
+use crate::checksum::Algorithm;
 use crate::download::{Download, DownloadEntry, Scan, Status, ZipEntry};
 use crate::filename::FileName;
 use crate::grab::{GrabRequest, Outcome, Project, RenderedPage};
@@ -568,6 +569,18 @@ pub trait SaveFolders: Send + Sync {
 pub trait VirusScanner: Send + Sync {
     /// Scan the file at `path` with `settings`' scanner, waiting for it.
     fn scan(&self, settings: &Settings, path: &Path) -> Scan;
+}
+
+/// Why a file's digest could not be made: it could not be read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct HashError(pub String);
+
+/// Hashing files, to compare them with a published checksum.
+pub trait FileHashes: Send + Sync {
+    /// The digest of the file at `path`, made with `algorithm`. It reads
+    /// the whole file, so callers run it off the window's thread.
+    fn digest(&self, path: &Path, algorithm: Algorithm) -> Result<Vec<u8>, HashError>;
 }
 
 /// Opening files as the desktop would on a double-click.

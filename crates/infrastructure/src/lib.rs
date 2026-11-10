@@ -58,6 +58,7 @@ pub mod files;
 pub mod from_uidm;
 pub mod front;
 pub mod grab;
+pub mod hash;
 pub mod history;
 pub mod ipc;
 pub mod listfile;

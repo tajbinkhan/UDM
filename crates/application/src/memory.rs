@@ -9,14 +9,15 @@ use std::sync::Mutex;
 
 use pullbay_domain::address::Link;
 use pullbay_domain::bytes::ByteCount;
+use pullbay_domain::checksum::Algorithm;
 use pullbay_domain::download::{Download, DownloadEntry, Status};
 use pullbay_domain::filename::FileName;
 use pullbay_domain::id::{DownloadId, QueueId};
 use pullbay_domain::media::Conversion;
 use pullbay_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
-    EarlyStarts, FilesError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds, QueueStore,
-    QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
+    EarlyStarts, FileHashes, FilesError, HashError, PausedDownloads, PowerControl, QueueFinish, QueueRuns, QueueSounds,
+    QueueStore, QuotaState, ReleaseSource, SettingsError, SettingsStore, SyncChecks, UpdateChecks,
 };
 use pullbay_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
 use pullbay_domain::quota::QuotaNotice;
@@ -881,5 +882,21 @@ impl Answers for Waiting {
 
     fn await_new_name(&self, id: DownloadId) {
         self.0.lock().unwrap().push(id.get());
+    }
+}
+
+/// File digests by path; a path it was not given cannot be read.
+#[derive(Default)]
+pub struct Hashes(HashMap<PathBuf, Vec<u8>>);
+
+impl Hashes {
+    pub fn with(path: &str, digest: Vec<u8>) -> Self {
+        Hashes(HashMap::from([(PathBuf::from(path), digest)]))
+    }
+}
+
+impl FileHashes for Hashes {
+    fn digest(&self, path: &Path, _algorithm: Algorithm) -> Result<Vec<u8>, HashError> {
+        self.0.get(path).cloned().ok_or_else(|| HashError(format!("Could not read {}", path.display())))
     }
 }

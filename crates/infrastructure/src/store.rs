@@ -261,8 +261,8 @@ impl DownloadStore {
         }
         let _ = self.dirty.send(());
         self.events.announce(msg);
-        // The list shows a new download's page, description and login name
-        // from its request.
+        // The list shows a new download's page, description, checksum and
+        // login name from its request.
         if let Outgoing::Added { id, .. } = msg {
             drop(table);
             let request = lock(&self.requests).get(id).cloned();
@@ -274,6 +274,7 @@ impl DownloadStore {
                     e.page = e.page.take().or(d.page).or_else(|| d.referrer.clone());
                     e.referrer = e.referrer.take().or(d.referrer);
                     e.description = e.description.take().or(d.description);
+                    e.checksum = e.checksum.take().or(d.checksum);
                     e.category = e.category.take().or(d.category);
                     e.login_user = e.login_user.take().or(d.login.map(|l| l.username));
                     e.speed_limit = e.speed_limit.or(d.speed_limit);

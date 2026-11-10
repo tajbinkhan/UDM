@@ -25,9 +25,9 @@ use pullbay_domain::download::{
 use pullbay_domain::grab::{self, GrabRequest, RenderedPage};
 use pullbay_domain::ports::{
     Answers, Attention, Browser, Clock, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
-    EarlyStarts, FileOpener, GrabDownloads, GrabProjects, GrabRuns, Notifications, PausedDownloads, PowerControl,
-    Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SaveFolders,
-    SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine, UpdateChecks, VirusScanner,
+    EarlyStarts, FileHashes, FileOpener, GrabDownloads, GrabProjects, GrabRuns, Notifications, PausedDownloads,
+    PowerControl, Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource,
+    SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine, UpdateChecks, VirusScanner,
 };
 use pullbay_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -38,9 +38,9 @@ use tracing::{info, warn};
 
 use super::{ClientId, ClientList, Command, Countdowns, DownloadFeed, Event, Failure, Reply, Requests};
 use crate::downloads::{
-    AddLater, AddMany, AfterDownload, CancelDownload, ConfirmAnswer, ConfirmWarning, Confirmed, ConvertDownload,
-    Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll,
-    RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit, UseExisting,
+    AddLater, AddMany, AfterDownload, CancelDownload, CheckDownload, CheckOutcome, ConfirmAnswer, ConfirmWarning,
+    Confirmed, ConvertDownload, Existing, Held, HoldForAnswer, PauseAll, Probed, Redownload, RefreshLink, Refreshed,
+    RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetOnDone, SetProperties, SetSpeedLimit, UseExisting,
 };
 use crate::grab::RunGrabSchedules;
 use crate::power::{CancelCountdown, CountdownNow, RunWhenDone};
@@ -93,6 +93,8 @@ pub const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
 pub enum Note {
     Finished(DownloadId),
     Failed(DownloadId),
+    /// A finished download matched the checksum it came with.
+    Verified(DownloadId),
     /// A finished download's virus scan is done.
     Scanned(DownloadId),
     /// A download stopped to ask about its taken file name.
@@ -171,6 +173,8 @@ pub struct Parts<W: Wiring> {
     pub projects: Option<Arc<W::Projects>>,
     pub files: Arc<W::Files>,
     pub scanner: Arc<dyn VirusScanner>,
+    /// Hashes finished files that came with a checksum.
+    pub hashes: Arc<dyn FileHashes>,
     pub opener: Arc<dyn FileOpener>,
     pub settings: Arc<W::Settings>,
     pub transfers: Arc<W::Transfers>,
@@ -212,6 +216,7 @@ pub struct DaemonService<W: Wiring> {
     pub projects: Option<Arc<W::Projects>>,
     pub files: Arc<W::Files>,
     pub scanner: Arc<dyn VirusScanner>,
+    pub hashes: Arc<dyn FileHashes>,
     pub opener: Arc<dyn FileOpener>,
     pub settings: Arc<W::Settings>,
     pub transfers: Arc<W::Transfers>,
@@ -265,6 +270,7 @@ impl<W: Wiring> DaemonService<W> {
             projects: p.projects,
             files: p.files,
             scanner: p.scanner,
+            hashes: p.hashes,
             opener: p.opener,
             settings: p.settings,
             transfers: p.transfers,
@@ -655,12 +661,25 @@ impl<W: Wiring> DaemonService<W> {
         }
     }
 
-    /// Handle one note: scan a finished download first when asked, then play
-    /// the sound and notify.
+    /// Handle one note: check a finished download's checksum first when it
+    /// came with one, then scan it when asked, then play the sound and notify.
     pub fn on_note(self: &Arc<Self>, note: Note) {
         let settings = self.settings_now();
         match note {
-            Note::Finished(id) if settings.scan_after_download => {
+            Note::Finished(id) if CheckDownload::new(&*self.store, &*self.hashes).wanted(id) => {
+                let daemon = Arc::clone(self);
+                thread::spawn(move || match CheckDownload::new(&*daemon.store, &*daemon.hashes).run(id) {
+                    CheckOutcome::Failed(error) => {
+                        warn!(download_id = id.get(), error = %error, "checksum check failed");
+                        daemon.notifier.notify(id, true, &settings);
+                    }
+                    CheckOutcome::Matches | CheckOutcome::Unchecked => {
+                        info!(download_id = id.get(), "checksum matches");
+                        let _ = daemon.notes.send(Note::Verified(id));
+                    }
+                });
+            }
+            Note::Finished(id) | Note::Verified(id) if settings.scan_after_download => {
                 let scanning = self.store.update(id, |e| {
                     if e.status != Status::Done || e.path.is_none() {
                         return false;
@@ -683,7 +702,7 @@ impl<W: Wiring> DaemonService<W> {
                     let _ = daemon.notes.send(Note::Scanned(id));
                 });
             }
-            Note::Finished(id) | Note::Scanned(id) => {
+            Note::Finished(id) | Note::Verified(id) | Note::Scanned(id) => {
                 self.notifier.notify(id, false, &settings);
                 self.after_download(id);
             }

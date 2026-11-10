@@ -352,6 +352,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
         item(ui, true, tr("Open"), Action::Open(e.id));
         item(ui, true, tr("Open with..."), Action::OpenWith(path.clone()));
         item(ui, true, tr("Open folder"), Action::ShowInFolder(path.clone()));
+        item(ui, true, tr("Verify checksum..."), Action::OpenVerify(e.id));
         ui.separator();
     }
     if let Some(q) = list.queue {
