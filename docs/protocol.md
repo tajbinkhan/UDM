@@ -1,5 +1,9 @@
 # Messages
 
+The [automation API](command-line.md#the-automation-api) is the documented, versioned part of
+these messages for other programs, with a [JSON Schema](automation-api.schema.json); the rest are
+Pullbay's own and may change between releases.
+
 Client to daemon (the host relays the browser's unchanged):
 
 ```json
@@ -22,6 +26,8 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "pause_all" }
 { "op": "resume_all" }
 { "op": "add", "url": "https://...", "start": false, "queue": 1 }
+{ "op": "add", "url": "https://...", "connections": 4, "checksum": "sha256:...", "ask": false,
+  "duplicate": "new_name" }
 { "op": "save_queue", "queue": { "id": 0, "name": "Night", "max_concurrent": 2, "retries": 1,
   "when_done": "shut_down", "schedule": { "start": "23:00", "stop": "07:00", "days": [0, 1, 2, 3, 4],
   "date": null } } }
@@ -64,7 +70,7 @@ Client to daemon (the host relays the browser's unchanged):
 Daemon to clients:
 
 ```json
-{ "op": "hello", "name": "pullbay-daemon", "version": "0.1.0" }
+{ "op": "hello", "name": "pullbay-daemon", "version": "0.5.0", "api": 1 }
 { "op": "pong" }
 { "op": "ack", "id": 1, "url": "https://...", "status": "accepted" }
 { "op": "added", "id": 1, "url": "https://..." }
@@ -104,6 +110,11 @@ Daemon to clients:
 { "op": "command_line", "window_open": true }
 { "op": "error", "message": "..." }
 ```
+
+`api` in the daemon's `hello` is the automation API's version; daemons
+older than the API leave it out. `connections` on an `add` is how many connections
+that download opens (brought into 1 to 16) instead of the setting's, and is
+kept for its retries. `pullbay-cli` names itself `client: "pullbay-cli"`.
 
 `command_line` is what `pullbay-gui` sends for its switches. With a window
 open the daemon runs it at once and answers `window_open: true`; otherwise

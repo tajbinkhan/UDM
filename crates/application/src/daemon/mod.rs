@@ -29,6 +29,12 @@ use pullbay_domain::quota::QuotaNotice;
 use pullbay_domain::settings::Settings;
 use pullbay_domain::update::Release;
 
+/// The version of the automation API: the messages `docs/command-line.md`
+/// documents for other programs, and `docs/automation-api.schema.json`
+/// describes. It goes up only when one of those changes in a way an older
+/// program would misread; new optional fields and new messages keep it.
+pub const AUTOMATION_API: u32 = 1;
+
 /// A client connected to the daemon, numbered by the daemon's server in
 /// the order they connect. Any number is valid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -247,10 +253,12 @@ pub enum Event {
     Connected,
     /// The connection went; nothing more comes until `connect` again.
     Lost(Lost),
-    /// The daemon's answer to `Hello`.
+    /// The daemon's answer to `Hello`, with the automation API version it
+    /// speaks (`AUTOMATION_API`; none from a daemon older than the API).
     Hello {
         name: String,
         version: String,
+        api: Option<u32>,
     },
     /// The answer to `Ping`.
     Pong,

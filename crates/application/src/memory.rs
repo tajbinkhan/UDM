@@ -11,7 +11,7 @@ use std::time::Duration;
 use pullbay_domain::address::Link;
 use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::checksum::Algorithm;
-use pullbay_domain::download::{Download, DownloadEntry, Status};
+use pullbay_domain::download::{CommandLine, Download, DownloadEntry, Status};
 use pullbay_domain::filename::FileName;
 use pullbay_domain::id::{DownloadId, QueueId};
 use pullbay_domain::media::Conversion;
@@ -25,6 +25,8 @@ use pullbay_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_
 use pullbay_domain::quota::QuotaNotice;
 use pullbay_domain::settings::Settings;
 use pullbay_domain::update::{Release, SetupAsset, UpdateError};
+
+use crate::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
 
 pub struct Queues {
     list: Mutex<Vec<Queue>>,
@@ -947,5 +949,87 @@ impl LimitLift for Lift {
 
     fn set_lifted(&self, lifted: bool) {
         self.changes.lock().unwrap().push(lifted);
+    }
+}
+
+type Answerer = dyn Fn(&Command) -> Vec<Event> + Send + Sync;
+type Sink = Box<dyn FnMut(Event) + Send>;
+
+/// A pretend daemon for the remote use cases: it answers each command with
+/// the events `answer` gives, then `Pong` for a `Ping`, as the daemon
+/// answers a client's requests in order.
+pub struct FakeDaemon {
+    answer: Box<Answerer>,
+    /// Why connecting fails, when it does.
+    unreachable: Option<String>,
+    sink: Mutex<Option<Sink>>,
+    sent: Mutex<Vec<Command>>,
+}
+
+impl FakeDaemon {
+    pub fn new(answer: impl Fn(&Command) -> Vec<Event> + Send + Sync + 'static) -> Self {
+        FakeDaemon { answer: Box::new(answer), unreachable: None, sink: Mutex::new(None), sent: Mutex::new(Vec::new()) }
+    }
+
+    /// A daemon that lists `downloads` and the main queue, and answers
+    /// nothing else.
+    pub fn with_list(downloads: Vec<DownloadEntry>) -> Self {
+        Self::listing(downloads, vec![Queue::main()], |_| Vec::new())
+    }
+
+    /// A daemon that lists `downloads` and `queues`, and answers the rest
+    /// with `answer`.
+    pub fn listing(
+        downloads: Vec<DownloadEntry>,
+        queues: Vec<Queue>,
+        answer: impl Fn(&Command) -> Vec<Event> + Send + Sync + 'static,
+    ) -> Self {
+        Self::new(move |c| match c {
+            Command::List => vec![
+                Event::Downloads { items: downloads.clone() },
+                Event::Queues { items: queues.clone() },
+                Event::RefreshWaiting { id: None },
+            ],
+            other => answer(other),
+        })
+    }
+
+    pub fn unreachable(why: &str) -> Self {
+        FakeDaemon { unreachable: Some(why.to_string()), ..Self::new(|_| Vec::new()) }
+    }
+
+    /// The commands sent so far.
+    pub fn sent(&self) -> Vec<Command> {
+        self.sent.lock().unwrap().clone()
+    }
+}
+
+impl DaemonClient for FakeDaemon {
+    fn connect(&self, _restart: bool, mut on_event: Box<dyn FnMut(Event) + Send>) {
+        if let Some(why) = &self.unreachable {
+            return on_event(Event::Lost(Lost::Failed(why.clone())));
+        }
+        on_event(Event::Connected);
+        *self.sink.lock().unwrap() = Some(on_event);
+    }
+
+    fn send(&self, command: Command) -> bool {
+        let mut events = (self.answer)(&command);
+        if matches!(command, Command::Ping) {
+            events.push(Event::Pong);
+        }
+        self.sent.lock().unwrap().push(command);
+        let mut sink = self.sink.lock().unwrap();
+        let Some(sink) = sink.as_mut() else {
+            return false;
+        };
+        for event in events {
+            sink(event);
+        }
+        true
+    }
+
+    fn run_command_line(&self, _command: CommandLine) -> Result<bool, DaemonError> {
+        Err(DaemonError::Closed)
     }
 }

@@ -11,6 +11,7 @@ pub mod grab;
 pub mod power;
 pub mod queues;
 pub mod quota;
+pub mod remote;
 pub mod update;
 pub mod window;
 

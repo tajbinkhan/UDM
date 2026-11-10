@@ -249,10 +249,14 @@ pub enum Incoming {
 // Each message lives only while it is sent, so boxing the big variants would add churn for no gain.
 #[allow(clippy::large_enum_variant)]
 pub enum Outgoing {
-    /// Reply to `hello`, announcing the daemon's identity.
+    /// Reply to `hello`, announcing the daemon's identity and the
+    /// automation API version it speaks (missing from daemons older than
+    /// the API).
     Hello {
         name: String,
         version: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        api: Option<u32>,
     },
     /// Reply to `ping`.
     Pong,

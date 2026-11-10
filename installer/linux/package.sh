@@ -44,20 +44,22 @@ mkdir -p "$dist"
 # copy, the README and the icon.
 stage="$work/pullbay"
 mkdir -p "$stage"
-install -m755 "$bin/pullbay-gui" "$bin/pullbay-daemon" "$bin/pullbay-host" "$stage/"
+install -m755 "$bin/pullbay-gui" "$bin/pullbay-daemon" "$bin/pullbay-host" "$bin/pullbay-cli" "$stage/"
 mkdir -p "$stage/extension"
 (cd "$root/extension" && tar cf - --exclude=./test --exclude=./firefox.json .) | (cd "$stage/extension" && tar xf -)
 node "$root/installer/make-firefox.js" "$stage/firefox" >/dev/null
 install -m644 "$root/README.md" "$stage/"
 icon="$root/extension/icons/128.png"
 
-# A system-wide tree: programs in /usr/lib/pullbay, `pullbay` on the PATH, and
+# A system-wide tree: programs in /usr/lib/pullbay, `pullbay` (the window) and
+# `pullbay-cli` (the command-line tool) on the PATH, and
 # the menu entry and icon where desktops look for them.
 system_tree() {
   local dest="$1"
   mkdir -p "$dest/usr/lib" "$dest/usr/bin" "$dest/usr/share/applications" "$dest/usr/share/icons/hicolor/128x128/apps"
   cp -a "$stage" "$dest/usr/lib/pullbay"
   ln -s ../lib/pullbay/pullbay-gui "$dest/usr/bin/pullbay"
+  ln -s ../lib/pullbay/pullbay-cli "$dest/usr/bin/pullbay-cli"
   install -m644 "$here/pullbay.desktop" "$dest/usr/share/applications/pullbay.desktop"
   install -m644 "$icon" "$dest/usr/share/icons/hicolor/128x128/apps/pullbay.png"
 }
@@ -118,6 +120,7 @@ cp -a $top/tree/. %{buildroot}/
 %files
 /usr/lib/pullbay
 /usr/bin/pullbay
+/usr/bin/pullbay-cli
 /usr/share/applications/pullbay.desktop
 /usr/share/icons/hicolor/128x128/apps/pullbay.png
 SPEC
@@ -128,7 +131,7 @@ SPEC
 make_appimage() {
   local app="$work/Pullbay.AppDir"
   mkdir -p "$app/usr/bin" "$app/usr/share/pullbay"
-  install -m755 "$stage/pullbay-gui" "$stage/pullbay-daemon" "$stage/pullbay-host" "$app/usr/bin/"
+  install -m755 "$stage/pullbay-gui" "$stage/pullbay-daemon" "$stage/pullbay-host" "$stage/pullbay-cli" "$app/usr/bin/"
   cp -a "$stage/extension" "$stage/firefox" "$stage/README.md" "$app/usr/share/pullbay/"
   install -m755 "$here/AppRun" "$app/AppRun"
   install -m644 "$here/pullbay.desktop" "$app/pullbay.desktop"

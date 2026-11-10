@@ -15,8 +15,9 @@ These pages were the README's manual. Each covers one part of Pullbay.
 - **[Portable mode](portable.md)**: running from a USB stick with everything in Pullbay's own
   folder.
 - **[Using Pullbay](using-pullbay.md)**: the window, the save-as dialog, categories, queues, the
-  tray, the download window, the video button, adding many links, Options, the command line and
-  sending links from other programs.
+  tray, the download window, the video button, adding many links and Options.
+- **[Command line and automation](command-line.md)**: IDM's switches, the `pullbay-cli` tool,
+  sending links from other programs, and the automation API for programs of your own.
 
 ## Downloading
 
@@ -37,6 +38,8 @@ These pages were the README's manual. Each covers one part of Pullbay.
 - **[How Pullbay fits together](architecture.md)**: the daemon, the host and the window, how the
   daemon checks its clients, and how the engine splits and resumes a file.
 - **[Messages](protocol.md)**: every message the extension, the window and the daemon exchange.
+  The stable part of them is the [automation API](command-line.md#the-automation-api), with its
+  [JSON Schema](automation-api.schema.json).
 - **[Building Pullbay](building.md)**: where the code lives, building and packaging it on each
   system, and adding a language.
 

@@ -13,7 +13,7 @@ DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 LIB="$HOME/.local/lib/pullbay"
 
 if [ "${1:-}" = "--remove" ]; then
-  rm -rf "$LIB" "$HOME/.local/bin/pullbay" "$DATA/applications/pullbay.desktop" "$DATA/icons/hicolor/128x128/apps/pullbay.png"
+  rm -rf "$LIB" "$HOME/.local/bin/pullbay" "$HOME/.local/bin/pullbay-cli" "$DATA/applications/pullbay.desktop" "$DATA/icons/hicolor/128x128/apps/pullbay.png"
   echo "Removed Pullbay. Your settings and download list stay in ~/.config/pullbay and $DATA/pullbay."
   exit 0
 fi
@@ -22,12 +22,13 @@ fi
 # list move to Pullbay's folders when Pullbay first runs.
 rm -rf "$HOME/.local/lib/uidm" "$HOME/.local/bin/uidm" "$DATA/applications/uidm.desktop" "$DATA/icons/hicolor/128x128/apps/uidm.png"
 mkdir -p "$LIB" "$HOME/.local/bin" "$DATA/applications" "$DATA/icons/hicolor/128x128/apps"
-for f in pullbay-gui pullbay-daemon pullbay-host README.md; do
+for f in pullbay-gui pullbay-daemon pullbay-host pullbay-cli README.md; do
   cp -f "$HERE/$f" "$LIB/"
 done
 rm -rf "$LIB/extension" "$LIB/firefox"
 cp -R "$HERE/extension" "$HERE/firefox" "$LIB/"
 ln -sf "$LIB/pullbay-gui" "$HOME/.local/bin/pullbay"
+ln -sf "$LIB/pullbay-cli" "$HOME/.local/bin/pullbay-cli"
 cp -f "$HERE/pullbay.png" "$DATA/icons/hicolor/128x128/apps/pullbay.png"
 sed "s|^Exec=.*|Exec=\"$LIB/pullbay-gui\"|" "$HERE/pullbay.desktop" > "$DATA/applications/pullbay.desktop"
 echo "Installed Pullbay in $LIB."

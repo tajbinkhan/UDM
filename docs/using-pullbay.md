@@ -504,73 +504,11 @@
   General**) is cleared; the next start shows the next tip. **About** sits
   beside **Help**, and **More > Manage queues...** opens the queues even with
   the categories panel hidden.
-- **Command line**: `pullbay-gui` takes IDM's switches, so scripts and other
-  programs can start downloads:
-
-  ```
-  pullbay-gui /d URL [/p folder] [/f file_name] [/a] [/n] [/q] [/h]
-  pullbay-gui /s
-  ```
-
-  `/d` adds URL to the list (http, https, ftp or ftps) and shows the usual
-  download dialog; `/p` and `/f` set its folder and file name, `/a` adds it
-  to the main queue without starting it, and `/n` asks nothing (a taken name
-  gets a numbered one). `/q` exits Pullbay once that download finishes, but only
-  when the call started Pullbay, as in IDM. `/s` starts the main queue. `/h`
-  (hang up a dial-up connection) is accepted and does nothing. `/p`, `/f`,
-  `/a`, `/n`, `/q` and `/h` need `/d`. Each switch also works as `-d` and as
-  `--download`, `--path`, `--file`, `--add`, `--silent`, `--quit`,
-  `--hang-up` and `--start-queue`. With Pullbay already open, the call hands the
-  switches to that window and exits; otherwise it starts Pullbay in the tray
-  and runs them there. For example:
-
-  ```
-  pullbay-gui.exe /n /d "https://example.com/files/setup.exe" /p D:\Downloads
-  ```
-- **Sending links from other programs**: `pullbay-host send` takes what IDM's
-  `SendLinkToIDM2` and `SendLinksArray` COM calls take, as JSON in a file or
-  on stdin (`-`):
-
-  ```
-  pullbay-host send links.json
-  pullbay-host send -
-  ```
-
-  One link is an object with `url` and any of `referer`, `cookies`,
-  `post_data` (the form body as text; it makes the download a POST, sent as
-  `application/x-www-form-urlencoded` unless `content_type` says otherwise),
-  `user`, `password`, `folder`, `filename` and `user_agent`. `"silent": true`
-  adds it with no dialog and `"add_only": true` adds it to the main queue
-  without starting it, like `/n` and `/a`; IDM's `flags` number (1 and 2)
-  works too. It is added as a link from the browser is, and its download id
-  is printed. A list is an object with `links`, each an address or an object
-  with `url` and an optional `text` and `cookies`, plus one `referer` for them
-  all; it opens the link picker with them. A relative `folder` is under the
-  current one, and an empty string counts as left out. Pullbay starts if it is
-  not running. The exit code is 0 when Pullbay took the links, 1 when it refused
-  them or could not be reached, and 2 for bad input. The host talks to the
-  daemon over the same authenticated connection as the browser (see
-  [Host-daemon authentication](architecture.md#host-daemon-authentication)), so only
-  programs running as the same Windows user can send links. From PowerShell:
-
-  ```powershell
-  $pullbay = "$env:LOCALAPPDATA\Programs\Pullbay\pullbay-host.exe"
-  @{ url = "https://example.com/report"; referer = "https://example.com/";
-     cookies = "session=abc"; post_data = "id=42"; folder = "D:\Reports";
-     filename = "report.pdf"; silent = $true } | ConvertTo-Json | & $pullbay send -
-  @{ referer = "https://example.com/files/";
-     links = @("https://example.com/a.zip", "https://example.com/b.zip") } |
-     ConvertTo-Json | & $pullbay send -
-  ```
-
-  Or from Python:
-
-  ```python
-  import json, os, subprocess
-  pullbay = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Pullbay\pullbay-host.exe")
-  link = {"url": "https://example.com/a.zip", "user": "me", "password": "pw", "add_only": True}
-  subprocess.run([pullbay, "send", "-"], input=json.dumps(link), text=True, check=True)
-  ```
+- **Command line and other programs**: `pullbay-gui` takes IDM's switches (`/d URL`, `/p`,
+  `/f`, `/a`, `/n`, `/q`, `/s`), `pullbay-cli` downloads a file with its progress on the terminal
+  and lists, pauses, resumes and removes downloads, `pullbay-host send` takes links as IDM's
+  `SendLinkToIDM2` does, and programs of your own can use the automation API.
+  [Command line and automation](command-line.md) covers all four.
 - **Languages**: the window comes in English, German, Spanish and French.
   It starts in the first Windows display language it has, else English;
   **Options > General > Language** picks another. The extension follows the

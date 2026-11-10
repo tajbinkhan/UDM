@@ -18,9 +18,9 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
   clients and no queued or running downloads. It also shows the
   notifications, plays the sounds and runs the virus scans, since it is the
   one process running whenever a download ends. Its log is
-  `pullbay-daemon.log` in the data folder, beside the host's `pullbay-host.log`
-  and the window's `pullbay-gui.log`. A log over 5 MB moves to `.old` when
-  the daemon starts and then once an hour. Passwords in addresses are hidden
+  `pullbay-daemon.log` in the data folder, beside the host's `pullbay-host.log`,
+  the window's `pullbay-gui.log` and the command-line tool's `pullbay-cli.log`.
+  A log over 5 MB moves to `.old` when the daemon starts and then once an hour. Passwords in addresses are hidden
   as `***`. It keeps its files in two folders:
 
   | | Windows | macOS | Linux |
@@ -49,6 +49,11 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
 - **`pullbay-gui`** is the desktop window: one more daemon client. It starts the
   daemon too if needed, asks for the full list on connect, and applies every
   event to the same `DownloadTable` (`pullbay_domain::table`) the daemon keeps.
+- **`pullbay-cli`** is the command-line tool, another daemon client that
+  starts the daemon the same way. Each run connects, says `hello` as
+  `pullbay-cli`, does one thing (add a download and follow its events, list,
+  pause, resume, remove, start or stop a queue) and exits; see
+  [Command line and automation](command-line.md).
 - **The extension** keeps one native-messaging port open, reconnecting with
   backoff (1 s doubling to 30 s) if Pullbay goes away.
 
