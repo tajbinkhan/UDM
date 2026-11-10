@@ -11,7 +11,7 @@ use pullbay_domain::sync::LockExt;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -51,20 +51,6 @@ impl Tally {
     }
 }
 
-/// End the process and the ones it started: yt-dlp.exe unpacks itself into
-/// a second process, and ffmpeg runs under it while joining.
-fn kill_tree(child: &mut Child) {
-    #[cfg(windows)]
-    {
-        let _ = crate::platform::no_window(&mut std::process::Command::new("taskkill"))
-            .args(["/T", "/F", "/PID", &child.id().to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    let _ = child.kill();
-}
-
 pub(super) fn run(
     id: DownloadId,
     token: &CancelToken,
@@ -73,6 +59,10 @@ pub(super) fn run(
     reporter: &Reporter,
     shared: &Shared,
 ) -> Result<Saved, EngineError> {
+    // yt-dlp reads web pages only; it is never handed another kind of address.
+    if !pullbay_domain::batch::is_web_url(&req.url) {
+        return Err(EngineError::Refused(format!("{} is not an http or https page.", req.url)));
+    }
     let yt_dlp = ytdlp::find(req.ffmpeg.as_deref()).ok_or_else(|| EngineError::Refused(ytdlp::MISSING.into()))?;
     if choice.audio_only.is_some() && req.ffmpeg.is_none() {
         return Err(EngineError::Refused(
@@ -121,6 +111,7 @@ pub(super) fn run(
     if let Some(target) = choice.audio_only {
         cmd.args(["-x", "--audio-format", target.extension()]);
     }
+    cmd.args(ytdlp::subtitle_args(choice, req.ffmpeg.is_some()));
     if let Some(limit) = req.speed_limit {
         cmd.args(["-r", &limit.to_string()]);
     }
@@ -186,7 +177,7 @@ pub(super) fn run(
             break Some(status);
         }
         if token.load(Ordering::Relaxed) {
-            kill_tree(&mut child);
+            ytdlp::kill_tree(&mut child);
             let _ = child.wait();
             break None;
         }
@@ -206,6 +197,8 @@ pub(super) fn run(
         Some(saved) => settle(&saved, &output),
         None => output,
     };
+    // Without ffmpeg the subtitles stay beside the video: give them its name.
+    settle_subtitles(&working, &path);
     let note = req.ffmpeg.is_none().then(|| {
         "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) Pullbay saves the quality you chose."
             .to_string()
@@ -233,9 +226,50 @@ fn settle(saved: &Path, output: &Path) -> PathBuf {
     wanted
 }
 
+/// yt-dlp's subtitle files beside the video it saved under `working`
+/// (`<working>.<lang>.vtt`), renamed after the video at `video`
+/// (`<video stem>.<lang>.vtt`). A name that is taken leaves the file as it is.
+fn settle_subtitles(working: &Path, video: &Path) {
+    let (Some(dir), Some(prefix)) =
+        (working.parent(), working.file_name().map(|n| format!("{}.", n.to_string_lossy())))
+    else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let stem = video.with_extension("");
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(rest) = name.strip_prefix(&prefix) else { continue };
+        let is_sub = [".vtt", ".srt", ".ass"].iter().any(|e| rest.to_ascii_lowercase().ends_with(e));
+        if !is_sub || rest.contains(['/', '\\']) {
+            continue;
+        }
+        let mut to = stem.clone().into_os_string();
+        to.push(format!(".{rest}"));
+        let to = PathBuf::from(to);
+        if !to.exists() {
+            let _ = fs::rename(entry.path(), &to);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subtitles_take_the_videos_name() {
+        let dir = std::env::temp_dir().join(format!("pullbay-subs-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let working = dir.join("Clip.pullbay-5");
+        fs::write(dir.join("Clip.pullbay-5.en.vtt"), b"WEBVTT").unwrap();
+        fs::write(dir.join("Clip.pullbay-5.de-AT.srt"), b"1").unwrap();
+        fs::write(dir.join("Clip.pullbay-5.part"), b"x").unwrap();
+        settle_subtitles(&working, &dir.join("Clip.mp4"));
+        assert!(dir.join("Clip.en.vtt").is_file() && dir.join("Clip.de-AT.srt").is_file());
+        assert!(dir.join("Clip.pullbay-5.part").is_file(), "only subtitles move");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn working_stem_adds_the_id() {
@@ -297,7 +331,7 @@ mod tests {
         let url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
         let ffmpeg = crate::settings::ffmpeg(&Settings::default());
         let yt_dlp = ytdlp::find(ffmpeg.as_deref()).expect("yt-dlp");
-        let info = ytdlp::probe(&yt_dlp, url, None);
+        let info = ytdlp::probe(&yt_dlp, url, None, ytdlp::PROBE_TIMEOUT);
         assert!(info.error.is_none(), "{:?}", info.error);
         assert!(!info.video.is_empty() && !info.audio.is_empty(), "{info:?}");
 

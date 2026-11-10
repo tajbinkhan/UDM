@@ -18,6 +18,7 @@ use crate::media::{Conversion, MediaInfo};
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
 use crate::settings::Settings;
+use crate::tools::{InstalledTool, Packing, Tool, ToolError};
 use crate::update::{Release, SetupAsset, UpdateError};
 
 /// The download queues, the main queue first.
@@ -306,6 +307,57 @@ pub trait ReleaseSource: Send + Sync {
     /// Start the Setup program saved at `path`, telling it to close Pullbay
     /// without asking.
     fn run_setup(&self, path: &Path) -> Result<(), UpdateError>;
+}
+
+/// A tool's latest release on GitHub.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolRelease {
+    /// Its tag, or its date for a release whose tag never changes.
+    pub version: String,
+    pub files: Vec<ReleaseFile>,
+}
+
+/// One file of a release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseFile {
+    pub name: String,
+    pub url: String,
+    /// The SHA-256 GitHub lists for it, when it lists one.
+    pub sha256: Option<String>,
+}
+
+/// Where yt-dlp's and ffmpeg's official releases come from.
+pub trait ToolReleases: Send + Sync {
+    /// The latest release of `repository` (`owner/name`).
+    fn latest(&self, repository: &str) -> Result<ToolRelease, ToolError>;
+
+    /// A small text file of a release: its checksums.
+    fn text(&self, file: &ReleaseFile) -> Result<String, ToolError>;
+
+    /// Download `file`, up to `limit` bytes, to a file of its own that
+    /// nothing runs. Returns where.
+    fn download(&self, file: &ReleaseFile, limit: ByteCount) -> Result<PathBuf, ToolError>;
+}
+
+/// The folder Pullbay installs tools into.
+pub trait ToolFolder: Send + Sync {
+    /// The tool Pullbay installed there, if it did.
+    fn installed(&self, tool: Tool) -> Option<InstalledTool>;
+
+    /// Put the checked download at `file` in place as `tool` (unpacking an
+    /// archive), let it run, and note `version` and `now` as its release
+    /// and last check. Returns the program's path. `file` is gone after.
+    fn install(&self, tool: Tool, file: &Path, packing: Packing, version: &str, now: u64)
+        -> Result<PathBuf, ToolError>;
+
+    /// Remove a download that did not pass its checks.
+    fn discard(&self, file: &Path);
+
+    /// Note that Pullbay looked for a newer release of `tool` at `now`.
+    fn note_checked(&self, tool: Tool, now: u64);
+
+    /// The program Pullbay would use for `tool`, wherever it is.
+    fn found(&self, tool: Tool) -> Option<PathBuf>;
 }
 
 /// When Pullbay last looked for a newer release.

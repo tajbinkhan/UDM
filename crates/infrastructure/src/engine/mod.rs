@@ -960,6 +960,33 @@ pub fn fetch(
     fetch_with(&agent, url, headers, limit.get())
 }
 
+/// GET `url` into the file at `path` (made anew), refusing a body longer
+/// than `limit`. Returns the bytes written. A refused or failed download
+/// leaves no file.
+pub fn fetch_to_file(
+    url: &str,
+    headers: &[(String, String)],
+    net: &NetConfig,
+    limit: ByteCount,
+    path: &Path,
+) -> Result<u64, EngineError> {
+    let agent = http::Client::new(net, url)?;
+    let (_, _, reader) = http::get(&agent, url, headers)?;
+    let written = (|| {
+        let mut file = std::fs::File::create(path)?;
+        let n = std::io::copy(&mut reader.take(limit.get() + 1), &mut file)?;
+        if n > limit.get() {
+            return Err(EngineError::Refused(format!("the file is larger than {limit}")));
+        }
+        file.sync_all()?;
+        Ok(n)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(path);
+    }
+    written
+}
+
 /// The bytes `start` through `end` (inclusive) of `url`, for a preview.
 /// Fails when the server does not send ranges.
 pub fn fetch_range_bytes(
@@ -988,21 +1015,30 @@ fn fetch_with(
 }
 
 /// What a stream (an HLS playlist or DASH manifest at `url`) or a video page
-/// yt-dlp reads offers, or why it cannot be downloaded. `ffmpeg` is where
-/// to look for yt-dlp besides `PATH`.
+/// yt-dlp reads offers, or why it cannot be downloaded. A page of a site
+/// yt-dlp is known for goes to yt-dlp, and so does any web page when `page`
+/// says it is one (the extension asks so for a page where the browser saw
+/// no stream). `ffmpeg` is where to look for yt-dlp besides `PATH`.
 pub fn probe_media(
     url: &str,
     headers: &[(String, String)],
     net: &NetConfig,
     ffmpeg: Option<&Path>,
+    page: bool,
 ) -> pullbay_domain::media::MediaInfo {
     use crate::media::ytdlp;
     use pullbay_domain::media::{MediaInfo, MediaKind};
-    if !ytdlp::supports(url) {
+    let web = pullbay_domain::batch::is_web_url(url);
+    if !ytdlp::supports(url) && !(page && web) {
         return stream::probe(url, headers, net);
     }
     match ytdlp::find(ffmpeg) {
-        Some(yt_dlp) => ytdlp::probe(&yt_dlp, url, net.proxy.as_ref().and_then(|p| p.proxy_for(url)).as_deref()),
+        Some(yt_dlp) => ytdlp::probe(
+            &yt_dlp,
+            url,
+            net.proxy.as_ref().and_then(|p| p.proxy_for(url)).as_deref(),
+            ytdlp::PROBE_TIMEOUT,
+        ),
         None => MediaInfo::failed(Some(MediaKind::Page), ytdlp::MISSING.into()),
     }
 }

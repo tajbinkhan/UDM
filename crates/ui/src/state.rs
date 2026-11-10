@@ -26,7 +26,8 @@ use pullbay_domain::table::DownloadTable;
 
 use crate::errors::{self, UiError};
 use crate::i18n::{tr, trf};
-use crate::{columns, links, progress};
+use crate::{columns, links, progress, videos};
+use pullbay_domain::tools::{Tool, ToolState};
 
 /// Ignore speed samples closer together than this; they are too noisy.
 const SPEED_MIN_INTERVAL: Duration = Duration::from_millis(400);
@@ -94,6 +95,14 @@ pub struct AppState {
     pub started: Vec<(DownloadId, bool)>,
     /// Links from a page for the link picker, until the window opens it.
     pub picked_links: Option<links::LinksDialog>,
+    /// A playlist's videos to pick from, until the window opens the dialog.
+    pub picked_videos: Option<videos::VideosDialog>,
+    /// Where yt-dlp and ffmpeg are, as the daemon last said, for Options.
+    pub tools: Vec<ToolState>,
+    /// The tools being installed now.
+    pub tools_busy: HashSet<Tool>,
+    /// What the last install did: that it worked, or why not.
+    pub tools_note: Option<Result<String, String>>,
     /// The daemon's answers about the link picker's links, until the
     /// picker takes them: the request, the link's place in it, and what
     /// its server said.
@@ -335,6 +344,20 @@ impl AppState {
             Event::PickLinks { page, links, user_agent } => {
                 self.picked_links = Some(links::LinksDialog::new(page.clone(), links.clone(), user_agent.clone()));
             }
+            Event::PickVideos { page, playlist, user_agent } => {
+                self.picked_videos =
+                    Some(videos::VideosDialog::new(page.clone(), playlist.clone(), user_agent.clone()));
+            }
+            Event::Tools { tools, done, error } => {
+                self.tools = tools.clone();
+                if let Some(tool) = done {
+                    self.tools_busy.remove(tool);
+                    self.tools_note = Some(match error {
+                        Some(e) => Err(errors::daemon(e)),
+                        None => Ok(trf!("{tool} is installed.", tool = tool.name())),
+                    });
+                }
+            }
             Event::LinkInfo { request, index, total, content_type, error } => {
                 let probed = match error {
                     Some(e) => links::Probed::Failed(errors::daemon(e)),
@@ -421,6 +444,10 @@ impl Default for AppState {
             segments: HashMap::new(),
             started: Vec::new(),
             picked_links: None,
+            picked_videos: None,
+            tools: Vec::new(),
+            tools_busy: HashSet::new(),
+            tools_note: None,
             link_info: Vec::new(),
             quota: None,
             zip_listed: None,
@@ -452,6 +479,8 @@ impl Default for AppState {
 pub enum UiMessage {
     /// The connection is being made again.
     Connecting,
+    /// The window asked the daemon to install this tool.
+    ToolInstalling(Tool),
     /// An event from the daemon, the connection's state among them.
     Daemon(Event),
     /// The clipboard watcher found a link to offer.
@@ -545,6 +574,7 @@ pub enum What {
     Started,
     ZipListed,
     PickedLinks,
+    PickedVideos,
     LinkInfo,
     BrowsersRead,
     GrabOpened,
@@ -559,6 +589,7 @@ pub enum Taken {
     Started(Vec<(DownloadId, bool)>),
     ZipListed(Option<ZipListed>),
     PickedLinks(Option<Box<links::LinksDialog>>),
+    PickedVideos(Option<Box<videos::VideosDialog>>),
     LinkInfo(Vec<(u64, usize, links::Probed)>),
     BrowsersRead(Option<BrowsersRead>),
     GrabOpened(Option<Result<Box<Project>, UiError>>),
@@ -573,6 +604,10 @@ pub type ZipListed = (DownloadId, Result<Vec<pullbay_domain::download::ZipEntry>
 pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
     match msg {
         UiMessage::Connecting => state.link = Link::Connecting,
+        UiMessage::ToolInstalling(tool) => {
+            state.tools_busy.insert(tool);
+            state.tools_note = None;
+        }
         UiMessage::Daemon(Event::Connected) => {
             state.link = Link::Connected;
             // The daemon says so again when the limit is lifted.
@@ -714,6 +749,7 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
                 What::Started => Taken::Started(std::mem::take(&mut state.started)),
                 What::ZipListed => Taken::ZipListed(state.zip_listed.take()),
                 What::PickedLinks => Taken::PickedLinks(state.picked_links.take().map(Box::new)),
+                What::PickedVideos => Taken::PickedVideos(state.picked_videos.take().map(Box::new)),
                 What::LinkInfo => Taken::LinkInfo(std::mem::take(&mut state.link_info)),
                 What::BrowsersRead => Taken::BrowsersRead(state.browsers_read.take()),
                 What::GrabOpened => Taken::GrabOpened(state.grab_opened.take().map(|r| r.map(Box::new))),
@@ -773,6 +809,14 @@ pub fn take_zip_listed(state: &mut AppState) -> Option<ZipListed> {
 pub fn take_picked_links(state: &mut AppState) -> Option<links::LinksDialog> {
     match apply(state, UiMessage::Take(What::PickedLinks)) {
         Some(Taken::PickedLinks(dialog)) => dialog.map(|d| *d),
+        _ => None,
+    }
+}
+
+/// A playlist's videos to pick from, if some came.
+pub fn take_picked_videos(state: &mut AppState) -> Option<videos::VideosDialog> {
+    match apply(state, UiMessage::Take(What::PickedVideos)) {
+        Some(Taken::PickedVideos(dialog)) => dialog.map(|d| *d),
         _ => None,
     }
 }

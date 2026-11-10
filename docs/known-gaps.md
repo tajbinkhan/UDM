@@ -47,9 +47,27 @@
   there it is still taken from the browser as it starts; Firefox cancels it
   at the headers.
 - Streams: live streams, DASH manifests split into several periods (often
-  ads), and HLS `SAMPLE-AES` without a key system are refused. Subtitles are
-  not downloaded. The size shown for a quality is an estimate from its bit
-  rate. Without ffmpeg, separate video and audio stay two files.
+  ads), and HLS `SAMPLE-AES` without a key system are refused. The size
+  shown for a quality is an estimate from its bit rate. Without ffmpeg,
+  separate video and audio stay two files.
+- Video pages: Pullbay does not give yt-dlp the browser's cookies, so videos
+  that need signing in (private or members-only ones, most of Facebook and
+  Instagram) are not offered. yt-dlp's automatic captions are not offered,
+  only a page's own subtitles. A page on another site is tried with yt-dlp
+  only when the browser saw no stream in its tab and only when the video
+  button's menu opens; a page without any player gets no button, so its
+  video can only be added by its address. A playlist's videos are added as
+  one batch with one quality for all; the same video added twice is not
+  asked about as a duplicate (video pages, like streams, are never
+  duplicates), only a taken file name is. A pasted playlist address in Add
+  URL is downloaded as a page, not listed.
+- Installing yt-dlp and ffmpeg: Pullbay checks each download against the
+  SHA-256 published in the same GitHub release, not against yt-dlp's GPG
+  signature. There is no ffmpeg to install on macOS (no build there
+  publishes a checksum), so Options names Homebrew. Unpacking ffmpeg needs
+  the system's `tar` (Windows 10 version 1803 and later have it). A yt-dlp
+  that is running cannot be replaced on Windows, so an update waits for the
+  next day's look. Only a yt-dlp Pullbay installed is kept up to date.
 - The video button sits outside a video in full screen, so it is hidden
   then, and it only knows the media its tab loaded after the extension
   started; reloading the page fills the list.

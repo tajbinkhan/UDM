@@ -166,6 +166,21 @@ pub enum Incoming {
         #[serde(default)]
         user_agent: Option<String>,
     },
+    /// The videos of a playlist or channel page (as `media_info`'s
+    /// `playlist` listed them), for the window to pick from. No answer.
+    PickVideos {
+        page: String,
+        playlist: pullbay_domain::media::Playlist,
+        #[serde(default)]
+        user_agent: Option<String>,
+    },
+    /// Install the official build of `yt_dlp` or `ffmpeg`, checked against
+    /// its published checksum; answered with `tools`.
+    InstallTool {
+        tool: pullbay_domain::tools::Tool,
+    },
+    /// Where yt-dlp and ffmpeg are; answered with `tools`.
+    ListTools,
     /// Look for a newer Pullbay release now; answered with `update`.
     CheckUpdate,
     /// Download the newest release's Setup, check it and run it, then
@@ -173,7 +188,7 @@ pub enum Incoming {
     /// `update_failed`.
     InstallUpdate,
     /// Convert a finished video with ffmpeg: to an MP4, or its sound to an
-    /// MP3 or M4A. The new file shows as a download of its own, with
+    /// MP3, M4A, Opus or FLAC. The new file shows as a download of its own, with
     /// progress; the original stays unless `delete_original`.
     Convert {
         id: DownloadId,
@@ -430,6 +445,27 @@ pub enum Outgoing {
         links: Vec<PageLink>,
         #[serde(default)]
         user_agent: Option<String>,
+    },
+    /// A playlist's videos for the window to pick from, as `pick_videos`
+    /// sent them.
+    PickVideos {
+        page: String,
+        playlist: pullbay_domain::media::Playlist,
+        #[serde(default)]
+        user_agent: Option<String>,
+    },
+    /// Where yt-dlp and ffmpeg are. After `install_tool`, `done` names the
+    /// tool, and `error` says why it was not installed, if it was not.
+    Tools {
+        tools: Vec<pullbay_domain::tools::ToolState>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        done: Option<pullbay_domain::tools::Tool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+        /// The error's kind and values (see `wire`), for clients that
+        /// translate it; `error` is its English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Where the download quota stands: bytes used in the window and the
     /// limit. Sent when it is nearly reached, when downloads pause for it

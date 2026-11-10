@@ -1,26 +1,38 @@
 //! Videos on pages that name no video file: YouTube, Facebook, Instagram
-//! and Vimeo. YouTube's player streams over SABR, POST requests whose bodies
+//! and Vimeo, and any other page yt-dlp can read when the browser saw no
+//! stream on it (the extension asks for those with `MediaKind::Page`). YouTube's player streams over SABR, POST requests whose bodies
 //! the browser never shows as a video, a playlist or a manifest, so there is
 //! nothing to catch; the others fetch signed pieces, or read their streams
 //! from a player configuration, that only the page leads to. yt-dlp reads
 //! the page instead: it lists the qualities (`yt-dlp -J`) and downloads the
 //! one chosen, with ffmpeg joining the video and its sound.
 //!
-//! yt-dlp is found on `PATH`, next to Pullbay's programs, or next to ffmpeg.
+//! A playlist or channel page lists its videos instead (`--flat-playlist`,
+//! so each video's page is not read yet), and the window picks among them.
+//!
+//! yt-dlp is found in Pullbay's tools folder (Options > General installs it
+//! there), on `PATH`, next to Pullbay's programs, or next to ffmpeg.
 
 use pullbay_domain::bytes::ByteCount;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use pullbay_domain::media::{
-    estimate_size, quality_label, MediaChoice, MediaInfo, MediaKind, MediaOption, LIVE_REFUSED,
+    estimate_size, quality_label, MediaChoice, MediaInfo, MediaKind, MediaOption, Playlist, PlaylistEntry, Target,
+    LIVE_REFUSED, MAX_PLAYLIST_ENTRIES,
 };
 
 /// Why a page cannot be read without yt-dlp, in words for the user.
 pub const MISSING: &str =
-    "Videos on YouTube, Facebook, Instagram and Vimeo need yt-dlp. Install it (winget install yt-dlp.yt-dlp) or put yt-dlp.exe next to Pullbay, then restart Pullbay.";
+    "Videos on YouTube, Facebook, Instagram, Vimeo and other sites need yt-dlp. Install it in Pullbay's Options > General, or put yt-dlp next to Pullbay.";
+
+/// How long reading a page with yt-dlp may take before it is given up: a
+/// little less than the extension waits for the answer (60 seconds).
+pub const PROBE_TIMEOUT: Duration = Duration::from_secs(55);
 
 /// Whether an address on a site's host is one video.
 type VideoPage = fn(&url::Url) -> bool;
@@ -92,11 +104,13 @@ pub fn supports(url: &str) -> bool {
     SITES.iter().any(|(hosts, matches)| hosts.contains(&host.as_str()) && matches(&u))
 }
 
-/// yt-dlp: the first on `PATH`, else next to Pullbay's programs, else next to
-/// `ffmpeg`.
+/// yt-dlp: the one Pullbay installed, else the first on `PATH`, else next
+/// to Pullbay's programs, else next to `ffmpeg`.
 pub fn find(ffmpeg: Option<&Path>) -> Option<PathBuf> {
     let name = crate::platform::exe_name("yt-dlp");
+    let own = crate::paths::tools_dir();
     let on_path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
+    let on_path = own.into_iter().chain(on_path);
     let beside = [
         std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)),
         ffmpeg.and_then(|f| f.parent().map(Path::to_path_buf)),
@@ -143,25 +157,148 @@ pub fn complaint(stderr: &str) -> String {
     format!("yt-dlp: {line} If this keeps happening, update yt-dlp (yt-dlp -U).")
 }
 
-/// What the page at `url` offers, read by yt-dlp.
-pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>) -> MediaInfo {
-    let out = command(yt_dlp, proxy).args(["-J", "--"]).arg(url).stdout(Stdio::piped()).stderr(Stdio::piped()).output();
-    let out = match out {
-        Ok(o) => o,
-        Err(e) => {
-            return MediaInfo::failed(
-                Some(MediaKind::Page),
-                format!("could not run yt-dlp ({}): {e}", yt_dlp.display()),
-            )
+/// What the page at `url` offers, read by yt-dlp: its video's qualities,
+/// or a playlist's videos. Given up after `timeout`.
+pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>, timeout: Duration) -> MediaInfo {
+    let failed = |why: String| MediaInfo::failed(Some(MediaKind::Page), why);
+    let child = command(yt_dlp, proxy)
+        .args(["-J", "--flat-playlist", "--playlist-end", &MAX_PLAYLIST_ENTRIES.to_string(), "--"])
+        .arg(url)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => return failed(format!("could not run yt-dlp ({}): {e}", yt_dlp.display())),
+    };
+    // Read both pipes aside, so a big answer cannot fill one and stall it.
+    let pipe = |p: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut out = Vec::new();
+            if let Some(mut p) = p {
+                let _ = p.read_to_end(&mut out);
+            }
+            out
+        })
+    };
+    let stdout = pipe(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let stderr = pipe(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() >= timeout => {
+                kill_tree(&mut child);
+                let _ = child.wait();
+                break None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(e) => return failed(format!("yt-dlp: {e}")),
         }
     };
-    if !out.status.success() {
-        return MediaInfo::failed(Some(MediaKind::Page), complaint(&String::from_utf8_lossy(&out.stderr)));
+    let Some(status) = status else {
+        // A process yt-dlp started may still hold the pipes; their readers
+        // end with it.
+        return failed(format!("yt-dlp did not answer within {} seconds.", timeout.as_secs()));
+    };
+    let (out, err) = (stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
+    if !status.success() {
+        return failed(complaint(&String::from_utf8_lossy(&err)));
     }
-    match serde_json::from_slice::<Value>(&out.stdout) {
+    match serde_json::from_slice::<Value>(&out) {
         Ok(v) => describe(&v),
-        Err(e) => MediaInfo::failed(Some(MediaKind::Page), format!("yt-dlp gave an answer Pullbay cannot read: {e}")),
+        Err(e) => failed(format!("yt-dlp gave an answer Pullbay cannot read: {e}")),
     }
+}
+
+/// End yt-dlp and the processes it started: yt-dlp.exe unpacks itself into
+/// a second process, and ffmpeg runs under it while joining.
+pub fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        let _ = crate::platform::no_window(&mut Command::new("taskkill"))
+            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+}
+
+/// A playlist's videos from yt-dlp's flat answer: each entry's page and
+/// title, without the ones that are no web page.
+fn playlist(v: &Value) -> Playlist {
+    let s = |e: &Value, k: &str| e.get(k).and_then(Value::as_str).map(str::to_string);
+    let entries = v
+        .get("entries")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| {
+            let url = [s(e, "url"), s(e, "webpage_url")]
+                .into_iter()
+                .flatten()
+                .find(|u| pullbay_domain::batch::is_web_url(u))?;
+            Some(PlaylistEntry {
+                url,
+                title: s(e, "title").unwrap_or_default(),
+                duration: e.get("duration").and_then(Value::as_f64),
+            })
+        })
+        .collect();
+    Playlist { title: s(v, "title").unwrap_or_default(), entries }.cleaned()
+}
+
+/// The subtitle tracks yt-dlp lists (the uploader's own, not the
+/// automatic ones), as menu options: each language's id and name.
+fn subtitles(v: &Value) -> Vec<MediaOption> {
+    let Some(subs) = v.get("subtitles").and_then(Value::as_object) else { return Vec::new() };
+    let mut out: Vec<MediaOption> = subs
+        .iter()
+        .filter(|(lang, _)| safe_language(lang) && lang.as_str() != "live_chat")
+        .map(|(lang, tracks)| {
+            let name = tracks.as_array().and_then(|t| t.iter().find_map(|t| t.get("name").and_then(Value::as_str)));
+            MediaOption {
+                id: lang.clone(),
+                label: name.filter(|n| !n.trim().is_empty()).unwrap_or(lang).to_string(),
+                language: Some(lang.clone()),
+                ..MediaOption::default()
+            }
+        })
+        .collect();
+    out.sort_by_key(|o| o.label.to_lowercase());
+    out
+}
+
+/// Whether a subtitle language id is safe to hand yt-dlp, which reads
+/// `--sub-langs` as patterns: letters, digits, `-` and `_` only.
+fn safe_language(lang: &str) -> bool {
+    !lang.is_empty() && lang.len() <= 32 && lang.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// yt-dlp's arguments for the subtitles `choice` keeps: only the languages
+/// its probe listed and that are safe as patterns, each matched whole.
+/// With ffmpeg they go in the video; without, beside it.
+pub fn subtitle_args(choice: &MediaChoice, ffmpeg: bool) -> Vec<String> {
+    if choice.audio_only.is_some() {
+        return Vec::new();
+    }
+    let langs: Vec<String> =
+        choice.subtitles.iter().flatten().filter(|l| safe_language(l)).take(64).map(|l| format!("^{l}$")).collect();
+    if langs.is_empty() {
+        return Vec::new();
+    }
+    let mut args = vec![
+        "--write-subs".to_string(),
+        "--sub-langs".to_string(),
+        langs.join(","),
+        "--sub-format".to_string(),
+        "vtt/srt/best".to_string(),
+    ];
+    if ffmpeg {
+        args.push("--embed-subs".to_string());
+    }
+    args
 }
 
 /// The parts of one format in yt-dlp's `formats` list that matter here.
@@ -233,6 +370,13 @@ impl<'a> Format<'a> {
 /// and the sound per language, best first.
 pub fn describe(v: &Value) -> MediaInfo {
     let page = Some(MediaKind::Page);
+    if matches!(v.get("_type").and_then(Value::as_str), Some("playlist" | "multi_video")) {
+        let list = playlist(v);
+        if list.entries.is_empty() {
+            return MediaInfo::failed(page, "yt-dlp found no video on this page.".into());
+        }
+        return MediaInfo { kind: page, playlist: Some(list), ..MediaInfo::default() };
+    }
     if v.get("is_live").and_then(Value::as_bool) == Some(true)
         || v.get("live_status").and_then(Value::as_str) == Some("is_upcoming")
     {
@@ -308,6 +452,7 @@ pub fn describe(v: &Value) -> MediaInfo {
         kind: page,
         video,
         audio: audio.into_iter().map(|(_, o)| o).collect(),
+        subtitles: subtitles(v),
         duration,
         ..MediaInfo::default()
     }
@@ -318,15 +463,28 @@ pub fn describe(v: &Value) -> MediaInfo {
 /// the chosen (or best) sound, then the best of both. Without ffmpeg nothing
 /// can be joined, so it is the best format that has both in one file.
 pub fn format_spec(choice: &MediaChoice, ffmpeg: bool) -> String {
+    // Opus keeps the site's Opus sound as it is; FLAC starts from the best.
+    let preferred = match choice.audio_only {
+        Some(Target::Opus) => "bestaudio[acodec=opus]/bestaudio",
+        Some(Target::Flac) => "bestaudio",
+        _ => "bestaudio[ext=m4a]/bestaudio",
+    };
     let sound = match &choice.audio {
-        Some(a) => format!("{a}/bestaudio[ext=m4a]/bestaudio"),
-        None => "bestaudio[ext=m4a]/bestaudio".to_string(),
+        Some(a) => format!("{a}/{preferred}"),
+        None => preferred.to_string(),
     };
     if choice.audio_only.is_some() {
         return format!("{sound}/best");
     }
+    // A playlist's quality: no taller than this, else the smallest there is.
+    let tall =
+        choice.max_height.filter(|_| choice.video.is_none()).map(|h| format!("[height<={h}]")).unwrap_or_default();
     if !ffmpeg {
-        return "best[ext=mp4]/best".to_string();
+        return if tall.is_empty() {
+            "best[ext=mp4]/best".to_string()
+        } else {
+            format!("best[ext=mp4]{tall}/best{tall}/worst")
+        };
     }
     let audio_part = match &choice.audio {
         Some(a) => a.clone(),
@@ -334,6 +492,9 @@ pub fn format_spec(choice: &MediaChoice, ffmpeg: bool) -> String {
     };
     match &choice.video {
         Some(v) => format!("{v}+{audio_part}/{v}+bestaudio/{v}/bestvideo*+bestaudio/best"),
+        None if !tall.is_empty() => format!(
+            "bestvideo*{tall}[vcodec^=avc1]+{audio_part}/bestvideo*{tall}+bestaudio/best{tall}/worstvideo*+bestaudio/worst"
+        ),
         None => format!("bestvideo*[vcodec^=avc1]+{audio_part}/bestvideo*+bestaudio/best"),
     }
 }
@@ -480,6 +641,7 @@ mod tests {
             audio: audio.map(String::from),
             audio_only: None,
             subtitles: None,
+            max_height: None,
         };
         assert_eq!(
             format_spec(&pick(Some("137"), None), true),
@@ -503,5 +665,105 @@ mod tests {
         let why = complaint("WARNING: x\nERROR: [youtube] abc: Video unavailable\n");
         assert!(why.starts_with("yt-dlp: [youtube] abc: Video unavailable"), "{why}");
         assert_eq!(literal_template(r"C:\100% real\a"), r"C:\100%% real\a");
+    }
+
+    #[test]
+    fn a_playlist_lists_its_videos() {
+        let v = serde_json::json!({
+            "_type": "playlist",
+            "title": "Talks",
+            "entries": [
+                {"_type": "url", "url": "https://www.youtube.com/watch?v=a1", "title": "One", "duration": 61.0},
+                {"_type": "url", "url": "b2", "webpage_url": "https://www.youtube.com/watch?v=b2", "title": "Two"},
+                {"_type": "url", "url": "javascript:x", "title": "Bad"},
+                {"_type": "url", "url": "https://www.youtube.com/watch?v=a1", "title": "One again"}
+            ]
+        });
+        let info = describe(&v);
+        assert!(info.error.is_none() && info.video.is_empty());
+        let list = info.playlist.unwrap();
+        assert_eq!(list.title, "Talks");
+        let urls: Vec<&str> = list.entries.iter().map(|e| e.url.as_str()).collect();
+        assert_eq!(urls, ["https://www.youtube.com/watch?v=a1", "https://www.youtube.com/watch?v=b2"]);
+        assert_eq!(list.entries[0].duration, Some(61.0));
+        let empty = describe(&serde_json::json!({"_type": "playlist", "entries": []}));
+        assert!(empty.error.is_some() && empty.playlist.is_none());
+    }
+
+    #[test]
+    fn subtitles_are_offered_and_asked_for_safely() {
+        let mut v = sample();
+        v["subtitles"] = serde_json::json!({
+            "en": [{"ext": "vtt", "name": "English"}],
+            "de-AT": [{"ext": "vtt"}],
+            "live_chat": [{"ext": "json"}],
+            "x.*": [{"ext": "vtt"}]
+        });
+        let info = describe(&v);
+        let ids: Vec<&str> = info.subtitles.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["de-AT", "en"]);
+        assert_eq!(info.subtitles[1].label, "English");
+        let choice = |subs: &[&str]| MediaChoice {
+            kind: Some(MediaKind::Page),
+            subtitles: Some(subs.iter().map(|s| s.to_string()).collect()),
+            ..MediaChoice::default()
+        };
+        assert_eq!(
+            subtitle_args(&choice(&["en", "x.*", "de-AT"]), true),
+            ["--write-subs", "--sub-langs", "^en$,^de-AT$", "--sub-format", "vtt/srt/best", "--embed-subs"]
+        );
+        assert_eq!(subtitle_args(&choice(&["en"]), false).last().map(String::as_str), Some("vtt/srt/best"));
+        assert!(subtitle_args(&choice(&[]), true).is_empty());
+        let sound = MediaChoice { audio_only: Some(Target::Mp3), ..choice(&["en"]) };
+        assert!(subtitle_args(&sound, true).is_empty());
+    }
+
+    #[test]
+    fn a_playlists_quality_and_the_sound_formats() {
+        let tall = MediaChoice { kind: Some(MediaKind::Page), max_height: Some(720), ..MediaChoice::default() };
+        assert_eq!(
+            format_spec(&tall, true),
+            "bestvideo*[height<=720][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo*[height<=720]+bestaudio/best[height<=720]/worstvideo*+bestaudio/worst"
+        );
+        assert_eq!(format_spec(&tall, false), "best[ext=mp4][height<=720]/best[height<=720]/worst");
+        let opus = MediaChoice { audio_only: Some(Target::Opus), ..MediaChoice::default() };
+        assert_eq!(format_spec(&opus, true), "bestaudio[acodec=opus]/bestaudio/best");
+        let flac = MediaChoice { audio_only: Some(Target::Flac), ..MediaChoice::default() };
+        assert_eq!(format_spec(&flac, true), "bestaudio/best");
+    }
+
+    /// A fake yt-dlp: a script that prints canned JSON, or sleeps.
+    #[cfg(unix)]
+    fn fake_yt_dlp(name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("pullbay_fake_ytdlp_{}_{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("yt-dlp");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn any_page_is_read_by_the_program_and_slow_ones_give_up() {
+        let json = r#"{"duration": 5, "formats": [{"format_id": "1", "vcodec": "avc1", "acodec": "mp4a", "height": 480, "tbr": 900}]}"#;
+        let ok = fake_yt_dlp("ok", &format!("cat <<'EOF'\n{json}\nEOF"));
+        let info = probe(&ok, "https://videos.example/watch/1", None, Duration::from_secs(20));
+        assert!(info.error.is_none(), "{:?}", info.error);
+        assert_eq!(info.video[0].height, Some(480));
+
+        let slow = fake_yt_dlp("slow", "sleep 30");
+        let started = Instant::now();
+        let info = probe(&slow, "https://videos.example/watch/2", None, Duration::from_millis(300));
+        assert!(info.error.unwrap().contains("did not answer"));
+        assert!(started.elapsed() < Duration::from_secs(10));
+
+        let fails = fake_yt_dlp("fails", "echo 'ERROR: Unsupported URL: https://x/' >&2; exit 1");
+        let info = probe(&fails, "https://x/", None, Duration::from_secs(20));
+        assert!(info.error.unwrap().starts_with("yt-dlp: Unsupported URL"));
+        for p in [ok, slow, fails] {
+            let _ = std::fs::remove_dir_all(p.parent().unwrap());
+        }
     }
 }

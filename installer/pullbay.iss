@@ -304,7 +304,8 @@ begin
   RefreshPath();
   if not (Ok and YtDlpFound()) then
     SuppressibleMsgBox('winget could not install the video tools (exit code ' + IntToStr(Code) + ').' + #13#10#13#10 +
-      'Pullbay still downloads ordinary files. For YouTube and other video sites, run this later:' + #13#10 +
+      'Pullbay still downloads ordinary files. For YouTube and other video sites, use Install yt-dlp ' +
+      'and Install ffmpeg in Pullbay''s Options > General, or run this later:' + #13#10 +
       '    winget install yt-dlp.yt-dlp',
       mbError, MB_OK, IDOK);
 end;
@@ -341,8 +342,8 @@ begin
     Video := ''
   else
     Video := #13#10#13#10 +
-      'For YouTube and other video sites, install yt-dlp, which brings FFmpeg and Deno with it: ' +
-      'winget install yt-dlp.yt-dlp';
+      'For YouTube and other video sites, use Install yt-dlp and Install ffmpeg in Pullbay''s ' +
+      'Options > General, or run: winget install yt-dlp.yt-dlp';
   if OldDir <> '' then
     Video := #13#10#13#10 +
       'UIDM is now called Pullbay. Remove the UIDM extension from the browser first: ' +

@@ -45,6 +45,11 @@ Client to daemon (the host relays the browser's unchanged):
   "media": { "kind": "hls", "video": "https://.../720/index.m3u8", "audio": null } }
 { "op": "add_many", "items": [ { "url": "https://...", "start": false, "folder": "D:\\Photos" } ], "queue": 1 }
 { "op": "probe_media", "request": 3, "download": { "url": "https://.../manifest.mpd", "cookies": "..." } }
+{ "op": "probe_media", "request": 4, "download": { "url": "https://videos.example/clip/42", "media": { "kind": "page" } } }
+{ "op": "pick_videos", "page": "https://www.youtube.com/playlist?list=...",
+  "playlist": { "title": "Talks", "entries": [ { "url": "https://www.youtube.com/watch?v=...", "title": "One", "duration": 61.0 } ] } }
+{ "op": "install_tool", "tool": "yt_dlp" }
+{ "op": "list_tools" }
 { "op": "probe_links", "request": 5, "links": [ { "url": "https://.../a.zip", "referrer": "https://.../page" } ] }
 { "op": "stop_probe_links" }
 { "op": "add", "url": "https://www.youtube.com/watch?v=...", "filename": "Talk.mp4",
@@ -104,6 +109,8 @@ Daemon to clients:
   "video": [ { "id": "https://.../1080/index.m3u8", "label": "1080p, 5.0 Mbps", "height": 1080,
   "bandwidth": 5000000, "size": 950000000 } ], "audio": [] } }
 { "op": "link_info", "request": 5, "index": 0, "total": 1048576, "content_type": "application/zip" }
+{ "op": "tools", "tools": [ { "tool": "yt_dlp", "path": "...\\tools\\yt-dlp.exe", "installed": "2026.10.26",
+  "installable": true, "command": "winget install yt-dlp.yt-dlp" } ], "done": "yt_dlp" }
 { "op": "grab_progress", "pages": 12, "bytes": 380211, "found": 31 }
 { "op": "grab_done", "files": [ { "url": "https://.../a.pdf", "name": "a.pdf", "page": "https://.../docs/" } ],
   "pages": 40, "stopped": "Stopped at the budget of 40 pages." }
@@ -196,7 +203,17 @@ not web addresses, and items already in the list unless `if_duplicate` is
 `new_name`, or `overwrite` for a stopped download (`skipped` counts those);
 `folder`, a full path, fixes where an item is saved.
 `probe_media` echoes `request` in its `media_info`, whose `error` says why a
-stream cannot be downloaded and `drm` whether that is because of DRM.
+stream cannot be downloaded and `drm` whether that is because of DRM. With
+`media.kind` `page` any http or https page is read with yt-dlp; a playlist
+or channel answers with `playlist` (its title and videos) instead of
+qualities, and `pick_videos` hands those videos to the window's playlist
+dialog (no answer; at most 1000, http and https pages only). `kind: "page"`
+on an `add` also takes `max_height` (the tallest video, for a playlist's
+videos) and `audio_only` `mp3`, `m4a`, `opus` or `flac`. `install_tool`
+(`yt_dlp` or `ffmpeg`) downloads the tool's official build, checks it
+against its release's published SHA-256 and installs it in Pullbay's tools
+folder; it answers `tools` with `done` naming the tool and, when it was not
+installed, `error` and `error_kind`. `list_tools` answers `tools` alone.
 `probe_links` (the window's link picker) asks each link's server for its size
 and type, four at a time, and answers each with a `link_info` naming its
 `index` in `links` (or an `error`), to that client only; a new `probe_links`
@@ -209,8 +226,9 @@ stops if it disconnects. `grab` is refused with an `error` unless `start` is
 an `http(s)` address, `depth` is 0 to 10, `max_pages` 1 to 10,000,
 `max_bytes` 1 to 2,000 MB, `delay_ms` 200 to 60,000 and `types` is not empty.
 The settings gain `clipboard_monitor`, `video_button`,
-`video_button_excluded_sites` and `ffmpeg_path` (a full path to
-`ffmpeg.exe`, or empty to look on `PATH`).
+`video_button_excluded_sites`, `ffmpeg_path` (a full path to
+`ffmpeg.exe`, or empty to look in Pullbay's tools folder and on `PATH`) and
+`ytdlp_auto_update` (update a yt-dlp Pullbay installed once a day).
 
 ---
 

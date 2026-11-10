@@ -23,10 +23,11 @@ use pullbay_domain::download::{
 };
 use pullbay_domain::grab::{GrabFile, GrabRequest};
 use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::media::{MediaInfo, Target};
+use pullbay_domain::media::{MediaInfo, Playlist, Target};
 use pullbay_domain::queue::{Queue, WhenDone};
 use pullbay_domain::quota::QuotaNotice;
 use pullbay_domain::settings::Settings;
+use pullbay_domain::tools::{Tool, ToolState};
 use pullbay_domain::update::Release;
 
 /// The version of the automation API: the messages `docs/command-line.md`
@@ -84,6 +85,20 @@ pub enum Command {
         links: Vec<PageLink>,
         user_agent: Option<String>,
     },
+    /// The videos of a playlist or channel page, for the window to pick
+    /// from.
+    PickVideos {
+        page: String,
+        playlist: Playlist,
+        user_agent: Option<String>,
+    },
+    /// Install the official build of yt-dlp or ffmpeg, checked against its
+    /// published checksum; answered with `Tools`.
+    InstallTool {
+        tool: Tool,
+    },
+    /// Say where yt-dlp and ffmpeg are; answered with `Tools`.
+    ListTools,
     /// The browser's answer to `RenderPage`: the page's HTML after its
     /// scripts ran and its address then, or nothing, and the addresses its
     /// scripts opened in new windows.
@@ -403,6 +418,19 @@ pub enum Event {
         page: String,
         links: Vec<PageLink>,
         user_agent: Option<String>,
+    },
+    /// A playlist's videos for the window to pick from.
+    PickVideos {
+        page: String,
+        playlist: Playlist,
+        user_agent: Option<String>,
+    },
+    /// Where yt-dlp and ffmpeg are. After `InstallTool`, `done` is the
+    /// tool it was for, and `error` why it was not installed, if it was not.
+    Tools {
+        tools: Vec<ToolState>,
+        done: Option<Tool>,
+        error: Option<Failure>,
     },
     /// Where the download quota stands.
     Quota {

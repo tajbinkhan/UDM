@@ -28,8 +28,8 @@ use pullbay_domain::ports::{
     Answers, Attention, Browser, Clock, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
     EarlyStarts, FileHashes, FileOpener, GrabDownloads, GrabProjects, GrabRuns, LimitLift, Notifications,
     PausedDownloads, PowerControl, Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
-    ReleaseSource, SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine, UpdateChecks,
-    UserIdle, VirusScanner,
+    ReleaseSource, SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, ToolFolder, ToolReleases,
+    TransferEngine, UpdateChecks, UserIdle, VirusScanner,
 };
 use pullbay_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -52,7 +52,10 @@ use crate::queues::{
     StopQueue,
 };
 use crate::quota::{CheckQuota, QuotaEvent, QuotaStatus};
+use crate::tools::{InstallTool, ListTools, UpdateYtDlp};
 use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
+use pullbay_domain::media::Playlist;
+use pullbay_domain::tools::{Platform, Tool, ToolError, ToolState};
 
 /// Why the daemon refused a client's command. Clients hear it as a
 /// [`Failure`], kind and values, so the window can translate it.
@@ -68,6 +71,8 @@ pub enum ServiceError {
     Update(#[from] pullbay_domain::update::UpdateError),
     #[error(transparent)]
     Grab(#[from] grab::InvalidGrab),
+    #[error(transparent)]
+    Tool(#[from] pullbay_domain::tools::ToolError),
     #[error("A site crawl is already running.")]
     CrawlRunning,
     /// The address of a download whose form body cannot be sent.
@@ -194,6 +199,12 @@ pub struct Parts<W: Wiring> {
     pub browser: Arc<dyn Browser>,
     pub probes: Arc<dyn Probes>,
     pub crawler: Arc<dyn SiteCrawler>,
+    /// Where yt-dlp's and ffmpeg's releases come from.
+    pub tool_releases: Arc<dyn ToolReleases>,
+    /// Pullbay's folder of installed tools.
+    pub tool_folder: Arc<dyn ToolFolder>,
+    /// The system the tools are installed for.
+    pub platform: Platform,
     pub found: W::Found,
     pub browser_proxy_retries: Arc<W::Retries>,
     pub run_book: W::Runs,
@@ -239,6 +250,12 @@ pub struct DaemonService<W: Wiring> {
     pub browser: Arc<dyn Browser>,
     pub probes: Arc<dyn Probes>,
     pub crawler: Arc<dyn SiteCrawler>,
+    /// Where yt-dlp's and ffmpeg's releases come from.
+    pub tool_releases: Arc<dyn ToolReleases>,
+    /// Pullbay's folder of installed tools.
+    pub tool_folder: Arc<dyn ToolFolder>,
+    /// The system the tools are installed for.
+    pub platform: Platform,
     pub found: W::Found,
     pub browser_proxy_retries: Arc<W::Retries>,
     pub run_book: W::Runs,
@@ -270,6 +287,10 @@ pub struct DaemonService<W: Wiring> {
     pub grab_runs: Arc<Mutex<HashSet<String>>>,
     /// When the projects' schedules were last looked at.
     grab_checked: Mutex<Option<Instant>>,
+    /// The tools being installed now.
+    tool_installs: Mutex<HashSet<Tool>>,
+    /// When "Keep yt-dlp up to date" was last looked at.
+    tools_checked: Mutex<Option<Instant>>,
 }
 
 impl<W: Wiring> DaemonService<W> {
@@ -296,6 +317,9 @@ impl<W: Wiring> DaemonService<W> {
             browser: p.browser,
             probes: p.probes,
             crawler: p.crawler,
+            tool_releases: p.tool_releases,
+            tool_folder: p.tool_folder,
+            platform: p.platform,
             found: p.found,
             browser_proxy_retries: p.browser_proxy_retries,
             run_book: p.run_book,
@@ -318,6 +342,8 @@ impl<W: Wiring> DaemonService<W> {
             command_line: Mutex::new(None),
             grab_runs: Arc::default(),
             grab_checked: Mutex::new(None),
+            tool_installs: Mutex::default(),
+            tools_checked: Mutex::new(None),
         }
     }
 
@@ -379,6 +405,7 @@ impl<W: Wiring> DaemonService<W> {
     pub fn scheduler_pass(self: &Arc<Self>) -> Option<queue::Moment> {
         self.tick();
         self.check_grab_schedules();
+        self.keep_yt_dlp_current();
         self.next_wake(self.clock.now())
     }
 
@@ -951,6 +978,68 @@ impl<W: Wiring> DaemonService<W> {
             }
         }
         added
+    }
+
+    /// Where yt-dlp and ffmpeg are, for Options.
+    pub fn tools(&self) -> Vec<ToolState> {
+        ListTools::new(&*self.tool_folder, self.platform).run()
+    }
+
+    /// Install `tool` (see `InstallTool`) on another thread and answer
+    /// `reply` with `Tools`. One install of a tool runs at a time.
+    pub fn install_tool(self: &Arc<Self>, tool: Tool, reply: Reply) {
+        if !lock(&self.tool_installs).insert(tool) {
+            let error = Failure::from(ToolError::Busy(tool.name().to_string()));
+            reply.send(Event::Tools { tools: self.tools(), done: Some(tool), error: Some(error) });
+            return;
+        }
+        let daemon = Arc::clone(self);
+        thread::spawn(move || {
+            let installed =
+                InstallTool::new(&*daemon.tool_releases, &*daemon.tool_folder, &*daemon.hashes, daemon.platform).run(
+                    tool,
+                    false,
+                    daemon.clock.unix_now(),
+                );
+            lock(&daemon.tool_installs).remove(&tool);
+            let error = installed.err().map(|e| {
+                warn!(tool = tool.name(), error = %e, "could not install");
+                Failure::from(e)
+            });
+            reply.send(Event::Tools { tools: daemon.tools(), done: Some(tool), error });
+        });
+    }
+
+    /// "Keep yt-dlp up to date": at most once an hour, see whether a day
+    /// passed since the last look, and if so update yt-dlp on another
+    /// thread (see `UpdateYtDlp`).
+    pub fn keep_yt_dlp_current(self: &Arc<Self>) {
+        {
+            let mut last = lock(&self.tools_checked);
+            if last.is_some_and(|t| t.elapsed() < Duration::from_secs(60 * 60)) {
+                return;
+            }
+            *last = Some(Instant::now());
+        }
+        let auto = self.settings_now().ytdlp_auto_update;
+        if !auto || !lock(&self.tool_installs).insert(Tool::YtDlp) {
+            return;
+        }
+        let daemon = Arc::clone(self);
+        thread::spawn(move || {
+            let updated =
+                UpdateYtDlp::new(&*daemon.tool_releases, &*daemon.tool_folder, &*daemon.hashes, daemon.platform)
+                    .run(auto, daemon.clock.unix_now());
+            lock(&daemon.tool_installs).remove(&Tool::YtDlp);
+            match updated {
+                Ok(Some((version, _))) => {
+                    info!(version = %version, "updated yt-dlp");
+                    daemon.clients.to_windows(Event::Tools { tools: daemon.tools(), done: None, error: None });
+                }
+                Ok(None) => {}
+                Err(e) => warn!(error = %e, "could not update yt-dlp"),
+            }
+        });
     }
 
     /// Look for due grabber projects at most every half minute: the
@@ -1634,6 +1723,23 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 daemon.show_window();
             }
         }
+        Command::PickVideos { page, playlist, user_agent } => {
+            let playlist = Playlist { title: playlist.title.chars().take(500).collect(), ..playlist.cleaned() };
+            info!(videos = playlist.entries.len(), page = %page, "videos to pick from");
+            if playlist.entries.is_empty() {
+                return;
+            }
+            let msg = Event::PickVideos { page, playlist, user_agent };
+            if daemon.clients.window_open() {
+                daemon.clients.broadcast(msg);
+                daemon.clients.broadcast(Event::Show);
+            } else {
+                *lock(&daemon.picked_links) = Some(msg);
+                daemon.show_window();
+            }
+        }
+        Command::InstallTool { tool } => daemon.install_tool(tool, reply.clone()),
+        Command::ListTools => send(Event::Tools { tools: daemon.tools(), done: None, error: None }),
         Command::PreviewZip { id } => daemon.preview_zip(id, reply.clone()),
         Command::Convert { id, to, delete_original } => {
             if let Err(message) = daemon.convert(id, to, delete_original) {

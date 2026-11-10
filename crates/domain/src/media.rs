@@ -15,15 +15,33 @@ pub enum Target {
     Mp4,
     Mp3,
     M4a,
+    /// Opus sound in an Ogg file, which is what most video sites send
+    /// already, so it is usually kept as it is.
+    Opus,
+    /// Lossless FLAC. A site's sound is lossy already, so this only keeps
+    /// what is there without losing more.
+    Flac,
 }
 
 impl Target {
+    /// The sound-only formats, as the menus list them.
+    pub const SOUND: [Target; 4] = [Target::Mp3, Target::M4a, Target::Opus, Target::Flac];
+
     pub fn extension(self) -> &'static str {
         match self {
             Target::Mp4 => "mp4",
             Target::Mp3 => "mp3",
             Target::M4a => "m4a",
+            Target::Opus => "opus",
+            Target::Flac => "flac",
         }
+    }
+
+    /// The format named by its extension (`mp3`, `opus`), in any case.
+    pub fn from_extension(ext: &str) -> Option<Target> {
+        [Target::Mp4, Target::Mp3, Target::M4a, Target::Opus, Target::Flac]
+            .into_iter()
+            .find(|t| t.extension().eq_ignore_ascii_case(ext))
     }
 
     pub fn audio_only(self) -> bool {
@@ -83,7 +101,7 @@ pub struct MediaChoice {
     /// default, or the best.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<String>,
-    /// Keep only the sound, as this (`mp3` or `m4a`). Needs ffmpeg; only
+    /// Keep only the sound, as this (`mp3`, `m4a`, `opus`, `flac`). Needs ffmpeg; only
     /// the audio track is fetched when the stream has one of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_only: Option<Target>,
@@ -92,6 +110,10 @@ pub struct MediaChoice {
     /// keeps none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subtitles: Option<Vec<String>>,
+    /// The tallest video to take when no `video` is chosen: the quality a
+    /// playlist's videos are saved in, since each lists its own formats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_height: Option<u32>,
 }
 
 /// One quality or audio track a stream offers.
@@ -151,6 +173,122 @@ pub struct MediaInfo {
     /// file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<MediaFile>,
+    /// The page is a playlist or a channel: its videos, to pick from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playlist: Option<Playlist>,
+}
+
+/// The most videos of a playlist or channel listed.
+pub const MAX_PLAYLIST_ENTRIES: usize = 1000;
+
+/// A playlist or a channel's videos, as yt-dlp lists them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Playlist {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub entries: Vec<PlaylistEntry>,
+}
+
+/// One video of a playlist.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PlaylistEntry {
+    /// Its page, which yt-dlp reads when it is downloaded.
+    pub url: String,
+    #[serde(default)]
+    pub title: String,
+    /// Length in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<f64>,
+}
+
+/// How every picked video of a playlist is saved: the best quality, no
+/// taller than a height, or the sound alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaylistQuality {
+    Best,
+    UpTo(u32),
+    Sound(Target),
+}
+
+impl PlaylistQuality {
+    /// The choices the playlist dialog offers, best first.
+    pub const CHOICES: [PlaylistQuality; 9] = [
+        PlaylistQuality::Best,
+        PlaylistQuality::UpTo(1080),
+        PlaylistQuality::UpTo(720),
+        PlaylistQuality::UpTo(480),
+        PlaylistQuality::UpTo(360),
+        PlaylistQuality::Sound(Target::Mp3),
+        PlaylistQuality::Sound(Target::M4a),
+        PlaylistQuality::Sound(Target::Opus),
+        PlaylistQuality::Sound(Target::Flac),
+    ];
+
+    /// What each video's download asks yt-dlp for.
+    pub fn choice(self) -> MediaChoice {
+        let page = MediaChoice { kind: Some(MediaKind::Page), ..MediaChoice::default() };
+        match self {
+            PlaylistQuality::Best => page,
+            PlaylistQuality::UpTo(h) => MediaChoice { max_height: Some(h), ..page },
+            PlaylistQuality::Sound(t) if t.audio_only() => MediaChoice { audio_only: Some(t), ..page },
+            PlaylistQuality::Sound(_) => page,
+        }
+    }
+
+    /// The extension the saved files get.
+    pub fn extension(self) -> &'static str {
+        match self {
+            PlaylistQuality::Sound(t) => t.extension(),
+            _ => "mp4",
+        }
+    }
+}
+
+impl Playlist {
+    /// The entries yt-dlp listed that Pullbay can download: http and https
+    /// pages, without repeats, at most `MAX_PLAYLIST_ENTRIES`.
+    pub fn cleaned(self) -> Playlist {
+        let mut seen = std::collections::HashSet::new();
+        let entries = self
+            .entries
+            .into_iter()
+            .filter(|e| crate::batch::is_web_url(&e.url))
+            .filter(|e| seen.insert(e.url.clone()))
+            .take(MAX_PLAYLIST_ENTRIES)
+            .collect();
+        Playlist { title: self.title, entries }
+    }
+
+    /// The downloads for the entries at `picked`, in the playlist's order,
+    /// each named after its title (or numbered when it has none), saved as
+    /// `quality` says and coming from `page`.
+    pub fn downloads(&self, picked: &[usize], quality: PlaylistQuality, page: &str) -> Vec<crate::download::Download> {
+        let mut picked: Vec<usize> = picked.iter().copied().filter(|&i| i < self.entries.len()).collect();
+        picked.sort_unstable();
+        picked.dedup();
+        let ext = quality.extension();
+        picked
+            .into_iter()
+            .filter_map(|i| {
+                let e = &self.entries[i];
+                let address = crate::address::Address::parse(&e.url).ok()?;
+                let title = e.title.trim();
+                let stem =
+                    if title.is_empty() { format!("{} {}", self.title.trim(), i + 1) } else { title.to_string() };
+                let name = crate::filename::sanitize_filename(&format!("{}.{ext}", stem.trim()))
+                    .map(|n| n.as_str().to_string())
+                    .unwrap_or_else(|| format!("video {}.{ext}", i + 1));
+                Some(crate::download::Download {
+                    url: address.into(),
+                    filename: Some(name),
+                    referrer: Some(page.to_string()).filter(|p| !p.is_empty()),
+                    media: Some(quality.choice()),
+                    ..crate::download::Download::default()
+                })
+            })
+            .collect()
+    }
 }
 
 /// A whole video or audio file found where a stream was expected.
@@ -502,6 +640,61 @@ mod tests {
         assert_eq!(sniff_file(&[0xff, 0xf1, 0x50]), Some("aac"));
         assert_eq!(sniff_file(b"<html><body>"), None);
         assert_eq!(sniff_file(b"#EXTM3U"), None);
+    }
+
+    #[test]
+    fn sound_formats_by_extension() {
+        assert_eq!(Target::from_extension("OPUS"), Some(Target::Opus));
+        assert_eq!(Target::from_extension("flac"), Some(Target::Flac));
+        assert_eq!(Target::from_extension("wav"), None);
+        assert!(Target::SOUND.iter().all(|t| t.audio_only()));
+        assert_eq!(serde_json::to_string(&Target::Flac).unwrap(), r#""flac""#);
+    }
+
+    fn playlist() -> Playlist {
+        let entry = |url: &str, title: &str| PlaylistEntry { url: url.into(), title: title.into(), duration: None };
+        Playlist {
+            title: "Mix".into(),
+            entries: vec![
+                entry("https://v.example/watch?v=1", "First: one/two"),
+                entry("javascript:alert(1)", "Bad"),
+                entry("https://v.example/watch?v=2", ""),
+                entry("https://v.example/watch?v=1", "Again"),
+                entry("ftp://v.example/3", "Ftp"),
+            ],
+        }
+    }
+
+    #[test]
+    fn a_playlist_keeps_only_web_pages_once() {
+        let clean = playlist().cleaned();
+        let urls: Vec<&str> = clean.entries.iter().map(|e| e.url.as_str()).collect();
+        assert_eq!(urls, ["https://v.example/watch?v=1", "https://v.example/watch?v=2"]);
+        let many = Playlist {
+            title: String::new(),
+            entries: (0..MAX_PLAYLIST_ENTRIES + 5)
+                .map(|i| PlaylistEntry { url: format!("https://v/{i}"), ..PlaylistEntry::default() })
+                .collect(),
+        };
+        assert_eq!(many.cleaned().entries.len(), MAX_PLAYLIST_ENTRIES);
+    }
+
+    #[test]
+    fn picked_videos_become_page_downloads() {
+        let list = playlist().cleaned();
+        let items = list.downloads(&[1, 0, 0, 9], PlaylistQuality::UpTo(720), "https://v.example/playlist?list=x");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].url.as_str(), "https://v.example/watch?v=1");
+        assert_eq!(items[0].filename.as_deref(), Some("First_ one_two.mp4"));
+        assert_eq!(items[1].filename.as_deref(), Some("Mix 2.mp4"));
+        let media = items[0].media.as_ref().unwrap();
+        assert_eq!((media.kind, media.max_height, media.audio_only), (Some(MediaKind::Page), Some(720), None));
+        assert_eq!(items[0].referrer.as_deref(), Some("https://v.example/playlist?list=x"));
+        let sound = list.downloads(&[0], PlaylistQuality::Sound(Target::Opus), "");
+        assert_eq!(sound[0].filename.as_deref(), Some("First_ one_two.opus"));
+        assert_eq!(sound[0].media.as_ref().unwrap().audio_only, Some(Target::Opus));
+        assert_eq!(sound[0].referrer, None);
+        assert_eq!(PlaylistQuality::Best.choice().max_height, None);
     }
 
     #[test]

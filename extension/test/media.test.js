@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, mediaRequest, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
+const { playlistPageUrl, otherVideoPage, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, mediaRequest, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
 const { loadWorker } = require("./harness.js");
 const { hiddenMenuItems } = require("../rules.js");
 
@@ -225,7 +225,13 @@ test("a tab's video goes to Pullbay in the quality picked", async () => {
   assert.equal(denied.ok, false);
   // A new page in the tab starts its list over.
   await w.chrome.webRequest.onBeforeRequest.fire({ tabId: 7, type: "main_frame", method: "GET", url: "https://site.net/next" });
-  assert.equal((await w.content({ type: "video:menu" }, 7)).items.length, 0);
+  const empty = w.content({ type: "video:menu" }, 7);
+  await tick();
+  // With nothing seen, the page itself is tried with yt-dlp, which finds nothing.
+  const tried = w.sent.filter((m) => m.op === "probe_media").at(-1);
+  same([tried.download.url, tried.download.media], ["https://site.net/watch", { kind: "page" }]);
+  w.port.onMessage.fire({ op: "media_info", request: tried.request, info: { kind: "page", error: "yt-dlp: Unsupported URL" } });
+  assert.equal((await empty).items.length, 0);
 });
 
 test("a stream is asked for with the headers the player sent", async () => {
@@ -311,7 +317,7 @@ test("a YouTube video goes to Pullbay as a page yt-dlp reads", async () => {
   const menu = await asked;
   same(menu.items.map((i) => i.label), ["YouTube video"]);
   const item = menu.items[0];
-  same(item.options.map((o) => o.label), ["1080p", "Sound only (M4A)", "Sound only (MP3)"]);
+  same(item.options.map((o) => o.label), ["1080p", "Sound only (M4A)", "Sound only (MP3)", "Sound only (Opus)", "Sound only (FLAC)"]);
 
   await w.content({ type: "video:download", entry: item.entry, video: "137", title: "(2) Me at the zoo - YouTube" }, 7);
   const add = w.sent.find((m) => m.op === "add");
@@ -441,8 +447,73 @@ test("a stream offers its sound alone, from its audio track or its smallest vide
   ]);
   const menu = mediaMenu(entries, infos);
   const sound = (item) => item.options.filter((o) => o.audioOnly);
-  same(sound(menu[0]).map((o) => [o.label, o.audio, o.video, o.size]), [["Sound only (M4A)", "a1", undefined, 900], ["Sound only (MP3)", "a1", undefined, 900]]);
-  same(sound(menu[1]).map((o) => [o.audioOnly, o.video]), [["m4a", "small"], ["mp3", "small"]]);
+  same(sound(menu[0]).map((o) => [o.label, o.audio, o.video, o.size]), [
+    ["Sound only (M4A)", "a1", undefined, 900],
+    ["Sound only (MP3)", "a1", undefined, 900],
+    ["Sound only (Opus)", "a1", undefined, 900],
+    ["Sound only (FLAC)", "a1", undefined, 900],
+  ]);
+  same(sound(menu[1]).map((o) => [o.audioOnly, o.video]), [["m4a", "small"], ["mp3", "small"], ["opus", "small"], ["flac", "small"]]);
+});
+
+test("a playlist's own page and other sites' pages are for yt-dlp to try", () => {
+  assert.equal(playlistPageUrl("https://www.youtube.com/watch?v=a1&list=PLx_1"), "https://www.youtube.com/playlist?list=PLx_1");
+  assert.equal(playlistPageUrl("https://www.youtube.com/watch?v=a1&list=RDa1"), null, "a mix has no page");
+  assert.equal(playlistPageUrl("https://www.youtube.com/watch?v=a1"), null);
+  assert.equal(playlistPageUrl("https://evil.net/watch?list=PLx"), null);
+  assert.equal(otherVideoPage("https://news.example/story#video"), "https://news.example/story");
+  assert.equal(otherVideoPage("https://www.youtube.com/watch?v=a1"), null, "a known site's video is its own entry");
+  assert.equal(otherVideoPage("file:///C:/x.html"), null);
+});
+
+test("on another site, the page goes to yt-dlp when the browser saw no stream, and only a find is kept", async () => {
+  const w = connected();
+  const page = "https://videos.example/clip/42";
+  const asked = w.content({ type: "video:menu" }, 7, page);
+  await tick();
+  const probe = w.sent.find((m) => m.op === "probe_media");
+  same([probe.download.url, probe.download.media], [page, { kind: "page" }]);
+  w.port.onMessage.fire({ op: "media_info", request: probe.request, info: { kind: "page", video: [{ id: "hd", label: "720p" }], audio: [] } });
+  const menu = await asked;
+  same(menu.items.map((i) => i.label), ["Video on this page"]);
+  await w.content({ type: "video:download", entry: menu.items[0].entry, video: "hd", title: "Clip" }, 7);
+  const add = w.sent.find((m) => m.op === "add");
+  same([add.url, add.filename, add.media], [page, "Clip.mp4", { kind: "page", video: "hd" }]);
+
+  // A page yt-dlp found nothing on gets no entry, and is not asked again soon.
+  const other = "https://blog.example/post";
+  const first = w.content({ type: "video:menu" }, 8, other);
+  await tick();
+  const miss = w.sent.filter((m) => m.op === "probe_media").at(-1);
+  assert.equal(miss.download.url, other);
+  w.port.onMessage.fire({ op: "media_info", request: miss.request, info: { kind: "page", error: "yt-dlp: Unsupported URL" } });
+  same((await first).items, []);
+  const probes = w.sent.filter((m) => m.op === "probe_media").length;
+  same((await w.content({ type: "video:menu" }, 8, other)).items, []);
+  assert.equal(w.sent.filter((m) => m.op === "probe_media").length, probes, "no second yt-dlp");
+});
+
+test("a playlist is offered beside its video and its videos are picked in the window", async () => {
+  const w = connected();
+  const asked = w.content({ type: "video:menu" }, 7, "https://www.youtube.com/watch?v=a1&list=PLx");
+  await tick();
+  const sent = w.sent.filter((m) => m.op === "probe_media");
+  const list = sent.find((m) => m.download.url === "https://www.youtube.com/playlist?list=PLx");
+  assert.ok(list, "the playlist is asked about");
+  same(list.download.media, { kind: "page" });
+  const entries = [{ url: "https://www.youtube.com/watch?v=a1", title: "One", duration: 60 }, { url: "https://www.youtube.com/watch?v=b2", title: "Two" }];
+  w.port.onMessage.fire({ op: "media_info", request: list.request, info: { kind: "page", playlist: { title: "Talks", entries } } });
+  await tick();
+  const video = w.sent.filter((m) => m.op === "probe_media").find((m) => m.download.url === "https://www.youtube.com/watch?v=a1");
+  w.port.onMessage.fire({ op: "media_info", request: video.request, info: { kind: "page", video: [{ id: "18", label: "360p" }], audio: [] } });
+  const menu = await asked;
+  const item = menu.items.find((i) => i.label === "Playlist: Talks (2 videos)");
+  assert.ok(item, JSON.stringify(menu.items.map((i) => i.label)));
+  same(item.options, [{ label: "Choose videos in Pullbay...", size: null, playlist: true }]);
+  const answer = await w.content({ type: "video:playlist", entry: item.entry }, 7);
+  assert.equal(answer.ok, true);
+  const pick = w.sent.find((m) => m.op === "pick_videos");
+  same([pick.page, pick.playlist], ["https://www.youtube.com/playlist?list=PLx", { title: "Talks", entries }]);
 });
 
 test("choosing the sound alone sends an audio_only stream", async () => {

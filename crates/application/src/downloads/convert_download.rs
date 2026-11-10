@@ -7,7 +7,7 @@ use pullbay_domain::media::{Conversion, Target};
 use pullbay_domain::ports::{Converter, DownloadFiles, DownloadList};
 
 /// Convert a finished download's file with ffmpeg: to an MP4, or its sound
-/// alone to an MP3 or M4A. The new file is a row of its own, beside the
+/// alone to an MP3, M4A, Opus or FLAC. The new file is a row of its own, beside the
 /// original under a free name.
 pub struct ConvertDownload<'a, D, F, C> {
     downloads: &'a D,

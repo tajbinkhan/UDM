@@ -25,4 +25,5 @@ pub mod site;
 pub mod sync;
 pub mod table;
 pub mod theme;
+pub mod tools;
 pub mod update;

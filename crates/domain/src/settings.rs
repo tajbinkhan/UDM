@@ -723,6 +723,10 @@ pub struct Settings {
     pub added_browsers: Vec<AddedBrowser>,
     /// ffmpeg.exe, to join streams into .mp4 files. Empty looks on `PATH`.
     pub ffmpeg_path: String,
+    /// Look for a newer yt-dlp once a day and install it, when Pullbay
+    /// installed yt-dlp (Options > General). Off unless the user turns it on.
+    #[serde(default)]
+    pub ytdlp_auto_update: bool,
     /// Ask before removing downloads from the list.
     pub confirm_remove: bool,
     /// Removing a download also sends its files to the Recycle Bin. The
@@ -920,6 +924,7 @@ impl Default for Settings {
             browser_menu_hidden_firefox: Vec::new(),
             added_browsers: Vec::new(),
             ffmpeg_path: String::new(),
+            ytdlp_auto_update: false,
             confirm_remove: true,
             remove_deletes_files: false,
             server_file_date: true,
