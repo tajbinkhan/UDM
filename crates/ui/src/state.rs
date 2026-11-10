@@ -111,6 +111,9 @@ pub struct AppState {
     pub zip_listed: Option<ZipListed>,
     /// Downloads are paused for the quota.
     pub quota_paused: bool,
+    /// The speed limit is lifted while nobody uses the computer, as the
+    /// daemon last said.
+    pub limit_lifted: bool,
     /// Whether the browser extension is connected, and when one last was,
     /// as the daemon last said.
     pub browser_link: Option<(bool, Option<u64>)>,
@@ -187,12 +190,17 @@ impl AppState {
             .filter(|(id, _)| self.table.get(**id).is_some_and(|e| e.status == Status::Downloading))
             .map(|(_, s)| s.bytes_per_sec)
             .sum();
-        match (active, queued) {
+        let downloads = match (active, queued) {
             (0, 0) => tr("Pullbay: no active downloads").to_string(),
             (0, q) => trf!("Pullbay: {queued} queued", queued = q),
             (a, _) => {
                 trf!("Pullbay: {active} downloading at {speed}/s", active = a, speed = crate::human_rate(speed as u64))
             }
+        };
+        if self.limit_lifted {
+            format!("{downloads}\n{}", tr("Speed limit lifted while you are away"))
+        } else {
+            downloads
         }
     }
 
@@ -238,6 +246,7 @@ impl AppState {
                 }
             }
             Event::BrowserLink { connected, last_seen } => self.browser_link = Some((*connected, *last_seen)),
+            Event::LimitLifted { lifted } => self.limit_lifted = *lifted,
             Event::Started { id, .. } => {
                 self.segments.remove(id);
                 self.started.push((*id, progress::started_by_queue(&self.queues, *id)));
@@ -382,6 +391,7 @@ impl Default for AppState {
             newer_release: None,
             installing: None,
             quota_paused: false,
+            limit_lifted: false,
             browser_link: None,
             grab_projects: Vec::new(),
             grab_templates: pullbay_domain::grab::built_in_templates(),
@@ -501,7 +511,11 @@ pub type ZipListed = (DownloadId, Result<Vec<pullbay_domain::download::ZipEntry>
 pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
     match msg {
         UiMessage::Connecting => state.link = Link::Connecting,
-        UiMessage::Daemon(Event::Connected) => state.link = Link::Connected,
+        UiMessage::Daemon(Event::Connected) => {
+            state.link = Link::Connected;
+            // The daemon says so again when the limit is lifted.
+            state.limit_lifted = false;
+        }
         UiMessage::Daemon(Event::Lost(lost)) => {
             state.link = Link::Lost(match lost {
                 Lost::Closed => tr("the daemon closed the connection").to_string(),

@@ -438,6 +438,12 @@ pub enum Outgoing {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resumes_at: Option<u64>,
     },
+    /// Whether the speed limit is lifted because nobody is using the
+    /// computer (`Settings::speed_limit_only_while_active`). Sent when that
+    /// changes, and to a window that connects while it is lifted.
+    LimitLifted {
+        lifted: bool,
+    },
     /// Whether the browser extension is connected now and, when it is not,
     /// when one last was (seconds since 1970; `None` when none has since
     /// the daemon started). Sent to windows when a window connects, and

@@ -69,6 +69,7 @@ use pullbay_infrastructure::files::DiskFiles;
 use pullbay_infrastructure::front::{self, AnswerWait, Front, Hook, Notices, Notifier, Windows};
 use pullbay_infrastructure::grab::{self, FoundFiles, ProjectFiles, ScheduledGrabs};
 use pullbay_infrastructure::history;
+use pullbay_infrastructure::idle::SystemIdle;
 use pullbay_infrastructure::live_settings::{LiveSettings, QueueChimes};
 use pullbay_infrastructure::logging;
 use pullbay_infrastructure::net;
@@ -103,6 +104,7 @@ impl Wiring for Wired {
     type Sync = SyncChecker;
     type RunEnds = RunEnds;
     type Quota = QuotaHold;
+    type Idle = SystemIdle;
     type Power = PowerOff;
     type Files = DiskFiles;
     type Front = Front;
@@ -306,6 +308,7 @@ fn new_daemon(paths: Paths) -> Built {
         run_book: RunBook::default(),
         pause_book: PauseBook::default(),
         quota,
+        idle: SystemIdle,
         power,
         chimes,
         releases,

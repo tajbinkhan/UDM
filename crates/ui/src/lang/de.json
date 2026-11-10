@@ -1033,5 +1033,12 @@
   "The file could not be read.": "Die Datei konnte nicht gelesen werden.",
   "Verify": "Prüfen",
   "Checksum": "Prüfsumme",
-  "optional, checked when the download finishes": "optional, wird nach dem Download geprüft"
+  "optional, checked when the download finishes": "optional, wird nach dem Download geprüft",
+  "Speed limit lifted while you are away": "Geschwindigkeitslimit aufgehoben, solange Sie weg sind",
+  "The speed limit is lifted while you are away. It applies again when you use the computer.": "Das Geschwindigkeitslimit ist aufgehoben, solange Sie weg sind. Es gilt wieder, sobald Sie den Computer benutzen.",
+  "Only while I'm using the computer": "Nur während ich den Computer benutze",
+  "Lift it after": "Aufheben nach",
+  "minutes without keyboard or mouse input": "Minuten ohne Tastatur- oder Mauseingabe",
+  "Downloads go at full speed while you are away and slow down again when you come back. Downloads with a speed limit of their own keep it.": "Downloads laufen mit voller Geschwindigkeit, solange Sie weg sind, und werden wieder langsamer, wenn Sie zurückkommen. Downloads mit eigenem Geschwindigkeitslimit behalten es.",
+  "The time away must be between {lo} and {hi} minutes.": "Die Abwesenheitszeit muss zwischen {lo} und {hi} Minuten liegen."
 }

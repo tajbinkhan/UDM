@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use crate::address::Link;
 use crate::bytes::ByteCount;
@@ -515,6 +516,22 @@ pub trait TransferEngine: Send + Sync {
     /// Whether finished download `id`'s file changed on its server since it
     /// was downloaded. False when that cannot be told.
     fn has_changed(&self, id: DownloadId) -> bool;
+}
+
+/// How long the computer has gone without keyboard or mouse input.
+pub trait UserIdle: Send + Sync {
+    /// The time since the last input, or `None` when the system does not
+    /// say.
+    fn idle_for(&self) -> Option<Duration>;
+}
+
+/// Whether the speed limit is lifted because nobody is using the computer
+/// (`Settings::speed_limit_only_while_active`).
+pub trait LimitLift: Send + Sync {
+    fn lifted(&self) -> bool;
+
+    /// Lift the speed limit, or apply it again, and tell every window.
+    fn set_lifted(&self, lifted: bool);
 }
 
 /// The sound and notification for a finished or failed download.

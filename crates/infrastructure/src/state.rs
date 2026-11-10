@@ -91,6 +91,7 @@ fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
         | Outgoing::LinkInfo { .. }
         | Outgoing::PickLinks { .. }
         | Outgoing::Quota { .. }
+        | Outgoing::LimitLifted { .. }
         | Outgoing::BrowserLink { .. }
         | Outgoing::CookiesWanted { .. }
         | Outgoing::RenderPage { .. }

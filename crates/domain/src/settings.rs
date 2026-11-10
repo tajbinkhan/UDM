@@ -8,6 +8,7 @@
 //! caller passes the system's Downloads folder as `downloads`.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,12 @@ pub const CONNECTIONS_RANGE: (usize, usize) = (1, 16);
 pub const MAX_CONCURRENT_RANGE: (usize, usize) = (1, 10);
 /// 1 KB/s up to about 10 GB/s.
 pub const SPEED_LIMIT_RANGE_KBPS: (u64, u64) = (1, 10_000_000);
+/// Minutes without keyboard or mouse input before a speed limit that applies
+/// only while the computer is in use is lifted, unless the settings say
+/// otherwise.
+pub const DEFAULT_IDLE_MINUTES: u32 = 5;
+/// From one minute to four hours.
+pub const IDLE_MINUTES_RANGE: (u32, u32) = (1, 240);
 /// Up to 10 GB, in KB.
 pub const CAPTURE_MIN_SIZE_MAX_KB: u64 = 10 * 1024 * 1024;
 
@@ -466,6 +473,14 @@ pub struct Settings {
     /// KB/s, unless it has a limit of its own. `None` caps only the total.
     #[serde(default)]
     pub speed_limit_per_file_kbps: Option<u64>,
+    /// Apply the speed limit only while someone uses the computer: lift it
+    /// after `speed_limit_idle_minutes` without keyboard or mouse input, and
+    /// apply it again at the next input.
+    #[serde(default)]
+    pub speed_limit_only_while_active: bool,
+    /// Minutes without input before the speed limit is lifted, when it
+    /// applies only while the computer is in use.
+    pub speed_limit_idle_minutes: u32,
     /// Queue interrupted downloads again when the daemon starts.
     pub resume_at_startup: bool,
     pub file_exists: FileExists,
@@ -772,6 +787,8 @@ impl Default for Settings {
             speed_limit_kbps: DEFAULT_SPEED_LIMIT_KBPS,
             speed_limit_on_startup: false,
             speed_limit_per_file_kbps: None,
+            speed_limit_only_while_active: false,
+            speed_limit_idle_minutes: DEFAULT_IDLE_MINUTES,
             resume_at_startup: false,
             file_exists: FileExists::Rename,
             if_duplicate: Duplicate::Ask,
@@ -974,6 +991,10 @@ impl Settings {
         }
         if self.speed_limit_per_file_kbps.is_some_and(|k| !(lo..=hi).contains(&k)) {
             return Err(E::SpeedLimitPerFile);
+        }
+        let (lo, hi) = IDLE_MINUTES_RANGE;
+        if !(lo..=hi).contains(&self.speed_limit_idle_minutes) {
+            return Err(E::IdleMinutes);
         }
         if let Some(dir) = &self.download_dir {
             check_folder(SettingsField::DownloadFolder, dir)?;
@@ -1274,6 +1295,38 @@ impl Settings {
     pub fn per_file_limit_bytes(&self) -> Option<u64> {
         self.speed_limit_per_file_kbps.filter(|_| self.speed_limit_enabled).map(|k| k.saturating_mul(1024))
     }
+
+    /// How long the computer must go without keyboard or mouse input before
+    /// the speed limit is lifted, or `None` when it is not lifted for that
+    /// (the limit is off, or applies whether or not the computer is in use).
+    pub fn lift_limit_after(&self) -> Option<Duration> {
+        (self.speed_limit_enabled && self.speed_limit_only_while_active)
+            .then(|| Duration::from_secs(u64::from(self.speed_limit_idle_minutes) * 60))
+    }
+
+    /// Whether the speed limit is lifted now that the computer has had no
+    /// input for `idle`. `None`, when the system does not say, keeps it.
+    pub fn limit_lifted(&self, idle: Option<Duration>) -> bool {
+        self.lift_limit_after().is_some_and(|after| idle.is_some_and(|idle| idle >= after))
+    }
+
+    /// The limits the engine applies, in bytes per second: the total and
+    /// the one for each download without its own. A lifted speed limit
+    /// leaves neither; downloads with a limit of their own keep it.
+    pub fn engine_limits(&self, lifted: bool) -> EngineLimits {
+        if lifted {
+            return EngineLimits::default();
+        }
+        EngineLimits { total: self.speed_limit_bytes(), per_file: self.per_file_limit_bytes() }
+    }
+}
+
+/// The speed limits the engine applies, in bytes per second; `None` is no
+/// limit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EngineLimits {
+    pub total: Option<u64>,
+    pub per_file: Option<u64>,
 }
 
 /// Addresses no browser download is taken from as Pullbay starts: sounds,
@@ -1437,6 +1490,8 @@ pub enum InvalidSettings {
     SpeedLimit,
     #[error("The speed limit per file must be between {lo} and {hi} KB/s.", lo = SPEED_LIMIT_RANGE_KBPS.0, hi = SPEED_LIMIT_RANGE_KBPS.1)]
     SpeedLimitPerFile,
+    #[error("The time away must be between {lo} and {hi} minutes.", lo = IDLE_MINUTES_RANGE.0, hi = IDLE_MINUTES_RANGE.1)]
+    IdleMinutes,
     #[error("{0} is empty.")]
     FolderEmpty(SettingsField),
     #[error("{0} must be a full path: {1}")]
@@ -1522,6 +1577,46 @@ mod tests {
         assert!(!old.capture_private, "a settings file from before the option");
         let on: Settings = serde_json::from_str(r#"{"capture_private":true}"#).unwrap();
         assert!(on.capture_private);
+    }
+
+    #[test]
+    fn the_speed_limit_is_lifted_only_after_the_minutes_away() {
+        let mins = |m: u64| Some(Duration::from_secs(m * 60));
+        let mut s = Settings {
+            speed_limit_enabled: true,
+            speed_limit_per_file_kbps: Some(200),
+            speed_limit_only_while_active: true,
+            speed_limit_idle_minutes: 10,
+            ..Settings::default()
+        };
+        assert_eq!(s.lift_limit_after(), mins(10));
+        assert!(!s.limit_lifted(mins(9)));
+        assert!(s.limit_lifted(mins(10)));
+        assert!(!s.limit_lifted(None), "an unknown idle time keeps the limit");
+        assert_eq!(s.engine_limits(true), EngineLimits { total: None, per_file: None });
+        assert_eq!(
+            s.engine_limits(false),
+            EngineLimits { total: Some(s.speed_limit_kbps * 1024), per_file: Some(200 * 1024) }
+        );
+
+        s.speed_limit_only_while_active = false;
+        assert_eq!(s.lift_limit_after(), None);
+        assert!(!s.limit_lifted(mins(60)), "the limit applies whether or not the computer is in use");
+        s.speed_limit_only_while_active = true;
+        s.speed_limit_enabled = false;
+        assert!(!s.limit_lifted(mins(60)), "there is no limit to lift");
+    }
+
+    #[test]
+    fn older_settings_apply_the_limit_all_the_time_and_odd_idle_times_are_refused() {
+        let old: Settings = serde_json::from_str(r#"{"speed_limit_enabled":true}"#).unwrap();
+        assert!(!old.speed_limit_only_while_active);
+        assert_eq!(old.speed_limit_idle_minutes, DEFAULT_IDLE_MINUTES);
+        for minutes in [0, 241] {
+            let s = Settings { speed_limit_idle_minutes: minutes, ..Settings::default() };
+            assert_eq!(s.validate(), Err(InvalidSettings::IdleMinutes));
+        }
+        assert_eq!(Settings { speed_limit_idle_minutes: 240, ..Settings::default() }.validate(), Ok(()));
     }
 
     #[test]

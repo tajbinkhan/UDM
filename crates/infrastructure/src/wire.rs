@@ -154,6 +154,7 @@ pub fn event(msg: Outgoing) -> Event {
         }
         Outgoing::PickLinks { page, links, user_agent } => Event::PickLinks { page, links, user_agent },
         Outgoing::Quota { used, limit, paused, resumes_at } => Event::Quota { used, limit, paused, resumes_at },
+        Outgoing::LimitLifted { lifted } => Event::LimitLifted { lifted },
         Outgoing::BrowserLink { connected, last_seen } => Event::BrowserLink { connected, last_seen },
         Outgoing::Update { newer, error, error_kind } => {
             Event::Update { newer, error: error.map(|e| failure(e, error_kind)) }
@@ -218,6 +219,7 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
         }
         Event::PickLinks { page, links, user_agent } => Outgoing::PickLinks { page, links, user_agent },
         Event::Quota { used, limit, paused, resumes_at } => Outgoing::Quota { used, limit, paused, resumes_at },
+        Event::LimitLifted { lifted } => Outgoing::LimitLifted { lifted },
         Event::BrowserLink { connected, last_seen } => Outgoing::BrowserLink { connected, last_seen },
         Event::Update { newer, error } => {
             let (error, error_kind) = optional(error);
@@ -496,6 +498,13 @@ mod tests {
             assert_eq!(value["error"], text.as_str());
             assert_eq!(back, link);
         }
+    }
+
+    #[test]
+    fn a_lifted_speed_limit_goes_as_its_op() {
+        let (value, back) = round_trip(Event::LimitLifted { lifted: true });
+        assert_eq!(value, serde_json::json!({"op": "limit_lifted", "lifted": true}));
+        assert_eq!(back, Event::LimitLifted { lifted: true });
     }
 
     #[test]

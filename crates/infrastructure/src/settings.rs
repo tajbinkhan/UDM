@@ -253,6 +253,8 @@ mod tests {
             speed_limit_kbps: 500,
             speed_limit_on_startup: true,
             speed_limit_per_file_kbps: Some(200),
+            speed_limit_only_while_active: true,
+            speed_limit_idle_minutes: 15,
             resume_at_startup: true,
             file_exists: FileExists::Overwrite,
             if_duplicate: Duplicate::Existing,

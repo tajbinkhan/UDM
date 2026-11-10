@@ -60,6 +60,7 @@ pub mod front;
 pub mod grab;
 pub mod hash;
 pub mod history;
+pub mod idle;
 pub mod ipc;
 pub mod listfile;
 pub mod live_settings;

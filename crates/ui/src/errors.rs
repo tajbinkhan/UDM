@@ -12,8 +12,8 @@ use pullbay_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RAN
 use pullbay_domain::ports::SettingsError;
 use pullbay_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
 use pullbay_domain::settings::{
-    InvalidSettings, ProxyEntry, SettingsField, CONNECTIONS_RANGE, GENERAL, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE,
-    SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE,
+    InvalidSettings, ProxyEntry, SettingsField, CONNECTIONS_RANGE, GENERAL, IDLE_MINUTES_RANGE, MAX_CONCURRENT_RANGE,
+    QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE,
 };
 use pullbay_domain::update::UpdateError;
 
@@ -217,6 +217,11 @@ pub fn settings(e: &InvalidSettings) -> String {
             "The speed limit per file must be between {lo} and {hi} KB/s.",
             lo = SPEED_LIMIT_RANGE_KBPS.0,
             hi = SPEED_LIMIT_RANGE_KBPS.1
+        ),
+        E::IdleMinutes => trf!(
+            "The time away must be between {lo} and {hi} minutes.",
+            lo = IDLE_MINUTES_RANGE.0,
+            hi = IDLE_MINUTES_RANGE.1
         ),
         E::FolderEmpty(f) => trf!("{field} is empty.", field = field(f)),
         E::FolderNotFull(f, dir) => trf!("{field} must be a full path: {path}", field = field(f), path = dir),

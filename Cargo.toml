@@ -40,7 +40,12 @@ windows = { version = "0.61", features = [
     "Win32_System_Com",
     # SHDoDragDrop: dragging a finished file out of the window.
     "Win32_System_Ole",
+    # GetTickCount, with GetLastInputInfo below: the time since the last
+    # input, for the speed limit that applies only while the computer is in
+    # use.
+    "Win32_System_SystemInformation",
     "Win32_System_WinRT",
+    "Win32_UI_Input_KeyboardAndMouse",
     # ITaskbarList: the window's taskbar button while it is in the tray.
     "Win32_UI_Shell",
 ] }
