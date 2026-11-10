@@ -171,9 +171,10 @@ pub fn settings_path() -> io::Result<PathBuf> {
 }
 
 /// The current user's Downloads folder, or the temp dir if it can't be found.
-/// A portable copy downloads into its own `Downloads` folder, on its drive.
+/// A portable copy downloads into its own `Downloads` folder, on its drive,
+/// and a server into the one it was given (`paths::chosen_downloads_dir`).
 pub fn default_downloads_dir() -> PathBuf {
-    if let Some(dir) = crate::paths::portable_downloads_dir() {
+    if let Some(dir) = crate::paths::chosen_downloads_dir().or_else(crate::paths::portable_downloads_dir) {
         return dir;
     }
     if let Some(home) = crate::paths::home_dir() {

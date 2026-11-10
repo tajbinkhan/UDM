@@ -158,7 +158,7 @@ fn fingerprint(pem: &str) -> Option<String> {
 
 /// The year, month and day of day `days` after 1 January 1970 (Howard
 /// Hinnant's `civil_from_days`).
-fn civil(days: i64) -> (i32, u8, u8) {
+pub(crate) fn civil(days: i64) -> (i32, u8, u8) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);

@@ -3766,6 +3766,7 @@ dependencies = [
  "percent-encoding",
  "pullbay-application",
  "pullbay-domain",
+ "qrcode",
  "rand_core",
  "rcgen",
  "reqwest",

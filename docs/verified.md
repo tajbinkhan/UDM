@@ -31,6 +31,29 @@
   translated, but not looked at on screen; no real phone (iOS Safari, Android
   Chrome) was tried; the Windows and macOS code (SChannel and
   Security.framework serving the certificate) was linted from Linux only.
+  After server mode (#253) came in, the daemon test runs on a server's
+  daemon too, and `pullbay-cli pair`, `devices` and `unpair` have use case
+  and report tests (the QR code, `--host` in the link); the Docker
+  `ports` lines were not run.
+
+- Server mode and the Docker image (#253). Unit tests cover the daemon's
+  command line (`--server` and its folders, a folder without `--server`,
+  a missing or repeated one, unknown words, the elevated move), folders
+  named on the command line winning over the environment, `Seat`, and, on
+  a server, no notification or window whatever the settings say and a
+  save-as dialog starting as proposed. A behavior test on the real adapters
+  checks that a server's daemon with nothing to do is idle but never may
+  exit. On Linux, a named copy ran `pullbay-daemon --server` with its
+  folders from the command line and then from the environment alone: it
+  logged to standard output, listened on 127.0.0.1 only, downloaded a file
+  `pullbay-cli` asked for (with `PULLBAY_DATA_DIR` set) into the downloads
+  folder, kept running past the idle minute, kept the list across a
+  restart, exited 0 after saving on `SIGTERM`, refused to start (exit 1)
+  beside a running one, and left the XDG folders empty. Docker was not
+  installed, so the `Dockerfile`, the Compose file, the Unraid template
+  and the release workflow's image job were not built or run; the build
+  command in the `Dockerfile` was run outside it. The Windows and macOS
+  code was linted from Linux only.
 
 - Screen readers and the keyboard (#252). AccessKit was already on through
   eframe's default features; it is now named in `crates/ui/Cargo.toml`, and

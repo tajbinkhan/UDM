@@ -25,6 +25,11 @@
 //! that won the single-instance bind does this, so two programs never move
 //! the same file at once. Nothing is truncated in place.
 //!
+//! A server's daemon (`pullbay-daemon --server`) logs to standard output
+//! instead ([`init_stdout`]), where its service manager or container
+//! (`docker logs`) collects it; it writes no file of its own and keeps the
+//! rules below.
+//!
 //! Every line goes through [`redact`] before it is written, which hides the
 //! password of any `scheme://user:password@host` in it.
 //!
@@ -107,7 +112,20 @@ impl Program {
 /// Does nothing if a subscriber is already set.
 pub fn init(program: Program) {
     let to_stderr = program == Program::Host;
-    if tracing::subscriber::set_global_default(subscriber(program.log_path(), to_stderr)).is_err() {
+    install(subscriber(Sink::File(program.log_path()), to_stderr));
+}
+
+/// Send this process's `tracing` events at info level and above to standard
+/// output, one line each, for a server (`pullbay-daemon --server`) whose
+/// service manager or container keeps them. Panics are logged as well. Does
+/// nothing if a subscriber is already set.
+pub fn init_stdout() {
+    install(subscriber(Sink::Stdout, false));
+}
+
+/// Make `subscriber` this process's, and log panics through it.
+fn install(subscriber: impl Subscriber + Send + Sync) {
+    if tracing::subscriber::set_global_default(subscriber).is_err() {
         return;
     }
     let default = std::panic::take_hook();
@@ -163,11 +181,11 @@ pub fn json_error(e: &serde_json::Error) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, text)
 }
 
-/// Events at info level and above to the file at `path`, and with
-/// `to_stderr` warnings and errors to standard error as well.
-fn subscriber(path: PathBuf, to_stderr: bool) -> impl Subscriber + Send + Sync {
+/// Events at info level and above to `sink`, and with `to_stderr` warnings
+/// and errors to standard error as well.
+fn subscriber(sink: Sink, to_stderr: bool) -> impl Subscriber + Send + Sync {
     let file = tracing_subscriber::fmt::layer()
-        .with_writer(Appender(Sink::File(path)))
+        .with_writer(Appender(sink))
         .with_timer(TimeAndPid)
         .with_filter(LevelFilter::INFO);
     let stderr = to_stderr.then(|| {
@@ -194,6 +212,7 @@ impl FormatTime for TimeAndPid {
 enum Sink {
     File(PathBuf),
     Stderr,
+    Stdout,
 }
 
 /// Hands each event a [`Line`] that goes to its sink once it is done.
@@ -236,6 +255,7 @@ impl Drop for Line<'_> {
         let _ = match self.sink {
             Sink::File(path) => append(path, text.as_bytes()),
             Sink::Stderr => io::stderr().lock().write_all(text.as_bytes()),
+            Sink::Stdout => io::stdout().lock().write_all(text.as_bytes()),
         };
     }
 }
@@ -334,13 +354,15 @@ mod tests {
     fn events_are_appended_with_passwords_hidden() {
         let dir = temp_dir("events");
         let path = dir.join("nested").join("pullbay-test.log");
-        let first = subscriber(path.clone(), false);
+        let first = subscriber(Sink::File(path.clone()), false);
         tracing::subscriber::with_default(first, || {
             tracing::info!(download_id = 7, url = "ftp://bob:hunter2@h/f", "add");
             tracing::debug!("below the level");
         });
         // A second process appends to the same file.
-        tracing::subscriber::with_default(subscriber(path.clone(), true), || tracing::warn!(error = "x", "second"));
+        tracing::subscriber::with_default(subscriber(Sink::File(path.clone()), true), || {
+            tracing::warn!(error = "x", "second")
+        });
         let log = fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = log.lines().collect();
         assert_eq!(lines.len(), 2, "{log}");

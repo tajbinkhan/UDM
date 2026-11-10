@@ -35,6 +35,7 @@
 //!   `SiteCrawler` adapters (asking servers, the browser extension, and
 //!   crawling for the site grabber).
 //! - `tool`: `pullbay-cli`'s command line, what it prints and its exit codes.
+//! - `daemon_args`: `pullbay-daemon`'s command line (`--server` and its folders).
 //! - `mcp`: `pullbay-mcp`'s Model Context Protocol server over standard
 //!   input and output, and its tools.
 //! - `background`: the daemon's background threads (scheduler, history
@@ -55,6 +56,7 @@ pub mod connect;
 pub mod conversions;
 pub mod crash;
 pub mod crawler;
+pub mod daemon_args;
 pub mod daemon_client;
 pub mod dpapi;
 pub mod elevate;

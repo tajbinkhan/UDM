@@ -91,6 +91,10 @@ rcgen = { version = "0.14", default-features = false, features = ["pem"] }
 rsa = { version = "0.9", features = ["sha2", "pem"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 
+# `pullbay-cli pair`'s QR code in the terminal (`tool::qr_text`): the same
+# pure-Rust encoder, with no dependencies, the window draws its code with.
+qrcode = { version = "0.14", default-features = false }
+
 # The window's file and folder pickers (IFileOpenDialog on Windows, through
 # windows-sys, so it builds on windows-gnu; panels on macOS).
 rfd = { version = "0.15.4", default-features = false }

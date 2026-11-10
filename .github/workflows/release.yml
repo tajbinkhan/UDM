@@ -9,7 +9,8 @@
 #   git tag v0.2.0 && git push origin v0.2.0
 #
 # Started by hand (Actions > Release > Run workflow), it builds the same
-# files without publishing them, as artifacts kept for a day.
+# files without publishing them, as artifacts kept for a day. The `docker`
+# job also pushes the server image to GitHub Container Registry for a tag.
 
 name: Release
 
@@ -148,6 +149,56 @@ jobs:
           path: dist/*
           retention-days: 1
           if-no-files-found: error
+
+  # The server image (Dockerfile, docs/server.md), pushed to GitHub
+  # Container Registry as ghcr.io/<owner>/pullbay with the version's tags and
+  # latest. It waits for the installers so a release that fails to build
+  # publishes no image; started by hand, it is built but not pushed. Only
+  # linux/amd64: an arm64 build under emulation takes too long here.
+  docker:
+    name: Docker image
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # v0.5.0 is tagged 0.5.0, 0.5 and latest; a pre-release only with its
+      # own version.
+      - name: Name the image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   publish:
     name: Publish

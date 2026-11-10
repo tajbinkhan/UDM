@@ -10,6 +10,7 @@
 
 use pullbay_domain::address::Link;
 use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::seat::Seat;
 use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -219,6 +220,8 @@ pub struct Parts<W: Wiring> {
     pub pairing: Arc<PairingDesk>,
     /// The remote-control page's listener.
     pub listener: Arc<dyn RemoteListener>,
+    /// Where the daemon runs, which decides whether it exits when idle.
+    pub seat: Seat,
 }
 
 /// The daemon's work. Its fields are the adapters it was wired with, and
@@ -261,6 +264,8 @@ pub struct DaemonService<W: Wiring> {
     version: &'static str,
     pub pairing: Arc<PairingDesk>,
     pub listener: Arc<dyn RemoteListener>,
+    /// Where the daemon runs.
+    seat: Seat,
     /// Keeps two scheduler passes from running at once.
     tick_lock: Mutex<()>,
     /// Each client's running site crawl, by its stop flag.
@@ -318,6 +323,7 @@ impl<W: Wiring> DaemonService<W> {
             version: p.version,
             pairing: p.pairing,
             listener: p.listener,
+            seat: p.seat,
             tick_lock: Mutex::new(()),
             grabs: Mutex::default(),
             link_probes: Mutex::default(),
@@ -422,6 +428,13 @@ impl<W: Wiring> DaemonService<W> {
         }
         self.pairing.start()?;
         Ok(self.remote_state())
+    }
+
+    /// Whether the daemon may exit now for having nothing to do: it is idle
+    /// and runs on a desktop. A server's daemon runs until it is stopped
+    /// (see `Seat`).
+    pub fn may_exit(&self) -> bool {
+        self.seat.exits_when_idle() && self.idle()
     }
 
     /// Put download `id` in queue `queue` at `position` (or at the end). A

@@ -25,6 +25,15 @@ Pullbay starts; turn on **Start with Windows, in the tray** (**Start when I sign
 on macOS and Linux) in Options > General if the phone should reach it without opening Pullbay
 first.
 
+### On a server or in Docker
+
+A daemon started with `--server` ([server mode](server.md)) serves the page too. It has no window,
+so turn remote control on with `"remote_enabled": true` in `settings.json`, and pair with
+`pullbay-cli pair` (in a container: `docker exec -it pullbay pullbay-cli pair --host <server
+address>`), which prints the QR code, the code and the fingerprint; `pullbay-cli devices` and
+`pullbay-cli unpair ID` list and remove phones. In Docker the port has to be published (commented
+out in `installer/docker/compose.yaml`); see [From a phone](server.md#from-a-phone).
+
 ### The firewall
 
 The page is served by the daemon (`pullbay-daemon`, `pullbay-daemon.exe` on Windows). The first

@@ -75,6 +75,9 @@ pullbay-cli pause ID | --all
 pullbay-cli resume ID | --all
 pullbay-cli remove ID [--delete-files]
 pullbay-cli queue start|stop [QUEUE]
+pullbay-cli pair [--host HOST[:PORT]]
+pullbay-cli devices
+pullbay-cli unpair ID
 pullbay-cli help | version
 ```
 
@@ -144,6 +147,17 @@ or its partial file, goes to the Recycle Bin or the trash.
 `queue start` starts the main queue, and `queue start Night` (or the queue's id, `queue start 2`)
 another; `queue stop` stops one, putting its running downloads back to waiting in it. A queue's
 name is matched ignoring case, and may have spaces without quotes.
+
+### pair, devices, unpair
+
+For [remote control from a phone](remote-control.md) without a window, as on a
+[server](server.md): `pair` prints a QR code (in the terminal, with block characters), the page's
+address, the one-time code and the certificate's fingerprint, as Options' **Pair a phone** shows
+them. Remote control must be on (`"remote_enabled": true` in `settings.json`). The link holds the
+address the daemon sees; where the phone reaches the computer by another one (a container's
+published port), `--host 192.168.1.20` or `--host nas.local:8443` puts that one in the link and the
+QR code. `devices` lists the paired phones (number, name, when paired and last seen, in UTC), and
+`unpair 2` unpairs phone 2 at once.
 
 ### Exit codes
 
