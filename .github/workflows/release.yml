@@ -69,6 +69,8 @@ jobs:
           Copy-Item target\release\pullbay-host.exe, target\release\pullbay-daemon.exe, target\release\pullbay-gui.exe "$out\target\release"
           Copy-Item -Recurse extension, host "$out"
           Copy-Item install-host.ps1, README.md "$out"
+          # The marker makes the zip a portable copy (docs/portable.md).
+          Copy-Item installer\portable.txt "$out"
           New-Item -ItemType Directory -Force "$out\installer" | Out-Null
           Copy-Item installer\make-firefox.ps1 "$out\installer"
           Remove-Item -Recurse -Force "$out\extension\test"

@@ -1,0 +1,8 @@
+This file makes this copy of Pullbay portable.
+
+While it is here, Pullbay keeps its settings, download list and logs in the
+Data folder beside it, downloads into the Downloads folder beside it, and
+writes nothing to the registry except its registrations with the browsers.
+Delete this file to use the usual folders in your user profile instead.
+
+See docs/portable.md on https://github.com/tajbinkhan/pullbay for more.

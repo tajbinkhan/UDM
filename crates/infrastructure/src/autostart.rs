@@ -3,13 +3,24 @@
 //! - Windows: the `Pullbay` value under `HKCU\...\CurrentVersion\Run`;
 //! - macOS: `~/Library/LaunchAgents/com.pullbay.gui.plist`, a launchd agent;
 //! - Linux: `~/.config/autostart/pullbay.desktop`, the freedesktop.org way.
+//!
+//! A portable copy (`paths::portable_root`) has none, so it leaves the
+//! computer as it found it.
 
 use std::io;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 
-/// Add or remove the entry that starts Pullbay's window at sign-in.
+/// Add or remove the entry that starts Pullbay's window at sign-in. A
+/// portable copy refuses to add one and removes none, since an entry there
+/// would be the installed copy's.
 pub fn set_autostart(enabled: bool) -> io::Result<()> {
+    if crate::paths::is_portable() {
+        return match enabled {
+            true => Err(io::Error::new(io::ErrorKind::Unsupported, "a portable copy does not start when you sign in")),
+            false => Ok(()),
+        };
+    }
     #[cfg(windows)]
     return crate::registry::set_autostart(enabled, &crate::platform::sibling_exe("pullbay-gui")?);
     #[cfg(unix)]

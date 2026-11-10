@@ -3165,10 +3165,14 @@ fn general_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft, queues: &[Queue]) {
         ui.end_row();
 
         ui.label("");
-        ui.checkbox(
-            &mut draft.start_with_windows,
-            if cfg!(windows) { tr("Start with Windows, in the tray") } else { tr("Start when I sign in, in the tray") },
-        );
+        ui.add_enabled(
+            !crate::ports::ports().system.is_portable(),
+            egui::Checkbox::new(
+                &mut draft.start_with_windows,
+                if cfg!(windows) { tr("Start with Windows, in the tray") } else { tr("Start when I sign in, in the tray") },
+            ),
+        )
+        .on_disabled_hover_text(tr("A portable copy does not start when you sign in, so it leaves the computer as it found it."));
         ui.end_row();
 
         ui.label("");

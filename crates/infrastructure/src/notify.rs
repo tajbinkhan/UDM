@@ -211,9 +211,14 @@ const ICON_PNG: &[u8] = include_bytes!("../../../extension/icons/128.png");
 
 /// Give Pullbay's notifications a name and icon. Unpackaged apps need this
 /// registration before Windows shows their notifications. The icon is
-/// written next to the history file.
+/// written next to the history file. A portable copy writes nothing to the
+/// registry but its browser registrations, so it skips this, and Windows may
+/// show its notifications without Pullbay's name or not at all.
 #[cfg(windows)]
 pub fn register_app() -> std::io::Result<()> {
+    if crate::paths::is_portable() {
+        return Ok(());
+    }
     let icon = crate::history::history_path()?.with_file_name("pullbay.png");
     if std::fs::read(&icon).ok().as_deref() != Some(ICON_PNG) {
         crate::settings::write_atomic(&icon, ICON_PNG)?;

@@ -7,7 +7,7 @@ each system:
 | System | File | |
 |---|---|---|
 | Windows 10 and 11 | `Pullbay-Setup-<version>.exe` | the installer, below |
-| | `Pullbay-<version>-windows-portable.zip` | the programs and `install-host.ps1` |
+| | `Pullbay-<version>-windows-portable.zip` | a [portable copy](portable.md), everything in its own folder |
 | macOS 11 or later | `Pullbay-<version>-macos.dmg` | Apple Silicon and Intel |
 | Ubuntu, Debian, Mint | `pullbay_<version>_amd64.deb` | `sudo apt install ./pullbay_*.deb` |
 | Fedora, openSUSE, RHEL | `pullbay-<version>-1.x86_64.rpm` | `sudo dnf install ./pullbay-*.rpm` |

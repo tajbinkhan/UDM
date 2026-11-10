@@ -77,7 +77,7 @@ On the [Releases page](https://github.com/tajbinkhan/pullbay/releases/latest), p
 | File | Choose it when |
 | --- | --- |
 | **`Pullbay-Setup-<version>.exe`** | **On Windows and not sure? Take this one.** It installs for your user only, without administrator rights, and connects Pullbay to Chrome, Edge and Firefox. |
-| `Pullbay-<version>-windows-portable.zip` | You want the plain Windows programs, with `install-host.ps1` to connect the browsers. |
+| `Pullbay-<version>-windows-portable.zip` | You want to run Pullbay from a USB stick or without installing it. It keeps everything in its own folder ([portable mode](docs/portable.md)). |
 | `Pullbay-<version>-macos.dmg` | You're on a Mac (Apple Silicon or Intel). Drag Pullbay to Applications. |
 
 > [!NOTE]

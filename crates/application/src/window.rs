@@ -181,6 +181,10 @@ pub trait SystemServices: Send + Sync {
     /// Whether a downloaded file's creation time can be set.
     fn can_set_creation_time(&self) -> bool;
 
+    /// Whether this is a portable copy, which keeps everything in its own
+    /// folder and does not start when the user signs in.
+    fn is_portable(&self) -> bool;
+
     /// Play `file` (a WAV file) for `sound`, or the system's sound for it,
     /// without waiting.
     fn play(&self, sound: Sound, file: Option<&Path>);

@@ -15,7 +15,9 @@
 //! Each step finds nothing to do once it has run. Every program runs this
 //! before its log opens, since opening the log creates Pullbay's data
 //! folder. A copy named by [`crate::paths::INSTANCE_VAR`] moves only its own
-//! folders: the browsers and the sign-in entry belong to the usual copy.
+//! folders: the browsers and the sign-in entry belong to the usual copy. A
+//! portable copy moves nothing, since everything UIDM left belongs to an
+//! installed copy.
 
 use std::fs;
 use std::io;
@@ -67,7 +69,8 @@ pub fn move_from_uidm() -> Moved {
         }
         Err(e) => moved.failed.push(("folders", e)),
     }
-    if crate::paths::instance().is_some() {
+    // UIDM's registrations and sign-in entry belong to an installed copy.
+    if crate::paths::instance().is_some() || crate::paths::is_portable() {
         return moved;
     }
     match crate::browsers::move_uidm_registrations() {

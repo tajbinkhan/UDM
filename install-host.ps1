@@ -14,6 +14,11 @@
 # pullbay@pullbay.local.
 # Run .\install-host.ps1 -Uninstall to remove the registration and shortcut,
 # the "Start with Windows" entry and the notification registration.
+#
+# In a portable copy (one with portable.txt in this folder, see
+# docs\portable.md) the manifests go in the copy's Data folder and no Start menu
+# shortcut is added. Pullbay registers with the browsers it finds by itself
+# there, so this script is only needed to register again or to -Uninstall.
 
 param(
     [string]$ExtensionId = "epmjakacaejhdhldkpbjnakhfmjjbhfm",
@@ -26,12 +31,16 @@ $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 $release = Join-Path $root "target\release"
 $hostName = "com.pullbay.host"
+$portable = Test-Path -PathType Leaf (Join-Path $root "portable.txt")
+# Pullbay's data folder, where the daemon writes the manifests too.
+$dataDir = if ($portable) { Join-Path $root "Data" } else { Join-Path $env:LOCALAPPDATA "Pullbay" }
+if ($portable) { $NoShortcut = $true }
 # Generated per machine, so it lives outside the repo; host\com.pullbay.host.json
 # is only a template.
-$manifestPath = Join-Path $env:LOCALAPPDATA "Pullbay\com.pullbay.host.json"
+$manifestPath = Join-Path $dataDir "com.pullbay.host.json"
 # Firefox names allowed extensions by ID instead of by origin, so it gets its
 # own manifest.
-$firefoxManifestPath = Join-Path $env:LOCALAPPDATA "Pullbay\com.pullbay.host.firefox.json"
+$firefoxManifestPath = Join-Path $dataDir "com.pullbay.host.firefox.json"
 $firefoxKey = "HKCU:\Software\Mozilla\NativeMessagingHosts\$hostName"
 $firefoxExtension = Join-Path $root "firefox"
 $shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "Pullbay.lnk"
@@ -128,4 +137,8 @@ Write-Host "  2. Click 'Load unpacked' and choose $(Join-Path $root 'extension')
 Write-Host "  3. Its ID should read $ExtensionId."
 Write-Host "In Firefox, open about:debugging, choose This Firefox, then Load Temporary Add-on,"
 Write-Host "pick $(Join-Path $firefoxExtension 'manifest.json'), and allow it to access all websites."
-Write-Host "Then open Pullbay from the Start menu, or just download something in the browser."
+if ($portable) {
+    Write-Host "Then start $(Join-Path $release 'pullbay-gui.exe'), or just download something in the browser."
+} else {
+    Write-Host "Then open Pullbay from the Start menu, or just download something in the browser."
+}
