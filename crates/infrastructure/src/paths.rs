@@ -7,7 +7,8 @@
 //! |---|---|---|---|
 //! | settings, grabber projects ([`config_dir`]) | `%APPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `$XDG_CONFIG_HOME/pullbay` (`~/.config/pullbay`) |
 //! | list, token, quota, keys ([`data_dir`]) | `%LOCALAPPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `$XDG_DATA_HOME/pullbay` (`~/.local/share/pullbay`) |
-//! | logs ([`daemon_log`], [`host_log`], [`gui_log`], [`cli_log`]) | in [`data_dir`] | in [`data_dir`] | in [`data_dir`] |
+//! | logs ([`daemon_log`], [`host_log`], [`gui_log`], [`cli_log`], [`mcp_log`]) | in [`data_dir`] | in [`data_dir`] | in [`data_dir`] |
+//! | problem reports ([`reports_dir`]) | `reports` in [`data_dir`] | `reports` in [`data_dir`] | `reports` in [`data_dir`] |
 //! | window layout ([`window_dir`]) | `%LOCALAPPDATA%\Pullbay` | none | none |
 //! | sign-in entry ([`autostart_dir`]) | the registry | `~/Library/LaunchAgents` | `$XDG_CONFIG_HOME/autostart` |
 //!
@@ -253,6 +254,7 @@ const DAEMON_LOG: &str = "pullbay-daemon.log";
 const HOST_LOG: &str = "pullbay-host.log";
 const GUI_LOG: &str = "pullbay-gui.log";
 const CLI_LOG: &str = "pullbay-cli.log";
+const MCP_LOG: &str = "pullbay-mcp.log";
 
 /// This copy's settings and data folders under UIDM's name, each with the
 /// Pullbay folder it moves to: `(old, new)`. macOS has one pair, since both
@@ -317,6 +319,28 @@ pub fn gui_log() -> PathBuf {
 /// The command-line tool's log, beside the daemon's.
 pub fn cli_log() -> PathBuf {
     log_for(instance().as_deref(), CLI_LOG)
+}
+
+/// The AI assistants' server's log, beside the daemon's.
+pub fn mcp_log() -> PathBuf {
+    log_for(instance().as_deref(), MCP_LOG)
+}
+
+/// The problem reports (`crash`), in a `reports` folder in [`data_dir`],
+/// or in the temp folder when the data folder cannot be found.
+pub fn reports_dir() -> PathBuf {
+    log_for(instance().as_deref(), "reports")
+}
+
+/// The desktop and the session type (`x11`, `wayland`) on Linux, for a
+/// problem report: `XDG_CURRENT_DESKTOP` and `XDG_SESSION_TYPE`, read here
+/// since this is the one module that reads `XDG_*`. Elsewhere `None`.
+pub fn desktop_session() -> (Option<String>, Option<String>) {
+    if !cfg!(all(unix, not(target_os = "macos"))) {
+        return (None, None);
+    }
+    let var = |name: &str| std::env::var(name).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    (var("XDG_CURRENT_DESKTOP"), var("XDG_SESSION_TYPE"))
 }
 
 /// The Windows font folder, which the window's fonts come from. Elsewhere
@@ -517,6 +541,7 @@ mod tests {
         assert_eq!(log_for(None, HOST_LOG), local.join(r"Pullbay\pullbay-host.log"));
         assert_eq!(log_for(None, GUI_LOG), local.join(r"Pullbay\pullbay-gui.log"));
         assert_eq!(log_for(None, CLI_LOG), local.join(r"Pullbay\pullbay-cli.log"));
+        assert_eq!(log_for(None, MCP_LOG), local.join(r"Pullbay\pullbay-mcp.log"));
         assert_eq!(packages_dir().unwrap(), local.join("Packages"));
     }
 
@@ -543,6 +568,7 @@ mod tests {
         assert_eq!(log_for(None, HOST_LOG), support.join("Pullbay/pullbay-host.log"));
         assert_eq!(log_for(None, GUI_LOG), support.join("Pullbay/pullbay-gui.log"));
         assert_eq!(log_for(None, CLI_LOG), support.join("Pullbay/pullbay-cli.log"));
+        assert_eq!(log_for(None, MCP_LOG), support.join("Pullbay/pullbay-mcp.log"));
         assert_eq!(autostart_dir().unwrap(), home().join("Library/LaunchAgents"));
         assert_eq!(window_dir(), None);
         assert_eq!(root(Root::Local), Some(home()));
@@ -573,6 +599,7 @@ mod tests {
         assert_eq!(log_for(None, HOST_LOG), data.join("pullbay/pullbay-host.log"));
         assert_eq!(log_for(None, GUI_LOG), data.join("pullbay/pullbay-gui.log"));
         assert_eq!(log_for(None, CLI_LOG), data.join("pullbay/pullbay-cli.log"));
+        assert_eq!(log_for(None, MCP_LOG), data.join("pullbay/pullbay-mcp.log"));
         assert_eq!(autostart_dir().unwrap(), config.join("autostart"));
         assert_eq!(window_dir(), None);
         assert_eq!(root(Root::Roaming), Some(home()));

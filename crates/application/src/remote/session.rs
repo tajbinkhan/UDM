@@ -1,4 +1,4 @@
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
 use pullbay_domain::download::DownloadEntry;
@@ -131,6 +131,20 @@ impl<'a, C: DaemonClient + ?Sized> Session<'a, C> {
         }
     }
 
+    /// Skip what was heard since the last request, which nobody waits for
+    /// any more, for a session that stays open between requests. Fails when
+    /// the connection went meanwhile; nothing was sent on it then.
+    pub fn catch_up(&self) -> Result<(), RemoteError> {
+        loop {
+            match self.events.try_recv() {
+                Ok(Event::Lost(why)) => return Err(lost(why)),
+                Ok(_) => {}
+                Err(TryRecvError::Empty) => return Ok(()),
+                Err(TryRecvError::Disconnected) => return Err(RemoteError::Lost("the connection ended".into())),
+            }
+        }
+    }
+
     /// Send `command` and wait until the daemon has handled it, which a
     /// `Ping` after it shows: the daemon reads a client's requests in
     /// order. Returns what was heard meanwhile, or the daemon's refusal.
@@ -223,6 +237,17 @@ mod tests {
         assert_eq!(listing.queues[0].id, MAIN_QUEUE);
         assert!(listing.download(DownloadId::new(4)).is_ok());
         assert_eq!(listing.download(DownloadId::new(5)), Err(RemoteError::NoDownload(DownloadId::new(5))));
+    }
+
+    #[test]
+    fn catching_up_skips_what_nobody_asked_for_and_notices_a_lost_connection() {
+        let daemon = FakeDaemon::with_list(Vec::new());
+        let session = Session::open(&daemon, WAIT).unwrap();
+        daemon.tell(Event::Removed { id: DownloadId::new(3) });
+        assert_eq!(session.catch_up(), Ok(()));
+        assert!(session.list().is_ok());
+        daemon.tell(Event::Lost(Lost::Closed));
+        assert!(matches!(session.catch_up(), Err(RemoteError::Lost(_))));
     }
 
     #[test]

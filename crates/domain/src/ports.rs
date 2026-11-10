@@ -609,3 +609,28 @@ pub trait FileOpener: Send + Sync {
     /// are logged.
     fn reveal(&self, path: &str);
 }
+
+/// The problem reports Pullbay keeps in its data folder (see `report`),
+/// for the window to offer and to write when it sees a freeze. Nothing
+/// here sends anything anywhere.
+pub trait ProblemReports: Send + Sync {
+    /// This copy's version, the system and how it was installed. It looks
+    /// at the disk, so callers run it off the window's thread.
+    fn this_copy(&self) -> crate::report::ThisCopy;
+
+    /// The name of `program`'s log and its last [`crate::report::LOG_LINES`]
+    /// lines, scrubbed of secrets.
+    fn log_tail(&self, program: crate::report::Program) -> (String, Vec<String>);
+
+    /// Write `report` to the reports folder, scrubbing its texts first.
+    fn save(&self, report: &crate::report::Report) -> Result<crate::report::SavedReport, FilesError>;
+
+    /// Delete a report the user did not want kept.
+    fn delete(&self, report: &crate::report::SavedReport) -> Result<(), FilesError>;
+
+    /// The reports not yet offered to the user, oldest first.
+    fn unoffered(&self) -> Vec<crate::report::SavedReport>;
+
+    /// Remember that these reports were offered, so they are not again.
+    fn mark_offered(&self, reports: &[crate::report::SavedReport]);
+}

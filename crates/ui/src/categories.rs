@@ -137,6 +137,7 @@ pub fn show(
             let close = ui
                 .add_enabled(panel.connected, egui::Button::new("×").frame(false))
                 .on_hover_text(tr("Hide categories"));
+            crate::a11y::label(&close, tr("Hide categories"));
             if close.clicked() {
                 outcome.hide = true;
             }
@@ -151,91 +152,95 @@ pub fn show(
         names.push(GENERAL.to_string());
     }
 
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
-        for key in [ProgressKey::All, ProgressKey::Unfinished, ProgressKey::Finished] {
-            let progress = key.progress();
-            let (text, icon) = match key {
-                ProgressKey::All => (tr("All Downloads"), Icon::Folder),
-                ProgressKey::Unfinished => (tr("Unfinished"), Icon::Unfinished),
-                ProgressKey::Finished => (tr("Finished"), Icon::Finished),
-            };
-            let branch = Branch::Progress(key);
-            let open = tree.open.contains(&branch);
-            let here = Filter::Downloads { progress, category: None };
-            let r = row(ui, 0, Some(open), icon, text, *filter == here);
-            if r.toggle {
-                toggle(&mut tree.open, branch);
-            }
-            if r.pick {
-                *filter = here;
-            }
-            if open {
-                for name in &names {
-                    let here = Filter::Downloads { progress, category: Some(name.clone()) };
-                    let r = row(ui, 1, None, Icon::Category(kind(name)), name, *filter == here);
-                    if r.pick {
-                        *filter = here;
-                    }
+    let ctx = ui.ctx().clone();
+    let tree_id = ui.id().with("categories_tree");
+    crate::a11y::group(&ctx, tree_id, egui::accesskit::Role::Tree, tr("Categories"), || {
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for key in [ProgressKey::All, ProgressKey::Unfinished, ProgressKey::Finished] {
+                let progress = key.progress();
+                let (text, icon) = match key {
+                    ProgressKey::All => (tr("All Downloads"), Icon::Folder),
+                    ProgressKey::Unfinished => (tr("Unfinished"), Icon::Unfinished),
+                    ProgressKey::Finished => (tr("Finished"), Icon::Finished),
+                };
+                let branch = Branch::Progress(key);
+                let open = tree.open.contains(&branch);
+                let here = Filter::Downloads { progress, category: None };
+                let r = row(ui, 0, Some(open), icon, text, *filter == here);
+                if r.toggle {
+                    toggle(&mut tree.open, branch);
                 }
-            }
-        }
-
-        let open = tree.open.contains(&Branch::Grabber);
-        let expander = (!panel.projects.is_empty()).then_some(open);
-        let r = row(ui, 0, expander, Icon::Grabber, tr("Grabber projects"), false);
-        if r.toggle {
-            toggle(&mut tree.open, Branch::Grabber);
-        }
-        if r.pick && panel.projects.is_empty() {
-            actions.push(Action::OpenGrabber);
-        }
-        if open {
-            for name in panel.projects {
-                let r = row(ui, 1, None, Icon::Project, name, false);
-                if r.pick {
-                    actions.push(Action::OpenGrabProject(name.clone()));
-                }
-            }
-        }
-
-        let open = tree.open.contains(&Branch::Queues);
-        let r = row(ui, 0, Some(open), Icon::Folder, tr("Queues"), false);
-        if r.toggle || r.pick {
-            toggle(&mut tree.open, Branch::Queues);
-        }
-        r.response.context_menu(|ui| {
-            if ui.add_enabled(panel.connected, egui::Button::new(tr("Scheduler..."))).clicked() {
-                actions.push(Action::OpenQueues(None));
-                ui.close_menu();
-            }
-        });
-        if open {
-            for q in panel.queues {
-                let here = Filter::Queue(q.id);
-                let r = row(ui, 1, None, Icon::Queue(q.running), &q.name, *filter == here);
                 if r.pick {
                     *filter = here;
                 }
-                r.response.context_menu(|ui| {
-                    ui.add_enabled_ui(panel.connected, |ui| {
-                        if q.running {
-                            if ui.button(tr("Stop")).clicked() {
-                                actions.push(Action::StopQueue(q.id));
+                if open {
+                    for name in &names {
+                        let here = Filter::Downloads { progress, category: Some(name.clone()) };
+                        let r = row(ui, 1, None, Icon::Category(kind(name)), name, *filter == here);
+                        if r.pick {
+                            *filter = here;
+                        }
+                    }
+                }
+            }
+
+            let open = tree.open.contains(&Branch::Grabber);
+            let expander = (!panel.projects.is_empty()).then_some(open);
+            let r = row(ui, 0, expander, Icon::Grabber, tr("Grabber projects"), false);
+            if r.toggle {
+                toggle(&mut tree.open, Branch::Grabber);
+            }
+            if r.pick && panel.projects.is_empty() {
+                actions.push(Action::OpenGrabber);
+            }
+            if open {
+                for name in panel.projects {
+                    let r = row(ui, 1, None, Icon::Project, name, false);
+                    if r.pick {
+                        actions.push(Action::OpenGrabProject(name.clone()));
+                    }
+                }
+            }
+
+            let open = tree.open.contains(&Branch::Queues);
+            let r = row(ui, 0, Some(open), Icon::Folder, tr("Queues"), false);
+            if r.toggle || r.pick {
+                toggle(&mut tree.open, Branch::Queues);
+            }
+            r.response.context_menu(|ui| {
+                if ui.add_enabled(panel.connected, egui::Button::new(tr("Scheduler..."))).clicked() {
+                    actions.push(Action::OpenQueues(None));
+                    ui.close_menu();
+                }
+            });
+            if open {
+                for q in panel.queues {
+                    let here = Filter::Queue(q.id);
+                    let r = row(ui, 1, None, Icon::Queue(q.running), &q.name, *filter == here);
+                    if r.pick {
+                        *filter = here;
+                    }
+                    r.response.context_menu(|ui| {
+                        ui.add_enabled_ui(panel.connected, |ui| {
+                            if q.running {
+                                if ui.button(tr("Stop")).clicked() {
+                                    actions.push(Action::StopQueue(q.id));
+                                    ui.close_menu();
+                                }
+                            } else if ui.button(tr("Start")).clicked() {
+                                actions.push(Action::StartQueue(q.id));
                                 ui.close_menu();
                             }
-                        } else if ui.button(tr("Start")).clicked() {
-                            actions.push(Action::StartQueue(q.id));
-                            ui.close_menu();
-                        }
-                        if ui.button(tr("Edit queue...")).clicked() {
-                            actions.push(Action::OpenQueues(Some(q.id)));
-                            ui.close_menu();
-                        }
+                            if ui.button(tr("Edit queue...")).clicked() {
+                                actions.push(Action::OpenQueues(Some(q.id)));
+                                ui.close_menu();
+                            }
+                        });
                     });
-                });
+                }
             }
-        }
+        })
     });
     outcome
 }
@@ -289,7 +294,23 @@ fn row(ui: &mut egui::Ui, depth: usize, expander: Option<bool>, icon: Icon, text
         painter.add(Shape::line(points, Stroke::new(1.2_f32, visuals.weak_text_color())));
     }
     draw_icon(&painter, icon, icon_rect);
-    let toggle = expander.is_some() && ((response.clicked() && on_arrow) || response.double_clicked());
+    crate::a11y::describe(&response, egui::accesskit::Role::TreeItem, text, |node| {
+        node.set_selected(selected);
+        if let Some(open) = expander {
+            node.set_expanded(open);
+        }
+    });
+    // Right opens a branch and Left closes it, as in Explorer's tree,
+    // instead of moving the focus sideways.
+    let mut key_toggle = false;
+    if let Some(open) = expander.filter(|_| response.has_focus()) {
+        ui.memory_mut(|m| {
+            m.set_focus_lock_filter(response.id, egui::EventFilter { horizontal_arrows: true, ..Default::default() });
+        });
+        let (right, left) = ui.input(|i| (i.key_pressed(egui::Key::ArrowRight), i.key_pressed(egui::Key::ArrowLeft)));
+        key_toggle = (right && !open) || (left && open);
+    }
+    let toggle = expander.is_some() && ((response.clicked() && on_arrow) || response.double_clicked() || key_toggle);
     Row { pick: response.clicked() && !(expander.is_some() && on_arrow), toggle, response }
 }
 

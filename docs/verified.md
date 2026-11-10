@@ -1,5 +1,26 @@
 # Verified
 
+- Screen readers and the keyboard (#252). AccessKit was already on through
+  eframe's default features; it is now named in `crates/ui/Cargo.toml`, and
+  Cargo.lock is unchanged. Unit tests cover what a row reads (name, status,
+  progress, speed, time left, why it failed), where Up, Down, Page Up, Page
+  Down, Home and End land, and, on a headless egui context, that the keys
+  select rows with the focus following, Shift extends and Ctrl moves the
+  focus alone, Space selects, and Shift+F10 opens the row's menu with the
+  focus in it and Escape gives it back. A test checks that
+  `docs/keyboard-shortcuts.md` names every key the window's code answers.
+  On Linux, a named copy ran on a private session bus with its own AT-SPI
+  bus (no setting of the real session changed), and the tree read through
+  AT-SPI named the window, every menu and toolbar button, the categories
+  as a tree, the list as a list box with each row read as its name,
+  status, progress and failure, the column headers, and the column and
+  panel grips; nothing that takes the focus was left unnamed. Moving the
+  focus through AT-SPI was accepted but could not be seen, since the window
+  was not in front. Orca itself was not run, keys were not typed into the
+  real window, and the focus ring was not looked at on screen. Narrator,
+  NVDA and VoiceOver were not tried; the Windows and macOS code was linted
+  from Linux only.
+
 - Fault injection and the benchmark harness (#270). The engine's test server
   drops connections, limits connections per client, starts slowly, answers
   wrong ranges and limits speed; engine tests against it check that dropped
@@ -28,6 +49,24 @@
   fit the screen with Save in view, and a broken theme file was reported
   under the Theme list. Windows' contrast colors were linted from Linux but
   not run there, and macOS was linted only.
+
+- The MCP server for AI assistants (#255). Use case tests run each tool's
+  request against a pretend daemon (one connection kept between requests,
+  opened again when it went between them, a request that lost it failed,
+  files kept unless deleting them was asked for). Protocol tests feed
+  JSON-RPC lines through the server: the handshake and version choice, the
+  tool list and its schemas and hints, each tool's arguments and results,
+  wrong arguments as the tool's error, refusals, JSON-RPC errors and
+  batches. A daemon test runs `add_download` (now, into a folder, and into
+  the main queue), `list_downloads` with a status, `remove_download` and a
+  refused `pause_download` through the server on the real service and
+  engine against a local server. On Linux, the built `pullbay-mcp`, fed
+  `initialize`, `tools/list` and tool calls on standard input, started a
+  named copy's daemon, downloaded a file from a local server, queued another
+  in the main queue, listed them, refused to pause a finished one, removed
+  one keeping its file, refused an unknown queue and a `file://` address,
+  and exited when its input closed. It was not tried in a real assistant,
+  and the Windows and macOS code was linted from Linux but not run there.
 
 - The command-line tool and the automation API (#256). Use case tests run
   each `pullbay-cli` command against a pretend daemon; daemon tests run

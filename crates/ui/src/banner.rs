@@ -1,12 +1,16 @@
 //! Strips under the toolbar for what the window has to say: the daemon
 //! connection when it is not up, the last error, notices, the download
-//! quota, a newer release and a download waiting for a new link. Each is
+//! quota, a newer release, a download waiting for a new link and a problem
+//! to report. Each is
 //! shown only while it applies, and its text wraps so its buttons stay in
 //! view. Pullbay's window has no status bar; this is where its messages went.
 
 use eframe::egui::{self, Color32};
 
+use pullbay_domain::report::{Kind, Program};
+
 use crate::i18n::{tr, trf};
+use crate::state::ReportOffer;
 use crate::Action;
 
 /// The connection to the daemon, as the strip shows it.
@@ -39,6 +43,8 @@ pub struct Notes<'a> {
     /// The speed limit is lifted while nobody uses the computer.
     pub limit_lifted: bool,
     pub release: Option<Release<'a>>,
+    /// The problem report on offer first.
+    pub report: Option<&'a ReportOffer>,
 }
 
 impl Notes<'_> {
@@ -51,6 +57,7 @@ impl Notes<'_> {
             || self.quota.is_some()
             || self.limit_lifted
             || self.release.is_some()
+            || self.report.is_some()
     }
 }
 
@@ -106,6 +113,9 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
             }
         });
     }
+    if let Some(offer) = notes.report {
+        report(ui, offer, actions);
+    }
     if let Some(quota) = notes.quota {
         strip(ui, Tone::Warn, |ui| {
             ui.label(quota);
@@ -147,6 +157,76 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
     dismissed
 }
 
+/// The strip for a problem to report. Each button acts on the first offer.
+fn report(ui: &mut egui::Ui, offer: &ReportOffer, actions: &mut Vec<Action>) {
+    let save = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
+        if ui
+            .button(tr("Save a report"))
+            .on_hover_text(tr("Write a report with the version, the system and the end of the log to Pullbay's data folder. Nothing is sent."))
+            .clicked()
+        {
+            actions.push(Action::SaveReport);
+        }
+    };
+    match offer {
+        ReportOffer::Froze { secs, .. } => strip(ui, Tone::Warn, |ui| {
+            ui.label(trf!("The window stopped responding for {seconds} seconds.", seconds = secs));
+            save(ui, actions);
+            if close(ui) {
+                actions.push(Action::DismissReport);
+            }
+        }),
+        ReportOffer::Silent { secs } => strip(ui, Tone::Warn, |ui| {
+            ui.label(trf!("The Pullbay daemon has not answered for {seconds} seconds.", seconds = secs));
+            save(ui, actions);
+            if ui.button(tr("Restart daemon")).clicked() {
+                actions.push(Action::RestartDaemon);
+            }
+            if close(ui) {
+                actions.push(Action::DismissReport);
+            }
+        }),
+        ReportOffer::Saving => strip(ui, Tone::Info, |ui| {
+            ui.spinner();
+            ui.label(tr("Saving the report..."));
+        }),
+        ReportOffer::Saved { report, earlier, more } => strip(ui, Tone::Info, |ui| {
+            ui.label(match (earlier, report.summary.kind, report.summary.program) {
+                (true, Kind::Crash, Program::Window) => {
+                    tr("The Pullbay window closed unexpectedly and saved a report.")
+                }
+                (true, Kind::Crash, Program::Daemon) => {
+                    tr("The Pullbay daemon closed unexpectedly and saved a report.")
+                }
+                (true, Kind::Crash, Program::Host) => {
+                    tr("Pullbay's browser connection closed unexpectedly and saved a report.")
+                }
+                (true, Kind::Crash, Program::Cli) => {
+                    tr("The Pullbay command-line tool closed unexpectedly and saved a report.")
+                }
+                (true, ..) => tr("Pullbay saved a report on a problem it saw earlier."),
+                (false, ..) => tr("The report is saved."),
+            });
+            if *more > 0 {
+                ui.label(trf!("{count} more are in the same folder.", count = more));
+            }
+            if ui
+                .button(tr("Open an issue"))
+                .on_hover_text(tr("Open a new issue on GitHub in your browser with the version and system filled in, and show the report file to attach to it. Nothing is sent until you submit the issue."))
+                .clicked()
+            {
+                actions.push(Action::OpenIssue);
+            }
+            if ui.button(tr("Show the report")).clicked() {
+                actions.push(Action::ShowReport);
+            }
+            if close(ui) {
+                actions.push(Action::DismissReport);
+            }
+        }),
+    }
+}
+
 /// One strip: a tinted band whose contents wrap.
 fn strip(ui: &mut egui::Ui, tone: Tone, add: impl FnOnce(&mut egui::Ui)) {
     let visuals = ui.visuals();
@@ -168,7 +248,9 @@ fn strip(ui: &mut egui::Ui, tone: Tone, add: impl FnOnce(&mut egui::Ui)) {
 
 /// A small close box; true when clicked.
 fn close(ui: &mut egui::Ui) -> bool {
-    ui.add(egui::Button::new("×").frame(false)).on_hover_text(tr("Close")).clicked()
+    let close = ui.add(egui::Button::new("×").frame(false)).on_hover_text(tr("Close"));
+    crate::a11y::label(&close, tr("Close"));
+    close.clicked()
 }
 
 /// `a` moved `t` of the way to `b`.

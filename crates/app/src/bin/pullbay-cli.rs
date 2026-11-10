@@ -33,6 +33,8 @@ fn main() {
     // Before the log, which would make Pullbay's data folder first.
     let moved = infra::from_uidm::move_from_uidm();
     infra::logging::init(infra::logging::Program::Cli);
+    // A panic leaves a report in the data folder (`crash`).
+    infra::crash::install(infra::logging::Program::Cli);
     moved.log();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();

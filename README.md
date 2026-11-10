@@ -144,6 +144,9 @@ and half-finished downloads move over on the first start ([more](docs/install.md
 - **Works from scripts too**: `pullbay-gui` takes IDM's command-line switches, `pullbay-cli`
   downloads, lists and controls downloads from a terminal with exit codes scripts can test, and
   programs talk to Pullbay through a documented, versioned API ([how](docs/command-line.md)).
+- **Works with AI assistants**: `pullbay-mcp` is an MCP server, so Claude, Cursor or VS Code can
+  list, add, pause, resume and remove downloads and start queues for you
+  ([setup](docs/ai-assistants.md)).
 - **Day and dark mode**, text from 80 % to 150 %, a tray icon for light or dark taskbars, and
   four languages.
 - **No ads, no trial, no account**. Free and open source.
@@ -179,6 +182,7 @@ itself to the daemon with a secret only your user can read
 | [Install](docs/install.md) | Every system's files, the browser extension, ffmpeg and yt-dlp, updates, uninstalling |
 | [Using Pullbay](docs/using-pullbay.md) | The window, the save-as dialog, categories, queues, the tray, the download window, Options |
 | [Command line and automation](docs/command-line.md) | IDM's switches, the `pullbay-cli` tool, sending links from other programs, the automation API |
+| [AI assistants (MCP)](docs/ai-assistants.md) | Setting up `pullbay-mcp` for Claude Desktop, Claude Code, Cursor and VS Code |
 | [What the extension takes](docs/browser-capture.md) | Which browser downloads go to Pullbay, and which stay with the browser |
 | [Streams, batches and the site grabber](docs/streams-batches-and-grabber.md) | Videos, subtitles, numbered batches, crawling a site |
 | [Queues and the scheduler](docs/queues-and-scheduler.md) | Running downloads by the clock, and what happens when they're done |

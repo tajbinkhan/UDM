@@ -114,7 +114,8 @@ Daemon to clients:
 `api` in the daemon's `hello` is the automation API's version; daemons
 older than the API leave it out. `connections` on an `add` is how many connections
 that download opens (brought into 1 to 16) instead of the setting's, and is
-kept for its retries. `pullbay-cli` names itself `client: "pullbay-cli"`.
+kept for its retries. `pullbay-cli` names itself `client: "pullbay-cli"`, and
+`pullbay-mcp` `client: "pullbay-mcp"`.
 
 `command_line` is what `pullbay-gui` sends for its switches. With a window
 open the daemon runs it at once and answers `window_open: true`; otherwise

@@ -16,6 +16,8 @@ pub const GRABBER: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/
 /// The first steps: opening the window, sending downloads from the browser,
 /// and the toolbar, menus and options from there.
 pub const TUTORIALS: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/using-pullbay.md";
+/// Every key the window answers.
+pub const KEYS: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/keyboard-shortcuts.md";
 /// Pullbay's home page.
 pub const HOME: &str = "https://github.com/tajbinkhan/pullbay";
 /// Where to report a problem or ask for help.
@@ -81,9 +83,75 @@ mod tests {
     #[test]
     fn every_help_link_names_a_help_page() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        for link in [MANUAL, SCHEDULER, GRABBER, TUTORIALS, CAPTURE] {
+        for link in [MANUAL, SCHEDULER, GRABBER, TUTORIALS, CAPTURE, KEYS] {
             let page = link.strip_prefix("https://github.com/tajbinkhan/pullbay/blob/main/").unwrap();
             assert!(root.join(page).is_file(), "no help page {page}");
+        }
+    }
+
+    /// How docs/keyboard-shortcuts.md writes an `egui::Key`.
+    fn spelled(key: &str) -> String {
+        match key {
+            "ArrowUp" => "Up".into(),
+            "ArrowDown" => "Down".into(),
+            "ArrowLeft" => "Left".into(),
+            "ArrowRight" => "Right".into(),
+            "PageUp" => "Page Up".into(),
+            "PageDown" => "Page Down".into(),
+            other => other.into(),
+        }
+    }
+
+    /// The keys docs/keyboard-shortcuts.md names: the last key of each
+    /// `chord` in backquotes.
+    fn documented() -> std::collections::BTreeSet<String> {
+        let page = include_str!("../../../docs/keyboard-shortcuts.md");
+        page.split('`').skip(1).step_by(2).filter_map(|chord| chord.rsplit('+').next()).map(str::to_string).collect()
+    }
+
+    #[test]
+    fn the_shortcuts_page_lists_every_key_the_window_answers() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let documented = documented();
+        let mut missing = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).unwrap();
+            for (at, _) in source.match_indices("Key::") {
+                // `egui::Key::F3`, not `ProgressKey::All`.
+                if source[..at].ends_with(|c: char| c.is_alphanumeric()) {
+                    continue;
+                }
+                let key: String = source[at + 5..].chars().take_while(|c| c.is_alphanumeric()).collect();
+                if !key.is_empty() && !documented.contains(&spelled(&key)) {
+                    missing.push(format!("{}: {key}", path.display()));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "docs/keyboard-shortcuts.md lacks {missing:?}");
+    }
+
+    #[test]
+    fn the_shortcuts_page_names_only_real_keys() {
+        // Modifiers, and keys egui, a text box or the system answers, which
+        // the window's own code does not name.
+        const BUILT_IN: [&str; 10] = ["Ctrl", "Tab", "Alt", "Plus", "Minus", "0", "C", "X", "V", "Z"];
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let sources: String = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "rs"))
+            .map(|p| std::fs::read_to_string(p).unwrap())
+            .collect();
+        for key in documented() {
+            let named = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"]
+                .into_iter()
+                .chain(std::iter::once(key.as_str()))
+                .any(|k| spelled(k) == key && sources.contains(&format!("Key::{k}")));
+            assert!(named || BUILT_IN.contains(&key.as_str()), "docs/keyboard-shortcuts.md names {key:?}");
         }
     }
 }

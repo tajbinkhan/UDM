@@ -20,15 +20,18 @@ downloading after the program that asked has exited.
 
 | | Programs |
 |---|---|
-| Windows (Setup) | `%LOCALAPPDATA%\Programs\Pullbay\` (`pullbay-gui.exe`, `pullbay-cli.exe`, `pullbay-host.exe`) |
+| Windows (Setup) | `%LOCALAPPDATA%\Programs\Pullbay\` (`pullbay-gui.exe`, `pullbay-cli.exe`, `pullbay-mcp.exe`, `pullbay-host.exe`) |
 | Windows (portable zip) | the copy's `target\release\` folder |
 | macOS | `/Applications/Pullbay.app/Contents/MacOS/` |
-| Linux (.deb, .rpm) | `pullbay` (the window) and `pullbay-cli` are on the `PATH`; the rest are in `/usr/lib/pullbay/` |
-| Linux (tar, `install.sh`) | `pullbay` and `pullbay-cli` in `~/.local/bin`; the rest in `~/.local/lib/pullbay/` |
-| Linux (AppImage) | `Pullbay.AppImage pullbay-cli ...`, `Pullbay.AppImage pullbay-host ...`; `Pullbay.AppImage /d URL` for the switches |
+| Linux (.deb, .rpm) | `pullbay` (the window), `pullbay-cli` and `pullbay-mcp` are on the `PATH`; the rest are in `/usr/lib/pullbay/` |
+| Linux (tar, `install.sh`) | `pullbay`, `pullbay-cli` and `pullbay-mcp` in `~/.local/bin`; the rest in `~/.local/lib/pullbay/` |
+| Linux (AppImage) | `Pullbay.AppImage pullbay-cli ...`, `Pullbay.AppImage pullbay-mcp`, `Pullbay.AppImage pullbay-host ...`; `Pullbay.AppImage /d URL` for the switches |
 
 Setup does not add Pullbay's folder to the `PATH`. Call the programs by their full path, or add
 the folder yourself.
+
+`pullbay-mcp` is for AI assistants, which start it themselves; see
+[AI assistants (MCP)](ai-assistants.md).
 
 ## IDM's switches
 

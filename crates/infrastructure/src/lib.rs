@@ -27,6 +27,7 @@
 //! - `update`: checking GitHub for a newer release.
 //! - `package`: keeping the daemon out of an app package's copy of AppData.
 //! - `logging`: each program's log file in the data folder.
+//! - `crash`: problem reports: the panic hook and the reports folder.
 //! - `pickers`: the system's file and folder dialogs, for the window.
 //! - `server`: the daemon's listening socket, its clients and their handshake.
 //! - `wire`: mapping the wire messages to and from the application's commands and events.
@@ -34,6 +35,8 @@
 //!   `SiteCrawler` adapters (asking servers, the browser extension, and
 //!   crawling for the site grabber).
 //! - `tool`: `pullbay-cli`'s command line, what it prints and its exit codes.
+//! - `mcp`: `pullbay-mcp`'s Model Context Protocol server over standard
+//!   input and output, and its tools.
 //! - `background`: the daemon's background threads (scheduler, history
 //!   writer, notifications, awake keeper, idle exit).
 
@@ -50,6 +53,7 @@ pub mod cli;
 pub mod clock;
 pub mod connect;
 pub mod conversions;
+pub mod crash;
 pub mod crawler;
 pub mod daemon_client;
 pub mod dpapi;
@@ -66,6 +70,7 @@ pub mod ipc;
 pub mod listfile;
 pub mod live_settings;
 pub mod logging;
+pub mod mcp;
 pub mod media;
 pub mod net;
 pub mod notify;

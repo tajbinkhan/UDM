@@ -179,9 +179,12 @@ pub fn install(
             let _ = done.send(Err(TrayError::Gtk(e.to_string())));
             return;
         }
-        // tray-icon panics when no AppIndicator library can be loaded.
-        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(rgba, size, on_command, tooltip)))
-            .unwrap_or(Err(TrayError::NoIndicator));
+        // tray-icon panics when no AppIndicator library can be loaded. That
+        // panic is expected, so it leaves no problem report.
+        let built = pullbay_domain::report::expecting_panic(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(rgba, size, on_command, tooltip)))
+        })
+        .unwrap_or(Err(TrayError::NoIndicator));
         let ok = built.is_ok();
         let _ = done.send(built);
         if ok {

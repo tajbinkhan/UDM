@@ -56,6 +56,8 @@ pub enum Command {
     ToggleDarkMode,
     Language(&'static str),
     Help(&'static str),
+    /// Help > Report a problem: a new issue with this copy filled in.
+    ReportProblem,
     Tip,
     CheckUpdate,
     About,
@@ -275,10 +277,12 @@ pub fn model(s: &State) -> Vec<Node> {
         item(tr("&Scheduler and queues"), Command::Help(crate::help::SCHEDULER), true),
         item(tr("&Grabber Help"), Command::Help(crate::help::GRABBER), true),
         item(tr("&Tutorials"), Command::Help(crate::help::TUTORIALS), true),
+        item(tr("&Keyboard shortcuts"), Command::Help(crate::help::KEYS), true),
         item(tr("Tip of the &Day..."), Command::Tip, true),
         Node::Separator,
         item(tr("Pullbay &Home Page"), Command::Help(crate::help::HOME), true),
         item(tr("&Contact Support"), Command::Help(crate::help::SUPPORT), true),
+        item(tr("&Report a problem..."), Command::ReportProblem, true),
         Node::Separator,
         item(tr("Check for &updates..."), Command::CheckUpdate, on),
         Node::Separator,
@@ -444,7 +448,7 @@ pub fn show(ui: &mut egui::Ui, state: &State) -> Option<Command> {
     fn plain(text: &str) -> String {
         text.replace('&', "")
     }
-    fn draw(ui: &mut egui::Ui, nodes: &[Node], chosen: &mut Option<Command>) {
+    fn draw(ui: &mut egui::Ui, nodes: &[Node], chosen: &mut Option<Command>, first: &std::cell::Cell<bool>) {
         for node in nodes {
             match node {
                 Node::Separator => {
@@ -465,12 +469,19 @@ pub fn show(ui: &mut egui::Ui, state: &State) -> Option<Command> {
                     }
                 }
                 Node::Menu { text, children } => {
-                    ui.menu_button(plain(text), |ui| draw(ui, children, chosen));
+                    let is_first = first.take();
+                    let menu = ui.menu_button(plain(text), |ui| draw(ui, children, chosen, first));
+                    // F10 moves the focus to the first menu, as it goes to a
+                    // native menu bar.
+                    if is_first && ui.input(|i| i.key_pressed(egui::Key::F10) && !i.modifiers.shift) {
+                        menu.response.request_focus();
+                    }
                 }
             }
         }
     }
     let mut chosen = None;
-    egui::menu::bar(ui, |ui| draw(ui, &model(state), &mut chosen));
+    let first = std::cell::Cell::new(true);
+    egui::menu::bar(ui, |ui| draw(ui, &model(state), &mut chosen, &first));
     chosen
 }

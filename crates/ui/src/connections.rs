@@ -99,7 +99,16 @@ pub fn details(ui: &mut egui::Ui, id: DownloadId, e: &DownloadEntry, segments: O
 /// One bar for the whole file: each range drawn where it sits, its fetched
 /// part filled, with a thin gap between ranges.
 fn bar(ui: &mut egui::Ui, segments: &[SegmentInfo], total: ByteCount) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(480.0, 20.0), egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(480.0, 20.0), egui::Sense::hover());
+    let done: ByteCount = segments.iter().map(|s| s.done).fold(ByteCount::ZERO, |a, b| a + b);
+    crate::a11y::describe(
+        &response,
+        egui::accesskit::Role::ProgressIndicator,
+        tr("Each connection's part of the file"),
+        |node| {
+            node.set_numeric_value((done.as_f64() / total.as_f64().max(1.0) * 100.0).floor().min(100.0));
+        },
+    );
     let painter = ui.painter_at(rect);
     let visuals = ui.visuals();
     painter.rect_filled(rect, 3.0, visuals.extreme_bg_color);

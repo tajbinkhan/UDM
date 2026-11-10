@@ -19,7 +19,8 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
   notifications, plays the sounds and runs the virus scans, since it is the
   one process running whenever a download ends. Its log is
   `pullbay-daemon.log` in the data folder, beside the host's `pullbay-host.log`,
-  the window's `pullbay-gui.log` and the command-line tool's `pullbay-cli.log`.
+  the window's `pullbay-gui.log`, the command-line tool's `pullbay-cli.log` and the AI
+  assistants' server's `pullbay-mcp.log`.
   A log over 5 MB moves to `.old` when the daemon starts and then once an hour. Passwords in addresses are hidden
   as `***`. It keeps its files in two folders:
 
@@ -54,6 +55,13 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
   `pullbay-cli`, does one thing (add a download and follow its events, list,
   pause, resume, remove, start or stop a queue) and exits; see
   [Command line and automation](command-line.md).
+- **`pullbay-mcp`** is the server AI assistants start (Claude Desktop, Claude
+  Code, Cursor, VS Code). It speaks the Model Context Protocol, JSON-RPC one
+  message a line, on its standard input and output, and is another daemon
+  client: it connects at the first tool call, says `hello` as `pullbay-mcp`,
+  keeps the connection for the next calls (connecting again if the daemon
+  went) and turns each tool call into the same requests `pullbay-cli` makes;
+  see [AI assistants (MCP)](ai-assistants.md).
 - **The extension** keeps one native-messaging port open, reconnecting with
   backoff (1 s doubling to 30 s) if Pullbay goes away.
 

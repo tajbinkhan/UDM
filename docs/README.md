@@ -18,8 +18,12 @@ These pages were the README's manual. Each covers one part of Pullbay.
   tray, the download window, the video button, adding many links and Options.
 - **[Themes and interface size](themes.md)**: the built-in themes, high contrast, an interface
   up to 200%, and making a theme of your own.
+- **[Keyboard shortcuts](keyboard-shortcuts.md)**: every key the window answers, and what a
+  screen reader reads in the download list.
 - **[Command line and automation](command-line.md)**: IDM's switches, the `pullbay-cli` tool,
   sending links from other programs, and the automation API for programs of your own.
+- **[AI assistants (MCP)](ai-assistants.md)**: letting Claude Desktop, Claude Code, Cursor or VS
+  Code list, add, pause, resume and remove downloads through `pullbay-mcp`.
 
 ## Downloading
 
@@ -52,4 +56,6 @@ These pages were the README's manual. Each covers one part of Pullbay.
 - **[Benchmark](bench/README.md)**: the harness that times Pullbay against IDM and other download
   managers on servers that misbehave, and its results (none against IDM yet).
 - **[Releases](https://github.com/tajbinkhan/pullbay/releases)**: download the latest version.
+- **[Problem reports](problem-reports.md)**: what Pullbay writes down when a program crashes or
+  freezes, where it keeps it, and Help > Report a problem.
 - **[Report a problem](https://github.com/tajbinkhan/pullbay/issues)**: or ask a question.

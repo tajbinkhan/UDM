@@ -3,7 +3,7 @@
 //!
 //! The files sit in the data folder ([`crate::paths::daemon_log`],
 //! [`crate::paths::host_log`], [`crate::paths::gui_log`],
-//! [`crate::paths::cli_log`]). Every event opens
+//! [`crate::paths::cli_log`], [`crate::paths::mcp_log`]). Every event opens
 //! its file for appending, writes its line in one write and closes it again,
 //! so:
 //!
@@ -84,6 +84,8 @@ pub enum Program {
     Gui,
     /// `pullbay-cli`.
     Cli,
+    /// `pullbay-mcp`, whose standard output is the protocol's.
+    Mcp,
 }
 
 impl Program {
@@ -94,6 +96,7 @@ impl Program {
             Program::Host => crate::paths::host_log(),
             Program::Gui => crate::paths::gui_log(),
             Program::Cli => crate::paths::cli_log(),
+            Program::Mcp => crate::paths::mcp_log(),
         }
     }
 }
@@ -117,7 +120,7 @@ pub fn init(program: Program) {
 /// Move every program's log aside once it is larger than [`MAX_BYTES`].
 /// Only the daemon calls this, once it holds the single-instance lock.
 pub fn trim() {
-    for program in [Program::Daemon, Program::Host, Program::Gui, Program::Cli] {
+    for program in [Program::Daemon, Program::Host, Program::Gui, Program::Cli, Program::Mcp] {
         let path = program.log_path();
         if let Err(e) = trim_file(&path, MAX_BYTES) {
             if e.kind() != io::ErrorKind::NotFound {
