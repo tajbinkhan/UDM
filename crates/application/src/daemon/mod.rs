@@ -22,8 +22,9 @@ use pullbay_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
 };
 use pullbay_domain::grab::{GrabFile, GrabRequest};
-use pullbay_domain::id::{DeviceId, DownloadId, QueueId};
+use pullbay_domain::id::{DeviceId, DownloadId, PackageId, QueueId};
 use pullbay_domain::media::{MediaInfo, Target};
+use pullbay_domain::package::{Package, Packaging, Password};
 use pullbay_domain::pairing::RemoteState;
 use pullbay_domain::queue::{Queue, WhenDone};
 use pullbay_domain::quota::QuotaNotice;
@@ -102,10 +103,22 @@ pub enum Command {
     /// A download to hand off to the engine.
     Add(Download),
     /// Many downloads at once, each added to wait in `queue` (the main
-    /// queue when `None`) without starting. Answered with `AddedMany`.
+    /// queue when `None`) without starting, and kept as packages as
+    /// `packaging` says. Answered with `AddedMany`.
     AddMany {
         items: Vec<Download>,
         queue: Option<QueueId>,
+        packaging: Packaging,
+    },
+    /// Unpack a package's archives, with `password` for encrypted ones. Its
+    /// state comes back in `Packages`.
+    UnpackPackage {
+        id: PackageId,
+        password: Option<Password>,
+    },
+    /// Stop keeping a package; its downloads stay in the list.
+    UngroupPackage {
+        id: PackageId,
     },
     /// Crawl a site for files; progress comes as `GrabProgress` and the
     /// result as `GrabDone`.
@@ -365,6 +378,10 @@ pub enum Event {
     /// Every queue, the main queue first.
     Queues {
         items: Vec<Queue>,
+    },
+    /// Every package, oldest first.
+    Packages {
+        items: Vec<Package>,
     },
     /// The computer sleeps, hibernates or shuts down in `seconds` unless
     /// canceled. `queue` is empty and `file` names the download when one

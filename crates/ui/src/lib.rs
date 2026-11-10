@@ -50,6 +50,7 @@ mod ports;
 
 pub use errors::UiError;
 pub use ports::Ports;
+mod packages;
 mod progress;
 mod properties;
 mod queues;
@@ -70,7 +71,8 @@ mod win;
 mod win;
 
 use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::id::{DownloadId, PackageId, QueueId};
+use pullbay_domain::package::{Packaging, Password};
 use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -93,9 +95,9 @@ use pullbay_domain::report::{Kind, Program, ThisCopy};
 use pullbay_domain::settings::Sound;
 use pullbay_domain::settings::{
     parse_extensions, CaptureKey, Category, Duplicate, FileExists, Notify, PanelView, ProgressTab, ProxyMode, Scanner,
-    SelectionButton, ServerLimit, Settings, SiteLogin, SocksVersion, BROWSER_MENU_ITEMS, CAPTURE_MIN_SIZE_MAX_KB,
-    CONNECTIONS_RANGE, GENERAL, IDLE_MINUTES_RANGE, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE, SERVER_CONNECTIONS_RANGE,
-    SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
+    SelectionButton, ServerLimit, Settings, SiteLogin, SocksVersion, UnpackTo, BROWSER_MENU_ITEMS,
+    CAPTURE_MIN_SIZE_MAX_KB, CONNECTIONS_RANGE, GENERAL, IDLE_MINUTES_RANGE, MAX_CONCURRENT_RANGE, QUOTA_HOURS_RANGE,
+    SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE, USER_AGENT_PRESETS,
 };
 #[cfg(windows)]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -358,6 +360,14 @@ enum Action {
     OpenConvert(DownloadId),
     /// Compare a finished download's file with a checksum.
     OpenVerify(DownloadId),
+    /// Unpack a package's archives, with a password for encrypted ones.
+    UnpackPackage(PackageId, Option<Password>),
+    /// Ask for the password of a package's archives.
+    AskPackagePassword(PackageId),
+    /// Stop keeping a package; its downloads stay in the list.
+    UngroupPackage(PackageId),
+    /// Open a folder in the file manager.
+    OpenFolder(String),
     /// Convert a finished video, and maybe delete the original.
     Convert(DownloadId, pullbay_domain::media::Target, bool),
     OpenAbout,
@@ -433,6 +443,8 @@ enum Action {
         items: Vec<Download>,
         queue: QueueId,
         start_queue: bool,
+        /// Whether they are kept as packages.
+        packaging: Packaging,
     },
     OpenBatch,
     /// Open the Batch dialog with every link on the clipboard.
@@ -502,6 +514,8 @@ struct App {
     add_dialog: Option<addurl::AddDialog>,
     /// The open Verify checksum dialogs, one per download.
     verify: Vec<verify::VerifyDialog>,
+    /// The password dialog for a package's archives, while it is open.
+    package_password: Option<packages::PasswordDialog>,
     /// The Options dialog, while it is open.
     options: Option<OptionsDraft>,
     /// The save-as dialog for the oldest `confirming` download.
@@ -794,7 +808,7 @@ type FfmpegLookup = (String, Option<PathBuf>);
 /// A batch's questions, worked out on a worker: the prompt, or the
 /// downloads when nothing needs asking; then their queue and whether to
 /// start it.
-type AskedBatch = (Result<answers::Prompt, Vec<Download>>, QueueId, bool);
+type AskedBatch = (Result<answers::Prompt, Vec<Download>>, QueueId, bool, Packaging);
 
 /// What Save's worker did: each registration it made (the browser and
 /// whether it is now registered), and the settings to send, or why not.
@@ -1028,6 +1042,17 @@ struct OptionsDraft {
     /// thread found for it.
     ffmpeg_asked: Option<String>,
     ffmpeg_found: Arc<Mutex<Option<FfmpegLookup>>>,
+    /// Unpacking packages: on its own, where to, the archives afterwards.
+    unpack_auto: bool,
+    unpack_to: UnpackTo,
+    unpack_folder: String,
+    unpack_folder_picked: Picked,
+    unpack_recycle: bool,
+    seven_zip_path: String,
+    seven_zip_picked: Picked,
+    /// The 7-Zip field as it was last looked up, and what the worker found.
+    seven_zip_asked: Option<String>,
+    seven_zip_found: Arc<Mutex<Option<FfmpegLookup>>>,
     confirm_remove: bool,
     remove_deletes_files: bool,
     server_file_date: bool,
@@ -1248,6 +1273,15 @@ impl OptionsDraft {
             ffmpeg_picked: Picked::default(),
             ffmpeg_asked: None,
             ffmpeg_found: Arc::default(),
+            unpack_auto: s.unpack_auto,
+            unpack_to: s.unpack_to,
+            unpack_folder: s.unpack_folder.clone(),
+            unpack_folder_picked: Picked::default(),
+            unpack_recycle: s.unpack_recycle,
+            seven_zip_path: s.seven_zip_path.clone(),
+            seven_zip_picked: Picked::default(),
+            seven_zip_asked: None,
+            seven_zip_found: Arc::default(),
             confirm_remove: s.confirm_remove,
             remove_deletes_files: s.remove_deletes_files,
             server_file_date: s.server_file_date,
@@ -1425,6 +1459,11 @@ impl OptionsDraft {
             },
             video_button_excluded_sites: sites(&self.video_button_excluded_sites),
             ffmpeg_path: self.ffmpeg_path.trim().to_string(),
+            seven_zip_path: self.seven_zip_path.trim().to_string(),
+            unpack_auto: self.unpack_auto,
+            unpack_to: self.unpack_to,
+            unpack_folder: self.unpack_folder.trim().to_string(),
+            unpack_recycle: self.unpack_recycle,
             confirm_remove: self.confirm_remove,
             remove_deletes_files: self.remove_deletes_files,
             server_file_date: self.server_file_date,
@@ -1604,6 +1643,7 @@ impl App {
             ctx: ctx.clone(),
             add_dialog: None,
             verify: Vec::new(),
+            package_password: None,
             options: None,
             confirm: None,
             answers: None,
@@ -1798,12 +1838,12 @@ impl App {
         let mut i = 0;
         while i < self.asking.len() {
             match self.asking[i].take() {
-                Some((Ok(prompt), _, _)) => {
+                Some((Ok(prompt), ..)) => {
                     self.prompts.push_back(prompt);
                     self.asking.remove(i);
                 }
-                Some((Err(items), queue, start_queue)) => {
-                    self.add_many(items, queue, start_queue);
+                Some((Err(items), queue, start_queue, packaging)) => {
+                    self.add_many(items, queue, start_queue, packaging);
                     self.asking.remove(i);
                 }
                 None if self.asking[i].busy() => i += 1,
@@ -2220,6 +2260,21 @@ impl App {
             Action::SetQueueOnce(id, when_done) => {
                 self.daemon.send(Command::SetQueueOnce { id, when_done });
             }
+            Action::UnpackPackage(id, password) => {
+                self.daemon.send(Command::UnpackPackage { id, password });
+            }
+            Action::AskPackagePassword(id) => {
+                if let Some(p) = self.state.packages.iter().find(|p| p.id == id) {
+                    self.package_password = Some(packages::PasswordDialog::new(p));
+                }
+            }
+            Action::UngroupPackage(id) => {
+                if self.filter == Filter::Package(id) {
+                    self.filter = Filter::default();
+                }
+                self.daemon.send(Command::UngroupPackage { id });
+            }
+            Action::OpenFolder(path) => crate::ports::ports().opener.open(&path),
             Action::OpenVerify(id) => {
                 let entry = self.state.table.get(id).cloned();
                 if let Some(e) = entry.filter(|_| !self.verify.iter().any(|d| d.id == id)) {
@@ -2315,7 +2370,7 @@ impl App {
                 let list = self.state.queues.clone();
                 self.queues_dialog = Some(queues::QueuesDialog::open(&list, select));
             }
-            Action::AddMany { items, queue, start_queue } => {
+            Action::AddMany { items, queue, start_queue, packaging } => {
                 // Addresses in the list and taken names may need answers
                 // first, when Options says to ask.
                 // Which names are taken is read from disk, so on a worker.
@@ -2325,7 +2380,11 @@ impl App {
                 };
                 let mut asking = Pending::default();
                 asking.start(&self.ctx, move || {
-                    (answers::Prompt::new(items, queue, start_queue, &rows, &settings), queue, start_queue)
+                    let prompt = answers::Prompt::new(items, queue, start_queue, &rows, &settings).map(|mut p| {
+                        p.packaging = packaging.clone();
+                        p
+                    });
+                    (prompt, queue, start_queue, packaging)
                 });
                 self.asking.push(asking);
             }
@@ -2478,8 +2537,8 @@ impl App {
             match answers::window(ctx, p) {
                 Some(true) => {
                     if let Some(p) = self.answers.take() {
-                        let (queue, start_queue) = (p.queue, p.start_queue);
-                        self.add_many(p.into_items(), queue, start_queue);
+                        let (queue, start_queue, packaging) = (p.queue, p.start_queue, p.packaging.clone());
+                        self.add_many(p.into_items(), queue, start_queue, packaging);
                     }
                 }
                 Some(false) => self.answers = None,
@@ -2538,11 +2597,11 @@ impl App {
     }
 
     /// Add `items` to wait in `queue`, and maybe start it.
-    fn add_many(&self, items: Vec<Download>, queue: QueueId, start_queue: bool) {
+    fn add_many(&self, items: Vec<Download>, queue: QueueId, start_queue: bool, packaging: Packaging) {
         if items.is_empty() {
             return;
         }
-        self.daemon.send(Command::AddMany { items, queue: Some(queue) });
+        self.daemon.send(Command::AddMany { items, queue: Some(queue), packaging });
         // Sent after on the same connection, so it starts with them.
         if start_queue {
             self.daemon.send(Command::StartQueue { id: queue });
@@ -3071,6 +3130,8 @@ impl App {
         }
         draft.browser_link = self.state.browser_link;
         take_picked(&draft.ffmpeg_picked, &mut draft.ffmpeg_path);
+        take_picked(&draft.seven_zip_picked, &mut draft.seven_zip_path);
+        take_picked(&draft.unpack_folder_picked, &mut draft.unpack_folder);
         // A picked scanner keeps the arguments typed after the program.
         let mut scanner = String::new();
         take_picked(&draft.scanner_picked, &mut scanner);
@@ -3628,7 +3689,72 @@ fn general_tab(
             ui.weak(tr("Joins streamed videos into one .mp4. Without it they are saved as .ts, or as separate video and audio."));
         });
         ui.end_row();
+
+        archives_rows(ui, draft);
     });
+}
+
+/// Options' rows for packages' archives: unpacking them on their own,
+/// where to, the archives afterwards, and 7-Zip.
+fn archives_rows(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
+    ui.label(tr("Archives"));
+    ui.vertical(|ui| {
+        ui.checkbox(&mut draft.unpack_auto, tr("Unpack a package as soon as all its files are in"));
+        ui.label(tr("Unpack to"));
+        ui.radio_value(
+            &mut draft.unpack_to,
+            UnpackTo::Subfolder,
+            tr("A folder named after the package, beside the archives"),
+        );
+        ui.radio_value(&mut draft.unpack_to, UnpackTo::Beside, tr("The folder the archives are in"));
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut draft.unpack_to, UnpackTo::Folder, tr("A folder named after the package, in"));
+            ui.add_enabled_ui(draft.unpack_to == UnpackTo::Folder, |ui| {
+                let field = ui.add(egui::TextEdit::singleline(&mut draft.unpack_folder).desired_width(220.0));
+                a11y::label(&field, tr("The folder to unpack into"));
+                browse_button(ui, tr("The folder to unpack into"), &draft.unpack_folder, &draft.unpack_folder_picked);
+            });
+        });
+        ui.checkbox(&mut draft.unpack_recycle, tr("Then send the archives to the Recycle Bin"));
+        ui.weak(tr("Zip, tar, gz and xz archives are unpacked by Pullbay itself; 7z and RAR archives need 7-Zip."));
+    });
+    ui.end_row();
+
+    ui.label("7-Zip");
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut draft.seven_zip_path)
+                    .hint_text(tr("Empty looks for it on PATH and where 7-Zip installs"))
+                    .desired_width(280.0),
+            );
+            a11y::label(&field, "7-Zip");
+            browse_file_button(ui, tr("Where is 7-Zip?"), "exe", &draft.seven_zip_picked);
+        });
+        let asked = draft.seven_zip_path.trim().to_string();
+        if draft.seven_zip_asked.as_deref() != Some(asked.as_str()) {
+            draft.seven_zip_asked = Some(asked.clone());
+            let (slot, ctx) = (Arc::clone(&draft.seven_zip_found), ui.ctx().clone());
+            thread::spawn(move || {
+                let settings = Settings { seven_zip_path: asked.clone(), ..Settings::default() };
+                let found = crate::ports::ports().checks.seven_zip(&settings);
+                *slot.lock_or_recover() = Some((asked, found));
+                ctx.request_repaint();
+            });
+        }
+        let found = draft.seven_zip_found.lock_or_recover().clone();
+        match found.filter(|(path, _)| draft.seven_zip_asked.as_deref() == Some(path.as_str())) {
+            Some((_, Some(path))) => {
+                ui.weak(trf!("Using {path}", path = path.display()));
+            }
+            Some((_, None)) => {
+                ui.colored_label(ui.visuals().warn_fg_color, tr("Not found."));
+            }
+            // Still looking.
+            None => {}
+        }
+    });
+    ui.end_row();
 }
 
 fn connection_tab(ui: &mut egui::Ui, draft: &mut OptionsDraft) {
@@ -4663,6 +4789,19 @@ impl eframe::App for App {
         }
         // A removed download's dialog closes with it.
         self.verify.retain_mut(|d| rows.iter().any(|e| e.id == d.id) && verify::show(ctx, d));
+        // A package whose archives turned out encrypted asks for the
+        // password.
+        for id in state::take_password_wanted(&mut self.state) {
+            if self.package_password.is_none() {
+                actions.push(Action::AskPackagePassword(id));
+            }
+        }
+        if let Some(d) = self.package_password.as_mut() {
+            let gone = !self.state.packages.iter().any(|p| p.id == d.id);
+            if gone || !packages::show(ctx, d, connected, &mut actions) {
+                self.package_password = None;
+            }
+        }
 
         // What the window has to say, under the toolbar.
         let (refreshing, notice, quota, release, report) = {
@@ -4725,6 +4864,7 @@ impl eframe::App for App {
             .map(|e| shown_settings.listed_under(e.category.as_deref(), &display_name(e), e.url.as_str()).to_string())
             .collect();
         let queue_list = self.state.queues.clone();
+        let package_list = self.state.packages.clone();
         // With the panel hidden, nothing is left to pick another view with.
         if !shown_settings.categories_panel {
             self.filter = Filter::default();
@@ -4734,6 +4874,7 @@ impl eframe::App for App {
                 !shown_settings.categories.iter().any(|c| c.name == *name) && !listed.contains(name)
             }
             Filter::Queue(id) => connected && !queue_list.iter().any(|q| q.id == *id),
+            Filter::Package(id) => connected && !self.state.packages.iter().any(|p| p.id == *id),
             Filter::Downloads { category: None, .. } => false,
         };
         if gone {
@@ -4746,6 +4887,17 @@ impl eframe::App for App {
                 queues: &queue_list,
                 connected,
                 projects: &self.state.grab_projects,
+                packages: package_list
+                    .iter()
+                    .map(|p| {
+                        let done = p
+                            .downloads
+                            .iter()
+                            .filter(|id| rows.iter().any(|e| e.id == **id && e.status == Status::Done))
+                            .count();
+                        (p, done)
+                    })
+                    .collect(),
             };
             let width = self.layout.categories_width.unwrap_or(categories::DEFAULT_WIDTH);
             let shown = egui::SidePanel::left("categories")
@@ -4770,8 +4922,17 @@ impl eframe::App for App {
             Filter::Queue(id) => queue_list.iter().find(|q| q.id == *id).cloned(),
             _ => None,
         };
-        let shown: Vec<&DownloadEntry> = match (&self.filter, &current_queue) {
-            (Filter::Queue(_), Some(q)) => q.order.iter().filter_map(|id| rows.iter().find(|e| e.id == *id)).collect(),
+        let current_package = match &self.filter {
+            Filter::Package(id) => package_list.iter().find(|p| p.id == *id),
+            _ => None,
+        };
+        let shown: Vec<&DownloadEntry> = match (&self.filter, &current_queue, current_package) {
+            (Filter::Queue(_), Some(q), _) => {
+                q.order.iter().filter_map(|id| rows.iter().find(|e| e.id == *id)).collect()
+            }
+            (Filter::Package(_), _, Some(p)) => {
+                p.downloads.iter().filter_map(|id| rows.iter().find(|e| e.id == *id)).collect()
+            }
             _ => rows.iter().zip(&listed).filter(|(e, c)| self.filter.keeps(e, c)).map(|(e, _)| e).collect(),
         };
 

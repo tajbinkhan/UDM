@@ -15,6 +15,7 @@ pub mod filename;
 pub mod grab;
 pub mod id;
 pub mod media;
+pub mod package;
 pub mod pairing;
 pub mod ports;
 pub mod queue;

@@ -71,6 +71,9 @@ pub fn validate(settings: &Settings) -> Result<(), CheckError> {
             c.folder.as_ref().map(|dir| (SettingsField::CategoryFolder(c.name.trim().to_string()), dir))
         }),
     );
+    let unpack =
+        (settings.unpack_to == UnpackTo::Folder).then_some((SettingsField::UnpackFolder, &settings.unpack_folder));
+    let folders = folders.chain(unpack);
     for (what, dir) in folders {
         let path = Path::new(dir);
         if path.exists() && !path.is_dir() {
@@ -206,7 +209,8 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }
 }
 
-/// The `SettingsChecks` adapter: `validate` and `ffmpeg` above.
+/// The `SettingsChecks` adapter: `validate` and `ffmpeg` above, and
+/// `unpack::seven_zip`.
 pub struct DiskChecks;
 
 impl pullbay_application::window::SettingsChecks for DiskChecks {
@@ -216,6 +220,10 @@ impl pullbay_application::window::SettingsChecks for DiskChecks {
 
     fn ffmpeg(&self, settings: &Settings) -> Option<PathBuf> {
         ffmpeg(settings)
+    }
+
+    fn seven_zip(&self, settings: &Settings) -> Option<PathBuf> {
+        crate::unpack::seven_zip(settings)
     }
 }
 
@@ -337,6 +345,11 @@ mod tests {
             browser_menu_hidden_firefox: vec!["recent_videos".into()],
             added_browsers: vec![AddedBrowser { name: "Thorium".into(), program: full("C:\\Thorium\\thorium.exe") }],
             ffmpeg_path: full("C:\\ffmpeg\\bin\\ffmpeg.exe"),
+            seven_zip_path: full("C:\\Program Files\\7-Zip\\7z.exe"),
+            unpack_auto: true,
+            unpack_to: UnpackTo::Folder,
+            unpack_folder: full("C:\\Unpacked"),
+            unpack_recycle: true,
             confirm_remove: false,
             remove_deletes_files: true,
             server_file_date: false,

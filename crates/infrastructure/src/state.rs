@@ -81,6 +81,7 @@ fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
         | Outgoing::Show
         | Outgoing::ShowDone { .. }
         | Outgoing::Queues { .. }
+        | Outgoing::Packages { .. }
         | Outgoing::Countdown { .. }
         | Outgoing::CountdownCanceled
         | Outgoing::Quit

@@ -1,15 +1,15 @@
 //! The daemon's download list, kept requests and queues, and the files
 //! they are saved in.
 //!
-//! `DownloadStore` is the adapter for the `QueueStore` and `DownloadList`
-//! ports, and with `Intake` for `DownloadIntake`. It applies each download
+//! `DownloadStore` is the adapter for the `QueueStore`, `DownloadList` and
+//! `PackageStore` ports, and with `Intake` for `DownloadIntake`. It applies each download
 //! event to its `DownloadTable`, and hands the event to a `StoreEvents`
 //! listener the daemon wires; who hears an event, and how it travels to
 //! them, is the listener's business.
 //!
 //! Every change wakes the receiver `DownloadStore::open` returns, so the
 //! daemon can write the files (`save`) a moment later. The files are the
-//! history (`history.json`, with the queues), the saved requests (sealed
+//! history (`history.json`, with the queues and packages), the saved requests (sealed
 //! with DPAPI, see `history`) and the quota's usage, in the same formats as
 //! before this module.
 
@@ -24,7 +24,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use pullbay_application::daemon::Event;
 use pullbay_domain::download::{Download, DownloadEntry, Status};
-use pullbay_domain::ports::{DownloadIntake, DownloadList, QueueStore};
+use pullbay_domain::package::Package;
+use pullbay_domain::ports::{DownloadIntake, DownloadList, PackageStore, QueueStore};
 use pullbay_domain::queue::{Queue, QueueError};
 use tracing::warn;
 
@@ -76,6 +77,8 @@ pub struct DownloadStore {
     requests: Mutex<HashMap<DownloadId, Download>>,
     /// The queues, the main queue first. Lock after `table`, never before.
     queues: Mutex<Vec<Queue>>,
+    /// The packages, oldest first. Lock after `table`, never before.
+    packages: Mutex<Vec<Package>>,
     /// Downloads being stopped to wait in their queue again: their
     /// `canceled` event becomes `waiting`.
     held: Mutex<HashSet<DownloadId>>,
@@ -136,6 +139,7 @@ impl DownloadStore {
             table: Mutex::new(table),
             requests: Mutex::new(requests),
             queues: Mutex::new(queues),
+            packages: Mutex::new(history.packages),
             held: Mutex::new(HashSet::new()),
             quota: Mutex::new(usage),
             uncounted: Mutex::new(HashSet::new()),
@@ -242,6 +246,12 @@ impl DownloadStore {
                 self.publish_queues();
             }
         }
+        // A download that leaves the list leaves its package.
+        if let Outgoing::Removed { id } = msg {
+            if self.leave_packages(*id) {
+                self.publish_packages();
+            }
+        }
         if matches!(
             msg,
             Outgoing::Done { .. } | Outgoing::Failed { .. } | Outgoing::Canceled { .. } | Outgoing::NameTaken { .. }
@@ -309,6 +319,25 @@ impl DownloadStore {
     }
 
     /// Announce every queue, and save them.
+    /// Tell every client the packages changed, and save them.
+    pub fn publish_packages(&self) {
+        let items = lock(&self.packages).clone();
+        let _ = self.dirty.send(());
+        self.events.announce(&Outgoing::Packages { items });
+    }
+
+    /// Take download `id` out of its package, dropping a package left
+    /// empty. Returns whether a package changed.
+    fn leave_packages(&self, id: DownloadId) -> bool {
+        let mut packages = lock(&self.packages);
+        let before = packages.clone();
+        for p in packages.iter_mut() {
+            p.downloads.retain(|d| *d != id);
+        }
+        packages.retain(|p| !p.downloads.is_empty());
+        *packages != before
+    }
+
     pub fn publish_queues(&self) {
         let items = lock(&self.queues).clone();
         let _ = self.dirty.send(());
@@ -357,7 +386,12 @@ impl DownloadStore {
     /// written is logged and left as it was.
     pub fn save(&self, next_id: DownloadId) {
         let _guard = lock(&self.save_lock);
-        let history = History { next_id, items: lock(&self.table).snapshot(), queues: lock(&self.queues).clone() };
+        let history = History {
+            next_id,
+            items: lock(&self.table).snapshot(),
+            queues: lock(&self.queues).clone(),
+            packages: lock(&self.packages).clone(),
+        };
         let requests = lock(&self.requests).clone();
         if let Some(path) = &self.files.quota {
             if let Err(e) = quota::save(&lock(&self.quota), path) {
@@ -401,6 +435,16 @@ impl DownloadStore {
             true
         });
         url
+    }
+}
+
+impl PackageStore for DownloadStore {
+    fn edit_packages<T>(&self, f: impl FnOnce(&mut Vec<Package>) -> T) -> T {
+        f(&mut lock(&self.packages))
+    }
+
+    fn packages_changed(&self) {
+        self.publish_packages();
     }
 }
 

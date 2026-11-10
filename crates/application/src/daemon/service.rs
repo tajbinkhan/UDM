@@ -9,7 +9,8 @@
 //! [`Reply`].
 
 use pullbay_domain::address::Link;
-use pullbay_domain::id::{DownloadId, QueueId};
+use pullbay_domain::id::{DownloadId, PackageId, QueueId};
+use pullbay_domain::package::{Packaging, Password, Unpack};
 use pullbay_domain::seat::Seat;
 use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
@@ -26,10 +27,10 @@ use pullbay_domain::download::{
 use pullbay_domain::grab::{self, GrabRequest, RenderedPage};
 use pullbay_domain::ports::{
     Answers, Attention, Browser, Clock, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
-    EarlyStarts, FileHashes, FileOpener, GrabDownloads, GrabProjects, GrabRuns, LimitLift, Notifications,
+    EarlyStarts, FileHashes, FileOpener, GrabDownloads, GrabProjects, GrabRuns, LimitLift, Notifications, PackageStore,
     PausedDownloads, PowerControl, Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
     ReleaseSource, RemoteListener, SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, TransferEngine,
-    UpdateChecks, UserIdle, VirusScanner,
+    Unpacker, UpdateChecks, UserIdle, VirusScanner,
 };
 use pullbay_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
@@ -41,9 +42,9 @@ use tracing::{info, warn};
 use super::{ClientId, ClientList, Command, Countdowns, DownloadFeed, Event, Failure, Reply, Requests};
 use crate::downloads::{
     AddLater, AddMany, AfterDownload, CancelDownload, CheckDownload, CheckOutcome, ConfirmAnswer, ConfirmWarning,
-    Confirmed, ConvertDownload, Existing, Held, HoldForAnswer, LiftLimitWhileAway, PauseAll, Probed, Redownload,
-    RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetOnDone, SetProperties,
-    SetSpeedLimit, UseExisting,
+    Confirmed, ConvertDownload, Existing, Held, HoldForAnswer, KeepPackages, LiftLimitWhileAway, PauseAll, Probed,
+    Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetOnDone,
+    SetProperties, SetSpeedLimit, UngroupPackage, UnpackPackage, UnpackPackageError, UseExisting,
 };
 use crate::grab::RunGrabSchedules;
 use crate::pairing::PairingDesk;
@@ -81,6 +82,19 @@ pub enum ServiceError {
     /// Pairing a phone or removing one failed.
     #[error(transparent)]
     Pairing(#[from] pullbay_domain::pairing::PairingError),
+    #[error("There is no package {0}.")]
+    NoPackage(PackageId),
+    #[error("The package is being unpacked already.")]
+    PackageBusy,
+}
+
+impl From<UnpackPackageError> for ServiceError {
+    fn from(e: UnpackPackageError) -> Self {
+        match e {
+            UnpackPackageError::NoPackage(id) => ServiceError::NoPackage(id),
+            UnpackPackageError::Busy => ServiceError::PackageBusy,
+        }
+    }
 }
 
 /// Links the link picker's probes ask about at once.
@@ -133,7 +147,7 @@ pub type RunProject = Arc<dyn Fn(grab::Project, i64) + Send + Sync>;
 /// One type may stand for several, as the download store does.
 pub trait Wiring: 'static {
     /// The download list, the kept requests and the queues.
-    type Store: QueueStore + DownloadList + DownloadFeed + 'static;
+    type Store: QueueStore + DownloadList + DownloadFeed + PackageStore + 'static;
     /// New downloads going into the list.
     type Intake: DownloadIntake + 'static;
     /// Starts, stops and checks downloads, keeps the settings, and lifts the
@@ -186,6 +200,8 @@ pub struct Parts<W: Wiring> {
     pub scanner: Arc<dyn VirusScanner>,
     /// Hashes finished files that came with a checksum.
     pub hashes: Arc<dyn FileHashes>,
+    /// Unpacks packages' archives.
+    pub unpacker: Arc<dyn Unpacker>,
     pub opener: Arc<dyn FileOpener>,
     pub settings: Arc<W::Settings>,
     pub transfers: Arc<W::Transfers>,
@@ -235,6 +251,7 @@ pub struct DaemonService<W: Wiring> {
     pub files: Arc<W::Files>,
     pub scanner: Arc<dyn VirusScanner>,
     pub hashes: Arc<dyn FileHashes>,
+    pub unpacker: Arc<dyn Unpacker>,
     pub opener: Arc<dyn FileOpener>,
     pub settings: Arc<W::Settings>,
     pub transfers: Arc<W::Transfers>,
@@ -294,6 +311,7 @@ impl<W: Wiring> DaemonService<W> {
             files: p.files,
             scanner: p.scanner,
             hashes: p.hashes,
+            unpacker: p.unpacker,
             opener: p.opener,
             settings: p.settings,
             transfers: p.transfers,
@@ -540,8 +558,48 @@ impl<W: Wiring> DaemonService<W> {
 
     /// Run what download `id` asked to happen once it finished, then clear
     /// it so downloading it again does not repeat it.
-    pub fn after_download(&self, id: DownloadId) {
+    pub fn after_download(self: &Arc<Self>, id: DownloadId) {
         AfterDownload::new(&*self.store, &*self.power).run(id);
+        let settings = self.settings_now();
+        let due =
+            UnpackPackage::new(&*self.store, &*self.store, &*self.unpacker, &*self.files).due_after(id, &settings);
+        if let Some(package) = due {
+            info!(package = package.get(), "unpacking a complete package");
+            if let Err(e) = self.unpack_package(package, None) {
+                warn!(package = package.get(), error = %e, "could not unpack");
+            }
+        }
+    }
+
+    /// Unpack package `id`'s archives on a thread of its own, with
+    /// `password` for encrypted ones. Its state reaches the clients through
+    /// the packages.
+    pub fn unpack_package(self: &Arc<Self>, id: PackageId, password: Option<Password>) -> Result<(), ServiceError> {
+        UnpackPackage::new(&*self.store, &*self.store, &*self.unpacker, &*self.files).begin(id)?;
+        let daemon = Arc::clone(self);
+        thread::spawn(move || {
+            let settings = daemon.settings_now();
+            let outcome = UnpackPackage::new(&*daemon.store, &*daemon.store, &*daemon.unpacker, &*daemon.files).run(
+                id,
+                password.as_ref(),
+                &settings,
+            );
+            for (path, e) in &outcome.not_recycled {
+                warn!(package = id.get(), path = %path.display(), error = %e, "could not recycle an archive");
+            }
+            match outcome.state {
+                Unpack::Done { folder, files } => info!(package = id.get(), folder = %folder, files, "unpacked"),
+                Unpack::NeedsPassword { wrong } => info!(package = id.get(), wrong, "the archives need a password"),
+                Unpack::Failed { reason } => warn!(package = id.get(), error = %reason, "could not unpack"),
+                Unpack::Waiting | Unpack::Unpacking => {}
+            }
+        });
+        Ok(())
+    }
+
+    /// Stop keeping package `id`; its downloads stay.
+    pub fn ungroup_package(&self, id: PackageId) -> Result<(), ServiceError> {
+        UngroupPackage::new(&*self.store).run(id).map_err(ServiceError::from)
     }
 
     /// Do what `pullbay-gui`'s command line asked. `/q` counts only when that
@@ -891,11 +949,37 @@ impl<W: Wiring> DaemonService<W> {
 
     /// `add_many`, answering with the new downloads' ids.
     pub fn add_many_ids(self: &Arc<Self>, items: Vec<Download>, queue: Option<QueueId>) -> (Vec<DownloadId>, usize) {
+        self.add_packaged(items, queue, &Packaging::None)
+    }
+
+    /// `add_many_ids`, keeping the new downloads as packages as `packaging`
+    /// says (see `KeepPackages`).
+    pub fn add_packaged(
+        self: &Arc<Self>,
+        mut items: Vec<Download>,
+        queue: Option<QueueId>,
+        packaging: &Packaging,
+    ) -> (Vec<DownloadId>, usize) {
+        let keep = KeepPackages::new(&*self.store);
+        keep.prepare(&mut items, packaging);
+        let names: Vec<String> = items
+            .iter()
+            .map(|d| pullbay_domain::filename::proposed_name(d.url.as_str(), d.filename.as_deref()).into_string())
+            .collect();
         let choice = self.settings_now().if_duplicate;
         let added = AddMany::new(&*self.store, &*self.store, &*self.transfers, &*self.files, &self.intake)
             .run(items, queue, choice);
         for (id, e) in added.not_replaced {
             warn!(download_id = id.get(), error = %e, "could not remove");
+        }
+        let kept: Vec<(DownloadId, String)> = added
+            .ids
+            .iter()
+            .zip(&added.positions)
+            .map(|(id, &i)| (*id, names.get(i).cloned().unwrap_or_default()))
+            .collect();
+        for package in keep.keep(&kept, packaging) {
+            info!(package = package.get(), "kept as a package");
         }
         (added.ids, added.skipped)
     }
@@ -1418,7 +1502,8 @@ impl<W: Wiring> DaemonService<W> {
     pub fn send_list(&self, reply: &Reply) {
         self.store.snapshot(|items, queues| {
             let refresh = Event::RefreshWaiting { id: self.transfers.waiting_for_link() };
-            for msg in [Event::Downloads { items }, Event::Queues { items: queues }, refresh] {
+            let packages = Event::Packages { items: self.store.edit_packages(|list| list.clone()) };
+            for msg in [Event::Downloads { items }, Event::Queues { items: queues }, packages, refresh] {
                 reply.send(msg);
             }
         })
@@ -1549,10 +1634,21 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
             info!(download_id = id.get(), url = %url, "add");
             send(Event::Ack { id, url, status: "accepted".to_string() });
         }
-        Command::AddMany { items, queue } => {
-            let (count, skipped) = daemon.add_many(items, queue);
-            info!(count, skipped, "added downloads to wait");
-            send(Event::AddedMany { count, skipped });
+        Command::AddMany { items, queue, packaging } => {
+            let (ids, skipped) = daemon.add_packaged(items, queue, &packaging);
+            info!(count = ids.len(), skipped, "added downloads to wait");
+            send(Event::AddedMany { count: ids.len(), skipped });
+        }
+        Command::UnpackPackage { id, password } => {
+            info!(package = id.get(), "unpack");
+            if let Err(message) = daemon.unpack_package(id, password) {
+                send(Event::Error { error: message.into() });
+            }
+        }
+        Command::UngroupPackage { id } => {
+            if let Err(message) = daemon.ungroup_package(id) {
+                send(Event::Error { error: message.into() });
+            }
         }
         Command::ProbeMedia { request, mut download } => {
             download.limit_browser_request();

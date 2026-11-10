@@ -19,6 +19,7 @@ use crate::pending::Pending;
 use pullbay_domain::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
 use pullbay_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
 use pullbay_domain::grab::{GrabFile, GrabRequest, SaveTo};
+use pullbay_domain::package::Packaging;
 use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
@@ -399,6 +400,7 @@ pub fn batch_dialog(
                         items,
                         queue: d.queue,
                         start_queue: d.start,
+                        packaging: Packaging::None,
                     });
                     close = true;
                 }
@@ -1000,7 +1002,12 @@ impl GrabDialog {
         {
             actions.push(Action::SaveQueue(Queue { max_concurrent: req.download_at_once as usize, ..q.clone() }));
         }
-        actions.push(Action::AddMany { items, queue: self.queue, start_queue: self.start_queue });
+        actions.push(Action::AddMany {
+            items,
+            queue: self.queue,
+            start_queue: self.start_queue,
+            packaging: Packaging::None,
+        });
         true
     }
 

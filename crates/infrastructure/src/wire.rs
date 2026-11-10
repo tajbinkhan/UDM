@@ -14,7 +14,9 @@ use pullbay_domain::queue::QueueError;
 use pullbay_domain::update::UpdateError;
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::{Incoming, Outgoing};
+use crate::protocol::{Incoming, NewPackage, Outgoing, Secret};
+use pullbay_domain::id::PackageId;
+use pullbay_domain::package::{Packaging, Password};
 
 /// The wire message for `command`.
 pub fn incoming(command: Command) -> Incoming {
@@ -27,7 +29,18 @@ pub fn incoming(command: Command) -> Incoming {
         Command::Rendered { request, html, url, popups } => Incoming::Rendered { request, html, url, popups },
         Command::Cookies { request, cookies } => Incoming::Cookies { request, cookies },
         Command::Add(d) => Incoming::Add(d),
-        Command::AddMany { items, queue } => Incoming::AddMany { items, queue },
+        Command::AddMany { items, queue, packaging } => {
+            let (package, group_archives) = match packaging {
+                Packaging::None => (None, false),
+                Packaging::Archives => (None, true),
+                Packaging::One { name, folder } => (Some(NewPackage { name, folder }), false),
+            };
+            Incoming::AddMany { items, queue, package, group_archives }
+        }
+        Command::UnpackPackage { id, password } => {
+            Incoming::UnpackPackage { id, password: password.map(|p| Secret(p.expose().to_string())) }
+        }
+        Command::UngroupPackage { id } => Incoming::UngroupPackage { id },
         Command::Grab(r) => Incoming::Grab(r),
         Command::CancelGrab => Incoming::CancelGrab,
         Command::ProbeLinks { request, links } => Incoming::ProbeLinks { request, links },
@@ -80,7 +93,18 @@ pub fn command(msg: Incoming) -> Command {
         Incoming::Rendered { request, html, url, popups } => Command::Rendered { request, html, url, popups },
         Incoming::Cookies { request, cookies } => Command::Cookies { request, cookies },
         Incoming::Add(d) => Command::Add(d),
-        Incoming::AddMany { items, queue } => Command::AddMany { items, queue },
+        Incoming::AddMany { items, queue, package, group_archives } => {
+            let packaging = match package {
+                Some(NewPackage { name, folder }) => Packaging::One { name, folder },
+                None if group_archives => Packaging::Archives,
+                None => Packaging::None,
+            };
+            Command::AddMany { items, queue, packaging }
+        }
+        Incoming::UnpackPackage { id, password } => {
+            Command::UnpackPackage { id, password: password.and_then(|Secret(p)| Password::new(p)) }
+        }
+        Incoming::UngroupPackage { id } => Command::UngroupPackage { id },
         Incoming::Grab(r) => Command::Grab(r),
         Incoming::CancelGrab => Command::CancelGrab,
         Incoming::ProbeLinks { request, links } => Command::ProbeLinks { request, links },
@@ -149,6 +173,7 @@ pub fn event(msg: Outgoing) -> Event {
         Outgoing::Show => Event::Show,
         Outgoing::ShowDone { id } => Event::ShowDone { id },
         Outgoing::Queues { items } => Event::Queues { items },
+        Outgoing::Packages { items } => Event::Packages { items },
         Outgoing::Countdown { action, seconds, queue, file } => Event::Countdown { action, seconds, queue, file },
         Outgoing::CountdownCanceled => Event::CountdownCanceled,
         Outgoing::Quit => Event::Quit,
@@ -213,6 +238,7 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
         Event::Show => Outgoing::Show,
         Event::ShowDone { id } => Outgoing::ShowDone { id },
         Event::Queues { items } => Outgoing::Queues { items },
+        Event::Packages { items } => Outgoing::Packages { items },
         Event::Countdown { action, seconds, queue, file } => Outgoing::Countdown { action, seconds, queue, file },
         Event::CountdownCanceled => Outgoing::CountdownCanceled,
         Event::Quit => Outgoing::Quit,
@@ -319,6 +345,8 @@ enum WireService {
     BadBody(String),
     NotDownloadAddress(String),
     Pairing(PairingError),
+    NoPackage(PackageId),
+    PackageBusy,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -372,6 +400,8 @@ impl WireService {
             ServiceError::BadBody(url) => WireService::BadBody(url),
             ServiceError::NotDownloadAddress(url) => WireService::NotDownloadAddress(url),
             ServiceError::Pairing(e) => WireService::Pairing(e),
+            ServiceError::NoPackage(id) => WireService::NoPackage(id),
+            ServiceError::PackageBusy => WireService::PackageBusy,
         }
     }
 }
@@ -394,6 +424,8 @@ impl From<WireService> for ServiceError {
             WireService::BadBody(url) => ServiceError::BadBody(url),
             WireService::NotDownloadAddress(url) => ServiceError::NotDownloadAddress(url),
             WireService::Pairing(e) => ServiceError::Pairing(e),
+            WireService::NoPackage(id) => ServiceError::NoPackage(id),
+            WireService::PackageBusy => ServiceError::PackageBusy,
         }
     }
 }
@@ -413,14 +445,56 @@ mod tests {
     #[test]
     fn commands_keep_their_fields_on_the_wire() {
         let d = Download { url: "http://x/f".into(), ..Download::default() };
-        let msg = incoming(Command::AddMany { items: vec![d], queue: Some(QueueId::new(3)) });
+        let msg =
+            incoming(Command::AddMany { items: vec![d], queue: Some(QueueId::new(3)), packaging: Packaging::None });
         let value = json(&msg);
         assert_eq!(value["op"], "add_many");
         assert_eq!(value["queue"], 3);
         assert_eq!(value["items"][0]["url"], "http://x/f");
+        assert!(value.get("package").is_none() && value.get("group_archives").is_none(), "{value}");
         assert_eq!(json(&incoming(command(msg))), value, "back and forth is the same message");
         let msg = incoming(Command::Remove { id: DownloadId::new(2), delete_files: true });
         assert_eq!(json(&msg), serde_json::json!({"op": "remove", "id": 2, "delete_files": true}));
+    }
+
+    #[test]
+    fn packages_go_as_their_ops_and_the_password_stays_out_of_logs() {
+        use pullbay_domain::package::{Package, PackageName, Unpack, UnpackFailure};
+        let name = PackageName::parse("Trip").unwrap();
+        let one = Packaging::One { name: name.clone(), folder: Some("/dl/Trip".into()) };
+        for (packaging, extra) in [
+            (one, serde_json::json!({"package": {"name": "Trip", "folder": "/dl/Trip"}})),
+            (Packaging::Archives, serde_json::json!({"group_archives": true})),
+        ] {
+            let msg = incoming(Command::AddMany { items: Vec::new(), queue: None, packaging: packaging.clone() });
+            let mut want = serde_json::json!({"op": "add_many", "items": [], "queue": null});
+            want.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            assert_eq!(json(&msg), want);
+            assert!(matches!(command(msg), Command::AddMany { packaging: p, .. } if p == packaging));
+        }
+        let old: Incoming = serde_json::from_str(r#"{"op":"add_many","items":[]}"#).unwrap();
+        assert!(matches!(command(old), Command::AddMany { packaging: Packaging::None, .. }), "an older client's");
+        let bad = serde_json::from_str::<Incoming>(r#"{"op":"add_many","items":[],"package":{"name":" "}}"#);
+        assert!(bad.is_err(), "a package needs a name");
+
+        let unpack = incoming(Command::UnpackPackage { id: PackageId::new(4), password: Password::new("pw".into()) });
+        assert_eq!(json(&unpack), serde_json::json!({"op": "unpack_package", "id": 4, "password": "pw"}));
+        assert!(!format!("{unpack:?}").contains("pw"), "{unpack:?}");
+        assert!(matches!(command(unpack), Command::UnpackPackage { password: Some(p), .. } if p.expose() == "pw"));
+        let raw: Incoming = serde_json::from_str(r#"{"op":"unpack_package","id":4,"password":""}"#).unwrap();
+        assert!(matches!(command(raw), Command::UnpackPackage { password: None, .. }), "an empty password is none");
+        let ungroup = incoming(Command::UngroupPackage { id: PackageId::new(4) });
+        assert_eq!(json(&ungroup), serde_json::json!({"op": "ungroup_package", "id": 4}));
+
+        let mut p = Package::new(PackageId::new(4), name, None, vec![DownloadId::new(7)]);
+        p.unpack = Unpack::Failed { reason: UnpackFailure::NeedsSevenZip { archive: "a.rar".into() } };
+        let (value, back) = round_trip(Event::Packages { items: vec![p.clone()] });
+        assert_eq!(
+            value,
+            serde_json::json!({"op": "packages", "items": [{"id": 4, "name": "Trip", "downloads": [7],
+                "unpack": {"state": "failed", "reason": {"kind": "needs_seven_zip", "archive": "a.rar"}}}]})
+        );
+        assert_eq!(back, Event::Packages { items: vec![p] });
     }
 
     #[test]
@@ -484,6 +558,8 @@ mod tests {
             Failure::Probe("HTTP 404".into()),
             ServiceError::Pairing(PairingError::NotListening).into(),
             ServiceError::Pairing(PairingError::NoDevice(pullbay_domain::id::DeviceId::new(3))).into(),
+            ServiceError::NoPackage(PackageId::new(2)).into(),
+            ServiceError::PackageBusy.into(),
         ];
         for f in failures {
             let text = f.to_string();

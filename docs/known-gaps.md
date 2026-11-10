@@ -49,6 +49,19 @@
 - A queue run started by hand with nothing in it ends at once, and a run that
   is only waiting on failed downloads ends too: failed downloads count as
   finished unless the queue retries them.
+- Packages (`#258`): only the link picker keeps links as packages; the
+  batch dialog, imports and the grabber do not, and a download cannot be
+  moved into or out of a package afterwards (only the whole package can be
+  ungrouped). The list itself is not grouped: a package's files are listed
+  together when its node under **Packages** is picked. Unpacking a package
+  again, after a password too, unpacks every archive in it again (taken
+  names get numbers). The password dialog asks once each time a package comes to need
+  one while the window is open; a package that needed it before the window
+  connected is unpacked from its menu. 7-Zip was not run here: the tests use
+  a stand-in that records its arguments and what it read on its standard
+  input, and real RAR, 7z and spanned-zip archives were not tried. Unpacked
+  files get the time they were written, not the archive's dates, and no
+  permissions from the archive. bzip2 and `.tar.bz2` need 7-Zip.
 - A form download that sends a file stays in the browser (the browser does
   not share the file), and a POST download cannot resume: a failure means
   sending the form again with Retry.

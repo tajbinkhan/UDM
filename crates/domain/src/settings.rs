@@ -477,6 +477,19 @@ pub enum Sound {
     QueueDone,
 }
 
+/// Where a package's archives are unpacked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnpackTo {
+    /// Into the folder the archives are in.
+    Beside,
+    /// Into a folder named after the package, beside the archives.
+    #[default]
+    Subfolder,
+    /// Into a folder named after the package, in `unpack_folder`.
+    Folder,
+}
+
 /// What to do when a new download's file name is already taken by a file that
 /// is not a partial copy of the same download.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -728,6 +741,18 @@ pub struct Settings {
     pub added_browsers: Vec<AddedBrowser>,
     /// ffmpeg.exe, to join streams into .mp4 files. Empty looks on `PATH`.
     pub ffmpeg_path: String,
+    /// 7-Zip's program (7z.exe, or 7zz), for 7z and RAR archives and spanned
+    /// zips. Empty looks on `PATH` and where 7-Zip installs itself.
+    pub seven_zip_path: String,
+    /// Unpack a package's archives as soon as all its files are in.
+    pub unpack_auto: bool,
+    /// Where a package's archives are unpacked.
+    pub unpack_to: UnpackTo,
+    /// The folder `UnpackTo::Folder` unpacks into, each package in a folder
+    /// of its own there.
+    pub unpack_folder: String,
+    /// Send a package's archives to the Recycle Bin once they are unpacked.
+    pub unpack_recycle: bool,
     /// Ask before removing downloads from the list.
     pub confirm_remove: bool,
     /// Removing a download also sends its files to the Recycle Bin. The
@@ -940,6 +965,11 @@ impl Default for Settings {
             browser_menu_hidden_firefox: Vec::new(),
             added_browsers: Vec::new(),
             ffmpeg_path: String::new(),
+            seven_zip_path: String::new(),
+            unpack_auto: false,
+            unpack_to: UnpackTo::Subfolder,
+            unpack_folder: String::new(),
+            unpack_recycle: false,
             confirm_remove: true,
             remove_deletes_files: false,
             server_file_date: true,
@@ -1144,6 +1174,13 @@ impl Settings {
             if !path.is_absolute() {
                 return Err(E::FfmpegNotFull(ffmpeg.to_string()));
             }
+        }
+        let seven_zip = self.seven_zip_path.trim();
+        if !seven_zip.is_empty() && !Path::new(seven_zip).is_absolute() {
+            return Err(E::SevenZipNotFull(seven_zip.to_string()));
+        }
+        if self.unpack_to == UnpackTo::Folder {
+            check_folder(SettingsField::UnpackFolder, &self.unpack_folder)?;
         }
         for (which, addr) in [
             (ProxyEntry::Http, &self.proxy_http),
@@ -1380,6 +1417,18 @@ impl Settings {
 
     /// The limit for each download without one of its own, in bytes per
     /// second, or `None` when the speed limit is off or has no such limit.
+    /// Where a package named `name` whose archives are in `archives_dir` is
+    /// unpacked (see `unpack_to`). An empty chosen folder unpacks beside the
+    /// archives, in a folder named after the package.
+    pub fn unpack_folder_for(&self, archives_dir: &Path, name: &crate::package::PackageName) -> PathBuf {
+        let chosen = self.unpack_folder.trim();
+        match self.unpack_to {
+            UnpackTo::Beside => archives_dir.to_path_buf(),
+            UnpackTo::Folder if !chosen.is_empty() => Path::new(chosen).join(name.folder_name()),
+            UnpackTo::Subfolder | UnpackTo::Folder => archives_dir.join(name.folder_name()),
+        }
+    }
+
     pub fn per_file_limit_bytes(&self) -> Option<u64> {
         self.speed_limit_per_file_kbps.filter(|_| self.speed_limit_enabled).map(|k| k.saturating_mul(1024))
     }
@@ -1502,6 +1551,8 @@ pub enum SettingsField {
     VideoTypes,
     PlayerTypes,
     AutoStartTypes,
+    /// The folder packages are unpacked into.
+    UnpackFolder,
 }
 
 impl std::fmt::Display for SettingsField {
@@ -1514,6 +1565,7 @@ impl std::fmt::Display for SettingsField {
             SettingsField::VideoTypes => f.write_str("The video types"),
             SettingsField::PlayerTypes => f.write_str("The types taken from web players"),
             SettingsField::AutoStartTypes => f.write_str("The file types that start without asking"),
+            SettingsField::UnpackFolder => f.write_str("The folder to unpack into"),
         }
     }
 }
@@ -1611,6 +1663,8 @@ pub enum InvalidSettings {
     NotSite(String),
     #[error("ffmpeg must be the full path of ffmpeg.exe: {0}")]
     FfmpegNotFull(String),
+    #[error("7-Zip must be the full path of its program, such as 7z.exe: {0}")]
+    SevenZipNotFull(String),
     #[error("{0} must be host:port, such as proxy.example.com:8080.")]
     ProxyNotHostPort(ProxyEntry),
     #[error("Set at least one proxy, or choose another proxy option.")]
@@ -1758,6 +1812,34 @@ mod tests {
             assert_eq!(s.validate(), Err(InvalidSettings::IdleMinutes));
         }
         assert_eq!(Settings { speed_limit_idle_minutes: 240, ..Settings::default() }.validate(), Ok(()));
+    }
+
+    #[test]
+    fn packages_unpack_where_the_settings_say() {
+        let name = crate::package::PackageName::parse("Show: S1").unwrap();
+        let dir = Path::new("/dl/Compressed");
+        let mut s = Settings::default();
+        assert_eq!(s.unpack_folder_for(dir, &name), dir.join("Show_ S1"), "a folder of its own by default");
+        s.unpack_to = UnpackTo::Beside;
+        assert_eq!(s.unpack_folder_for(dir, &name), dir);
+        s.unpack_to = UnpackTo::Folder;
+        assert_eq!(s.unpack_folder_for(dir, &name), dir.join("Show_ S1"), "no folder chosen");
+        assert_eq!(s.validate(), Err(InvalidSettings::FolderEmpty(SettingsField::UnpackFolder)));
+        s.unpack_folder = "relative".into();
+        assert!(matches!(s.validate(), Err(InvalidSettings::FolderNotFull(SettingsField::UnpackFolder, _))));
+        let unpacked = std::env::temp_dir().join("Unpacked");
+        s.unpack_folder = unpacked.display().to_string();
+        assert_eq!(s.validate(), Ok(()));
+        assert_eq!(s.unpack_folder_for(dir, &name), unpacked.join("Show_ S1"));
+        s.seven_zip_path = "7z.exe".into();
+        assert_eq!(s.validate(), Err(InvalidSettings::SevenZipNotFull("7z.exe".into())));
+    }
+
+    #[test]
+    fn older_settings_do_not_unpack_on_their_own() {
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert!(!old.unpack_auto && !old.unpack_recycle);
+        assert_eq!((old.unpack_to, old.seven_zip_path.as_str()), (UnpackTo::Subfolder, ""));
     }
 
     #[test]

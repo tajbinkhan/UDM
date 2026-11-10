@@ -21,6 +21,7 @@ use crate::dpapi;
 use crate::settings::write_atomic;
 use pullbay_domain::download::{Download, DownloadEntry, Status};
 use pullbay_domain::id::DownloadId;
+use pullbay_domain::package::Package;
 use pullbay_domain::queue::{Queue, MAIN_QUEUE};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,6 +33,9 @@ pub struct History {
     /// The queues, the main queue first.
     #[serde(default)]
     pub queues: Vec<Queue>,
+    /// The packages, oldest first. Files from before packages have none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<Package>,
 }
 
 impl History {
@@ -71,6 +75,7 @@ impl History {
                 e.page = e.referrer.clone();
             }
         }
+        history.tidy_packages();
         let max_id = history.items.iter().map(|e| e.id).max().unwrap_or_default();
         history.next_id = history.next_id.max(max_id.next());
         Ok(history)
@@ -99,6 +104,19 @@ impl History {
                 self.queues[0].order.push(e.id);
             }
         }
+    }
+
+    /// Make the packages consistent with the downloads: each lists only
+    /// downloads that exist, once, a package left with none goes, and one
+    /// being unpacked when the daemon stopped waits again.
+    pub fn tidy_packages(&mut self) {
+        let ids: std::collections::HashSet<DownloadId> = self.items.iter().map(|e| e.id).collect();
+        let mut seen = std::collections::HashSet::new();
+        for p in &mut self.packages {
+            p.downloads.retain(|id| ids.contains(id) && seen.insert(*id));
+            p.unpack = std::mem::take(&mut p.unpack).after_restart();
+        }
+        self.packages.retain(|p| !p.downloads.is_empty());
     }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
@@ -220,6 +238,7 @@ mod tests {
     fn running_downloads_load_as_interrupted() {
         let path = temp_path("interrupted.json");
         History {
+            packages: Vec::new(),
             queues: Vec::new(),
             next_id: DownloadId::new(5),
             items: vec![
@@ -255,6 +274,7 @@ mod tests {
                 entry(5, Status::Downloading),
             ],
             queues: vec![night],
+            packages: Vec::new(),
         }
         .save(&path)
         .unwrap();
@@ -291,6 +311,7 @@ mod tests {
                 entry(4, Status::Waiting),
             ],
             queues: vec![Queue::main(), sync, once],
+            packages: Vec::new(),
         }
         .save(&path)
         .unwrap();
@@ -306,12 +327,60 @@ mod tests {
     }
 
     #[test]
+    fn packages_are_kept_and_tidied_and_older_files_have_none() {
+        use pullbay_domain::id::PackageId;
+        use pullbay_domain::package::{PackageName, Unpack};
+        let path = temp_path("packages.json");
+        let package = |id: u64, downloads: &[u64], unpack: Unpack| {
+            let mut p = Package::new(
+                PackageId::new(id),
+                PackageName::parse(&format!("P{id}")).unwrap(),
+                Some("/dl/P".into()),
+                downloads.iter().map(|d| DownloadId::new(*d)).collect(),
+            );
+            p.unpack = unpack;
+            p
+        };
+        History {
+            next_id: DownloadId::new(4),
+            items: vec![entry(1, Status::Done), entry(2, Status::Done), entry(3, Status::Done)],
+            queues: Vec::new(),
+            packages: vec![
+                package(1, &[1, 99, 2], Unpack::Unpacking),
+                package(2, &[2, 3], Unpack::Done { folder: "/dl/P/P2".into(), files: 3 }),
+                package(3, &[98], Unpack::Waiting),
+            ],
+        }
+        .save(&path)
+        .unwrap();
+        let h = History::load(&path).unwrap();
+        assert_eq!(h.packages.len(), 2, "a package left with no downloads goes");
+        assert_eq!(h.packages[0].downloads, [DownloadId::new(1), DownloadId::new(2)], "a missing download goes");
+        assert_eq!(h.packages[0].unpack, Unpack::Waiting, "unpacking stopped with the daemon");
+        assert_eq!(h.packages[1].downloads, [DownloadId::new(3)], "a download is in one package only");
+        assert_eq!(h.packages[1].folder.as_deref(), Some("/dl/P"));
+        assert!(matches!(h.packages[1].unpack, Unpack::Done { files: 3, .. }));
+
+        // A file from before packages loads without any, and is saved
+        // without the field.
+        let old = serde_json::json!({ "next_id": 2, "items": [entry(1, Status::Done)], "queues": [] });
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let h = History::load(&path).unwrap();
+        assert!(h.packages.is_empty());
+        h.save(&path).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(saved.get("packages").is_none());
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
     fn waiting_downloads_from_before_queues_join_the_main_queue() {
         let path = temp_path("before_queues.json");
         History {
             next_id: DownloadId::new(3),
             items: vec![entry(1, Status::Waiting), entry(2, Status::Failed)],
             queues: Vec::new(),
+            packages: Vec::new(),
         }
         .save(&path)
         .unwrap();
@@ -416,9 +485,14 @@ mod tests {
     #[test]
     fn next_id_is_never_below_a_saved_id() {
         let path = temp_path("next_id.json");
-        History { next_id: DownloadId::new(1), items: vec![entry(41, Status::Done)], queues: Vec::new() }
-            .save(&path)
-            .unwrap();
+        History {
+            next_id: DownloadId::new(1),
+            items: vec![entry(41, Status::Done)],
+            queues: Vec::new(),
+            packages: Vec::new(),
+        }
+        .save(&path)
+        .unwrap();
         assert_eq!(History::load(&path).unwrap().next_id, DownloadId::new(42));
         fs::remove_file(&path).ok();
     }
@@ -461,9 +535,14 @@ mod tests {
         assert!(!req_path.exists());
 
         let hist_path = temp_path("no-secrets.json");
-        History { next_id: DownloadId::new(3), items: vec![entry(2, Status::Downloading)], queues: Vec::new() }
-            .save(&hist_path)
-            .unwrap();
+        History {
+            next_id: DownloadId::new(3),
+            items: vec![entry(2, Status::Downloading)],
+            queues: Vec::new(),
+            packages: Vec::new(),
+        }
+        .save(&hist_path)
+        .unwrap();
         let text = fs::read_to_string(&hist_path).unwrap().to_lowercase();
         assert!(!text.contains("cookie") && !text.contains("header"));
         fs::remove_file(&hist_path).ok();
