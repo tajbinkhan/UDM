@@ -1540,6 +1540,7 @@ const MENU_ITEMS = {
   selected_links: [{ id: "pullbay-selection-links", title: chrome.i18n.getMessage("downloadSelectedLinksWithPullbay"), contexts: ["selection"] }],
   last_video: [{ id: "pullbay-last-video", title: chrome.i18n.getMessage("downloadLastVideo"), contexts: PAGE_CONTEXTS }],
   recent_videos: [{ id: "pullbay-recent", title: chrome.i18n.getMessage("recentVideos"), contexts: PAGE_CONTEXTS }],
+  gallery: [{ id: "pullbay-gallery", title: chrome.i18n.getMessage("downloadGalleryWithPullbay"), contexts: ["page", "frame", "image"] }],
 };
 // How many videos the recent videos submenu lists.
 const RECENT_VIDEOS = 10;
@@ -1747,6 +1748,15 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "pullbay-all-links" || info.menuItemId === "pullbay-selection-links") {
     const selection = info.menuItemId === "pullbay-selection-links";
     noticePick(await pickLinks(tab && tab.id, info.pageUrl || (tab && tab.url) || "", selection), selection);
+    return;
+  }
+  if (info.menuItemId === "pullbay-gallery") {
+    // The tab's page goes to Pullbay's window, which has gallery-dl list
+    // its pictures there: nothing runs until this click, and only for an
+    // http or https page.
+    const page = info.pageUrl || (tab && tab.url) || "";
+    if (!isWeb(page)) return;
+    if (!connected || !send({ op: "pick_gallery", page, user_agent: navigator.userAgent })) noticeCannotReach();
     return;
   }
   if (info.menuItemId === "pullbay-page") {

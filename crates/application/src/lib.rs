@@ -7,6 +7,7 @@
 
 pub mod daemon;
 pub mod downloads;
+pub mod gallery;
 pub mod grab;
 pub mod pairing;
 pub mod power;

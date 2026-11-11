@@ -16,6 +16,7 @@
 
 pub mod convert;
 pub mod dash;
+pub mod gallerydl;
 pub mod hds;
 pub mod hls;
 pub mod ytdlp;

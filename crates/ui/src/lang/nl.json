@@ -1205,5 +1205,19 @@
   "{archive} is damaged, or not an archive: {detail}": "{archive} is beschadigd of geen archief: {detail}",
   "{archive} needs 7-Zip, which was not found. Install 7-Zip, or set where it is in Options.": "{archive} heeft 7-Zip nodig, maar dat is niet gevonden. Installeer 7-Zip of geef in Opties aan waar het staat.",
   "{files} files in {folder}": "{files} bestanden in {folder}",
-  "{name} cannot be used as a folder name.": "{name} kan niet als mapnaam worden gebruikt."
+  "{name} cannot be used as a folder name.": "{name} kan niet als mapnaam worden gebruikt.",
+  "{url} is not an http or https page.": "{url} is geen http- of https-pagina.",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "Afbeeldingsgalerijen hebben gallery-dl nodig. Installeer het via Opties > Algemeen in Pullbay, of zet gallery-dl naast Pullbay.",
+  "gallery-dl does not know this site.": "gallery-dl kent deze site niet.",
+  "gallery-dl found no pictures on this page.": "gallery-dl heeft op deze pagina geen afbeeldingen gevonden.",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl antwoordde niet binnen {seconds} seconden.",
+  "This page is being read already.": "Deze pagina wordt al gelezen.",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay leest andere galerijen. Probeer het opnieuw als die klaar zijn.",
+  "Download gallery": "Galerij downloaden",
+  "Reading the gallery with gallery-dl...": "gallery-dl leest de galerij...",
+  "Words in the name": "Woorden in de naam",
+  "{shown} of {total} pictures shown": "{shown} van {total} afbeeldingen getoond",
+  "List the pictures on this page with gallery-dl, to pick which to download": "De afbeeldingen op deze pagina met gallery-dl opsommen, om te kiezen welke je downloadt",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "Somt de afbeeldingen op van Wikimedia Commons, Flickr, DeviantArt en de andere galerijsites die gallery-dl kent, voor Galerij downloaden. Downloads komen van codeberg.org/mikf/gallery-dl en worden gecontroleerd met de SHA-256-controlesommen die erbij gepubliceerd zijn.",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "Downloadt de officiële build van Codeberg en controleert die met de gepubliceerde controlesom"
 }

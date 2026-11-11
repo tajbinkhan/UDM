@@ -5,7 +5,9 @@
 use pullbay_domain::bytes::ByteCount;
 use std::sync::Arc;
 
+use pullbay_domain::address::Address;
 use pullbay_domain::download::{Download, ZipEntry};
+use pullbay_domain::gallery::{Gallery, GalleryError};
 use pullbay_domain::media::MediaInfo;
 use pullbay_domain::ports::{FileFacts, LinkFacts, ProbeError, Probes};
 
@@ -74,6 +76,20 @@ impl Probes for ServerProbes {
                 .map_err(|e| crate::zip::ZipError::Unread(format!("The server would not send part of the file: {e}")))
         })
         .map_err(probe_error)
+    }
+
+    fn gallery(&self, page: &Address, user_agent: Option<&str>) -> Result<Gallery, GalleryError> {
+        let program = crate::media::gallerydl::find().ok_or(GalleryError::Missing)?;
+        // The proxy a download of the page would use; no cookies.
+        let req = self.transfers.request_for(Download { url: page.clone().into(), ..Download::default() });
+        let proxy = req.net.proxy.as_ref().and_then(|p| p.proxy_for(page.as_str()));
+        crate::media::gallerydl::probe(
+            &program,
+            page.as_str(),
+            proxy.as_deref(),
+            user_agent,
+            crate::media::gallerydl::PROBE_TIMEOUT,
+        )
     }
 }
 

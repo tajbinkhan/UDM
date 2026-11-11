@@ -1205,5 +1205,19 @@
   "{archive} is damaged, or not an archive: {detail}": "{archive} bozuk veya arşiv değil: {detail}",
   "{archive} needs 7-Zip, which was not found. Install 7-Zip, or set where it is in Options.": "{archive} için 7-Zip gerekiyor, ama bulunamadı. 7-Zip'i yükleyin veya yerini Seçenekler'de belirtin.",
   "{files} files in {folder}": "{folder} içinde {files} dosya",
-  "{name} cannot be used as a folder name.": "{name} klasör adı olarak kullanılamaz."
+  "{name} cannot be used as a folder name.": "{name} klasör adı olarak kullanılamaz.",
+  "{url} is not an http or https page.": "Bu adres http veya https sayfası değil: {url}",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "Resim galerileri için gallery-dl gerekir. Pullbay'in Seçenekler > Genel bölümünden kurun ya da gallery-dl'yi Pullbay'in yanına koyun.",
+  "gallery-dl does not know this site.": "gallery-dl bu siteyi tanımıyor.",
+  "gallery-dl found no pictures on this page.": "gallery-dl bu sayfada resim bulamadı.",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl {seconds} saniye içinde yanıt vermedi.",
+  "This page is being read already.": "Bu sayfa zaten okunuyor.",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay başka galerileri okuyor. Bitince yeniden deneyin.",
+  "Download gallery": "Galeriyi indir",
+  "Reading the gallery with gallery-dl...": "gallery-dl galeriyi okuyor...",
+  "Words in the name": "Addaki sözcükler",
+  "{shown} of {total} pictures shown": "{total} resimden {shown} tanesi gösteriliyor",
+  "List the pictures on this page with gallery-dl, to pick which to download": "Hangilerinin indirileceğini seçmek için bu sayfadaki resimleri gallery-dl ile listele",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "Galeriyi indir için Wikimedia Commons, Flickr, DeviantArt ve gallery-dl'nin tanıdığı diğer galeri sitelerindeki resimleri listeler. İndirmeler codeberg.org/mikf/gallery-dl adresinden gelir ve onlarla yayımlanan SHA-256 sağlama toplamlarıyla doğrulanır.",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "Resmi derlemeyi Codeberg'den indirir ve yayımlanan sağlama toplamıyla doğrular"
 }

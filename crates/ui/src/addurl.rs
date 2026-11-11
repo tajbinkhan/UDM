@@ -1,6 +1,7 @@
 //! Tasks > Add new download: the address to download, a checksum to compare
 //! the file with when it finishes, and, if the site wants one, a login. OK
-//! adds it; the save-as dialog follows as for any download.
+//! adds it; the save-as dialog follows as for any download. Download gallery
+//! opens the gallery dialog on the address instead, for a page of pictures.
 
 use eframe::egui;
 use pullbay_domain::checksum::Checksum;
@@ -38,6 +39,8 @@ impl AddDialog {
 pub enum Outcome {
     Open,
     Add(Box<Download>),
+    /// Open the gallery dialog on this page.
+    Gallery(String),
     Close,
 }
 
@@ -95,6 +98,16 @@ pub fn show(ctx: &egui::Context, d: &mut AddDialog, connected: bool) -> Outcome 
                     ok |= ui.add_enabled(can_add, egui::Button::new(tr("OK")).min_size(size)).clicked();
                     if ui.add(egui::Button::new(tr("Cancel")).min_size(size)).clicked() {
                         outcome = Outcome::Close;
+                    }
+                    let page = pullbay_domain::gallery::gallery_page(&url).ok();
+                    let gallery = ui
+                        .add_enabled(
+                            connected && page.is_some(),
+                            egui::Button::new(tr("Download gallery")).min_size(size),
+                        )
+                        .on_hover_text(tr("List the pictures on this page with gallery-dl, to pick which to download"));
+                    if let Some(page) = page.filter(|_| gallery.clicked()) {
+                        outcome = Outcome::Gallery(page.as_str().to_string());
                     }
                 });
             });

@@ -1205,5 +1205,19 @@
   "{archive} is damaged, or not an archive: {detail}": "{archive} bị hỏng hoặc không phải tệp nén: {detail}",
   "{archive} needs 7-Zip, which was not found. Install 7-Zip, or set where it is in Options.": "{archive} cần 7-Zip, nhưng không tìm thấy. Hãy cài đặt 7-Zip hoặc đặt vị trí của nó trong Tùy chọn.",
   "{files} files in {folder}": "{files} tệp trong {folder}",
-  "{name} cannot be used as a folder name.": "Không thể dùng {name} làm tên thư mục."
+  "{name} cannot be used as a folder name.": "Không thể dùng {name} làm tên thư mục.",
+  "{url} is not an http or https page.": "{url} không phải là trang http hoặc https.",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "Thư viện ảnh cần gallery-dl. Hãy cài đặt trong Tùy chọn > Chung của Pullbay, hoặc đặt gallery-dl cạnh Pullbay.",
+  "gallery-dl does not know this site.": "gallery-dl không biết trang web này.",
+  "gallery-dl found no pictures on this page.": "gallery-dl không tìm thấy ảnh nào trên trang này.",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl không trả lời trong vòng {seconds} giây.",
+  "This page is being read already.": "Trang này đang được đọc rồi.",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay đang đọc các thư viện ảnh khác. Hãy thử lại khi chúng xong.",
+  "Download gallery": "Tải thư viện ảnh",
+  "Reading the gallery with gallery-dl...": "gallery-dl đang đọc thư viện ảnh...",
+  "Words in the name": "Từ trong tên",
+  "{shown} of {total} pictures shown": "Đang hiển thị {shown} trên {total} ảnh",
+  "List the pictures on this page with gallery-dl, to pick which to download": "Liệt kê ảnh trên trang này bằng gallery-dl để chọn ảnh cần tải",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "Liệt kê ảnh của Wikimedia Commons, Flickr, DeviantArt và các trang thư viện ảnh khác mà gallery-dl biết, cho Tải thư viện ảnh. Bản tải về lấy từ codeberg.org/mikf/gallery-dl và được kiểm tra với tổng kiểm SHA-256 công bố kèm theo.",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "Tải bản dựng chính thức từ Codeberg và kiểm tra nó với tổng kiểm được công bố"
 }

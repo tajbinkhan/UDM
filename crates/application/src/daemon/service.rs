@@ -46,6 +46,7 @@ use crate::downloads::{
     Redownload, RefreshLink, Refreshed, RemoveDownload, ResumeAll, RetryDownload, SetLimitRemember, SetOnDone,
     SetProperties, SetSpeedLimit, UngroupPackage, UnpackPackage, UnpackPackageError, UseExisting,
 };
+use crate::gallery::ReadGallery;
 use crate::grab::RunGrabSchedules;
 use crate::pairing::PairingDesk;
 use crate::power::{CancelCountdown, CountdownNow, RunWhenDone};
@@ -76,6 +77,8 @@ pub enum ServiceError {
     Grab(#[from] grab::InvalidGrab),
     #[error(transparent)]
     Tool(#[from] pullbay_domain::tools::ToolError),
+    #[error(transparent)]
+    Gallery(#[from] pullbay_domain::gallery::GalleryError),
     #[error("A site crawl is already running.")]
     CrawlRunning,
     /// The address of a download whose form body cannot be sent.
@@ -319,6 +322,8 @@ pub struct DaemonService<W: Wiring> {
     tool_installs: Mutex<HashSet<Tool>>,
     /// When "Keep yt-dlp up to date" was last looked at.
     tools_checked: Mutex<Option<Instant>>,
+    /// The galleries being read, and the pages lately read that held none.
+    gallery_reads: Arc<Mutex<pullbay_domain::gallery::GalleryReads>>,
 }
 
 impl<W: Wiring> DaemonService<W> {
@@ -375,6 +380,7 @@ impl<W: Wiring> DaemonService<W> {
             grab_checked: Mutex::new(None),
             tool_installs: Mutex::default(),
             tools_checked: Mutex::new(None),
+            gallery_reads: Arc::default(),
         }
     }
 
@@ -1130,6 +1136,22 @@ impl<W: Wiring> DaemonService<W> {
         });
     }
 
+    /// List `page`'s pictures with gallery-dl on another thread (see
+    /// `ReadGallery`) and answer `reply` with `Gallery`.
+    pub fn read_gallery(self: &Arc<Self>, request: u64, page: String, user_agent: Option<String>, reply: Reply) {
+        let daemon = Arc::clone(self);
+        thread::spawn(move || {
+            let found = ReadGallery::new(&*daemon.probes, &daemon.clock, &daemon.gallery_reads)
+                .run(&page, user_agent.as_deref());
+            let page: String = page.trim().chars().take(2000).collect();
+            let event = match found {
+                Ok(gallery) => Event::Gallery { request, page, gallery: Some(gallery), error: None },
+                Err(e) => Event::Gallery { request, page, gallery: None, error: Some(e.into()) },
+            };
+            reply.send(event);
+        });
+    }
+
     /// "Keep yt-dlp up to date": at most once an hour, see whether a day
     /// passed since the last look, and if so update yt-dlp on another
     /// thread (see `UpdateYtDlp`).
@@ -1869,6 +1891,24 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 *lock(&daemon.picked_links) = Some(msg);
                 daemon.show_window();
             }
+        }
+        Command::PickGallery { page, user_agent } => {
+            let page: String = page.trim().chars().take(2000).collect();
+            if !pullbay_domain::batch::is_web_url(&page) {
+                return;
+            }
+            info!(page = %page, "gallery to pick from");
+            let msg = Event::PickGallery { page, user_agent };
+            if daemon.clients.window_open() {
+                daemon.clients.broadcast(msg);
+                daemon.clients.broadcast(Event::Show);
+            } else {
+                *lock(&daemon.picked_links) = Some(msg);
+                daemon.show_window();
+            }
+        }
+        Command::ReadGallery { request, page, user_agent } => {
+            daemon.read_gallery(request, page, user_agent, reply.clone());
         }
         Command::InstallTool { tool } => daemon.install_tool(tool, reply.clone()),
         Command::ListTools => send(Event::Tools { tools: daemon.tools(), done: None, error: None }),

@@ -8,6 +8,9 @@
   "downloadLaterWithPullbay": {
     "message": "Später mit Pullbay herunterladen"
   },
+  "downloadGalleryWithPullbay": {
+    "message": "Galerie mit Pullbay herunterladen"
+  },
   "downloadAllLinksWithPullbay": {
     "message": "Alle Links mit Pullbay herunterladen"
   },

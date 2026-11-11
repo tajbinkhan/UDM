@@ -27,7 +27,9 @@ use pullbay_domain::table::DownloadTable;
 
 use crate::errors::{self, UiError};
 use crate::i18n::{tr, trf};
-use crate::{columns, links, progress, videos};
+use crate::{columns, gallery, links, progress, videos};
+use pullbay_application::daemon::service::ServiceError;
+use pullbay_domain::gallery::{Gallery, GalleryError};
 use pullbay_domain::tools::{Tool, ToolState};
 
 /// Ignore speed samples closer together than this; they are too noisy.
@@ -103,6 +105,12 @@ pub struct AppState {
     pub picked_links: Option<links::LinksDialog>,
     /// A playlist's videos to pick from, until the window opens the dialog.
     pub picked_videos: Option<videos::VideosDialog>,
+    /// A gallery page the browser asked for, until the window opens its
+    /// dialog.
+    pub picked_gallery: Option<gallery::GalleryDialog>,
+    /// The daemon's answers to the gallery dialog's reads, until it takes
+    /// them: the request, and the pictures or why there are none.
+    pub gallery_read: Vec<(u64, Result<Gallery, gallery::Unread>)>,
     /// Where yt-dlp and ffmpeg are, as the daemon last said, for Options.
     pub tools: Vec<ToolState>,
     /// The tools being installed now.
@@ -371,6 +379,22 @@ impl AppState {
                 self.picked_videos =
                     Some(videos::VideosDialog::new(page.clone(), playlist.clone(), user_agent.clone()));
             }
+            Event::PickGallery { page, user_agent } => {
+                self.picked_gallery = Some(gallery::GalleryDialog::new(page.clone(), user_agent.clone()));
+            }
+            Event::Gallery { request, gallery, error, .. } => {
+                let found = match (gallery, error) {
+                    (Some(g), None) => Ok(g.clone()),
+                    (_, Some(e)) => Err(gallery::Unread {
+                        why: errors::daemon(e),
+                        missing: matches!(e, Failure::Service(ServiceError::Gallery(GalleryError::Missing))),
+                    }),
+                    (None, None) => {
+                        Err(gallery::Unread { why: errors::gallery(&GalleryError::NothingFound), missing: false })
+                    }
+                };
+                self.gallery_read.push((*request, found));
+            }
             Event::Tools { tools, done, error } => {
                 self.tools = tools.clone();
                 if let Some(tool) = done {
@@ -470,6 +494,8 @@ impl Default for AppState {
             started: Vec::new(),
             picked_links: None,
             picked_videos: None,
+            picked_gallery: None,
+            gallery_read: Vec::new(),
             tools: Vec::new(),
             tools_busy: HashSet::new(),
             tools_note: None,
@@ -601,6 +627,8 @@ pub enum What {
     ZipListed,
     PickedLinks,
     PickedVideos,
+    PickedGallery,
+    GalleryRead,
     LinkInfo,
     BrowsersRead,
     GrabOpened,
@@ -617,6 +645,8 @@ pub enum Taken {
     ZipListed(Option<ZipListed>),
     PickedLinks(Option<Box<links::LinksDialog>>),
     PickedVideos(Option<Box<videos::VideosDialog>>),
+    PickedGallery(Option<Box<gallery::GalleryDialog>>),
+    GalleryRead(Vec<(u64, Result<Gallery, gallery::Unread>)>),
     LinkInfo(Vec<(u64, usize, links::Probed)>),
     BrowsersRead(Option<BrowsersRead>),
     GrabOpened(Option<Result<Box<Project>, UiError>>),
@@ -778,6 +808,8 @@ pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
                 What::ZipListed => Taken::ZipListed(state.zip_listed.take()),
                 What::PickedLinks => Taken::PickedLinks(state.picked_links.take().map(Box::new)),
                 What::PickedVideos => Taken::PickedVideos(state.picked_videos.take().map(Box::new)),
+                What::PickedGallery => Taken::PickedGallery(state.picked_gallery.take().map(Box::new)),
+                What::GalleryRead => Taken::GalleryRead(std::mem::take(&mut state.gallery_read)),
                 What::LinkInfo => Taken::LinkInfo(std::mem::take(&mut state.link_info)),
                 What::BrowsersRead => Taken::BrowsersRead(state.browsers_read.take()),
                 What::GrabOpened => Taken::GrabOpened(state.grab_opened.take().map(|r| r.map(Box::new))),
@@ -855,6 +887,22 @@ pub fn take_picked_videos(state: &mut AppState) -> Option<videos::VideosDialog> 
     match apply(state, UiMessage::Take(What::PickedVideos)) {
         Some(Taken::PickedVideos(dialog)) => dialog.map(|d| *d),
         _ => None,
+    }
+}
+
+/// A gallery page the browser asked for, if one came.
+pub fn take_picked_gallery(state: &mut AppState) -> Option<gallery::GalleryDialog> {
+    match apply(state, UiMessage::Take(What::PickedGallery)) {
+        Some(Taken::PickedGallery(dialog)) => dialog.map(|d| *d),
+        _ => None,
+    }
+}
+
+/// The daemon's answers to the gallery dialog's reads.
+pub fn take_gallery_read(state: &mut AppState) -> Vec<(u64, Result<Gallery, gallery::Unread>)> {
+    match apply(state, UiMessage::Take(What::GalleryRead)) {
+        Some(Taken::GalleryRead(read)) => read,
+        _ => Vec::new(),
     }
 }
 

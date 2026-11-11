@@ -8,6 +8,9 @@
   "downloadLaterWithPullbay": {
     "message": "Pullbay로 나중에 다운로드"
   },
+  "downloadGalleryWithPullbay": {
+    "message": "Pullbay로 갤러리 다운로드"
+  },
   "downloadAllLinksWithPullbay": {
     "message": "Pullbay로 모든 링크 다운로드"
   },

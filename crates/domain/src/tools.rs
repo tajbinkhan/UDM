@@ -1,8 +1,9 @@
-//! The programs Pullbay can install for video pages: yt-dlp, which reads
-//! them, and ffmpeg, which joins and converts what it fetches. Where each
-//! official build comes from, how its published checksum is read, and when
-//! yt-dlp is due for an update. Downloading, checking and unpacking them
-//! are `pullbay_infrastructure::video_tools`.
+//! The programs Pullbay can install: yt-dlp, which reads video pages,
+//! ffmpeg, which joins and converts what it fetches, and gallery-dl, which
+//! lists the pictures of image galleries. Where each official build comes
+//! from, how its published checksum is read, and when yt-dlp is due for an
+//! update. Downloading, checking and unpacking them are
+//! `pullbay_infrastructure::video_tools`.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,18 +13,29 @@ use serde::{Deserialize, Serialize};
 pub enum Tool {
     YtDlp,
     Ffmpeg,
+    GalleryDl,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 2] = [Tool::YtDlp, Tool::Ffmpeg];
+    pub const ALL: [Tool; 3] = [Tool::YtDlp, Tool::Ffmpeg, Tool::GalleryDl];
 
     /// Its program's name, without `.exe`.
     pub fn name(self) -> &'static str {
         match self {
             Tool::YtDlp => "yt-dlp",
             Tool::Ffmpeg => "ffmpeg",
+            Tool::GalleryDl => "gallery-dl",
         }
     }
+}
+
+/// The site a project publishes its releases on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Forge {
+    /// github.com, read through its API at api.github.com.
+    GitHub,
+    /// codeberg.org (Forgejo), read through its API at codeberg.org/api/v1.
+    Codeberg,
 }
 
 /// The operating system a build is for.
@@ -60,12 +72,13 @@ pub enum Packing {
     Archive,
 }
 
-/// Where a tool's official build for a platform comes from: a GitHub
-/// repository's latest release, the file in it, and the file of SHA-256
-/// checksums the project publishes beside it.
+/// Where a tool's official build for a platform comes from: a repository's
+/// latest release on GitHub or Codeberg, the file in it, and the file of
+/// SHA-256 checksums the project publishes beside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ToolSource {
-    /// `owner/name` on GitHub.
+    pub forge: Forge,
+    /// `owner/name` on the forge.
     pub repository: &'static str,
     pub asset: &'static str,
     /// The checksum file in the same release, in `sha256sum`'s format.
@@ -78,16 +91,22 @@ pub const YT_DLP_REPOSITORY: &str = "yt-dlp/yt-dlp";
 /// The ffmpeg builds the yt-dlp project makes and its README points to
 /// for Windows and Linux. ffmpeg itself publishes source only.
 pub const FFMPEG_REPOSITORY: &str = "yt-dlp/FFmpeg-Builds";
+/// gallery-dl's releases. Its development moved from GitHub to Codeberg in
+/// 2026; the GitHub releases since then carry no files and no checksums.
+pub const GALLERY_DL_REPOSITORY: &str = "mikf/gallery-dl";
 
 /// The official build of `tool` for `platform`, or `None` where Pullbay
 /// installs none: ffmpeg on macOS (no build there comes with a published
-/// checksum), and systems or processors no build is made for.
+/// checksum), gallery-dl on macOS and on ARM processors (its project builds
+/// programs for x86 Windows and x86-64 Linux only), and systems or
+/// processors no build is made for.
 pub fn source(tool: Tool, platform: Platform) -> Option<ToolSource> {
     use Cpu::*;
     use System::*;
-    let (repository, sums, packing) = match tool {
-        Tool::YtDlp => (YT_DLP_REPOSITORY, "SHA2-256SUMS", Packing::Program),
-        Tool::Ffmpeg => (FFMPEG_REPOSITORY, "checksums.sha256", Packing::Archive),
+    let (forge, repository, sums, packing) = match tool {
+        Tool::YtDlp => (Forge::GitHub, YT_DLP_REPOSITORY, "SHA2-256SUMS", Packing::Program),
+        Tool::Ffmpeg => (Forge::GitHub, FFMPEG_REPOSITORY, "checksums.sha256", Packing::Archive),
+        Tool::GalleryDl => (Forge::Codeberg, GALLERY_DL_REPOSITORY, "SHA256SUMS", Packing::Program),
     };
     let asset = match (tool, platform.system, platform.cpu) {
         (Tool::YtDlp, Windows, X86_64) => "yt-dlp.exe",
@@ -102,9 +121,13 @@ pub fn source(tool: Tool, platform: Platform) -> Option<ToolSource> {
         (Tool::Ffmpeg, Windows, X86) => "ffmpeg-master-latest-win32-gpl.zip",
         (Tool::Ffmpeg, Linux, X86_64) => "ffmpeg-master-latest-linux64-gpl.tar.xz",
         (Tool::Ffmpeg, Linux, Aarch64) => "ffmpeg-master-latest-linuxarm64-gpl.tar.xz",
+        (Tool::GalleryDl, Windows, X86_64) => "gallery-dl.exe",
+        (Tool::GalleryDl, Windows, X86) => "gallery-dl_x86.exe",
+        // An x86-64 program; nothing for ARM.
+        (Tool::GalleryDl, Linux, X86_64) => "gallery-dl.bin",
         _ => return None,
     };
-    Some(ToolSource { repository, asset, sums, packing })
+    Some(ToolSource { forge, repository, asset, sums, packing })
 }
 
 /// What the user can run instead where Pullbay installs nothing, or would
@@ -117,6 +140,10 @@ pub fn package_command(tool: Tool, system: System) -> &'static str {
         (Tool::Ffmpeg, System::MacOs) => "brew install ffmpeg",
         (Tool::YtDlp, _) => "sudo apt install yt-dlp",
         (Tool::Ffmpeg, _) => "sudo apt install ffmpeg",
+        // gallery-dl's README names pip first; it works on every system.
+        (Tool::GalleryDl, System::Windows) => "python -m pip install -U gallery-dl",
+        (Tool::GalleryDl, System::MacOs) => "brew install gallery-dl",
+        (Tool::GalleryDl, _) => "python3 -m pip install -U gallery-dl",
     }
 }
 
@@ -198,11 +225,11 @@ pub enum ToolError {
     /// command instead.
     #[error("Pullbay cannot install {0} on this system. Install it with: {1}")]
     NoBuild(String, String),
-    /// GitHub could not be reached; why.
-    #[error("Could not reach GitHub: {0}")]
+    /// The release site (GitHub or Codeberg) could not be reached; why.
+    #[error("Could not reach the release site: {0}")]
     Unreachable(String),
-    /// GitHub's answer could not be read; why.
-    #[error("GitHub's answer could not be read: {0}")]
+    /// The release site's answer could not be read; why.
+    #[error("The release site's answer could not be read: {0}")]
     Answer(String),
     /// The latest release has no file of this name.
     #[error("The latest release has no file {0}.")]
@@ -256,6 +283,26 @@ mod tests {
         assert_eq!(source(Tool::Ffmpeg, MAC), None, "no checksummed build for macOS");
         assert_eq!(source(Tool::YtDlp, Platform { system: System::Other, cpu: Cpu::X86_64 }), None);
         assert_eq!(package_command(Tool::Ffmpeg, System::MacOs), "brew install ffmpeg");
+        assert_eq!(yt.forge, Forge::GitHub);
+    }
+
+    #[test]
+    fn gallery_dl_comes_from_codeberg_where_a_build_is_made() {
+        let win = source(Tool::GalleryDl, WIN).unwrap();
+        assert_eq!(
+            (win.forge, win.repository, win.asset, win.sums, win.packing),
+            (Forge::Codeberg, "mikf/gallery-dl", "gallery-dl.exe", "SHA256SUMS", Packing::Program)
+        );
+        let x86 = Platform { system: System::Windows, cpu: Cpu::X86 };
+        assert_eq!(source(Tool::GalleryDl, x86).unwrap().asset, "gallery-dl_x86.exe");
+        let linux = Platform { system: System::Linux, cpu: Cpu::X86_64 };
+        assert_eq!(source(Tool::GalleryDl, linux).unwrap().asset, "gallery-dl.bin");
+        assert_eq!(source(Tool::GalleryDl, MAC), None);
+        assert_eq!(source(Tool::GalleryDl, LINUX_ARM), None);
+        assert_eq!(package_command(Tool::GalleryDl, System::MacOs), "brew install gallery-dl");
+        assert_eq!(package_command(Tool::GalleryDl, System::Linux), "python3 -m pip install -U gallery-dl");
+        assert_eq!(serde_json::to_string(&Tool::GalleryDl).unwrap(), r#""gallery_dl""#);
+        assert_eq!(Tool::ALL.len(), 3);
     }
 
     #[test]

@@ -64,6 +64,7 @@ const BROWSER_OPS: &[&str] = &[
     "probe_media",
     "pick_links",
     "pick_videos",
+    "pick_gallery",
     "rendered",
     "cookies",
 ];

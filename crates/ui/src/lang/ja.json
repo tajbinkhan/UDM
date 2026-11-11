@@ -1205,5 +1205,19 @@
   "{archive} is damaged, or not an archive: {detail}": "{archive} は壊れているか、アーカイブではありません: {detail}",
   "{archive} needs 7-Zip, which was not found. Install 7-Zip, or set where it is in Options.": "{archive} には 7-Zip が必要ですが、見つかりませんでした。7-Zip をインストールするか、オプションで場所を指定してください。",
   "{files} files in {folder}": "{folder} に {files} 個のファイル",
-  "{name} cannot be used as a folder name.": "{name} はフォルダー名として使えません。"
+  "{name} cannot be used as a folder name.": "{name} はフォルダー名として使えません。",
+  "{url} is not an http or https page.": "{url} は http または https のページではありません。",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "画像ギャラリーには gallery-dl が必要です。Pullbay の [オプション > 全般] でインストールするか、gallery-dl を Pullbay と同じ場所に置いてください。",
+  "gallery-dl does not know this site.": "gallery-dl はこのサイトに対応していません。",
+  "gallery-dl found no pictures on this page.": "gallery-dl はこのページで画像を見つけられませんでした。",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl が {seconds} 秒以内に応答しませんでした。",
+  "This page is being read already.": "このページはすでに読み込み中です。",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay はほかのギャラリーを読み込んでいます。終わってからもう一度お試しください。",
+  "Download gallery": "ギャラリーをダウンロード",
+  "Reading the gallery with gallery-dl...": "gallery-dl でギャラリーを読み込んでいます...",
+  "Words in the name": "名前に含まれる語",
+  "{shown} of {total} pictures shown": "{total} 枚中 {shown} 枚の画像を表示",
+  "List the pictures on this page with gallery-dl, to pick which to download": "このページの画像を gallery-dl で一覧にし、ダウンロードするものを選びます",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "[ギャラリーをダウンロード] のために、Wikimedia Commons、Flickr、DeviantArt など gallery-dl が対応するギャラリー サイトの画像を一覧にします。ダウンロードは codeberg.org/mikf/gallery-dl から行い、一緒に公開されている SHA-256 チェックサムで検証します。",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "Codeberg から公式ビルドをダウンロードし、公開されているチェックサムで検証します"
 }

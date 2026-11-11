@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use crate::address::Link;
+use crate::address::{Address, Link};
 use crate::bytes::ByteCount;
 use crate::checksum::Algorithm;
 use crate::download::{Download, DownloadEntry, Scan, Status, ZipEntry};
 use crate::filename::FileName;
+use crate::gallery::{Gallery, GalleryError};
 use crate::grab::{GrabRequest, Outcome, Project, RenderedPage};
 use crate::id::{DownloadId, QueueId};
 use crate::media::{Conversion, MediaInfo};
@@ -19,7 +20,7 @@ use crate::package::{ArchiveKind, Family, Package, Password, UnpackError};
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
 use crate::settings::Settings;
-use crate::tools::{InstalledTool, Packing, Tool, ToolError};
+use crate::tools::{Forge, InstalledTool, Packing, Tool, ToolError};
 use crate::update::{Release, SetupAsset, UpdateError};
 
 /// The download queues, the main queue first.
@@ -310,7 +311,7 @@ pub trait ReleaseSource: Send + Sync {
     fn run_setup(&self, path: &Path) -> Result<(), UpdateError>;
 }
 
-/// A tool's latest release on GitHub.
+/// A tool's latest release on its forge (GitHub or Codeberg).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolRelease {
     /// Its tag, or its date for a release whose tag never changes.
@@ -323,14 +324,15 @@ pub struct ToolRelease {
 pub struct ReleaseFile {
     pub name: String,
     pub url: String,
-    /// The SHA-256 GitHub lists for it, when it lists one.
+    /// The SHA-256 the forge lists for it, when it lists one (GitHub does;
+    /// Codeberg does not).
     pub sha256: Option<String>,
 }
 
-/// Where yt-dlp's and ffmpeg's official releases come from.
+/// Where yt-dlp's, ffmpeg's and gallery-dl's official releases come from.
 pub trait ToolReleases: Send + Sync {
-    /// The latest release of `repository` (`owner/name`).
-    fn latest(&self, repository: &str) -> Result<ToolRelease, ToolError>;
+    /// The latest release of `repository` (`owner/name`) on `forge`.
+    fn latest(&self, forge: Forge, repository: &str) -> Result<ToolRelease, ToolError>;
 
     /// A small text file of a release: its checksums.
     fn text(&self, file: &ReleaseFile) -> Result<String, ToolError>;
@@ -558,6 +560,11 @@ pub trait Probes: Send + Sync {
     /// The files inside the zip archive at `download`, reading only its
     /// end. `total` is its size when known already.
     fn zip(&self, download: &Download, total: Option<ByteCount>) -> Result<Vec<ZipEntry>, ProbeError>;
+
+    /// The pictures of the gallery at `page`, as gallery-dl lists them
+    /// (cleaned), read with the settings' proxy and the browser's
+    /// `user_agent`. Given up after a timeout.
+    fn gallery(&self, page: &Address, user_agent: Option<&str>) -> Result<Gallery, GalleryError>;
 }
 
 /// The browser extension, for what only the browser knows. Asking waits a

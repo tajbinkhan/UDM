@@ -40,6 +40,7 @@ mod droptarget;
 mod droptarget;
 mod errors;
 mod find;
+mod gallery;
 mod help;
 mod i18n;
 mod links;
@@ -467,6 +468,12 @@ enum Action {
     },
     /// The link picker closed: stop asking.
     StopProbeLinks,
+    /// Ask gallery-dl, through the daemon, for a gallery page's pictures.
+    ReadGallery {
+        request: u64,
+        page: String,
+        user_agent: Option<String>,
+    },
     /// A click on a download's name: select only it, or with Ctrl add or
     /// take it away, or with Shift select the run from the last one clicked.
     Click {
@@ -608,6 +615,8 @@ struct App {
     links: Option<links::LinksDialog>,
     /// The playlist dialog, while open.
     videos: Option<videos::VideosDialog>,
+    /// The gallery dialog, while open.
+    gallery: Option<gallery::GalleryDialog>,
     /// A zip download's preview, asked for or shown.
     zip_preview: Option<ZipPreview>,
     /// The Convert dialog: the video, what it becomes, and whether the
@@ -1702,6 +1711,7 @@ impl App {
             hidden_windows: Vec::new(),
             links: None,
             videos: None,
+            gallery: None,
             zip_preview: None,
             about: None,
             tip: None,
@@ -2479,6 +2489,9 @@ impl App {
             Action::InstallTool(tool) => {
                 state::apply(&mut self.state, UiMessage::ToolInstalling(tool));
                 self.daemon.send(Command::InstallTool { tool });
+            }
+            Action::ReadGallery { request, page, user_agent } => {
+                self.daemon.send(Command::ReadGallery { request, page, user_agent });
             }
             Action::StopProbeLinks => {
                 self.daemon.send(Command::StopProbeLinks);
@@ -3322,13 +3335,13 @@ fn tool_row(ui: &mut egui::Ui, draft: &mut OptionsDraft, view: &ToolsView, tool:
                 trf!("Install {tool}", tool = tool.name())
             };
             let busy = view.busy.contains(&tool);
-            if ui
-                .add_enabled(view.connected && !busy, egui::Button::new(label))
-                .on_hover_text(tr(
-                    "Downloads the official build from GitHub and checks it against its published checksum",
-                ))
-                .clicked()
-            {
+            let from = match tool {
+                pullbay_domain::tools::Tool::GalleryDl => {
+                    tr("Downloads the official build from Codeberg and checks it against its published checksum")
+                }
+                _ => tr("Downloads the official build from GitHub and checks it against its published checksum"),
+            };
+            if ui.add_enabled(view.connected && !busy, egui::Button::new(label)).on_hover_text(from).clicked() {
                 draft.install_tool = Some(tool);
             }
             if busy {
@@ -3803,6 +3816,14 @@ fn general_tab(
             ui.checkbox(&mut draft.ytdlp_auto_update, tr("Keep yt-dlp up to date (looks once a day)"))
                 .on_hover_text(tr("Only a yt-dlp Pullbay installed is updated"));
             ui.weak(tr("Reads YouTube, playlists and the other sites yt-dlp knows. Downloads come from github.com/yt-dlp and are checked against the SHA-256 checksums published with them."));
+        });
+        ui.end_row();
+
+        ui.label("gallery-dl");
+        ui.vertical(|ui| {
+            tool_row(ui, draft, tools, pullbay_domain::tools::Tool::GalleryDl);
+            ui.weak(tr("Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them."));
+            // What the last install, of any of the three, did.
             match &tools.note {
                 Some(Ok(done)) => {
                     ui.label(done);
@@ -4910,6 +4931,10 @@ impl eframe::App for App {
                     actions.push(Action::AddDownload(*download));
                     self.add_dialog = None;
                 }
+                addurl::Outcome::Gallery(page) => {
+                    self.gallery = Some(gallery::GalleryDialog::new(page, None));
+                    self.add_dialog = None;
+                }
                 addurl::Outcome::Close => self.add_dialog = None,
             }
         }
@@ -5199,6 +5224,23 @@ impl eframe::App for App {
             let settings = settings.clone().unwrap_or_default();
             if !videos::dialog(ctx, d, &queue_list, &settings, connected, &mut actions) {
                 self.videos = None;
+            }
+        }
+        if let Some(d) = state::take_picked_gallery(&mut self.state) {
+            self.gallery = Some(d);
+        }
+        let gallery_read = state::take_gallery_read(&mut self.state);
+        if let Some(d) = self.gallery.as_mut() {
+            let settings = settings.clone().unwrap_or_default();
+            if !gallery_read.is_empty() {
+                let base = gallery::base_folder(&settings);
+                for (request, found) in gallery_read {
+                    d.heard(request, found, &base);
+                }
+            }
+            let installing = self.state.tools_busy.contains(&pullbay_domain::tools::Tool::GalleryDl);
+            if !gallery::dialog(ctx, d, &queue_list, &settings, connected, installing, &mut actions) {
+                self.gallery = None;
             }
         }
         let link_info = state::take_link_info(&mut self.state);

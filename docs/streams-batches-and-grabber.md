@@ -101,8 +101,31 @@ questions (a name already taken in its folder) like the link picker's.
 Each video is read by yt-dlp when its download starts, with the quality as
 a height limit (`bestvideo*[height<=720]+bestaudio/...`).
 
-**yt-dlp and ffmpeg.** Options > General has **Install yt-dlp** and
-**Install ffmpeg** (or **Update**) buttons, which the daemon carries out
+**Image galleries.** gallery-dl lists the pictures of a gallery page (a
+Wikimedia Commons category, a Flickr album, a DeviantArt gallery and the
+other sites gallery-dl knows), and Pullbay's own engine downloads them. The
+browser's menu has **Download gallery with Pullbay** on a page, a frame or
+an image (`pick_gallery`, for the tab's http or https page), and Add URL has
+**Download gallery** for the address typed. Either opens the gallery
+dialog, which asks the daemon to read the page (`read_gallery`): nothing
+runs until one of these clicks. The daemon runs `gallery-dl --config-ignore
+--no-input --resolve-json -o output.jsonl=true --range 1-1000 --http-timeout
+20 -- PAGE`, with the browser's user agent and the settings' proxy, and gives
+it up after 55 seconds, keeping what it listed by then. At most two pages
+are read at once, the same page once at a time, and a page gallery-dl does
+not know or found nothing on is not read again for ten minutes. The dialog
+lists each picture (http and https addresses only, each once, at most 1000)
+by the name gallery-dl gives it, with its size in pixels when known; every
+picture starts ticked, and a filter keeps those whose name holds every word
+typed. The pictures are saved in one folder, by default a folder named
+after the gallery in the General category's folder, and wait in a queue.
+**Add** adds the ticked ones as one batch with the page as their referrer,
+which asks the batch questions like the link picker's; two pictures with
+the same name are numbered apart (`a.jpg`, `a (1).jpg`). When gallery-dl is
+missing, the dialog offers **Install gallery-dl** and **Retry**.
+
+**yt-dlp, ffmpeg and gallery-dl.** Options > General has **Install yt-dlp**,
+**Install ffmpeg** and **Install gallery-dl** (or **Update**) buttons, which the daemon carries out
 (`install_tool`, answered with `tools`). Nothing is downloaded without a
 click, except that **Keep yt-dlp up to date** (off unless turned on) looks
 once a day for a newer release of a yt-dlp Pullbay installed. What is
@@ -116,9 +139,14 @@ downloaded, from where:
 | ffmpeg | Windows (x64, ARM64, x86) | `github.com/yt-dlp/FFmpeg-Builds/releases/latest`: `ffmpeg-master-latest-win64-gpl.zip` (or `winarm64`, `win32`) | `checksums.sha256` in the same release |
 | ffmpeg | Linux (x64, ARM64) | the same release: `ffmpeg-master-latest-linux64-gpl.tar.xz` (or `linuxarm64`) | `checksums.sha256` |
 | ffmpeg | macOS | nothing: no build there publishes a checksum, so Options shows `brew install ffmpeg` instead | |
+| gallery-dl | Windows (x64, x86) | `codeberg.org/mikf/gallery-dl/releases/latest`: `gallery-dl.exe`, `gallery-dl_x86.exe` | `SHA256SUMS` in the same release |
+| gallery-dl | Linux (x64) | the same release: `gallery-dl.bin` | `SHA256SUMS` |
+| gallery-dl | macOS, and ARM processors | nothing: the project builds no program there, so Options names a package manager's command instead | |
 
-The release is read from GitHub's API, and only files served from that
-repository's releases on `github.com` are used. The file is downloaded to
+The release is read from GitHub's API (Codeberg's, which answers in the
+same shape, for gallery-dl, whose development moved there in 2026), and
+only files served from that repository's releases on `github.com` or
+`codeberg.org` are used. The file is downloaded to
 `tools/.downloads` under a name nothing runs, its SHA-256 compared with the
 one the release's checksum file lists (and with GitHub's own digest of the
 file, when the API gives one), and only a match is put in place and made
@@ -128,7 +156,7 @@ installed; a release without a listed checksum is not downloaded at all.
 ffmpeg's archive is unpacked with the system's `tar` (System32's on Windows
 10 and later), keeping only `ffmpeg` and `ffprobe`. `tools/tools.json`
 records each tool's release and last check. Both checksums come from the
-same GitHub release as the file, so they catch a damaged or swapped
+same release as the file, so they catch a damaged or swapped
 download, not a release the project's own account published; yt-dlp's GPG
 signature (`SHA2-256SUMS.sig`) is not checked. Pullbay uses a tool from its
 own folder first, then the one set in Options (ffmpeg), then `PATH`.

@@ -21,6 +21,7 @@ use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
 };
+use pullbay_domain::gallery::Gallery;
 use pullbay_domain::grab::{GrabFile, GrabRequest};
 use pullbay_domain::id::{DeviceId, DownloadId, PackageId, QueueId};
 use pullbay_domain::media::{MediaInfo, Playlist, Target};
@@ -92,6 +93,20 @@ pub enum Command {
     PickVideos {
         page: String,
         playlist: Playlist,
+        user_agent: Option<String>,
+    },
+    /// "Download gallery" in the browser's menu: the window opens the
+    /// gallery dialog for `page`, which asks for its pictures with
+    /// `ReadGallery`. No answer.
+    PickGallery {
+        page: String,
+        user_agent: Option<String>,
+    },
+    /// List the pictures gallery-dl finds on the http or https `page`;
+    /// answered with `Gallery`.
+    ReadGallery {
+        request: u64,
+        page: String,
         user_agent: Option<String>,
     },
     /// Install the official build of yt-dlp or ffmpeg, checked against its
@@ -453,6 +468,18 @@ pub enum Event {
         page: String,
         playlist: Playlist,
         user_agent: Option<String>,
+    },
+    /// The browser asked for `page`'s gallery: the window opens its dialog.
+    PickGallery {
+        page: String,
+        user_agent: Option<String>,
+    },
+    /// What `ReadGallery` found: the pictures, or why there are none.
+    Gallery {
+        request: u64,
+        page: String,
+        gallery: Option<Gallery>,
+        error: Option<Failure>,
     },
     /// Where yt-dlp and ffmpeg are. After `InstallTool`, `done` is the
     /// tool it was for, and `error` why it was not installed, if it was not.

@@ -1205,5 +1205,19 @@
   "{archive} is damaged, or not an archive: {detail}": "{archive} rusak, atau bukan arsip: {detail}",
   "{archive} needs 7-Zip, which was not found. Install 7-Zip, or set where it is in Options.": "{archive} memerlukan 7-Zip, yang tidak ditemukan. Instal 7-Zip, atau atur lokasinya di Opsi.",
   "{files} files in {folder}": "{files} file di {folder}",
-  "{name} cannot be used as a folder name.": "{name} tidak dapat dipakai sebagai nama folder."
+  "{name} cannot be used as a folder name.": "{name} tidak dapat dipakai sebagai nama folder.",
+  "{url} is not an http or https page.": "{url} bukan halaman http atau https.",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "Galeri gambar memerlukan gallery-dl. Pasang di Opsi > Umum Pullbay, atau letakkan gallery-dl di samping Pullbay.",
+  "gallery-dl does not know this site.": "gallery-dl tidak mengenal situs ini.",
+  "gallery-dl found no pictures on this page.": "gallery-dl tidak menemukan gambar di halaman ini.",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl tidak menjawab dalam {seconds} detik.",
+  "This page is being read already.": "Halaman ini sudah sedang dibaca.",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay sedang membaca galeri lain. Coba lagi setelah selesai.",
+  "Download gallery": "Unduh galeri",
+  "Reading the gallery with gallery-dl...": "gallery-dl sedang membaca galeri...",
+  "Words in the name": "Kata dalam nama",
+  "{shown} of {total} pictures shown": "{shown} dari {total} gambar ditampilkan",
+  "List the pictures on this page with gallery-dl, to pick which to download": "Daftarkan gambar di halaman ini dengan gallery-dl, untuk memilih yang akan diunduh",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "Mendaftar gambar dari Wikimedia Commons, Flickr, DeviantArt, dan situs galeri lain yang dikenal gallery-dl, untuk Unduh galeri. Unduhan berasal dari codeberg.org/mikf/gallery-dl dan diperiksa dengan checksum SHA-256 yang diterbitkan bersamanya.",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "Mengunduh build resmi dari Codeberg dan memeriksanya dengan checksum yang diterbitkan"
 }
