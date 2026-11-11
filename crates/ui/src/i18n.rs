@@ -257,6 +257,7 @@ mod tests {
         include_str!("queues.rs"),
         include_str!("remote.rs"),
         include_str!("state.rs"),
+        include_str!("gallery.rs"),
         include_str!("table.rs"),
         include_str!("toolbar.rs"),
         include_str!("tools.rs"),

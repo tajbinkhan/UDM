@@ -114,6 +114,13 @@
   the system's `tar` (Windows 10 version 1803 and later have it). A yt-dlp
   that is running cannot be replaced on Windows, so an update waits for the
   next day's look. Only a yt-dlp Pullbay installed is kept up to date.
+- Image galleries: Pullbay does not give gallery-dl the browser's cookies or
+  the user's gallery-dl configuration, so galleries that need signing in
+  are not listed. At most 1000 pictures of a gallery are listed. There is
+  no gallery-dl to install on macOS or on ARM processors (the project builds
+  no program there), and an installed gallery-dl is not kept up to date on
+  its own. The tests that run a stand-in gallery-dl are shell scripts, so
+  they run on macOS and Linux only.
 - The video button sits outside a video in full screen, so it is hidden
   then, and it only knows the media its tab loaded after the extension
   started; reloading the page fills the list.

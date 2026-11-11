@@ -1205,5 +1205,19 @@
   "{archive} is damaged, or not an archive: {detail}": "{archive} è danneggiato o non è un archivio: {detail}",
   "{archive} needs 7-Zip, which was not found. Install 7-Zip, or set where it is in Options.": "{archive} richiede 7-Zip, che non è stato trovato. Installa 7-Zip o indica dove si trova in Opzioni.",
   "{files} files in {folder}": "{files} file in {folder}",
-  "{name} cannot be used as a folder name.": "{name} non può essere usato come nome di cartella."
+  "{name} cannot be used as a folder name.": "{name} non può essere usato come nome di cartella.",
+  "{url} is not an http or https page.": "{url} non è una pagina http o https.",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "Le gallerie di immagini richiedono gallery-dl. Installalo in Opzioni > Generale di Pullbay, oppure metti gallery-dl accanto a Pullbay.",
+  "gallery-dl does not know this site.": "gallery-dl non conosce questo sito.",
+  "gallery-dl found no pictures on this page.": "gallery-dl non ha trovato immagini in questa pagina.",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl non ha risposto entro {seconds} secondi.",
+  "This page is being read already.": "Questa pagina è già in lettura.",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay sta leggendo altre gallerie. Riprova quando hanno finito.",
+  "Download gallery": "Scarica la galleria",
+  "Reading the gallery with gallery-dl...": "gallery-dl sta leggendo la galleria...",
+  "Words in the name": "Parole nel nome",
+  "{shown} of {total} pictures shown": "{shown} di {total} immagini mostrate",
+  "List the pictures on this page with gallery-dl, to pick which to download": "Elenca le immagini di questa pagina con gallery-dl, per scegliere quali scaricare",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "Elenca le immagini di Wikimedia Commons, Flickr, DeviantArt e degli altri siti di gallerie che gallery-dl conosce, per Scarica la galleria. I download vengono da codeberg.org/mikf/gallery-dl e sono verificati con i checksum SHA-256 pubblicati con essi.",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "Scarica la build ufficiale da Codeberg e la verifica con il checksum pubblicato"
 }

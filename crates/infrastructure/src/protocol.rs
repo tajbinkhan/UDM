@@ -215,6 +215,21 @@ pub enum Incoming {
         #[serde(default)]
         user_agent: Option<String>,
     },
+    /// "Download gallery" in the browser's menu: the window opens the
+    /// gallery dialog for `page`. No answer.
+    PickGallery {
+        page: String,
+        #[serde(default)]
+        user_agent: Option<String>,
+    },
+    /// List the pictures gallery-dl finds on the http or https `page`;
+    /// answered with `gallery`. The window's, never the browser's.
+    ReadGallery {
+        request: u64,
+        page: String,
+        #[serde(default)]
+        user_agent: Option<String>,
+    },
     /// Install the official build of `yt_dlp` or `ffmpeg`, checked against
     /// its published checksum; answered with `tools`.
     InstallTool {
@@ -511,6 +526,25 @@ pub enum Outgoing {
         playlist: pullbay_domain::media::Playlist,
         #[serde(default)]
         user_agent: Option<String>,
+    },
+    /// The browser asked for `page`'s gallery, as `pick_gallery` sent it.
+    PickGallery {
+        page: String,
+        #[serde(default)]
+        user_agent: Option<String>,
+    },
+    /// What `read_gallery` found: the pictures, or why there are none.
+    Gallery {
+        request: u64,
+        page: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        gallery: Option<pullbay_domain::gallery::Gallery>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+        /// The error's kind and values (see `wire`); `error` is its
+        /// English text.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error_kind: Option<serde_json::Value>,
     },
     /// Where yt-dlp and ffmpeg are. After `install_tool`, `done` names the
     /// tool, and `error` says why it was not installed, if it was not.

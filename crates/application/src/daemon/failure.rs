@@ -58,6 +58,12 @@ impl From<pullbay_domain::tools::ToolError> for Failure {
     }
 }
 
+impl From<pullbay_domain::gallery::GalleryError> for Failure {
+    fn from(e: pullbay_domain::gallery::GalleryError) -> Self {
+        Failure::Service(e.into())
+    }
+}
+
 impl From<ProbeError> for Failure {
     fn from(e: ProbeError) -> Self {
         Failure::Probe(e.0)

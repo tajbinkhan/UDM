@@ -1205,5 +1205,19 @@
   "{archive} is damaged, or not an archive: {detail}": "{archive} 已损坏，或不是压缩包：{detail}",
   "{archive} needs 7-Zip, which was not found. Install 7-Zip, or set where it is in Options.": "{archive} 需要 7-Zip，但未找到。请安装 7-Zip，或在“选项”中设置其位置。",
   "{files} files in {folder}": "{folder} 中有 {files} 个文件",
-  "{name} cannot be used as a folder name.": "{name} 不能用作文件夹名称。"
+  "{name} cannot be used as a folder name.": "{name} 不能用作文件夹名称。",
+  "{url} is not an http or https page.": "{url} 不是 http 或 https 页面。",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "图库需要 gallery-dl。请在 Pullbay 的“选项 > 常规”中安装，或将 gallery-dl 放在 Pullbay 旁边。",
+  "gallery-dl does not know this site.": "gallery-dl 不支持此网站。",
+  "gallery-dl found no pictures on this page.": "gallery-dl 在此页面上未找到图片。",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl 在 {seconds} 秒内没有响应。",
+  "This page is being read already.": "已在读取此页面。",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay 正在读取其他图库。请在完成后重试。",
+  "Download gallery": "下载图库",
+  "Reading the gallery with gallery-dl...": "gallery-dl 正在读取图库...",
+  "Words in the name": "名称中的字词",
+  "{shown} of {total} pictures shown": "显示 {shown} 张图片，共 {total} 张",
+  "List the pictures on this page with gallery-dl, to pick which to download": "用 gallery-dl 列出此页面上的图片，以选择要下载的图片",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "为“下载图库”列出 Wikimedia Commons、Flickr、DeviantArt 及 gallery-dl 支持的其他图库网站上的图片。下载来自 codeberg.org/mikf/gallery-dl，并用随其发布的 SHA-256 校验和进行验证。",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "从 Codeberg 下载官方版本，并用其公布的校验和进行验证"
 }

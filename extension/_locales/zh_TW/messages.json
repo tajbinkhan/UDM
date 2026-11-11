@@ -8,6 +8,9 @@
   "downloadLaterWithPullbay": {
     "message": "使用 Pullbay 稍後下載"
   },
+  "downloadGalleryWithPullbay": {
+    "message": "使用 Pullbay 下載圖庫"
+  },
   "downloadAllLinksWithPullbay": {
     "message": "使用 Pullbay 下載所有連結"
   },

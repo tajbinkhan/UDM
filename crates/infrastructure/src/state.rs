@@ -92,6 +92,8 @@ fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
         | Outgoing::LinkInfo { .. }
         | Outgoing::PickLinks { .. }
         | Outgoing::PickVideos { .. }
+        | Outgoing::PickGallery { .. }
+        | Outgoing::Gallery { .. }
         | Outgoing::Tools { .. }
         | Outgoing::Quota { .. }
         | Outgoing::LimitLifted { .. }

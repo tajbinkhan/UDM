@@ -46,6 +46,28 @@ test("the page item can be left out of the menu like the others", () => {
   assert.ok(w.chrome.contextMenus.items.has("pullbay-link"));
 });
 
+test("the gallery item sends the tab's page for Pullbay to read with gallery-dl", async () => {
+  const w = connected();
+  same(w.chrome.contextMenus.items.get("pullbay-gallery").contexts, ["page", "frame", "image"]);
+  assert.equal(w.chrome.contextMenus.items.get("pullbay-gallery").title, "Download gallery with Pullbay");
+  await click(w, { menuItemId: "pullbay-gallery", pageUrl: "https://commons.example/wiki/Category:Cats", frameUrl: "https://embed.net/" });
+  const sent = w.sent.filter((m) => m.op === "pick_gallery");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].page, "https://commons.example/wiki/Category:Cats");
+  assert.equal(typeof sent[0].user_agent, "string");
+
+  // The browser's own pages and files are not read.
+  await click(w, { menuItemId: "pullbay-gallery", pageUrl: "chrome://newtab/" });
+  await click(w, { menuItemId: "pullbay-gallery", pageUrl: "file:///home/me/a.html" });
+  assert.equal(w.sent.filter((m) => m.op === "pick_gallery").length, 1);
+
+  // Left out like the others, and a notice while Pullbay is away.
+  assert.equal(connected({}, { browser_menu_hidden_chromium: ["gallery"] }).chrome.contextMenus.items.has("pullbay-gallery"), false);
+  const away = loadWorker();
+  await click(away, { menuItemId: "pullbay-gallery", pageUrl: "https://flickr.example/photos/a/albums/1" });
+  assert.deepEqual(notices(away), ["Cannot reach Pullbay. Is it running?"]);
+});
+
 test("a link's download attribute and title go with it as name and description", async () => {
   const w = connected();
   w.chrome.tabs.reply = (msg) =>

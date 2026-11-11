@@ -9,6 +9,7 @@ use pullbay_application::window::ThemeFileError;
 use pullbay_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
 use pullbay_domain::command::{CommandError, PATH_TOKEN};
 use pullbay_domain::download::{DownloadError, Mismatch};
+use pullbay_domain::gallery::GalleryError;
 use pullbay_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
 use pullbay_domain::package::{PackageError, UnpackFailure, MAX_NAME};
 use pullbay_domain::pairing::{PairingError, RemoteFault, MAX_DEVICES};
@@ -382,6 +383,27 @@ fn service(e: &ServiceError) -> String {
         ServiceError::Pairing(e) => pairing(e),
         ServiceError::NoPackage(id) => trf!("There is no package {id}.", id = id),
         ServiceError::PackageBusy => tr("The package is being unpacked already.").to_string(),
+        ServiceError::Gallery(e) => gallery(e),
+    }
+}
+
+/// Why a gallery page gave no pictures.
+pub fn gallery(e: &GalleryError) -> String {
+    match e {
+        GalleryError::NotWebPage(url) => trf!("{url} is not an http or https page.", url = url),
+        GalleryError::Missing => tr(
+            "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.",
+        )
+        .to_string(),
+        GalleryError::Unsupported => tr("gallery-dl does not know this site.").to_string(),
+        GalleryError::NothingFound => tr("gallery-dl found no pictures on this page.").to_string(),
+        // gallery-dl's own words.
+        GalleryError::Failed(why) => format!("gallery-dl: {why}"),
+        GalleryError::TimedOut(seconds) => {
+            trf!("gallery-dl did not answer within {seconds} seconds.", seconds = seconds)
+        }
+        GalleryError::Busy => tr("This page is being read already.").to_string(),
+        GalleryError::TooMany => tr("Pullbay is reading other galleries. Try again when they are done.").to_string(),
     }
 }
 

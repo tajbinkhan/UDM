@@ -1205,5 +1205,19 @@
   "{tool} is being installed already.": "{tool} wird bereits installiert.",
   "{tool} is installed.": "{tool} ist installiert.",
   "{tool} is up to date.": "{tool} ist aktuell.",
-  "{tool} was not found.": "{tool} wurde nicht gefunden."
+  "{tool} was not found.": "{tool} wurde nicht gefunden.",
+  "{url} is not an http or https page.": "{url} ist keine http- oder https-Seite.",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "Bildergalerien brauchen gallery-dl. Installieren Sie es unter Optionen > Allgemein in Pullbay, oder legen Sie gallery-dl neben Pullbay.",
+  "gallery-dl does not know this site.": "gallery-dl kennt diese Website nicht.",
+  "gallery-dl found no pictures on this page.": "gallery-dl hat auf dieser Seite keine Bilder gefunden.",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl hat nicht innerhalb von {seconds} Sekunden geantwortet.",
+  "This page is being read already.": "Diese Seite wird bereits gelesen.",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay liest gerade andere Galerien. Versuchen Sie es erneut, wenn sie fertig sind.",
+  "Download gallery": "Galerie herunterladen",
+  "Reading the gallery with gallery-dl...": "gallery-dl liest die Galerie...",
+  "Words in the name": "Wörter im Namen",
+  "{shown} of {total} pictures shown": "{shown} von {total} Bildern angezeigt",
+  "List the pictures on this page with gallery-dl, to pick which to download": "Die Bilder dieser Seite mit gallery-dl auflisten, um auszuwählen, welche heruntergeladen werden",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "Listet die Bilder von Wikimedia Commons, Flickr, DeviantArt und den anderen Galerie-Websites auf, die gallery-dl kennt, für „Galerie herunterladen“. Downloads kommen von codeberg.org/mikf/gallery-dl und werden gegen die mit ihnen veröffentlichten SHA-256-Prüfsummen geprüft.",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "Lädt die offizielle Version von Codeberg und prüft sie gegen ihre veröffentlichte Prüfsumme"
 }

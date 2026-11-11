@@ -1,6 +1,7 @@
-//! Installing yt-dlp and ffmpeg for video pages. `GitHubTools` reads a
-//! project's latest release from GitHub's API and downloads its files
-//! (`ToolReleases`); `ToolDir` is Pullbay's own `tools` folder
+//! Installing yt-dlp and ffmpeg for video pages, and gallery-dl for image
+//! galleries. `ForgeTools` reads a project's latest release from GitHub's
+//! or Codeberg's API and downloads its files (`ToolReleases`); `ToolDir` is
+//! Pullbay's own `tools` folder
 //! (`paths::tools_dir`), which puts a checked download in place, lets it run
 //! and remembers the release it came from (`ToolFolder`). The checking is the
 //! `InstallTool` use case's: a download is only handed to `ToolDir` once its
@@ -17,11 +18,19 @@
 //!   `ffprobe` are kept.
 //! - ffmpeg on macOS: nothing. No build there publishes a checksum to check
 //!   it against, so Options names Homebrew instead.
+//! - gallery-dl on Windows (x64, x86) and Linux (x86-64):
+//!   `https://codeberg.org/mikf/gallery-dl/releases/latest`, `gallery-dl.exe`,
+//!   `gallery-dl_x86.exe` or `gallery-dl.bin`, and `SHA256SUMS`. Its project
+//!   moved there from GitHub, whose releases no longer carry files. Nothing
+//!   on macOS or ARM, where it builds no program; Options names pip or
+//!   Homebrew instead.
 //!
 //! Both checksums come from the same release as the file, over HTTPS from
-//! GitHub, so they catch a damaged or swapped download, not a release its
-//! project's account was made to publish. yt-dlp's GPG signature
-//! (`SHA2-256SUMS.sig`) is not checked.
+//! the forge, so they catch a damaged or swapped download, not a release its
+//! project's account was made to publish. The GPG signatures beside them
+//! (yt-dlp's `SHA2-256SUMS.sig`, gallery-dl's `SHA256SUMS.sig` and `.sig`
+//! files) are not checked. Codeberg lists no digest of its own for a file,
+//! so a gallery-dl download is checked against `SHA256SUMS` alone.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -34,7 +43,7 @@ use pullbay_domain::bytes::ByteCount;
 use pullbay_domain::download::Download;
 use pullbay_domain::ports::{ReleaseFile, ToolFolder, ToolRelease, ToolReleases};
 use pullbay_domain::sync::LockExt;
-use pullbay_domain::tools::{Cpu, InstalledTool, Packing, Platform, System, Tool, ToolError};
+use pullbay_domain::tools::{Cpu, Forge, InstalledTool, Packing, Platform, System, Tool, ToolError};
 
 use crate::connect::{config_for, ProxyRetries};
 use crate::engine;
@@ -44,6 +53,10 @@ use crate::live_settings::LiveSettings;
 const API: &str = "https://api.github.com/repos/";
 /// Where GitHub serves release files from; a file anywhere else is not used.
 const DOWNLOADS: &str = "https://github.com/";
+/// Codeberg's (Forgejo's) API for a repository's releases.
+const CODEBERG_API: &str = "https://codeberg.org/api/v1/repos/";
+/// Where Codeberg serves release files from.
+const CODEBERG_DOWNLOADS: &str = "https://codeberg.org/";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The system this copy of Pullbay is built for.
@@ -69,31 +82,46 @@ pub fn platform() -> Platform {
     Platform { system, cpu }
 }
 
-/// Tools' releases on GitHub, reached through the settings' proxy.
-pub struct GitHubTools {
-    settings: Arc<LiveSettings>,
-    retries: Arc<ProxyRetries>,
+/// A forge's release API and where it serves release files from.
+struct Site {
     api: String,
     downloads: String,
+}
+
+/// Tools' releases on GitHub and Codeberg, reached through the settings'
+/// proxy.
+pub struct ForgeTools {
+    settings: Arc<LiveSettings>,
+    retries: Arc<ProxyRetries>,
+    github: Site,
+    codeberg: Site,
     /// Where downloads wait to be checked.
     folder: Option<PathBuf>,
 }
 
-impl GitHubTools {
+impl ForgeTools {
     pub fn new(settings: Arc<LiveSettings>, retries: Arc<ProxyRetries>) -> Self {
         let folder = crate::paths::tools_dir().map(|d| d.join(".downloads"));
-        GitHubTools { settings, retries, api: API.into(), downloads: DOWNLOADS.into(), folder }
+        ForgeTools {
+            settings,
+            retries,
+            github: Site { api: API.into(), downloads: DOWNLOADS.into() },
+            codeberg: Site { api: CODEBERG_API.into(), downloads: CODEBERG_DOWNLOADS.into() },
+            folder,
+        }
     }
 
-    /// The API at `api`, files only from addresses starting with
+    /// Both forges' API at `api`, files only from addresses starting with
     /// `downloads`, downloads kept in `folder`: for tests.
     pub fn at(settings: Arc<LiveSettings>, api: &str, downloads: &str, folder: PathBuf) -> Self {
-        GitHubTools {
-            settings,
-            retries: Arc::default(),
-            api: api.into(),
-            downloads: downloads.into(),
-            folder: Some(folder),
+        let site = || Site { api: api.into(), downloads: downloads.into() };
+        ForgeTools { settings, retries: Arc::default(), github: site(), codeberg: site(), folder: Some(folder) }
+    }
+
+    fn site(&self, forge: Forge) -> &Site {
+        match forge {
+            Forge::GitHub => &self.github,
+            Forge::Codeberg => &self.codeberg,
         }
     }
 
@@ -111,9 +139,9 @@ impl GitHubTools {
     }
 }
 
-/// The release in GitHub's answer for `repository`'s latest release: its
-/// files served from `downloads` + the repository's releases, with
-/// GitHub's digests. A release whose tag never changes (FFmpeg-Builds'
+/// The release in GitHub's or Codeberg's answer for `repository`'s latest
+/// release (both answer in GitHub's shape): its files served from
+/// `downloads` + the repository's releases, with GitHub's digests. A release whose tag never changes (FFmpeg-Builds'
 /// `latest`) is known by the day it was published.
 pub fn parse_release(json: &[u8], repository: &str, downloads: &str) -> Result<ToolRelease, ToolError> {
     let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| ToolError::Answer(e.to_string()))?;
@@ -142,13 +170,14 @@ pub fn parse_release(json: &[u8], repository: &str, downloads: &str) -> Result<T
     Ok(ToolRelease { version, files })
 }
 
-impl ToolReleases for GitHubTools {
-    fn latest(&self, repository: &str) -> Result<ToolRelease, ToolError> {
-        let url = format!("{}{repository}/releases/latest", self.api);
-        let body = engine::fetch(&url, &Self::headers(true), &self.net(&url), ByteCount::mib(4))
+impl ToolReleases for ForgeTools {
+    fn latest(&self, forge: Forge, repository: &str) -> Result<ToolRelease, ToolError> {
+        let site = self.site(forge);
+        let url = format!("{}{repository}/releases/latest", site.api);
+        let body = engine::fetch(&url, &Self::headers(forge == Forge::GitHub), &self.net(&url), ByteCount::mib(4))
             .map_err(|e| ToolError::Unreachable(e.to_string()))?
             .body;
-        parse_release(&body, repository, &self.downloads)
+        parse_release(&body, repository, &site.downloads)
     }
 
     fn text(&self, file: &ReleaseFile) -> Result<String, ToolError> {
@@ -386,6 +415,7 @@ impl ToolFolder for ToolDir {
         match tool {
             Tool::Ffmpeg => ffmpeg,
             Tool::YtDlp => crate::media::ytdlp::find(ffmpeg.as_deref()),
+            Tool::GalleryDl => crate::media::gallerydl::find(),
         }
     }
 }
@@ -462,7 +492,7 @@ mod tests {
         let program = b"#!/bin/sh\necho fake yt-dlp\n";
         let server = release_site(program, &sha(program));
         let dir = scratch("good");
-        let releases = GitHubTools::at(live(), &origin(&server), &origin(&server), dir.join(".downloads"));
+        let releases = ForgeTools::at(live(), &origin(&server), &origin(&server), dir.join(".downloads"));
         let folder = ToolDir::at(Some(dir.clone()), live());
         let (version, path) = InstallTool::new(&releases, &folder, &crate::hash::DiskHashes, platform())
             .run(Tool::YtDlp, false, 7)
@@ -488,7 +518,7 @@ mod tests {
         }
         let server = release_site(b"tampered", &sha(b"the real one"));
         let dir = scratch("bad");
-        let releases = GitHubTools::at(live(), &origin(&server), &origin(&server), dir.join(".downloads"));
+        let releases = ForgeTools::at(live(), &origin(&server), &origin(&server), dir.join(".downloads"));
         let folder = ToolDir::at(Some(dir.clone()), live());
         let err = InstallTool::new(&releases, &folder, &crate::hash::DiskHashes, platform())
             .run(Tool::YtDlp, false, 7)
@@ -500,13 +530,44 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// gallery-dl from a fake Codeberg: its API answers in GitHub's shape
+    /// without digests, and `SHA256SUMS` lists every program.
+    #[test]
+    fn gallery_dl_is_installed_from_codeberg_when_it_matches() {
+        let Some(source) = pullbay_domain::tools::source(Tool::GalleryDl, platform()) else { return };
+        let program = b"#!/bin/sh\necho fake gallery-dl\n".to_vec();
+        let (name, listed) = (source.asset.to_string(), sha(&program));
+        let server = TestServer::start_files_linking(move |base| {
+            let dl = "/mikf/gallery-dl/releases/download/v1.32.19";
+            let file = |n: &str| serde_json::json!({"name": n, "browser_download_url": format!("{base}{dl}/{n}")});
+            let answer = serde_json::json!({"tag_name": "v1.32.19", "assets": [file(&name), file("SHA256SUMS"), file("SHA256SUMS.sig")]});
+            let sums = format!("{listed}  {name}\n{}  gallery_dl-1.32.19.tar.gz\n", "0".repeat(64));
+            HashMap::from([
+                ("/mikf/gallery-dl/releases/latest".to_string(), answer.to_string().into_bytes()),
+                (format!("{dl}/{name}"), program.clone()),
+                (format!("{dl}/SHA256SUMS"), sums.into_bytes()),
+            ])
+        });
+        let dir = scratch("gallerydl");
+        let releases = ForgeTools::at(live(), &origin(&server), &origin(&server), dir.join(".downloads"));
+        let folder = ToolDir::at(Some(dir.clone()), live());
+        let (version, path) = InstallTool::new(&releases, &folder, &crate::hash::DiskHashes, platform())
+            .run(Tool::GalleryDl, false, 5)
+            .unwrap();
+        assert_eq!(version, "v1.32.19");
+        assert_eq!(path, dir.join(crate::platform::exe_name("gallery-dl")));
+        assert_eq!(fs::read(&path).unwrap(), b"#!/bin/sh\necho fake gallery-dl\n");
+        assert_eq!(folder.installed(Tool::GalleryDl).unwrap().version, "v1.32.19");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn files_from_elsewhere_are_not_downloaded() {
         let server = TestServer::start(testserver::body(10));
         let dir = scratch("elsewhere");
-        let releases = GitHubTools::at(live(), &server.url, "https://github.com/", dir.join(".downloads"));
+        let releases = ForgeTools::at(live(), &server.url, "https://github.com/", dir.join(".downloads"));
         // The test server answers anything with ten bytes, which is no JSON.
-        assert!(matches!(releases.latest("yt-dlp/yt-dlp"), Err(ToolError::Answer(_))));
+        assert!(matches!(releases.latest(Forge::GitHub, "yt-dlp/yt-dlp"), Err(ToolError::Answer(_))));
         fs::remove_dir_all(&dir).unwrap();
     }
 

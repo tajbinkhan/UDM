@@ -12,6 +12,7 @@ pub mod checksum;
 pub mod command;
 pub mod download;
 pub mod filename;
+pub mod gallery;
 pub mod grab;
 pub mod id;
 pub mod media;

@@ -6,8 +6,9 @@ use pullbay_domain::ports::{FileHashes, ToolFolder, ToolReleases};
 use pullbay_domain::tools::{self, Platform, Tool, ToolError, MAX_TOOL_BYTES};
 
 /// Install button: download `tool`'s official build for this platform from
-/// its project's latest GitHub release, check it against the SHA-256 the
-/// release's checksum file lists (and GitHub's own, when it lists one), and
+/// its project's latest release (on GitHub, or Codeberg for gallery-dl),
+/// check it against the SHA-256 the release's checksum file lists (and the
+/// forge's own, when it lists one), and
 /// only then put it in Pullbay's tools folder and let it run. A file that
 /// does not match is deleted.
 pub struct InstallTool<'a, R: ?Sized, F: ?Sized, H: ?Sized> {
@@ -34,7 +35,7 @@ where
         let source = tools::source(tool, self.platform).ok_or_else(|| {
             ToolError::NoBuild(tool.name().to_string(), tools::package_command(tool, self.platform.system).to_string())
         })?;
-        let release = self.releases.latest(source.repository)?;
+        let release = self.releases.latest(source.forge, source.repository)?;
         if only_newer && self.folder.installed(tool).is_some_and(|t| t.version == release.version) {
             self.folder.note_checked(tool, now);
             return Err(ToolError::UpToDate(tool.name().to_string()));
@@ -44,7 +45,7 @@ where
         let sums = file(source.sums).ok_or_else(|| ToolError::NoChecksum(source.asset.to_string()))?;
         let listed = tools::listed_sha256(&self.releases.text(sums)?, source.asset)
             .ok_or_else(|| ToolError::NoChecksum(source.asset.to_string()))?;
-        // GitHub's own digest of the file, when it has one, must agree too.
+        // The forge's own digest of the file, when it has one, must agree too.
         if asset.sha256.as_ref().is_some_and(|g| !g.eq_ignore_ascii_case(&listed)) {
             return Err(ToolError::WrongChecksum(source.asset.to_string()));
         }
@@ -95,7 +96,7 @@ mod tests {
         let (version, path) = InstallTool::new(&site, &shelf, &hashes, LINUX).run(Tool::YtDlp, false, 50).unwrap();
         assert_eq!(version, "2026.10.26");
         assert_eq!(path, PathBuf::from("/tools/yt-dlp"));
-        assert_eq!(site.asked(), ["yt-dlp/yt-dlp"]);
+        assert_eq!(site.asked(), ["GitHub yt-dlp/yt-dlp"]);
         assert_eq!(shelf.installs(), [(Tool::YtDlp, "2026.10.26".to_string(), 50)]);
     }
 
@@ -137,6 +138,26 @@ mod tests {
         let err = InstallTool::new(&site, &shelf, &hashes, LINUX).run(Tool::YtDlp, false, 1).unwrap_err();
         assert_eq!(err, ToolError::WrongChecksum("yt-dlp_linux".into()));
         assert!(site.downloaded().is_empty());
+    }
+
+    #[test]
+    fn gallery_dl_is_installed_from_codeberg_the_same_checked_way() {
+        let shelf = ToolShelf::default();
+        let hashes = Hashes::with("/dl/gallery-dl.bin", digest());
+        let site = ToolSite::release(
+            "v1.32.19",
+            &[("gallery-dl.bin", None), ("SHA256SUMS", None)],
+            &format!("{}  gallery-dl.bin\n{}  gallery-dl.exe\n", "ab".repeat(32), "cd".repeat(32)),
+        );
+        let (version, path) = InstallTool::new(&site, &shelf, &hashes, LINUX).run(Tool::GalleryDl, false, 3).unwrap();
+        assert_eq!(version, "v1.32.19");
+        assert_eq!(path, PathBuf::from("/tools/gallery-dl"));
+        assert_eq!(site.asked(), ["Codeberg mikf/gallery-dl"]);
+        let tampered = Hashes::with("/dl/gallery-dl.bin", vec![0xcd; 32]);
+        let err = InstallTool::new(&site, &ToolShelf::default(), &tampered, LINUX).run(Tool::GalleryDl, false, 3);
+        assert_eq!(err.unwrap_err(), ToolError::WrongChecksum("gallery-dl.bin".into()));
+        let mac = InstallTool::new(&site, &shelf, &hashes, MAC).run(Tool::GalleryDl, false, 3).unwrap_err();
+        assert_eq!(mac, ToolError::NoBuild("gallery-dl".into(), "brew install gallery-dl".into()));
     }
 
     #[test]

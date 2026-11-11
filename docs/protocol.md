@@ -52,6 +52,8 @@ Client to daemon (the host relays the browser's unchanged):
 { "op": "probe_media", "request": 4, "download": { "url": "https://videos.example/clip/42", "media": { "kind": "page" } } }
 { "op": "pick_videos", "page": "https://www.youtube.com/playlist?list=...",
   "playlist": { "title": "Talks", "entries": [ { "url": "https://www.youtube.com/watch?v=...", "title": "One", "duration": 61.0 } ] } }
+{ "op": "pick_gallery", "page": "https://commons.wikimedia.org/wiki/Category:Cats", "user_agent": "Mozilla/5.0 ..." }
+{ "op": "read_gallery", "request": 6, "page": "https://commons.wikimedia.org/wiki/Category:Cats" }
 { "op": "install_tool", "tool": "yt_dlp" }
 { "op": "list_tools" }
 { "op": "probe_links", "request": 5, "links": [ { "url": "https://.../a.zip", "referrer": "https://.../page" } ] }
@@ -245,8 +247,14 @@ or channel answers with `playlist` (its title and videos) instead of
 qualities, and `pick_videos` hands those videos to the window's playlist
 dialog (no answer; at most 1000, http and https pages only). `kind: "page"`
 on an `add` also takes `max_height` (the tallest video, for a playlist's
-videos) and `audio_only` `mp3`, `m4a`, `opus` or `flac`. `install_tool`
-(`yt_dlp` or `ffmpeg`) downloads the tool's official build, checks it
+videos) and `audio_only` `mp3`, `m4a`, `opus` or `flac`. `pick_gallery`
+(the browser's "Download gallery") opens the window's gallery dialog on an
+http or https `page` (no answer). `read_gallery` lists the page's pictures
+with gallery-dl and answers that client alone with a `gallery` echoing
+`request` and `page`: `gallery` holds the `title` and `pictures` (each a
+`url`, and when known a `name`, `extension`, `width` and `height`; at most
+1000), or `error` and `error_kind` say why there are none. `install_tool`
+(`yt_dlp`, `ffmpeg` or `gallery_dl`) downloads the tool's official build, checks it
 against its release's published SHA-256 and installs it in Pullbay's tools
 folder; it answers `tools` with `done` naming the tool and, when it was not
 installed, `error` and `error_kind`. `list_tools` answers `tools` alone.

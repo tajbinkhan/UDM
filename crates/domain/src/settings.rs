@@ -141,7 +141,7 @@ pub enum PanelView {
 
 /// The items Pullbay can add to the browser's context menu, by the names the
 /// extension knows them by, with their labels.
-pub const BROWSER_MENU_ITEMS: [(&str, &str); 7] = [
+pub const BROWSER_MENU_ITEMS: [(&str, &str); 8] = [
     ("page", "Download page with Pullbay (the page or frame itself)"),
     ("download", "Download with Pullbay (links, pictures, videos)"),
     ("download_later", "Download later with Pullbay"),
@@ -149,6 +149,7 @@ pub const BROWSER_MENU_ITEMS: [(&str, &str); 7] = [
     ("selected_links", "Download selected links with Pullbay"),
     ("last_video", "Download the last video with Pullbay"),
     ("recent_videos", "The last 10 videos"),
+    ("gallery", "Download gallery with Pullbay (pictures gallery-dl lists)"),
 ];
 
 /// The video and audio types the video button offers, unless the settings

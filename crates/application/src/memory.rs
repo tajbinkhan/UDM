@@ -1311,8 +1311,12 @@ impl ToolSite {
 }
 
 impl pullbay_domain::ports::ToolReleases for ToolSite {
-    fn latest(&self, repository: &str) -> Result<pullbay_domain::ports::ToolRelease, pullbay_domain::tools::ToolError> {
-        self.asked.lock().unwrap().push(repository.to_string());
+    fn latest(
+        &self,
+        forge: pullbay_domain::tools::Forge,
+        repository: &str,
+    ) -> Result<pullbay_domain::ports::ToolRelease, pullbay_domain::tools::ToolError> {
+        self.asked.lock().unwrap().push(format!("{forge:?} {repository}"));
         Ok(self.release.clone())
     }
 
@@ -1385,5 +1389,77 @@ impl pullbay_domain::ports::ToolFolder for ToolShelf {
 
     fn found(&self, tool: pullbay_domain::tools::Tool) -> Option<PathBuf> {
         self.tools.lock().unwrap().contains_key(&tool).then(|| PathBuf::from("/tools").join(tool.name()))
+    }
+}
+
+/// Gallery pages gallery-dl would read, by address: what each lists, or
+/// why not. Other pages are `Unsupported`; the other probes are not asked.
+#[derive(Default)]
+pub struct GalleryPages {
+    pages: HashMap<String, Result<pullbay_domain::gallery::Gallery, pullbay_domain::gallery::GalleryError>>,
+    asked: Mutex<Vec<(String, Option<String>)>>,
+}
+
+impl GalleryPages {
+    pub fn with(
+        page: &str,
+        found: Result<pullbay_domain::gallery::Gallery, pullbay_domain::gallery::GalleryError>,
+    ) -> Self {
+        GalleryPages { pages: HashMap::from([(page.to_string(), found)]), asked: Mutex::default() }
+    }
+
+    /// The pages read, with the user agent each was read with.
+    pub fn asked(&self) -> Vec<(String, Option<String>)> {
+        self.asked.lock().unwrap().clone()
+    }
+}
+
+impl pullbay_domain::ports::Probes for GalleryPages {
+    fn link(&self, _: &Download) -> Result<pullbay_domain::ports::LinkFacts, pullbay_domain::ports::ProbeError> {
+        Err(pullbay_domain::ports::ProbeError("not asked".into()))
+    }
+
+    fn file(&self, _: &Download) -> Result<pullbay_domain::ports::FileFacts, pullbay_domain::ports::ProbeError> {
+        Err(pullbay_domain::ports::ProbeError("not asked".into()))
+    }
+
+    fn media(&self, _: &Download) -> pullbay_domain::media::MediaInfo {
+        pullbay_domain::media::MediaInfo::default()
+    }
+
+    fn zip(
+        &self,
+        _: &Download,
+        _: Option<ByteCount>,
+    ) -> Result<Vec<pullbay_domain::download::ZipEntry>, pullbay_domain::ports::ProbeError> {
+        Err(pullbay_domain::ports::ProbeError("not asked".into()))
+    }
+
+    fn gallery(
+        &self,
+        page: &pullbay_domain::address::Address,
+        user_agent: Option<&str>,
+    ) -> Result<pullbay_domain::gallery::Gallery, pullbay_domain::gallery::GalleryError> {
+        self.asked.lock().unwrap().push((page.as_str().to_string(), user_agent.map(String::from)));
+        self.pages.get(page.as_str()).cloned().unwrap_or(Err(pullbay_domain::gallery::GalleryError::Unsupported))
+    }
+}
+
+/// Seconds since 1970 that a test moves on by hand.
+pub struct Seconds(std::sync::atomic::AtomicU64);
+
+impl Seconds {
+    pub fn at(now: u64) -> Self {
+        Seconds(std::sync::atomic::AtomicU64::new(now))
+    }
+
+    pub fn set(&self, now: u64) {
+        self.0.store(now, Ordering::SeqCst);
+    }
+}
+
+impl pullbay_domain::ports::Timestamps for Seconds {
+    fn unix_now(&self) -> u64 {
+        self.0.load(Ordering::SeqCst)
     }
 }

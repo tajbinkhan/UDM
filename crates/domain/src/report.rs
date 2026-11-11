@@ -655,6 +655,8 @@ impl Watch {
 
 thread_local! {
     /// How many [`expecting_panic`] calls this thread is inside.
+    // The initializer is const already; clippy 1.99 flags it anyway.
+    #[allow(clippy::missing_const_for_thread_local)]
     static EXPECTED: Cell<u32> = const { Cell::new(0) };
 }
 

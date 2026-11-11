@@ -12,6 +12,10 @@
     "message": "Download later with Pullbay",
     "description": "Context menu item on a link, image, video or audio: adds it to Pullbay's queue without starting it."
   },
+  "downloadGalleryWithPullbay": {
+    "message": "Download gallery with Pullbay",
+    "description": "Context menu item on a page: Pullbay lists the pictures gallery-dl finds on the page to pick from."
+  },
   "downloadAllLinksWithPullbay": {
     "message": "Download all links with Pullbay",
     "description": "Context menu item on a page: lists the page's links in Pullbay to pick from."

@@ -1205,5 +1205,19 @@
   "{tool} is being installed already.": "{tool} est déjà en cours d'installation.",
   "{tool} is installed.": "{tool} est installé.",
   "{tool} is up to date.": "{tool} est à jour.",
-  "{tool} was not found.": "{tool} est introuvable."
+  "{tool} was not found.": "{tool} est introuvable.",
+  "{url} is not an http or https page.": "{url} n'est pas une page http ou https.",
+  "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.": "Les galeries d'images nécessitent gallery-dl. Installez-le dans Options > Général de Pullbay, ou placez gallery-dl à côté de Pullbay.",
+  "gallery-dl does not know this site.": "gallery-dl ne connaît pas ce site.",
+  "gallery-dl found no pictures on this page.": "gallery-dl n'a trouvé aucune image sur cette page.",
+  "gallery-dl did not answer within {seconds} seconds.": "gallery-dl n'a pas répondu en {seconds} secondes.",
+  "This page is being read already.": "Cette page est déjà en cours de lecture.",
+  "Pullbay is reading other galleries. Try again when they are done.": "Pullbay lit d'autres galeries. Réessayez quand elles seront terminées.",
+  "Download gallery": "Télécharger la galerie",
+  "Reading the gallery with gallery-dl...": "gallery-dl lit la galerie...",
+  "Words in the name": "Mots du nom",
+  "{shown} of {total} pictures shown": "{shown} images affichées sur {total}",
+  "List the pictures on this page with gallery-dl, to pick which to download": "Lister les images de cette page avec gallery-dl, pour choisir celles à télécharger",
+  "Lists the pictures of Wikimedia Commons, Flickr, DeviantArt and the other gallery sites gallery-dl knows, for Download gallery. Downloads come from codeberg.org/mikf/gallery-dl and are checked against the SHA-256 checksums published with them.": "Liste les images de Wikimedia Commons, Flickr, DeviantArt et des autres sites de galeries que gallery-dl connaît, pour Télécharger la galerie. Les téléchargements viennent de codeberg.org/mikf/gallery-dl et sont vérifiés avec les sommes SHA-256 publiées avec eux.",
+  "Downloads the official build from Codeberg and checks it against its published checksum": "Télécharge la version officielle depuis Codeberg et la vérifie avec sa somme de contrôle publiée"
 }

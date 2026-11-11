@@ -300,7 +300,7 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         Box::new(move |url: &str| GitHub::new(Arc::clone(&settings), Arc::clone(&retries), url))
     };
     let tool_releases =
-        Arc::new(pullbay_infrastructure::video_tools::GitHubTools::new(Arc::clone(&settings), Arc::clone(&retries)));
+        Arc::new(pullbay_infrastructure::video_tools::ForgeTools::new(Arc::clone(&settings), Arc::clone(&retries)));
     let tool_folder = Arc::new(pullbay_infrastructure::video_tools::ToolDir::new(Arc::clone(&settings)));
     let remote = Arc::new(WebRemote::new(paths.remote.clone()));
     let pairing = Arc::new(PairingDesk::open(

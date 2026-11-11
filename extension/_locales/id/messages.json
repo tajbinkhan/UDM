@@ -8,6 +8,9 @@
   "downloadLaterWithPullbay": {
     "message": "Unduh nanti dengan Pullbay"
   },
+  "downloadGalleryWithPullbay": {
+    "message": "Unduh galeri dengan Pullbay"
+  },
   "downloadAllLinksWithPullbay": {
     "message": "Unduh semua tautan dengan Pullbay"
   },

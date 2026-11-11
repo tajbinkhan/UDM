@@ -27,6 +27,8 @@ pub fn incoming(command: Command) -> Incoming {
         Command::ProbeMedia { request, download } => Incoming::ProbeMedia { request, download },
         Command::PickLinks { page, links, user_agent } => Incoming::PickLinks { page, links, user_agent },
         Command::PickVideos { page, playlist, user_agent } => Incoming::PickVideos { page, playlist, user_agent },
+        Command::PickGallery { page, user_agent } => Incoming::PickGallery { page, user_agent },
+        Command::ReadGallery { request, page, user_agent } => Incoming::ReadGallery { request, page, user_agent },
         Command::InstallTool { tool } => Incoming::InstallTool { tool },
         Command::ListTools => Incoming::ListTools,
         Command::Rendered { request, html, url, popups } => Incoming::Rendered { request, html, url, popups },
@@ -94,6 +96,8 @@ pub fn command(msg: Incoming) -> Command {
         Incoming::ProbeMedia { request, download } => Command::ProbeMedia { request, download },
         Incoming::PickLinks { page, links, user_agent } => Command::PickLinks { page, links, user_agent },
         Incoming::PickVideos { page, playlist, user_agent } => Command::PickVideos { page, playlist, user_agent },
+        Incoming::PickGallery { page, user_agent } => Command::PickGallery { page, user_agent },
+        Incoming::ReadGallery { request, page, user_agent } => Command::ReadGallery { request, page, user_agent },
         Incoming::InstallTool { tool } => Command::InstallTool { tool },
         Incoming::ListTools => Command::ListTools,
         Incoming::Rendered { request, html, url, popups } => Command::Rendered { request, html, url, popups },
@@ -194,6 +198,10 @@ pub fn event(msg: Outgoing) -> Event {
         }
         Outgoing::PickLinks { page, links, user_agent } => Event::PickLinks { page, links, user_agent },
         Outgoing::PickVideos { page, playlist, user_agent } => Event::PickVideos { page, playlist, user_agent },
+        Outgoing::PickGallery { page, user_agent } => Event::PickGallery { page, user_agent },
+        Outgoing::Gallery { request, page, gallery, error, error_kind } => {
+            Event::Gallery { request, page, gallery, error: error.map(|e| failure(e, error_kind)) }
+        }
         Outgoing::Tools { tools, done, error, error_kind } => {
             Event::Tools { tools, done, error: error.map(|e| failure(e, error_kind)) }
         }
@@ -265,6 +273,11 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
         }
         Event::PickLinks { page, links, user_agent } => Outgoing::PickLinks { page, links, user_agent },
         Event::PickVideos { page, playlist, user_agent } => Outgoing::PickVideos { page, playlist, user_agent },
+        Event::PickGallery { page, user_agent } => Outgoing::PickGallery { page, user_agent },
+        Event::Gallery { request, page, gallery, error } => {
+            let (error, error_kind) = optional(error);
+            Outgoing::Gallery { request, page, gallery, error, error_kind }
+        }
         Event::Tools { tools, done, error } => {
             let (error, error_kind) = optional(error);
             Outgoing::Tools { tools, done, error, error_kind }
@@ -360,6 +373,7 @@ enum WireService {
     BadBody(String),
     NotDownloadAddress(String),
     Tool(pullbay_domain::tools::ToolError),
+    Gallery(pullbay_domain::gallery::GalleryError),
     Pairing(PairingError),
     NoPackage(PackageId),
     PackageBusy,
@@ -416,6 +430,7 @@ impl WireService {
             ServiceError::BadBody(url) => WireService::BadBody(url),
             ServiceError::NotDownloadAddress(url) => WireService::NotDownloadAddress(url),
             ServiceError::Tool(e) => WireService::Tool(e),
+            ServiceError::Gallery(e) => WireService::Gallery(e),
             ServiceError::Pairing(e) => WireService::Pairing(e),
             ServiceError::NoPackage(id) => WireService::NoPackage(id),
             ServiceError::PackageBusy => WireService::PackageBusy,
@@ -441,6 +456,7 @@ impl From<WireService> for ServiceError {
             WireService::BadBody(url) => ServiceError::BadBody(url),
             WireService::NotDownloadAddress(url) => ServiceError::NotDownloadAddress(url),
             WireService::Tool(e) => ServiceError::Tool(e),
+            WireService::Gallery(e) => ServiceError::Gallery(e),
             WireService::Pairing(e) => ServiceError::Pairing(e),
             WireService::NoPackage(id) => ServiceError::NoPackage(id),
             WireService::PackageBusy => ServiceError::PackageBusy,
@@ -587,6 +603,45 @@ mod tests {
             value["error_kind"],
             serde_json::json!({"Service": {"Tool": {"NoBuild": ["ffmpeg", "brew install ffmpeg"]}}})
         );
+        assert_eq!(back, failed);
+    }
+
+    #[test]
+    fn galleries_keep_their_shape() {
+        use pullbay_domain::gallery::{Gallery, GalleryError, Picture};
+        assert_eq!(
+            json(&incoming(Command::PickGallery { page: "https://g/a".into(), user_agent: None })),
+            serde_json::json!({"op": "pick_gallery", "page": "https://g/a", "user_agent": null})
+        );
+        assert_eq!(
+            json(&incoming(Command::ReadGallery {
+                request: 4,
+                page: "https://g/a".into(),
+                user_agent: Some("UA".into())
+            })),
+            serde_json::json!({"op": "read_gallery", "request": 4, "page": "https://g/a", "user_agent": "UA"})
+        );
+        let gallery = Gallery {
+            title: "T".into(),
+            pictures: vec![Picture { url: "https://i/1.jpg".into(), width: Some(2), ..Picture::default() }],
+        };
+        let found = Event::Gallery { request: 4, page: "https://g/a".into(), gallery: Some(gallery), error: None };
+        let (value, back) = round_trip(found.clone());
+        assert_eq!(value["op"], "gallery");
+        assert_eq!(
+            value["gallery"],
+            serde_json::json!({"title": "T", "pictures": [{"url": "https://i/1.jpg", "width": 2}]})
+        );
+        assert_eq!(back, found);
+        let failed = Event::Gallery {
+            request: 5,
+            page: "https://g/b".into(),
+            gallery: None,
+            error: Some(GalleryError::TimedOut(55).into()),
+        };
+        let (value, back) = round_trip(failed.clone());
+        assert_eq!(value["error"], "gallery-dl did not answer within 55 seconds.");
+        assert_eq!(value["error_kind"], serde_json::json!({"Service": {"Gallery": {"TimedOut": 55}}}));
         assert_eq!(back, failed);
     }
 
