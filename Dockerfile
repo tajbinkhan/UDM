@@ -55,7 +55,7 @@ WORKDIR /downloads
 
 LABEL org.opencontainers.image.title="UDM" \
       org.opencontainers.image.description="UDM's download daemon in server mode" \
-      org.opencontainers.image.source="https://github.com/tajbinkhan/pullbay" \
+      org.opencontainers.image.source="https://github.com/tajbinkhan/UDM" \
       org.opencontainers.image.licenses="MIT"
 
 ENTRYPOINT ["/usr/bin/tini", "--", "udm-daemon", "--server"]

@@ -1,7 +1,7 @@
 # Install
 
 Every release on the
-[Releases page](https://github.com/tajbinkhan/pullbay/releases) has a file for
+[Releases page](https://github.com/tajbinkhan/UDM/releases) has a file for
 each system:
 
 | System | File | |

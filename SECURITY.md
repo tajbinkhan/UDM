@@ -6,9 +6,9 @@ Please don't report a security hole in a public issue, pull request or discussio
 
 Report it privately through GitHub instead:
 
-1. Open the repository's [Security tab](https://github.com/tajbinkhan/pullbay/security).
+1. Open the repository's [Security tab](https://github.com/tajbinkhan/UDM/security).
 2. Click **Report a vulnerability**
-   ([direct link](https://github.com/tajbinkhan/pullbay/security/advisories/new)).
+   ([direct link](https://github.com/tajbinkhan/UDM/security/advisories/new)).
 3. Describe the problem and send it.
 
 Only you and the maintainer see the report. The fix is worked out there, and the advisory is
@@ -39,4 +39,4 @@ UDM handles downloads for the browser, so these matter most:
 - The update check and the installers.
 
 Bugs that need someone already able to run programs as your user, or to change UDM's own
-files, are ordinary bugs. Open an [issue](https://github.com/tajbinkhan/pullbay/issues) for those.
+files, are ordinary bugs. Open an [issue](https://github.com/tajbinkhan/UDM/issues) for those.

@@ -29,7 +29,7 @@ function pageNames() {
 }
 
 // The video button's "?": the help page on streams and the video button.
-var VIDEO_HELP = "https://github.com/tajbinkhan/pullbay/blob/main/docs/streams-batches-and-grabber.md";
+var VIDEO_HELP = "https://github.com/tajbinkhan/UDM/blob/main/docs/streams-batches-and-grabber.md";
 
 // The mini view's button face: a down arrow, drawn without page text.
 function udmArrow() {

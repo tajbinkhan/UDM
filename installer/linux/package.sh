@@ -85,7 +85,7 @@ Conflicts: pullbay, uidm
 Replaces: pullbay, uidm
 Section: net
 Priority: optional
-Homepage: https://github.com/tajbinkhan/pullbay
+Homepage: https://github.com/tajbinkhan/UDM
 Description: Download manager with a browser extension
  UDM (Unified Download Manager) downloads files over many connections at once, resumes them,
  captures downloads and videos from the browser, and runs queues on a
@@ -104,7 +104,7 @@ Version: $version
 Release: 1
 Summary: Download manager with a browser extension
 License: MIT
-URL: https://github.com/tajbinkhan/pullbay
+URL: https://github.com/tajbinkhan/UDM
 Requires: gtk3, openssl-libs >= 3, libxkbcommon-x11, libglvnd-glx, libglvnd-egl
 Recommends: libayatana-appindicator-gtk3, libnotify, ffmpeg, yt-dlp
 AutoReqProv: no

@@ -20,10 +20,10 @@ use crate::live_settings::LiveSettings;
 use udm_domain::update::{Release, SetupAsset};
 
 /// The releases of UDM's repository, newest first by GitHub's reckoning.
-pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/pullbay/releases/latest";
+pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/UDM/releases/latest";
 
 /// Where release files are served from; a Setup anywhere else is not used.
-const DOWNLOADS: &str = "https://github.com/tajbinkhan/pullbay/releases/download/";
+const DOWNLOADS: &str = "https://github.com/tajbinkhan/UDM/releases/download/";
 /// The largest Setup UDM downloads.
 pub const MAX_SETUP_BYTES: ByteCount = ByteCount::mib(256);
 
@@ -91,10 +91,9 @@ pub fn check_setup(asset: &SetupAsset, bytes: &[u8]) -> Result<(), ReleaseError>
 pub fn parse_release(json: &[u8]) -> Result<Release, ReleaseError> {
     let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| ReleaseError::NotJson(e.to_string()))?;
     let tag = v["tag_name"].as_str().ok_or(ReleaseError::NoRelease)?;
-    let url = v["html_url"].as_str().unwrap_or("https://github.com/tajbinkhan/pullbay/releases");
+    let url = v["html_url"].as_str().unwrap_or("https://github.com/tajbinkhan/UDM/releases");
     // Only a link to GitHub is ever shown.
-    let url =
-        if url.starts_with("https://github.com/") { url } else { "https://github.com/tajbinkhan/pullbay/releases" };
+    let url = if url.starts_with("https://github.com/") { url } else { "https://github.com/tajbinkhan/UDM/releases" };
     Ok(Release {
         version: tag.trim().trim_start_matches(['v', 'V']).to_string(),
         url: url.to_string(),
@@ -172,7 +171,7 @@ mod tests {
 
     #[test]
     fn the_latest_release_is_read_from_the_server() {
-        let answer = br#"{"tag_name":"v9.0.0","html_url":"https://github.com/tajbinkhan/pullbay/releases/tag/v9.0.0"}"#;
+        let answer = br#"{"tag_name":"v9.0.0","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/v9.0.0"}"#;
         let server = TestServer::start(answer.to_vec());
         let release = github(&server.url).latest().unwrap();
         assert_eq!(release.version, "9.0.0");
@@ -203,13 +202,13 @@ mod tests {
     #[test]
     fn releases_are_read_from_githubs_answer() {
         let r = parse_release(
-            br#"{"tag_name":"v0.4.1","html_url":"https://github.com/tajbinkhan/pullbay/releases/tag/v0.4.1"}"#,
+            br#"{"tag_name":"v0.4.1","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/v0.4.1"}"#,
         )
         .unwrap();
         assert_eq!(r.version, "0.4.1");
         assert!(r.url.ends_with("/v0.4.1"));
         let elsewhere = parse_release(br#"{"tag_name":"v9","html_url":"https://evil.example/x"}"#).unwrap();
-        assert_eq!(elsewhere.url, "https://github.com/tajbinkhan/pullbay/releases");
+        assert_eq!(elsewhere.url, "https://github.com/tajbinkhan/UDM/releases");
         assert!(parse_release(b"{}").is_err());
         assert!(parse_release(b"not json").is_err());
         assert_eq!(r.setup, None);
@@ -223,9 +222,9 @@ mod tests {
             sha2::Sha256::digest(body).iter().map(|b| format!("{b:02x}")).collect::<String>()
         };
         let json = format!(
-            r#"{{"tag_name":"v0.5.0","html_url":"https://github.com/tajbinkhan/pullbay/releases/tag/v0.5.0","assets":[
-                {{"name":"udm-0.5.0.zip","browser_download_url":"https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/udm-0.5.0.zip","size":5}},
-                {{"name":"UDM-Setup-0.5.0.exe","browser_download_url":"https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/UDM-Setup-0.5.0.exe","size":{},"digest":"sha256:{sha}"}}
+            r#"{{"tag_name":"v0.5.0","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/v0.5.0","assets":[
+                {{"name":"udm-0.5.0.zip","browser_download_url":"https://github.com/tajbinkhan/UDM/releases/download/v0.5.0/udm-0.5.0.zip","size":5}},
+                {{"name":"UDM-Setup-0.5.0.exe","browser_download_url":"https://github.com/tajbinkhan/UDM/releases/download/v0.5.0/UDM-Setup-0.5.0.exe","size":{},"digest":"sha256:{sha}"}}
             ]}}"#,
             body.len()
         );
@@ -243,8 +242,8 @@ mod tests {
             ReleaseError::NotProgram
         );
 
-        let elsewhere = json
-            .replace("https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/UDM", "https://evil.example/UDM");
+        let elsewhere =
+            json.replace("https://github.com/tajbinkhan/UDM/releases/download/v0.5.0/UDM", "https://evil.example/UDM");
         assert_eq!(parse_release(elsewhere.as_bytes()).unwrap().setup, None, "only from the repository's releases");
     }
 }

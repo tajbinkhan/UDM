@@ -7,9 +7,9 @@
 <h3 align="center">The download manager you know from IDM. On Windows, macOS and Linux. Free.</h3>
 
 <p align="center">
-  <a href="https://github.com/tajbinkhan/pullbay/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Windows-2a78d6?style=flat-square&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0yIDMuNWw4LjUtMS4ydjguMkgyek0xMS41IDIuMkwyMiAuOHY5LjdIMTEuNXpNMiAxMS41aDguNXY4LjJMMiAxOC41ek0xMS41IDExLjVIMjJ2OS43bC0xMC41LTEuNHoiLz48L3N2Zz4%3D" alt="Download for Windows" height="34"></a>
-  <a href="https://github.com/tajbinkhan/pullbay/releases/latest"><img src="https://img.shields.io/badge/Download%20for-macOS-2a78d6?style=flat-square&logo=apple&logoColor=white" alt="Download for macOS" height="34"></a>
-  <a href="https://github.com/tajbinkhan/pullbay/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Linux-2a78d6?style=flat-square&logo=linux&logoColor=white" alt="Download for Linux" height="34"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Windows-2a78d6?style=flat-square&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0yIDMuNWw4LjUtMS4ydjguMkgyek0xMS41IDIuMkwyMiAuOHY5LjdIMTEuNXpNMiAxMS41aDguNXY4LjJMMiAxOC41ek0xMS41IDExLjVIMjJ2OS43bC0xMC41LTEuNHoiLz48L3N2Zz4%3D" alt="Download for Windows" height="34"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-macOS-2a78d6?style=flat-square&logo=apple&logoColor=white" alt="Download for macOS" height="34"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Linux-2a78d6?style=flat-square&logo=linux&logoColor=white" alt="Download for Linux" height="34"></a>
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tajbinkhan/pullbay/stargazers"><img src="https://img.shields.io/github/stars/tajbinkhan/pullbay?style=social&label=Star%20UDM" alt="Star UDM on GitHub" height="28"></a><br>
+  <a href="https://github.com/tajbinkhan/UDM/stargazers"><img src="https://img.shields.io/github/stars/tajbinkhan/UDM?style=social&label=Star%20UDM" alt="Star UDM on GitHub" height="28"></a><br>
   <sub>⭐ <b>Like it? Give it a star.</b> Stars are how other people find UDM.</sub>
 </p>
 
@@ -37,11 +37,11 @@
 </table>
 
 <p align="center">
-  <a href="https://github.com/tajbinkhan/pullbay/releases/latest"><img src="https://img.shields.io/github/v/release/tajbinkhan/pullbay?logo=github" alt="Latest release"></a>
-  <a href="https://github.com/tajbinkhan/pullbay/releases"><img src="https://img.shields.io/github/downloads/tajbinkhan/pullbay/total?logo=github" alt="Downloads"></a>
-  <a href="https://github.com/tajbinkhan/pullbay/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/tajbinkhan/pullbay/build.yml?logo=github&label=ci" alt="CI"></a>
-  <a href="https://github.com/tajbinkhan/pullbay/stargazers"><img src="https://img.shields.io/github/stars/tajbinkhan/pullbay?logo=github" alt="GitHub stars"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/tajbinkhan/pullbay" alt="MIT license"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/github/v/release/tajbinkhan/UDM?logo=github" alt="Latest release"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases"><img src="https://img.shields.io/github/downloads/tajbinkhan/UDM/total?logo=github" alt="Downloads"></a>
+  <a href="https://github.com/tajbinkhan/UDM/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/tajbinkhan/UDM/build.yml?logo=github&label=ci" alt="CI"></a>
+  <a href="https://github.com/tajbinkhan/UDM/stargazers"><img src="https://img.shields.io/github/stars/tajbinkhan/UDM?logo=github" alt="GitHub stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/tajbinkhan/UDM" alt="MIT license"></a>
 </p>
 
 | 🚀 [Download](#download) | ⚡ [Why switch](#why-switch-from-idm) | ✨ [What it does](#what-it-does) | 📜 [Help pages](docs/README.md) | 🛠️ [For developers](#for-developers) |
@@ -76,12 +76,12 @@ when it is slow to answer. [How it was measured](docs/bench/README.md).
 ## Download
 
 <p align="center">
-  <a href="https://github.com/tajbinkhan/pullbay/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Windows-2a78d6?style=flat-square&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0yIDMuNWw4LjUtMS4ydjguMkgyek0xMS41IDIuMkwyMiAuOHY5LjdIMTEuNXpNMiAxMS41aDguNXY4LjJMMiAxOC41ek0xMS41IDExLjVIMjJ2OS43bC0xMC41LTEuNHoiLz48L3N2Zz4%3D" alt="Download for Windows" height="34"></a>
-  <a href="https://github.com/tajbinkhan/pullbay/releases/latest"><img src="https://img.shields.io/badge/Download%20for-macOS-2a78d6?style=flat-square&logo=apple&logoColor=white" alt="Download for macOS" height="34"></a>
-  <a href="https://github.com/tajbinkhan/pullbay/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Linux-2a78d6?style=flat-square&logo=linux&logoColor=white" alt="Download for Linux" height="34"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Windows-2a78d6?style=flat-square&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0yIDMuNWw4LjUtMS4ydjguMkgyek0xMS41IDIuMkwyMiAuOHY5LjdIMTEuNXpNMiAxMS41aDguNXY4LjJMMiAxOC41ek0xMS41IDExLjVIMjJ2OS43bC0xMC41LTEuNHoiLz48L3N2Zz4%3D" alt="Download for Windows" height="34"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-macOS-2a78d6?style=flat-square&logo=apple&logoColor=white" alt="Download for macOS" height="34"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Linux-2a78d6?style=flat-square&logo=linux&logoColor=white" alt="Download for Linux" height="34"></a>
 </p>
 
-On the [Releases page](https://github.com/tajbinkhan/pullbay/releases/latest), pick one:
+On the [Releases page](https://github.com/tajbinkhan/UDM/releases/latest), pick one:
 
 | File | Choose it when |
 | --- | --- |
@@ -281,7 +281,7 @@ Linux; the macOS build is checked by the compiler and CI only.
   supported yet.
 - **What's missing or different** on each system: [Known gaps](docs/known-gaps.md).
 
-Bug reports and ideas are welcome in [Issues](https://github.com/tajbinkhan/pullbay/issues);
+Bug reports and ideas are welcome in [Issues](https://github.com/tajbinkhan/UDM/issues);
 **Help → Contact support** in the window opens it. Pull requests are welcome too:
 [CONTRIBUTING.md](CONTRIBUTING.md) says how to build and check a change, and
 [AGENTS.md](AGENTS.md) sets the rules every change follows. Report security holes privately, as
@@ -291,12 +291,12 @@ Bug reports and ideas are welcome in [Issues](https://github.com/tajbinkhan/pull
 ## ⭐ Star history
 
 If UDM saves you time, a star is the quickest way to say so, and it helps the next person
-find a free download manager. [Star it on GitHub](https://github.com/tajbinkhan/pullbay/stargazers).
+find a free download manager. [Star it on GitHub](https://github.com/tajbinkhan/UDM/stargazers).
 
-<a href="https://star-history.com/#tajbinkhan/pullbay&Date">
+<a href="https://star-history.com/#tajbinkhan/UDM&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tajbinkhan/pullbay&type=Date&theme=dark">
-    <img src="https://api.star-history.com/svg?repos=tajbinkhan/pullbay&type=Date" alt="UDM's GitHub stars over time" width="600">
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tajbinkhan/UDM&type=Date&theme=dark">
+    <img src="https://api.star-history.com/svg?repos=tajbinkhan/UDM&type=Date" alt="UDM's GitHub stars over time" width="600">
   </picture>
 </a>
 

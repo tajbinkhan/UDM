@@ -5642,7 +5642,7 @@ impl App {
                 ui.heading("UDM");
                 ui.label(trf!("Version {version}", version = env!("CARGO_PKG_VERSION")));
                 ui.label(tr("Copyright © 2026 UDM contributors. Released under the MIT License."));
-                ui.hyperlink_to("github.com/tajbinkhan/pullbay", help::HOME);
+                ui.hyperlink_to("github.com/tajbinkhan/UDM", help::HOME);
                 ui.horizontal(|ui| {
                     ui.label(tr("Support:"));
                     ui.hyperlink_to(tr("report a problem or ask a question"), help::SUPPORT);

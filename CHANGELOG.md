@@ -1,7 +1,7 @@
 # Changelog
 
 Each release's full notes are in [`release-notes/`](release-notes/), and the same text is on its
-[GitHub Release](https://github.com/tajbinkhan/pullbay/releases). This page lists them, newest
+[GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
 ## Unreleased

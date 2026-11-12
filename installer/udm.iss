@@ -24,8 +24,8 @@ AppName=UDM
 AppVersion={#AppVersion}
 AppVerName=UDM {#AppVersion}
 AppPublisher=Tajbin Khan
-AppPublisherURL=https://github.com/tajbinkhan/pullbay
-AppSupportURL=https://github.com/tajbinkhan/pullbay/issues
+AppPublisherURL=https://github.com/tajbinkhan/UDM
+AppSupportURL=https://github.com/tajbinkhan/UDM/issues
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription=UDM setup
 ; Per user: the browsers read native-messaging hosts from HKCU, and the

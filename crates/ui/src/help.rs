@@ -6,22 +6,22 @@ use eframe::egui;
 use crate::i18n::tr;
 
 /// The help pages on GitHub, which are UDM's manual.
-pub const MANUAL: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/README.md";
+pub const MANUAL: &str = "https://github.com/tajbinkhan/UDM/blob/main/docs/README.md";
 /// The page on queues and their schedules.
-pub const SCHEDULER: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/queues-and-scheduler.md";
+pub const SCHEDULER: &str = "https://github.com/tajbinkhan/UDM/blob/main/docs/queues-and-scheduler.md";
 /// The page on which browser downloads UDM takes: the capture rules.
-pub const CAPTURE: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/browser-capture.md";
+pub const CAPTURE: &str = "https://github.com/tajbinkhan/UDM/blob/main/docs/browser-capture.md";
 /// The page on streams, batches and the site grabber.
-pub const GRABBER: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/streams-batches-and-grabber.md";
+pub const GRABBER: &str = "https://github.com/tajbinkhan/UDM/blob/main/docs/streams-batches-and-grabber.md";
 /// The first steps: opening the window, sending downloads from the browser,
 /// and the toolbar, menus and options from there.
-pub const TUTORIALS: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/using-udm.md";
+pub const TUTORIALS: &str = "https://github.com/tajbinkhan/UDM/blob/main/docs/using-udm.md";
 /// Every key the window answers.
-pub const KEYS: &str = "https://github.com/tajbinkhan/pullbay/blob/main/docs/keyboard-shortcuts.md";
+pub const KEYS: &str = "https://github.com/tajbinkhan/UDM/blob/main/docs/keyboard-shortcuts.md";
 /// UDM's home page.
-pub const HOME: &str = "https://github.com/tajbinkhan/pullbay";
+pub const HOME: &str = "https://github.com/tajbinkhan/UDM";
 /// Where to report a problem or ask for help.
-pub const SUPPORT: &str = "https://github.com/tajbinkhan/pullbay/issues";
+pub const SUPPORT: &str = "https://github.com/tajbinkhan/UDM/issues";
 
 /// The tips, one shown at a time.
 pub const TIPS: [&str; 10] = [
@@ -84,7 +84,7 @@ mod tests {
     fn every_help_link_names_a_help_page() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         for link in [MANUAL, SCHEDULER, GRABBER, TUTORIALS, CAPTURE, KEYS] {
-            let page = link.strip_prefix("https://github.com/tajbinkhan/pullbay/blob/main/").unwrap();
+            let page = link.strip_prefix("https://github.com/tajbinkhan/UDM/blob/main/").unwrap();
             assert!(root.join(page).is_file(), "no help page {page}");
         }
     }
