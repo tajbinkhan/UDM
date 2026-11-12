@@ -19,7 +19,7 @@ use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use crate::queue::civil_from_days;
 
 /// Where new issues are opened.
-pub const NEW_ISSUE: &str = "https://github.com/tajbinkhan/pullbay/issues/new";
+pub const NEW_ISSUE: &str = "https://github.com/tajbinkhan/UDM/issues/new";
 
 /// The issue form a crash, freeze or silent daemon goes to
 /// (`.github/ISSUE_TEMPLATE/crash.yml`).
@@ -800,7 +800,7 @@ mod tests {
     #[test]
     fn report_a_problem_fills_in_the_bug_form() {
         let url = issue_url(&linux(), None);
-        assert!(url.starts_with("https://github.com/tajbinkhan/pullbay/issues/new?template=bug.yml&"), "{url}");
+        assert!(url.starts_with("https://github.com/tajbinkhan/UDM/issues/new?template=bug.yml&"), "{url}");
         let q = query(&url);
         let get = |k: &str| q.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
         assert_eq!(get("version"), Some("0.4.0"));

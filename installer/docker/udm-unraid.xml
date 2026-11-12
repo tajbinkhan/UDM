@@ -5,12 +5,12 @@
 <Container version="2">
   <Name>udm</Name>
   <Repository>ghcr.io/tajbinkhan/udm:latest</Repository>
-  <Registry>https://github.com/tajbinkhan/pullbay/pkgs/container/udm</Registry>
+  <Registry>https://github.com/tajbinkhan/UDM/pkgs/container/udm</Registry>
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/tajbinkhan/pullbay/issues</Support>
-  <Project>https://github.com/tajbinkhan/pullbay</Project>
+  <Support>https://github.com/tajbinkhan/UDM/issues</Support>
+  <Project>https://github.com/tajbinkhan/UDM</Project>
   <Overview>UDM's download daemon without a window. Add downloads with: docker exec udm udm-cli get URL --no-wait. No port is opened; see docs/server.md.</Overview>
   <Category>Downloaders:</Category>
   <WebUI/>

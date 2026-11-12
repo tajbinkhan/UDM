@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/tajbinkhan/pullbay/blob/main/docs/automation-api.schema.json",
+  "$id": "https://github.com/tajbinkhan/UDM/blob/main/docs/automation-api.schema.json",
   "title": "UDM automation API",
   "description": "The messages other programs may exchange with UDM's daemon, version 1. Each message is one JSON object, framed by a 4-byte little-endian length, sent after the handshake that docs/architecture.md describes. A request is what a program sends; an event is what the daemon sends back or announces. Programs must ignore fields and messages they do not know: later versions add them without changing this version number. See docs/command-line.md.",
   "x-udm-api": 1,

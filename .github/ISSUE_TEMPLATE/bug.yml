@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting. Please check [Known gaps](https://github.com/tajbinkhan/pullbay/blob/main/docs/known-gaps.md) first, and use the crash form if a UDM program closed by itself.
+        Thanks for reporting. Please check [Known gaps](https://github.com/tajbinkhan/UDM/blob/main/docs/known-gaps.md) first, and use the crash form if a UDM program closed by itself.
   - type: input
     id: version
     attributes:

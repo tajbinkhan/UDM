@@ -1763,7 +1763,7 @@ mod tests {
                     let mut buf = [0u8; 2048];
                     let _ = s.read(&mut buf);
                     let body = format!(
-                        r#"{{"tag_name":"{tag}","html_url":"https://github.com/tajbinkhan/pullbay/releases/tag/{tag}"}}"#
+                        r#"{{"tag_name":"{tag}","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/{tag}"}}"#
                     );
                     let _ = write!(
                         s,

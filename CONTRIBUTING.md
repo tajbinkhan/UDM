@@ -5,7 +5,7 @@ rules for the code are.
 
 ## Before you start
 
-- Look through the [issues](https://github.com/tajbinkhan/pullbay/issues) first. For a bigger
+- Look through the [issues](https://github.com/tajbinkhan/UDM/issues) first. For a bigger
   change, open one or comment on one, so the work is agreed before you write it.
 - Read [AGENTS.md](AGENTS.md). It is the single source of truth for how code in UDM is
   written, by people and by AI agents alike. Its section 16 says where the code on `main` still
