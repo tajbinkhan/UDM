@@ -280,7 +280,11 @@ fn fixtures() -> serde_json::Value {
     })
 }
 
+// The fixtures hold the system's own defaults and paths (Windows' default
+// virus scanner, folders joined with `\`), so they are written and checked
+// on Unix; the frontend's tests read the committed file on every system.
 #[test]
+#[cfg_attr(windows, ignore = "the fixtures are written with Unix defaults and paths")]
 fn fixtures_are_current() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../frontend/test/fixtures/views.json");
     let fresh = serde_json::to_string_pretty(&fixtures()).unwrap() + "\n";
@@ -290,5 +294,10 @@ fn fixtures_are_current() {
         return;
     }
     let committed = std::fs::read_to_string(&path).unwrap_or_default();
-    assert!(committed == fresh, "frontend/test/fixtures/views.json is out of date: run UDM_WRITE_FIXTURES=1 cargo test -p udm-ui-tauri fixtures");
+    let first = committed.lines().zip(fresh.lines()).position(|(a, b)| a != b);
+    assert!(
+        committed == fresh,
+        "frontend/test/fixtures/views.json is out of date (first at line {}): run UDM_WRITE_FIXTURES=1 cargo test -p udm-ui-tauri fixtures",
+        first.unwrap_or(committed.lines().count().min(fresh.lines().count())) + 1
+    );
 }
