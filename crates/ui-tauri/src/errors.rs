@@ -93,6 +93,11 @@ pub fn list(e: &udm_application::window::ListError) -> InvokeError {
     error(ErrorKind::Gone, e.0.clone())
 }
 
+/// A refusal whose text is already the user's to read.
+pub fn invalid_text(message: String) -> InvokeError {
+    error(ErrorKind::Invalid, message)
+}
+
 pub fn invalid(lang: &'static Language, english: &'static str) -> InvokeError {
     error(ErrorKind::Invalid, lang.tr(english))
 }

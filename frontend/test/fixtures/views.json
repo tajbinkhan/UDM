@@ -732,7 +732,11 @@
   "views": {
     "about": {
       "view": {
+        "canInstall": false,
+        "checking": false,
+        "connected": true,
         "daemon": "",
+        "update": "",
         "version": "0.4.0"
       },
       "window": "about"
@@ -748,6 +752,16 @@
         "connected": true
       },
       "window": "batch"
+    },
+    "countdown": {
+      "view": {
+        "done": "The queue \"Main queue\" is done.",
+        "message": "This computer will shut down in 60 seconds.",
+        "now": "Shut down now",
+        "seconds": 60,
+        "title": "Queue finished"
+      },
+      "window": "countdown"
     },
     "done": {
       "view": {
@@ -847,6 +861,49 @@
         "connected": true
       },
       "window": "dropTarget"
+    },
+    "gallery": {
+      "view": {
+        "connected": true,
+        "error": null,
+        "folder": "/home/u/Downloads/Album",
+        "page": "https://pics.example.com/album",
+        "queues": [
+          {
+            "id": 1,
+            "name": "Main queue",
+            "running": true
+          },
+          {
+            "id": 2,
+            "name": "Synchronization queue",
+            "running": false
+          }
+        ],
+        "reading": false,
+        "rows": [
+          {
+            "index": 0,
+            "name": "1.jpg",
+            "size": "1920 × 1080",
+            "url": "https://pics.example.com/1.jpg"
+          },
+          {
+            "index": 1,
+            "name": "2.jpg",
+            "size": "1920 × 1080",
+            "url": "https://pics.example.com/2.jpg"
+          },
+          {
+            "index": 2,
+            "name": "3.jpg",
+            "size": "1920 × 1080",
+            "url": "https://pics.example.com/3.jpg"
+          }
+        ],
+        "title": "Album"
+      },
+      "window": "gallery"
     },
     "grabber": {
       "view": {
@@ -1242,6 +1299,17 @@
       },
       "window": "links"
     },
+    "login": {
+      "view": {
+        "count": 2,
+        "host": "127.0.0.1",
+        "ownSite": true,
+        "realm": "Private files",
+        "refused": false,
+        "user": ""
+      },
+      "window": "login"
+    },
     "main": {
       "view": {
         "chrome": {
@@ -1327,6 +1395,7 @@
             "open": false,
             "progress": false,
             "redownload": true,
+            "refresh": false,
             "resume": false,
             "resumeAll": false,
             "stop": false,
@@ -1515,7 +1584,10 @@
           },
           "listMono": false,
           "listSize": 12,
+          "newer": null,
+          "newerInstallable": false,
           "nextTip": 0,
+          "packages": [],
           "panelWidth": 143,
           "queues": [
             {
@@ -2401,6 +2473,124 @@
       },
       "window": "options"
     },
+    "password": {
+      "view": {
+        "id": 1,
+        "name": "photos",
+        "wrong": false
+      },
+      "window": "password"
+    },
+    "pick-links": {
+      "view": {
+        "connected": true,
+        "page": "http://127.0.0.1:8765/index.html",
+        "queues": [
+          {
+            "id": 1,
+            "name": "Main queue",
+            "running": true
+          },
+          {
+            "id": 2,
+            "name": "Synchronization queue",
+            "running": false
+          }
+        ],
+        "rows": [
+          {
+            "icon": "document",
+            "index": 0,
+            "kind": "PDF",
+            "name": "manual.pdf",
+            "size": "",
+            "text": "User manual",
+            "url": "http://127.0.0.1:8765/files/manual.pdf"
+          },
+          {
+            "icon": "program",
+            "index": 1,
+            "kind": "EXE",
+            "name": "setup.exe",
+            "size": "40.00 MB",
+            "text": "Download",
+            "url": "http://127.0.0.1:8765/files/setup.exe"
+          },
+          {
+            "icon": "archive",
+            "index": 2,
+            "kind": "ZIP",
+            "name": "photos.zip",
+            "size": "",
+            "text": "Photos",
+            "url": "http://127.0.0.1:8765/files/photos.zip"
+          }
+        ],
+        "suggestedPackage": "manual",
+        "types": [
+          "exe",
+          "pdf",
+          "zip"
+        ]
+      },
+      "window": "pickLinks"
+    },
+    "pick-videos": {
+      "view": {
+        "connected": true,
+        "qualities": [
+          "Best quality",
+          "Up to 1080p",
+          "Up to 720p",
+          "Up to 480p",
+          "Up to 360p",
+          "Sound only, MP3",
+          "Sound only, M4A",
+          "Sound only, Opus",
+          "Sound only, FLAC"
+        ],
+        "queues": [
+          {
+            "id": 1,
+            "name": "Main queue",
+            "running": true
+          },
+          {
+            "id": 2,
+            "name": "Synchronization queue",
+            "running": false
+          }
+        ],
+        "rows": [
+          {
+            "duration": "6m 1s",
+            "index": 0,
+            "title": "Lesson 1: getting started",
+            "url": "https://videos.example.com/watch?v=1"
+          },
+          {
+            "duration": "7m 2s",
+            "index": 1,
+            "title": "Lesson 2: getting started",
+            "url": "https://videos.example.com/watch?v=2"
+          },
+          {
+            "duration": "8m 3s",
+            "index": 2,
+            "title": "Lesson 3: getting started",
+            "url": "https://videos.example.com/watch?v=3"
+          },
+          {
+            "duration": "9m 4s",
+            "index": 3,
+            "title": "Lesson 4: getting started",
+            "url": "https://videos.example.com/watch?v=4"
+          }
+        ],
+        "title": "A course"
+      },
+      "window": "pickVideos"
+    },
     "properties": {
       "view": {
         "address": "http://127.0.0.1:8765/HandBrake-1.11.2-x86_64-Win_GUI.exe",
@@ -2420,6 +2610,17 @@
         "status": "Complete"
       },
       "window": "properties"
+    },
+    "refresh": {
+      "view": {
+        "address": "http://127.0.0.1:8765/Screen-Capture (3).mp3",
+        "connected": true,
+        "id": 3,
+        "mismatch": null,
+        "name": "Screen-Capture (3).mp3",
+        "waiting": false
+      },
+      "window": "refresh"
     },
     "remove": {
       "view": {

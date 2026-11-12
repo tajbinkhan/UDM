@@ -202,6 +202,23 @@ pub enum Inbox {
         next: u32,
         on_startup: bool,
     },
+    /// The login prompt's OK.
+    Login {
+        user: String,
+        password: String,
+        save: bool,
+        reply: Sender<Result<(), contract::InvokeError>>,
+    },
+    /// The pickers' Add, from the window `label`.
+    AddPicks {
+        label: Label,
+        input: Box<contract::PickInput>,
+        reply: Sender<Result<(), contract::InvokeError>>,
+    },
+    /// Open a package's unpacked folder.
+    OpenPackage(udm_domain::id::PackageId),
+    /// Close the strip offering this release.
+    DismissRelease,
     /// Options' OK: the draft to check and send, and whether it went.
     SaveOptions {
         draft: Box<contract::OptionsDraft>,
@@ -261,6 +278,8 @@ struct Actor {
     /// The layout file as last read or saved, so it is written only when it
     /// changes.
     layout: Option<Vec<u8>>,
+    /// The system's Downloads folder, read once.
+    downloads: std::path::PathBuf,
 }
 
 /// Start the actor and connect to the daemon. Returns its mailbox.
@@ -278,7 +297,9 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
             closing: HashSet::new(),
             titles: HashMap::new(),
             layout: None,
+            downloads: std::path::PathBuf::new(),
         };
+        actor.downloads = actor.ports.folders.downloads_dir();
         // The layout file is small; reading it on this thread delays only
         // the first snapshot.
         let saved = actor.ports.window_files.read(crate::layout::FILE);
@@ -327,7 +348,12 @@ impl Actor {
                     self.handle(msg);
                     dirty = true;
                 }
-                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Timeout) => {
+                    // The countdown's seconds tick by themselves.
+                    if self.state.asks.countdown.is_some() {
+                        dirty = true;
+                    }
+                }
                 Err(RecvTimeoutError::Disconnected) => return,
             }
             if dirty && (urgent || last.elapsed() >= PATCH_EVERY) {
@@ -350,6 +376,93 @@ impl Actor {
             tracing::warn!("a command for the daemon was not sent: not connected");
         }
         sent
+    }
+
+    /// The login prompt's OK: save the login for the site, or give it to
+    /// each download, then retry them.
+    fn answer_login(&mut self, user: &str, password: &str, save: bool) -> Result<(), contract::InvokeError> {
+        let lang = self.lang();
+        let Some((ids, wanted)) = crate::extras::login_group(&self.state) else {
+            return Err(crate::errors::gone(lang));
+        };
+        let view = crate::extras::login_view(&self.state);
+        let save = save || view.is_some_and(|v| !v.own_site);
+        let user = user.trim().to_string();
+        if save {
+            let Some(mut settings) = self.state.settings.clone() else {
+                return Err(crate::errors::offline(lang));
+            };
+            let plain = ids
+                .iter()
+                .filter_map(|id| self.state.table.get(*id))
+                .any(|e| !e.url.as_str().to_ascii_lowercase().starts_with("https:"));
+            let old = settings.site_logins.iter().position(|l| l.site.eq_ignore_ascii_case(&wanted.host));
+            let login = udm_domain::settings::SiteLogin {
+                site: wanted.host.clone(),
+                username: user.clone(),
+                password: Some(password.to_string()),
+                plain: plain || old.is_some_and(|i| settings.site_logins[i].plain),
+            };
+            match old {
+                Some(i) => settings.site_logins[i] = login,
+                None => settings.site_logins.push(login),
+            }
+            self.sent(lang, Command::SetSettings { settings })?;
+        }
+        for id in &ids {
+            if !save {
+                let login = udm_domain::download::DownloadLogin {
+                    username: user.clone(),
+                    password: Some(password.to_string()),
+                };
+                let changes = udm_domain::download::Properties { login: Some(login), ..Default::default() };
+                self.send(Command::SetProperties { id: *id, changes });
+            }
+            self.send(Command::Retry { id: *id });
+        }
+        apply(&mut self.state, UiMessage::LoginAnswered(ids));
+        Ok(())
+    }
+
+    /// The pickers' Add: the ticked links, videos or pictures, waiting in a
+    /// queue.
+    fn add_picks(&mut self, label: Label, input: &contract::PickInput) -> Result<(), contract::InvokeError> {
+        let lang = self.lang();
+        let queue = QueueId::new(input.queue.0);
+        let settings = self.state.settings.clone().unwrap_or_default();
+        let a = &self.state.asks;
+        let (items, packaging) = match label {
+            Label::PickLinks => {
+                let l = a.links.as_ref().ok_or_else(|| crate::errors::gone(lang))?;
+                crate::extras::link_downloads(l, &input.indices, input.package.as_deref(), &settings, &self.downloads)
+                    .map_err(|e| crate::errors::invalid_text(e.to_string()))?
+            }
+            Label::PickVideos => {
+                let v = a.videos.as_ref().ok_or_else(|| crate::errors::gone(lang))?;
+                (crate::extras::video_downloads(v, &input.indices, input.quality), Packaging::None)
+            }
+            Label::Gallery => {
+                let g = a.gallery.as_ref().ok_or_else(|| crate::errors::gone(lang))?;
+                let items = crate::extras::gallery_downloads(g, &input.indices, &input.folder)
+                    .map_err(|e| crate::errors::invalid_text(lang.tr(&e.to_string()).to_string()))?;
+                (items, Packaging::None)
+            }
+            _ => return Err(crate::errors::gone(lang)),
+        };
+        if items.is_empty() {
+            return Err(crate::errors::invalid(lang, "Tick the files to add."));
+        }
+        self.sent(lang, Command::AddMany { items, queue: Some(queue), packaging })?;
+        if input.start {
+            self.send(Command::StartQueue { id: queue });
+        }
+        let gone = match label {
+            Label::PickLinks => UiMessage::WindowClosed("pick-links".into()),
+            Label::PickVideos => UiMessage::WindowClosed("pick-videos".into()),
+            _ => UiMessage::WindowClosed("gallery".into()),
+        };
+        apply(&mut self.state, gone);
+        Ok(())
     }
 
     fn set_drop_target(&self, on: bool) {
@@ -529,8 +642,24 @@ impl Actor {
                     if matches!(**event, Event::Show) {
                         windows::show_main(&self.app, self.lang());
                     }
+                    if matches!(**event, Event::Quit) {
+                        self.app.exit(0);
+                    }
                 }
+                let picked = matches!(&msg, UiMessage::Daemon { event, .. } if matches!(**event, Event::PickLinks { .. } | Event::PickGallery { .. }));
                 apply(&mut self.state, msg);
+                // A page's links are probed for their sizes, and a gallery
+                // page read, as their windows open.
+                if picked {
+                    if let Some(l) = self.state.asks.links.as_ref().filter(|l| l.info.is_empty()) {
+                        let (request, links) = (l.request, crate::extras::link_probes(l));
+                        self.send(Command::ProbeLinks { request, links });
+                    }
+                    if let Some(g) = self.state.asks.gallery.as_ref().filter(|g| g.result.is_none()) {
+                        let (request, page, user_agent) = (g.request, g.page.clone(), g.user_agent.clone());
+                        self.send(Command::ReadGallery { request, page, user_agent });
+                    }
+                }
             }
             Inbox::Subscribe { label, channel } => {
                 tracing::info!(window = %label, "window subscribed");
@@ -547,6 +676,14 @@ impl Actor {
                 // Closing the drop target hides it until shown again.
                 if label == Label::DropTarget {
                     self.set_drop_target(false);
+                }
+                // Closing the countdown cancels it; closing the links stops
+                // their probes.
+                if label == Label::Countdown && self.state.asks.countdown.is_some() {
+                    self.send(Command::CancelCountdown);
+                }
+                if label == Label::PickLinks {
+                    self.send(Command::StopProbeLinks);
                 }
                 // Closing Download File Info without answering cancels the
                 // download, as its Cancel button does.
@@ -853,6 +990,29 @@ impl Actor {
                 let _ = reply.send(result);
             }
             Inbox::DropTarget(on) => self.set_drop_target(on),
+            Inbox::Login { user, password, save, reply } => {
+                let _ = reply.send(self.answer_login(&user, &password, save));
+            }
+            Inbox::AddPicks { label, input, reply } => {
+                let _ = reply.send(self.add_picks(label, &input));
+            }
+            Inbox::OpenPackage(id) => {
+                let folder = self.state.asks.packages.iter().find(|p| p.id == id).and_then(|p| match &p.unpack {
+                    udm_domain::package::Unpack::Done { folder, .. } => Some(folder.clone()),
+                    _ => p.folder.clone(),
+                });
+                if let Some(folder) = folder {
+                    let opener = Arc::clone(&self.ports.opener);
+                    thread::spawn(move || opener.open(&folder));
+                }
+            }
+            Inbox::DismissRelease => {
+                if let Some(Ok(Some(r))) = &self.state.asks.update {
+                    self.state
+                        .layout_rest
+                        .insert("dismissed_release".into(), serde_json::Value::String(r.version.clone()));
+                }
+            }
             Inbox::TipClosed { next, on_startup } => {
                 apply(&mut self.state, UiMessage::TipSeen);
                 if let Some(mut settings) = self.state.settings.clone() {
@@ -899,7 +1059,13 @@ impl Actor {
             let (y, m, d) = udm_domain::queue::civil_from_days(self.ports.clock.now().day);
             format!("{y:04}-{m:02}-{d:02}")
         };
-        let ctx = Ctx { lang: self.lang(), offset: self.offset(), today };
+        let ctx = Ctx {
+            lang: self.lang(),
+            offset: self.offset(),
+            today,
+            now: Instant::now(),
+            downloads: self.downloads.clone(),
+        };
         let index = crate::i18n::LANGUAGES.iter().position(|l| l.code == ctx.lang.code).unwrap_or(0);
         self.ports.language.store(index, Ordering::Relaxed);
         let look = projection::look(&self.state);

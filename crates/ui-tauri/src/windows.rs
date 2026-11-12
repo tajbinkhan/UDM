@@ -35,6 +35,13 @@ pub enum Label {
     /// A download's properties.
     Properties(DownloadId),
     DropTarget,
+    Login,
+    Countdown,
+    Refresh,
+    Password,
+    PickLinks,
+    PickVideos,
+    Gallery,
 }
 
 impl Label {
@@ -50,6 +57,13 @@ impl Label {
             "batch" => return Some(Label::Batch),
             "links" => return Some(Label::Links),
             "drop-target" => return Some(Label::DropTarget),
+            "login" => return Some(Label::Login),
+            "countdown" => return Some(Label::Countdown),
+            "refresh" => return Some(Label::Refresh),
+            "password" => return Some(Label::Password),
+            "pick-links" => return Some(Label::PickLinks),
+            "pick-videos" => return Some(Label::PickVideos),
+            "gallery" => return Some(Label::Gallery),
             _ => {}
         }
         let kinds: [(&str, MakeLabel); 4] = [
@@ -81,6 +95,13 @@ impl Label {
             Label::Links => "links.html",
             Label::Properties(_) => "properties.html",
             Label::DropTarget => "drop-target.html",
+            Label::Login => "login.html",
+            Label::Countdown => "countdown.html",
+            Label::Refresh => "refresh.html",
+            Label::Password => "password.html",
+            Label::PickLinks => "pick-links.html",
+            Label::PickVideos => "pick-videos.html",
+            Label::Gallery => "gallery.html",
         }
     }
 
@@ -101,6 +122,13 @@ impl Label {
             Label::Links => (814.0, 553.0),
             Label::Properties(_) => (483.0, 398.0),
             Label::DropTarget => (48.0, 48.0),
+            Label::Login => (400.0, 210.0),
+            Label::Countdown => (400.0, 150.0),
+            Label::Refresh => (480.0, 200.0),
+            Label::Password => (380.0, 160.0),
+            Label::PickLinks => (760.0, 480.0),
+            Label::PickVideos => (640.0, 440.0),
+            Label::Gallery => (700.0, 480.0),
         }
     }
 
@@ -120,6 +148,13 @@ impl Label {
             Label::Links => "Batch download from clipboard",
             Label::Properties(_) => "File Properties",
             Label::DropTarget => "UDM",
+            Label::Login => "Login",
+            Label::Countdown => "UDM",
+            Label::Refresh => "New link",
+            Label::Password => "Package password",
+            Label::PickLinks => "Download links",
+            Label::PickVideos => "Download videos",
+            Label::Gallery => "Download gallery",
         })
         .to_string()
     }
@@ -142,6 +177,13 @@ impl std::fmt::Display for Label {
             Label::Links => write!(f, "links"),
             Label::Properties(id) => write!(f, "properties-{}", id.get()),
             Label::DropTarget => write!(f, "drop-target"),
+            Label::Login => write!(f, "login"),
+            Label::Countdown => write!(f, "countdown"),
+            Label::Refresh => write!(f, "refresh"),
+            Label::Password => write!(f, "password"),
+            Label::PickLinks => write!(f, "pick-links"),
+            Label::PickVideos => write!(f, "pick-videos"),
+            Label::Gallery => write!(f, "gallery"),
         }
     }
 }
@@ -168,6 +210,20 @@ pub fn wanted(state: &AppState) -> BTreeSet<Label> {
     if state.settings.as_ref().is_some_and(|s| s.drop_target) {
         out.insert(Label::DropTarget);
     }
+    let a = &state.asks;
+    for (on, label) in [
+        (!a.login_wanted.is_empty(), Label::Login),
+        (a.countdown.is_some(), Label::Countdown),
+        (a.refresh.is_some(), Label::Refresh),
+        (a.password.is_some(), Label::Password),
+        (a.links.is_some(), Label::PickLinks),
+        (a.videos.is_some(), Label::PickVideos),
+        (a.gallery.is_some(), Label::Gallery),
+    ] {
+        if on {
+            out.insert(label);
+        }
+    }
     out
 }
 
@@ -191,7 +247,10 @@ pub fn open(app: &AppHandle, label: Label, lang: &'static Language) -> Result<We
         return Ok(w);
     }
     let (width, height) = label.size();
-    let main = matches!(label, Label::Main | Label::Grabber | Label::Links);
+    let main = matches!(
+        label,
+        Label::Main | Label::Grabber | Label::Links | Label::PickLinks | Label::PickVideos | Label::Gallery
+    );
     let builder = WebviewWindowBuilder::new(app, label.to_string(), WebviewUrl::App(label.page().into()))
         .title(label.title(lang))
         .inner_size(width, height)
@@ -254,6 +313,13 @@ mod tests {
             Label::Links,
             Label::Properties(DownloadId::new(6)),
             Label::DropTarget,
+            Label::Login,
+            Label::Countdown,
+            Label::Refresh,
+            Label::Password,
+            Label::PickLinks,
+            Label::PickVideos,
+            Label::Gallery,
         ] {
             assert_eq!(Label::parse(&label.to_string()), Some(label));
         }

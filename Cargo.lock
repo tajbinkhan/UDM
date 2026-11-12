@@ -7077,6 +7077,7 @@ dependencies = [
 name = "udm-ui-tauri"
 version = "0.4.0"
 dependencies = [
+ "percent-encoding",
  "serde",
  "serde_json",
  "specta",

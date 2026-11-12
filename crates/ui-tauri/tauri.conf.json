@@ -13,7 +13,7 @@
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost",
       "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost ws://localhost:1420",
-      "capabilities": ["main", "add-url", "save-as", "download", "done", "remove", "about", "options", "scheduler", "grabber", "batch", "links", "properties", "drop-target"]
+      "capabilities": ["main", "add-url", "save-as", "download", "done", "remove", "about", "options", "scheduler", "grabber", "batch", "links", "properties", "drop-target", "login", "countdown", "refresh", "password", "pickers"]
     }
   },
   "bundle": {

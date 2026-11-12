@@ -30,6 +30,7 @@ import type {
   LimiterDraft,
   PropertiesInput,
   OpenWindow,
+  PickInput,
   Update,
 } from './types';
 import { receive } from '../stores/projection.svelte';
@@ -159,3 +160,16 @@ export const setPanelWidth = (width: number) => commands.setPanelWidth(Math.roun
 export const setListFont = (font: { mono: boolean; size: number } | null) => commands.setListFont(font);
 export const setToolbar = (small: boolean, buttons: string[]) => commands.setToolbar(small, buttons);
 export const closeTip = (next: number, onStartup: boolean) => commands.closeTip(next, onStartup);
+export const answerLogin = (user: string, password: string, save: boolean) => commands.answerLogin(user, password, save);
+export const answerCountdown = (now: boolean) => commands.answerCountdown(now);
+export const showRefresh = (id: Id) => commands.showRefresh(id);
+export const refreshLink = (id: Id, url: string | null, restart: boolean) => commands.refreshLink(id, url, restart);
+export const cancelRefresh = () => commands.cancelRefresh();
+export const unpackPackage = (id: Id, password: string | null) => commands.unpackPackage(id, password);
+export const askPackagePassword = (id: Id) => commands.askPackagePassword(id);
+export const ungroupPackage = (id: Id) => commands.ungroupPackage(id);
+export const openPackage = (id: Id) => commands.openPackage(id);
+export const addPicks = (input: PickInput) => commands.addPicks(input);
+export const checkUpdate = () => commands.checkUpdate();
+export const installUpdate = () => commands.installUpdate();
+export const dismissRelease = () => commands.dismissRelease();

@@ -179,6 +179,12 @@ pub struct RemoveView {
 pub struct AboutView {
     pub version: String,
     pub daemon: String,
+    /// What the update check said, or is doing.
+    pub update: String,
+    /// A newer release can be installed.
+    pub can_install: bool,
+    pub checking: bool,
+    pub connected: bool,
 }
 
 /// The Options on completion tab's choices.

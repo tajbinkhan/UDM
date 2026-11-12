@@ -2,7 +2,14 @@
      download list, as the download manager UDM follows lays them out. -->
 <script lang="ts">
   import {
+    askPackagePassword,
     browseCategory,
+    checkUpdate,
+    dismissRelease,
+    openPackage,
+    showRefresh,
+    ungroupPackage,
+    unpackPackage,
     clipboardText,
     importList,
     messageOf,
@@ -289,7 +296,7 @@
     item('Resume Download', when(can?.resume, act({ action: 'resume' }))),
     item('Stop Download', when(can?.stop, act({ action: 'stop' }))),
     sep,
-    item('Refresh download address', undefined),
+    item('Refresh download address', when(can?.refresh && !!one, () => one && void tell(showRefresh(one.id)))),
     sep,
     item('Remove', when(can?.delete, act({ action: 'delete' }))),
     sep,
@@ -308,6 +315,18 @@
   const categoryOf = (node: TreeNode) => (typeof node.icon === 'object' ? (node.key.split('/')[1] ?? null) : null);
   const treeItems: MenuEntry[] = $derived.by(() => {
     const node = treeMenu?.node;
+    if (node?.key.startsWith('package/')) {
+      const p = view?.chrome.packages.find((x) => `package/${x.id}` === node.key);
+      if (!p) return [];
+      return [
+        item(p.again ? 'Unpack again' : 'Unpack', when(p.unpack, () => void tell(unpackPackage(p.id, null)))),
+        item('Unpack with password...', when(p.password, () => void tell(askPackagePassword(p.id)))),
+        ...(p.opened ? [item('Open unpacked folder', () => void tell(openPackage(p.id)))] : []),
+        sep,
+        item('Stop keeping as a package', when(p.connected, () => void tell(ungroupPackage(p.id)))),
+      ];
+    }
+    if (node?.key === 'packages') return [];
     const name = node ? categoryOf(node) : null;
     const current = view?.chrome.categories.find((c) => c.name === name);
     return [
@@ -353,6 +372,22 @@
     <div class="main">
       <MenuBar {menus} />
       <Toolbar {tools} small={view.chrome.toolbarSmall} />
+      {#if view.chrome.newer}
+        <div class="banner strip" role="status">
+          <span class="grow">{t('UDM {version} is available', { version: view.chrome.newer })}</span>
+          {#if view.chrome.newerInstallable}
+            <button
+              class="btn small"
+              disabled={!can?.connected}
+              onclick={() => {
+                void openWindow('about');
+                void tell(checkUpdate());
+              }}>{t('Update now')}</button
+            >
+          {/if}
+          <button class="btn small close" aria-label={t('Close')} onclick={() => void dismissRelease()}>×</button>
+        </div>
+      {/if}
       {#if view.chrome.banner}
         <div class="banner" class:error={view.chrome.banner.error} role="status">{view.chrome.banner.text}</div>
       {/if}
@@ -431,6 +466,18 @@
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
     flex: none;
+  }
+
+  .strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .close {
+    min-width: 0;
+    width: 22px;
+    padding: 0;
   }
 
   .banner.error {

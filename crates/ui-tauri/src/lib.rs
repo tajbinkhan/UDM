@@ -14,6 +14,7 @@ mod actor;
 mod commands;
 mod contract;
 mod errors;
+mod extras;
 #[cfg(test)]
 mod fixtures;
 mod grabber;

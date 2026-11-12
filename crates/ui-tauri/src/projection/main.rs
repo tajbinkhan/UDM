@@ -26,11 +26,16 @@ const FINISHED: &str = "finished";
 const GRABBER: &str = "grabber";
 const QUEUES: &str = "queues";
 const QUEUE: &str = "queue/";
+const PACKAGES: &str = "packages";
+const PACKAGE: &str = "package/";
 
 /// The node a tree key names.
 pub fn node_of(key: &str) -> Option<Node> {
     if let Some(id) = key.strip_prefix(QUEUE) {
         return id.parse().ok().map(|id| Node::Queue(QueueId::new(id)));
+    }
+    if let Some(id) = key.strip_prefix(PACKAGE) {
+        return id.parse().ok().map(|id| Node::Package(udm_domain::id::PackageId::new(id)));
     }
     let (branch, category) = match key.split_once('/') {
         Some((b, c)) => (b, Some(c.to_string())),
@@ -48,6 +53,7 @@ pub fn node_of(key: &str) -> Option<Node> {
 fn key_of(node: &Node) -> String {
     match node {
         Node::Queue(id) => format!("{QUEUE}{}", id.get()),
+        Node::Package(id) => format!("{PACKAGE}{}", id.get()),
         Node::Downloads { progress, category } => {
             let branch = match progress {
                 Progress::All => ALL,
@@ -86,6 +92,10 @@ pub fn shown(state: &AppState) -> Vec<&DownloadEntry> {
     let mut rows: Vec<&DownloadEntry> = match &state.node {
         Node::Queue(id) => match state.queues.iter().find(|q| q.id == *id) {
             Some(q) => q.order.iter().filter_map(|d| state.table.get(*d)).collect(),
+            None => Vec::new(),
+        },
+        Node::Package(id) => match state.asks.packages.iter().find(|p| p.id == *id) {
+            Some(p) => p.downloads.iter().filter_map(|d| state.table.get(*d)).collect(),
             None => Vec::new(),
         },
         Node::Downloads { progress, category } => state
@@ -286,6 +296,16 @@ pub fn tree(ctx: &Ctx, state: &AppState) -> Vec<TreeNode> {
             push(format!("{QUEUE}{}", q.id.get()), lang.tr(&q.name), 1, TreeIcon::Queue, None);
         }
     }
+    if !state.asks.packages.is_empty() {
+        let open = state.open_nodes.contains(PACKAGES);
+        push(PACKAGES.to_string(), lang.tr("Packages"), 0, TreeIcon::Queues, Some(open));
+        if open {
+            for p in &state.asks.packages {
+                let label = crate::extras::package_label(lang, state, p);
+                push(format!("{PACKAGE}{}", p.id.get()), &label, 1, TreeIcon::Category(FileIcon::Archive), None);
+            }
+        }
+    }
     out
 }
 
@@ -305,6 +325,7 @@ pub fn can(state: &AppState) -> Can {
         open: one.is_some_and(|e| e.status == Status::Done && e.path.is_some()),
         redownload: connected && selected.iter().any(|e| is_finished(e.status)),
         progress: one.is_some_and(|e| e.status != Status::Done),
+        refresh: connected && one.is_some_and(|e| crate::extras::can_refresh(state, e.id)),
         connected,
     }
 }
@@ -320,7 +341,11 @@ fn banner(ctx: &Ctx, state: &AppState) -> Option<Banner> {
             }
             Some(Banner { text, error: true })
         }
-        Link::Connected => state.notice.as_ref().map(|n| Banner { text: n.text.clone(), error: n.error }),
+        Link::Connected => state
+            .notice
+            .as_ref()
+            .map(|n| Banner { text: n.text.clone(), error: n.error })
+            .or_else(|| crate::extras::notice(lang, state).map(|text| Banner { text, error: false })),
     }
 }
 
@@ -364,6 +389,16 @@ pub fn chrome(ctx: &Ctx, state: &AppState) -> MainChrome {
         next_tip: state.settings.as_ref().map_or(0, |s| (s.next_tip % crate::tips::TIPS.len()) as u32),
         tips_on_startup: state.settings.as_ref().is_some_and(|s| s.tips_on_startup),
         show_tip: !state.tip_seen && state.settings.as_ref().is_some_and(|s| s.tips_on_startup),
+        newer: match &state.asks.update {
+            Some(Ok(Some(r)))
+                if state.layout_rest.get("dismissed_release").and_then(|v| v.as_str()) != Some(r.version.as_str()) =>
+            {
+                Some(r.version.clone())
+            }
+            _ => None,
+        },
+        newer_installable: matches!(&state.asks.update, Some(Ok(Some(r))) if r.setup.is_some()),
+        packages: state.asks.packages.iter().map(|p| crate::extras::package_menu(state, p)).collect(),
     }
 }
 
@@ -397,7 +432,13 @@ mod tests {
     use udm_application::daemon::Event;
 
     fn ctx() -> Ctx {
-        Ctx { lang: resolve("en", &[]), offset: 0, today: "2026-11-12".into() }
+        Ctx {
+            lang: resolve("en", &[]),
+            offset: 0,
+            today: "2026-11-12".into(),
+            now: std::time::Instant::now(),
+            downloads: std::path::PathBuf::from("/home/u/Downloads"),
+        }
     }
 
     fn entry(id: u64, name: &str, status: Status, total: u64) -> DownloadEntry {

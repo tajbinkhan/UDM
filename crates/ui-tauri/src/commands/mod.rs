@@ -11,6 +11,7 @@
 mod common;
 mod dialogs;
 mod download;
+mod extras;
 mod grabber;
 mod main;
 mod options;
@@ -96,6 +97,19 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         tools::set_list_font,
         tools::set_toolbar,
         tools::close_tip,
+        extras::answer_login,
+        extras::answer_countdown,
+        extras::show_refresh,
+        extras::refresh_link,
+        extras::cancel_refresh,
+        extras::unpack_package,
+        extras::ask_package_password,
+        extras::ungroup_package,
+        extras::open_package,
+        extras::add_picks,
+        extras::check_update,
+        extras::install_update,
+        extras::dismiss_release,
     ])
 }
 

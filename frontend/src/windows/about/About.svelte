@@ -1,6 +1,6 @@
 <!-- About UDM: the version, and the daemon's. -->
 <script lang="ts">
-  import { closeWindow } from '../../ipc';
+  import { checkUpdate, closeWindow, installUpdate, messageOf } from '../../ipc';
   import type { AboutView } from '../../ipc/types';
   import { projection } from '../../stores/projection.svelte';
   import { t } from '../../i18n';
@@ -8,6 +8,16 @@
   import logo from '../../../../assets/icon-256.png';
 
   const view: AboutView | null = $derived(projection.view?.window === 'about' ? projection.view.view : null);
+  let error = $state('');
+
+  async function run(p: () => Promise<unknown>) {
+    error = '';
+    try {
+      await p();
+    } catch (e) {
+      error = messageOf(e);
+    }
+  }
 </script>
 
 <Window onescape={() => void closeWindow()}>
@@ -20,7 +30,20 @@
           <p class="version">{t('Version: {version}', { version: view.version })}</p>
         </div>
       </div>
-      <button class="btn check" disabled>{t('Check for Update')}</button>
+      <button class="btn check" disabled={!view.connected || view.checking} onclick={() => void run(checkUpdate)}>{t('Check for Update')}</button>
+      {#if view.update || error}
+        <div class="row update" role="status">
+          <span class="grow" class:error-text={!!error}>{error || view.update}</span>
+          {#if view.canInstall}
+            <button
+              class="btn"
+              disabled={!view.connected}
+              title={t('Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.')}
+              onclick={() => void run(installUpdate)}>{t('Update now')}</button
+            >
+          {/if}
+        </div>
+      {/if}
       <div class="box">
         <p>{t('UDM is free software under the MIT license.')}</p>
         {#if view.daemon}<p>{t('Background service: version {version}', { version: view.daemon })}</p>{/if}
@@ -59,6 +82,10 @@
   .check {
     align-self: center;
     width: 147px;
+  }
+
+  .update {
+    margin-top: 4px;
   }
 
   .box {

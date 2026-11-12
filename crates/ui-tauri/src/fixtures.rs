@@ -110,7 +110,13 @@ fn sample() -> AppState {
 
 fn fixtures() -> serde_json::Value {
     let mut s = sample();
-    let ctx = Ctx { lang: resolve("en", &[]), offset: 0, today: "2026-11-12".into() };
+    let ctx = Ctx {
+        lang: resolve("en", &[]),
+        offset: 0,
+        today: "2026-11-12".into(),
+        now: std::time::Instant::now(),
+        downloads: std::path::PathBuf::from("/home/u/Downloads"),
+    };
     let dark = projection::look(&s);
     if let Some(settings) = s.settings.as_mut() {
         settings.theme = Theme::Light;
@@ -165,6 +171,86 @@ fn fixtures() -> serde_json::Value {
         }))),
     );
     let links = serde_json::to_value(projection::view(&ctx, &links_state, &Label::Links)).unwrap();
+    // What the daemon asks of the window: a login, a countdown, a new
+    // link, a package's password, and links, videos and a gallery to pick.
+    let mut asks = sample();
+    let failed = |id: u64| {
+        let mut e = asks.table.get(DownloadId::new(id)).cloned().unwrap();
+        e.status = Status::Failed;
+        e.error = Some(udm_domain::download::needs_login_error("127.0.0.1", Some("Private files")));
+        e
+    };
+    let (f3, f4) = (failed(3), failed(4));
+    let at = Instant::now();
+    let send = |s: &mut AppState, event: Event| apply(s, UiMessage::Daemon { event: Box::new(event), at, unix: 0 });
+    send(&mut asks, Event::Updated { item: f3.clone() });
+    send(&mut asks, Event::Updated { item: f4.clone() });
+    send(&mut asks, Event::Failed { id: f3.id, url: f3.url.clone(), error: f3.error.clone().unwrap() });
+    send(&mut asks, Event::Failed { id: f4.id, url: f4.url.clone(), error: f4.error.clone().unwrap() });
+    send(
+        &mut asks,
+        Event::Countdown {
+            action: udm_domain::queue::WhenDone::ShutDown,
+            seconds: 60,
+            queue: "Main queue".into(),
+            file: None,
+        },
+    );
+    apply(&mut asks, UiMessage::ShowRefresh(f3.id));
+    let link = |url: &str, text: &str| udm_domain::download::PageLink {
+        url: url.into(),
+        text: text.into(),
+        image: false,
+        cookies: None,
+    };
+    send(
+        &mut asks,
+        Event::PickLinks {
+            page: "http://127.0.0.1:8765/index.html".into(),
+            links: vec![
+                link("http://127.0.0.1:8765/files/manual.pdf", "User manual"),
+                link("http://127.0.0.1:8765/files/setup.exe", "Download"),
+                link("http://127.0.0.1:8765/files/photos.zip", "Photos"),
+            ],
+            user_agent: None,
+        },
+    );
+    let request = asks.asks.links.as_ref().map_or(0, |l| l.request);
+    send(
+        &mut asks,
+        Event::LinkInfo { request, index: 1, total: Some(ByteCount::new(41_943_040)), content_type: None, error: None },
+    );
+    let entry = |n: u32| udm_domain::media::PlaylistEntry {
+        url: format!("https://videos.example.com/watch?v={n}"),
+        title: format!("Lesson {n}: getting started"),
+        duration: Some(f64::from(300 + n * 61)),
+    };
+    let playlist = udm_domain::media::Playlist { title: "A course".into(), entries: (1..=4).map(entry).collect() };
+    send(&mut asks, Event::PickVideos { page: "https://videos.example.com/list".into(), playlist, user_agent: None });
+    send(&mut asks, Event::PickGallery { page: "https://pics.example.com/album".into(), user_agent: None });
+    let request = asks.asks.gallery.as_ref().map_or(0, |g| g.request);
+    let picture = |n: u32| udm_domain::gallery::Picture {
+        url: format!("https://pics.example.com/{n}.jpg"),
+        name: format!("{n}.jpg"),
+        extension: "jpg".into(),
+        width: Some(1920),
+        height: Some(1080),
+    };
+    let gallery = udm_domain::gallery::Gallery { title: "Album".into(), pictures: (1..=3).map(picture).collect() };
+    send(
+        &mut asks,
+        Event::Gallery { request, page: "https://pics.example.com/album".into(), gallery: Some(gallery), error: None },
+    );
+    let package: udm_domain::package::Package = serde_json::from_value(json!({
+        "id": 1, "name": "photos", "downloads": [5], "unpack": {"state": "needs_password", "wrong": false}
+    }))
+    .unwrap();
+    send(&mut asks, Event::Packages { items: vec![package] });
+    apply(&mut asks, UiMessage::AskPassword(udm_domain::id::PackageId::new(1)));
+    let asked = |label: Label| serde_json::to_value(projection::view(&ctx, &asks, &label)).unwrap();
+    let countdown = asked(Label::Countdown);
+    let (login, refresh, password) = (asked(Label::Login), asked(Label::Refresh), asked(Label::Password));
+    let (pick_links, pick_videos, gallery) = (asked(Label::PickLinks), asked(Label::PickVideos), asked(Label::Gallery));
     json!({
         "look": { "light": light, "dark": dark },
         "views": {
@@ -183,6 +269,13 @@ fn fixtures() -> serde_json::Value {
             "links": links,
             "properties": view(Label::Properties(DownloadId::new(2))),
             "drop-target": view(Label::DropTarget),
+            "login": login,
+            "countdown": countdown,
+            "refresh": refresh,
+            "password": password,
+            "pick-links": pick_links,
+            "pick-videos": pick_videos,
+            "gallery": gallery,
         }
     })
 }

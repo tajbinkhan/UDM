@@ -460,7 +460,13 @@ mod tests {
     #[test]
     fn the_column_chooser_keeps_the_name() {
         let s = AppState::default();
-        let ctx = Ctx { lang: crate::i18n::resolve("en", &[]), offset: 0, today: String::new() };
+        let ctx = Ctx {
+            lang: crate::i18n::resolve("en", &[]),
+            offset: 0,
+            today: String::new(),
+            now: std::time::Instant::now(),
+            downloads: std::path::PathBuf::from("/home/u/Downloads"),
+        };
         let mut choices = column_choices(&ctx, &s);
         assert_eq!(choices.len(), ALL_COLUMNS.len());
         for c in &mut choices {

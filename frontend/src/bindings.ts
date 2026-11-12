@@ -140,6 +140,33 @@ export const commands = {
 	setToolbar: (small: boolean, buttons: string[]) => __TAURI_INVOKE<null>("set_toolbar", { small, buttons }),
 	/**  Tip of the Day closed. */
 	closeTip: (next: number, onStartup: boolean) => __TAURI_INVOKE<null>("close_tip", { next, onStartup }),
+	/**  The login prompt's OK. With `save`, the login is kept for the site. */
+	answerLogin: (user: string, password: string, save: boolean) => __TAURI_INVOKE<null>("answer_login", { user, password, save }),
+	/**  The countdown's Do it now (`now`) or Cancel. */
+	answerCountdown: (now: boolean) => __TAURI_INVOKE<null>("answer_countdown", { now }),
+	/**  The list menu's Refresh download address. */
+	showRefresh: (id: Id) => __TAURI_INVOKE<null>("show_refresh", { id }),
+	/**
+	 *  The New link window: use `url`, or with none the next download the
+	 *  browser starts. `restart` starts over when the link is for another file.
+	 */
+	refreshLink: (id: Id, url: string | null, restart: boolean) => __TAURI_INVOKE<null>("refresh_link", { id, url, restart }),
+	cancelRefresh: () => __TAURI_INVOKE<null>("cancel_refresh"),
+	/**  Unpack a package's archives, with a password for encrypted ones. */
+	unpackPackage: (id: Id, password: string | null) => __TAURI_INVOKE<null>("unpack_package", { id, password }),
+	/**  Ask a package's password, from its menu. */
+	askPackagePassword: (id: Id) => __TAURI_INVOKE<null>("ask_package_password", { id }),
+	/**  Stop keeping a package; its downloads stay in the list. */
+	ungroupPackage: (id: Id) => __TAURI_INVOKE<null>("ungroup_package", { id }),
+	openPackage: (id: Id) => __TAURI_INVOKE<null>("open_package", { id }),
+	/**  The link, video and gallery pickers' Add. */
+	addPicks: (input: PickInput_Deserialize) => __TAURI_INVOKE<null>("add_picks", { input }),
+	/**  About's Check for Update. */
+	checkUpdate: () => __TAURI_INVOKE<null>("check_update"),
+	/**  Install now: download the newer release's setup and run it. */
+	installUpdate: () => __TAURI_INVOKE<null>("install_update"),
+	/**  Close the strip offering a newer release, until a newer one comes. */
+	dismissRelease: () => __TAURI_INVOKE<null>("dismiss_release"),
 };
 
 /* Types */
@@ -147,6 +174,12 @@ export const commands = {
 export type AboutView = {
 	version: string,
 	daemon: string,
+	/**  What the update check said, or is doing. */
+	update: string,
+	/**  A newer release can be installed. */
+	canInstall: boolean,
+	checking: boolean,
+	connected: boolean,
 };
 
 /**  Add URL ("Enter new address to download"). */
@@ -221,6 +254,8 @@ export type Can = {
 	open: boolean,
 	redownload: boolean,
 	progress: boolean,
+	/**  One stopped download is selected, whose link can be replaced. */
+	refresh: boolean,
 	connected: boolean,
 };
 
@@ -294,6 +329,22 @@ export type ColumnHead_Serialize = {
 
 /**  The list's columns, in the order the window saves them. */
 export type ColumnKey = "name" | "queue" | "size" | "progress" | "speed" | "timeLeft" | "status" | "lastTry" | "saveTo" | "page" | "referrer" | "description";
+
+/**
+ *  The countdown before UDM exits, or the computer sleeps, hibernates or
+ *  shuts down.
+ */
+export type CountdownView = {
+	/**  Download finished, or Queue finished. */
+	title: string,
+	/**  What finished. */
+	done: string,
+	/**  What happens, and in how many seconds. */
+	message: string,
+	/**  The button that does it now. */
+	now: string,
+	seconds: number,
+};
 
 /**  One CSS custom property, such as `--fg: #09090b`. */
 export type CssVar = {
@@ -392,6 +443,39 @@ export type FindInput = {
 	sites: boolean,
 	matchCase: boolean,
 	whole: boolean,
+};
+
+/**  A gallery page's pictures, read with gallery-dl. */
+export type GalleryView = GalleryView_Serialize | GalleryView_Deserialize;
+
+/**  A gallery page's pictures, read with gallery-dl. */
+export type GalleryView_Deserialize = {
+	page: string,
+	/**  Reading the page. */
+	reading: boolean,
+	title: string,
+	rows: PictureRow[],
+	/**  Why there are no pictures. */
+	error?: string | null,
+	/**  The folder the pictures go in unless another is chosen. */
+	folder: string,
+	queues: QueueItem[],
+	connected: boolean,
+};
+
+/**  A gallery page's pictures, read with gallery-dl. */
+export type GalleryView_Serialize = {
+	page: string,
+	/**  Reading the page. */
+	reading: boolean,
+	title: string,
+	rows: PictureRow[],
+	/**  Why there are no pictures. */
+	error: string | null,
+	/**  The folder the pictures go in unless another is chosen. */
+	folder: string,
+	queues: QueueItem[],
+	connected: boolean,
 };
 
 /**  The wizard's fields, as typed. */
@@ -700,6 +784,22 @@ export type LoginInput = {
 	password: string,
 };
 
+/**  The login prompt: a download's site wants a user name and password. */
+export type LoginView = {
+	host: string,
+	realm: string,
+	/**  The last login was refused. */
+	refused: boolean,
+	/**
+	 *  Every waiting download is on the site that asked, so the login can
+	 *  be theirs alone; otherwise it is saved as a site login.
+	 */
+	ownSite: boolean,
+	user: string,
+	/**  How many downloads wait for this login. */
+	count: number,
+};
+
 /**  What every window draws with: the theme and the language. */
 export type Look = {
 	theme: Theme,
@@ -752,6 +852,15 @@ export type MainChrome_Deserialize = {
 	tipsOnStartup: boolean,
 	/**  Show the tip now: the window just opened with tips on startup. */
 	showTip: boolean,
+	/**
+	 *  A newer release's version, for the strip offering it, unless that
+	 *  strip was closed for it.
+	 */
+	newer?: string | null,
+	/**  That release has a setup Update now can run. */
+	newerInstallable: boolean,
+	/**  What each package's menu offers, by the package's tree node. */
+	packages: PackageMenu[],
 };
 
 /**  The main window apart from its rows. */
@@ -790,6 +899,15 @@ export type MainChrome_Serialize = {
 	tipsOnStartup: boolean,
 	/**  Show the tip now: the window just opened with tips on startup. */
 	showTip: boolean,
+	/**
+	 *  A newer release's version, for the strip offering it, unless that
+	 *  strip was closed for it.
+	 */
+	newer: string | null,
+	/**  That release has a setup Update now can run. */
+	newerInstallable: boolean,
+	/**  What each package's menu offers, by the package's tree node. */
+	packages: PackageMenu[],
 };
 
 /**
@@ -1029,6 +1147,27 @@ export type OptionsView_Serialize = {
 	serverConnections: number[],
 };
 
+/**  A package's menu in the categories tree. */
+export type PackageMenu = {
+	id: Id,
+	/**  Unpack, or Unpack again once it was. */
+	unpack: boolean,
+	again: boolean,
+	/**  Unpack with password. */
+	password: boolean,
+	/**  Open unpacked folder. */
+	opened: boolean,
+	connected: boolean,
+};
+
+/**  A package's archives want a password. */
+export type PasswordView = {
+	id: Id,
+	name: string,
+	/**  The last password given did not open them. */
+	wrong: boolean,
+};
+
 /**
  *  A change to a view. The main window's list changes row by row; the
  *  small windows are sent whole.
@@ -1047,8 +1186,89 @@ export type Patch_Deserialize = { window: "main"; patch: MainPatch_Deserialize }
  */
 export type Patch_Serialize = { window: "main"; patch: MainPatch_Serialize } | { window: "whole"; patch: View_Serialize };
 
+/**
+ *  What the pickers' Add sends: the ticked rows, where, and whether to
+ *  start the queue.
+ */
+export type PickInput = PickInput_Serialize | PickInput_Deserialize;
+
+/**
+ *  What the pickers' Add sends: the ticked rows, where, and whether to
+ *  start the queue.
+ */
+export type PickInput_Deserialize = {
+	indices: number[],
+	queue: Id,
+	start: boolean,
+	/**  Keep the links together as a package of this name. */
+	package?: string | null,
+	/**  The videos' quality, by its place in `qualities`. */
+	quality: number,
+	/**  The gallery's folder. */
+	folder: string,
+};
+
+/**
+ *  What the pickers' Add sends: the ticked rows, where, and whether to
+ *  start the queue.
+ */
+export type PickInput_Serialize = {
+	indices: number[],
+	queue: Id,
+	start: boolean,
+	/**  Keep the links together as a package of this name. */
+	package: string | null,
+	/**  The videos' quality, by its place in `qualities`. */
+	quality: number,
+	/**  The gallery's folder. */
+	folder: string,
+};
+
 /**  What a Browse button picks. */
 export type PickKind = "folder" | "sound" | "program";
+
+/**
+ *  The browser's "Download all links": a page's links, probed for their
+ *  sizes as the window shows them.
+ */
+export type PickLinksView = {
+	page: string,
+	rows: PickRow[],
+	/**  The file types among the links, for ticking all of one type. */
+	types: string[],
+	suggestedPackage: string,
+	queues: QueueItem[],
+	connected: boolean,
+};
+
+/**  One link of a page, to pick. */
+export type PickRow = {
+	index: number,
+	name: string,
+	icon: FileIcon,
+	kind: string,
+	size: string,
+	url: string,
+	text: string,
+};
+
+/**  A playlist's or channel's videos, to pick, with the quality to get. */
+export type PickVideosView = {
+	title: string,
+	rows: VideoRow[],
+	/**  The qualities offered, best first. */
+	qualities: string[],
+	queues: QueueItem[],
+	connected: boolean,
+};
+
+/**  One picture of a gallery. */
+export type PictureRow = {
+	index: number,
+	name: string,
+	size: string,
+	url: string,
+};
 
 export type PropertiesInput = {
 	address: string,
@@ -1152,6 +1372,38 @@ export type QuotaDraft = {
 	mb: number,
 	hours: number,
 	warn: boolean,
+};
+
+export type RefreshMismatchView = {
+	url: string,
+	reason: string,
+};
+
+/**  A new address for a download whose link expired. */
+export type RefreshView = RefreshView_Serialize | RefreshView_Deserialize;
+
+/**  A new address for a download whose link expired. */
+export type RefreshView_Deserialize = {
+	id: Id,
+	name: string,
+	address: string,
+	/**  The daemon waits for the next download the browser starts. */
+	waiting: boolean,
+	/**  The new link is for another file: the link and why. */
+	mismatch?: RefreshMismatchView | null,
+	connected: boolean,
+};
+
+/**  A new address for a download whose link expired. */
+export type RefreshView_Serialize = {
+	id: Id,
+	name: string,
+	address: string,
+	/**  The daemon waits for the next download the browser starts. */
+	waiting: boolean,
+	/**  The new link is for another file: the link and why. */
+	mismatch: RefreshMismatchView | null,
+	connected: boolean,
 };
 
 /**  Confirm deletion of downloads. */
@@ -1382,6 +1634,14 @@ export type Update_Serialize = { kind: "snapshot"; seq: number; look: Look; view
  */
 { kind: "gone"; seq: number };
 
+/**  One video of a playlist. */
+export type VideoRow = {
+	index: number,
+	title: string,
+	duration: string,
+	url: string,
+};
+
 export type VideoTypeDraft = {
 	ext: string,
 	on: boolean,
@@ -1391,7 +1651,7 @@ export type VideoTypeDraft = {
 export type View = View_Serialize | View_Deserialize;
 
 /**  A window's whole view, by its kind. */
-export type View_Deserialize = { window: "main"; view: MainView_Deserialize } | { window: "addUrl"; view: AddUrlView } | { window: "saveAs"; view: SaveAsView_Deserialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Deserialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Deserialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView };
+export type View_Deserialize = { window: "main"; view: MainView_Deserialize } | { window: "addUrl"; view: AddUrlView } | { window: "saveAs"; view: SaveAsView_Deserialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Deserialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Deserialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Deserialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Deserialize };
 
 /**  A window's whole view, by its kind. */
-export type View_Serialize = { window: "main"; view: MainView_Serialize } | { window: "addUrl"; view: AddUrlView } | { window: "saveAs"; view: SaveAsView_Serialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Serialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Serialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView };
+export type View_Serialize = { window: "main"; view: MainView_Serialize } | { window: "addUrl"; view: AddUrlView } | { window: "saveAs"; view: SaveAsView_Serialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Serialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Serialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Serialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Serialize };

@@ -48,8 +48,13 @@ pub enum Progress {
 /// The categories tree's node the list shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
-    Downloads { progress: Progress, category: Option<String> },
+    Downloads {
+        progress: Progress,
+        category: Option<String>,
+    },
     Queue(QueueId),
+    /// A package's downloads.
+    Package(udm_domain::id::PackageId),
 }
 
 impl Default for Node {
@@ -127,6 +132,8 @@ pub struct AppState {
     pub layout_rest: serde_json::Map<String, serde_json::Value>,
     /// The tip of the day was shown, or dismissed, since the window opened.
     pub tip_seen: bool,
+    /// What the daemon asks of the window beyond the list.
+    pub asks: crate::extras::Asks,
 }
 
 impl Default for AppState {
@@ -160,6 +167,7 @@ impl Default for AppState {
             toolbar: crate::layout::TOOLBAR.iter().map(|s| s.to_string()).collect(),
             layout_rest: serde_json::Map::new(),
             tip_seen: false,
+            asks: crate::extras::Asks::default(),
         }
     }
 }
@@ -229,6 +237,15 @@ pub enum UiMessage {
     },
     /// The tip of the day was closed.
     TipSeen,
+    /// Open the New link window for a download.
+    ShowRefresh(DownloadId),
+    /// These downloads got their login.
+    LoginAnswered(Vec<DownloadId>),
+    /// Ask a package's password.
+    AskPassword(udm_domain::id::PackageId),
+    /// The update check, or Install now, began.
+    UpdateChecking,
+    Installing,
 }
 
 impl AppState {
@@ -318,6 +335,20 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
             }
             Some(crate::windows::Label::Remove) => state.to_remove.clear(),
             Some(crate::windows::Label::Links) => state.links = None,
+            Some(crate::windows::Label::Login) => {
+                // Closing it answers the first site's downloads with nothing.
+                if let Some((ids, _)) = crate::extras::login_group(state) {
+                    state.asks.login_wanted.retain(|id| !ids.contains(id));
+                }
+            }
+            Some(crate::windows::Label::Refresh) => {
+                state.asks.refresh = None;
+                state.asks.refresh_mismatch = None;
+            }
+            Some(crate::windows::Label::Password) => state.asks.password = None,
+            Some(crate::windows::Label::PickLinks) => state.asks.links = None,
+            Some(crate::windows::Label::PickVideos) => state.asks.videos = None,
+            Some(crate::windows::Label::Gallery) => state.asks.gallery = None,
             Some(crate::windows::Label::Properties(id)) => {
                 state.properties.remove(&id);
             }
@@ -351,6 +382,19 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
             state.toolbar = buttons.into_iter().filter(known).take(64).collect();
         }
         UiMessage::TipSeen => state.tip_seen = true,
+        UiMessage::ShowRefresh(id) => {
+            if crate::extras::can_refresh(state, id) {
+                state.asks.refresh = Some(id);
+                state.asks.refresh_mismatch = None;
+            }
+        }
+        UiMessage::LoginAnswered(ids) => state.asks.login_wanted.retain(|id| !ids.contains(id)),
+        UiMessage::AskPassword(id) => state.asks.password = Some(id),
+        UiMessage::UpdateChecking => {
+            state.asks.checking = true;
+            state.asks.update = None;
+        }
+        UiMessage::Installing => state.asks.installing = Some(None),
         UiMessage::Columns(columns) => {
             if !columns.is_empty() {
                 state.columns = columns;
@@ -361,6 +405,7 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
 
 fn apply_event(state: &mut AppState, event: Event, at: Instant, unix: u64) {
     daemon::apply(&mut state.table, &event, unix);
+    crate::extras::take(state, &event, at);
     match event {
         Event::Connected => {
             state.link = Link::Connected;

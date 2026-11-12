@@ -51,6 +51,28 @@ pub struct MainChrome {
     pub tips_on_startup: bool,
     /// Show the tip now: the window just opened with tips on startup.
     pub show_tip: bool,
+    /// A newer release's version, for the strip offering it, unless that
+    /// strip was closed for it.
+    pub newer: Option<String>,
+    /// That release has a setup Update now can run.
+    pub newer_installable: bool,
+    /// What each package's menu offers, by the package's tree node.
+    pub packages: Vec<PackageMenu>,
+}
+
+/// A package's menu in the categories tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageMenu {
+    pub id: Id,
+    /// Unpack, or Unpack again once it was.
+    pub unpack: bool,
+    pub again: bool,
+    /// Unpack with password.
+    pub password: bool,
+    /// Open unpacked folder.
+    pub opened: bool,
+    pub connected: bool,
 }
 
 /// A change to the main window: the rows that changed, the new order when
@@ -187,6 +209,8 @@ pub struct Can {
     pub open: bool,
     pub redownload: bool,
     pub progress: bool,
+    /// One stopped download is selected, whose link can be replaced.
+    pub refresh: bool,
     pub connected: bool,
 }
 

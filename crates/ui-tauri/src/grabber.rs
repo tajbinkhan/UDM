@@ -581,7 +581,13 @@ mod tests {
         s.grab.done(vec![file("a.pdf", "https://e.com/1"), file("b.pdf", "https://e.com/2")], 3, 4, None, None);
         assert_eq!(s.grab.checked, [true, true]);
         assert!(s.grab.unsaved());
-        let ctx = Ctx { lang: resolve("en", &[]), offset: 0, today: String::new() };
+        let ctx = Ctx {
+            lang: resolve("en", &[]),
+            offset: 0,
+            today: String::new(),
+            now: std::time::Instant::now(),
+            downloads: std::path::PathBuf::from("/home/u/Downloads"),
+        };
         let v = view(&ctx, &s);
         assert_eq!(v.phase, GrabPhase::Done);
         assert_eq!(v.rows.len(), 2);

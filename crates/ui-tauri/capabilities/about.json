@@ -3,5 +3,5 @@
   "identifier": "about",
   "description": "About UDM.",
   "windows": ["about"],
-  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window"]
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-check-update", "allow-install-update"]
 }

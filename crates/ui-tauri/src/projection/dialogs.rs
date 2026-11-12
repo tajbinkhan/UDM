@@ -211,10 +211,25 @@ pub fn remove(state: &AppState) -> Option<RemoveView> {
     Some(RemoveView { count: state.to_remove.len() as u32, has_files })
 }
 
-pub fn about(state: &AppState) -> AboutView {
+pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
+    let lang = ctx.lang;
+    let a = &state.asks;
+    let update = match (&a.installing, &a.update, a.checking) {
+        (Some(None), _, _) => lang.tr("Downloading the update...").to_string(),
+        (Some(Some(why)), _, _) => fill(lang.tr("The update did not install: {error}"), &[("error", why)]),
+        (_, _, true) => lang.tr("Checking for updates...").to_string(),
+        (_, Some(Ok(Some(r))), _) => fill(lang.tr("UDM {version} is available."), &[("version", &r.version)]),
+        (_, Some(Ok(None)), _) => lang.tr("This is the latest version.").to_string(),
+        (_, Some(Err(why)), _) => fill(lang.tr("Could not check for updates: {error}"), &[("error", why)]),
+        (None, None, false) => String::new(),
+    };
     AboutView {
         version: env!("CARGO_PKG_VERSION").to_string(),
         daemon: state.daemon_version.clone().unwrap_or_default(),
+        update,
+        can_install: matches!(&a.update, Some(Ok(Some(r))) if r.setup.is_some()) && a.installing.is_none(),
+        checking: a.checking,
+        connected: state.connected(),
     }
 }
 
@@ -227,7 +242,13 @@ mod tests {
     use udm_application::daemon::Event;
 
     fn ctx() -> Ctx {
-        Ctx { lang: resolve("en", &[]), offset: 0, today: "2026-11-12".into() }
+        Ctx {
+            lang: resolve("en", &[]),
+            offset: 0,
+            today: "2026-11-12".into(),
+            now: std::time::Instant::now(),
+            downloads: std::path::PathBuf::from("/home/u/Downloads"),
+        }
     }
 
     fn with(entry: DownloadEntry) -> AppState {

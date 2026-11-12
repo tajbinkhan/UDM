@@ -19,6 +19,10 @@ pub struct Ctx {
     pub offset: i64,
     /// Today's local date, `YYYY-MM-DD`.
     pub today: String,
+    /// Now, for countdowns.
+    pub now: std::time::Instant,
+    /// The system's Downloads folder, for default folders.
+    pub downloads: std::path::PathBuf,
 }
 
 /// The language the settings name.
@@ -48,7 +52,14 @@ pub fn view(ctx: &Ctx, state: &AppState, label: &Label) -> Option<View> {
         Label::Download(id) => View::Download(dialogs::download(ctx, state, *id)?),
         Label::Done(id) => View::Done(dialogs::done(ctx, state, *id)?),
         Label::Remove => View::Remove(dialogs::remove(state)?),
-        Label::About => View::About(dialogs::about(state)),
+        Label::About => View::About(dialogs::about(ctx, state)),
+        Label::Login => View::Login(crate::extras::login_view(state)?),
+        Label::Countdown => View::Countdown(crate::extras::countdown_view(ctx, state)?),
+        Label::Refresh => View::Refresh(crate::extras::refresh_view(state)?),
+        Label::Password => View::Password(crate::extras::password_view(state)?),
+        Label::PickLinks => View::PickLinks(crate::extras::links_view(ctx, state)?),
+        Label::PickVideos => View::PickVideos(crate::extras::videos_view(ctx, state)?),
+        Label::Gallery => View::Gallery(crate::extras::gallery_view(ctx, state, &ctx.downloads)?),
         Label::Batch => View::Batch(crate::contract::BatchView { connected: state.connected() }),
         Label::Links => View::Links(crate::tools::links_view(ctx, state)?),
         Label::Properties(id) => View::Properties(crate::tools::properties_view(ctx, state, *id)?),

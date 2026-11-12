@@ -4,7 +4,8 @@ import { resolve } from 'node:path';
 
 // One page per window kind (AGENTS.md section 7.4); the shell opens each by
 // its file name (`crates/ui-tauri/src/windows.rs`).
-const windows = ['main', 'add-url', 'save-as', 'download', 'done', 'remove', 'about', 'options', 'scheduler', 'grabber', 'batch', 'links', 'properties', 'drop-target'];
+const windows = ['main', 'add-url', 'save-as', 'download', 'done', 'remove', 'about', 'options', 'scheduler', 'grabber', 'batch', 'links', 'properties', 'drop-target',
+  'login', 'countdown', 'refresh', 'password', 'pick-links', 'pick-videos', 'gallery'];
 
 export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
