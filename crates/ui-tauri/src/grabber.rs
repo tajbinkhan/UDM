@@ -541,7 +541,9 @@ mod tests {
         d.start = "https://e.com/index.html".into();
         d.types = "*.pdf, zip".into();
         d.save = SaveChoice::Folder;
-        d.save_folder = "/home/u/site".into();
+        // A full path on the system the test runs on.
+        let folder = if cfg!(windows) { r"C:\Users\u\site" } else { "/home/u/site" };
+        d.save_folder = folder.into();
         d.offline = true;
         d.max_on = true;
         d.max_size = 5;
@@ -551,7 +553,7 @@ mod tests {
         d.other_depth = 1;
         let r = request(&d, &GrabRequest::default()).unwrap();
         assert_eq!(r.types, ["*.pdf", "zip"]);
-        assert_eq!(r.mirror.as_ref().map(|m| m.folder.as_str()), Some("/home/u/site"));
+        assert_eq!(r.mirror.as_ref().map(|m| m.folder.as_str()), Some(folder));
         assert_eq!(r.max_size, Some(ByteCount::new(5 * MB)));
         assert_eq!(r.explore_only, ["e.com/docs/*", "e.com/files/*"]);
         assert_eq!(r.other_depth, Some(1));

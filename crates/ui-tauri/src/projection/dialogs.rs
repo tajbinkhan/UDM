@@ -26,6 +26,19 @@ pub fn add_url(state: &AppState) -> AddUrlView {
     AddUrlView { connected: state.connected() }
 }
 
+/// `name` in `folder`, joined with the separator `folder` already uses, so
+/// a path keeps one style whatever system the shell runs on.
+fn join_like(folder: &str, name: &str) -> String {
+    let sep = if folder.contains('\\') {
+        '\\'
+    } else if folder.contains('/') {
+        '/'
+    } else {
+        std::path::MAIN_SEPARATOR
+    };
+    format!("{}{sep}{name}", folder.trim_end_matches(['/', '\\']))
+}
+
 /// Download File Info for a download waiting for its answer, or `None` once
 /// it no longer waits.
 pub fn save_as(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<SaveAsView> {
@@ -47,7 +60,7 @@ pub fn save_as(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<SaveAsView
     for p in entries.iter().filter_map(|e| e.path.as_deref()) {
         if let Some(parent) = Path::new(p).parent().map(|p| p.display().to_string()) {
             if seen.insert(parent.clone()) {
-                folders.push(Path::new(&parent).join(&name).display().to_string());
+                folders.push(join_like(&parent, &name));
             }
         }
         if folders.len() >= 10 {
@@ -238,6 +251,12 @@ mod tests {
         assert_eq!(v.categories[0], GENERAL);
         let s = with(entry(Status::Downloading));
         assert!(save_as(&ctx(), &s, DownloadId::new(4)).is_none());
+    }
+
+    #[test]
+    fn folders_keep_their_own_separator() {
+        assert_eq!(join_like("/home/u/Downloads", "a.zip"), "/home/u/Downloads/a.zip");
+        assert_eq!(join_like(r"C:\Users\u\Downloads\", "a.zip"), r"C:\Users\u\Downloads\a.zip");
     }
 
     #[test]
