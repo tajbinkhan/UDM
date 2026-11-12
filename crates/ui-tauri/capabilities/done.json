@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "done",
+  "description": "Download complete, one window per finished download.",
+  "windows": ["done-*"],
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-open-download", "allow-hide-done-dialogs"]
+}

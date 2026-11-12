@@ -1,0 +1,91 @@
+//! Reads tauri.conf.json and the capabilities, and lists the app's commands
+//! so that each is open only to the windows whose capability grants it
+//! (AGENTS.md section 7.5).
+
+/// Every command in `src/commands/`. A command missing here cannot be
+/// granted to any window, so calling it fails.
+const COMMANDS: &[&str] = &[
+    "subscribe",
+    "report_frontend_error",
+    "close_window",
+    "open_window",
+    "quit_app",
+    "select_rows",
+    "select_node",
+    "sort_list",
+    "resize_column",
+    "toggle_node",
+    "toggle_categories",
+    "run_list_action",
+    "add_download",
+    "answer_download",
+    "control_download",
+    "set_download_limit",
+    "set_download_on_done",
+    "hide_done_dialogs",
+    "remove_downloads",
+    "open_download",
+    "save_options",
+    "pick_path",
+    "save_queue",
+    "create_queue",
+    "delete_queue",
+    "control_queue",
+    "move_queued",
+    "remove_queued",
+    "save_quota",
+    "grab_start",
+    "grab_stop",
+    "grab_select",
+    "grab_new",
+    "grab_add",
+    "grab_template",
+    "grab_open",
+    "grab_save",
+    "grab_save_template",
+    "grab_save_filters",
+    "grab_add_on_close",
+    "preview_batch",
+    "add_batch",
+    "open_clipboard_links",
+    "add_links",
+    "import_list",
+    "export_list",
+    "find_download",
+    "show_properties",
+    "save_properties",
+    "move_download",
+    "set_limiter",
+    "set_columns",
+    "save_category",
+    "browse_category",
+    "queue_selection",
+    "show_drop_target",
+    "set_panel_width",
+    "set_list_font",
+    "set_toolbar",
+    "close_tip",
+    "answer_login",
+    "answer_countdown",
+    "show_refresh",
+    "refresh_link",
+    "cancel_refresh",
+    "unpack_package",
+    "ask_package_password",
+    "ungroup_package",
+    "open_package",
+    "add_picks",
+    "check_update",
+    "install_update",
+    "dismiss_release",
+    "show_download",
+];
+
+fn main() {
+    let manifest = tauri_build::AppManifest::new().commands(COMMANDS);
+    // A build script that cannot read the configuration has to stop the
+    // build: there is no window to build without it.
+    #[allow(clippy::expect_used)]
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
+        .expect("tauri.conf.json and capabilities/ are valid");
+}

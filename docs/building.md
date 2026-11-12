@@ -26,6 +26,9 @@ differs.
 | `crates/infrastructure/src/notify.rs`, `scan.rs`, `power.rs`, `update.rs` | Notifications and sounds, virus scans, sleep and shut down, the update check |
 | `crates/infrastructure/src/listfile.rs`, `from_old_names.rs` | Exporting and importing the download list; moving the files of UDM's earlier names, Pullbay and UIDM, over |
 | `crates/ui/src/` | The window: its state and messages (`state.rs`), views, dialogs, tray icon (`tray.rs`), tools for many downloads (`tools.rs`), and translations (`i18n.rs`, `lang/`) |
+| `crates/ui-tauri/` | The Tauri window's shell (ADR 0002): its state and the actor that owns it (`state.rs`, `actor.rs`), what each window shows (`projection/`), the commands the webview calls (`commands/`), the types that cross to it (`contract/`), the windows, tray and theme, `tauri.conf.json` and one capability file per window kind (`capabilities/`) |
+| `frontend/` | The Tauri window's web frontend: Svelte 5 and TypeScript, one page per window kind (`src/windows/`), the generated `src/bindings.ts`, and tests in `test/` |
+| `crates/app/src/bin/udm-gui-next.rs` | The Tauri window: builds its adapters and starts `udm-ui-tauri` |
 | `crates/app/src/bin/udm-daemon.rs` | Daemon: wires the adapters into the service, starts the background threads and serves clients |
 | `crates/app/src/bin/udm-gui.rs` | Desktop window: builds its adapters and starts `udm-ui` |
 | `crates/app/src/bin/udm-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
@@ -66,6 +69,36 @@ on Ubuntu):
 cargo test --workspace
 cargo build --release
 ```
+
+The Tauri window (`udm-gui-next`, ADR 0002) also needs Node 22 or newer and
+pnpm, and on Linux WebKitGTK 4.1 and its friends (`sudo apt install
+libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+build-essential`). The shell embeds the built frontend, so build it before
+Cargo:
+
+```bash
+pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend build
+```
+
+To work on the frontend with hot reload, run `pnpm --dir frontend dev`, then
+`cargo run -p udm-app --bin udm-gui-next --no-default-features --features
+tauri-window`, which loads Vite's server at `http://localhost:1420` instead of
+the embedded frontend. In a plain browser,
+`http://localhost:1420/dev/index.html?window=main&look=dark` draws any
+window (`main`, `add-url`, `save-as`, `download`, `done`, `remove`,
+`about`, `options`, `scheduler`, `grabber`, `grabber-results`, `batch`, `links`, `properties`,
+`drop-target`, `login`, `countdown`, `refresh`, `password`, `pick-links`, `pick-videos`, `gallery`) from the test fixtures, with the shell mocked.
+
+When a contract type or a command changes, write the TypeScript bindings and
+the fixtures again (the tests fail until they match):
+
+```bash
+UDM_WRITE_BINDINGS=1 UDM_WRITE_FIXTURES=1 cargo test -p udm-ui-tauri
+```
+
+The server image (`Dockerfile`) builds `udm-app` with
+`--no-default-features`, which leaves the Tauri window out.
 
 `installer/linux/package.sh` makes the `.deb`, `.rpm`, AppImage and
 `.tar.gz` in `dist/` (it needs `dpkg-deb`, `rpmbuild` and Node, and

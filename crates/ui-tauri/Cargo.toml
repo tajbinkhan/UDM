@@ -1,0 +1,47 @@
+[package]
+name = "udm-ui-tauri"
+description = "UDM's Tauri window: the shell that owns the window's state, windows and tray (ADR 0002)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "udm_ui_tauri"
+
+# AGENTS.md section 7.1: the shell embeds the built frontend (`frontend/dist`)
+# unless it is built without `embed`, which loads Vite's dev server at
+# `build.devUrl` instead, for working on the frontend with hot reload.
+[features]
+default = ["embed"]
+embed = ["tauri/custom-protocol"]
+
+[build-dependencies]
+# Reads tauri.conf.json and the capabilities, and lists the app's commands
+# so no command is open to every window (AGENTS.md section 7.5).
+tauri-build = { version = "2.7.4", features = [] }
+
+# Never udm-infrastructure (AGENTS.md section 3): the shell reaches the disk,
+# the system and the daemon through the ports in udm-application.
+[dependencies]
+udm-domain.workspace = true
+udm-application.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# A picked link's file name, decoded from its address.
+percent-encoding.workspace = true
+# The frontend's unexpected errors go to udm-gui.log (AGENTS.md section 11).
+tracing.workspace = true
+# The window itself (ADR 0002). `tray-icon` for the tray, `image-png` for its
+# icon, `specta` so a `Channel` can appear in the generated bindings.
+tauri = { version = "2.12.5", features = ["tray-icon", "image-png", "specta"] }
+# A second udm-gui-next hands its command line to the first (section 7.3).
+tauri-plugin-single-instance = "2.5.5"
+# The generated TypeScript bindings (section 7.2). Release candidates, so
+# pinned to the one version tauri-specta was built against.
+specta = { version = "=2.0.0-rc.28", features = ["derive"] }
+tauri-specta = { version = "=2.0.0-rc.28", features = ["derive", "typescript"] }
+specta-typescript = "=0.0.15"
+
+[lints]
+workspace = true

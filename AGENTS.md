@@ -4,6 +4,8 @@ This file is the single source of truth for how any AI agent or developer writes
 
 The architecture below is the target. The code today is one crate that does not follow it yet. Section 16 lists where it deviates. New code MUST follow these rules. Existing code MUST NOT be restructured to match them unless a task asks for it.
 
+The desktop window is moving from egui to Tauri (`docs/adr/0002-draw-the-window-with-tauri.md`). Sections 1 to 15 describe the Tauri window; section 16 says which rules the egui window follows until it is removed.
+
 ## 1. Project overview
 
 - UDM (Unified Download Manager) is a Rust desktop download manager that follows Internet Download Manager's behavior (see `GLOSSARY.md` for the names of its windows).
@@ -15,7 +17,7 @@ The architecture below is the target. The code today is one crate that does not 
   - `udm-mcp`, the Model Context Protocol server that AI assistants start over stdio, another client of the daemon.
 - The browser extension lives in `extension/` (JavaScript). It is outside the Rust architecture but speaks the protocol defined in Rust.
 - Architecture: Hexagonal (Ports and Adapters) as a Cargo workspace, with a UI layer at the edge.
-- UI framework: **egui**, through `eframe` 0.31 (glow/OpenGL backend, with AccessKit for screen readers), with `egui_extras` for the download table, `tray-icon` for the tray, and `rfd` (behind the `FilePicker` port) for native file and folder pickers.
+- UI framework: **Tauri 2**. A Rust shell (`crates/ui`) owns the window's state, windows and tray, and a web frontend (`frontend/`, Svelte 5 and TypeScript, built with Vite and pnpm) draws it in the system's webview (WebView2 on Windows, WKWebView on macOS, WebKitGTK 4.1 on Linux). The two halves talk through Tauri's IPC with TypeScript bindings generated from Rust by `tauri-specta`. Native file and folder pickers stay behind the `FilePicker` port (`rfd`).
 
 ## 2. Workspace layout
 
@@ -24,9 +26,14 @@ crates/
   domain/          entities, value objects, business rules, port traits
   application/     use cases that coordinate the domain through ports
   infrastructure/  adapters: file storage, HTTP/FTP engine, OS integration, IPC
-  ui/              egui views, UI state, messages, event handling
+  ui/              the Tauri shell: UI state, messages, commands, the IPC contract, projections,
+                   windows, tray, translations, tauri.conf.json, capabilities/
   app/             binaries: udm-host, udm-daemon, udm-gui, udm-cli, udm-mcp (main.rs files, config, wiring)
+frontend/          the window's web frontend: Svelte 5, TypeScript, Vite (section 7.4)
+extension/         the browser extension (JavaScript)
 ```
+
+`crates/ui` and `frontend/` are the two halves of one UI layer. `frontend/` sits at the root, like `extension/`, because it is a pnpm project, not a crate.
 
 How UDM's current concerns map onto these crates:
 
@@ -35,7 +42,8 @@ How UDM's current concerns map onto these crates:
 | Download states, queues and schedules, categories, file-name rules, batch URL patterns | `domain` |
 | Add a download, pause, resume, run a queue, grab a site, export the list | `application` |
 | HTTP/FTP transfers, HLS/DASH/HDS, settings and history files, DPAPI, registry, tray, toasts, power, recycle bin, browser registration, daemon IPC | `infrastructure` |
-| Main window, save-as dialog, download windows, Options, translations | `ui` |
+| The window's state, which windows are open, the tray, translations, what each window shows | `ui` |
+| How the main window, save-as dialog, download windows and Options look and take input | `frontend` |
 | Process startup, logging setup, wiring adapters to use cases | `app` |
 
 The `app` crate MAY hold more than one binary (`[[bin]]` entries), since UDM ships five. Each binary is its own composition root.
@@ -44,10 +52,11 @@ The `app` crate MAY hold more than one binary (`[[bin]]` entries), since UDM shi
 
 This is the most important rule. Dependencies point inward only.
 
-- `domain` depends on nothing internal. Allowed external crates are pure ones such as `thiserror`, `uuid`, `chrono`, `url` (parsing only) and `serde` (derive only). It MUST NOT depend on `tokio`, `reqwest`, `rusqlite`, `sqlx`, `eframe`, `egui`, `windows`, `libc` or any other I/O, async runtime or UI crate.
+- `domain` depends on nothing internal. Allowed external crates are pure ones such as `thiserror`, `uuid`, `chrono`, `url` (parsing only) and `serde` (derive only). It MUST NOT depend on `tokio`, `reqwest`, `rusqlite`, `sqlx`, `tauri`, `eframe`, `egui`, `windows`, `libc` or any other I/O, async runtime or UI crate.
 - `application` depends only on `domain`, plus `tracing` for logging. It MAY start threads with `std::thread` (see section 5).
 - `infrastructure` depends on `domain`, and on `application` only to implement a port that `application` defines.
 - `ui` depends on `application` and `domain`. It MUST NOT depend on `infrastructure`.
+- `frontend` depends on `ui` only, through the generated bindings (section 7.2). It MUST NOT reach the daemon, the disk or the network.
 - `app` depends on everything and is the only crate that wires concrete adapters into use cases.
 
 | Crate | MAY depend on | MUST NOT depend on |
@@ -55,10 +64,13 @@ This is the most important rule. Dependencies point inward only.
 | `domain` | pure crates (`thiserror`, `uuid`, `chrono`, `url`, `serde` derive) | `application`, `infrastructure`, `ui`, `app`, any I/O, async or UI crate |
 | `application` | `domain`, pure crates, `tracing` | `infrastructure`, `ui`, `app`, I/O crates, UI crates |
 | `infrastructure` | `domain`, `application` (ports only), I/O crates (`reqwest`, `tokio`, `windows`, `rfd`, ...) | `ui`, `app`, UI crates |
-| `ui` | `domain`, `application`, `eframe`, `egui`, `egui_extras`, pure crates (`serde`, `serde_json`, `url`, `percent-encoding`, `thiserror`), drawing crates (`tray-icon`, `raw-window-handle`, platform crates under `cfg`) | `infrastructure`, `app`, I/O crates |
+| `ui` | `domain`, `application`, `tauri` (with `tauri-build` in `build.rs`), `specta` and `tauri-specta` (the bindings), the Tauri plugins section 7.5 lists, pure crates (`serde`, `serde_json`, `url`, `percent-encoding`, `thiserror`), platform crates under `cfg` that only serve the window (drag and drop out of it) | `infrastructure`, `app`, I/O crates, `tokio` (use `tauri::async_runtime`), any other Tauri plugin |
+| `frontend` | `@tauri-apps/api`, `svelte`, build and test tools (`vite`, `typescript`, `svelte-check`, `eslint`, `vitest`, `@testing-library/svelte`) | packages that reach the network or the disk, `@tauri-apps/plugin-*` packages section 7.5 does not list, anything loaded from a CDN |
 | `app` | every crate, `anyhow` | nothing is forbidden |
 
-Platform-specific dependencies (`windows`, `libc`, `gtk`, `trash`) belong in `infrastructure` (or `ui`, when they only serve drawing, such as the tray or drag and drop) under `[target.'cfg(...)'.dependencies]`.
+Platform-specific dependencies (`windows`, `libc`, `gtk`, `trash`) belong in `infrastructure` (or `ui`, when they only serve the window, such as drag and drop) under `[target.'cfg(...)'.dependencies]`.
+
+Frontend packages are pinned in `frontend/package.json` and locked by the committed `pnpm-lock.yaml`. Adding one follows section 14's rule for crates: state why and that it respects this table.
 
 ## 4. Domain layer rules
 
@@ -87,23 +99,97 @@ Platform-specific dependencies (`windows`, `libc`, `gtk`, `trash`) belong in `in
 
 ## 7. UI layer rules
 
-- UI code is a thin adapter. It translates user events into use case calls and results into view state. MUST NOT put business logic in views, callbacks or update functions.
-- MUST NOT block the UI thread. Daemon requests, file access and network work run on worker threads or tasks, and results come back as messages.
-- Use unidirectional data flow: one state struct, changed only through messages.
+- UI code is a thin adapter. It translates user events into use case calls and results into view state. MUST NOT put business logic in the frontend, in commands or in event handlers.
+- MUST NOT block a UI thread: Tauri's main thread, which runs the event loop, or a webview's JavaScript. Daemon requests, file access and network work run on worker threads or tasks, and results come back as messages.
+- Use unidirectional data flow. Rust owns the state; the frontend draws what the shell sends it and sends back what the user asked for.
 
-egui-specific rules:
+The UI layer has two halves: the **shell** (`crates/ui`, Rust) and the **frontend** (`frontend/`, TypeScript). Data moves like this:
 
-- Keep an `AppState` struct separate from the `eframe::App` implementation. `update` reads `AppState` to draw and turns clicks and keystrokes into `UiMessage` values. A single `apply(&mut AppState, UiMessage)` function changes the state.
-- Talk to workers through channels (`std::sync::mpsc` or `crossbeam-channel`). Workers send results back and call `ctx.request_repaint()` so egui wakes up. `update` drains the channel with `try_recv`, never `recv`.
-- MUST NOT call the daemon, read files or sleep inside `update` or any `show` function. egui calls these every frame.
-- Every dialog and download window is drawn during the main window's frame (see `docs/adr/0001-cloak-the-main-window-in-the-tray.md`). Code that changes how windows are hidden MUST keep that frame running.
-- User-facing text goes through the translation tables in `ui` (`crates/ui/src/lang/*.json`). MUST NOT hardcode English strings in views.
-- A widget without text of its own (an icon, a symbol such as `×`, a hand-painted control or row) MUST get a name screen readers read, through `a11y.rs` and the translation tables. A key the window starts answering MUST be listed in `docs/keyboard-shortcuts.md`; a test in `help.rs` compares the page with the code.
+```
+ frontend (webview)                     shell (crates/ui)                         application
+ windows/<kind>/ ── ipc/ ──invoke──▶ commands/ ── parse ──▶ UiMessage ──▶ state actor ──▶ use cases, ports,
+ components/                                                            (AppState,       DaemonClient
+ stores/ ◀──────── ipc/ ◀─Channel<Update>── projection/ ◀── diff ◀──── apply)
+```
+
+### 7.1 The shell (`crates/ui`)
+
+- `udm_ui::run(Start)` builds the `tauri::Builder`: the managed state, the single `invoke_handler`, the tray, the window events and the state actor. `udm-gui`'s `main` stays the composition root (section 8): it builds the ports and the `DaemonClient` and hands them to `run`.
+- Modules: `state.rs` (`AppState`, `UiMessage`, `apply`), `commands/` (one file per window kind or area, all registered in `commands/mod.rs`), `contract/` (every type that crosses to the webview, section 7.2), `projection/` (what each window shows, and the patches between two states), `windows.rs` (labels, opening, closing, hiding), `tray.rs`, `i18n.rs` with `lang/*.json`, and `errors.rs`.
+- **The state actor.** One thread owns `AppState`. Commands, workers, the daemon connection, the tray and window events send it `UiMessage`s on an `mpsc` channel; it calls `apply(&mut AppState, UiMessage)`, the one function that changes the state, and then publishes the new projections (section 7.2). Nothing else holds or locks `AppState`.
+- Managed state (`.manage`) holds only cheap handles: the actor's `Sender`, the subscriber list and the ports. Name each managed type with a type alias and use the alias everywhere, since a wrong `State<T>` type fails only at run time. MUST NOT hold a `Mutex` guard across an `.await`.
+- **Commands are thin.** Each command (1) takes contract types, (2) parses them into domain types (`FileName::parse`, `Address`, `DownloadId`; the webview's input is untrusted), (3) sends a `UiMessage` or calls a use case through a port, and (4) maps the result to a contract type or an `InvokeError`. A command body MUST NOT hold business logic or call the disk or the daemon itself.
+- Every command is `async`, or `#[tauri::command(async)]`, so none runs on the main thread. UDM's ports are blocking, so a command that calls one does so on `tauri::async_runtime::spawn_blocking` or an existing worker.
+- Command names are `verb_noun` in snake_case and unique across modules. Arguments cross in camelCase, Tauri's default.
+- The shell holds the `DaemonClient` and the ports. The daemon token, cookies and passwords MUST NOT appear in a contract type.
+- UDM's own installers (`installer/`) ship the window; Tauri's bundler is not used. The Windows installer installs the WebView2 runtime when it is missing.
+
+### 7.2 The IPC contract
+
+- Every type that crosses into the webview lives in `crates/ui/src/contract/` and derives `serde` and `specta::Type`. It is mapped there from the application's and domain's types, as `udm_infrastructure::wire` maps the daemon's protocol. `domain` and `application` MUST NOT derive `specta::Type` or know the contract.
+- `tauri-specta` generates `frontend/src/bindings.ts` (commands, contract types and events), which is committed. MUST NOT edit it by hand. A test in `crates/ui` generates it again and fails if the committed file differs.
+- Pick the mechanism by what moves:
+  - **Commands** (`invoke`) for request and reply, when the frontend asks for something.
+  - **One `Channel<Update>` per window** for the state the window shows. A window calls `subscribe` once when it loads; the shell sends a full `Snapshot`, then `Patch`es carrying a sequence number. A window that sees a gap, or reloads, subscribes again and gets a new snapshot. The download list and its progress MUST travel this way, because events are neither ordered nor fast enough.
+  - **Events** (`emit_to(label, ..)`) only for small one-off notices to one window, such as focusing a row. MUST NOT `emit` window data globally.
+  - **`tauri::ipc::Response`** for binary data such as icons, never JSON arrays of bytes.
+- The shell coalesces the daemon's progress and sends a window at most one patch every 200 ms.
+- Commands fail with `InvokeError`, a contract enum (named so it is not confused with the domain's `CommandError`) with a `kind` and a `message` the shell has already translated (section 9).
+
+### 7.3 Windows
+
+- Every window kind has a fixed label (`main`, `options`, `grabber`, `drop-target`) or a label pattern (`download-<id>`, `save-as-<id>`), and only `windows.rs` makes labels. Capabilities match windows by label (section 7.5).
+- Only the shell opens, shows, hides and closes windows, in answer to the state (a daemon event that asks for a save-as dialog) or to a command. The frontend has no permission to create windows.
+- Every dialog and download window is a webview window of its own, so it opens while the main window is in the tray. Closing the main window hides it (`CloseRequested`, `prevent_close`, hide); quitting goes through the tray or the menu bar. This replaces ADR 0001's rule that every window is drawn in the main window's frame (ADR 0002).
+- A second `udm-gui` hands its command line to the first through `tauri-plugin-single-instance` and exits.
+- Window sizes and places are saved through the `WindowFiles` port, not `tauri-plugin-window-state`.
+- Each window sends the shell a heartbeat. A window that stops answering gets a problem report, as a stalled frame does today (`watchdog.rs`).
+
+### 7.4 The frontend (`frontend/`)
+
+- Svelte 5 with TypeScript in strict mode, built by Vite with pnpm. One app with one entry per window kind:
+
+```
+frontend/
+  src/
+    bindings.ts       generated by tauri-specta, never edited
+    ipc/              the only code that imports @tauri-apps/api or bindings.ts
+    stores/           one read-only projection store per window, fed by its subscription
+    windows/<kind>/   each window kind's entry and root component
+    components/       shared components: the download table, toolbar, menus, dialogs
+    i18n/             t(key, values) over the table the shell sends
+    theme/            the theme's CSS custom properties
+    keys.ts           every keyboard shortcut, in one table
+  test/
+```
+
+- Only `src/ipc/` imports `@tauri-apps/api` or `bindings.ts`. Components read stores and call functions in `ipc/`.
+- A window's projection store is written only by its subscription. Components MUST NOT change it. State that lasts only while a window is open (an open menu, a field's draft, a column being dragged) lives in components; anything that must outlast the window or that another window sees goes to the shell as a command.
+- MUST NOT put business logic in TypeScript: no file-name rules, status decisions, list sorting or filtering, queue rules or address parsing. The shell sends rows already sorted and filtered (`udm_domain::table`), and sizes, speeds and times already formatted for the language.
+- Every user-facing string comes from the translation tables in `crates/ui/src/lang/*.json`, which the shell sends with the snapshot, through `t()`. MUST NOT hardcode English in components. The tray's menus use the same tables in Rust.
+- Accessibility: use semantic elements first (`button`, `table`, `dialog`, `menu`). An element without text of its own (an icon button, a `×`) MUST have an `aria-label` from the translation tables. Every window works from the keyboard alone. `svelte-check`'s accessibility warnings are errors.
+- A key a window starts answering MUST be in `src/keys.ts` and in `docs/keyboard-shortcuts.md`; a test compares the two.
+- File names, addresses, page titles and server messages come from the internet. MUST NOT render them as HTML (`{@html}`, `innerHTML` or similar).
+- Components take colors and sizes from the theme's CSS custom properties, which the shell makes from `theme::appearance`. MUST NOT hardcode colors.
+- The frontend loads nothing from the network: no CDN, no web fonts, everything bundled. Links open through a command that uses the `FileOpener` port.
+
+### 7.5 Security
+
+- The webview is the less trusted side. The shell checks every command's input by parsing it into domain types, as the daemon checks its clients.
+- Capabilities: one file per window kind in `crates/ui/capabilities/`, listed by identifier in `tauri.conf.json`, granting only the commands that window calls. `build.rs` lists the app's commands with `tauri_build::AppManifest::commands`, so no command is open to every window by default. MUST NOT grant to every window (`"*"`) or to `remote` URLs.
+- Plugins: only `tauri-plugin-single-instance` (and its `@tauri-apps/plugin-*` package if it has one). MUST NOT add plugins that reach files, the network, processes, the clipboard, notifications, dialogs or storage (`fs`, `http`, `shell`, `process`, `store`, `sql`, `dialog`, `notification`, `clipboard-manager`, `opener`, `updater`, `window-state`): that work goes through UDM's ports, so sections 3 and 6 still hold. Adding a plugin to this list needs an ADR.
+- Content Security Policy, in `tauri.conf.json`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost`. Loosening it needs an ADR.
+- The shell refuses navigation away from the bundled app, so a window never loads a remote page.
+- Tauri's default (Brownfield) IPC pattern, not the isolation pattern; ADR 0002 says why.
+- Webview developer tools are on in debug builds only.
+
+### 7.6 Copying IDM
+
 - Before copying an IDM window, dialog or tray behavior, observe IDM first (the `observe-idm` skill in `.claude/skills/`). Learn IDM only by running it as a user does. MUST NOT decompile, disassemble or unpack IDM's files, extract their icons, dialogs or strings, or copy IDM's text or images into UDM. The one exception is UDM's logo, `assets/icon-1024.png`, which the project owner chose and which shows a globe, a ring and a green download arrow as IDM's logo does. Every icon file is made from it (`installer/render-icons.js`). No other image or icon design comes from IDM.
 
 ## 8. App (composition root) rules
 
-- Each binary's `main.rs` loads config, initializes `tracing`, opens storage, runs any migrations, constructs adapters, injects them into use cases, and starts its loop (the egui window, the daemon's IPC server, or the host's relay).
+- Each binary's `main.rs` loads config, initializes `tracing`, opens storage, runs any migrations, constructs adapters, injects them into use cases, and starts its loop (the Tauri window, the daemon's IPC server, or the host's relay).
 - MUST NOT hold business logic.
 
 ## 9. Error handling
@@ -112,19 +198,22 @@ egui-specific rules:
 - `anyhow` is allowed only in the `app` crate.
 - MUST NOT use `Result<_, String>` as an error type in new code.
 - MUST NOT use `unwrap()`, `expect()` or `panic!` in non-test code, except for invariants that are truly guaranteed and documented with a comment next to the call. A poisoned mutex counts as such an invariant only when the comment says why.
-- Errors shown to users are mapped to friendly, translated messages in the UI layer.
+- Errors shown to users are mapped to friendly, translated messages in the UI layer, in the shell (`crates/ui/src/errors.rs`) before they reach the frontend.
+- Tauri commands return `Result<T, InvokeError>` (section 7.2). MUST NOT turn errors into text with `map_err(|e| e.to_string())`.
 
 ## 10. Async and concurrency
 
 - SHOULD prefer generics (static dispatch). Use `Arc<dyn Trait>` only when needed, and `async-trait` for async traits used as trait objects.
 - Shared services are wrapped in `Arc`. SHOULD avoid `Mutex` in domain and application code and prefer message passing.
 - The engine runs async HTTP on one shared `tokio` runtime inside `infrastructure`. Other crates MUST NOT create their own runtime or depend on `tokio`.
+- The one exception is Tauri's own runtime in the shell. `ui` reaches it only through `tauri::async_runtime` and MUST NOT start another.
 
 ## 11. Logging and observability
 
 - Use `tracing` with structured fields, for example `tracing::info!(download_id = %id, bytes, "segment done")`.
 - MUST NOT commit `println!`, `eprintln!` or `dbg!`. The exception is CLI output that is the program's actual output (the `udm-host` test mode, `udm-cli`). `udm-mcp`'s standard output is the protocol's alone, written by `udm_infrastructure::mcp`, so it never prints.
 - Logs go to a file in the app's data directory. Logs MUST NOT contain cookies, passwords, auth headers or the daemon token. Download addresses are allowed, since the log is readable only by the user.
+- The frontend MUST NOT commit `console.log`. An unexpected error in a window goes to the shell through the `report_frontend_error` command, which logs it with `tracing` in `udm-gui.log`.
 
 ## 12. Testing
 
@@ -132,16 +221,26 @@ egui-specific rules:
 - Application: test use cases with in-memory adapters that implement the port traits.
 - Infrastructure: integration tests against temporary files and directories (and a temporary database, if one is added), and against the local test HTTP server (today `crates/infrastructure/src/engine/testserver.rs`). The test server can also misbehave (`Behavior`: dropped connections, a limit per client, slow starts, wrong ranges, speed limits); tests of how the engine copes with a bad server use those faults. Tests MUST NOT reach the internet.
 - Benchmarks: `tools/bench/` (Python, standard library only) times whole programs, UDM against IDM and others, on `tools/bench/faultserver.py`, which offers the test server's faults outside the tests. It is not a quality gate and is not shipped; its results go in `docs/bench/`.
+- UI shell: `apply`, the projections and their patches, and the contract mappings are plain functions with plain unit tests, without Tauri. Commands are tested through `tauri::test` (`mock_builder`, `get_ipc_response`) only where the Tauri wiring itself is in question. A test keeps `frontend/src/bindings.ts` in step with the code (section 7.2).
+- Frontend: Vitest with `@testing-library/svelte`, and `@tauri-apps/api/mocks` (`mockIPC`, `mockWindows`, and `clearMocks` after each test) in place of the shell. Test what a window draws from a snapshot and which commands a click sends.
+- End to end: WebdriverIO with `tauri-driver` on Windows and Linux SHOULD cover the main paths (catch a download, save-as, pause, resume). It is not a quality gate.
 - Every new use case MUST come with tests.
 - Changes to the browser extension MUST pass `node --test extension/test/*.test.js`.
 
 ## 13. Quality gates
 
-A task is not done until all of these pass:
+A task is not done until all of these pass, in this order:
 
+- `pnpm --dir frontend install --frozen-lockfile`
+- `pnpm --dir frontend build` (the shell embeds the built frontend, so this comes before Cargo)
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
+- `pnpm --dir frontend check` (`svelte-check` and `tsc`)
+- `pnpm --dir frontend lint`
+- `pnpm --dir frontend test`
+
+Building the shell on Linux needs WebKitGTK and its friends: `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `libssl-dev` and `build-essential` (`docs/building.md`).
 
 CI runs them on Windows, macOS and Linux (`.github/workflows/`). Code under `cfg(windows)` or `cfg(unix)` is only checked on that platform, so state which platforms you could not build on.
 
@@ -149,7 +248,7 @@ CI runs them on Windows, macOS and Linux (`.github/workflows/`). Code under `cfg
 
 - Read this file before making any change.
 - Before writing code, state which layer or layers the change belongs to.
-- Add a feature in this order: domain types and ports, use case, adapter, UI, wiring in `app`, tests.
+- Add a feature in this order: domain types and ports, use case, adapter, the UI shell (`UiMessage`, contract types, command, projection), the frontend (regenerate `bindings.ts`, then the components), wiring in `app`, tests.
 - MUST NOT add a dependency without stating why and confirming it respects the dependency rule.
 - MUST NOT restructure crates or move files unless explicitly asked.
 - If a request conflicts with these rules, stop and explain the conflict instead of silently breaking the architecture.
@@ -157,11 +256,17 @@ CI runs them on Windows, macOS and Linux (`.github/workflows/`). Code under `cfg
 
 ## 15. Forbidden patterns
 
-- Business logic in egui views, `update` or click handlers.
+- Business logic in the frontend, in Tauri commands or in event handlers.
+- Frontend code importing `@tauri-apps/api` or `bindings.ts` outside `src/ipc/`, or a hand-edited `bindings.ts`.
+- `domain` or `application` types deriving `specta::Type`, or contract types outside `crates/ui/src/contract/`.
+- The download list or progress sent as events, or window data sent with a global `emit`.
+- Rendering file names, addresses or other text from the internet as HTML.
+- Capabilities for every window or for remote URLs, Tauri plugins that reach files, the network or processes, and anything the frontend loads from the network.
+- Commands that run on the main thread, or that call a port without `spawn_blocking` or a worker.
 - Decompiling or extracting resources from IDM, or copying its text, icons or images. UDM's logo (`assets/icon-1024.png`) is the one image allowed to look like IDM's.
 - I/O, threads, clocks or logging in `domain`.
 - `ui` importing `infrastructure`.
-- Blocking the UI thread, including daemon calls or file reads inside `update`.
+- Blocking a UI thread, including daemon calls or file reads in a command body or on Tauri's main thread.
 - `unwrap()`, `expect()` or `panic!` in production code without a documented invariant.
 - Hardcoded paths, or reading `APPDATA` and similar variables outside the path module.
 - Raw primitives for domain concepts.
@@ -171,6 +276,13 @@ CI runs them on Windows, macOS and Linux (`.github/workflows/`). Code under `cfg
 ## 16. Migration notes
 
 Where the code on `main` deviates from the rules above. These are notes, not tasks.
+
+- **The window is egui until the Tauri window matches it.** ADR 0002 moves the window to Tauri. Until the Tauri window does everything the egui one does, the Tauri shell is built as `crates/ui-tauri` (package `udm-ui-tauri`, binary `udm-gui-next`) beside the egui window in `crates/ui` (`udm-gui`), and windows move over one at a time. Code both windows need that holds no egui (`AppState` and `apply`, the translation tables and `i18n.rs`, `errors.rs`) SHOULD be shared, not copied; the first porting task decides how. When the Tauri window matches, `crates/ui` is deleted, `ui-tauri` takes its name, `udm-gui-next` becomes `udm-gui`, and ADR 0001 is marked superseded. The first porting step built the shell (`crates/ui-tauri`: the state actor, the projections and their patches, the contract, the commands, one capability per window kind, the tray) and, in `frontend/`, the main window (menu bar, toolbar, categories, list and their right-click menus), Add URL, Download File Info, the progress window, Download complete, Confirm deletion and About, in the theme's light and dark looks, and then Options (IDM's eight pages: General, File types, Save to, Downloads, Connection, Proxy / Socks, Sites Logins, Sounds; their small dialogs are modal sheets inside the Options window, `components/Sheet.svelte`, and the window edits a draft that `save_options` turns into settings in `crates/ui-tauri/src/options.rs`), and the Scheduler (the queues, each queue's Schedule and Files in the queue tabs, and the download limits; Apply sends one queue's draft, which `crates/ui-tauri/src/scheduler.rs` turns back into a `Queue` and checks), and the site grabber (the four-step wizard, the crawl's results by page and site, adding ticked files to a queue, and projects, templates and filters through the `GrabLibrary` port, read and written on the actor's workers; `crates/ui-tauri/src/grabber.rs` holds the grab state and turns the wizard's fields into a `GrabRequest`). Then the rest: Batch download, the links window (the clipboard's links, or an imported list's), Export, Find, File Properties with Move/Rename, the Duplicate download link question in Download File Info, the Speed Limiter, the column chooser, category properties, the list menu's queue items and the drop target; `crates/ui-tauri/src/tools.rs` holds their rules. Last came grabber project scheduling, the list's font, toolbar customizing and the tip of the day, and the layout: the Tauri window reads and writes the egui window's `window.json` through `WindowFiles` in the same format (`crates/ui-tauri/src/layout.rs`), so both windows keep one layout; its customized toolbar is a field the egui window ignores. Every window the IDM screenshots show is now in the Tauri window except IDM's Registration, which UDM has no use for; Then what the egui window does beyond them began to come over: the windows the daemon asks for (the login prompt, the countdown before sleeping or shutting down, New link for an expired download, a package's password, and the browser's links, videos and gallery to pick from, each a window of its own), the Packages branch of the categories with its menu, the strip offering a newer release, and About's update check and Update now; `crates/ui-tauri/src/extras.rs` holds their state (`Asks`, filled from the daemon's events by `extras::take`) and views. The link picker has no find, hide or rename filters yet. What keeps the egui window is the rest: Options' video, unpacking, remote-control, speed-limit, notification, theme and tool settings, remote-control pairing, problem reports and the watchdog, the clipboard monitor, the zip preview, conversions, checksums and Open with. It decided the sharing: the Tauri shell builds in the egui window's translation tables (`crates/ui/src/lang/*.json`) from where they are; it keeps its own `AppState`, because the egui one holds dialog drafts and egui's types, and its own small `i18n.rs` and `errors.rs`, which move with the egui window's into one crate both use when more windows come over. `udm-gui-next` is built by `udm-app`'s default `tauri-window` and `embed-frontend` features; the server image (`Dockerfile`) turns them off. `crates/ui-tauri/src/fixtures.rs` writes every window's view to `frontend/test/fixtures/views.json`, which the frontend's tests and its preview page (`frontend/dev/`) draw from. Until then, read `crates/ui` in sections 2 to 15 as `crates/ui-tauri`, and changes to the egui window follow its old rules:
+  - Keep `AppState` separate from the `eframe::App` implementation. `update` reads `AppState` to draw and turns clicks and keystrokes into `UiMessage`s; `apply(&mut AppState, UiMessage)` alone changes the state.
+  - Workers send results on channels and call `ctx.request_repaint()`; `update` drains them with `try_recv`, never `recv`. MUST NOT call the daemon, read files or sleep in `update` or any `show` function.
+  - Every dialog and download window is drawn in the main window's frame (ADR 0001); code that changes how windows hide MUST keep that frame running.
+  - A widget without text of its own gets a screen-reader name through `a11y.rs` and the translation tables; `help.rs` checks `docs/keyboard-shortcuts.md` against the keys.
+  - The notes below that name egui, `update`, frames or `udm-ui` describe this window.
 
 - **Workspace in place, layers mostly empty.** The five crates exist. `ui` holds the window (see The daemon connection). `application` holds the first use cases: `queues::{SaveQueue, DeleteQueue, StartQueue, StopQueue, RunSchedules, RunQueues, FinishRun, MoveToQueue, RemoveFromQueue}` and `downloads::{AddLater, AddMany, HoldForAnswer, ConfirmAnswer, StartOrWait, CancelDownload, UseExisting, RemoveDownload, RetryDownload, Redownload, RefreshLink, SetProperties, SetSpeedLimit, SetLimitRemember, LiftLimitWhileAway, SetOnDone, AfterDownload, ConvertDownload, StopRunning, PauseAll, ResumeAll, KeepPackages, UnpackPackage, UngroupPackage}`, `quota::{CheckQuota, QuotaStatus}`, `power::{RunWhenDone, CountdownNow, CancelCountdown}`, `pairing::{StartPairing, PairDevice, CheckDevice, RemoveDevice}` `update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate}`, `tools::{InstallTool, UpdateYtDlp, ListTools}` (yt-dlp, ffmpeg and gallery-dl), `gallery::ReadGallery` (a page's pictures, through `Probes`), `grab::RunGrabSchedules`, `themes::ReadThemes` (the theme files and the system's contrast colors, for the window), `report::{FindNewReports, SaveReport, DiscardReport}` (the window's problem reports) and `remote::{GetFile, ListDownloads, PauseDownload, ResumeDownload, ForgetDownload, ControlQueue, AddLink, PairPhone, ListDevices, UnpairDevice}` (`udm-cli`'s commands and `udm-mcp`'s tools, on a `remote::Session` over the `DaemonClient` port, with `remote::Watch` for a followed download's progress; `remote::Assistant` runs `udm-mcp`'s `Request`s on one session it keeps open, through the `remote::Tools` port), tested with the in-memory adapters in `application/src/memory.rs`. `domain` holds the pure rules moved so far: `queue` (queues, schedules, calendar arithmetic), `batch` (URL patterns), `site` (site and login patterns), `filename` (file-name cleaning, numbered names and `FileName`), `address` (download addresses), `command` (the scanner command line), `settings` (the settings model, defaults, validation and folder rules), `media` (stream formats, qualities, tracks and the user's choice among them) `download` (`Download`, `DownloadEntry`, `Status`, `Answer` and the other download model types) `quota` (the byte count per minute and when the quota pauses, warns or resumes) `update` (releases, version comparison and the weekly check), `tools` (where yt-dlp's, ffmpeg's and gallery-dl's official builds come from, on GitHub or Codeberg, reading their checksum files, when yt-dlp is due for an update) and `gallery` (a gallery's pictures, their file names, the folder they go in, and `GalleryReads`, which keeps a page to one read at a time and remembers the pages that held nothing) and `grab` (the site grabber's request, filters, mirror paths, projects, templates and filters, without their files) and `theme` (the window's looks: colors, sizes, the built-in Light, Dark and High contrast themes, the settings a theme file can give through `ThemeDraft`, the system's contrast colors, and which look the Theme setting gives, `appearance`) and `report` (problem reports: their text and file names, the system and install they name, scrubbing secrets, the prefilled issue address, the `Watch` that tells a stall, and `expecting_panic` for panics the code catches) and `seat` (whether the daemon runs on a desktop or, with `--server`, on a server, which decides whether it exits when idle and may show anything) and `pairing` (the remote-control page's pairing codes, device secrets and their verifiers, the paired devices, the wrong-try limits, and what the window shows of it) and `package` (packages of downloads, `PackageId` and `PackageName`, how unpacking stands, the split-archive naming rules, which archives a list of names holds and which parts are missing, the entry paths unpacking may write, and `Password`, which has no `Serialize` and hides itself from `Debug`). `settings::Theme` is `System`, `Light`, `Dark`, `HighContrast` or `Custom(ThemeName)`; `settings.json` keeps the old words and `{"custom": name}`, and reads what it does not know as `System`. The domain types its ids (`id`), byte counts (`bytes`), download addresses (`address`) and file names (`filename::FileName`); see Raw primitives for what stays raw. `infrastructure` is the rest of the old `udm` library. Its callers name moved items by their `udm_domain` paths; it re-exports none of them. `udm_infrastructure::settings` keeps `load`, `save`, the file-format migrations, `settings_path`, `default_downloads_dir`, `ffmpeg` (searches `PATH`) and `validate`, which adds the checks that look at the disk. Domain folder rules (`category_folder`, `folders`, `folders_for`) take the system's Downloads folder as a parameter. `udm_infrastructure::protocol` keeps the wire messages (`Incoming`, `Outgoing`) and the framing; `CommandLine` and `ZipEntry` are in `udm_domain::download`. `udm_infrastructure::clock` reads the local time that `queue` takes as a parameter. `app` holds the five binaries; `udm-mcp`'s `main` only builds an `IpcDaemonClient::assistant`, an `Assistant` on it and runs `udm_infrastructure::mcp::serve` on standard input and output; `udm-cli`'s `main` only builds a `daemon_client::IpcDaemonClient`, opens a `remote::Session` on it and runs the use case `udm_infrastructure::tool::parse` names, and `udm-gui`'s `main` only builds the window's adapters and calls `udm_ui::run`. Paths below are relative to `crates/infrastructure/`, `crates/app/` or `crates/ui/`.
 - **No layer boundaries.** `infrastructure/src/lib.rs` exposes about 30 flat modules. Domain rules and I/O sit in the same modules. Examples:
