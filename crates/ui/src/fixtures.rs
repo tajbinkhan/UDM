@@ -105,6 +105,9 @@ fn sample() -> AppState {
     apply(&mut s, UiMessage::ShowProgress(id));
     s.done.insert(DownloadId::new(17));
     let _ = QueueId::MAIN;
+    // What Windows can do: ask for administrator rights, set a creation time.
+    let windows = crate::state::SystemFacts { can_elevate: true, creation_time: true, portable: false };
+    apply(&mut s, UiMessage::SystemRead(windows));
     s
 }
 
@@ -272,6 +275,8 @@ fn fixtures() -> serde_json::Value {
                 link("http://127.0.0.1:8765/files/manual.pdf", "User manual"),
                 link("http://127.0.0.1:8765/files/setup.exe", "Download"),
                 link("http://127.0.0.1:8765/files/photos.zip", "Photos"),
+                // A web page, which the filters hide at first.
+                link("http://127.0.0.1:8765/about.html", "About"),
             ],
             user_agent: None,
         },

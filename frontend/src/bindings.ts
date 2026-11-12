@@ -50,6 +50,16 @@ export const commands = {
 	addDownload: (address: string, login: LoginInput | null) => __TAURI_INVOKE<null>("add_download", { address, login }),
 	/**  Download File Info's Start Download or Download Later. */
 	answerDownload: (answer: AnswerInput_Deserialize) => __TAURI_INVOKE<null>("answer_download", { answer }),
+	/**
+	 *  Whether UDM may save in the folder Download File Info's Save As names,
+	 *  checked on a worker since it writes a probe file there.
+	 */
+	checkSaveFolder: (saveAs: string) => __TAURI_INVOKE<FolderAccess>("check_save_folder", { saveAs }),
+	/**
+	 *  Download File Info's Browse: another folder for the file, keeping its
+	 *  name. `None` when the user cancels.
+	 */
+	pickSaveFolder: (saveAs: string) => __TAURI_INVOKE<string | null>("pick_save_folder", { saveAs }),
 	/**  Confirm deletion's Yes. */
 	removeDownloads: (deleteFiles: boolean, dontAsk: boolean) => __TAURI_INVOKE<null>("remove_downloads", { deleteFiles, dontAsk }),
 	/**  Download complete's "Don't show this dialog again". */
@@ -197,6 +207,13 @@ export const commands = {
 	openPackage: (id: Id) => __TAURI_INVOKE<null>("open_package", { id }),
 	/**  The link, video and gallery pickers' Add. */
 	addPicks: (input: PickInput_Deserialize) => __TAURI_INVOKE<null>("add_picks", { input }),
+	/**  The link picker's filters: what to hide, and which types alone to show. */
+	setLinkFilter: (filter: LinkFilter) => __TAURI_INVOKE<null>("set_link_filter", { filter }),
+	/**
+	 *  The names the link picker's rename pattern gives the ticked links, in
+	 *  order, for it to show before they are added.
+	 */
+	linkNames: (indices: number[], rename: string) => __TAURI_INVOKE<string[]>("link_names", { indices, rename }),
 	/**  About's Check for Update. */
 	checkUpdate: () => __TAURI_INVOKE<null>("check_update"),
 	/**  Install now: download the newer release's setup and run it. */
@@ -268,6 +285,11 @@ export type AnswerInput_Deserialize = {
 	/**  The answer to the Duplicate download link question, when it asked. */
 	duplicate?: DuplicateChoice | null,
 	rememberDuplicate: boolean,
+	/**
+	 *  Save there with administrator rights, when UDM may not write to the
+	 *  folder.
+	 */
+	elevate: boolean,
 };
 
 /**  The Download File Info dialog's answer. */
@@ -281,6 +303,11 @@ export type AnswerInput_Serialize = {
 	/**  The answer to the Duplicate download link question, when it asked. */
 	duplicate: DuplicateChoice | null,
 	rememberDuplicate: boolean,
+	/**
+	 *  Save there with administrator rights, when UDM may not write to the
+	 *  folder.
+	 */
+	elevate: boolean,
 };
 
 export type Banner = {
@@ -613,6 +640,12 @@ export type FindInput = {
 	whole: boolean,
 };
 
+/**  Whether UDM may save files in a folder Download File Info names. */
+export type FolderAccess = {
+	/**  Saving there needs administrator rights. */
+	denied: boolean,
+};
+
 /**  A gallery page's pictures, read with gallery-dl. */
 export type GalleryView = GalleryView_Serialize | GalleryView_Deserialize;
 
@@ -819,6 +852,8 @@ export type GrabberView_Deserialize = {
 	addOnClose: boolean,
 	/**  The project's schedule. */
 	schedule: GrabScheduleDraft,
+	/**  The power plan lets nothing wake the computer. */
+	wakeWarning?: WakeWarning | null,
 	connected: boolean,
 };
 
@@ -850,6 +885,8 @@ export type GrabberView_Serialize = {
 	addOnClose: boolean,
 	/**  The project's schedule. */
 	schedule: GrabScheduleDraft,
+	/**  The power plan lets nothing wake the computer. */
+	wakeWarning: WakeWarning | null,
 	connected: boolean,
 };
 
@@ -896,6 +933,18 @@ export type LimiterDraft = {
 	on: boolean,
 	kbPerSec: number,
 	onStartup: boolean,
+};
+
+/**  The link picker's filters: what to hide, and which types alone to show. */
+export type LinkFilter = {
+	/**  Links to other web pages rather than files. */
+	hidePages: boolean,
+	/**  The page's own images. */
+	hideImages: boolean,
+	/**  A link the page has already given, without its `#` part. */
+	hideRepeated: boolean,
+	/**  Only these types, as typed (`zip, pdf`); empty shows every type. */
+	types: string,
 };
 
 /**  One link in the list to pick from. */
@@ -1344,6 +1393,10 @@ export type OptionsView_Deserialize = {
 	browserNote?: Banner | null,
 	/**  The theme files that give no theme, and why. */
 	themeNotes: string[],
+	/**  A finished file's creation time can be set on this system. */
+	creationTime: boolean,
+	/**  A portable copy, which does not start when the user signs in. */
+	portable: boolean,
 };
 
 /**  The Options window. */
@@ -1371,6 +1424,10 @@ export type OptionsView_Serialize = {
 	browserNote: Banner | null,
 	/**  The theme files that give no theme, and why. */
 	themeNotes: string[],
+	/**  A finished file's creation time can be set on this system. */
+	creationTime: boolean,
+	/**  A portable copy, which does not start when the user signs in. */
+	portable: boolean,
 };
 
 /**  A package's menu in the categories tree. */
@@ -1441,6 +1498,11 @@ export type PickInput_Deserialize = {
 	start: boolean,
 	/**  Keep the links together as a package of this name. */
 	package?: string | null,
+	/**
+	 *  Name the links' files by this pattern, `*` standing for their number
+	 *  in order; empty keeps their own names.
+	 */
+	rename: string,
 	/**  The videos' quality, by its place in `qualities`. */
 	quality: number,
 	/**  The gallery's folder. */
@@ -1457,6 +1519,11 @@ export type PickInput_Serialize = {
 	start: boolean,
 	/**  Keep the links together as a package of this name. */
 	package: string | null,
+	/**
+	 *  Name the links' files by this pattern, `*` standing for their number
+	 *  in order; empty keeps their own names.
+	 */
+	rename: string,
 	/**  The videos' quality, by its place in `qualities`. */
 	quality: number,
 	/**  The gallery's folder. */
@@ -1472,7 +1539,11 @@ export type PickKind = "folder" | "sound" | "program";
  */
 export type PickLinksView = {
 	page: string,
+	/**  The links the filters leave in view. */
 	rows: PickRow[],
+	filter: LinkFilter,
+	/**  How many links the page gave, shown or not. */
+	total: number,
 	/**  The file types among the links, for ticking all of one type. */
 	types: string[],
 	suggestedPackage: string,
@@ -1582,6 +1653,11 @@ export type QueueDraft = {
 	then: Then,
 	forceClose: boolean,
 	maxConcurrent: number,
+	/**
+	 *  The schedule wakes the computer to start. The Scheduler shows no box
+	 *  for it, as IDM's does not; saving keeps the queue's own setting.
+	 */
+	wake: boolean,
 };
 
 export type QueueFiles = {
@@ -1783,6 +1859,11 @@ export type SaveAsView_Deserialize = {
 	queues: QueueItem[],
 	/**  Another download in the list has the same address. */
 	duplicate?: DuplicateView | null,
+	/**
+	 *  The system can ask for administrator rights to save in a folder UDM
+	 *  may not write to.
+	 */
+	canElevate: boolean,
 };
 
 /**  Download File Info: where a probed download goes before it starts. */
@@ -1806,6 +1887,11 @@ export type SaveAsView_Serialize = {
 	queues: QueueItem[],
 	/**  Another download in the list has the same address. */
 	duplicate: DuplicateView | null,
+	/**
+	 *  The system can ask for administrator rights to save in a folder UDM
+	 *  may not write to.
+	 */
+	canElevate: boolean,
 };
 
 export type SaveChoice = 
@@ -1817,7 +1903,10 @@ export type SaveChoice =
 "folder";
 
 /**  The Scheduler window. */
-export type SchedulerView = {
+export type SchedulerView = SchedulerView_Serialize | SchedulerView_Deserialize;
+
+/**  The Scheduler window. */
+export type SchedulerView_Deserialize = {
 	queues: QueueDraft[],
 	files: QueueFiles[],
 	quota: QuotaDraft,
@@ -1825,6 +1914,28 @@ export type SchedulerView = {
 	newName: string,
 	maxAtOnce: number,
 	maxRetries: number,
+	/**
+	 *  The power plan lets nothing wake the computer, so a schedule that
+	 *  would does not.
+	 */
+	wakeWarning?: WakeWarning | null,
+	connected: boolean,
+};
+
+/**  The Scheduler window. */
+export type SchedulerView_Serialize = {
+	queues: QueueDraft[],
+	files: QueueFiles[],
+	quota: QuotaDraft,
+	/**  The name New queue proposes. */
+	newName: string,
+	maxAtOnce: number,
+	maxRetries: number,
+	/**
+	 *  The power plan lets nothing wake the computer, so a schedule that
+	 *  would does not.
+	 */
+	wakeWarning: WakeWarning | null,
 	connected: boolean,
 };
 
@@ -2000,10 +2111,19 @@ export type VideoTypeDraft = {
 export type View = View_Serialize | View_Deserialize;
 
 /**  A window's whole view, by its kind. */
-export type View_Deserialize = { window: "main"; view: MainView_Deserialize } | { window: "addUrl"; view: AddUrlView_Deserialize } | { window: "saveAs"; view: SaveAsView_Deserialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Deserialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Deserialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Deserialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Deserialize } | { window: "zipPreview"; view: ZipView_Deserialize } | { window: "exception"; view: ExceptionView };
+export type View_Deserialize = { window: "main"; view: MainView_Deserialize } | { window: "addUrl"; view: AddUrlView_Deserialize } | { window: "saveAs"; view: SaveAsView_Deserialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Deserialize } | { window: "scheduler"; view: SchedulerView_Deserialize } | { window: "grabber"; view: GrabberView_Deserialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Deserialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Deserialize } | { window: "zipPreview"; view: ZipView_Deserialize } | { window: "exception"; view: ExceptionView };
 
 /**  A window's whole view, by its kind. */
-export type View_Serialize = { window: "main"; view: MainView_Serialize } | { window: "addUrl"; view: AddUrlView_Serialize } | { window: "saveAs"; view: SaveAsView_Serialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Serialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Serialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Serialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Serialize } | { window: "zipPreview"; view: ZipView_Serialize } | { window: "exception"; view: ExceptionView };
+export type View_Serialize = { window: "main"; view: MainView_Serialize } | { window: "addUrl"; view: AddUrlView_Serialize } | { window: "saveAs"; view: SaveAsView_Serialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Serialize } | { window: "scheduler"; view: SchedulerView_Serialize } | { window: "grabber"; view: GrabberView_Serialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Serialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Serialize } | { window: "zipPreview"; view: ZipView_Serialize } | { window: "exception"; view: ExceptionView };
+
+/**
+ *  The warning that the power plan turns wake timers off, and how to turn
+ *  them on.
+ */
+export type WakeWarning = {
+	text: string,
+	hint: string,
+};
 
 /**  One file inside a zip. */
 export type ZipRow = {

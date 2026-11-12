@@ -26,7 +26,7 @@
     busy = true;
     error = '';
     try {
-      await addPicks({ indices: ticked, queue, start, package: null, quality, folder: '' });
+      await addPicks({ indices: ticked, queue, start, package: null, rename: '', quality, folder: '' });
     } catch (e) {
       error = messageOf(e);
     } finally {

@@ -11,6 +11,7 @@ import PickVideos from '../src/windows/pick-videos/PickVideos.svelte';
 import Gallery from '../src/windows/gallery/Gallery.svelte';
 import ZipPreview from '../src/windows/zip-preview/ZipPreview.svelte';
 import Exception from '../src/windows/exception/Exception.svelte';
+import { mockIPC } from '@tauri-apps/api/mocks';
 import { sent, shell } from './helpers';
 
 describe('what the daemon asks', () => {
@@ -54,15 +55,27 @@ describe('what the daemon asks', () => {
     expect(sent(calls, 'unpack_package').at(-1)?.args).toEqual({ id: 1, password: 'secret' });
   });
 
-  it('the link picker adds the ticked links as a package', async () => {
+  it('the link picker filters, renames and adds the ticked links as a package', async () => {
     const calls = shell('pick-links', 'pick-links');
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      return cmd === 'link_names' ? ['part_1.pdf', 'part_2.exe'] : null;
+    });
     render(PickLinks);
-    await fireEvent.change(screen.getByLabelText('Types'), { target: { value: 'exe' } });
+    expect(screen.getByText('3 of 4 links shown')).toBeTruthy();
+    await fireEvent.click(screen.getByLabelText('Hide web pages'));
+    expect(sent(calls, 'set_link_filter').at(-1)?.args).toEqual({
+      filter: { hidePages: false, hideImages: true, hideRepeated: true, types: '' },
+    });
+    await fireEvent.change(screen.getByLabelText('Check all'), { target: { value: 'exe' } });
     await fireEvent.click(screen.getByLabelText('manual.pdf'));
+    await fireEvent.input(screen.getByLabelText('Rename'), { target: { value: 'part_*' } });
+    expect(await screen.findByText('part_1.pdf, part_2.exe')).toBeTruthy();
+    expect(sent(calls, 'link_names').at(-1)?.args).toEqual({ indices: [0, 1], rename: 'part_*' });
     await fireEvent.click(screen.getByLabelText('Keep them together as a package'));
     await fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(sent(calls, 'add_picks').at(-1)?.args).toEqual({
-      input: { indices: [1, 0], queue: 1, start: true, package: 'manual', quality: 0, folder: '' },
+      input: { indices: [0, 1], queue: 1, start: true, package: 'manual', rename: 'part_*', quality: 0, folder: '' },
     });
   });
 
@@ -73,7 +86,7 @@ describe('what the daemon asks', () => {
     await fireEvent.change(screen.getByLabelText('Quality'), { target: { value: '2' } });
     await fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(sent(calls, 'add_picks').at(-1)?.args).toEqual({
-      input: { indices: [0, 2, 3], queue: 1, start: true, package: null, quality: 2, folder: '' },
+      input: { indices: [0, 2, 3], queue: 1, start: true, package: null, rename: '', quality: 2, folder: '' },
     });
   });
 
@@ -82,7 +95,7 @@ describe('what the daemon asks', () => {
     render(Gallery);
     await fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(sent(calls, 'add_picks').at(-1)?.args).toEqual({
-      input: { indices: [0, 1, 2], queue: 1, start: true, package: null, quality: 0, folder: '/home/u/Downloads/Album' },
+      input: { indices: [0, 1, 2], queue: 1, start: true, package: null, rename: '', quality: 0, folder: '/home/u/Downloads/Album' },
     });
   });
 });

@@ -253,6 +253,8 @@ pub fn fill_view(ctx: &Ctx, state: &AppState, view: &mut OptionsView) {
         })
         .unwrap_or_default();
     view.browser_note = s.browser_note.clone();
+    view.creation_time = state.system.creation_time;
+    view.portable = state.system.portable;
     view.themes = theme_choices(lang, state);
     view.theme_notes = s
         .themes

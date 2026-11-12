@@ -1095,7 +1095,8 @@
             "tip": null
           }
         ],
-        "unsaved": false
+        "unsaved": false,
+        "wakeWarning": null
       },
       "window": "grabber"
     },
@@ -1299,7 +1300,8 @@
             "tip": null
           }
         ],
-        "unsaved": true
+        "unsaved": true,
+        "wakeWarning": null
       },
       "window": "grabber"
     },
@@ -2143,6 +2145,7 @@
           8,
           16
         ],
+        "creationTime": true,
         "defaultCaptureTypes": "ZIP RAR 7Z TAR GZ BZ2 XZ PDF DOC DOCX XLS XLSX PPT PPTX TXT RTF ODT MP3 FLAC WAV M4A AAC OGG EXE MSI APK MSIX MP4 MKV AVI MOV WEBM WMV ISO IMG DMG DEB RPM BIN",
         "defaultExcludedSites": "",
         "draft": {
@@ -2584,6 +2587,7 @@
             "value": "gallery"
           }
         ],
+        "portable": false,
         "remote": {
           "canPair": true,
           "devices": [
@@ -3514,6 +3518,12 @@
     "pick-links": {
       "view": {
         "connected": true,
+        "filter": {
+          "hideImages": true,
+          "hidePages": true,
+          "hideRepeated": true,
+          "types": ""
+        },
         "page": "http://127.0.0.1:8765/index.html",
         "queues": [
           {
@@ -3557,6 +3567,7 @@
           }
         ],
         "suggestedPackage": "manual",
+        "total": 4,
         "types": [
           "exe",
           "pdf",
@@ -3661,6 +3672,7 @@
     },
     "save-as": {
       "view": {
+        "canElevate": true,
         "canPreview": false,
         "categories": [
           "General",
@@ -3755,7 +3767,8 @@
             "stop": "07:30",
             "stopOn": false,
             "sync": false,
-            "then": "nothing"
+            "then": "nothing",
+            "wake": true
           },
           {
             "date": "2026-11-12",
@@ -3788,7 +3801,8 @@
             "stop": "07:30",
             "stopOn": false,
             "sync": false,
-            "then": "nothing"
+            "then": "nothing",
+            "wake": true
           }
         ],
         "quota": {
@@ -3796,7 +3810,8 @@
           "hours": 24,
           "mb": 1024,
           "warn": true
-        }
+        },
+        "wakeWarning": null
       },
       "window": "scheduler"
     },

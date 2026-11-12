@@ -144,6 +144,27 @@ pub struct AppState {
     pub files: crate::filework::FileWork,
     /// The system has an Open with picker.
     pub can_open_with: bool,
+    /// What the system can do, read once when the window starts.
+    pub system: SystemFacts,
+    /// Whether the power plan lets programs wake the computer, on mains
+    /// power and on battery, as a worker last read it while the Scheduler or
+    /// the grabber was open. `None` until read, or where it cannot be.
+    pub wake_timers: Option<(bool, bool)>,
+    /// What the system calls files of each extension (lower case), as
+    /// workers read them for File Properties; `None` where it names none.
+    pub type_names: HashMap<String, Option<String>>,
+}
+
+/// What the system can do, which some windows leave off.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SystemFacts {
+    /// Download File Info can offer administrator rights for a folder UDM
+    /// may not write to.
+    pub can_elevate: bool,
+    /// A finished file's creation time can be set.
+    pub creation_time: bool,
+    /// A portable copy, which does not start when the user signs in.
+    pub portable: bool,
 }
 
 impl Default for AppState {
@@ -183,6 +204,9 @@ impl Default for AppState {
             clipboard_offer: None,
             files: crate::filework::FileWork::default(),
             can_open_with: false,
+            system: SystemFacts::default(),
+            wake_timers: None,
+            type_names: HashMap::new(),
         }
     }
 }
@@ -295,6 +319,17 @@ pub enum UiMessage {
     ClipboardEmpty,
     /// The command line given at start could not be passed on, and why.
     StartupError(String),
+    /// What the system can do, read at start.
+    SystemRead(SystemFacts),
+    /// The power plan's wake timers, on mains power and on battery.
+    WakeTimersRead(Option<(bool, bool)>),
+    /// The link picker's filters changed.
+    LinkFilter(crate::contract::LinkFilter),
+    /// What the system calls files with extension `ext` (lower case).
+    TypeNameRead {
+        ext: String,
+        name: Option<String>,
+    },
 }
 
 impl AppState {
@@ -472,6 +507,16 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
                 Some(Notice { text: "The clipboard holds no http, https or ftp link.".into(), error: false });
         }
         UiMessage::StartupError(text) => state.notice = Some(Notice { text, error: false }),
+        UiMessage::SystemRead(facts) => state.system = facts,
+        UiMessage::LinkFilter(filter) => {
+            if let Some(l) = state.asks.links.as_mut() {
+                l.filter = filter;
+            }
+        }
+        UiMessage::WakeTimersRead(read) => state.wake_timers = read,
+        UiMessage::TypeNameRead { ext, name } => {
+            state.type_names.insert(ext, name);
+        }
         UiMessage::Columns(columns) => {
             if !columns.is_empty() {
                 state.columns = columns;

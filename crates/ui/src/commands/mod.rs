@@ -19,6 +19,7 @@ mod scheduler;
 mod tools;
 
 pub use common::Heart;
+pub use dialogs::Files;
 pub use options::Pickers;
 pub use tools::Lists;
 
@@ -55,6 +56,8 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         main::show_download,
         dialogs::add_download,
         dialogs::answer_download,
+        dialogs::check_save_folder,
+        dialogs::pick_save_folder,
         dialogs::remove_downloads,
         dialogs::hide_done_dialogs,
         download::control_download,
@@ -121,6 +124,8 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         extras::ungroup_package,
         extras::open_package,
         extras::add_picks,
+        extras::set_link_filter,
+        extras::link_names,
         extras::check_update,
         extras::install_update,
         extras::dismiss_release,

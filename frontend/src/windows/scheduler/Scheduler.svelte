@@ -133,7 +133,7 @@
           </div>
           <div class="page" role="tabpanel">
             {#if tab === 'schedule'}
-              {#key q.id}<ScheduleTab bind:q={drafts[q.id]} maxRetries={view.maxRetries} />{/key}
+              {#key q.id}<ScheduleTab bind:q={drafts[q.id]} maxRetries={view.maxRetries} wakeWarning={view.wakeWarning ?? null} />{/key}
             {:else}
               <FilesTab bind:q={drafts[q.id]} files={view.files.find((f) => f.queue === q?.id)} maxAtOnce={view.maxAtOnce} />
             {/if}

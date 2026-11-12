@@ -1,10 +1,14 @@
 <!-- The Scheduler's Schedule tab for one queue. -->
 <script lang="ts">
   import { messageOf, pickPath } from '../../ipc';
-  import type { QueueDraft, Then } from '../../ipc/types';
+  import type { QueueDraft, Then, WakeWarning } from '../../ipc/types';
   import { t } from '../../i18n';
 
-  let { q = $bindable(), maxRetries }: { q: QueueDraft; maxRetries: number } = $props();
+  let {
+    q = $bindable(),
+    maxRetries,
+    wakeWarning,
+  }: { q: QueueDraft; maxRetries: number; wakeWarning: WakeWarning | null } = $props();
 
   let off = $state<Then>(q.then === 'sleep' || q.then === 'hibernate' ? q.then : 'shutDown');
   let error = $state('');
@@ -54,6 +58,9 @@
     <label class="check lead"><input type="checkbox" bind:checked={q.startOn} />{t('Start download at')}</label>
     <input class="text time" type="time" bind:value={q.start} disabled={!q.startOn} aria-label={t('Start download at')} />
   </div>
+  {#if wakeWarning && q.startOn && q.wake}
+    <p class="error-text indent" role="status" title={wakeWarning.hint}>{wakeWarning.text}</p>
+  {/if}
   {#if q.sync}
     <div class="row indent">
       <label class="check lead2"><input type="checkbox" bind:checked={q.repeatOn} disabled={!q.startOn} />{t('Start again every')}</label>

@@ -1,11 +1,12 @@
 <!-- Options > Behavior: what UDM does when a download ends, when its file
      is taken, at startup and when removing downloads, and its size. -->
 <script lang="ts">
-  import type { FileExistsChoice, NotifyChoice, StartTabChoice } from '../../ipc/types';
+  import type { FileExistsChoice, NotifyChoice, OptionsView, StartTabChoice } from '../../ipc/types';
   import { t } from '../../i18n';
   import { editing } from './draft.svelte';
   import PageHead from './PageHead.svelte';
 
+  let { view }: { view: OptionsView } = $props();
   // The pages are drawn only while the draft exists.
   const d = $derived(editing.draft!);
   const e = $derived(d.extras);
@@ -56,8 +57,12 @@
     <input id="auto-start" class="text grow" bind:value={e.autoStartTypes} placeholder={t('none, or exe, msi')} spellcheck="false" />
   </div>
   <label class="check"><input type="checkbox" bind:checked={e.resumeAtStartup} />{t('Resume unfinished downloads at startup')}</label>
-  <label class="check"
-    ><input type="checkbox" bind:checked={e.serverFileDateCreated} disabled={!d.serverFileDate} />{t(
+  <label
+    class="check"
+    title={view.creationTime
+      ? t('Windows and macOS keep a creation time that can be set; Linux does not.')
+      : t('This system keeps no creation time that can be set; Windows and macOS do.')}
+    ><input type="checkbox" bind:checked={e.serverFileDateCreated} disabled={!d.serverFileDate || !view.creationTime} />{t(
       "Use the server's date for the file's creation time too",
     )}</label
   >

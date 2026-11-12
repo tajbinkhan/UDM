@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "pickers",
-  "description": "The browser's links, videos and gallery to pick from.",
-  "windows": ["pick-links", "pick-videos", "gallery"],
+  "description": "The browser's videos and gallery to pick from.",
+  "windows": ["pick-videos", "gallery"],
   "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-add-picks", "allow-pick-path"]
 }

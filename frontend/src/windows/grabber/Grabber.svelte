@@ -276,6 +276,7 @@
       <ScheduleSheet
         start={grab.schedule}
         queues={view.queues}
+        wakeWarning={view.wakeWarning ?? null}
         {busy}
         {error}
         oncancel={() => (sheet = null)}

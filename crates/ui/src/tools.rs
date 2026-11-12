@@ -183,16 +183,31 @@ pub fn export_entries(state: &AppState, scope: ExportScope) -> Vec<&DownloadEntr
     }
 }
 
+/// The extension (lower case) of a download's file, whose name the system
+/// is asked for when its File Properties opens.
+pub fn properties_extension(state: &AppState, id: DownloadId) -> Option<String> {
+    state.table.get(id).and_then(|e| udm_domain::settings::extension_of(&main::display_name(e)))
+}
+
+/// A file's type for File Properties: what the system calls it, as Windows
+/// names "PDF Document" or "BIN File", else its extension.
+fn type_text(lang: &'static crate::i18n::Language, state: &AppState, name: &str) -> String {
+    let Some(ext) = udm_domain::settings::extension_of(name) else { return String::new() };
+    match state.type_names.get(&ext) {
+        Some(Some(system)) => system.clone(),
+        _ => fill(lang.tr("{type} file"), &[("type", &ext.to_uppercase())]),
+    }
+}
+
 pub fn properties_view(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<PropertiesView> {
     let lang = ctx.lang;
     let e = state.table.get(id)?;
     let name = main::display_name(e);
-    let ext = name.rsplit_once('.').map(|(_, x)| x.to_uppercase()).unwrap_or_default();
     let size = e.total.map(|t| format!("{} ({} {})", format::bytes(lang, t, 2), t.get(), lang.tr("Bytes")));
     Some(PropertiesView {
         id: Id(id.get()),
         icon: format::file_icon(&name),
-        kind: if ext.is_empty() { String::new() } else { fill(lang.tr("{type} file"), &[("type", &ext)]) },
+        kind: type_text(lang, state, &name),
         status: format::status_word(lang, e.status).to_string(),
         size: size.unwrap_or_default(),
         save_to: e.path.clone().unwrap_or_default(),
@@ -438,6 +453,26 @@ mod tests {
         apply(&mut s, UiMessage::Select(vec![DownloadId::new(3)]));
         assert_eq!(find(&s, &q), Some(DownloadId::new(1)));
         assert_eq!(find(&s, &FindInput { match_case: true, ..q }), None);
+    }
+
+    #[test]
+    fn properties_name_the_type_as_the_system_does() {
+        let ctx = Ctx {
+            lang: crate::i18n::resolve("en", &[]),
+            offset: 0,
+            today: String::new(),
+            now: Instant::now(),
+            unix: 1_700_000_000,
+            downloads: std::path::PathBuf::from("/home/u/Downloads"),
+        };
+        let mut s = with(vec![entry(1, "Report.PDF", Status::Done, 1, 1), entry(2, "README", Status::Done, 1, 1)]);
+        let id = DownloadId::new(1);
+        assert_eq!(properties_extension(&s, id).as_deref(), Some("pdf"));
+        assert_eq!(properties_view(&ctx, &s, id).unwrap().kind, "PDF file");
+        apply(&mut s, UiMessage::TypeNameRead { ext: "pdf".into(), name: Some("PDF Document".into()) });
+        assert_eq!(properties_view(&ctx, &s, id).unwrap().kind, "PDF Document");
+        assert_eq!(properties_extension(&s, DownloadId::new(2)), None);
+        assert_eq!(properties_view(&ctx, &s, DownloadId::new(2)).unwrap().kind, "");
     }
 
     #[test]

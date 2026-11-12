@@ -2,17 +2,21 @@
 //! Download complete.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use tauri::State;
 use udm_application::daemon::Command;
 use udm_domain::address::Address;
 use udm_domain::download::{Answer, Download, DownloadLogin};
 use udm_domain::filename::FileName;
+use udm_domain::ports::DownloadFiles;
 
+use super::options::Pickers;
 use super::{ask, label_of, lang, post};
 use crate::actor::{CurrentLanguage, Inbox, Outbox};
-use crate::contract::{AnswerInput, DuplicateChoice, InvokeError, LoginInput};
+use crate::contract::{AnswerInput, DuplicateChoice, FolderAccess, InvokeError, LoginInput};
 use crate::errors;
+use crate::projection::dialogs::{save_folder_denied, save_in};
 use crate::windows::Label;
 use udm_domain::settings::Duplicate;
 
@@ -38,6 +42,48 @@ pub async fn add_download(
     Ok(())
 }
 
+/// The download files' port, for the write check of the folder a download
+/// is saved in (a managed type).
+pub type Files = Arc<dyn DownloadFiles>;
+
+/// Whether UDM may save in the folder Download File Info's Save As names,
+/// checked on a worker since it writes a probe file there.
+#[tauri::command]
+#[specta::specta]
+pub async fn check_save_folder(
+    files: State<'_, Files>,
+    current: State<'_, CurrentLanguage>,
+    save_as: String,
+) -> Result<FolderAccess, InvokeError> {
+    let files = Arc::clone(&files);
+    let denied = tauri::async_runtime::spawn_blocking(move || save_folder_denied(&save_as, |f| files.can_write(f)))
+        .await
+        .map_err(|_| errors::offline(lang(&current)))?;
+    Ok(FolderAccess { denied })
+}
+
+/// Download File Info's Browse: another folder for the file, keeping its
+/// name. `None` when the user cancels.
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_save_folder(
+    pickers: State<'_, Pickers>,
+    current: State<'_, CurrentLanguage>,
+    save_as: String,
+) -> Result<Option<String>, InvokeError> {
+    let lang = lang(&current);
+    let pickers = Arc::clone(&pickers);
+    let title = lang.tr("Save to").to_string();
+    let start = save_as.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let start = Path::new(start.trim()).parent().filter(|p| p.is_absolute());
+        pickers.pick_folder(&title, start)
+    })
+    .await
+    .map_err(|_| errors::offline(lang))?;
+    Ok(picked.map(|folder| save_in(&save_as, &folder.display().to_string())))
+}
+
 /// Download File Info's Start Download or Download Later.
 #[tauri::command]
 #[specta::specta]
@@ -45,10 +91,19 @@ pub async fn answer_download(
     window: tauri::WebviewWindow,
     outbox: State<'_, Outbox>,
     current: State<'_, CurrentLanguage>,
+    files: State<'_, Files>,
     answer: AnswerInput,
 ) -> Result<(), InvokeError> {
     let Label::SaveAs(id) = label_of(&window, &current)? else {
         return Err(errors::gone(lang(&current)));
+    };
+    // Administrator rights only for a folder that needs them, checked
+    // again here on a worker: the webview's word is not taken for it.
+    let elevate = answer.elevate && {
+        let (files, save_as) = (Arc::clone(&files), answer.save_as.clone());
+        tauri::async_runtime::spawn_blocking(move || save_folder_denied(&save_as, |f| files.can_write(f)))
+            .await
+            .map_err(|_| errors::offline(lang(&current)))?
     };
     let path = Path::new(answer.save_as.trim());
     let name = path
@@ -70,6 +125,7 @@ pub async fn answer_download(
             DuplicateChoice::Existing => Duplicate::Existing,
         }),
         remember_duplicate: answer.remember_duplicate,
+        elevate,
         ..Answer::start(id)
     };
     ask(&outbox, &current, |reply| Inbox::Answer { answer: Box::new(answer), reply }).await

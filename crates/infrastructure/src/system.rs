@@ -39,6 +39,10 @@ impl SystemServices for ThisSystem {
         crate::paths::is_portable()
     }
 
+    fn file_type_name(&self, ext: &str) -> Option<String> {
+        file_type_name(ext)
+    }
+
     fn play(&self, sound: Sound, file: Option<&Path>) {
         crate::notify::play(sound, file);
     }
@@ -50,6 +54,55 @@ impl SystemServices for ThisSystem {
     fn contrast(&self) -> Option<SystemContrast> {
         contrast()
     }
+}
+
+/// What Windows calls files with extension `ext`, such as "PDF Document"
+/// or "BIN File", from the file types registered on this computer.
+#[cfg(windows)]
+fn file_type_name(ext: &str) -> Option<String> {
+    /// `SHFILEINFOW`.
+    #[repr(C)]
+    struct ShFileInfo {
+        icon: isize,
+        icon_index: i32,
+        attributes: u32,
+        display_name: [u16; 260],
+        type_name: [u16; 80],
+    }
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SHGetFileInfoW(path: *const u16, attributes: u32, info: *mut ShFileInfo, size: u32, flags: u32) -> usize;
+    }
+    const SHGFI_USEFILEATTRIBUTES: u32 = 0x10;
+    const SHGFI_TYPENAME: u32 = 0x400;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+
+    if ext.is_empty() || ext.contains(['\\', '/', '\0']) {
+        return None;
+    }
+    // With SHGFI_USEFILEATTRIBUTES the file need not exist: Windows answers
+    // from the extension alone.
+    let name: Vec<u16> = format!("file.{ext}").encode_utf16().chain(std::iter::once(0)).collect();
+    let mut info = ShFileInfo { icon: 0, icon_index: 0, attributes: 0, display_name: [0; 260], type_name: [0; 80] };
+    // SAFETY: `name` is NUL-terminated and lives until the call returns;
+    // the call writes within `info`, whose size it is given.
+    let found = unsafe {
+        SHGetFileInfoW(
+            name.as_ptr(),
+            FILE_ATTRIBUTE_NORMAL,
+            &mut info,
+            std::mem::size_of::<ShFileInfo>() as u32,
+            SHGFI_TYPENAME | SHGFI_USEFILEATTRIBUTES,
+        )
+    };
+    let len = info.type_name.iter().position(|c| *c == 0).unwrap_or(info.type_name.len());
+    (found != 0 && len > 0).then(|| String::from_utf16_lossy(&info.type_name[..len]))
+}
+
+/// Other systems name no file types.
+#[cfg(not(windows))]
+fn file_type_name(_ext: &str) -> Option<String> {
+    None
 }
 
 /// Windows' contrast theme colors, while its high-contrast setting
@@ -117,4 +170,18 @@ fn contrast() -> Option<SystemContrast> {
 #[cfg(not(windows))]
 fn contrast() -> Option<SystemContrast> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_type_name_needs_a_plain_extension() {
+        assert!(file_type_name("").is_none());
+        assert!(file_type_name("a/b").is_none());
+        // Windows knows text files, by some name in its language; other
+        // systems name no file types.
+        assert_eq!(file_type_name("txt").is_some(), cfg!(windows));
+    }
 }

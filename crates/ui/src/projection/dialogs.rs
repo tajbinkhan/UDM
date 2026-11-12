@@ -39,6 +39,20 @@ fn join_like(folder: &str, name: &str) -> String {
     format!("{}{sep}{name}", folder.trim_end_matches(['/', '\\']))
 }
 
+/// Whether the folder of Download File Info's Save As (`save_as`, the
+/// folder and name joined) is one `can_write` refuses, so that saving there
+/// needs administrator rights. A path that is not full names no folder yet.
+pub fn save_folder_denied(save_as: &str, can_write: impl Fn(&Path) -> bool) -> bool {
+    Path::new(save_as.trim()).parent().is_some_and(|folder| folder.is_absolute() && !can_write(folder))
+}
+
+/// Save As moved to `folder`, keeping its file name.
+pub fn save_in(save_as: &str, folder: &str) -> String {
+    let save_as = save_as.trim();
+    let name = save_as.rsplit(['/', '\\']).next().unwrap_or(save_as);
+    join_like(folder, name)
+}
+
 /// Download File Info for a download waiting for its answer, or `None` once
 /// it no longer waits.
 pub fn save_as(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<SaveAsView> {
@@ -88,6 +102,7 @@ pub fn save_as(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<SaveAsView
             .iter()
             .map(|q| QueueItem { id: Id(q.id.get()), name: ctx.lang.tr(&q.name).to_string(), running: q.running })
             .collect(),
+        can_elevate: state.system.can_elevate,
     })
 }
 
@@ -276,6 +291,21 @@ mod tests {
         assert_eq!(v.categories[0], GENERAL);
         let s = with(entry(Status::Downloading));
         assert!(save_as(&ctx(), &s, DownloadId::new(4)).is_none());
+    }
+
+    #[test]
+    fn a_folder_udm_may_not_write_to_needs_administrator_rights() {
+        // A full path on this system.
+        let locked = if cfg!(windows) { r"C:\Program Files" } else { "/usr/local" };
+        let can_write = |folder: &Path| folder != Path::new(locked);
+        assert!(save_folder_denied(&format!("{locked}{}big.bin", std::path::MAIN_SEPARATOR), can_write));
+        let home = if cfg!(windows) { r"C:\Users\u\big.bin" } else { "/home/u/big.bin" };
+        assert!(!save_folder_denied(home, can_write));
+        // A bare name or a relative path names no folder to check.
+        assert!(!save_folder_denied("big.bin", |_| false));
+        assert!(!save_folder_denied("dl/big.bin", |_| false));
+        assert_eq!(save_in("/home/u/Downloads/big.bin", "/srv/files"), "/srv/files/big.bin");
+        assert_eq!(save_in(r"C:\Users\u\big.bin", r"D:\dl"), r"D:\dl\big.bin");
     }
 
     #[test]

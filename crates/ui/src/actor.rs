@@ -220,6 +220,12 @@ pub enum Inbox {
         input: Box<contract::PickInput>,
         reply: Sender<Result<(), contract::InvokeError>>,
     },
+    /// The names the link picker's rename pattern gives the ticked links.
+    LinkNames {
+        indices: Vec<u32>,
+        rename: String,
+        reply: Sender<Result<Vec<String>, contract::InvokeError>>,
+    },
     /// Open a package's unpacked folder.
     OpenPackage(udm_domain::id::PackageId),
     /// Close the strip offering this release.
@@ -349,11 +355,24 @@ struct Actor {
     layout: Option<Vec<u8>>,
     /// Whether the clipboard monitor is on, for its thread.
     watching_clipboard: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether a window that warns about the power plan's wake timers (the
+    /// Scheduler, the grabber) is open, for the thread that reads them.
+    watching_wake: Arc<std::sync::atomic::AtomicBool>,
     /// The last link the clipboard monitor offered, so a link copied twice
     /// is offered once.
     clipboard_last: Option<String>,
     /// The system's Downloads folder, read once.
     downloads: std::path::PathBuf,
+}
+
+/// Why the link picker's ticked links cannot be added, for the user.
+fn pick_error(lang: &'static crate::i18n::Language, e: &crate::extras::PickError) -> contract::InvokeError {
+    match e {
+        crate::extras::PickError::Package(e) => crate::errors::invalid_text(crate::errors::text::package_name(lang, e)),
+        crate::extras::PickError::BadRename => {
+            crate::errors::invalid(lang, "A file name cannot contain \\ / : \" < > | or ?")
+        }
+    }
 }
 
 /// Start the actor and connect to the daemon. Returns its mailbox.
@@ -372,6 +391,7 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
             titles: HashMap::new(),
             layout: None,
             watching_clipboard: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            watching_wake: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             clipboard_last: None,
             downloads: std::path::PathBuf::new(),
         };
@@ -384,8 +404,17 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
         actor.layout = crate::layout::bytes(&actor.state);
         actor.connect();
         actor.state.can_open_with = actor.ports.opener.can_open_with();
+        // Each asks the system something it answers at once.
+        let system = &actor.ports.system;
+        let facts = crate::state::SystemFacts {
+            can_elevate: system.can_elevate(),
+            creation_time: system.can_set_creation_time(),
+            portable: system.is_portable(),
+        };
+        apply(&mut actor.state, UiMessage::SystemRead(facts));
         actor.watch_themes();
         actor.watch_clipboard();
+        actor.watch_wake_timers();
         actor.run(rx);
     });
     if let Err(e) = spawned {
@@ -537,8 +566,9 @@ impl Actor {
         let (items, packaging) = match label {
             Label::PickLinks => {
                 let l = a.links.as_ref().ok_or_else(|| crate::errors::gone(lang))?;
-                crate::extras::link_downloads(l, &input.indices, input.package.as_deref(), &settings, &self.downloads)
-                    .map_err(|e| crate::errors::invalid_text(crate::errors::text::package_name(lang, &e)))?
+                let package = input.package.as_deref();
+                crate::extras::link_downloads(l, &input.indices, package, &input.rename, &settings, &self.downloads)
+                    .map_err(|e| pick_error(lang, &e))?
             }
             Label::PickVideos => {
                 let v = a.videos.as_ref().ok_or_else(|| crate::errors::gone(lang))?;
@@ -657,6 +687,54 @@ impl Actor {
         if let Err(e) = spawned {
             tracing::warn!(error = %e, "the clipboard is not watched");
         }
+    }
+
+    /// Read the power plan's wake timer setting while the Scheduler or the
+    /// grabber is open: when one opens, and again every ten seconds, since
+    /// the user may change it meanwhile. Sends it when it changes.
+    fn watch_wake_timers(&self) {
+        let (outbox, system, on) =
+            (self.outbox.clone(), Arc::clone(&self.ports.system), Arc::clone(&self.watching_wake));
+        let spawned = thread::Builder::new().name("udm-wake-timers".into()).spawn(move || {
+            let mut last: Option<(Instant, Option<(bool, bool)>)> = None;
+            loop {
+                if !on.load(Ordering::Relaxed) {
+                    last = None;
+                } else if last.as_ref().is_none_or(|(at, _)| at.elapsed() >= Duration::from_secs(10)) {
+                    let read = system.wake_timers_allowed();
+                    if last.as_ref().is_none_or(|(_, before)| *before != read)
+                        && outbox.send(Inbox::Ui(UiMessage::WakeTimersRead(read))).is_err()
+                    {
+                        return;
+                    }
+                    last = Some((Instant::now(), read));
+                }
+                thread::sleep(Duration::from_millis(500));
+            }
+        });
+        if let Err(e) = spawned {
+            tracing::warn!(error = %e, "the wake timers are not read");
+        }
+    }
+
+    /// Whether a window that shows the wake timer warning is open.
+    fn update_wake_watch(&self) {
+        let open = self.subscribers.contains_key(&Label::Scheduler) || self.subscribers.contains_key(&Label::Grabber);
+        self.watching_wake.store(open, Ordering::Relaxed);
+    }
+
+    /// Ask the system on a worker what it calls the file type of download
+    /// `id`, for its File Properties, unless that is known.
+    fn read_type_name(&self, id: DownloadId) {
+        let Some(ext) = crate::tools::properties_extension(&self.state, id) else { return };
+        if self.state.type_names.contains_key(&ext) {
+            return;
+        }
+        let (outbox, system) = (self.outbox.clone(), Arc::clone(&self.ports.system));
+        thread::spawn(move || {
+            let name = system.file_type_name(&ext);
+            let _ = outbox.send(Inbox::Ui(UiMessage::TypeNameRead { ext, name }));
+        });
     }
 
     /// The clipboard's new text: a link of a captured type is started, or
@@ -1046,12 +1124,17 @@ impl Actor {
                     self.send(Command::RemoteStatus);
                     self.read_browsers();
                 }
+                if let Label::Properties(id) = label {
+                    self.read_type_name(id);
+                }
                 self.subscribers.insert(label, Subscriber { channel, seq: 0, last: None, look: None });
+                self.update_wake_watch();
             }
             Inbox::Closed(text) => {
                 self.ports.beats.forget(&text);
                 let Some(label) = Label::parse(&text) else { return };
                 self.subscribers.remove(&label);
+                self.update_wake_watch();
                 self.opened.remove(&label);
                 self.titles.remove(&label);
                 if self.closing.remove(&label) {
@@ -1455,6 +1538,14 @@ impl Actor {
             }
             Inbox::AddPicks { label, input, reply } => {
                 let _ = reply.send(self.add_picks(label, &input));
+            }
+            Inbox::LinkNames { indices, rename, reply } => {
+                let lang = self.lang();
+                let names = match self.state.asks.links.as_ref() {
+                    Some(l) => crate::extras::renamed_links(l, &indices, &rename).map_err(|e| pick_error(lang, &e)),
+                    None => Err(crate::errors::gone(lang)),
+                };
+                let _ = reply.send(names);
             }
             Inbox::OpenPackage(id) => {
                 let folder = self.state.asks.packages.iter().find(|p| p.id == id).and_then(|p| match &p.unpack {

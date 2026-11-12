@@ -8,7 +8,8 @@ use udm_domain::queue::{
 };
 use udm_domain::settings::{InvalidSettings, Settings};
 
-use crate::contract::{Id, QueueDraft, QueueFiles, QueueRow, QuotaDraft, SchedulerView, Then};
+use crate::contract::{Id, QueueDraft, QueueFiles, QueueRow, QuotaDraft, SchedulerView, Then, WakeWarning};
+use crate::i18n::Language;
 use crate::projection::{format, Ctx};
 use crate::state::AppState;
 
@@ -58,7 +59,23 @@ pub fn draft(q: &Queue, today: &str) -> QueueDraft {
         then: then_of(q.when_done),
         force_close: q.force_close,
         max_concurrent: q.max_concurrent as u32,
+        wake: s.is_none_or(|s| s.wake),
     }
+}
+
+/// The warning for a schedule that wakes the computer, when the power plan
+/// (`allowed`, on mains power and on battery) turns wake timers off.
+pub fn wake_warning(lang: &'static Language, allowed: Option<(bool, bool)>) -> Option<WakeWarning> {
+    let text = match allowed? {
+        (false, false) => "Windows has wake timers turned off, so it will not wake up for this.",
+        (false, true) => "Windows has wake timers turned off on mains power.",
+        (true, false) => "Windows has wake timers turned off on battery.",
+        (true, true) => return None,
+    };
+    Some(WakeWarning {
+        text: lang.tr(text).to_string(),
+        hint: lang.tr("Turn them on in Control Panel > Power Options > Change plan settings > Change advanced power settings > Sleep > Allow wake timers: Enable.").to_string(),
+    })
 }
 
 /// `current` with the draft's values, checked.
@@ -161,6 +178,7 @@ pub fn view(ctx: &Ctx, state: &AppState) -> SchedulerView {
         new_name: new_name(&state.queues),
         max_at_once: QUEUE_CONCURRENCY_RANGE.1 as u32,
         max_retries: QUEUE_RETRIES_MAX,
+        wake_warning: wake_warning(lang, state.wake_timers),
         connected: state.connected(),
     }
 }
@@ -171,6 +189,18 @@ mod tests {
 
     fn main_queue() -> Queue {
         Queue::new(QueueId::MAIN, "Main queue")
+    }
+
+    #[test]
+    fn the_power_plan_warns_when_it_turns_wake_timers_off() {
+        let lang = crate::i18n::resolve("en", &[]);
+        assert_eq!(wake_warning(lang, None), None);
+        assert_eq!(wake_warning(lang, Some((true, true))), None);
+        let off = wake_warning(lang, Some((false, false))).unwrap();
+        assert!(off.text.contains("will not wake up"), "{off:?}");
+        assert!(off.hint.contains("Allow wake timers"));
+        assert!(wake_warning(lang, Some((true, false))).unwrap().text.ends_with("on battery."));
+        assert!(wake_warning(lang, Some((false, true))).unwrap().text.ends_with("on mains power."));
     }
 
     #[test]

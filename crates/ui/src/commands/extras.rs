@@ -12,7 +12,7 @@ use udm_domain::package::Password;
 
 use super::{label_of, lang, post};
 use crate::actor::{CurrentLanguage, Inbox, Outbox};
-use crate::contract::{ConvertTarget, ExceptionChoice, Id, InvokeError, PickInput, VerifyResult};
+use crate::contract::{ConvertTarget, ExceptionChoice, Id, InvokeError, LinkFilter, PickInput, VerifyResult};
 use crate::errors;
 use crate::state::UiMessage;
 
@@ -156,6 +156,38 @@ pub async fn add_picks(
     let (tx, rx) = mpsc::channel();
     post(&outbox, &current, Inbox::AddPicks { label, input: Box::new(input), reply: tx })?;
     wait(&current, rx).await
+}
+
+/// The link picker's filters: what to hide, and which types alone to show.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_link_filter(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    filter: LinkFilter,
+) -> Result<(), InvokeError> {
+    let filter = LinkFilter { types: filter.types.chars().take(500).collect(), ..filter };
+    post(&outbox, &current, Inbox::Ui(UiMessage::LinkFilter(filter)))
+}
+
+/// The names the link picker's rename pattern gives the ticked links, in
+/// order, for it to show before they are added.
+#[tauri::command]
+#[specta::specta]
+pub async fn link_names(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    indices: Vec<u32>,
+    rename: String,
+) -> Result<Vec<String>, InvokeError> {
+    let (tx, rx) = mpsc::channel();
+    let rename = rename.chars().take(500).collect();
+    post(&outbox, &current, Inbox::LinkNames { indices, rename, reply: tx })?;
+    let offline = errors::offline(lang(&current));
+    tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(10)))
+        .await
+        .map_err(|_| offline.clone())?
+        .map_err(|_| offline)?
 }
 
 /// About's Check for Update.

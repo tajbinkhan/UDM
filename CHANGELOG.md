@@ -13,9 +13,14 @@ update check, Options' pages beyond IDM's, problem reports, the clipboard monito
 preview, Convert, Verify checksum and Open with. On Windows a finished file drags out of the list
 or Download complete, and Setup installs the WebView2 runtime when Windows lacks it; on Linux the
 packages now need WebKitGTK 4.1. The domain's and the background service's errors show in your
-language again. Some of the new window's text is still English in other languages, and a few
-things the egui window had are not back yet: saving to a folder that needs administrator rights,
-the Scheduler's wake-timer warning, and the link picker's filters.
+language again. Some of the new window's text is still English in other languages. What the
+egui window had beyond that is back too: Download File Info warns about a folder UDM may not
+save in and offers to save there with administrator rights (its Browse button now works), the
+Scheduler and the grabber's schedule warn when the power plan lets nothing wake the computer,
+Options leaves off the creation time where the system has none and starting at sign-in in a
+portable copy, the link picker hides web pages, images and repeated links, keeps only the types
+you name and renames the files by a pattern, and File Properties names a file's type as Windows
+does.
 
 Pullbay is now called UDM (Unified Download Manager), with a new icon. Installing it over Pullbay or UIDM keeps
 your settings, list, saved site passwords and half-finished downloads, and Pullbay's Update now

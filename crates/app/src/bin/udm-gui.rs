@@ -35,6 +35,7 @@ fn main() -> anyhow::Result<()> {
         system: Arc::new(infra::system::ThisSystem),
         lists: Arc::new(infra::listfile::ListFormats),
         folders: Arc::new(infra::files::DiskFiles),
+        files: Arc::new(infra::files::DiskFiles),
         window_files: Arc::new(infra::window_files::WindowDir::new()),
         browsers: Arc::new(infra::browsers::Registry),
         themes: Arc::new(infra::themes::ThemeDir::new()),

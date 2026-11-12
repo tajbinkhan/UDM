@@ -135,7 +135,7 @@
         {:else if page === 'speed'}
           <Speed />
         {:else if page === 'behavior'}
-          <Behavior />
+          <Behavior {view} />
         {:else if page === 'browser'}
           <Browser {view} />
         {:else if page === 'archives'}

@@ -1251,6 +1251,10 @@ impl crate::window::SystemServices for Contrast {
         false
     }
 
+    fn file_type_name(&self, _ext: &str) -> Option<String> {
+        None
+    }
+
     fn play(&self, _sound: udm_domain::settings::Sound, _file: Option<&Path>) {}
 
     fn save_credential(&self, _target: &str, _username: &str, _password: &str) -> Result<(), FilesError> {

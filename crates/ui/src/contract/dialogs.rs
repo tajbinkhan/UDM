@@ -45,6 +45,9 @@ pub struct SaveAsView {
     pub queues: Vec<QueueItem>,
     /// Another download in the list has the same address.
     pub duplicate: Option<DuplicateView>,
+    /// The system can ask for administrator rights to save in a folder UDM
+    /// may not write to.
+    pub can_elevate: bool,
 }
 
 /// The Duplicate download link question.
@@ -68,6 +71,17 @@ pub struct AnswerInput {
     /// The answer to the Duplicate download link question, when it asked.
     pub duplicate: Option<super::DuplicateChoice>,
     pub remember_duplicate: bool,
+    /// Save there with administrator rights, when UDM may not write to the
+    /// folder.
+    pub elevate: bool,
+}
+
+/// Whether UDM may save files in a folder Download File Info names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderAccess {
+    /// Saving there needs administrator rights.
+    pub denied: bool,
 }
 
 /// One connection's range, for the progress window's strip and table.
