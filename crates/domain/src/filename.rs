@@ -108,7 +108,7 @@ impl PartialEq<&str> for FileName {
     }
 }
 
-/// Make `name` safe to use as a file name on every system Pullbay runs on:
+/// Make `name` safe to use as a file name on every system UDM runs on:
 /// characters Windows forbids become `_`, and device names get a `_` prefix.
 /// `None` when nothing is left of it.
 pub fn sanitize_filename(name: &str) -> Option<FileName> {

@@ -6,23 +6,23 @@
 //! applies new settings (`SettingsStore`). `SyncChecker` runs a
 //! synchronizing queue's checks (`SyncChecks`).
 
-use pullbay_domain::address::Link;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::filename::FileName;
-use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use udm_domain::address::Link;
+use udm_domain::bytes::ByteCount;
+use udm_domain::filename::FileName;
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::sync::LockExt;
 
-use pullbay_domain::download::{Download, DownloadEntry, Status, Validator};
-use pullbay_domain::ports::{
+use tracing::{info, warn};
+use udm_domain::download::{Download, DownloadEntry, Status, Validator};
+use udm_domain::ports::{
     ControlError, DownloadControl, DownloadList, LimitLift, SettingsError, SettingsStore, SyncChecks,
 };
-use tracing::{info, warn};
 
 use crate::app::{progress_to_outgoing, to_request};
 use crate::connect::{config_for, ProxyRetries};
@@ -32,16 +32,16 @@ use crate::net::{self, ProxyKind};
 use crate::protocol::Outgoing;
 use crate::settings;
 use crate::store::{DownloadStore, EditError, StoreEvents};
-use pullbay_domain::settings::{EngineLimits, FileExists, Folders, Settings};
+use udm_domain::settings::{EngineLimits, FileExists, Folders, Settings};
 
 /// How long answering a save-as dialog waits for the download it started
 /// early to stop, before starting over without its bytes.
 const EARLY_STOP_WAIT: Duration = Duration::from_secs(15);
 /// The folder early downloads are written in, inside the temporary folder
-/// when Pullbay's data folder cannot be had.
-const EARLY_FOLDER: &str = "Pullbay early";
+/// when UDM's data folder cannot be had.
+const EARLY_FOLDER: &str = "UDM early";
 
-/// Where early downloads go: Pullbay's own data folder, which only this user
+/// Where early downloads go: UDM's own data folder, which only this user
 /// can write. The temporary folder is shared by every user on Linux, where
 /// another user could read the files or plant a link under the folder.
 fn early_root() -> PathBuf {
@@ -409,7 +409,7 @@ impl Transfers {
 
     /// Stop the early download `shadow` and wait for it, returning how it
     /// ended. `None` if it did not stop in time; its events
-    /// stay hidden, and its folder goes when Pullbay next starts.
+    /// stay hidden, and its folder goes when UDM next starts.
     fn stop_early(&self, shadow: DownloadId) -> Option<Early> {
         self.engine.cancel(shadow);
         let deadline = Instant::now() + EARLY_STOP_WAIT;
@@ -716,7 +716,7 @@ impl DownloadControl for Transfers {
         &self,
         download: &Download,
         partial: &str,
-    ) -> Result<Option<pullbay_domain::download::Mismatch>, ControlError> {
+    ) -> Result<Option<udm_domain::download::Mismatch>, ControlError> {
         let req = self.request_for(download.clone());
         let found = engine::inspect(download.url.as_str(), None, &req.headers, &req.net)
             .map_err(|e| ControlError(e.to_string()))?;
@@ -834,7 +834,7 @@ fn free_path(path: &Path, overwrite: bool) -> PathBuf {
     };
     let name = name.to_string_lossy();
     (1..)
-        .map(|n| dir.join(pullbay_domain::filename::numbered_name(&name, n)))
+        .map(|n| dir.join(udm_domain::filename::numbered_name(&name, n)))
         .find(|p| !p.exists())
         .unwrap_or_else(|| path.to_path_buf())
 }
@@ -871,7 +871,7 @@ impl EarlyHandOver {
     }
 }
 
-impl pullbay_domain::ports::EarlyStarts for EarlyHandOver {
+impl udm_domain::ports::EarlyStarts for EarlyHandOver {
     fn start(&self, id: DownloadId, download: Download, filename: &FileName) {
         self.transfers.start_early(id, download, filename);
     }
@@ -890,7 +890,7 @@ impl pullbay_domain::ports::EarlyStarts for EarlyHandOver {
     }
 }
 
-impl pullbay_domain::ports::TransferEngine for Transfers {
+impl udm_domain::ports::TransferEngine for Transfers {
     fn reserve_id(&self) -> DownloadId {
         self.engine.reserve_id()
     }
@@ -937,7 +937,7 @@ mod tests {
     }
 
     fn world(name: &str) -> World {
-        let dir = std::env::temp_dir().join(format!("pullbay_transfers_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_transfers_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let heard = Arc::new(Heard::default());
@@ -1097,7 +1097,7 @@ mod tests {
 
     #[test]
     fn an_early_download_stopped_after_saving_counts_as_finished() {
-        let dir = std::env::temp_dir().join(format!("pullbay_early_late_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_early_late_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("big.bin");

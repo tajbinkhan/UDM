@@ -47,13 +47,13 @@ pub fn same(a: &[u8], b: &[u8]) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum PairingError {
     /// The code is not the one shown, or no code is shown (or it ran out).
-    #[error("That pairing code is wrong or has run out. Show a new one in Pullbay's Options.")]
+    #[error("That pairing code is wrong or has run out. Show a new one in UDM's Options.")]
     WrongCode,
     /// Too many wrong tries from this address; wait this many seconds.
     #[error("Too many wrong tries. Try again in {wait} seconds.")]
     TooManyTries { wait: u64 },
     /// The device is not paired (or was removed), or its secret is wrong.
-    #[error("This device is not paired with Pullbay.")]
+    #[error("This device is not paired with UDM.")]
     NotPaired,
     #[error("{MAX_DEVICES} devices are paired already. Remove one in Options first.")]
     TooManyDevices,
@@ -533,7 +533,7 @@ pub enum RemoteFault {
     PortInUse { address: String },
     /// This computer has no such address.
     AddressUnavailable { address: String },
-    /// The system does not let Pullbay listen there (a port below 1024).
+    /// The system does not let UDM listen there (a port below 1024).
     NoPermission { address: String },
     /// The page's certificate could not be made or read, and why.
     Certificate(String),

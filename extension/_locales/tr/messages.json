@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "Tarayıcı indirmelerini Pullbay indirme yöneticisine gönderin."
+    "message": "Tarayıcı indirmelerini UDM indirme yöneticisine gönderin."
   },
-  "downloadWithPullbay": {
-    "message": "Pullbay ile indir"
+  "downloadWithUdm": {
+    "message": "UDM ile indir"
   },
-  "downloadLaterWithPullbay": {
-    "message": "Pullbay ile daha sonra indir"
+  "downloadLaterWithUdm": {
+    "message": "UDM ile daha sonra indir"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "Galeriyi Pullbay ile indir"
+  "downloadGalleryWithUdm": {
+    "message": "Galeriyi UDM ile indir"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "Tüm bağlantıları Pullbay ile indir"
+  "downloadAllLinksWithUdm": {
+    "message": "Tüm bağlantıları UDM ile indir"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "Seçili bağlantıları Pullbay ile indir"
+  "downloadSelectedLinksWithUdm": {
+    "message": "Seçili bağlantıları UDM ile indir"
   },
-  "pullbayDisconnected": {
-    "message": "Pullbay bağlantısı kesildi"
+  "udmDisconnected": {
+    "message": "UDM bağlantısı kesildi"
   },
   "captureDownloads": {
     "message": "İndirmeleri yakala"
   },
   "captureDownloadsTitle": {
-    "message": "Tarayıcının başlattığı indirmeleri Pullbay'a gönder"
+    "message": "Tarayıcının başlattığı indirmeleri UDM'a gönder"
   },
   "captureInTab": {
     "message": "Bu sekmede yakala"
@@ -36,16 +36,16 @@
     "message": "Bu sekmede kapalı"
   },
   "statusConnected": {
-    "message": "Bağlı. Tarayıcıda başlattığınız indirmeler Pullbay'a gider."
+    "message": "Bağlı. Tarayıcıda başlattığınız indirmeler UDM'a gider."
   },
   "statusConnectedCaptureOff": {
     "message": "Bağlı. Yakalama kapalı, bu yüzden tarayıcı kendi indirmelerini tutar."
   },
   "statusNotConnected": {
-    "message": "Pullbay'a bağlı değil. İndirmeler tarayıcıda kalır."
+    "message": "UDM'a bağlı değil. İndirmeler tarayıcıda kalır."
   },
   "statusNotConnectedReason": {
-    "message": "Pullbay'a bağlı değil: $REASON$. İndirmeler tarayıcıda kalır.",
+    "message": "UDM'a bağlı değil: $REASON$. İndirmeler tarayıcıda kalır.",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "Bu sayfadaki tüm bağlantılar"
   },
   "allLinksTitle": {
-    "message": "İndirilecekleri seçmek için bu sayfanın bağlantılarını Pullbay'da listele"
+    "message": "İndirilecekleri seçmek için bu sayfanın bağlantılarını UDM'da listele"
   },
   "videoButton": {
     "message": "Video düğmesi"
@@ -117,7 +117,7 @@
     "message": "Kesildi"
   },
   "stateConfirming": {
-    "message": "Pullbay'da sizi bekliyor"
+    "message": "UDM'da sizi bekliyor"
   },
   "stateWaiting": {
     "message": "Başlamayı bekliyor"
@@ -190,22 +190,22 @@
     "message": "Altyazılar:"
   },
   "videoProtected": {
-    "message": "Bu video DRM ile korunuyor, bu yüzden Pullbay onu indirmeyecek."
+    "message": "Bu video DRM ile korunuyor, bu yüzden UDM onu indirmeyecek."
   },
   "streamProtected": {
-    "message": "DRM ile korunuyor; Pullbay bunu indirmeyecek."
+    "message": "DRM ile korunuyor; UDM bunu indirmeyecek."
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay çalışmıyor veya bağlı değil."
+  "udmNotConnected": {
+    "message": "UDM çalışmıyor veya bağlı değil."
   },
   "noVideoFound": {
     "message": "Henüz video bulunamadı. Bir süre oynatın, sonra yeniden deneyin."
   },
-  "sentToPullbay": {
-    "message": "Pullbay'a gönderildi."
+  "sentToUdm": {
+    "message": "UDM'a gönderildi."
   },
-  "couldNotReachPullbay": {
-    "message": "Pullbay'a ulaşılamadı."
+  "couldNotReachUdm": {
+    "message": "UDM'a ulaşılamadı."
   },
   "hlsStream": {
     "message": "HLS akışı"
@@ -229,7 +229,7 @@
     "message": "Vimeo videosu"
   },
   "mediaNoAnswer": {
-    "message": "Pullbay yanıt vermedi."
+    "message": "UDM yanıt vermedi."
   },
   "soundOnly": {
     "message": "Yalnızca ses ($FORMAT$)",
@@ -256,16 +256,16 @@
     "message": "Ses"
   },
   "takeoverFailed": {
-    "message": "Pullbay indirmeyi devralamadı"
+    "message": "UDM indirmeyi devralamadı"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay çalışmıyor veya bağlı değil; bu yüzden tarayıcı şunu indiriyor: $FILE$",
+    "message": "UDM çalışmıyor veya bağlı değil; bu yüzden tarayıcı şunu indiriyor: $FILE$",
     "placeholders": {
       "file": { "content": "$1" }
     }
   },
   "takeoverError": {
-    "message": "Pullbay şunu başlatamadı: $FILE$ ($REASON$). Bu yüzden tarayıcı indiriyor.",
+    "message": "UDM şunu başlatamadı: $FILE$ ($REASON$). Bu yüzden tarayıcı indiriyor.",
     "placeholders": {
       "file": { "content": "$1" },
       "reason": { "content": "$2" }
@@ -278,13 +278,13 @@
     "message": "Bu bildirimlerin artık gösterilmemesi için bu bildirime tıklayın."
   },
   "downloadLastVideo": {
-    "message": "Son videoyu Pullbay ile indir"
+    "message": "Son videoyu UDM ile indir"
   },
   "recentVideos": {
-    "message": "Son videolar (Pullbay)"
+    "message": "Son videolar (UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "Sayfayı Pullbay ile indir"
+  "downloadPageWithUdm": {
+    "message": "Sayfayı UDM ile indir"
   },
   "noLinksFound": {
     "message": "Bu sayfada bağlantı bulunamadı."
@@ -293,13 +293,13 @@
     "message": "Seçimde bağlantı bulunamadı."
   },
   "linksUnreadable": {
-    "message": "Tarayıcı, Pullbay'ın bu sayfanın bağlantılarını okumasına izin vermiyor."
+    "message": "Tarayıcı, UDM'ın bu sayfanın bağlantılarını okumasına izin vermiyor."
   },
-  "cannotReachPullbay": {
-    "message": "Pullbay'a ulaşılamıyor. Çalışıyor mu?"
+  "cannotReachUdm": {
+    "message": "UDM'a ulaşılamıyor. Çalışıyor mu?"
   },
-  "cannotReachPullbayReason": {
-    "message": "Pullbay'a ulaşılamıyor ($REASON$).",
+  "cannotReachUdmReason": {
+    "message": "UDM'a ulaşılamıyor ($REASON$).",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -310,8 +310,8 @@
   "browserDownloadsHeading": {
     "message": "Tarayıcıda indiriliyor"
   },
-  "sendToPullbay": {
-    "message": "Pullbay'a gönder"
+  "sendToUdm": {
+    "message": "UDM'a gönder"
   },
   "pageVideo": {
     "message": "Bu sayfadaki video"
@@ -336,6 +336,6 @@
     }
   },
   "chooseVideos": {
-    "message": "Pullbay'de video seç..."
+    "message": "UDM'de video seç..."
   }
 }

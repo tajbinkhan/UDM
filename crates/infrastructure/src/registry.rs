@@ -1,13 +1,13 @@
-//! The few per-user registry values Pullbay keeps, all under `HKEY_CURRENT_USER`,
+//! The few per-user registry values UDM keeps, all under `HKEY_CURRENT_USER`,
 //! so none needs administrator rights:
 //!
-//! - `Software\Microsoft\Windows\CurrentVersion\Run`, value `Pullbay`: starts
+//! - `Software\Microsoft\Windows\CurrentVersion\Run`, value `UDM`: starts
 //!   the window hidden in the tray at sign-in ("Start with Windows").
-//! - `Software\Classes\AppUserModelId\Pullbay.DownloadManager`: the name and
-//!   icon Windows shows on Pullbay's notifications. A named copy (see
-//!   `paths::instance`) uses `Pullbay.DownloadManager.<name>`, so a test copy
+//! - `Software\Classes\AppUserModelId\UDM.DownloadManager`: the name and
+//!   icon Windows shows on UDM's notifications. A named copy (see
+//!   `paths::instance`) uses `UDM.DownloadManager.<name>`, so a test copy
 //!   does not overwrite the installed copy's name and icon.
-//! - Each browser's `NativeMessagingHosts\com.pullbay.host` (see `browsers`).
+//! - Each browser's `NativeMessagingHosts\com.udm.host` (see `browsers`).
 //!
 //! It also reads, never writes, Windows' version under `HKEY_LOCAL_MACHINE`
 //! for problem reports ([`get_machine_string`]).
@@ -56,10 +56,10 @@ extern "system" {
 }
 
 pub const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-pub const RUN_VALUE: &str = "Pullbay";
+pub const RUN_VALUE: &str = "UDM";
 /// The AppUserModelID the usual copy's notifications are shown under. The
 /// installer and `install-host.ps1` remove this key on uninstall.
-pub const APP_ID: &str = "Pullbay.DownloadManager";
+pub const APP_ID: &str = "UDM.DownloadManager";
 
 /// The AppUserModelID this copy's notifications are shown under.
 pub fn app_id() -> String {
@@ -67,7 +67,7 @@ pub fn app_id() -> String {
 }
 
 /// The AppUserModelID for instance `name`: [`APP_ID`], or
-/// `Pullbay.DownloadManager.<name>` for a named copy.
+/// `UDM.DownloadManager.<name>` for a named copy.
 fn app_id_for(name: Option<&str>) -> String {
     match name {
         Some(name) => format!("{APP_ID}.{name}"),
@@ -75,12 +75,12 @@ fn app_id_for(name: Option<&str>) -> String {
     }
 }
 
-/// The name Windows shows on instance `name`'s notifications: `Pullbay`, or
-/// `Pullbay (<name>)` as the window title has it.
+/// The name Windows shows on instance `name`'s notifications: `UDM`, or
+/// `UDM (<name>)` as the window title has it.
 fn display_name_for(name: Option<&str>) -> String {
     match name {
-        Some(name) => format!("Pullbay ({name})"),
-        None => "Pullbay".to_string(),
+        Some(name) => format!("UDM ({name})"),
+        None => "UDM".to_string(),
     }
 }
 
@@ -278,7 +278,7 @@ pub fn register_app_id(icon: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
 
-    const TEST_KEY: &str = r"Software\Pullbay-test";
+    const TEST_KEY: &str = r"Software\UDM-test";
 
     #[test]
     fn set_read_and_delete_values() {
@@ -288,8 +288,8 @@ mod tests {
         assert_eq!(get_string(TEST_KEY, "value").unwrap(), None);
         // Deleting again, or from a key that does not exist, is fine.
         delete_value(TEST_KEY, "value").unwrap();
-        delete_value(r"Software\Pullbay-test-missing", "value").unwrap();
-        assert_eq!(get_string(r"Software\Pullbay-test-missing", "value").unwrap(), None);
+        delete_value(r"Software\UDM-test-missing", "value").unwrap();
+        assert_eq!(get_string(r"Software\UDM-test-missing", "value").unwrap(), None);
 
         set_dword(TEST_KEY, "flag", 1).unwrap();
         assert_eq!(get_dword(TEST_KEY, "flag").unwrap(), Some(1));
@@ -302,16 +302,16 @@ mod tests {
 
     #[test]
     fn autostart_command_quotes_the_path() {
-        let gui = Path::new(r"C:\Program Files\Pullbay\pullbay-gui.exe");
-        assert_eq!(autostart_command(gui), r#""C:\Program Files\Pullbay\pullbay-gui.exe" --minimized"#);
+        let gui = Path::new(r"C:\Program Files\UDM\udm-gui.exe");
+        assert_eq!(autostart_command(gui), r#""C:\Program Files\UDM\udm-gui.exe" --minimized"#);
     }
 
     #[test]
     fn each_named_copy_has_its_own_app_id_and_name() {
-        assert_eq!(app_id_for(None), "Pullbay.DownloadManager");
-        assert_eq!(display_name_for(None), "Pullbay");
-        assert_eq!(app_id_for(Some("claude-check")), "Pullbay.DownloadManager.claude-check");
-        assert_eq!(display_name_for(Some("claude-check")), "Pullbay (claude-check)");
+        assert_eq!(app_id_for(None), "UDM.DownloadManager");
+        assert_eq!(display_name_for(None), "UDM");
+        assert_eq!(app_id_for(Some("claude-check")), "UDM.DownloadManager.claude-check");
+        assert_eq!(display_name_for(Some("claude-check")), "UDM (claude-check)");
         assert_ne!(app_id_for(Some("a")), app_id_for(Some("b")));
     }
 }

@@ -11,7 +11,7 @@ const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
 
 function connected() {
   const w = loadWorker();
-  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "udm-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: { capture_types: [], capture_min_size_kb: 0, capture_excluded_sites: [] } });
   return w;
 }
@@ -48,13 +48,13 @@ test("a forced link sends its frame as referrer and the tab as page", async () =
 test("a link from the context menu sends its frame and its page", async () => {
   const w = connected();
   await w.chrome.contextMenus.onClicked.fire(
-    { menuItemId: "pullbay-link", linkUrl: "https://cdn.net/a.zip", pageUrl: "https://site.net/page", frameUrl: "https://embed.net/frame" },
+    { menuItemId: "udm-link", linkUrl: "https://cdn.net/a.zip", pageUrl: "https://site.net/page", frameUrl: "https://embed.net/frame" },
     { id: 1, incognito: false },
   );
   same([lastAdd(w).referrer, lastAdd(w).page], ["https://embed.net/frame", "https://site.net/page"]);
   // A link in the page itself: both are the page.
   await w.chrome.contextMenus.onClicked.fire(
-    { menuItemId: "pullbay-link", linkUrl: "https://cdn.net/b.zip", pageUrl: "https://site.net/page" },
+    { menuItemId: "udm-link", linkUrl: "https://cdn.net/b.zip", pageUrl: "https://site.net/page" },
     { id: 1, incognito: false },
   );
   same([lastAdd(w).referrer, lastAdd(w).page], ["https://site.net/page", "https://site.net/page"]);

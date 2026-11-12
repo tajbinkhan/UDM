@@ -13,9 +13,6 @@
 //! they would have shown instead. A save-as dialog still waits for a window
 //! that may connect, then starts the download as proposed.
 
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::sync::LockExt;
 use std::collections::VecDeque;
 use std::io;
 use std::path::Path;
@@ -23,18 +20,21 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+use udm_domain::bytes::ByteCount;
+use udm_domain::id::DownloadId;
+use udm_domain::sync::LockExt;
 
-use pullbay_domain::download::{Answer, DownloadEntry, Scan, Status};
-use pullbay_domain::ports::{Answers, Attention};
-use pullbay_domain::seat::Seat;
 use tracing::{info, warn};
+use udm_domain::download::{Answer, DownloadEntry, Scan, Status};
+use udm_domain::ports::{Answers, Attention};
+use udm_domain::seat::Seat;
 
 use crate::live_settings::LiveSettings;
 use crate::notify::{self, Toast};
 use crate::protocol::Outgoing;
 use crate::store::{DownloadStore, StoreEvents};
-use pullbay_domain::settings::Sound;
-use pullbay_domain::settings::{FileExists, Notify, Settings};
+use udm_domain::settings::Sound;
+use udm_domain::settings::{FileExists, Notify, Settings};
 
 /// How long a download waits for a window to show its save-as dialog before
 /// it starts with the proposed name and folder.
@@ -55,10 +55,7 @@ pub trait Windows: StoreEvents {
 /// Start the desktop window from this program's folder.
 pub fn open_window() -> io::Result<()> {
     crate::platform::spawn_reaped(
-        crate::platform::program_command("pullbay-gui")?
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null()),
+        crate::platform::program_command("udm-gui")?.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()),
     )
 }
 
@@ -196,7 +193,7 @@ pub fn toast_for(e: &DownloadEntry, failed: bool) -> Toast {
     match &e.scan {
         Some(Scan::Threat { .. }) => Toast {
             title: "Threat found in a download".into(),
-            lines: vec![name, "The virus scan found a threat. Open Pullbay to decide what to do.".into()],
+            lines: vec![name, "The virus scan found a threat. Open UDM to decide what to do.".into()],
             buttons: vec![show],
             launch: format!("window:{id}"),
         },
@@ -315,7 +312,7 @@ impl Answers for AnswerWait {
 /// The `Notifications` adapter: the shared `Notifier`.
 pub struct Notices(pub Arc<Notifier>);
 
-impl pullbay_domain::ports::Notifications for Notices {
+impl udm_domain::ports::Notifications for Notices {
     fn notify(&self, id: DownloadId, failed: bool, settings: &Settings) {
         self.0.notify(id, failed, settings);
     }

@@ -7,9 +7,9 @@
 use std::path::Path;
 
 use eframe::egui;
-use pullbay_domain::download::{Download, DownloadEntry};
-use pullbay_domain::id::QueueId;
-use pullbay_domain::settings::{Duplicate, FileExists, Settings};
+use udm_domain::download::{Download, DownloadEntry};
+use udm_domain::id::QueueId;
+use udm_domain::settings::{Duplicate, FileExists, Settings};
 
 use crate::i18n::{tr, trf};
 
@@ -43,12 +43,12 @@ pub fn questions(items: &[Download], rows: &[DownloadEntry], settings: &Settings
         let plain = d.may_be_duplicate();
         let duplicate = d.duplicate.unwrap_or(settings.if_duplicate) == Duplicate::Ask;
         if let (true, true, Some(old)) =
-            (plain, duplicate, rows.iter().rev().find(|e| pullbay_domain::download::same_address(&e.url, &d.url)))
+            (plain, duplicate, rows.iter().rev().find(|e| udm_domain::download::same_address(&e.url, &d.url)))
         {
             out.push((i, Question::InList(crate::display_name(old))));
         }
         if d.file_exists.unwrap_or(settings.file_exists) == FileExists::Ask {
-            let name = pullbay_domain::filename::proposed_name(d.url.as_str(), d.filename.as_deref());
+            let name = udm_domain::filename::proposed_name(d.url.as_str(), d.filename.as_deref());
             let folder = match d.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
                 Some(f) => f.to_path_buf(),
                 None => {
@@ -70,7 +70,7 @@ pub struct Prompt {
     pub queue: QueueId,
     pub start_queue: bool,
     /// Whether they are kept as packages once added.
-    pub packaging: pullbay_domain::package::Packaging,
+    pub packaging: udm_domain::package::Packaging,
     questions: Vec<(usize, Question)>,
     /// The question on screen.
     at: usize,
@@ -98,7 +98,7 @@ impl Prompt {
             items,
             queue,
             start_queue,
-            packaging: pullbay_domain::package::Packaging::None,
+            packaging: udm_domain::package::Packaging::None,
             questions,
             at: 0,
             left_out,
@@ -222,7 +222,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("pullbay_answers_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_answers_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

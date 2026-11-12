@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-Every key Pullbay's window answers. Everything the mouse does in the window
+Every key UDM's window answers. Everything the mouse does in the window
 can be done from the keyboard too. While a key moves the focus, a ring shows
 which control has it; pressing the mouse hides the ring until the keyboard
 moves the focus again.

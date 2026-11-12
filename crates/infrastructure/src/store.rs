@@ -13,28 +13,28 @@
 //! with DPAPI, see `history`) and the quota's usage, in the same formats as
 //! before this module.
 
-use pullbay_domain::address::Link;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
+use udm_domain::address::Link;
+use udm_domain::bytes::ByteCount;
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::sync::LockExt;
 
-use pullbay_application::daemon::Event;
-use pullbay_domain::download::{Download, DownloadEntry, Status};
-use pullbay_domain::package::Package;
-use pullbay_domain::ports::{DownloadIntake, DownloadList, PackageStore, QueueStore};
-use pullbay_domain::queue::{Queue, QueueError};
 use tracing::warn;
+use udm_application::daemon::Event;
+use udm_domain::download::{Download, DownloadEntry, Status};
+use udm_domain::package::Package;
+use udm_domain::ports::{DownloadIntake, DownloadList, PackageStore, QueueStore};
+use udm_domain::queue::{Queue, QueueError};
 
 use crate::engine::{self, Engine};
 use crate::history::{self, History};
 use crate::protocol::Outgoing;
 use crate::quota;
 use crate::state::DownloadTable;
-use pullbay_domain::quota::Usage;
+use udm_domain::quota::Usage;
 
 /// How a download ended, for the listener's notifications.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -556,7 +556,7 @@ impl DownloadIntake for Intake<'_> {
     }
 }
 
-impl pullbay_application::daemon::DownloadFeed for DownloadStore {
+impl udm_application::daemon::DownloadFeed for DownloadStore {
     fn announce(&self, event: Event) {
         DownloadStore::announce(self, event);
     }
@@ -587,7 +587,7 @@ impl DownloadIntake for StoreIntake {
 mod tests {
     use super::*;
 
-    use pullbay_domain::queue::QueueKind;
+    use udm_domain::queue::QueueKind;
 
     /// What a store told its listener.
     #[derive(Default)]
@@ -618,7 +618,7 @@ mod tests {
     }
 
     fn folder(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pullbay_store_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_store_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -637,7 +637,7 @@ mod tests {
     fn a_new_store_has_the_main_queue() {
         let (store, ..) = store(StoreFiles::default());
         assert_eq!(store.queues().len(), 1);
-        assert_eq!(store.queues()[0].id, pullbay_domain::queue::MAIN_QUEUE);
+        assert_eq!(store.queues()[0].id, udm_domain::queue::MAIN_QUEUE);
     }
 
     #[test]

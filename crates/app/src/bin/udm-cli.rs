@@ -1,14 +1,14 @@
-//! `pullbay-cli`, Pullbay's command-line tool: downloads a file and shows
+//! `udm-cli`, UDM's command-line tool: downloads a file and shows
 //! its progress, lists, pauses, resumes and removes downloads, starts
 //! and stops queues, and pairs phones with the remote-control page, from a terminal or a script, with no window open.
 //!
 //! It is a client of the daemon like the window, and starts the daemon when
 //! none runs. Its arguments, output and exit codes are
-//! `pullbay_infrastructure::tool`; each command is a use case in
-//! `pullbay_application::remote`. This binary wires them together
+//! `udm_infrastructure::tool`; each command is a use case in
+//! `udm_application::remote`. This binary wires them together
 //! (AGENTS.md section 8). Standard output carries what scripts read (a
 //! saved file's path, an id, the list); standard error what people read.
-//! Its log is `pullbay-cli.log` in the data folder.
+//! Its log is `udm-cli.log` in the data folder.
 
 // Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
 // test exemptions do not cover (AGENTS.md section 9).
@@ -16,23 +16,23 @@
 
 use std::time::Duration;
 
-use pullbay_application::remote::{
+use udm_application::remote::{
     ControlQueue, ForgetDownload, GetFile, ListDevices, ListDownloads, PairPhone, PauseDownload, ResumeDownload,
     Session, UnpairDevice,
 };
-use pullbay_infrastructure as infra;
-use pullbay_infrastructure::tool::{self, exit, Invocation, Report, Which};
+use udm_infrastructure as infra;
+use udm_infrastructure::tool::{self, exit, Invocation, Report, Which};
 
 /// What the tool calls itself in its `hello`.
-const CLIENT: &str = "pullbay-cli";
+const CLIENT: &str = "udm-cli";
 
 /// How long connecting, which may start the daemon, and each answer may
 /// take.
 const WAIT: Duration = Duration::from_secs(30);
 
 fn main() {
-    // Before the log, which would make Pullbay's data folder first.
-    let moved = infra::from_uidm::move_from_uidm();
+    // Before the log, which would make UDM's data folder first.
+    let moved = infra::from_old_names::move_from_old_names();
     infra::logging::init(infra::logging::Program::Cli);
     // A panic leaves a report in the data folder (`crash`).
     infra::crash::install(infra::logging::Program::Cli);
@@ -42,7 +42,7 @@ fn main() {
     let report = match tool::parse(&args, &cwd) {
         Ok(Invocation::Help) => Report { out: Some(tool::USAGE.to_string()), ..Report::ok() },
         Ok(Invocation::Version) => {
-            Report { out: Some(format!("pullbay-cli {}", env!("CARGO_PKG_VERSION"))), ..Report::ok() }
+            Report { out: Some(format!("udm-cli {}", env!("CARGO_PKG_VERSION"))), ..Report::ok() }
         }
         Ok(invocation) => run(invocation),
         Err(e) => Report::usage(&e),
@@ -79,7 +79,7 @@ fn run(invocation: Invocation) -> Report {
             if json {
                 match tool::json(&listing) {
                     Ok(text) => Report { out: Some(text), ..Report::ok() },
-                    Err(e) => Report { code: exit::FAILED, out: None, err: Some(format!("pullbay-cli: {e}")) },
+                    Err(e) => Report { code: exit::FAILED, out: None, err: Some(format!("udm-cli: {e}")) },
                 }
             } else {
                 Report { out: Some(tool::table(&listing)), ..Report::ok() }

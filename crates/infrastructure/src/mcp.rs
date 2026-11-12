@@ -1,4 +1,4 @@
-//! `pullbay-mcp`'s side of the Model Context Protocol: JSON-RPC 2.0 over
+//! `udm-mcp`'s side of the Model Context Protocol: JSON-RPC 2.0 over
 //! standard input and output, one message a line, as AI assistants (Claude
 //! Desktop, Claude Code, Cursor, VS Code) start a local MCP server.
 //!
@@ -6,7 +6,7 @@
 //! `ping`, `tools/list` and `tools/call`, and takes the client's
 //! notifications (`notifications/initialized`, `notifications/cancelled`)
 //! without answering them. Each tool's arguments become a
-//! `pullbay_application::remote::Request` for the `Tools` port, and its
+//! `udm_application::remote::Request` for the `Tools` port, and its
 //! `Reply` becomes the tool's result, as text and as structured content.
 //!
 //! Standard output carries the protocol alone; the program logs to its file.
@@ -16,19 +16,19 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
 
-use pullbay_application::remote::{AddRequest, RemoteError, Reply, Request, Resumed, Tools, Which};
-use pullbay_domain::address::Address;
-use pullbay_domain::download::{DownloadEntry, Status};
-use pullbay_domain::filename::FileName;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::queue::Queue;
+use udm_application::remote::{AddRequest, RemoteError, Reply, Request, Resumed, Tools, Which};
+use udm_domain::address::Address;
+use udm_domain::download::{DownloadEntry, Status};
+use udm_domain::filename::FileName;
+use udm_domain::id::DownloadId;
+use udm_domain::queue::Queue;
 
 /// The protocol versions this server speaks, the newest first. A client
 /// asking for one of them gets it; any other gets the newest.
 pub const PROTOCOL_VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// What the server calls itself.
-const NAME: &str = "pullbay-mcp";
+const NAME: &str = "udm-mcp";
 
 /// The first version with tool annotations, and the first with tool titles
 /// and structured results.
@@ -42,9 +42,9 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 
 /// What the assistant is told about the server when it connects.
-const INSTRUCTIONS: &str = "Pullbay is the user's download manager. These tools list its downloads and queues, \
+const INSTRUCTIONS: &str = "UDM is the user's download manager. These tools list its downloads and queues, \
 add links (to start now or to wait in a queue), pause and resume downloads, take them out of the list and start \
-or stop queues. Downloads go on in Pullbay after a tool returns; call list_downloads to see how they are doing. \
+or stop queues. Downloads go on in UDM after a tool returns; call list_downloads to see how they are doing. \
 Download ids come from list_downloads or add_download. Never delete a downloaded file unless the user has \
 confirmed it in this conversation.";
 
@@ -139,7 +139,7 @@ impl<'t, T: Tools> Server<'t, T> {
         json!({
             "protocolVersion": self.protocol,
             "capabilities": { "tools": { "listChanged": false } },
-            "serverInfo": { "name": NAME, "title": "Pullbay", "version": self.version },
+            "serverInfo": { "name": NAME, "title": "UDM", "version": self.version },
             "instructions": INSTRUCTIONS,
         })
     }
@@ -198,7 +198,7 @@ fn refusal(e: &RemoteError) -> String {
     match e {
         RemoteError::NoDownload(_) => format!("{e}. Call list_downloads for the ids."),
         RemoteError::NoQueue(_) => format!("{e}. Call list_downloads for the queues."),
-        RemoteError::Connect(_) => format!("{e}. Pullbay may not be installed next to pullbay-mcp."),
+        RemoteError::Connect(_) => format!("{e}. UDM may not be installed next to udm-mcp."),
         _ => e.to_string(),
     }
 }
@@ -219,7 +219,7 @@ const TOOLS: [Tool; 7] = [
     Tool {
         name: "list_downloads",
         title: "List downloads",
-        description: "List Pullbay's downloads (id, file name, status, bytes done and in all, address, saved path, \
+        description: "List UDM's downloads (id, file name, status, bytes done and in all, address, saved path, \
 error) and its queues (id, name, whether started, the download ids in it). Optionally only the downloads with one \
 status.",
         schema: list_schema,
@@ -230,9 +230,9 @@ status.",
     Tool {
         name: "add_download",
         title: "Add a download",
-        description: "Add a link (an http, https, ftp or ftps address) to Pullbay. Without a queue it starts now; \
+        description: "Add a link (an http, https, ftp or ftps address) to UDM. Without a queue it starts now; \
 with a queue it waits there until the queue starts. No dialog is shown. If the address is in the list already, it \
-is downloaded again under a numbered name. Returns the new download's id; the download goes on in Pullbay, so \
+is downloaded again under a numbered name. Returns the new download's id; the download goes on in UDM, so \
 call list_downloads to follow it.",
         schema: add_schema,
         read_only: false,
@@ -263,7 +263,7 @@ id, which the result gives.",
     Tool {
         name: "remove_download",
         title: "Remove a download",
-        description: "Take a download out of Pullbay's list. A running download cannot be removed; pause it first. \
+        description: "Take a download out of UDM's list. A running download cannot be removed; pause it first. \
 Its file stays on disk unless delete_files is true, which moves the downloaded file to the Recycle Bin or trash. \
 Never set delete_files to true unless the user has explicitly confirmed, in this conversation, that the file \
 itself should be deleted: ask them first, naming the file.",
@@ -275,7 +275,7 @@ itself should be deleted: ask them first, naming the file.",
     Tool {
         name: "start_queue",
         title: "Start a queue",
-        description: "Start one of Pullbay's queues, so its waiting downloads run. Give the queue's name or id; \
+        description: "Start one of UDM's queues, so its waiting downloads run. Give the queue's name or id; \
 without one, the main queue starts.",
         schema: queue_schema,
         read_only: false,
@@ -285,7 +285,7 @@ without one, the main queue starts.",
     Tool {
         name: "stop_queue",
         title: "Stop a queue",
-        description: "Stop one of Pullbay's queues, pausing the downloads it runs. Give the queue's name or id; \
+        description: "Stop one of UDM's queues, pausing the downloads it runs. Give the queue's name or id; \
 without one, the main queue stops.",
         schema: queue_schema,
         read_only: false,
@@ -314,7 +314,7 @@ fn list_schema() -> Value {
                 "type": "string",
                 "enum": statuses,
                 "description": "Only downloads with this status. queued and downloading are running; canceled is \
-    paused; waiting is in a queue; confirming waits for the save-as dialog; interrupted was running when Pullbay \
+    paused; waiting is in a queue; confirming waits for the save-as dialog; interrupted was running when UDM \
     stopped.",
             },
         },
@@ -327,7 +327,7 @@ fn add_schema() -> Value {
             "url": { "type": "string", "description": "The address to download: http, https, ftp or ftps." },
             "folder": {
                 "type": "string",
-                "description": "The folder to save in, a full path. Without it, Pullbay's settings pick the \
+                "description": "The folder to save in, a full path. Without it, UDM's settings pick the \
     folder by the file's type.",
             },
             "filename": { "type": "string", "description": "The name to save the file as. Without it, the \
@@ -584,9 +584,9 @@ fn queue_json(q: &Queue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_application::daemon::Failure;
-    use pullbay_application::remote::{Added, Listing};
-    use pullbay_domain::id::QueueId;
+    use udm_application::daemon::Failure;
+    use udm_application::remote::{Added, Listing};
+    use udm_domain::id::QueueId;
 
     /// Tools that record each request and answer it with `answer`.
     struct Recorder {
@@ -671,7 +671,7 @@ mod tests {
         let init = &answers[0];
         assert_eq!(init["id"], 0);
         assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
-        assert_eq!(init["result"]["serverInfo"]["name"], "pullbay-mcp");
+        assert_eq!(init["result"]["serverInfo"]["name"], "udm-mcp");
         assert_eq!(init["result"]["serverInfo"]["version"], "1.2.3");
         assert!(init["result"]["capabilities"]["tools"].is_object());
 

@@ -15,10 +15,10 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use pullbay_domain::download::Scan;
-use pullbay_domain::settings::Scanner;
+use udm_domain::download::Scan;
+use udm_domain::settings::Scanner;
 
-use pullbay_domain::command::{parse_command, PATH_TOKEN};
+use udm_domain::command::{parse_command, PATH_TOKEN};
 /// A scan that runs longer than this is stopped and counts as failed.
 const SCAN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const POLL: Duration = Duration::from_millis(200);
@@ -31,7 +31,7 @@ pub enum ScanError {
     #[error("Microsoft Defender is only on Windows. Choose a scanner program such as clamscan.")]
     DefenderNotHere,
     #[error(transparent)]
-    Command(#[from] pullbay_domain::command::CommandError),
+    Command(#[from] udm_domain::command::CommandError),
 }
 
 /// The program and arguments that scan `file`.
@@ -134,8 +134,8 @@ fn tail(output: &str) -> String {
 /// The `VirusScanner` adapter: runs the scanner the settings name.
 pub struct Antivirus;
 
-impl pullbay_domain::ports::VirusScanner for Antivirus {
-    fn scan(&self, settings: &pullbay_domain::settings::Settings, path: &Path) -> Scan {
+impl udm_domain::ports::VirusScanner for Antivirus {
+    fn scan(&self, settings: &udm_domain::settings::Settings, path: &Path) -> Scan {
         scan(settings.scanner, &settings.scanner_command, path)
     }
 }
@@ -143,7 +143,7 @@ impl pullbay_domain::ports::VirusScanner for Antivirus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::command::with_program;
+    use udm_domain::command::with_program;
 
     #[test]
     fn a_chosen_program_keeps_the_arguments() {
@@ -181,11 +181,11 @@ mod tests {
     }
 
     /// Runs real programs: `cmd.exe` (or `sh`) stands in for a scanner, so
-    /// the test can pick the exit code. (Pullbay itself never runs a scanner
+    /// the test can pick the exit code. (UDM itself never runs a scanner
     /// through a shell.)
     #[test]
     fn runs_a_scanner_and_reads_its_exit_code() {
-        let file = std::env::temp_dir().join("pullbay scan test.txt");
+        let file = std::env::temp_dir().join("udm scan test.txt");
         std::fs::write(&file, b"x").unwrap();
         #[cfg(windows)]
         let run = |code: u8| {

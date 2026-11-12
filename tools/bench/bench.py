@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Download the same file several times with Pullbay and other download
+"""Download the same file several times with UDM and other download
 managers, against a local server that can inject faults, and record how long
 each took and how much CPU it used.
 
     python3 tools/bench/bench.py list
-    python3 tools/bench/bench.py run --tools pullbay,curl --runs 5
+    python3 tools/bench/bench.py run --tools udm,curl --runs 5
     python3 tools/bench/bench.py report docs/bench/results/<run folder>
 
 Every tool runs at its own default settings. `run` writes the raw data
@@ -258,18 +258,18 @@ class Command(Tool):
         return Got(run_program(cmd, timeout, cwd=folder), path)
 
 
-class Pullbay(Tool):
-    """`pullbay-cli get`, through a daemon of its own: a separate copy
-    (PULLBAY_INSTANCE=bench) with its settings and data in a scratch folder,
+class UDM(Tool):
+    """`udm-cli get`, through a daemon of its own: a separate copy
+    (UDM_INSTANCE=bench) with its settings and data in a scratch folder,
     so the installed copy's list and settings are left alone. Its CPU time
     is the tool's plus the daemon's while the download ran."""
 
-    name = "pullbay"
+    name = "udm"
     INSTANCE = "bench"
 
     def __init__(self, bin_dir: Path):
-        self.cli = bin_dir / exe("pullbay-cli")
-        self.daemon_exe = bin_dir / exe("pullbay-daemon")
+        self.cli = bin_dir / exe("udm-cli")
+        self.daemon_exe = bin_dir / exe("udm-daemon")
         self.bin_dir = bin_dir
         self.daemon: subprocess.Popen | None = None
         self.scratch: Path | None = None
@@ -278,7 +278,7 @@ class Pullbay(Tool):
     def missing(self):
         for p in (self.cli, self.daemon_exe):
             if not p.is_file():
-                return f"{p} not found (cargo build --release, or pass --pullbay-bin)"
+                return f"{p} not found (cargo build --release, or pass --udm-bin)"
         return None
 
     def version(self):
@@ -298,7 +298,7 @@ class Pullbay(Tool):
 
     def folders(self) -> tuple[Path, Path]:
         """This copy's settings and data folders (paths::config_dir, data_dir)."""
-        own = ("Pullbay" if WINDOWS or MACOS else "pullbay") + "-" + self.INSTANCE
+        own = ("UDM" if WINDOWS or MACOS else "udm") + "-" + self.INSTANCE
         portable = self.portable_root()
         if portable:
             data = portable / f"Data-{self.INSTANCE}"
@@ -311,9 +311,9 @@ class Pullbay(Tool):
         return Path(self.env["XDG_CONFIG_HOME"]) / own, Path(self.env["XDG_DATA_HOME"]) / own
 
     def setup(self):
-        self.scratch = Path(tempfile.mkdtemp(prefix="pullbay-bench-"))
+        self.scratch = Path(tempfile.mkdtemp(prefix="udm-bench-"))
         env = dict(os.environ)
-        env["PULLBAY_INSTANCE"] = self.INSTANCE
+        env["UDM_INSTANCE"] = self.INSTANCE
         if WINDOWS:
             env["APPDATA"] = str(self.scratch / "Roaming")
             env["LOCALAPPDATA"] = str(self.scratch / "Local")
@@ -333,7 +333,7 @@ class Pullbay(Tool):
             settings = {}
         settings["notify"] = "off"
         settings_file.write_text(json.dumps(settings, indent=2))
-        log = data / "pullbay-daemon.log"
+        log = data / "udm-daemon.log"
         seen = log.stat().st_size if log.exists() else 0
         self.daemon = subprocess.Popen(
             [str(self.daemon_exe)],
@@ -346,7 +346,7 @@ class Pullbay(Tool):
         while time.monotonic() < deadline:
             if self.daemon.poll() is not None:
                 raise SystemExit(
-                    "pullbay-daemon exited at once: another copy named "
+                    "udm-daemon exited at once: another copy named "
                     f"'{self.INSTANCE}' may be running (see {log})"
                 )
             if log.exists():
@@ -355,7 +355,7 @@ class Pullbay(Tool):
                     if b"daemon started" in f.read():
                         return
             time.sleep(0.1)
-        raise SystemExit(f"pullbay-daemon did not start within 20 s (see {log})")
+        raise SystemExit(f"udm-daemon did not start within 20 s (see {log})")
 
     def download(self, url, folder, name, size, timeout):
         assert self.daemon is not None
@@ -468,7 +468,7 @@ class Idm(Tool):
 
 def make_tools(args) -> dict[str, Tool]:
     tools: dict[str, Tool] = {
-        "pullbay": Pullbay(Path(args.pullbay_bin).resolve()),
+        "udm": UDM(Path(args.udm_bin).resolve()),
         "idm": Idm(args.idm),
         "aria2c": Command(
             "aria2c", ["aria2c", "--quiet=true", "--dir={folder}", "--out={name}", "{url}"], ["aria2c", "--version"]
@@ -585,7 +585,7 @@ def run(args) -> int:
     try:
         for t in tools:
             t.setup()
-        # After the set-up, so Pullbay's version comes from the bench copy.
+        # After the set-up, so UDM's version comes from the bench copy.
         info = machine(tools, args, size, scenarios)
         info["file_sha256"] = expected
         (out / "machine.json").write_text(json.dumps(info, indent=2) + "\n")
@@ -738,7 +738,7 @@ PALETTE = ["#2f6db5", "#d9822b", "#3a9a5b", "#8e5bb5", "#c2464f", "#5a6b7d"]
 def chart_svg(summary: list[dict]) -> str:
     """Median time per scenario, one bar per tool; each scenario has its own
     scale, since their times differ by far."""
-    tools = sorted({s["tool"] for s in summary}, key=lambda t: (t != "pullbay", t != "idm", t))
+    tools = sorted({s["tool"] for s in summary}, key=lambda t: (t != "udm", t != "idm", t))
     scenarios = list(dict.fromkeys(s["scenario"] for s in summary))
     by = {(s["scenario"], s["tool"]): s for s in summary}
     width, left, right, bar, gap, head = 760, 120, 130, 18, 4, 28
@@ -807,9 +807,9 @@ def main() -> int:
 
     def tool_options(p):
         p.add_argument(
-            "--pullbay-bin",
+            "--udm-bin",
             default=str(REPO / "target" / "release"),
-            help="folder with pullbay-cli and pullbay-daemon (default: target/release)",
+            help="folder with udm-cli and udm-daemon (default: target/release)",
         )
         p.add_argument("--idm", help="IDMan.exe (default: found from IDM's registry key)")
         p.add_argument(
@@ -825,7 +825,7 @@ def main() -> int:
 
     p = sub.add_parser("run", help="run the benchmark")
     tool_options(p)
-    p.add_argument("--tools", default="pullbay", help="comma-separated tools (default: pullbay)")
+    p.add_argument("--tools", default="udm", help="comma-separated tools (default: udm)")
     p.add_argument("--scenarios", help="comma-separated scenarios (default: all)")
     p.add_argument("--size", type=parse_size, default=parse_size("64M"), help="file size (default 64M)")
     p.add_argument("--runs", type=int, default=5, help="runs per tool and scenario (default 5)")

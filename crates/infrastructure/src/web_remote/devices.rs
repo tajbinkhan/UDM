@@ -9,10 +9,10 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-use pullbay_domain::pairing::{Device, DeviceSecret, Verifier, RANDOM_BYTES};
-use pullbay_domain::ports::{DevicesError, PairedDevices, PairingKeys};
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
+use udm_domain::pairing::{Device, DeviceSecret, Verifier, RANDOM_BYTES};
+use udm_domain::ports::{DevicesError, PairedDevices, PairingKeys};
 
 use super::certificate::write_private_atomic;
 use crate::dpapi;
@@ -62,7 +62,7 @@ impl PairedDevices for DeviceFile {
         let saved: Saved = serde_json::from_slice(&plain)
             .map_err(|e| failed("read", format!("line {} column {}", e.line(), e.column())))?;
         if saved.version > VERSION {
-            return Err(failed("read", format!("the file is from a newer Pullbay (format {})", saved.version)));
+            return Err(failed("read", format!("the file is from a newer UDM (format {})", saved.version)));
         }
         Ok(saved.devices)
     }
@@ -100,11 +100,11 @@ impl PairingKeys for OsKeys {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::id::DeviceId;
-    use pullbay_domain::pairing::DeviceName;
+    use udm_domain::id::DeviceId;
+    use udm_domain::pairing::DeviceName;
 
     fn temp_path(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pullbay-devices-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm-devices-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir.join("remote").join("devices.bin")
     }

@@ -7,14 +7,14 @@ the window as soon as you save.
 
 | Theme | What it looks like |
 |---|---|
-| **Follow Windows** | Light or Dark, as Windows' app mode is. While Windows' contrast theme is on (Settings > Accessibility > Contrast themes), Pullbay takes its colors instead. |
+| **Follow Windows** | Light or Dark, as Windows' app mode is. While Windows' contrast theme is on (Settings > Accessibility > Contrast themes), UDM takes its colors instead. |
 | **Light** | Dark text on white. |
 | **Dark** | Light text on near black. |
 | **High contrast** | Windows' contrast theme colors while one is on. Otherwise white on black, white edges twice as wide as usual, a yellow edge on the control under the mouse, and selections in a blue that white text reads on. Every color reads at 7:1 or better against what it is drawn on. |
 
 macOS and Linux have no contrast colors that every program takes, so there
 **Follow Windows** follows only the light or dark mode, and **High contrast**
-is always Pullbay's own.
+is always UDM's own.
 
 ## Interface size
 
@@ -23,7 +23,7 @@ window grows with it: text, buttons, the download list, the toolbar and every
 dialog. Ctrl+Plus and Ctrl+Minus zoom the window for a while without changing
 the setting; the setting takes over again when it or the theme changes.
 
-At a large size the screen holds fewer points, so Pullbay keeps things
+At a large size the screen holds fewer points, so UDM keeps things
 reachable:
 
 - the main window's smallest size is never more than 90% of the screen,
@@ -35,17 +35,17 @@ reachable:
 ## Making your own theme
 
 A theme is a small text file whose name ends in `.theme`, in the `themes`
-folder beside Pullbay's settings:
+folder beside UDM's settings:
 
 | System | Folder |
 |---|---|
-| Windows | `%APPDATA%\Pullbay\themes` |
-| macOS | `~/Library/Application Support/Pullbay/themes` |
-| Linux | `~/.config/pullbay/themes` (or `$XDG_CONFIG_HOME/pullbay/themes`) |
+| Windows | `%APPDATA%\UDM\themes` |
+| macOS | `~/Library/Application Support/UDM/themes` |
+| Linux | `~/.config/udm/themes` (or `$XDG_CONFIG_HOME/udm/themes`) |
 | Portable copy | `Data\themes` beside the programs |
 
 **Options > General > Open themes folder** makes the folder if it is missing
-and opens it. Pullbay looks at the folder every two seconds, so a new or
+and opens it. UDM looks at the folder every two seconds, so a new or
 changed file shows in the Theme list within seconds, and a theme in use
 changes as you save its file.
 

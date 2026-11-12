@@ -1,4 +1,4 @@
-//! Pullbay: a download manager rebuilt in Rust.
+//! UDM: a download manager rebuilt in Rust.
 //!
 //! - `protocol`: message types and the length-prefixed JSON framing shared by
 //!   browser <-> host and host <-> daemon.
@@ -34,9 +34,9 @@
 //! - `probes`, `browser_bridge`, `crawler`: the `Probes`, `Browser` and
 //!   `SiteCrawler` adapters (asking servers, the browser extension, and
 //!   crawling for the site grabber).
-//! - `tool`: `pullbay-cli`'s command line, what it prints and its exit codes.
-//! - `daemon_args`: `pullbay-daemon`'s command line (`--server` and its folders).
-//! - `mcp`: `pullbay-mcp`'s Model Context Protocol server over standard
+//! - `tool`: `udm-cli`'s command line, what it prints and its exit codes.
+//! - `daemon_args`: `udm-daemon`'s command line (`--server` and its folders).
+//! - `mcp`: `udm-mcp`'s Model Context Protocol server over standard
 //!   input and output, and its tools.
 //! - `background`: the daemon's background threads (scheduler, history
 //!   writer, notifications, awake keeper, idle exit).
@@ -62,7 +62,7 @@ pub mod dpapi;
 pub mod elevate;
 pub mod engine;
 pub mod files;
-pub mod from_uidm;
+pub mod from_old_names;
 pub mod front;
 pub mod grab;
 pub mod hash;

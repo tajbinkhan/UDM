@@ -64,10 +64,10 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
   };
   const chrome = {
     runtime: {
-      id: "pullbay",
+      id: "udm",
       connectNative: () => port,
       getManifest: () => ({ ...(firefox ? firefoxManifest() : chromeManifest()), version: "test" }),
-      getURL: (path) => (firefox ? `moz-extension://0b1c/${path}` : `chrome-extension://pullbay/${path}`),
+      getURL: (path) => (firefox ? `moz-extension://0b1c/${path}` : `chrome-extension://udm/${path}`),
       onMessage: event(),
       onInstalled: event(),
       lastError: null,
@@ -221,13 +221,13 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
   }
   const popupUrl = chrome.runtime.getURL("popup.html");
   const popup = (msg) =>
-    new Promise((resolve) => chrome.runtime.onMessage.fire(msg, { id: "pullbay", url: popupUrl }, resolve));
+    new Promise((resolve) => chrome.runtime.onMessage.fire(msg, { id: "udm", url: popupUrl }, resolve));
   // A message from the content script in tab `tabId`, on page `url`, from
   // its frame at `frameUrl` (the page itself unless given).
   // `incognito` makes the tab a private window's.
   const content = (msg, tabId, url = "https://site.net/watch", frameUrl = url, incognito = false) =>
     new Promise((resolve) =>
-      chrome.runtime.onMessage.fire(msg, { id: "pullbay", tab: { id: tabId, url, incognito }, url: frameUrl }, resolve),
+      chrome.runtime.onMessage.fire(msg, { id: "udm", tab: { id: tabId, url, incognito }, url: frameUrl }, resolve),
     );
   return { port, sent, browserCalls, chrome, popup, content };
 }

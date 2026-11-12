@@ -1,4 +1,4 @@
-# Building Pullbay
+# Building UDM
 
 Where the code lives, how to build and package it, and how to add a language.
 
@@ -21,16 +21,16 @@ differs.
 | `crates/infrastructure/src/transfers.rs`, `probes.rs`, `connect.rs` | The engine's adapter in the daemon, server probes, and the proxy and logins a download uses |
 | `crates/infrastructure/src/net.rs`, `pac.rs`, `ntlm.rs` | Proxies, PAC scripts, site logins and HTTP authentication |
 | `crates/infrastructure/src/grab.rs`, `crawler.rs` | The site grabber's crawl and `robots.txt`, and its project files |
-| `crates/infrastructure/src/paths.rs`, `logging.rs` | Every folder Pullbay uses, and the log files |
+| `crates/infrastructure/src/paths.rs`, `logging.rs` | Every folder UDM uses, and the log files |
 | `crates/infrastructure/src/dpapi.rs`, `registry.rs`, `autostart.rs`, `browsers.rs` | Sealing saved requests and passwords, registry values, start at sign-in, and registering the host with each browser |
 | `crates/infrastructure/src/notify.rs`, `scan.rs`, `power.rs`, `update.rs` | Notifications and sounds, virus scans, sleep and shut down, the update check |
-| `crates/infrastructure/src/listfile.rs`, `from_uidm.rs` | Exporting and importing the download list; moving UIDM's files over |
+| `crates/infrastructure/src/listfile.rs`, `from_old_names.rs` | Exporting and importing the download list; moving the files of UDM's earlier names, Pullbay and UIDM, over |
 | `crates/ui/src/` | The window: its state and messages (`state.rs`), views, dialogs, tray icon (`tray.rs`), tools for many downloads (`tools.rs`), and translations (`i18n.rs`, `lang/`) |
-| `crates/app/src/bin/pullbay-daemon.rs` | Daemon: wires the adapters into the service, starts the background threads and serves clients |
-| `crates/app/src/bin/pullbay-gui.rs` | Desktop window: builds its adapters and starts `pullbay-ui` |
-| `crates/app/src/bin/pullbay-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
-| `crates/app/src/bin/pullbay-cli.rs`, `crates/application/src/remote/`, `crates/infrastructure/src/tool.rs` | The command-line tool: its wiring, its commands (use cases over the daemon connection), and its arguments, output and exit codes |
-| `crates/app/src/bin/pullbay-mcp.rs`, `crates/application/src/remote/assistant.rs`, `crates/infrastructure/src/mcp.rs` | The AI assistants' MCP server: its wiring, the requests it runs on one daemon connection, and the protocol and its tools |
+| `crates/app/src/bin/udm-daemon.rs` | Daemon: wires the adapters into the service, starts the background threads and serves clients |
+| `crates/app/src/bin/udm-gui.rs` | Desktop window: builds its adapters and starts `udm-ui` |
+| `crates/app/src/bin/udm-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
+| `crates/app/src/bin/udm-cli.rs`, `crates/application/src/remote/`, `crates/infrastructure/src/tool.rs` | The command-line tool: its wiring, its commands (use cases over the daemon connection), and its arguments, output and exit codes |
+| `crates/app/src/bin/udm-mcp.rs`, `crates/application/src/remote/assistant.rs`, `crates/infrastructure/src/mcp.rs` | The AI assistants' MCP server: its wiring, the requests it runs on one daemon connection, and the protocol and its tools |
 | `extension/` | MV3 extension: capture, context menu, popup |
 | `extension/_locales/` | The extension's text in each language |
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
@@ -41,18 +41,18 @@ differs.
 | `extension/media.js` | Which responses are videos and streams, per tab, and the video menu |
 | `extension/content.js` | The video button over playing videos |
 | `extension/test/` | Node tests for the rules and the service worker |
-| `assets/icon.svg` | The app icon's source; `installer/render-icons.js` renders every icon file below from it |
-| `assets/icon-64.rgba` | Window and tray icon, raw RGBA rendered from `assets/icon.svg` |
-| `host/com.pullbay.host.json` | Template of the native-messaging manifest |
+| `assets/icon-1024.png` | The app icon's source, 1024 pixels square with a transparent background; `installer/render-icons.js` renders every other icon file from it, and the macOS disk image uses it as is |
+| `assets/icon-64.rgba` | Window and tray icon, raw RGBA rendered from `assets/icon-1024.png` |
+| `host/com.udm.host.json` | Template of the native-messaging manifest |
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
-| `installer/pullbay.iss` | Inno Setup script for `Pullbay-Setup-<version>.exe` |
+| `installer/udm.iss` | Inno Setup script for `UDM-Setup-<version>.exe` |
 | `installer/build.ps1` | Builds the programs and the installer into `dist\` |
 | `installer/linux/` | `package.sh` (the `.deb`, `.rpm`, AppImage and `.tar.gz`), the tarball's `install.sh`, the AppImage's `AppRun` and the desktop entry |
 | `installer/macos/package.sh` | Builds the universal `.dmg` |
 | `installer/make-firefox.ps1` | Makes the Firefox copy of the extension, or with `-Check` tells whether one is out of date |
 | `installer/make-firefox.js` | The same for macOS and Linux, with `--check` |
-| `installer/render-icons.js` | Renders `assets/icon.svg` to the extension's PNGs, `assets/icon-256.png`, `assets/icon-1024.png` and `assets/icon-64.rgba` with headless Chrome |
-| `installer/pullbay.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
+| `installer/render-icons.js` | Renders `assets/icon-1024.png` to the extension's PNGs, `assets/icon-256.png` and `assets/icon-64.rgba` with headless Chrome |
+| `installer/udm.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
 | `docs/adr/` | Architecture decisions |
 | `GLOSSARY.md` | The names of the windows and dialogs |
 
@@ -82,13 +82,13 @@ cargo build --release
 node --test extension/test/*.test.js
 ```
 
-To try a build next to the installed Pullbay, give it a name in
-`PULLBAY_INSTANCE`. That copy keeps its settings and list in `Pullbay-<name>`
+To try a build next to the installed UDM, give it a name in
+`UDM_INSTANCE`. That copy keeps its settings and list in `UDM-<name>`
 folders, runs its daemon on a port of its own, and shows the name in the
 window's title. It does not end other daemons when it restarts its own.
 
 ```powershell
-$env:PULLBAY_INSTANCE = "test"; .\target\debug\pullbay-gui.exe
+$env:UDM_INSTANCE = "test"; .\target\debug\udm-gui.exe
 ```
 
 A string the window shows needs its translation in every table in
@@ -96,7 +96,7 @@ A string the window shows needs its translation in every table in
 `crates/ui/src/lang/untranslated.json` lists the strings that were untranslated before
 that test came in, and an entry leaves the list once it is translated.
 
-GitHub Actions builds and tests Pullbay on Windows, macOS and Linux on every
+GitHub Actions builds and tests UDM on Windows, macOS and Linux on every
 push and pull request (`.github/workflows/build.yml`), and the extension's
 tests with Node. Those runs keep no files.
 
@@ -126,7 +126,7 @@ git push origin v0.4.0
 It builds every file in the table under [Install](install.md) on Windows,
 macOS and Linux runners and attaches them to a new GitHub Release for that
 tag. Release files don't count against the repository's storage (each may be
-up to 2 GB), and Pullbay's update check reads the latest release. The build
+up to 2 GB), and UDM's update check reads the latest release. The build
 files are kept as artifacts for one day only, to hand them from the
 builders to the release. Starting the workflow by hand
 (**Actions > Release > Run workflow**) builds the same files without a
@@ -139,7 +139,7 @@ To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php
 .\installer\build.ps1
 ```
 
-It builds the release programs and writes `dist\Pullbay-Setup-<version>.exe`,
+It builds the release programs and writes `dist\UDM-Setup-<version>.exe`,
 with the version from `Cargo.toml`. Pass `-SkipBuild` when `target\release`
 is already current.
 
@@ -148,8 +148,8 @@ The Rust tests also run on Linux under Wine, cross-compiled with
 `CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=wine` (needs the `mingw-w64` and
 `wine64` packages).
 
-`cargo build --release` produces `pullbay-host.exe`, `pullbay-daemon.exe`,
-`pullbay-gui.exe`, `pullbay-cli.exe` and `pullbay-mcp.exe` in `target\release`. The
+`cargo build --release` produces `udm-host.exe`, `udm-daemon.exe`,
+`udm-gui.exe`, `udm-cli.exe` and `udm-mcp.exe` in `target\release`. The
 host, the window, the command-line tool and the MCP server start the daemon from
 their own folder, so keep them together. The window renders through
 OpenGL, which needs a working graphics driver.
@@ -157,7 +157,7 @@ OpenGL, which needs a working graphics driver.
 To run one download without the browser, window or daemon:
 
 ```bash
-cargo run --release --bin pullbay-host -- download https://example.com/file.zip
+cargo run --release --bin udm-host -- download https://example.com/file.zip
 ```
 
 ### Adding a language

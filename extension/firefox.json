@@ -3,7 +3,7 @@
     "permissions": [ "nativeMessaging", "downloads", "cookies", "contextMenus", "storage", "webRequest", "webRequestBlocking", "webNavigation", "proxy", "scripting", "notifications" ],
     "browser_specific_settings": {
         "gecko": {
-            "id": "pullbay@pullbay.local",
+            "id": "udm@udm.local",
             "strict_min_version": "128.0",
             "data_collection_permissions": { "required": [ "none" ] }
         }

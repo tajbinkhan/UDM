@@ -1,5 +1,5 @@
-use pullbay_domain::pairing::{PairingCode, PairingError, Pairings, PendingPairing};
-use pullbay_domain::ports::PairingKeys;
+use udm_domain::pairing::{PairingCode, PairingError, Pairings, PendingPairing};
+use udm_domain::ports::PairingKeys;
 
 /// Show a new pairing code in the window, in place of any shown before:
 /// Options' Pair a phone button.
@@ -23,7 +23,7 @@ impl<'a, K: PairingKeys + ?Sized> StartPairing<'a, K> {
 mod tests {
     use super::*;
     use crate::pairing::tests::Keys;
-    use pullbay_domain::pairing::PAIRING_LIFETIME;
+    use udm_domain::pairing::PAIRING_LIFETIME;
 
     #[test]
     fn each_pairing_gets_a_fresh_code_that_runs_out() {

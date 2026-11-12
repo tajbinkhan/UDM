@@ -1,11 +1,11 @@
-//! What an AI assistant can ask of Pullbay through `pullbay-mcp`: each
+//! What an AI assistant can ask of UDM through `udm-mcp`: each
 //! request is one of the remote use cases, run on a connection to the
 //! daemon that stays open between requests.
 
 use std::time::Duration;
 
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::queue::Queue;
+use udm_domain::id::DownloadId;
+use udm_domain::queue::Queue;
 
 use super::{
     AddLink, AddRequest, Added, ControlQueue, ForgetDownload, ListDownloads, Listing, PauseDownload, RemoteError,
@@ -58,7 +58,7 @@ pub enum Reply {
     },
 }
 
-/// The port an assistant's server (`pullbay-mcp`'s) hands each request to.
+/// The port an assistant's server (`udm-mcp`'s) hands each request to.
 pub trait Tools {
     fn run(&mut self, request: Request) -> Result<Reply, RemoteError>;
 }
@@ -128,11 +128,11 @@ mod tests {
     use super::*;
     use crate::daemon::{Command, Event, Failure, Lost};
     use crate::memory::{row, FakeDaemon};
-    use pullbay_domain::address::Address;
-    use pullbay_domain::download::Status;
-    use pullbay_domain::id::QueueId;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use udm_domain::address::Address;
+    use udm_domain::download::Status;
+    use udm_domain::id::QueueId;
 
     const WAIT: Duration = Duration::from_secs(5);
 

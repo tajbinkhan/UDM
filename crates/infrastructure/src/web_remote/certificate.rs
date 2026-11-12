@@ -128,8 +128,8 @@ impl Certificate {
         let signer = Key { signer: rsa::pkcs1v15::SigningKey::new(private), public };
 
         let mut params = rcgen::CertificateParams::new(names.to_vec()).map_err(|e| make(&e))?;
-        params.distinguished_name.push(rcgen::DnType::CommonName, "Pullbay remote control");
-        params.distinguished_name.push(rcgen::DnType::OrganizationName, "Pullbay");
+        params.distinguished_name.push(rcgen::DnType::CommonName, "UDM remote control");
+        params.distinguished_name.push(rcgen::DnType::OrganizationName, "UDM");
         params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
         params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature, rcgen::KeyUsagePurpose::KeyEncipherment];
         let mut serial = [0u8; 16];
@@ -193,7 +193,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pullbay-cert-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm-cert-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }

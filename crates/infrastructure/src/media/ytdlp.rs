@@ -10,25 +10,25 @@
 //! A playlist or channel page lists its videos instead (`--flat-playlist`,
 //! so each video's page is not read yet), and the window picks among them.
 //!
-//! yt-dlp is found in Pullbay's tools folder (Options > General installs it
-//! there), on `PATH`, next to Pullbay's programs, or next to ffmpeg.
+//! yt-dlp is found in UDM's tools folder (Options > General installs it
+//! there), on `PATH`, next to UDM's programs, or next to ffmpeg.
 
-use pullbay_domain::bytes::ByteCount;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use udm_domain::bytes::ByteCount;
 
 use serde_json::Value;
 
-use pullbay_domain::media::{
+use udm_domain::media::{
     estimate_size, quality_label, MediaChoice, MediaInfo, MediaKind, MediaOption, Playlist, PlaylistEntry, Target,
     LIVE_REFUSED, MAX_PLAYLIST_ENTRIES,
 };
 
 /// Why a page cannot be read without yt-dlp, in words for the user.
 pub const MISSING: &str =
-    "Videos on YouTube, Facebook, Instagram, Vimeo and other sites need yt-dlp. Install it in Pullbay's Options > General, or put yt-dlp next to Pullbay.";
+    "Videos on YouTube, Facebook, Instagram, Vimeo and other sites need yt-dlp. Install it in UDM's Options > General, or put yt-dlp next to UDM.";
 
 /// How long reading a page with yt-dlp may take before it is given up: a
 /// little less than the extension waits for the answer (60 seconds).
@@ -92,7 +92,7 @@ fn vimeo(u: &url::Url) -> bool {
     }
 }
 
-/// Whether `url` is a video page yt-dlp downloads for Pullbay: a YouTube
+/// Whether `url` is a video page yt-dlp downloads for UDM: a YouTube
 /// watch page, Short or youtu.be link, or a Facebook, Instagram or Vimeo
 /// video.
 pub fn supports(url: &str) -> bool {
@@ -104,8 +104,8 @@ pub fn supports(url: &str) -> bool {
     SITES.iter().any(|(hosts, matches)| hosts.contains(&host.as_str()) && matches(&u))
 }
 
-/// yt-dlp: the one Pullbay installed, else the first on `PATH`, else next
-/// to Pullbay's programs, else next to `ffmpeg`.
+/// yt-dlp: the one UDM installed, else the first on `PATH`, else next
+/// to UDM's programs, else next to `ffmpeg`.
 pub fn find(ffmpeg: Option<&Path>) -> Option<PathBuf> {
     let name = crate::platform::exe_name("yt-dlp");
     let own = crate::paths::tools_dir();
@@ -207,7 +207,7 @@ pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>, timeout: Duration) -
     }
     match serde_json::from_slice::<Value>(&out) {
         Ok(v) => describe(&v),
-        Err(e) => failed(format!("yt-dlp gave an answer Pullbay cannot read: {e}")),
+        Err(e) => failed(format!("yt-dlp gave an answer UDM cannot read: {e}")),
     }
 }
 
@@ -235,10 +235,8 @@ fn playlist(v: &Value) -> Playlist {
         .into_iter()
         .flatten()
         .filter_map(|e| {
-            let url = [s(e, "url"), s(e, "webpage_url")]
-                .into_iter()
-                .flatten()
-                .find(|u| pullbay_domain::batch::is_web_url(u))?;
+            let url =
+                [s(e, "url"), s(e, "webpage_url")].into_iter().flatten().find(|u| udm_domain::batch::is_web_url(u))?;
             Some(PlaylistEntry {
                 url,
                 title: s(e, "title").unwrap_or_default(),
@@ -387,7 +385,7 @@ pub fn describe(v: &Value) -> MediaInfo {
         v.get("formats").and_then(Value::as_array).into_iter().flatten().filter_map(Format::read).collect();
     if all.is_empty() {
         let drm = v.get("formats").and_then(Value::as_array).is_some_and(|f| !f.is_empty());
-        let error = if drm { pullbay_domain::media::DRM_REFUSED } else { "yt-dlp found no video on this page." };
+        let error = if drm { udm_domain::media::DRM_REFUSED } else { "yt-dlp found no video on this page." };
         return MediaInfo { drm, ..MediaInfo::failed(page, error.into()) };
     }
 
@@ -511,10 +509,10 @@ pub fn progress_line(line: &str) -> Option<(u64, Option<u64>)> {
 
 /// What starts the lines `progress_line` reads, and the line naming the
 /// finished file.
-pub const PROGRESS_TAG: &str = "PULLBAY-PROGRESS ";
-pub const DONE_TAG: &str = "Pullbay-FILE ";
+pub const PROGRESS_TAG: &str = "UDM-PROGRESS ";
+pub const DONE_TAG: &str = "UDM-FILE ";
 pub const PROGRESS_TEMPLATE: &str =
-    "download:PULLBAY-PROGRESS %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s";
+    "download:UDM-PROGRESS %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s";
 
 /// `path` as a yt-dlp output template: `%` means something there.
 pub fn literal_template(path: &str) -> String {
@@ -652,15 +650,15 @@ mod tests {
             "137+140-1/137+bestaudio/137/bestvideo*+bestaudio/best"
         );
         assert_eq!(format_spec(&pick(Some("137"), None), false), "best[ext=mp4]/best");
-        let sound = MediaChoice { audio_only: Some(pullbay_domain::media::Target::Mp3), ..pick(None, Some("140")) };
+        let sound = MediaChoice { audio_only: Some(udm_domain::media::Target::Mp3), ..pick(None, Some("140")) };
         assert_eq!(format_spec(&sound, true), "140/bestaudio[ext=m4a]/bestaudio/best");
     }
 
     #[test]
     fn reads_progress_and_complaints() {
-        assert_eq!(progress_line("PULLBAY-PROGRESS 1024 4096 NA"), Some((1024, Some(4096))));
-        assert_eq!(progress_line("PULLBAY-PROGRESS 1024 NA 8000.5"), Some((1024, Some(8000))));
-        assert_eq!(progress_line("PULLBAY-PROGRESS 10 NA NA"), Some((10, None)));
+        assert_eq!(progress_line("UDM-PROGRESS 1024 4096 NA"), Some((1024, Some(4096))));
+        assert_eq!(progress_line("UDM-PROGRESS 1024 NA 8000.5"), Some((1024, Some(8000))));
+        assert_eq!(progress_line("UDM-PROGRESS 10 NA NA"), Some((10, None)));
         assert_eq!(progress_line("[download] 10%"), None);
         let why = complaint("WARNING: x\nERROR: [youtube] abc: Video unavailable\n");
         assert!(why.starts_with("yt-dlp: [youtube] abc: Video unavailable"), "{why}");
@@ -736,7 +734,7 @@ mod tests {
     #[cfg(unix)]
     fn fake_yt_dlp(name: &str, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt as _;
-        let dir = std::env::temp_dir().join(format!("pullbay_fake_ytdlp_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_fake_ytdlp_{}_{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("yt-dlp");
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();

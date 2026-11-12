@@ -1,23 +1,23 @@
-# Pullbay on a server or NAS (docs/server.md). Start it with
+# UDM on a server or NAS (docs/server.md). Start it with
 #
 #   docker compose -f installer/docker/compose.yaml up -d
 #
 # and add downloads with
 #
-#   docker exec pullbay pullbay-cli get https://example.com/file.zip --no-wait
+#   docker exec udm udm-cli get https://example.com/file.zip --no-wait
 #
 # No port is published: the daemon listens on 127.0.0.1 inside the
-# container only, and pullbay-cli reaches it through `docker exec`. The
+# container only, and udm-cli reaches it through `docker exec`. The
 # remote-control page for phones (docs/remote-control.md) is off unless
 # settings.json turns it on; to use it, publish its port below, on the home
-# network only, and pair with `docker exec -it pullbay pullbay-cli pair
+# network only, and pair with `docker exec -it udm udm-cli pair
 # --host <this server's address>`.
 services:
-  pullbay:
-    image: ghcr.io/tajbinkhan/pullbay:latest
+  udm:
+    image: ghcr.io/tajbinkhan/udm:latest
     # Or build it from this checkout:
     # build: ../..
-    container_name: pullbay
+    container_name: udm
     restart: unless-stopped
     # The remote-control page, once "remote_enabled": true is in
     # settings.json. Bind it to the server's home-network address; never
@@ -29,17 +29,17 @@ services:
     # user: "1000:1000"
     volumes:
       # Settings, the download list, the daemon's token and keys.
-      - pullbay-config:/config
+      - udm-config:/config
       # Where downloads go when the settings name no folder.
       - ./downloads:/downloads
     environment:
       # The folders the image uses; change them only together with the
       # volumes above.
-      PULLBAY_CONFIG_DIR: /config
-      PULLBAY_DATA_DIR: /config/data
-      PULLBAY_DOWNLOADS_DIR: /downloads
+      UDM_CONFIG_DIR: /config
+      UDM_DATA_DIR: /config/data
+      UDM_DOWNLOADS_DIR: /downloads
       # The local time zone, for queue schedules.
       TZ: Etc/UTC
 
 volumes:
-  pullbay-config:
+  udm-config:

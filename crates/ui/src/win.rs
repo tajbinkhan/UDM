@@ -186,7 +186,7 @@ pub fn show() {
     raise(hwnd);
 }
 
-/// Whether one of Pullbay's own windows is in front, holding the focus.
+/// Whether one of UDM's own windows is in front, holding the focus.
 pub fn in_front() -> bool {
     // SAFETY: plain calls; a null window has no process.
     unsafe {
@@ -335,7 +335,7 @@ fn find_window(title: &str) -> isize {
 ///
 /// A window hidden with `SW_HIDE` gets no frames, and every dialog is drawn
 /// in the main window's frame, so a save-as or download window could not
-/// open while Pullbay sat in the tray. Instead the window is cloaked: DWM stops
+/// open while UDM sat in the tray. Instead the window is cloaked: DWM stops
 /// drawing it and it takes no clicks, but Windows still counts it visible
 /// and keeps painting it. Minimizing it hands the keyboard to the next
 /// window, and its taskbar button goes.
@@ -520,7 +520,7 @@ mod tests {
             CoInitializeEx, COINIT_APARTMENTTHREADED, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL,
         };
         const CF_HDROP: u16 = 15;
-        let path = std::env::temp_dir().join(format!("pullbay-drag-test-{}.txt", std::process::id()));
+        let path = std::env::temp_dir().join(format!("udm-drag-test-{}.txt", std::process::id()));
         std::fs::write(&path, b"drag me").unwrap();
         // SAFETY: COM is started on this thread before the shell is asked
         // for the data object; the format is a plain struct read by the call.

@@ -5,11 +5,11 @@
 use std::path::PathBuf;
 
 use eframe::egui;
-use pullbay_application::downloads::{Verified, VerifyChecksum};
-use pullbay_domain::checksum::Checksum;
-use pullbay_domain::download::DownloadEntry;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::HashError;
+use udm_application::downloads::{Verified, VerifyChecksum};
+use udm_domain::checksum::Checksum;
+use udm_domain::download::DownloadEntry;
+use udm_domain::id::DownloadId;
+use udm_domain::ports::HashError;
 
 use crate::i18n::{tr, trf};
 use crate::pending::Pending;
@@ -74,7 +74,7 @@ pub fn show(ctx: &egui::Context, d: &mut VerifyDialog) -> bool {
                     ui.label(trf!("Algorithm: {name}", name = sum.algorithm().to_string()));
                 }
                 Some(Err(_)) => {
-                    ui.colored_label(ui.visuals().error_fg_color, tr("This is not a checksum Pullbay knows."));
+                    ui.colored_label(ui.visuals().error_fg_color, tr("This is not a checksum UDM knows."));
                 }
                 None => {}
             }

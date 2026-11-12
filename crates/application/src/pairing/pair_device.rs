@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 
-use pullbay_domain::pairing::{Credential, DeviceName, DeviceSecret, PairingError, Pairings};
-use pullbay_domain::ports::{PairedDevices, PairingKeys};
+use udm_domain::pairing::{Credential, DeviceName, DeviceSecret, PairingError, Pairings};
+use udm_domain::ports::{PairedDevices, PairingKeys};
 
 /// Exchange the pairing code a phone read from the QR code for a
 /// credential of its own, once: the remote-control page's pairing.
@@ -43,8 +43,8 @@ mod tests {
     use super::*;
     use crate::pairing::tests::{peer, Book, Keys};
     use crate::pairing::StartPairing;
-    use pullbay_domain::id::DeviceId;
-    use pullbay_domain::pairing::MAX_DEVICES;
+    use udm_domain::id::DeviceId;
+    use udm_domain::pairing::MAX_DEVICES;
 
     #[test]
     fn the_code_shown_pairs_one_device_and_its_verifier_is_kept() {

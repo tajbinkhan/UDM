@@ -1,15 +1,15 @@
-//! IDM's command-line switches for `pullbay-gui`:
+//! IDM's command-line switches for `udm-gui`:
 //!
 //! ```text
-//! pullbay-gui /d URL [/p folder] [/f file_name] [/c checksum] [/q] [/h] [/n] [/a]
-//! pullbay-gui /s
+//! udm-gui /d URL [/p folder] [/f file_name] [/c checksum] [/q] [/h] [/n] [/a]
+//! udm-gui /s
 //! ```
 //!
 //! `/d` downloads URL, `/p` and `/f` set its folder and file name, `/c` gives
-//! a checksum to compare the file with when it finishes (Pullbay's own, not
+//! a checksum to compare the file with when it finishes (UDM's own, not
 //! IDM's; `sha256:` and the like or a bare hex digest), `/a` adds
 //! it to the main queue without starting it, `/n` asks no questions, and `/q`
-//! exits Pullbay once it finishes. `/s` starts the main queue. `/h` (hang up the
+//! exits UDM once it finishes. `/s` starts the main queue. `/h` (hang up the
 //! dial-up connection) is accepted and does nothing. As in IDM, `/p`, `/f`,
 //! `/c`, `/q`, `/h`, `/n` and `/a` need `/d`; without it they are ignored.
 //!
@@ -17,7 +17,7 @@
 //! `--file`, `--checksum`, `--quit`, `--hang-up`, `--silent`, `--add`, `--start-queue`), and
 //! the slash forms take either case.
 //!
-//! `parse_sent` reads the JSON another program hands to `pullbay-host send`:
+//! `parse_sent` reads the JSON another program hands to `udm-host send`:
 //! one link with what IDM's `SendLinkToIDM2` takes, or a list of links with
 //! one referer, as `SendLinksArray` takes them. The README shows its fields.
 
@@ -25,13 +25,13 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use pullbay_domain::checksum::{Checksum, ChecksumError};
-use pullbay_domain::download::CommandLine;
+use udm_domain::checksum::{Checksum, ChecksumError};
+use udm_domain::download::CommandLine;
 
-use pullbay_domain::download::{Download, DownloadLogin, PageLink};
-use pullbay_domain::settings::{Duplicate, FileExists};
+use udm_domain::download::{Download, DownloadLogin, PageLink};
+use udm_domain::settings::{Duplicate, FileExists};
 
-/// Why a command line or a sent link cannot be used. `pullbay-host send`
+/// Why a command line or a sent link cannot be used. `udm-host send`
 /// prints the message; the window shows it.
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
@@ -61,7 +61,7 @@ pub enum CliError {
     NotWebAddress(String),
     #[error("{0} is not a checksum: {1}")]
     BadChecksum(String, #[source] ChecksumError),
-    #[error("too many links: {0}, at most {max}", max = pullbay_domain::batch::MAX_BATCH)]
+    #[error("too many links: {0}, at most {max}", max = udm_domain::batch::MAX_BATCH)]
     TooManyLinks(usize),
 }
 
@@ -118,7 +118,7 @@ where
     Ok(Some(CommandLine { download, start_queue, quit_after }))
 }
 
-/// The checksum a caller gave, which must be one Pullbay can check.
+/// The checksum a caller gave, which must be one UDM can check.
 fn parse_checksum(text: &str) -> Result<Checksum, CliError> {
     Checksum::parse(text).map_err(|e| CliError::BadChecksum(text.to_string(), e))
 }
@@ -149,7 +149,7 @@ fn download(
     });
     if let Some(name) = &filename {
         // An empty name is left to the usual naming, as before.
-        if !name.is_empty() && pullbay_domain::filename::FileName::parse(name).is_err() {
+        if !name.is_empty() && udm_domain::filename::FileName::parse(name).is_err() {
             return Err(CliError::NotFileName(name.clone(), folder_hint));
         }
     }
@@ -165,7 +165,7 @@ fn download(
     })
 }
 
-/// What another program sends with `pullbay-host send`: one link to add, or
+/// What another program sends with `udm-host send`: one link to add, or
 /// links for the link picker.
 #[derive(Debug)]
 // It lives only while it is sent, as `protocol::Incoming` does.
@@ -252,7 +252,7 @@ struct LinkObject {
 /// The form body's type when the sender gives none.
 const FORM_TYPE: &str = "application/x-www-form-urlencoded";
 
-/// Read what a program sent to `pullbay-host send`: a JSON object with `url`
+/// Read what a program sent to `udm-host send`: a JSON object with `url`
 /// for one link, or with `links` for the picker. `cwd` resolves a relative
 /// folder. An empty string counts as a missing field, as IDM's COM calls
 /// pass empty strings for what they leave out.
@@ -311,13 +311,13 @@ fn many(list: LinkList) -> Result<Sent, CliError> {
                 ListedLink::Link(o) => PageLink { url: o.url, text: o.text, cookies: given(o.cookies), image: false },
             };
             let url = link.url.trim().to_string();
-            if !pullbay_domain::batch::is_web_url(&url) || url::Url::parse(&url).is_err() {
+            if !udm_domain::batch::is_web_url(&url) || url::Url::parse(&url).is_err() {
                 return Err(CliError::NotWebAddress(url));
             }
             Ok(PageLink { url, ..link })
         })
         .collect::<Result<Vec<_>, CliError>>()?;
-    if links.len() > pullbay_domain::batch::MAX_BATCH {
+    if links.len() > udm_domain::batch::MAX_BATCH {
         return Err(CliError::TooManyLinks(links.len()));
     }
     Ok(Sent::Many { referer: given(list.referer).unwrap_or_default(), links })
@@ -450,7 +450,7 @@ mod tests {
     fn a_sent_link_can_carry_a_checksum() {
         let json = r#"{"url": "https://example.com/a", "checksum": "sha1:da39a3ee5e6b4b0d3255bfef95601890afd80709"}"#;
         let Sent::One(d) = parse_sent(json, &cwd()).unwrap() else { panic!("one link") };
-        assert_eq!(d.checksum.unwrap().algorithm(), pullbay_domain::checksum::Algorithm::Sha1);
+        assert_eq!(d.checksum.unwrap().algorithm(), udm_domain::checksum::Algorithm::Sha1);
         let json = r#"{"url": "https://example.com/a", "checksum": "abc"}"#;
         assert!(matches!(parse_sent(json, &cwd()), Err(CliError::BadChecksum(..))));
     }

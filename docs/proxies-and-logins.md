@@ -9,11 +9,11 @@ and `username`). Passwords are write-only: `proxy_password`,
 `proxy_https_password`, `proxy_ftp_password`, `proxy_socks_password` and each
 login's `password` travel in `set_settings` only when changed, and the daemon
 keeps them outside the settings file and never sends them back. Proxy
-passwords are encrypted with DPAPI in `%LOCALAPPDATA%\Pullbay`: `proxy.bin` for
+passwords are encrypted with DPAPI in `%LOCALAPPDATA%\UDM`: `proxy.bin` for
 HTTP, `proxy-https.bin`, `proxy-ftp.bin` and `proxy-socks.bin`. A settings
 file from before each proxy had a login of its own gives its shared login to
 the HTTPS and SOCKS proxies, which used it, on the daemon's first start. Login
-passwords are generic credentials named `Pullbay/login/<site>` in Windows
+passwords are generic credentials named `UDM/login/<site>` in Windows
 Credential Manager, removed with their login.
 
 **Proxies.** The system proxy is read from the Internet settings in the
@@ -29,9 +29,9 @@ with `CONNECT`; empty means the HTTP one, with its login). A SOCKS4 or
 SOCKS5 proxy carries the `http://` and `https://` URLs that have no proxy of
 their own, and with `proxy_socks_https` every `https://` URL even when an
 HTTP or HTTPS proxy is set. `ftp://` downloads go through the FTP proxy:
-Pullbay logs in to it first with its own login, when it has one (`USER`,
+UDM logs in to it first with its own login, when it has one (`USER`,
 `PASS`), then as `user@host`. Without an FTP proxy they go through the SOCKS
-proxy (`proxy_socks_ftp`, on by default): Pullbay opens both the control and
+proxy (`proxy_socks_ftp`, on by default): UDM opens both the control and
 the data connections with a SOCKS CONNECT itself (SOCKS4, SOCKS4a or SOCKS5,
 with the SOCKS login), and always in passive mode, since the server cannot
 connect back through the proxy. `ftps://` downloads skip the FTP proxy,
@@ -39,7 +39,7 @@ which would be the TLS end instead of the server, and take the SOCKS proxy
 as `ftp://` ones do without an FTP proxy; an `ftp://` server reached through
 an FTP proxy is not asked again with `AUTH TLS` when it wants TLS.
 A proxy's login goes to the proxy only (`Proxy-Authorization`, or the
-SOCKS handshake). Pullbay follows redirects itself, dropping `Cookie` and
+SOCKS handshake). UDM follows redirects itself, dropping `Cookie` and
 `Authorization` on every hop, so a site's cookies and logins never reach
 another server. With
 `use_browser_proxy`, the extension reports the browser's whole proxy
@@ -54,7 +54,7 @@ Chrome's `<local>`, `*.corp.net` and `host:port` entries and Firefox's
 `.corp.net`; address ranges have no counterpart and are dropped. Without
 WinHTTP (macOS, Linux) a script or detection cannot run, so those downloads
 connect directly. With `browser_proxy_after_errors` too, a
-download goes through Pullbay's own proxy setting first; when it fails, the
+download goes through UDM's own proxy setting first; when it fails, the
 daemon retries it once through the browser's proxy, and that address keeps
 using it until the daemon restarts.
 
@@ -65,7 +65,7 @@ and `example.com/private` covers that folder and everything below it, both
 ignoring case. The longest matching pattern wins, so a folder's login beats
 its server's. A download's own login (from **Log in to the site** or its
 properties) replaces the site logins for its host. A request goes out
-without credentials. On a 401, Pullbay picks the login for the address that
+without credentials. On a 401, UDM picks the login for the address that
 answered and sends the request again, once, straight to that URL,
 with `Authorization` for the `WWW-Authenticate` challenge: Digest (MD5,
 MD5-sess, SHA-256, with `qop=auth`) when offered, else NTLM, else Basic.

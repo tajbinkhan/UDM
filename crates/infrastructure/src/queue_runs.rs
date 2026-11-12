@@ -3,12 +3,12 @@
 //! adapter for `QueueRuns`), and what "pause all" stopped (`PauseBook`, for
 //! `PausedDownloads`). Both live in memory only; a restart starts afresh.
 
-use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard};
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::sync::LockExt;
 
-use pullbay_domain::ports::{PausedDownloads, QueueRuns};
+use udm_domain::ports::{PausedDownloads, QueueRuns};
 
 /// Every change below is a single insert or removal, so a lock poisoned by
 /// a panicking thread still holds consistent sets.

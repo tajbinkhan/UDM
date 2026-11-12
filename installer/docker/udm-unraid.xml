@@ -1,21 +1,21 @@
 <?xml version="1.0"?>
-<!-- An Unraid template for Pullbay's server image (docs/server.md). Copy it to
+<!-- An Unraid template for UDM's server image (docs/server.md). Copy it to
      /boot/config/plugins/dockerMan/templates-user/ and add the container
      from Docker > Add Container > Template. -->
 <Container version="2">
-  <Name>pullbay</Name>
-  <Repository>ghcr.io/tajbinkhan/pullbay:latest</Repository>
-  <Registry>https://github.com/tajbinkhan/pullbay/pkgs/container/pullbay</Registry>
+  <Name>udm</Name>
+  <Repository>ghcr.io/tajbinkhan/udm:latest</Repository>
+  <Registry>https://github.com/tajbinkhan/pullbay/pkgs/container/udm</Registry>
   <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
   <Support>https://github.com/tajbinkhan/pullbay/issues</Support>
   <Project>https://github.com/tajbinkhan/pullbay</Project>
-  <Overview>Pullbay's download daemon without a window. Add downloads with: docker exec pullbay pullbay-cli get URL --no-wait. No port is opened; see docs/server.md.</Overview>
+  <Overview>UDM's download daemon without a window. Add downloads with: docker exec udm udm-cli get URL --no-wait. No port is opened; see docs/server.md.</Overview>
   <Category>Downloaders:</Category>
   <WebUI/>
   <ExtraParams>--user 99:100</ExtraParams>
-  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/pullbay" Mode="rw" Description="Settings, the download list, the daemon's token and keys" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/pullbay</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/udm" Mode="rw" Description="Settings, the download list, the daemon's token and keys" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/udm</Config>
   <Config Name="Downloads" Target="/downloads" Default="/mnt/user/downloads" Mode="rw" Description="Where downloads go when the settings name no folder" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/downloads</Config>
   <Config Name="Time zone" Target="TZ" Default="Etc/UTC" Mode="" Description="The local time zone, for queue schedules" Type="Variable" Display="always" Required="false" Mask="false">Etc/UTC</Config>
 </Container>

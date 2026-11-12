@@ -2,25 +2,25 @@
 //! English text matches the error's own message, which the daemon, the
 //! logs and the clients that do not translate use.
 
-use pullbay_application::daemon::service::ServiceError;
-use pullbay_application::daemon::Failure;
-use pullbay_application::downloads::{ConfirmError, StartOrWaitError};
-use pullbay_application::window::ThemeFileError;
-use pullbay_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
-use pullbay_domain::command::{CommandError, PATH_TOKEN};
-use pullbay_domain::download::{DownloadError, Mismatch};
-use pullbay_domain::gallery::GalleryError;
-use pullbay_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
-use pullbay_domain::package::{PackageError, UnpackFailure, MAX_NAME};
-use pullbay_domain::pairing::{PairingError, RemoteFault, MAX_DEVICES};
-use pullbay_domain::ports::SettingsError;
-use pullbay_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
-use pullbay_domain::settings::{
+use udm_application::daemon::service::ServiceError;
+use udm_application::daemon::Failure;
+use udm_application::downloads::{ConfirmError, StartOrWaitError};
+use udm_application::window::ThemeFileError;
+use udm_domain::batch::{BatchError, Bound, MAX_BATCH, MAX_WILDCARD_SIZE};
+use udm_domain::command::{CommandError, PATH_TOKEN};
+use udm_domain::download::{DownloadError, Mismatch};
+use udm_domain::gallery::GalleryError;
+use udm_domain::grab::{InvalidGrab, AT_ONCE_RANGE, DELAY_MS_RANGE, DEPTH_RANGE, MAX_MB_RANGE, MAX_PAGES_RANGE};
+use udm_domain::package::{PackageError, UnpackFailure, MAX_NAME};
+use udm_domain::pairing::{PairingError, RemoteFault, MAX_DEVICES};
+use udm_domain::ports::SettingsError;
+use udm_domain::queue::{InvalidQueue, QueueError, QUEUE_CONCURRENCY_RANGE, QUEUE_RETRIES_MAX};
+use udm_domain::settings::{
     InvalidSettings, ProxyEntry, SettingsField, CONNECTIONS_RANGE, GENERAL, IDLE_MINUTES_RANGE, MAX_CONCURRENT_RANGE,
     QUOTA_HOURS_RANGE, REMOTE_PORT_RANGE, SERVER_CONNECTIONS_RANGE, SPEED_LIMIT_RANGE_KBPS, TEXT_SIZE_RANGE,
 };
-use pullbay_domain::theme::InvalidTheme;
-use pullbay_domain::update::UpdateError;
+use udm_domain::theme::InvalidTheme;
+use udm_domain::update::UpdateError;
 
 use crate::i18n::{tr, trf};
 
@@ -391,10 +391,10 @@ fn service(e: &ServiceError) -> String {
 pub fn gallery(e: &GalleryError) -> String {
     match e {
         GalleryError::NotWebPage(url) => trf!("{url} is not an http or https page.", url = url),
-        GalleryError::Missing => tr(
-            "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay.",
-        )
-        .to_string(),
+        GalleryError::Missing => {
+            tr("Image galleries need gallery-dl. Install it in UDM's Options > General, or put gallery-dl next to UDM.")
+                .to_string()
+        }
         GalleryError::Unsupported => tr("gallery-dl does not know this site.").to_string(),
         GalleryError::NothingFound => tr("gallery-dl found no pictures on this page.").to_string(),
         // gallery-dl's own words.
@@ -403,7 +403,7 @@ pub fn gallery(e: &GalleryError) -> String {
             trf!("gallery-dl did not answer within {seconds} seconds.", seconds = seconds)
         }
         GalleryError::Busy => tr("This page is being read already.").to_string(),
-        GalleryError::TooMany => tr("Pullbay is reading other galleries. Try again when they are done.").to_string(),
+        GalleryError::TooMany => tr("UDM is reading other galleries. Try again when they are done.").to_string(),
     }
 }
 
@@ -450,21 +450,17 @@ pub fn unpack(e: &UnpackFailure) -> String {
 }
 
 /// Why yt-dlp or ffmpeg was not installed or updated.
-pub fn tool(e: &pullbay_domain::tools::ToolError) -> String {
-    use pullbay_domain::tools::ToolError as E;
+pub fn tool(e: &udm_domain::tools::ToolError) -> String {
+    use udm_domain::tools::ToolError as E;
     match e {
         E::NoBuild(tool, command) => {
-            trf!(
-                "Pullbay cannot install {tool} on this system. Install it with: {command}",
-                tool = tool,
-                command = command
-            )
+            trf!("UDM cannot install {tool} on this system. Install it with: {command}", tool = tool, command = command)
         }
         E::Unreachable(why) => trf!("Could not reach GitHub: {why}", why = why),
         E::Answer(why) => trf!("GitHub's answer could not be read: {why}", why = why),
         E::NoAsset(name) => trf!("The latest release has no file {name}.", name = name),
         E::NoChecksum(name) => {
-            trf!("The release publishes no checksum for {name}, so Pullbay will not install it.", name = name)
+            trf!("The release publishes no checksum for {name}, so UDM will not install it.", name = name)
         }
         E::WrongChecksum(name) => {
             trf!("{name} does not match its published checksum. It was deleted and nothing was installed.", name = name)
@@ -481,10 +477,10 @@ pub fn tool(e: &pullbay_domain::tools::ToolError) -> String {
 pub fn pairing(e: &PairingError) -> String {
     match e {
         PairingError::WrongCode => {
-            tr("That pairing code is wrong or has run out. Show a new one in Pullbay's Options.").to_string()
+            tr("That pairing code is wrong or has run out. Show a new one in UDM's Options.").to_string()
         }
         PairingError::TooManyTries { wait } => trf!("Too many wrong tries. Try again in {wait} seconds.", wait = wait),
-        PairingError::NotPaired => tr("This device is not paired with Pullbay.").to_string(),
+        PairingError::NotPaired => tr("This device is not paired with UDM.").to_string(),
         PairingError::TooManyDevices => {
             trf!("{count} devices are paired already. Remove one in Options first.", count = MAX_DEVICES)
         }
@@ -504,7 +500,7 @@ pub fn remote_fault(e: &RemoteFault) -> String {
         RemoteFault::AddressUnavailable { address } => {
             trf!("This computer has no address {address}. Choose another, or every interface.", address = address)
         }
-        RemoteFault::NoPermission { address } => trf!("Pullbay may not listen on {address}.", address = address),
+        RemoteFault::NoPermission { address } => trf!("UDM may not listen on {address}.", address = address),
         RemoteFault::Certificate(why) => trf!("Could not make the page's certificate: {why}", why = why),
         RemoteFault::Other(why) => why.clone(),
     }
@@ -613,9 +609,9 @@ fn theme(e: &InvalidTheme) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::bytes::ByteCount;
-    use pullbay_domain::id::{DownloadId, QueueId};
-    use pullbay_domain::ports::ControlError;
+    use udm_domain::bytes::ByteCount;
+    use udm_domain::id::{DownloadId, QueueId};
+    use udm_domain::ports::ControlError;
 
     /// `?` turns the domain's errors into the window's, in the user's words.
     #[test]
@@ -724,7 +720,7 @@ mod tests {
             ServiceError::Pairing(PairingError::TooManyTries { wait: 30 }).into(),
             ServiceError::Pairing(PairingError::NotPaired).into(),
             ServiceError::Pairing(PairingError::TooManyDevices).into(),
-            ServiceError::Pairing(PairingError::NoDevice(pullbay_domain::id::DeviceId::new(4))).into(),
+            ServiceError::Pairing(PairingError::NoDevice(udm_domain::id::DeviceId::new(4))).into(),
             ServiceError::Pairing(PairingError::NotListening).into(),
             ServiceError::Pairing(PairingError::Store("disk full".into())).into(),
         ];

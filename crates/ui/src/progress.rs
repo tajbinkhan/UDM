@@ -6,10 +6,10 @@
 //! the tab and whether the details show when the window opens.
 
 use eframe::egui;
-use pullbay_domain::download::{DownloadEntry, OnDone, SegmentInfo, Status};
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::queue::{Queue, WhenDone};
-use pullbay_domain::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
+use udm_domain::download::{DownloadEntry, OnDone, SegmentInfo, Status};
+use udm_domain::id::DownloadId;
+use udm_domain::queue::{Queue, WhenDone};
+use udm_domain::settings::{ProgressTab, Settings, SPEED_LIMIT_RANGE_KBPS};
 
 use crate::dialog::Opening;
 use crate::i18n::{tr, trf};
@@ -371,7 +371,7 @@ pub fn on_done_fields(ui: &mut egui::Ui, on_done: &mut OnDone) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::id::QueueId;
+    use udm_domain::id::QueueId;
 
     fn queue(id: u64, running: bool, order: &[u64]) -> Queue {
         Queue {

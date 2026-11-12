@@ -1,12 +1,12 @@
 [package]
-name = "pullbay-application"
-description = "Pullbay's use cases, which coordinate the domain through its ports"
+name = "udm-application"
+description = "UDM's use cases, which coordinate the domain through its ports"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-pullbay-domain.workspace = true
+udm-domain.workspace = true
 # Error enums for use cases that combine several ports (AGENTS.md section 9).
 thiserror.workspace = true
 # Logging what the daemon service does (AGENTS.md section 5).

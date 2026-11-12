@@ -4,16 +4,16 @@
 //! A theme file is UTF-8 text, one `key = value` setting per line. Blank
 //! lines and lines starting with `#` or `;` are skipped, and so is a
 //! `[section]` line, so an INI editor's habits do no harm. What the keys
-//! mean is `pullbay_domain::theme::ThemeDraft`'s. The file's name, without
+//! mean is `udm_domain::theme::ThemeDraft`'s. The file's name, without
 //! `.theme`, names the theme unless a `name =` line does. docs/themes.md
 //! describes the format for users.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use pullbay_application::window::{ThemeFile, ThemeFileError, ThemeFiles};
-use pullbay_domain::ports::FilesError;
-use pullbay_domain::theme::{ThemeDraft, ThemeName};
+use udm_application::window::{ThemeFile, ThemeFileError, ThemeFiles};
+use udm_domain::ports::FilesError;
+use udm_domain::theme::{ThemeDraft, ThemeName};
 
 /// The extension of a theme file.
 pub const EXTENSION: &str = "theme";
@@ -87,7 +87,7 @@ fn read_file(path: &Path) -> ThemeFile {
 }
 
 /// The theme a file named `stem` holding `text` gives.
-pub fn parse(stem: &str, text: &str) -> Result<pullbay_domain::theme::CustomTheme, ThemeFileError> {
+pub fn parse(stem: &str, text: &str) -> Result<udm_domain::theme::CustomTheme, ThemeFileError> {
     let mut draft = ThemeDraft::new(ThemeName::parse(stem).ok());
     for (i, line) in text.lines().enumerate() {
         let line = line.trim().trim_start_matches('\u{feff}');
@@ -111,7 +111,7 @@ pub fn parse(stem: &str, text: &str) -> Result<pullbay_domain::theme::CustomThem
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::theme::{Color, InvalidTheme, Sizes, DARK, HIGH_CONTRAST};
+    use udm_domain::theme::{Color, InvalidTheme, Sizes, DARK, HIGH_CONTRAST};
 
     #[test]
     fn a_file_sets_what_it_changes_on_its_base() {
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn the_folder_gives_its_theme_files() {
-        let dir = std::env::temp_dir().join(format!("pullbay_themes_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_themes_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let themes = ThemeDir::at(Some(dir.clone()));
         assert_eq!(themes.read(), [], "no folder, no themes");

@@ -1,6 +1,6 @@
-//! Newer Pullbay releases: what a release is, whether one is newer than this
+//! Newer UDM releases: what a release is, whether one is newer than this
 //! copy, and when to look again. Asking GitHub and checking the Setup
-//! program it offers is `pullbay_infrastructure::update`.
+//! program it offers is `udm_infrastructure::update`.
 
 use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ pub struct Release {
     pub setup: Option<SetupAsset>,
 }
 
-/// A release's `Pullbay-Setup-<version>.exe`.
+/// A release's `UDM-Setup-<version>.exe`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetupAsset {
     pub name: String,

@@ -2,25 +2,25 @@
 //! pattern, a pasted list or text file, or an imported list), exporting the
 //! list, the site grabber, and the clipboard offer.
 
-use pullbay_domain::address::Address;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::sync::LockExt;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use udm_domain::address::Address;
+use udm_domain::bytes::ByteCount;
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::sync::LockExt;
 
 use eframe::egui;
-use pullbay_application::window::{FileKind, GrabLibrary, ListFormat};
+use udm_application::window::{FileKind, GrabLibrary, ListFormat};
 
 use crate::errors::UiError;
 use crate::pending::Pending;
-use pullbay_domain::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
-use pullbay_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
-use pullbay_domain::grab::{GrabFile, GrabRequest, SaveTo};
-use pullbay_domain::package::Packaging;
-use pullbay_domain::queue::{Queue, MAIN_QUEUE};
+use udm_domain::batch::{self, Wildcard, MAX_BATCH, MAX_WILDCARD_SIZE};
+use udm_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
+use udm_domain::grab::{GrabFile, GrabRequest, SaveTo};
+use udm_domain::package::Packaging;
+use udm_domain::queue::{Queue, MAIN_QUEUE};
 
 use super::{browse_button, human_bytes, take_picked, Action, Picked};
 use crate::i18n::{tr, trf};
@@ -504,7 +504,7 @@ pub fn export_dialog(
             ui.radio_value(
                 &mut d.format,
                 ExportFormat::Json,
-                tr("Pullbay list (.json): addresses, file names, folders and status"),
+                tr("UDM list (.json): addresses, file names, folders and status"),
             );
             ui.radio_value(&mut d.format, ExportFormat::Text, tr("Text (.txt): one address per line"));
             ui.radio_value(
@@ -628,7 +628,7 @@ pub struct GrabDialog {
     files_this_site: bool,
     /// The named filters, and the one being added or changed: its place
     /// (`None` for a new one), name and mask.
-    filters: Vec<pullbay_domain::grab::Filter>,
+    filters: Vec<udm_domain::grab::Filter>,
     filter_edit: Option<(Option<usize>, String, String)>,
     save_choice: SaveChoice,
     save_category: String,
@@ -685,12 +685,12 @@ pub struct GrabDialog {
     sched_repeat_minutes: u32,
     sched_wake: bool,
     /// What a scheduled run does, in `sched_queue`.
-    run: pullbay_domain::grab::RunAction,
+    run: udm_domain::grab::RunAction,
     /// One-time downloading, or periodic synchronization of what earlier
     /// runs downloaded.
-    sync: pullbay_domain::queue::QueueKind,
+    sync: udm_domain::queue::QueueKind,
     sched_queue: QueueId,
-    when_done: pullbay_domain::queue::WhenDone,
+    when_done: udm_domain::queue::WhenDone,
     /// Shutting down when done closes programs that would hold it up; only
     /// kept with shutting down, as the Queues dialog does.
     force_close: bool,
@@ -703,7 +703,7 @@ pub struct GrabDialog {
     kept: (Vec<String>, Option<i64>, Option<i64>),
     /// The project as it was last saved or opened, to tell whether leaving
     /// it loses changes; `None` until it is saved.
-    saved: Option<pullbay_domain::grab::Project>,
+    saved: Option<udm_domain::grab::Project>,
     /// The name its copy in the projects folder has, so saving over that
     /// copy does not count as taking another project's name.
     saved_as: Option<String>,
@@ -720,11 +720,11 @@ pub struct GrabDialog {
     /// with their scripts run; what that finds is added to it.
     updating: Option<(Vec<GrabFile>, Vec<bool>)>,
     /// The project being saved on a worker, and what waits on it.
-    saving: Pending<Result<pullbay_domain::grab::Project, UiError>>,
+    saving: Pending<Result<udm_domain::grab::Project, UiError>>,
     after_save: AfterSave,
     /// A project being read on a worker, with its file when it came from
     /// another folder.
-    opening: Pending<Result<(pullbay_domain::grab::Project, Option<PathBuf>), UiError>>,
+    opening: Pending<Result<(udm_domain::grab::Project, Option<PathBuf>), UiError>>,
     /// A template or the filters being saved, and what the note says after.
     noting: Pending<Note>,
     /// The project's new password being kept before its crawl starts.
@@ -769,18 +769,18 @@ const MB: f64 = 1024.0 * 1024.0;
 
 impl GrabDialog {
     /// A new project, from the saved `template`, offering `filters`.
-    pub fn new(template: &GrabRequest, filters: Vec<pullbay_domain::grab::Filter>) -> Self {
+    pub fn new(template: &GrabRequest, filters: Vec<udm_domain::grab::Filter>) -> Self {
         Self::from_request(template, filters)
     }
 
     /// The project these fields and the crawl's results make, or why the
     /// schedule is not valid.
-    fn project(&self) -> Result<pullbay_domain::grab::Project, UiError> {
+    fn project(&self) -> Result<udm_domain::grab::Project, UiError> {
         let (files, checked) = match &self.phase {
             GrabPhase::Review { files, checked, .. } => (files.clone(), checked.clone()),
             _ => (Vec::new(), Vec::new()),
         };
-        let schedule = self.sched.then(|| pullbay_domain::queue::Schedule {
+        let schedule = self.sched.then(|| udm_domain::queue::Schedule {
             start: self.sched_start.trim().to_string(),
             stop: self.sched_has_stop.then(|| self.sched_stop.trim().to_string()),
             days: if self.sched_by_date {
@@ -799,7 +799,7 @@ impl GrabDialog {
         if let Some(s) = &schedule {
             s.validate()?;
         }
-        Ok(pullbay_domain::grab::Project {
+        Ok(udm_domain::grab::Project {
             name: self.project.trim().to_string(),
             request: self.request(),
             files,
@@ -810,7 +810,7 @@ impl GrabDialog {
             download_new: false,
             queue: self.sched_queue,
             when_done: self.when_done,
-            force_close: self.force_close && self.when_done == pullbay_domain::queue::WhenDone::ShutDown,
+            force_close: self.force_close && self.when_done == udm_domain::queue::WhenDone::ShutDown,
             open_when_done: Some(self.open_when_done.trim().to_string()).filter(|f| !f.is_empty()),
             seen: self.kept.0.clone(),
             last_scheduled_day: self.kept.1,
@@ -819,7 +819,7 @@ impl GrabDialog {
     }
 
     /// The form and results of a saved project.
-    pub fn open(p: pullbay_domain::grab::Project, filters: Vec<pullbay_domain::grab::Filter>) -> Self {
+    pub fn open(p: udm_domain::grab::Project, filters: Vec<udm_domain::grab::Filter>) -> Self {
         let mut d = Self::from_request(&p.request, filters);
         d.project = p.name.clone();
         if let Some(s) = &p.schedule {
@@ -866,11 +866,7 @@ impl GrabDialog {
 
     /// A project read from a file outside the projects folder. Saving puts
     /// it in the folder with the others.
-    fn open_file(
-        p: pullbay_domain::grab::Project,
-        path: &std::path::Path,
-        filters: Vec<pullbay_domain::grab::Filter>,
-    ) -> Self {
+    fn open_file(p: udm_domain::grab::Project, path: &std::path::Path, filters: Vec<udm_domain::grab::Filter>) -> Self {
         let mut d = Self::open(p, filters);
         d.saved_as = None;
         // Not with the others yet, so closing it asks to save it there.
@@ -895,7 +891,7 @@ impl GrabDialog {
     /// valid counts, so the question can say why it cannot be saved.
     fn unsaved(&self) -> bool {
         match self.project() {
-            Ok(p) => pullbay_domain::grab::unsaved(&p, self.saved.as_ref()),
+            Ok(p) => udm_domain::grab::unsaved(&p, self.saved.as_ref()),
             Err(_) => true,
         }
     }
@@ -921,7 +917,7 @@ impl GrabDialog {
     }
 
     /// Note that `p` was saved.
-    fn saved_project(&mut self, p: pullbay_domain::grab::Project) {
+    fn saved_project(&mut self, p: udm_domain::grab::Project) {
         self.login_kept();
         self.project_note = Some(trf!("Saved \"{name}\".", name = p.name));
         self.saved_as = Some(p.name.clone());
@@ -978,7 +974,7 @@ impl GrabDialog {
     fn add_checked(
         &self,
         queues: &[Queue],
-        settings: &pullbay_domain::settings::Settings,
+        settings: &udm_domain::settings::Settings,
         actions: &mut Vec<Action>,
     ) -> bool {
         let GrabPhase::Review { files, checked, .. } = &self.phase else {
@@ -1012,7 +1008,7 @@ impl GrabDialog {
     }
 
     /// The form filled from `d`.
-    pub fn from_request(d: &GrabRequest, filters: Vec<pullbay_domain::grab::Filter>) -> Self {
+    pub fn from_request(d: &GrabRequest, filters: Vec<udm_domain::grab::Filter>) -> Self {
         GrabDialog {
             phase: GrabPhase::Form,
             start: d.start.clone(),
@@ -1090,10 +1086,10 @@ impl GrabDialog {
             sched_repeat_hours: 2,
             sched_repeat_minutes: 0,
             sched_wake: true,
-            run: pullbay_domain::grab::RunAction::Explore,
-            sync: pullbay_domain::queue::QueueKind::OneTime,
+            run: udm_domain::grab::RunAction::Explore,
+            sync: udm_domain::queue::QueueKind::OneTime,
             sched_queue: MAIN_QUEUE,
-            when_done: pullbay_domain::queue::WhenDone::Nothing,
+            when_done: udm_domain::queue::WhenDone::Nothing,
             force_close: false,
             open_when_done: String::new(),
             open_picked: Picked::default(),
@@ -1119,7 +1115,7 @@ impl GrabDialog {
             start: self.start.trim().to_string(),
             depth: self.depth,
             same_site: self.same_site,
-            types: pullbay_domain::settings::parse_extensions(&self.types),
+            types: udm_domain::settings::parse_extensions(&self.types),
             max_pages: self.max_pages,
             max_bytes: ByteCount::mib(self.max_mb),
             delay_ms: (self.delay_secs * 1000.0).round() as u64,
@@ -1134,7 +1130,7 @@ impl GrabDialog {
             hide_duplicates: self.hide_duplicates,
             browser_cookies: self.browser_cookies,
             render_scripts: self.render_scripts,
-            mirror: self.mirror.then(|| pullbay_domain::grab::Mirror {
+            mirror: self.mirror.then(|| udm_domain::grab::Mirror {
                 folder: self.mirror_folder.trim().to_string(),
                 pages: self.mirror_pages,
                 overwrite: self.overwrite,
@@ -1143,7 +1139,7 @@ impl GrabDialog {
             explore_at_once: self.explore_at_once,
             download_at_once: self.download_at_once,
             link_text: self.link_text,
-            skip_types: pullbay_domain::settings::parse_extensions(&self.skip_types),
+            skip_types: udm_domain::settings::parse_extensions(&self.skip_types),
             files_this_site: self.files_this_site,
             save_to: match self.save_choice {
                 SaveChoice::Categories => SaveTo::Categories,
@@ -1155,7 +1151,7 @@ impl GrabDialog {
             other_depth: self.other_levels_on.then_some(self.other_levels),
             login_user: self.login_on.then(|| self.login_user.trim().to_string()).filter(|u| !u.is_empty()),
             login_url: Some(self.login_page.trim().to_string()).filter(|u| !u.is_empty()),
-            login_cookies: pullbay_domain::grab::clean_cookies(&self.login_cookies)
+            login_cookies: udm_domain::grab::clean_cookies(&self.login_cookies)
                 .filter(|_| !self.login_page.trim().is_empty()),
             subfolders: self.subfolders,
             overwrite: self.overwrite,
@@ -1168,7 +1164,7 @@ impl GrabDialog {
         if !self.login_on || !self.login_changed {
             return None;
         }
-        let target = pullbay_domain::grab::project_login_target(&self.start, &self.login_user);
+        let target = udm_domain::grab::project_login_target(&self.start, &self.login_user);
         Some((target, self.login_user.trim().to_string(), self.login_password.clone()))
     }
 
@@ -1236,7 +1232,7 @@ pub fn grab_dialog(
     ctx: &egui::Context,
     d: &mut GrabDialog,
     lists: &GrabLists,
-    settings: &pullbay_domain::settings::Settings,
+    settings: &udm_domain::settings::Settings,
     rows: &[DownloadEntry],
     connected: bool,
     actions: &mut Vec<Action>,
@@ -1355,7 +1351,7 @@ pub fn grab_dialog(
         }
         let silent = dir.is_some()
             && settings.grab_save_unique_silently
-            && pullbay_domain::grab::project_name_is_unique(lists.projects, &d.project, d.saved_as.as_deref());
+            && udm_domain::grab::project_name_is_unique(lists.projects, &d.project, d.saved_as.as_deref());
         if silent {
             if let Err(e) = d.save_project(ctx, AfterSave::GoOn) {
                 d.ask_error = Some(e.to_string());
@@ -1385,7 +1381,7 @@ fn go_on(
     ctx: &egui::Context,
     d: &mut GrabDialog,
     queues: &[Queue],
-    settings: &pullbay_domain::settings::Settings,
+    settings: &udm_domain::settings::Settings,
     connected: bool,
     actions: &mut Vec<Action>,
 ) -> bool {
@@ -1417,7 +1413,7 @@ fn save_question(
     d: &mut GrabDialog,
     dir: Option<&dyn GrabLibrary>,
     projects: &[String],
-    settings: &pullbay_domain::settings::Settings,
+    settings: &udm_domain::settings::Settings,
     connected: bool,
     actions: &mut Vec<Action>,
 ) -> Option<bool> {
@@ -1439,7 +1435,7 @@ fn save_question(
                 );
             });
             let named = !d.project.trim().is_empty();
-            if named && !pullbay_domain::grab::project_name_is_unique(projects, &d.project, d.saved_as.as_deref()) {
+            if named && !udm_domain::grab::project_name_is_unique(projects, &d.project, d.saved_as.as_deref()) {
                 ui.weak(tr("Another saved project has this name; saving replaces it."));
             }
             if ui.checkbox(&mut d.dont_ask, tr("Don't ask if the name is unique")).changed() && connected {
@@ -1479,9 +1475,9 @@ fn save_question(
 pub struct GrabLists<'a> {
     pub queues: &'a [Queue],
     pub projects: &'a [String],
-    pub templates: &'a [pullbay_domain::grab::Template],
+    pub templates: &'a [udm_domain::grab::Template],
     pub template: &'a GrabRequest,
-    pub filters: &'a [pullbay_domain::grab::Filter],
+    pub filters: &'a [udm_domain::grab::Filter],
 }
 
 /// The project strip: its name, Save, Open, New and Save as template.
@@ -1547,7 +1543,7 @@ fn project_bar(ui: &mut egui::Ui, d: &mut GrabDialog, lists: &GrabLists) -> Opti
             let templates = lists.templates;
             for t in templates {
                 ui.horizontal(|ui| {
-                    let label = pullbay_domain::grab::BUILT_IN_TEMPLATES
+                    let label = udm_domain::grab::BUILT_IN_TEMPLATES
                         .iter()
                         .find(|(n, _, _)| *n == t.name)
                         .map_or_else(|| t.name.clone(), |(n, _, _)| tr(n).to_string());
@@ -1621,7 +1617,7 @@ fn grab_body(
     ui: &mut egui::Ui,
     d: &mut GrabDialog,
     queues: &[Queue],
-    settings: &pullbay_domain::settings::Settings,
+    settings: &udm_domain::settings::Settings,
     rows: &[DownloadEntry],
     connected: bool,
     actions: &mut Vec<Action>,
@@ -1649,7 +1645,7 @@ fn grab_body(
                 ui.horizontal(|ui| {
                     ui.add_enabled(
                         !d.whole_site,
-                        egui::DragValue::new(&mut d.depth).range(pullbay_domain::grab::DEPTH_RANGE.0..=pullbay_domain::grab::DEPTH_RANGE.1),
+                        egui::DragValue::new(&mut d.depth).range(udm_domain::grab::DEPTH_RANGE.0..=udm_domain::grab::DEPTH_RANGE.1),
                     );
                     ui.weak(tr("0 reads only the start page"));
                     ui.checkbox(&mut d.whole_site, tr("Explore the whole site"))
@@ -1668,7 +1664,7 @@ fn grab_body(
                         ui.checkbox(&mut d.other_levels_on, tr("On other sites, follow at most"));
                         ui.add_enabled(
                             d.other_levels_on,
-                            egui::DragValue::new(&mut d.other_levels).range(pullbay_domain::grab::DEPTH_RANGE.0..=pullbay_domain::grab::DEPTH_RANGE.1),
+                            egui::DragValue::new(&mut d.other_levels).range(udm_domain::grab::DEPTH_RANGE.0..=udm_domain::grab::DEPTH_RANGE.1),
                         );
                         ui.label(tr("links"));
                     });
@@ -1680,7 +1676,7 @@ fn grab_body(
                 ui.label(tr("Sign-in"));
                 ui.vertical(|ui| {
                     ui.checkbox(&mut d.browser_cookies, tr("Use my browser's sign-in for the start site"))
-                        .on_hover_text(tr("Sign in on the site in your browser first. Pullbay's extension hands over the site's cookies, which go to that site's pages only."));
+                        .on_hover_text(tr("Sign in on the site in your browser first. UDM's extension hands over the site's cookies, which go to that site's pages only."));
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut d.login_on, tr("Log in to the start site as"));
                         ui.add_enabled_ui(d.login_on, |ui| {
@@ -1712,7 +1708,7 @@ fn grab_body(
                         }
                     })
                     .response
-                    .on_hover_text(tr("When the crawl starts, Pullbay's extension hands over the login page's site cookies, which go to that site's pages only."));
+                    .on_hover_text(tr("When the crawl starts, UDM's extension hands over the login page's site cookies, which go to that site's pages only."));
                     ui.add_enabled_ui(!d.login_page.trim().is_empty(), |ui| {
                         ui.horizontal(|ui| {
                             ui.label(tr("Cookies"));
@@ -1724,7 +1720,7 @@ fn grab_body(
                             );
                         })
                         .response
-                        .on_hover_text(tr("Only needed when the browser can't hand them over, such as without Pullbay's extension. Saved projects keep them encrypted."));
+                        .on_hover_text(tr("Only needed when the browser can't hand them over, such as without UDM's extension. Saved projects keep them encrypted."));
                     });
                 });
                 ui.end_row();
@@ -1746,15 +1742,15 @@ fn grab_body(
                 ui.end_row();
                 ui.label(tr("Budget"));
                 ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut d.max_pages).range(pullbay_domain::grab::MAX_PAGES_RANGE.0..=pullbay_domain::grab::MAX_PAGES_RANGE.1));
+                    ui.add(egui::DragValue::new(&mut d.max_pages).range(udm_domain::grab::MAX_PAGES_RANGE.0..=udm_domain::grab::MAX_PAGES_RANGE.1));
                     ui.label(tr("pages, at most"));
-                    ui.add(egui::DragValue::new(&mut d.max_mb).range(pullbay_domain::grab::MAX_MB_RANGE.0..=pullbay_domain::grab::MAX_MB_RANGE.1));
+                    ui.add(egui::DragValue::new(&mut d.max_mb).range(udm_domain::grab::MAX_MB_RANGE.0..=udm_domain::grab::MAX_MB_RANGE.1));
                     ui.label(tr("MB of pages"));
                 });
                 ui.end_row();
                 ui.label(tr("Wait between pages"));
                 ui.horizontal(|ui| {
-                    let (lo, hi) = pullbay_domain::grab::DELAY_MS_RANGE;
+                    let (lo, hi) = udm_domain::grab::DELAY_MS_RANGE;
                     ui.add(
                         egui::DragValue::new(&mut d.delay_secs)
                             .range(lo as f64 / 1000.0..=hi as f64 / 1000.0)
@@ -1806,12 +1802,12 @@ fn grab_body(
                     ui.label(tr("Explore"));
                     ui.add(
                         egui::DragValue::new(&mut d.explore_at_once)
-                            .range(pullbay_domain::grab::AT_ONCE_RANGE.0..=pullbay_domain::grab::AT_ONCE_RANGE.1),
+                            .range(udm_domain::grab::AT_ONCE_RANGE.0..=udm_domain::grab::AT_ONCE_RANGE.1),
                     );
                     ui.label(tr("pages at once, and download"));
                     ui.add(
                         egui::DragValue::new(&mut d.download_at_once)
-                            .range(pullbay_domain::grab::AT_ONCE_RANGE.0..=pullbay_domain::grab::AT_ONCE_RANGE.1),
+                            .range(udm_domain::grab::AT_ONCE_RANGE.0..=udm_domain::grab::AT_ONCE_RANGE.1),
                     );
                     ui.label(tr("files at once"));
                 })
@@ -1829,10 +1825,10 @@ fn grab_body(
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut d.save_choice, SaveChoice::Category, tr("All files to the folder of this category:"));
                         if d.save_category.is_empty() {
-                            d.save_category = settings.categories.first().map_or(pullbay_domain::settings::GENERAL, |c| c.name.as_str()).to_string();
+                            d.save_category = settings.categories.first().map_or(udm_domain::settings::GENERAL, |c| c.name.as_str()).to_string();
                         }
                         egui::ComboBox::from_id_salt("grab_save_category").selected_text(d.save_category.as_str()).show_ui(ui, |ui| {
-                            for c in settings.categories.iter().map(|c| c.name.as_str()).chain([pullbay_domain::settings::GENERAL]) {
+                            for c in settings.categories.iter().map(|c| c.name.as_str()).chain([udm_domain::settings::GENERAL]) {
                                 ui.selectable_value(&mut d.save_category, c.to_string(), c);
                             }
                         });
@@ -1876,7 +1872,7 @@ fn grab_body(
                 });
             });
             egui::CollapsingHeader::new(tr("Schedule")).id_salt("grab_schedule").show(ui, |ui| {
-                ui.weak(tr("A saved project can run by itself while Pullbay is running. Save the project after changing this."));
+                ui.weak(tr("A saved project can run by itself while UDM is running. Save the project after changing this."));
                 ui.checkbox(&mut d.sched, tr("Run this project on a schedule"));
                 ui.add_enabled_ui(d.sched, |ui| {
                     ui.horizontal(|ui| {
@@ -1907,18 +1903,18 @@ fn grab_body(
                             egui::TextEdit::singleline(&mut d.sched_date).hint_text("2026-12-31").desired_width(90.0),
                         );
                     });
-                    for run in pullbay_domain::grab::RunAction::ALL {
+                    for run in udm_domain::grab::RunAction::ALL {
                         ui.radio_value(&mut d.run, run, tr(run.label()));
                     }
                     ui.horizontal(|ui| {
                         ui.label(tr("Download in"));
-                        ui.add_enabled_ui(d.run != pullbay_domain::grab::RunAction::Explore, |ui| {
+                        ui.add_enabled_ui(d.run != udm_domain::grab::RunAction::Explore, |ui| {
                             queue_combo(ui, "grab_sched_queue", &mut d.sched_queue, queues)
                         });
                     });
-                    ui.add_enabled_ui(d.run != pullbay_domain::grab::RunAction::Explore, |ui| {
+                    ui.add_enabled_ui(d.run != udm_domain::grab::RunAction::Explore, |ui| {
                         ui.horizontal(|ui| {
-                            for k in pullbay_domain::queue::QueueKind::ALL {
+                            for k in udm_domain::queue::QueueKind::ALL {
                                 ui.radio_value(&mut d.sync, k, tr(k.label()));
                             }
                         })
@@ -1931,7 +1927,7 @@ fn grab_body(
                     ui.horizontal(|ui| {
                         ui.label(tr("When done"));
                         egui::ComboBox::from_id_salt("grab_when_done").selected_text(tr(d.when_done.label())).show_ui(ui, |ui| {
-                            for w in pullbay_domain::queue::WhenDone::ALL {
+                            for w in udm_domain::queue::WhenDone::ALL {
                                 ui.selectable_value(&mut d.when_done, w, tr(w.label()));
                             }
                         });
@@ -1942,7 +1938,7 @@ fn grab_body(
                     .response
                     .on_hover_text(tr("After the crawl, or once the queue has downloaded what the run added"));
                     ui.add_enabled(
-                        d.when_done == pullbay_domain::queue::WhenDone::ShutDown,
+                        d.when_done == udm_domain::queue::WhenDone::ShutDown,
                         egui::Checkbox::new(&mut d.force_close, tr("Force apps to close")),
                     )
                     .on_hover_text(tr("Shut down even if a program asks to save its work first; unsaved work is lost"));
@@ -2247,7 +2243,7 @@ fn filter_menu_inner(ui: &mut egui::Ui, d: &mut GrabDialog, skip: bool) {
             ui.horizontal(|ui| {
                 if ui.button(&f.name).on_hover_text(&f.mask).clicked() {
                     let field = if skip { &mut d.skip_types } else { &mut d.types };
-                    *field = pullbay_domain::grab::add_masks(field, &f.types());
+                    *field = udm_domain::grab::add_masks(field, &f.types());
                     ui.close_menu();
                 }
                 if ui.small_button(tr("Edit")).clicked() {
@@ -2284,7 +2280,7 @@ fn filter_editor(ui: &mut egui::Ui, d: &mut GrabDialog) {
         if ui.add_enabled(ready, egui::Button::new(tr("Keep"))).clicked() {
             finish = Some(Some((
                 *at,
-                pullbay_domain::grab::Filter { name: name.trim().to_string(), mask: mask.trim().to_string() },
+                udm_domain::grab::Filter { name: name.trim().to_string(), mask: mask.trim().to_string() },
             )));
         }
         if ui.button(tr("Cancel")).clicked() {
@@ -2445,16 +2441,16 @@ mod tests {
             overwrite: true,
             ..GrabRequest::default()
         };
-        assert_eq!(GrabDialog::from_request(&req, pullbay_domain::grab::default_filters()).request(), req);
+        assert_eq!(GrabDialog::from_request(&req, udm_domain::grab::default_filters()).request(), req);
         // An older project's mirror choice to replace files carries over.
         let old = GrabRequest {
-            mirror: Some(pullbay_domain::grab::Mirror { folder: "/m".into(), pages: false, overwrite: true }),
+            mirror: Some(udm_domain::grab::Mirror { folder: "/m".into(), pages: false, overwrite: true }),
             ..GrabRequest::default()
         };
-        let back = GrabDialog::from_request(&old, pullbay_domain::grab::default_filters()).request();
+        let back = GrabDialog::from_request(&old, udm_domain::grab::default_filters()).request();
         assert!(back.overwrite && back.mirror.is_some_and(|m| m.overwrite));
         // Cookies without a login page are not kept.
-        let mut d = GrabDialog::from_request(&req, pullbay_domain::grab::default_filters());
+        let mut d = GrabDialog::from_request(&req, udm_domain::grab::default_filters());
         d.login_page.clear();
         assert_eq!((d.request().login_url, d.request().login_cookies), (None, None));
     }

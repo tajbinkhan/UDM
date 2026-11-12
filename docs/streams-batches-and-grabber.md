@@ -23,7 +23,7 @@ player). When clicked it asks the worker for its tab's list for that player
 playlists its frame asked for while it was the player that started last
 (or that started within 1.5 s after), which tells players fed through
 `blob:` addresses apart; with nothing of its own, the whole list. The worker
-asks Pullbay (`probe_media`) what each stream offers. The button hides when, at
+asks UDM (`probe_media`) what each stream offers. The button hides when, at
 five points of the player, what is on top lies outside the player's box
 (its furthest ancestor not much bigger than it, so a custom player's
 controls and overlays do not count), when `document.hidden`, and when
@@ -31,7 +31,7 @@ something is full screen; it looks again on scroll, resize and once a
 second. Tabs open before the extension was installed, updated or turned
 back on get the content script injected (`scripting.executeScript`, every
 frame that lacks it) on `runtime.onInstalled` and on the first connection
-to Pullbay in a browser session. A content script can only pick from what the worker saw
+to UDM in a browser session. A content script can only pick from what the worker saw
 in its tab, by number, never pass in an address. A video element that raised
 an `encrypted` event or holds `MediaKeys` is DRM protected: the menu says so
 and offers nothing, or with `video_protected_note` off the button does not
@@ -70,16 +70,16 @@ mp3|m4a|opus|flac` (Opus keeps a site's Opus sound as it is). Ticked
 subtitles are fetched with `--write-subs --sub-langs ^LANG$` (only ids made
 of letters, digits, `-` and `_`) and, with ffmpeg, put in the video
 (`--embed-subs`); without it they are saved beside the video under its name
-(`Video.en.vtt`). Pullbay reads yt-dlp's progress lines, and canceling ends
+(`Video.en.vtt`). UDM reads yt-dlp's progress lines, and canceling ends
 yt-dlp and its children (`taskkill /T` on Windows); its `.part` files let a
 retry carry on. Without ffmpeg the best format with both video and sound in
-one file is saved, with a note. Live streams are refused. Pullbay does not
+one file is saved, with a note. Live streams are refused. UDM does not
 send the browser's cookies to yt-dlp, so only videos anyone can watch signed
 out are offered (on Facebook and Instagram that is public posts only).
 
 **Any other site.** When the video button's menu opens on a page that is
 none of the sites above and the browser saw no file or stream in that tab,
-the worker asks Pullbay to read the page (the frame that holds the player)
+the worker asks UDM to read the page (the frame that holds the player)
 with yt-dlp. This runs only when the menu is opened, never on a page load,
 so no yt-dlp starts for pages nobody asked about; one probe per address is
 in flight at a time, a find is kept for the tab, and a page yt-dlp found
@@ -92,7 +92,7 @@ videos instead of qualities (`playlist`: its title and each video's page,
 title and length, at most 1000, only http and https pages, without
 repeats). On a YouTube video that is part of a playlist (`list=` in its
 address, not a personal mix), the menu also asks about the playlist's own
-page. The menu's "Choose videos in Pullbay..." sends the list to the window
+page. The menu's "Choose videos in UDM..." sends the list to the window
 (`pick_videos`), which opens the playlist dialog: every video ticked, a
 filter by title, one quality for all (best, up to 1080p, 720p, 480p or
 360p, or the sound alone as MP3, M4A, Opus or FLAC) and the queue they
@@ -103,8 +103,8 @@ a height limit (`bestvideo*[height<=720]+bestaudio/...`).
 
 **Image galleries.** gallery-dl lists the pictures of a gallery page (a
 Wikimedia Commons category, a Flickr album, a DeviantArt gallery and the
-other sites gallery-dl knows), and Pullbay's own engine downloads them. The
-browser's menu has **Download gallery with Pullbay** on a page, a frame or
+other sites gallery-dl knows), and UDM's own engine downloads them. The
+browser's menu has **Download gallery with UDM** on a page, a frame or
 an image (`pick_gallery`, for the tab's http or https page), and Add URL has
 **Download gallery** for the address typed. Either opens the gallery
 dialog, which asks the daemon to read the page (`read_gallery`): nothing
@@ -128,7 +128,7 @@ missing, the dialog offers **Install gallery-dl** and **Retry**.
 **Install ffmpeg** and **Install gallery-dl** (or **Update**) buttons, which the daemon carries out
 (`install_tool`, answered with `tools`). Nothing is downloaded without a
 click, except that **Keep yt-dlp up to date** (off unless turned on) looks
-once a day for a newer release of a yt-dlp Pullbay installed. What is
+once a day for a newer release of a yt-dlp UDM installed. What is
 downloaded, from where:
 
 | Tool | System | From | Checked against |
@@ -150,7 +150,7 @@ only files served from that repository's releases on `github.com` or
 `tools/.downloads` under a name nothing runs, its SHA-256 compared with the
 one the release's checksum file lists (and with GitHub's own digest of the
 file, when the API gives one), and only a match is put in place and made
-executable, in the `tools` folder of Pullbay's data folder (the copy's
+executable, in the `tools` folder of UDM's data folder (the copy's
 `Data` folder when it is portable). A mismatch is deleted and nothing is
 installed; a release without a listed checksum is not downloaded at all.
 ffmpeg's archive is unpacked with the system's `tar` (System32's on Windows
@@ -158,10 +158,10 @@ ffmpeg's archive is unpacked with the system's `tar` (System32's on Windows
 records each tool's release and last check. Both checksums come from the
 same release as the file, so they catch a damaged or swapped
 download, not a release the project's own account published; yt-dlp's GPG
-signature (`SHA2-256SUMS.sig`) is not checked. Pullbay uses a tool from its
+signature (`SHA2-256SUMS.sig`) is not checked. UDM uses a tool from its
 own folder first, then the one set in Options (ffmpeg), then `PATH`.
 
-**HLS.** Pullbay reads master playlists (qualities, separate audio tracks) and
+**HLS.** UDM reads master playlists (qualities, separate audio tracks) and
 media playlists (segments, `#EXT-X-BYTERANGE`, `#EXT-X-MAP` headers,
 `#EXT-X-MEDIA-SEQUENCE`). Segments encrypted with AES-128 are decrypted with
 the key from the playlist's key URL, fetched once, and the IV from the
@@ -171,7 +171,7 @@ Widevine use) is DRM and refused, as is a live playlist without
 `#EXT-X-ENDLIST`. Subtitle tracks (`#EXT-X-MEDIA:TYPE=SUBTITLES`) in the
 quality's `SUBTITLES` group are offered by name and language.
 
-**DASH.** Pullbay reads a static manifest's `SegmentTemplate` (with a fixed
+**DASH.** UDM reads a static manifest's `SegmentTemplate` (with a fixed
 duration or a `SegmentTimeline`, `$Number$`, `$Time$`, `$Bandwidth$`,
 `$RepresentationID$` and `%0Nd` widths), `SegmentList` (with byte ranges)
 and `SegmentBase` or a plain `BaseURL` (the whole file), inheriting them
@@ -183,7 +183,7 @@ offered by their `Label` or language; one with the `main` role is the
 default. TTML and WebVTT inside MP4 segments are left out.
 
 **HDS.** Adobe HTTP Dynamic Streaming (`.f4m`, `application/f4m+xml`, or XML
-whose root is `<manifest>` in the `ns.adobe.com/f4m` namespace). Pullbay reads
+whose root is `<manifest>` in the `ns.adobe.com/f4m` namespace). UDM reads
 F4M 1.0 manifests (`<media url bitrate width height bootstrapInfoId>`, each
 offered as a quality, `<bootstrapInfo>` inline in base64 or at a `url`,
 `<baseURL>`, `<metadata>`, `<duration>`) and F4M 2.0 manifests whose
@@ -197,7 +197,7 @@ the media's metadata as an `onMetaData` tag, then every fragment's tags.
 `<drmAdditionalHeader>` marks DRM and is refused, as are live streams
 (`<streamType>live</streamType>` or the bootstrap's live flag).
 
-**Downloading.** Segments go one file each into `<file>.pullbayparts` next to
+**Downloading.** Segments go one file each into `<file>.udmparts` next to
 the output, written as `.tmp` and renamed once complete, up to **Connections
 per file** at once, through the shared speed limit, each retried with the
 usual backoff. Progress counts segments and bytes, and the window's bar
@@ -231,8 +231,8 @@ package, or each split archive among them as its own. The daemon keeps them
 in `history.json` (an older file has none and still loads) and unpacks one
 on a thread of its own, when asked or, with Options' **Unpack a package as
 soon as all its files are in**, when its last download finishes and no try
-was made yet. The archive rules are in `pullbay_domain::package`; zip, tar,
-gzip and xz are unpacked in-process (`pullbay_infrastructure::unpack`, with
+was made yet. The archive rules are in `udm_domain::package`; zip, tar,
+gzip and xz are unpacked in-process (`udm_infrastructure::unpack`, with
 the pure-Rust `zip`, `tar`, `flate2` and `lzma-rust2` crates), and the rest
 go to 7-Zip, which first lists the archive (`7z l -slt`) so a path that would
 leave the folder, a link, too many files or too little room is refused before
@@ -241,7 +241,7 @@ files are checked again before they move.
 
 **The site grabber** runs in the daemon, so it uses the proxy settings, and
 reports to the window that started it. It reads `robots.txt` once per site
-(the group for `Pullbay` if there is one, else `*`; longest match wins, with `*`
+(the group for `UDM` if there is one, else `*`; longest match wins, with `*`
 and `$`), waits at least the set time between requests, and caps a site's
 `Crawl-delay` at 30 seconds. Pages are parsed with html5ever, the HTML parser
 from Servo, so markup inside scripts or comments is not mistaken for links.
@@ -257,9 +257,9 @@ Pages read at once are fetched on their own threads, one batch at a time,
 with the usual wait between batches; robots.txt is read before a site's
 first batch. With `*` in the types, every link with a file name that is not
 a page counts as a file. A project's login is stored in Credential Manager
-as `Pullbay/grabber/<start host>/<user name>`, so projects on one site can use
+as `UDM/grabber/<start host>/<user name>`, so projects on one site can use
 different accounts (a password an older version kept under
-`Pullbay/grabber/<start host>` is still read), sent to the start site when it asks, and
+`UDM/grabber/<start host>` is still read), sent to the start site when it asks, and
 given to the downloads on that site. A login page's cookies come from the
 extension's `cookies_wanted` request at crawl start, as the start site's do
 with **Use my browser's sign-in**, or else from the pasted ones, which
@@ -269,7 +269,7 @@ host (and its subdomains when the crawl explores them), never to other
 hosts the crawl reads; the downloads it adds for files on the login site
 carry that site's cookies too, as captured browser downloads do, and
 files on other hosts get none. Named filters are kept in
-`%APPDATA%\Pullbay\grabber\filters.json` and named templates in
+`%APPDATA%\UDM\grabber\filters.json` and named templates in
 `grabber\templates\`. With scripts run, the extension closes every window
 the page opens and reports its address; the crawl explores those only when
 **Ignore the windows page scripts open** is off. A scheduled run sets the

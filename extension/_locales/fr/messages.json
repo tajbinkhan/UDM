@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "Envoie les téléchargements du navigateur au gestionnaire de téléchargements Pullbay."
+    "message": "Envoie les téléchargements du navigateur au gestionnaire de téléchargements UDM."
   },
-  "downloadWithPullbay": {
-    "message": "Télécharger avec Pullbay"
+  "downloadWithUdm": {
+    "message": "Télécharger avec UDM"
   },
-  "downloadLaterWithPullbay": {
-    "message": "Télécharger plus tard avec Pullbay"
+  "downloadLaterWithUdm": {
+    "message": "Télécharger plus tard avec UDM"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "Télécharger la galerie avec Pullbay"
+  "downloadGalleryWithUdm": {
+    "message": "Télécharger la galerie avec UDM"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "Télécharger tous les liens avec Pullbay"
+  "downloadAllLinksWithUdm": {
+    "message": "Télécharger tous les liens avec UDM"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "Télécharger les liens sélectionnés avec Pullbay"
+  "downloadSelectedLinksWithUdm": {
+    "message": "Télécharger les liens sélectionnés avec UDM"
   },
-  "pullbayDisconnected": {
-    "message": "Pullbay s’est déconnecté"
+  "udmDisconnected": {
+    "message": "UDM s’est déconnecté"
   },
   "captureDownloads": {
     "message": "Intercepter les téléchargements"
   },
   "captureDownloadsTitle": {
-    "message": "Envoyer à Pullbay les téléchargements lancés par le navigateur"
+    "message": "Envoyer à UDM les téléchargements lancés par le navigateur"
   },
   "captureInTab": {
     "message": "Intercepter dans cet onglet"
@@ -36,16 +36,16 @@
     "message": "Désactivé dans cet onglet"
   },
   "statusConnected": {
-    "message": "Connecté. Les téléchargements que vous lancez dans le navigateur vont à Pullbay."
+    "message": "Connecté. Les téléchargements que vous lancez dans le navigateur vont à UDM."
   },
   "statusConnectedCaptureOff": {
     "message": "Connecté. L’interception est désactivée, le navigateur garde donc ses propres téléchargements."
   },
   "statusNotConnected": {
-    "message": "Non connecté à Pullbay. Les téléchargements restent dans le navigateur."
+    "message": "Non connecté à UDM. Les téléchargements restent dans le navigateur."
   },
   "statusNotConnectedReason": {
-    "message": "Non connecté à Pullbay\u00a0: $REASON$. Les téléchargements restent dans le navigateur.",
+    "message": "Non connecté à UDM\u00a0: $REASON$. Les téléchargements restent dans le navigateur.",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "Tous les liens de la page"
   },
   "allLinksTitle": {
-    "message": "Lister les liens de cette page dans Pullbay pour choisir ceux à télécharger"
+    "message": "Lister les liens de cette page dans UDM pour choisir ceux à télécharger"
   },
   "videoButton": {
     "message": "Bouton vidéo"
@@ -117,7 +117,7 @@
     "message": "Interrompu"
   },
   "stateConfirming": {
-    "message": "Vous attend dans Pullbay"
+    "message": "Vous attend dans UDM"
   },
   "stateWaiting": {
     "message": "En attente de démarrage"
@@ -190,22 +190,22 @@
     "message": "Sous-titres :"
   },
   "videoProtected": {
-    "message": "Cette vidéo est protégée par DRM, Pullbay ne la téléchargera donc pas."
+    "message": "Cette vidéo est protégée par DRM, UDM ne la téléchargera donc pas."
   },
   "streamProtected": {
-    "message": "Protégé par DRM\u00a0; Pullbay ne le téléchargera pas."
+    "message": "Protégé par DRM\u00a0; UDM ne le téléchargera pas."
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay n’est pas lancé ou n’est pas connecté."
+  "udmNotConnected": {
+    "message": "UDM n’est pas lancé ou n’est pas connecté."
   },
   "noVideoFound": {
     "message": "Aucune vidéo trouvée pour l’instant. Laissez-la jouer un moment, puis réessayez."
   },
-  "sentToPullbay": {
-    "message": "Envoyé à Pullbay."
+  "sentToUdm": {
+    "message": "Envoyé à UDM."
   },
-  "couldNotReachPullbay": {
-    "message": "Impossible de joindre Pullbay."
+  "couldNotReachUdm": {
+    "message": "Impossible de joindre UDM."
   },
   "hlsStream": {
     "message": "Flux HLS"
@@ -230,11 +230,11 @@
   },
   "pageVideo": {
     "message": "Vidéo de cette page",
-    "description": "The video button's menu: heading for a video on a page of another site, which Pullbay read with yt-dlp."
+    "description": "The video button's menu: heading for a video on a page of another site, which UDM read with yt-dlp."
   },
   "playlistTitled": {
     "message": "Playlist : $TITLE$ ($COUNT$ vidéos)",
-    "description": "The video button's menu: heading for a playlist or channel Pullbay read with yt-dlp. TITLE is its name, COUNT how many videos it lists.",
+    "description": "The video button's menu: heading for a playlist or channel UDM read with yt-dlp. TITLE is its name, COUNT how many videos it lists.",
     "placeholders": {
       "title": { "content": "$1", "example": "Lectures" },
       "count": { "content": "$2", "example": "24" }
@@ -248,11 +248,11 @@
     }
   },
   "chooseVideos": {
-    "message": "Choisir les vidéos dans Pullbay...",
-    "description": "The video button's menu item that opens Pullbay's window to tick the playlist's videos to download."
+    "message": "Choisir les vidéos dans UDM...",
+    "description": "The video button's menu item that opens UDM's window to tick the playlist's videos to download."
   },
   "mediaNoAnswer": {
-    "message": "Pullbay n’a pas répondu."
+    "message": "UDM n’a pas répondu."
   },
   "soundOnly": {
     "message": "Audio seul ($FORMAT$)",
@@ -279,10 +279,10 @@
     "message": "Audio"
   },
   "takeoverFailed": {
-    "message": "Pullbay n'a pas pu reprendre le téléchargement"
+    "message": "UDM n'a pas pu reprendre le téléchargement"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay n'est pas lancé ou pas connecté, le navigateur télécharge donc $FILE$.",
+    "message": "UDM n'est pas lancé ou pas connecté, le navigateur télécharge donc $FILE$.",
     "placeholders": {
       "file": {
         "content": "$1",
@@ -291,7 +291,7 @@
     }
   },
   "takeoverError": {
-    "message": "Pullbay n'a pas pu démarrer $FILE$ ($REASON$), le navigateur le télécharge donc.",
+    "message": "UDM n'a pas pu démarrer $FILE$ ($REASON$), le navigateur le télécharge donc.",
     "placeholders": {
       "file": {
         "content": "$1",
@@ -310,13 +310,13 @@
     "message": "Cliquez sur cet avis pour ne plus l'afficher."
   },
   "downloadLastVideo": {
-    "message": "Télécharger la dernière vidéo avec Pullbay"
+    "message": "Télécharger la dernière vidéo avec UDM"
   },
   "recentVideos": {
-    "message": "Vidéos récentes (Pullbay)"
+    "message": "Vidéos récentes (UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "Télécharger la page avec Pullbay"
+  "downloadPageWithUdm": {
+    "message": "Télécharger la page avec UDM"
   },
   "noLinksFound": {
     "message": "Aucun lien trouvé sur cette page."
@@ -325,13 +325,13 @@
     "message": "Aucun lien trouvé dans la sélection."
   },
   "linksUnreadable": {
-    "message": "Le navigateur ne permet pas à Pullbay de lire les liens de cette page."
+    "message": "Le navigateur ne permet pas à UDM de lire les liens de cette page."
   },
-  "cannotReachPullbay": {
-    "message": "Impossible de joindre Pullbay. Pullbay est-il lancé ?"
+  "cannotReachUdm": {
+    "message": "Impossible de joindre UDM. UDM est-il lancé ?"
   },
-  "cannotReachPullbayReason": {
-    "message": "Impossible de joindre Pullbay ($REASON$).",
+  "cannotReachUdmReason": {
+    "message": "Impossible de joindre UDM ($REASON$).",
     "placeholders": {
       "reason": {
         "content": "$1",
@@ -345,7 +345,7 @@
   "browserDownloadsHeading": {
     "message": "Téléchargements dans le navigateur"
   },
-  "sendToPullbay": {
-    "message": "Envoyer à Pullbay"
+  "sendToUdm": {
+    "message": "Envoyer à UDM"
   }
 }

@@ -1,9 +1,9 @@
-use pullbay_domain::pairing::DeviceInfo;
+use udm_domain::pairing::DeviceInfo;
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient};
 
-/// The paired devices: `pullbay-cli devices`.
+/// The paired devices: `udm-cli devices`.
 pub struct ListDevices<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
 }

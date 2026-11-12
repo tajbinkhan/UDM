@@ -1,13 +1,13 @@
-//! The programs Pullbay can install: yt-dlp, which reads video pages,
+//! The programs UDM can install: yt-dlp, which reads video pages,
 //! ffmpeg, which joins and converts what it fetches, and gallery-dl, which
 //! lists the pictures of image galleries. Where each official build comes
 //! from, how its published checksum is read, and when yt-dlp is due for an
 //! update. Downloading, checking and unpacking them are
-//! `pullbay_infrastructure::video_tools`.
+//! `udm_infrastructure::video_tools`.
 
 use serde::{Deserialize, Serialize};
 
-/// A program Pullbay can install.
+/// A program UDM can install.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tool {
@@ -56,7 +56,7 @@ pub enum Cpu {
     Other,
 }
 
-/// The system Pullbay runs on, which picks the build.
+/// The system UDM runs on, which picks the build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Platform {
     pub system: System,
@@ -95,7 +95,7 @@ pub const FFMPEG_REPOSITORY: &str = "yt-dlp/FFmpeg-Builds";
 /// 2026; the GitHub releases since then carry no files and no checksums.
 pub const GALLERY_DL_REPOSITORY: &str = "mikf/gallery-dl";
 
-/// The official build of `tool` for `platform`, or `None` where Pullbay
+/// The official build of `tool` for `platform`, or `None` where UDM
 /// installs none: ffmpeg on macOS (no build there comes with a published
 /// checksum), gallery-dl on macOS and on ARM processors (its project builds
 /// programs for x86 Windows and x86-64 Linux only), and systems or
@@ -130,7 +130,7 @@ pub fn source(tool: Tool, platform: Platform) -> Option<ToolSource> {
     Some(ToolSource { forge, repository, asset, sums, packing })
 }
 
-/// What the user can run instead where Pullbay installs nothing, or would
+/// What the user can run instead where UDM installs nothing, or would
 /// rather use the system's packages: a package manager's command.
 pub fn package_command(tool: Tool, system: System) -> &'static str {
     match (tool, system) {
@@ -178,7 +178,7 @@ pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// A tool Pullbay installed: the release it came from, and when Pullbay
+/// A tool UDM installed: the release it came from, and when UDM
 /// last looked for a newer one (seconds since 1970).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstalledTool {
@@ -191,13 +191,13 @@ pub struct InstalledTool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolState {
     pub tool: Tool,
-    /// Where the program Pullbay uses is, if it finds one.
+    /// Where the program UDM uses is, if it finds one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// The release Pullbay installed, when it installed this one.
+    /// The release UDM installed, when it installed this one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub installed: Option<String>,
-    /// Pullbay can install it on this system.
+    /// UDM can install it on this system.
     #[serde(default)]
     pub installable: bool,
     /// The package manager's command for it on this system.
@@ -210,20 +210,20 @@ pub struct ToolState {
 pub const UPDATE_EVERY_SECS: u64 = 24 * 60 * 60;
 
 /// Whether yt-dlp should be looked at for an update at `now`: the user
-/// turned it on, Pullbay installed it, and a day passed since the last look.
+/// turned it on, UDM installed it, and a day passed since the last look.
 pub fn update_due(auto: bool, installed: Option<&InstalledTool>, now: u64) -> bool {
     auto && installed.is_some_and(|t| now.saturating_sub(t.checked) >= UPDATE_EVERY_SECS)
 }
 
-/// The largest release file Pullbay downloads for a tool.
+/// The largest release file UDM downloads for a tool.
 pub const MAX_TOOL_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Why a tool could not be installed or updated.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum ToolError {
-    /// Pullbay installs no build of it here; the package manager's
+    /// UDM installs no build of it here; the package manager's
     /// command instead.
-    #[error("Pullbay cannot install {0} on this system. Install it with: {1}")]
+    #[error("UDM cannot install {0} on this system. Install it with: {1}")]
     NoBuild(String, String),
     /// The release site (GitHub or Codeberg) could not be reached; why.
     #[error("Could not reach the release site: {0}")]
@@ -235,7 +235,7 @@ pub enum ToolError {
     #[error("The latest release has no file {0}.")]
     NoAsset(String),
     /// The release's checksum file lists no checksum for this file.
-    #[error("The release publishes no checksum for {0}, so Pullbay will not install it.")]
+    #[error("The release publishes no checksum for {0}, so UDM will not install it.")]
     NoChecksum(String),
     /// The downloaded file is not the one the checksums list.
     #[error("{0} does not match its published checksum. It was deleted and nothing was installed.")]

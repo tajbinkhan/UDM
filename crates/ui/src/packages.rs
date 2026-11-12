@@ -3,8 +3,8 @@
 //! goes to the daemon with the request to unpack, and is not kept.
 
 use eframe::egui;
-use pullbay_domain::id::PackageId;
-use pullbay_domain::package::{Package, Password, Unpack};
+use udm_domain::id::PackageId;
+use udm_domain::package::{Package, Password, Unpack};
 
 use crate::i18n::{tr, trf};
 use crate::Action;

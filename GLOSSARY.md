@@ -1,4 +1,4 @@
-# Pullbay
+# UDM
 
 A download manager that follows Internet Download Manager's behavior: it catches downloads from the browser, asks where to save them, and shows each one's progress in its own window.
 
@@ -6,7 +6,7 @@ A download manager that follows Internet Download Manager's behavior: it catches
 
 **Main window**:
 The window with the list of downloads, categories and queues. It lives in the tray when it is not open.
-_Avoid_: App window, Pullbay window
+_Avoid_: App window, UDM window
 
 **Save-as dialog**:
 The dialog that asks where to save a new download and whether to start it now or later. IDM calls it "Download File Info".

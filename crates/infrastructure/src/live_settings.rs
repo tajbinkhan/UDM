@@ -5,17 +5,17 @@
 //! the adapter for `UpdateChecks`. `QueueChimes` plays the queue sounds the
 //! settings ask for (`QueueSounds`).
 
-use pullbay_domain::sync::LockExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use udm_domain::sync::LockExt;
 
-use pullbay_domain::ports::{QueueSounds, UpdateChecks};
 use tracing::warn;
+use udm_domain::ports::{QueueSounds, UpdateChecks};
 
 use crate::notify;
 use crate::settings;
-use pullbay_domain::settings::Settings;
-use pullbay_domain::settings::Sound;
+use udm_domain::settings::Settings;
+use udm_domain::settings::Sound;
 
 /// The current settings, and where they are saved. With no path they live
 /// in memory only.
@@ -89,7 +89,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pullbay_live_settings_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_live_settings_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }

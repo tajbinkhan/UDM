@@ -1,6 +1,6 @@
-This file makes this copy of Pullbay portable.
+This file makes this copy of UDM portable.
 
-While it is here, Pullbay keeps its settings, download list and logs in the
+While it is here, UDM keeps its settings, download list and logs in the
 Data folder beside it, downloads into the Downloads folder beside it, and
 writes nothing to the registry except its registrations with the browsers.
 Delete this file to use the usual folders in your user profile instead.

@@ -1,9 +1,9 @@
-# Benchmark: Pullbay against IDM
+# Benchmark: UDM against IDM
 
-> **No IDM results yet.** The harness, the fault server and a Pullbay-only sample run are here;
-> the comparison with IDM needs a Windows machine with IDM installed, and none has been run.
-> There is no chart here until there is a run to draw it from. The one sample below is Pullbay
-> alone on Linux, and it compares Pullbay with nothing.
+> **One run against IDM so far**, on one Windows machine on 2026-11-12. See [Results](#results).
+> It is one machine and one IDM version; more runs on other machines are welcome.
+
+![Median seconds per scenario for UDM, IDM, curl and wget](results/2026-11-12-windows-idm/chart.svg)
 
 The harness downloads the same file several times with each download manager, from a local
 server that can misbehave on purpose, and records how long each download took, how much CPU it
@@ -27,7 +27,7 @@ no tool takes it for a download it already has.
 | Column in `runs.csv` | What it is |
 |---|---|
 | `seconds` | Wall time from starting the tool's command to having the whole file. For a tool that exits when it is done, until it exits. For IDM, until the whole file is in the folder and IDM has let go of it (checked every 20 ms) |
-| `cpu_seconds` | User plus system CPU time during the run: the tool's own process; for Pullbay, `pullbay-cli` plus the daemon; for IDM, `IDMan.exe` plus the `/d` call |
+| `cpu_seconds` | User plus system CPU time during the run: the tool's own process; for UDM, `udm-cli` plus the daemon; for IDM, `IDMan.exe` plus the `/d` call |
 | `bytes`, `ok` | The file's size, and whether it matched the server's SHA-256 |
 | `exit_code`, `error` | What the tool returned, and why a run counts as failed |
 | `server_*` | What the server saw: connections opened, requests, the most connections from the client at once, connections refused, and body bytes sent (more than the file means bytes sent twice, or sent and thrown away) |
@@ -78,22 +78,22 @@ on another address, to test from another machine on a network you trust.
 
 | Name | What runs | Notes |
 |---|---|---|
-| `pullbay` | `pullbay-cli get -q -d FOLDER -n NAME URL` | A separate copy (`PULLBAY_INSTANCE=bench`) with its own daemon, which the harness starts and stops. On Windows and Linux its settings and list go in a temporary folder; on macOS in `~/Library/Application Support/Pullbay-bench`. Default settings, except that completion notifications are off |
+| `udm` | `udm-cli get -q -d FOLDER -n NAME URL` | A separate copy (`UDM_INSTANCE=bench`) with its own daemon, which the harness starts and stops. On Windows and Linux its settings and list go in a temporary folder; on macOS in `~/Library/Application Support/UDM-bench`. Default settings, except that completion notifications are off |
 | `idm` | `IDMan.exe /d URL /p FOLDER /f NAME /n` | Windows only. IDM must be running before the run starts, so its start-up is not timed. Found through IDM's registry key, or `--idm PATH` |
 | `aria2c` | `aria2c --quiet=true --dir=FOLDER --out=NAME URL` | Its defaults, which open one connection per server |
 | `curl` | `curl --silent --show-error --fail --output PATH URL` | One connection, and it does not retry by default, so it fails `drops` |
 | `wget` | `wget --quiet --output-document=PATH URL` | |
 
 `--tool 'NAME=COMMAND'` adds any other program that downloads a file and exits; `{url}`,
-`{folder}`, `{name}` and `{path}` in its command are filled in. `--pullbay-bin` points at the
-folder with `pullbay-cli` and `pullbay-daemon`: `target/release` by default, or an installed copy
-(`%LOCALAPPDATA%\Programs\Pullbay` on Windows).
+`{folder}`, `{name}` and `{path}` in its command are filled in. `--udm-bin` points at the
+folder with `udm-cli` and `udm-daemon`: `target/release` by default, or an installed copy
+(`%LOCALAPPDATA%\Programs\UDM` on Windows).
 
 ## Running the IDM comparison (Windows)
 
-1. Install Python 3.9 or later, and IDM. Build Pullbay with
-   `cargo build --release -p pullbay-app --bin pullbay-cli --bin pullbay-daemon`, or use an
-   installed copy with `--pullbay-bin`.
+1. Install Python 3.9 or later, and IDM. Build UDM with
+   `cargo build --release -p udm-app --bin udm-cli --bin udm-daemon`, or use an
+   installed copy with `--udm-bin`.
 2. Leave IDM's options as a fresh install has them. Write down IDM's version and the number of
    connections its Options show. If IDM shows a dialog each time a download completes, turn that
    dialog off (one per run gets in the way) and say so in the note.
@@ -104,7 +104,7 @@ folder with `pullbay-cli` and `pullbay-daemon`: `target/release` by default, or 
 
    ```bat
    py tools\bench\bench.py list
-   py tools\bench\bench.py run --tools pullbay,idm,aria2c --runs 5 ^
+   py tools\bench\bench.py run --tools udm,idm,aria2c --runs 5 ^
      --note "IDM 6.xx build yy, defaults, 8 connections, completion dialog off; Defender on; NVMe SSD"
    ```
 
@@ -120,7 +120,7 @@ On Linux and macOS the same command runs without `idm`; `aria2c`, `curl` and `wg
 ## What to record about the machine
 
 `machine.json` records, without host or user names: the system and its version, the CPU and its
-logical cores, the RAM, Python's version, every tool's version (Pullbay's with the commit it was
+logical cores, the RAM, Python's version, every tool's version (UDM's with the commit it was
 built from, when it is this repository's build), the file's size and hash, the number of runs and
 every scenario's faults. Put in `--note` what the harness cannot see: the disk (SSD or HDD, and
 whether the download folder is on it), the power plan, antivirus scanning, IDM's settings and
@@ -131,10 +131,10 @@ anything else running at the time.
 - Every server is on loopback: there is no real network's latency or loss. The scenarios model
   how servers behave, not how a line between you and them behaves. `clean` is limited by the
   Python server and by each tool's fixed costs.
-- The CPU time of a long-lived process (Pullbay's daemon, IDM) is all it did during the run,
+- The CPU time of a long-lived process (UDM's daemon, IDM) is all it did during the run,
   which includes anything else it was doing then.
 - IDM's time includes up to 20 ms of polling and whatever IDM does before the finished file is in
-  the folder; Pullbay's and the others' end when their command exits.
+  the folder; UDM's and the others' end when their command exits.
 - A run that did not produce the whole, correct file counts as failed and is left out of the
   medians, and the table shows how many runs succeeded.
 
@@ -142,9 +142,54 @@ anything else running at the time.
 
 | Folder | Machine | Tools | What it is |
 |---|---|---|---|
-| [2026-11-10-linux-pullbay-only](results/2026-11-10-linux-pullbay-only/summary.md) | Linux, Ryzen 7 9800X3D | Pullbay only | A sample run that checks the harness and the faults work end to end. Not a comparison |
+| [2026-11-12-windows-idm](results/2026-11-12-windows-idm/summary.md) | Windows 11, Ryzen 7 9800X3D, NVMe SSD | UDM, IDM 6.43 build 18, curl, wget | The first comparison with IDM |
+| [2026-11-10-linux-pullbay-only](results/2026-11-10-linux-pullbay-only/summary.md) | Linux, Ryzen 7 9800X3D | UDM only | A sample run that checks the harness and the faults work end to end. Not a comparison |
 
-The sample (64 MiB, five runs each, release build of commit 7006e77) shows Pullbay at its
+### Windows, against IDM (2026-11-12)
+
+64 MiB, five runs per tool and scenario after one warm-up, UDM's release build against IDM 6.43
+build 18 at its defaults (8 connections) with its "Download complete" dialog turned off. Defender's
+real-time protection was on. aria2c was not installed. Every run of every tool got a byte-identical
+file, except curl in `drops`, which does not retry by default.
+
+| Scenario | UDM | IDM | curl | wget |
+|---|---|---|---|---|
+| `clean` | 0.07 s | 0.25 s | 0.06 s | 0.06 s |
+| `per-connection-limit` | 2.01 s | 2.83 s | 16.00 s | 16.00 s |
+| `slow-link` | 4.02 s | 4.19 s | 4.24 s | 4.24 s |
+| `drops` | 1.78 s | 2.02 s | failed | 113.16 s |
+| `two-per-client` | 8.01 s | 8.21 s | 16.00 s | 16.00 s |
+| `slow-start` | 4.01 s | 6.34 s | 17.00 s | 17.00 s |
+| `wrong-ranges` | 3.26 s | 16.14 s | 16.00 s | 16.00 s |
+| `no-ranges` | 4.02 s | 4.14 s | 4.01 s | 4.01 s |
+
+What the numbers say:
+
+- UDM's median is the shortest, or within 0.02 s of curl's and wget's, in every scenario. It is
+  ahead of IDM in all eight.
+- In `wrong-ranges` IDM took 16.1 s, as long as one 4 MiB/s connection needs for the whole file,
+  like curl and wget; UDM took 3.3 s.
+- In `slow-start` the server saw up to 14 of IDM's connections at once against UDM's 8, and IDM
+  took 6.3 s to UDM's 4.0 s.
+- Where the server is the limit (`slow-link`, `no-ranges`, `two-per-client`), every tool lands
+  within a few tenths of a second of the limit.
+- In each round the tools take turns, so UDM's first and last runs of a scenario came more than
+  a minute after its previous one. Its background service had quit by then, as it does after a
+  minute with nothing to do, and those runs include starting it again: about 0.36 s
+  (`per-connection-limit` 2.37 s against 2.01 s).
+- CPU time on Windows is counted in 15.6 ms ticks, so downloads that mostly wait on a slow server
+  read as 0.00 s for UDM, curl and wget. IDM's 0.2 to 0.7 s includes its window, which was open.
+
+The first attempt at this run found two problems, fixed before the numbers above. Some UDM runs
+took 2.14 s longer than others with the same requests. Windows takes about two seconds to refuse a
+connection to a port nothing listens on, and every UDM client waited that out before starting a
+stopped service (the client's connection now gives up after 250 ms). The service also quit less
+than a minute after short downloads, because a client that came and went between two of its
+five-second looks did not count as activity.
+
+### Linux sample (2026-11-10)
+
+The sample (64 MiB, five runs each, release build of commit 7006e77) shows UDM at its
 defaults against each scenario. Each run got a byte-identical file. The times follow the server's
 limits: for example, `two-per-client` took 8.1 s, which is 64 MiB over two connections at 4 MiB/s
 each, and the server never saw more than two at once. `per-connection-limit` took 2.1 s with 8

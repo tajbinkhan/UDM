@@ -1,5 +1,5 @@
 // Popup: shows the worker's state and sends it commands. The worker owns the
-// connection to Pullbay; this page only asks it for snapshots.
+// connection to UDM; this page only asks it for snapshots.
 //
 // Names and URLs come from the web, so everything is built with DOM calls and
 // textContent, never innerHTML.
@@ -189,11 +189,11 @@ $("video-site").addEventListener("change", (ev) =>
   ask({ type: "setVideoButton", site: tabHost, siteOn: ev.target.checked }),
 );
 
-// The browser's own downloads in progress, each with "Send to Pullbay", which
-// cancels the browser's copy and starts it in Pullbay. Chrome's downloads have
+// The browser's own downloads in progress, each with "Send to UDM", which
+// cancels the browser's copy and starts it in UDM. Chrome's downloads have
 // no context menu, so this is where a started download is handed over.
 let browserConnected = false;
-// The ones Pullbay could not take, which say so while they are listed.
+// The ones UDM could not take, which say so while they are listed.
 const notSent = new Set();
 function renderBrowser(answer) {
   const items = (answer && answer.items) || [];
@@ -204,10 +204,10 @@ function renderBrowser(answer) {
     const li = el("li");
     li.append(el("div", { className: "name", title: d.url }, d.filename || d.url));
     const meta = el("div", { className: "meta" });
-    if (notSent.has(d.id)) meta.append(el("span", { className: "failed" }, t("couldNotReachPullbay")));
+    if (notSent.has(d.id)) meta.append(el("span", { className: "failed" }, t("couldNotReachUdm")));
     meta.append(el("span", { className: "grow" }, d.total ? t("sizeProgress", [human(d.done), human(d.total)]) : human(d.done)));
     const send = button(
-      t("sendToPullbay"),
+      t("sendToUdm"),
       () => {
         send.disabled = true;
         chrome.runtime

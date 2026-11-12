@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1064" viewBox="0 0 760 1064" font-family="system-ui, sans-serif" font-size="12">
+<rect width="760" height="1064" fill="#ffffff"/>
+<text x="16" y="24" font-size="14" font-weight="600" fill="#1d2430">Median seconds to download the file (shorter is better; each scenario has its own scale)</text>
+<text x="16" y="58" font-weight="600" fill="#1d2430">clean</text>
+<text x="112" y="81" text-anchor="end" fill="#3b4656">udm</text>
+<rect x="120" y="68" width="138.2" height="18" rx="2" fill="#2f6db5"/>
+<text x="264.2" y="81" fill="#1d2430">0.07 s</text>
+<text x="112" y="103" text-anchor="end" fill="#3b4656">idm</text>
+<rect x="120" y="90" width="510.0" height="18" rx="2" fill="#d9822b"/>
+<text x="636.0" y="103" fill="#1d2430">0.25 s</text>
+<text x="112" y="125" text-anchor="end" fill="#3b4656">curl</text>
+<rect x="120" y="112" width="117.8" height="18" rx="2" fill="#3a9a5b"/>
+<text x="243.8" y="125" fill="#1d2430">0.06 s</text>
+<text x="112" y="147" text-anchor="end" fill="#3b4656">wget</text>
+<rect x="120" y="134" width="119.9" height="18" rx="2" fill="#8e5bb5"/>
+<text x="245.9" y="147" fill="#1d2430">0.06 s</text>
+<text x="16" y="186" font-weight="600" fill="#1d2430">per-connection-limit</text>
+<text x="112" y="209" text-anchor="end" fill="#3b4656">udm</text>
+<rect x="120" y="196" width="64.1" height="18" rx="2" fill="#2f6db5"/>
+<text x="190.1" y="209" fill="#1d2430">2.01 s</text>
+<text x="112" y="231" text-anchor="end" fill="#3b4656">idm</text>
+<rect x="120" y="218" width="90.2" height="18" rx="2" fill="#d9822b"/>
+<text x="216.2" y="231" fill="#1d2430">2.83 s</text>
+<text x="112" y="253" text-anchor="end" fill="#3b4656">curl</text>
+<rect x="120" y="240" width="510.0" height="18" rx="2" fill="#3a9a5b"/>
+<text x="636.0" y="253" fill="#1d2430">16.00 s</text>
+<text x="112" y="275" text-anchor="end" fill="#3b4656">wget</text>
+<rect x="120" y="262" width="510.0" height="18" rx="2" fill="#8e5bb5"/>
+<text x="636.0" y="275" fill="#1d2430">16.00 s</text>
+<text x="16" y="314" font-weight="600" fill="#1d2430">slow-link</text>
+<text x="112" y="337" text-anchor="end" fill="#3b4656">udm</text>
+<rect x="120" y="324" width="484.1" height="18" rx="2" fill="#2f6db5"/>
+<text x="610.1" y="337" fill="#1d2430">4.02 s</text>
+<text x="112" y="359" text-anchor="end" fill="#3b4656">idm</text>
+<rect x="120" y="346" width="504.6" height="18" rx="2" fill="#d9822b"/>
+<text x="630.6" y="359" fill="#1d2430">4.19 s</text>
+<text x="112" y="381" text-anchor="end" fill="#3b4656">curl</text>
+<rect x="120" y="368" width="510.0" height="18" rx="2" fill="#3a9a5b"/>
+<text x="636.0" y="381" fill="#1d2430">4.24 s</text>
+<text x="112" y="403" text-anchor="end" fill="#3b4656">wget</text>
+<rect x="120" y="390" width="509.6" height="18" rx="2" fill="#8e5bb5"/>
+<text x="635.6" y="403" fill="#1d2430">4.24 s</text>
+<text x="16" y="442" font-weight="600" fill="#1d2430">drops</text>
+<text x="112" y="465" text-anchor="end" fill="#3b4656">udm</text>
+<rect x="120" y="452" width="8.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="134.0" y="465" fill="#1d2430">1.78 s</text>
+<text x="112" y="487" text-anchor="end" fill="#3b4656">idm</text>
+<rect x="120" y="474" width="9.1" height="18" rx="2" fill="#d9822b"/>
+<text x="135.1" y="487" fill="#1d2430">2.02 s</text>
+<text x="112" y="509" text-anchor="end" fill="#3b4656">curl</text>
+<rect x="120" y="496" width="0.0" height="18" rx="2" fill="#3a9a5b"/>
+<text x="126.0" y="509" fill="#1d2430">failed</text>
+<text x="112" y="531" text-anchor="end" fill="#3b4656">wget</text>
+<rect x="120" y="518" width="510.0" height="18" rx="2" fill="#8e5bb5"/>
+<text x="636.0" y="531" fill="#1d2430">113.16 s</text>
+<text x="16" y="570" font-weight="600" fill="#1d2430">two-per-client</text>
+<text x="112" y="593" text-anchor="end" fill="#3b4656">udm</text>
+<rect x="120" y="580" width="255.3" height="18" rx="2" fill="#2f6db5"/>
+<text x="381.3" y="593" fill="#1d2430">8.01 s</text>
+<text x="112" y="615" text-anchor="end" fill="#3b4656">idm</text>
+<rect x="120" y="602" width="261.7" height="18" rx="2" fill="#d9822b"/>
+<text x="387.7" y="615" fill="#1d2430">8.21 s</text>
+<text x="112" y="637" text-anchor="end" fill="#3b4656">curl</text>
+<rect x="120" y="624" width="510.0" height="18" rx="2" fill="#3a9a5b"/>
+<text x="636.0" y="637" fill="#1d2430">16.00 s</text>
+<text x="112" y="659" text-anchor="end" fill="#3b4656">wget</text>
+<rect x="120" y="646" width="510.0" height="18" rx="2" fill="#8e5bb5"/>
+<text x="636.0" y="659" fill="#1d2430">16.00 s</text>
+<text x="16" y="698" font-weight="600" fill="#1d2430">slow-start</text>
+<text x="112" y="721" text-anchor="end" fill="#3b4656">udm</text>
+<rect x="120" y="708" width="120.3" height="18" rx="2" fill="#2f6db5"/>
+<text x="246.3" y="721" fill="#1d2430">4.01 s</text>
+<text x="112" y="743" text-anchor="end" fill="#3b4656">idm</text>
+<rect x="120" y="730" width="190.2" height="18" rx="2" fill="#d9822b"/>
+<text x="316.2" y="743" fill="#1d2430">6.34 s</text>
+<text x="112" y="765" text-anchor="end" fill="#3b4656">curl</text>
+<rect x="120" y="752" width="510.0" height="18" rx="2" fill="#3a9a5b"/>
+<text x="636.0" y="765" fill="#1d2430">17.00 s</text>
+<text x="112" y="787" text-anchor="end" fill="#3b4656">wget</text>
+<rect x="120" y="774" width="510.0" height="18" rx="2" fill="#8e5bb5"/>
+<text x="636.0" y="787" fill="#1d2430">17.00 s</text>
+<text x="16" y="826" font-weight="600" fill="#1d2430">wrong-ranges</text>
+<text x="112" y="849" text-anchor="end" fill="#3b4656">udm</text>
+<rect x="120" y="836" width="103.0" height="18" rx="2" fill="#2f6db5"/>
+<text x="229.0" y="849" fill="#1d2430">3.26 s</text>
+<text x="112" y="871" text-anchor="end" fill="#3b4656">idm</text>
+<rect x="120" y="858" width="510.0" height="18" rx="2" fill="#d9822b"/>
+<text x="636.0" y="871" fill="#1d2430">16.14 s</text>
+<text x="112" y="893" text-anchor="end" fill="#3b4656">curl</text>
+<rect x="120" y="880" width="505.6" height="18" rx="2" fill="#3a9a5b"/>
+<text x="631.6" y="893" fill="#1d2430">16.00 s</text>
+<text x="112" y="915" text-anchor="end" fill="#3b4656">wget</text>
+<rect x="120" y="902" width="505.7" height="18" rx="2" fill="#8e5bb5"/>
+<text x="631.7" y="915" fill="#1d2430">16.00 s</text>
+<text x="16" y="954" font-weight="600" fill="#1d2430">no-ranges</text>
+<text x="112" y="977" text-anchor="end" fill="#3b4656">udm</text>
+<rect x="120" y="964" width="495.3" height="18" rx="2" fill="#2f6db5"/>
+<text x="621.3" y="977" fill="#1d2430">4.02 s</text>
+<text x="112" y="999" text-anchor="end" fill="#3b4656">idm</text>
+<rect x="120" y="986" width="510.0" height="18" rx="2" fill="#d9822b"/>
+<text x="636.0" y="999" fill="#1d2430">4.14 s</text>
+<text x="112" y="1021" text-anchor="end" fill="#3b4656">curl</text>
+<rect x="120" y="1008" width="494.3" height="18" rx="2" fill="#3a9a5b"/>
+<text x="620.3" y="1021" fill="#1d2430">4.01 s</text>
+<text x="112" y="1043" text-anchor="end" fill="#3b4656">wget</text>
+<rect x="120" y="1030" width="494.5" height="18" rx="2" fill="#8e5bb5"/>
+<text x="620.5" y="1043" fill="#1d2430">4.01 s</text>
+</svg>

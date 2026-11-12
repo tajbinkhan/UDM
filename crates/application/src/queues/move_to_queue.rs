@@ -1,7 +1,7 @@
-use pullbay_domain::download::Status;
-use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::ports::{DownloadList, QueueStore};
-use pullbay_domain::queue::{self, QueueError};
+use udm_domain::download::Status;
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::ports::{DownloadList, QueueStore};
+use udm_domain::queue::{self, QueueError};
 
 /// Put a download in a queue, at a position or at the end. A download that
 /// is not running waits there.
@@ -39,7 +39,7 @@ impl<'a, Q: QueueStore, D: DownloadList> MoveToQueue<'a, Q, D> {
 mod tests {
     use super::*;
     use crate::memory::{Downloads, Queues};
-    use pullbay_domain::queue::{Queue, QueueKind, MAIN_QUEUE};
+    use udm_domain::queue::{Queue, QueueKind, MAIN_QUEUE};
 
     #[test]
     fn a_stopped_download_joins_and_waits() {

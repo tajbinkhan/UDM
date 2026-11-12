@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use pullbay_domain::checksum::to_hex;
-use pullbay_domain::download::Status;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::{DownloadList, FileHashes};
+use udm_domain::checksum::to_hex;
+use udm_domain::download::Status;
+use udm_domain::id::DownloadId;
+use udm_domain::ports::{DownloadList, FileHashes};
 
 /// What checking a finished download against its checksum found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +64,7 @@ impl<'a, D: DownloadList, H: FileHashes + ?Sized> CheckDownload<'a, D, H> {
 mod tests {
     use super::*;
     use crate::memory::{row, Downloads, Hashes};
-    use pullbay_domain::checksum::Checksum;
+    use udm_domain::checksum::Checksum;
 
     fn finished(checksum: Option<&str>) -> Downloads {
         let mut e = row(1, Status::Done);

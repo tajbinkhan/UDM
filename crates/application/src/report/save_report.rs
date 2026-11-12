@@ -1,5 +1,5 @@
-use pullbay_domain::ports::{FilesError, ProblemReports};
-use pullbay_domain::report::{Kind, Program, Report, SavedReport};
+use udm_domain::ports::{FilesError, ProblemReports};
+use udm_domain::report::{Kind, Program, Report, SavedReport};
 
 /// Write a report on something the window saw: its own frame that did not
 /// finish, or a daemon that stopped answering. It holds this copy's

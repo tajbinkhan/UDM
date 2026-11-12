@@ -2,7 +2,7 @@
 //!
 //! Linux cannot hide a window: Wayland has no hidden windows, and a hidden
 //! X11 window gets no frames, which every dialog needs. So closing the
-//! window with "Closing the window keeps Pullbay in the tray" on starts a new
+//! window with "Closing the window keeps UDM in the tray" on starts a new
 //! copy with `--in-tray` and ends this one, which takes its window off the
 //! screen. (Wayland keeps a dropped window until the event loop runs again,
 //! so the same process cannot simply wait.) The new copy, or one started at
@@ -14,13 +14,13 @@
 //! Windows cloaks its window instead (see `win.rs`), and macOS keeps the
 //! window minimized, since its tray icon needs the main thread's loop.
 
-use pullbay_domain::sync::{recover, LockExt};
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Duration;
+use udm_domain::sync::{recover, LockExt};
 
 use eframe::egui;
 
-/// Whether closing the window can leave Pullbay in the tray on this system.
+/// Whether closing the window can leave UDM in the tray on this system.
 pub const CLOSES_TO_TRAY: bool = cfg!(target_os = "linux");
 
 /// The open window's context; `None` while the window is closed.
@@ -28,7 +28,7 @@ static CONTEXT: Mutex<Option<egui::Context>> = Mutex::new(None);
 
 #[derive(Default)]
 struct Parked {
-    /// The window is closed and Pullbay waits in the tray.
+    /// The window is closed and UDM waits in the tray.
     parked: bool,
     /// Something asked for the window while it was closed.
     wanted: bool,
@@ -73,7 +73,7 @@ pub fn park() {
     p.wanted = false;
 }
 
-/// Whether the window is closed and Pullbay waits in the tray.
+/// Whether the window is closed and UDM waits in the tray.
 pub fn parked() -> bool {
     lock(&PARKED).parked
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds Pullbay's macOS disk image, dist/Pullbay-<version>-macos.dmg, holding
-# Pullbay.app for both Apple Silicon and Intel Macs:
+# Builds UDM's macOS disk image, dist/UDM-<version>-macos.dmg, holding
+# UDM.app for both Apple Silicon and Intel Macs:
 #
 #   installer/macos/package.sh               build both, then the image
 #   installer/macos/package.sh --skip-build  the two release builds are current
@@ -23,11 +23,11 @@ fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-app="$work/dmg/Pullbay.app"
+app="$work/dmg/UDM.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$root/dist"
 
 # One program for both kinds of Mac.
-for p in pullbay-gui pullbay-daemon pullbay-host pullbay-cli pullbay-mcp; do
+for p in udm-gui udm-daemon udm-host udm-cli udm-mcp; do
   lipo -create -output "$app/Contents/MacOS/$p" \
     "$root/target/aarch64-apple-darwin/release/$p" "$root/target/x86_64-apple-darwin/release/$p"
 done
@@ -37,11 +37,11 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key><string>Pullbay</string>
-	<key>CFBundleDisplayName</key><string>Pullbay</string>
-	<key>CFBundleIdentifier</key><string>com.pullbay.app</string>
-	<key>CFBundleExecutable</key><string>pullbay-gui</string>
-	<key>CFBundleIconFile</key><string>pullbay</string>
+	<key>CFBundleName</key><string>UDM</string>
+	<key>CFBundleDisplayName</key><string>UDM</string>
+	<key>CFBundleIdentifier</key><string>com.udm.app</string>
+	<key>CFBundleExecutable</key><string>udm-gui</string>
+	<key>CFBundleIconFile</key><string>udm</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>$version</string>
 	<key>CFBundleVersion</key><string>$version</string>
@@ -53,7 +53,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 
 # The icon, from the 1024-pixel master.
-iconset="$work/pullbay.iconset"
+iconset="$work/udm.iconset"
 mkdir -p "$iconset"
 for s in 16 32 64 128 256 512 1024; do
   sips -z "$s" "$s" "$root/assets/icon-1024.png" --out "$iconset/icon_${s}x${s}.png" >/dev/null
@@ -62,7 +62,7 @@ for s in 16 32 128 256 512; do
   cp "$iconset/icon_$((s * 2))x$((s * 2)).png" "$iconset/icon_${s}x${s}@2x.png"
 done
 rm "$iconset/icon_64x64.png" "$iconset/icon_1024x1024.png"
-iconutil -c icns -o "$app/Contents/Resources/pullbay.icns" "$iconset"
+iconutil -c icns -o "$app/Contents/Resources/udm.icns" "$iconset"
 
 # The extension to load in the browser, its Firefox copy, and the README.
 mkdir -p "$app/Contents/Resources/extension"
@@ -72,7 +72,7 @@ cp "$root/README.md" "$app/Contents/Resources/"
 
 codesign --force --deep --sign - "$app"
 ln -s /Applications "$work/dmg/Applications"
-dmg="$root/dist/Pullbay-${version}-macos.dmg"
+dmg="$root/dist/UDM-${version}-macos.dmg"
 rm -f "$dmg"
-hdiutil create -volname "Pullbay $version" -srcfolder "$work/dmg" -ov -format UDZO "$dmg" >/dev/null
+hdiutil create -volname "UDM $version" -srcfolder "$work/dmg" -ov -format UDZO "$dmg" >/dev/null
 echo "Wrote $dmg"

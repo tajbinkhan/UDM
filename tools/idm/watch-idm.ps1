@@ -1,5 +1,5 @@
 <#
-Log IDM's top-level windows while it works, for comparing Pullbay with it.
+Log IDM's top-level windows while it works, for comparing UDM with it.
 
     pwsh -File tools/idm/watch-idm.ps1 -Log idm-log.txt [-Seconds 900]
 

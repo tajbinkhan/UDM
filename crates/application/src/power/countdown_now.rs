@@ -1,5 +1,5 @@
-use pullbay_domain::ports::PowerControl;
-use pullbay_domain::queue::PowerRequest;
+use udm_domain::ports::PowerControl;
+use udm_domain::queue::PowerRequest;
 
 /// End the countdown early and carry out its action now.
 pub struct CountdownNow<'a, P> {
@@ -24,7 +24,7 @@ impl<'a, P: PowerControl> CountdownNow<'a, P> {
 mod tests {
     use super::*;
     use crate::memory::Power;
-    use pullbay_domain::queue::WhenDone;
+    use udm_domain::queue::WhenDone;
 
     #[test]
     fn the_running_countdowns_action_happens_now() {

@@ -1,6 +1,6 @@
-use pullbay_domain::download::Status;
-use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueStore};
+use udm_domain::download::Status;
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::ports::{DownloadControl, DownloadList, QueueRuns, QueueStore};
 
 use crate::queues::StopQueue;
 
@@ -44,7 +44,7 @@ impl<'a, Q: QueueStore, D: DownloadList, R: QueueRuns, X: DownloadControl> StopR
 mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, Queues, Runs};
-    use pullbay_domain::queue::{Queue, MAIN_QUEUE};
+    use udm_domain::queue::{Queue, MAIN_QUEUE};
 
     #[test]
     fn running_queues_and_downloads_stop() {

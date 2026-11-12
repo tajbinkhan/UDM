@@ -5,8 +5,8 @@
 //! choice of where to look.
 
 use eframe::egui;
-use pullbay_domain::download::DownloadEntry;
-use pullbay_domain::id::DownloadId;
+use udm_domain::download::DownloadEntry;
+use udm_domain::id::DownloadId;
 
 use super::display_name;
 use crate::i18n::{tr, trf};
@@ -212,8 +212,8 @@ pub fn show(ui: &mut egui::Ui, bar: &mut FindBar, ids: &[DownloadId]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::bytes::ByteCount;
-    use pullbay_domain::download::Status;
+    use udm_domain::bytes::ByteCount;
+    use udm_domain::download::Status;
 
     fn entry(id: u64, url: &str, path: Option<&str>, referrer: Option<&str>) -> DownloadEntry {
         DownloadEntry {

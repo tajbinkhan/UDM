@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Pullbay
+Name=UDM
 GenericName=Download Manager
 Comment=Download files with many connections, resume and schedule them
-Exec=pullbay
-Icon=pullbay
+Exec=udm
+Icon=udm
 Terminal=false
 Categories=Network;FileTransfer;
 Keywords=download;manager;accelerator;
-StartupWMClass=pullbay
+StartupWMClass=udm

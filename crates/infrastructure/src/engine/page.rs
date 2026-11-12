@@ -1,13 +1,10 @@
 //! Downloading a video page with yt-dlp (see `media::ytdlp`): yt-dlp fetches
-//! the chosen video and sound and ffmpeg joins them, while Pullbay reads its
+//! the chosen video and sound and ffmpeg joins them, while UDM reads its
 //! progress lines and stops it on cancel.
 //!
 //! yt-dlp keeps `.part` files of what it fetched, so a canceled download
 //! carries on where it stopped when it is started again.
 
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::sync::LockExt;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -16,15 +13,18 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use udm_domain::bytes::ByteCount;
+use udm_domain::id::DownloadId;
+use udm_domain::sync::LockExt;
 
 use super::{
     choose_output, http, stream, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved, Shared,
 };
 use crate::media::ytdlp::{self, DONE_TAG, PROGRESS_TEMPLATE};
-use pullbay_domain::media::MediaChoice;
+use udm_domain::media::MediaChoice;
 
 /// What yt-dlp's estimate of the whole download starts with.
-const SIZE_TAG: &str = "Pullbay-SIZE ";
+const SIZE_TAG: &str = "UDM-SIZE ";
 
 /// How far yt-dlp got. It fetches the video and then the sound, each from 0,
 /// so bytes of finished files are kept apart.
@@ -60,7 +60,7 @@ pub(super) fn run(
     shared: &Shared,
 ) -> Result<Saved, EngineError> {
     // yt-dlp reads web pages only; it is never handed another kind of address.
-    if !pullbay_domain::batch::is_web_url(&req.url) {
+    if !udm_domain::batch::is_web_url(&req.url) {
         return Err(EngineError::Refused(format!("{} is not an http or https page.", req.url)));
     }
     let yt_dlp = ytdlp::find(req.ffmpeg.as_deref()).ok_or_else(|| EngineError::Refused(ytdlp::MISSING.into()))?;
@@ -200,7 +200,7 @@ pub(super) fn run(
     // Without ffmpeg the subtitles stay beside the video: give them its name.
     settle_subtitles(&working, &path);
     let note = req.ffmpeg.is_none().then(|| {
-        "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) Pullbay saves the quality you chose."
+        "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) UDM saves the quality you chose."
             .to_string()
     });
     drop(claim);
@@ -211,7 +211,7 @@ pub(super) fn run(
 /// the chosen file's, with the id added.
 fn working_stem(output: &Path, id: DownloadId) -> PathBuf {
     let mut stem = output.with_extension("").into_os_string();
-    stem.push(format!(".pullbay-{id}"));
+    stem.push(format!(".udm-{id}"));
     stem.into()
 }
 
@@ -259,44 +259,44 @@ mod tests {
 
     #[test]
     fn subtitles_take_the_videos_name() {
-        let dir = std::env::temp_dir().join(format!("pullbay-subs-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm-subs-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        let working = dir.join("Clip.pullbay-5");
-        fs::write(dir.join("Clip.pullbay-5.en.vtt"), b"WEBVTT").unwrap();
-        fs::write(dir.join("Clip.pullbay-5.de-AT.srt"), b"1").unwrap();
-        fs::write(dir.join("Clip.pullbay-5.part"), b"x").unwrap();
+        let working = dir.join("Clip.udm-5");
+        fs::write(dir.join("Clip.udm-5.en.vtt"), b"WEBVTT").unwrap();
+        fs::write(dir.join("Clip.udm-5.de-AT.srt"), b"1").unwrap();
+        fs::write(dir.join("Clip.udm-5.part"), b"x").unwrap();
         settle_subtitles(&working, &dir.join("Clip.mp4"));
         assert!(dir.join("Clip.en.vtt").is_file() && dir.join("Clip.de-AT.srt").is_file());
-        assert!(dir.join("Clip.pullbay-5.part").is_file(), "only subtitles move");
+        assert!(dir.join("Clip.udm-5.part").is_file(), "only subtitles move");
         fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn working_stem_adds_the_id() {
         let stem = working_stem(Path::new("dl/Song.mp3"), DownloadId::new(42));
-        assert_eq!(stem, Path::new("dl/Song.pullbay-42"));
+        assert_eq!(stem, Path::new("dl/Song.udm-42"));
         // Dots in the title stay; only the extension goes.
-        assert_eq!(working_stem(Path::new("a.b.mp4"), DownloadId::new(7)), Path::new("a.b.pullbay-7"));
+        assert_eq!(working_stem(Path::new("a.b.mp4"), DownloadId::new(7)), Path::new("a.b.udm-7"));
     }
 
     #[test]
     fn settle_renames_unless_taken() {
-        let dir = std::env::temp_dir().join(format!("pullbay-settle-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm-settle-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let output = dir.join("Song.mp3");
 
-        let saved = dir.join("Song.pullbay-1.mp3");
+        let saved = dir.join("Song.udm-1.mp3");
         fs::write(&saved, b"new").unwrap();
         assert_eq!(settle(&saved, &output), output);
         assert_eq!(fs::read(&output).unwrap(), b"new");
 
         // yt-dlp's own extension is kept.
-        let saved = dir.join("Song.pullbay-2.m4a");
+        let saved = dir.join("Song.udm-2.m4a");
         fs::write(&saved, b"m4a").unwrap();
         assert_eq!(settle(&saved, &output), dir.join("Song.m4a"));
 
         // A name taken since leaves the file under its working name.
-        let saved = dir.join("Song.pullbay-3.mp3");
+        let saved = dir.join("Song.udm-3.mp3");
         fs::write(&saved, b"third").unwrap();
         assert_eq!(settle(&saved, &output), saved);
         assert_eq!(fs::read(&output).unwrap(), b"new");
@@ -324,9 +324,9 @@ mod tests {
     #[ignore]
     fn downloads_a_youtube_video() {
         use super::super::Engine;
-        use pullbay_domain::media::MediaKind;
-        use pullbay_domain::settings::{FileExists, Folders, Settings};
         use std::sync::mpsc;
+        use udm_domain::media::MediaKind;
+        use udm_domain::settings::{FileExists, Folders, Settings};
 
         let url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
         let ffmpeg = crate::settings::ffmpeg(&Settings::default());
@@ -335,7 +335,7 @@ mod tests {
         assert!(info.error.is_none(), "{:?}", info.error);
         assert!(!info.video.is_empty() && !info.audio.is_empty(), "{info:?}");
 
-        let dir = std::env::temp_dir().join(format!("pullbay_page_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_page_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let (tx, rx) = mpsc::channel();

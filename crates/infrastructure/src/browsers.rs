@@ -1,5 +1,5 @@
-//! The browsers Pullbay's extension runs in, and the native-messaging
-//! registration that lets each one start `pullbay-host`.
+//! The browsers UDM's extension runs in, and the native-messaging
+//! registration that lets each one start `udm-host`.
 //!
 //! On Windows a browser finds the host through a registry key under its
 //! own `NativeMessagingHosts` key in `HKEY_CURRENT_USER`, whose default
@@ -9,7 +9,7 @@
 //! register Chrome, Edge and Firefox.
 //!
 //! On macOS and Linux there is no registry: each browser reads
-//! `com.pullbay.host.json` from its own `NativeMessagingHosts` folder, so the
+//! `com.udm.host.json` from its own `NativeMessagingHosts` folder, so the
 //! manifest itself is the registration. The packages' `install-host.sh`
 //! registers every browser found. Options can register or remove each
 //! browser on every system.
@@ -22,13 +22,13 @@ use crate::paths::Root;
 use crate::registry;
 
 /// The native-messaging host's name, as the extension connects to it.
-pub const HOST_NAME: &str = "com.pullbay.host";
+pub const HOST_NAME: &str = "com.udm.host";
 /// The Chromium extension's ID, fixed by the key in its manifest.
 pub const CHROMIUM_EXTENSION_ID: &str = "epmjakacaejhdhldkpbjnakhfmjjbhfm";
 /// The Firefox extension's ID, from `extension/firefox.json`.
-pub const FIREFOX_EXTENSION_ID: &str = "pullbay@pullbay.local";
+pub const FIREFOX_EXTENSION_ID: &str = "udm@udm.local";
 
-/// A browser Pullbay can register with.
+/// A browser UDM can register with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Browser {
     pub name: &'static str,
@@ -213,7 +213,7 @@ impl Browser {
         self.hosts_key == other.hosts_key
     }
 
-    /// How to restart it, when Pullbay knows its program.
+    /// How to restart it, when UDM knows its program.
     pub fn restart_plan(&self) -> Option<RestartPlan> {
         let (process, launch) = self.run?;
         let launch = if cfg!(target_os = "macos") { Launch::App(launch) } else { Launch::Named(launch) };
@@ -250,7 +250,7 @@ const CHROMIUM_NAMES: [&str; 12] = [
 ];
 
 /// The family of the browser at `program`, told from its program's name,
-/// or `None` when the name says nothing Pullbay knows.
+/// or `None` when the name says nothing UDM knows.
 pub fn family_of(program: &Path) -> Option<Family> {
     let name = program_name(program);
     if FIREFOX_NAMES.iter().any(|w| name.contains(w)) {
@@ -267,13 +267,13 @@ pub fn family_of(program: &Path) -> Option<Family> {
 pub struct Target {
     /// The browser whose registration it reads.
     pub browser: Browser,
-    /// Whether that is known (the browser is one Pullbay knows, or a fork
-    /// known to read it), not a best guess for a fork Pullbay does not know.
+    /// Whether that is known (the browser is one UDM knows, or a fork
+    /// known to read it), not a best guess for a fork UDM does not know.
     pub known: bool,
 }
 
 /// Where the browser at `program` finds native-messaging hosts. Each
-/// Chromium browser reads its maker's own place; a fork Pullbay does not know
+/// Chromium browser reads its maker's own place; a fork UDM does not know
 /// gets Chrome's, which most forks read, and a Firefox fork Mozilla's.
 /// `None` when its family cannot be told.
 pub fn target_of(program: &Path) -> Option<Target> {
@@ -486,20 +486,20 @@ pub struct Registrar {
     root: String,
     #[cfg_attr(not(windows), allow(dead_code))]
     dir: PathBuf,
-    /// The `pullbay-host` the manifests point at.
+    /// The `udm-host` the manifests point at.
     host: PathBuf,
 }
 
 impl Registrar {
     /// The real registrations for the host next to this program: on
-    /// Windows with the manifests in `%LOCALAPPDATA%\Pullbay` as
+    /// Windows with the manifests in `%LOCALAPPDATA%\UDM` as
     /// `install-host.ps1` writes them, elsewhere in the home folder.
     pub fn for_this_user() -> io::Result<Self> {
         let dir = crate::paths::data_dir()?;
         // An AppImage's AppRun starts the host when a browser calls it.
         let host = match crate::platform::appimage() {
             Some(image) => image,
-            None => crate::platform::sibling_exe("pullbay-host")?,
+            None => crate::platform::sibling_exe("udm-host")?,
         };
         #[cfg(windows)]
         let root = String::new();
@@ -549,7 +549,7 @@ impl Registrar {
         };
         let mut manifest = serde_json::json!({
             "name": HOST_NAME,
-            "description": "Pullbay download manager native-messaging host",
+            "description": "UDM download manager native-messaging host",
             "type": "stdio",
             "path": self.host.display().to_string(),
         });
@@ -611,7 +611,7 @@ impl Registrar {
     }
 
     /// Remove `b`'s registration, and the manifest it named when that is
-    /// Pullbay's own and no other browser still names it.
+    /// UDM's own and no other browser still names it.
     #[cfg(windows)]
     pub fn unregister(&self, b: &Browser) -> io::Result<()> {
         let key = self.key(b);
@@ -632,12 +632,12 @@ impl Registrar {
 }
 
 impl Registrar {
-    /// Remove `b`'s registration of UIDM's host, from before Pullbay got its
-    /// name. True when there was one.
-    fn drop_uidm(&self, b: &Browser) -> io::Result<bool> {
+    /// Remove `b`'s registration of the host under `old`, a name it had
+    /// before UDM got its own. True when there was one.
+    fn drop_old(&self, b: &Browser, old: &str) -> io::Result<bool> {
         #[cfg(windows)]
         {
-            let key = format!(r"{}{}\{UIDM_HOST_NAME}", self.root, b.hosts_key);
+            let key = format!(r"{}{}\{old}", self.root, b.hosts_key);
             if registry::get_string(&key, "")?.is_none() {
                 return Ok(false);
             }
@@ -646,7 +646,7 @@ impl Registrar {
         }
         #[cfg(not(windows))]
         {
-            let manifest = Path::new(&self.root).join(b.hosts_key).join(format!("{UIDM_HOST_NAME}.json"));
+            let manifest = Path::new(&self.root).join(b.hosts_key).join(format!("{old}.json"));
             match std::fs::remove_file(manifest) {
                 Ok(()) => Ok(true),
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
@@ -656,20 +656,25 @@ impl Registrar {
     }
 }
 
-/// The name browsers knew the host by while Pullbay was called UIDM.
-const UIDM_HOST_NAME: &str = "com.uidm.host";
+/// The names browsers knew the host by before UDM got its name: Pullbay's
+/// in 0.4 and UIDM's up to 0.3.3.
+const OLD_HOST_NAMES: [&str; 2] = ["com.pullbay.host", "com.uidm.host"];
 
-/// Replace every browser's registration of UIDM's host with Pullbay's, so
-/// the browsers UIDM was registered with stay registered. Returns those
-/// browsers.
-pub fn move_uidm_registrations() -> io::Result<Vec<&'static str>> {
-    move_uidm_registrations_with(&Registrar::for_this_user()?)
+/// Replace every browser's registration of the host under an old name
+/// ([`OLD_HOST_NAMES`]) with UDM's, so the browsers Pullbay or UIDM was
+/// registered with stay registered. Returns those browsers.
+pub fn move_old_registrations() -> io::Result<Vec<&'static str>> {
+    move_old_registrations_with(&Registrar::for_this_user()?)
 }
 
-fn move_uidm_registrations_with(registrar: &Registrar) -> io::Result<Vec<&'static str>> {
+fn move_old_registrations_with(registrar: &Registrar) -> io::Result<Vec<&'static str>> {
     let mut moved = Vec::new();
     for b in BROWSERS.iter() {
-        if !registrar.drop_uidm(b)? {
+        let mut had = false;
+        for old in OLD_HOST_NAMES {
+            had |= registrar.drop_old(b, old)?;
+        }
+        if !had {
             continue;
         }
         if !registrar.registered(b) {
@@ -681,15 +686,15 @@ fn move_uidm_registrations_with(registrar: &Registrar) -> io::Result<Vec<&'stati
 }
 
 /// On macOS and Linux, and for a portable copy on Windows, where no Setup
-/// registers Pullbay: register every browser found the first time Pullbay
+/// registers UDM: register every browser found the first time UDM
 /// runs (noted in `browsers.done` in the data folder, so one the user turns
 /// off in Options stays off), and point registrations at this copy of the
-/// host when Pullbay has moved, as an AppImage does or a USB stick that gets
+/// host when UDM has moved, as an AppImage does or a USB stick that gets
 /// another drive letter. Returns the browsers registered.
 ///
-/// A copy named by `PULLBAY_INSTANCE` registers nothing: every copy shares the
-/// browsers' one `com.pullbay.host` manifest, so a test build would take the
-/// browsers away from the installed Pullbay. Options can still register it.
+/// A copy named by `UDM_INSTANCE` registers nothing: every copy shares the
+/// browsers' one `com.udm.host` manifest, so a test build would take the
+/// browsers away from the installed UDM. Options can still register it.
 pub fn register_found() -> io::Result<Vec<&'static str>> {
     if !registers_found(cfg!(windows), crate::paths::is_portable(), crate::paths::instance().as_deref()) {
         return Ok(Vec::new());
@@ -722,29 +727,29 @@ fn registers_found(windows: bool, portable: bool, instance: Option<&str>) -> boo
 /// user.
 pub struct Registry;
 
-fn slot(b: &Browser) -> pullbay_application::window::BrowserSlot {
-    pullbay_application::window::BrowserSlot { name: b.name.to_string(), place: b.hosts_key.to_string() }
+fn slot(b: &Browser) -> udm_application::window::BrowserSlot {
+    udm_application::window::BrowserSlot { name: b.name.to_string(), place: b.hosts_key.to_string() }
 }
 
 /// The browser `slot` stands for.
-fn browser_of(slot: &pullbay_application::window::BrowserSlot) -> Option<Browser> {
+fn browser_of(slot: &udm_application::window::BrowserSlot) -> Option<Browser> {
     BROWSERS.iter().find(|b| b.hosts_key == slot.place).copied()
 }
 
-fn files_error(e: impl std::fmt::Display) -> pullbay_domain::ports::FilesError {
-    pullbay_domain::ports::FilesError(e.to_string())
+fn files_error(e: impl std::fmt::Display) -> udm_domain::ports::FilesError {
+    udm_domain::ports::FilesError(e.to_string())
 }
 
 /// How `slot`, or the added browser at `program`, restarts.
-fn plan_for(slot: &pullbay_application::window::BrowserSlot, program: Option<&Path>) -> Option<RestartPlan> {
+fn plan_for(slot: &udm_application::window::BrowserSlot, program: Option<&Path>) -> Option<RestartPlan> {
     match program {
         Some(p) => Some(restart_plan_for_program(p)),
         None => browser_of(slot)?.restart_plan(),
     }
 }
 
-impl pullbay_application::window::BrowserRegistry for Registry {
-    fn known(&self) -> Vec<(pullbay_application::window::BrowserSlot, bool)> {
+impl udm_application::window::BrowserRegistry for Registry {
+    fn known(&self) -> Vec<(udm_application::window::BrowserSlot, bool)> {
         let Ok(r) = Registrar::for_this_user() else {
             return Vec::new();
         };
@@ -756,12 +761,12 @@ impl pullbay_application::window::BrowserRegistry for Registry {
             .collect()
     }
 
-    fn identify(&self, program: &Path) -> Option<pullbay_application::window::IdentifiedBrowser> {
+    fn identify(&self, program: &Path) -> Option<udm_application::window::IdentifiedBrowser> {
         let t = target_of(program)?;
-        Some(pullbay_application::window::IdentifiedBrowser { browser: slot(&t.browser), known: t.known })
+        Some(udm_application::window::IdentifiedBrowser { browser: slot(&t.browser), known: t.known })
     }
 
-    fn registered(&self, browser: &pullbay_application::window::BrowserSlot) -> bool {
+    fn registered(&self, browser: &udm_application::window::BrowserSlot) -> bool {
         let (Ok(r), Some(b)) = (Registrar::for_this_user(), browser_of(browser)) else {
             return false;
         };
@@ -770,11 +775,11 @@ impl pullbay_application::window::BrowserRegistry for Registry {
 
     fn set_registered(
         &self,
-        browser: &pullbay_application::window::BrowserSlot,
+        browser: &udm_application::window::BrowserSlot,
         on: bool,
-    ) -> Result<(), pullbay_domain::ports::FilesError> {
+    ) -> Result<(), udm_domain::ports::FilesError> {
         let r = Registrar::for_this_user().map_err(files_error)?;
-        let b = browser_of(browser).ok_or_else(|| files_error(format!("Pullbay does not know {}", browser.name)))?;
+        let b = browser_of(browser).ok_or_else(|| files_error(format!("UDM does not know {}", browser.name)))?;
         if on { r.register(&b) } else { r.unregister(&b) }.map_err(files_error)
     }
 
@@ -786,17 +791,17 @@ impl pullbay_application::window::BrowserRegistry for Registry {
         chrome_readers().into_iter().map(str::to_string).collect()
     }
 
-    fn can_restart(&self, browser: &pullbay_application::window::BrowserSlot, program: Option<&Path>) -> bool {
+    fn can_restart(&self, browser: &udm_application::window::BrowserSlot, program: Option<&Path>) -> bool {
         plan_for(browser, program).is_some()
     }
 
     fn restart(
         &self,
-        browser: &pullbay_application::window::BrowserSlot,
+        browser: &udm_application::window::BrowserSlot,
         program: Option<&Path>,
-    ) -> Result<(), pullbay_domain::ports::FilesError> {
+    ) -> Result<(), udm_domain::ports::FilesError> {
         let plan = plan_for(browser, program)
-            .ok_or_else(|| files_error(format!("Pullbay does not know how to restart {}", browser.name)))?;
+            .ok_or_else(|| files_error(format!("UDM does not know how to restart {}", browser.name)))?;
         restart(&plan).map_err(files_error)
     }
 }
@@ -876,30 +881,31 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn uidms_registrations_become_pullbays() {
-        let dir = std::env::temp_dir().join(format!("pullbay_uidm_browsers_{}", std::process::id()));
-        let host = dir.join("pullbay-host");
+    fn old_registrations_become_udms() {
+        let dir = std::env::temp_dir().join(format!("udm_old_browsers_{}", std::process::id()));
+        let host = dir.join("udm-host");
         let r = Registrar::new(&dir.display().to_string(), dir.clone(), host.clone());
         let [chrome, edge, firefox, ..] = BROWSERS;
-        for b in [chrome, firefox] {
+        for (b, old) in [(chrome, "com.pullbay.host.json"), (firefox, "com.uidm.host.json")] {
             std::fs::create_dir_all(dir.join(b.hosts_key)).unwrap();
-            std::fs::write(dir.join(b.hosts_key).join("com.uidm.host.json"), b"{}").unwrap();
+            std::fs::write(dir.join(b.hosts_key).join(old), b"{}").unwrap();
         }
         std::fs::write(&host, b"").unwrap();
-        assert_eq!(move_uidm_registrations_with(&r).unwrap(), [chrome.name, firefox.name]);
+        assert_eq!(move_old_registrations_with(&r).unwrap(), [chrome.name, firefox.name]);
         assert!(r.registered(&chrome) && r.registered(&firefox) && !r.registered(&edge));
-        assert!(!dir.join(chrome.hosts_key).join("com.uidm.host.json").exists());
+        assert!(!dir.join(chrome.hosts_key).join("com.pullbay.host.json").exists());
+        assert!(!dir.join(firefox.hosts_key).join("com.uidm.host.json").exists());
         assert!(r.points_here(&firefox));
-        assert!(move_uidm_registrations_with(&r).unwrap().is_empty(), "nothing is left to move");
+        assert!(move_old_registrations_with(&r).unwrap().is_empty(), "nothing is left to move");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[cfg(not(windows))]
     #[test]
     fn registering_writes_the_manifest_and_removing_deletes_it() {
-        let dir = std::env::temp_dir().join(format!("pullbay_browsers_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_browsers_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let host = dir.join("pullbay-host");
+        let host = dir.join("udm-host");
         std::fs::write(&host, b"").unwrap();
         let r = Registrar::new(&dir.display().to_string(), dir.clone(), host.clone());
         let [chrome, _, firefox, ..] = BROWSERS;
@@ -908,12 +914,12 @@ mod tests {
         r.register(&firefox).unwrap();
         assert!(r.registered(&chrome) && r.registered(&firefox));
         let manifest: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(dir.join(chrome.hosts_key).join("com.pullbay.host.json")).unwrap())
+            serde_json::from_slice(&std::fs::read(dir.join(chrome.hosts_key).join("com.udm.host.json")).unwrap())
                 .unwrap();
         assert_eq!(manifest["path"], host.display().to_string());
         assert_eq!(manifest["allowed_origins"][0], format!("chrome-extension://{CHROMIUM_EXTENSION_ID}/"));
         let fx: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(dir.join(firefox.hosts_key).join("com.pullbay.host.json")).unwrap())
+            serde_json::from_slice(&std::fs::read(dir.join(firefox.hosts_key).join("com.udm.host.json")).unwrap())
                 .unwrap();
         assert_eq!(fx["allowed_extensions"][0], FIREFOX_EXTENSION_ID);
         assert!(r.points_here(&chrome));
@@ -930,11 +936,11 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn registering_writes_the_key_and_manifest_and_removing_undoes_them() {
-        let dir = std::env::temp_dir().join(format!("pullbay_browsers_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_browsers_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let host = dir.join("pullbay-host.exe");
+        let host = dir.join("udm-host.exe");
         std::fs::write(&host, b"").unwrap();
-        let r = Registrar::new(r"Software\Pullbay-test-browsers\", dir.clone(), host.clone());
+        let r = Registrar::new(r"Software\UDM-test-browsers\", dir.clone(), host.clone());
         let [chrome, edge, firefox, ..] = BROWSERS;
 
         assert!(!r.registered(&chrome));
@@ -943,25 +949,25 @@ mod tests {
         r.register(&firefox).unwrap();
         assert!(r.registered(&chrome) && r.registered(&edge) && r.registered(&firefox));
         let manifest: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(dir.join("com.pullbay.host.json")).unwrap()).unwrap();
+            serde_json::from_slice(&std::fs::read(dir.join("com.udm.host.json")).unwrap()).unwrap();
         assert_eq!(manifest["path"], host.display().to_string());
         assert_eq!(manifest["allowed_origins"][0], format!("chrome-extension://{CHROMIUM_EXTENSION_ID}/"));
         let fx: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(dir.join("com.pullbay.host.firefox.json")).unwrap()).unwrap();
+            serde_json::from_slice(&std::fs::read(dir.join("com.udm.host.firefox.json")).unwrap()).unwrap();
         assert_eq!(fx["allowed_extensions"][0], FIREFOX_EXTENSION_ID);
 
         // Edge still names the shared manifest, so it stays.
         r.unregister(&chrome).unwrap();
         assert!(!r.registered(&chrome));
-        assert!(dir.join("com.pullbay.host.json").exists());
+        assert!(dir.join("com.udm.host.json").exists());
         r.unregister(&edge).unwrap();
-        assert!(!dir.join("com.pullbay.host.json").exists());
+        assert!(!dir.join("com.udm.host.json").exists());
         r.unregister(&firefox).unwrap();
-        assert!(!dir.join("com.pullbay.host.firefox.json").exists());
+        assert!(!dir.join("com.udm.host.firefox.json").exists());
         // Removing what is not there is fine.
         r.unregister(&firefox).unwrap();
 
-        let missing = Registrar::new(r"Software\Pullbay-test-browsers\", dir.clone(), dir.join("nope.exe"));
+        let missing = Registrar::new(r"Software\UDM-test-browsers\", dir.clone(), dir.join("nope.exe"));
         assert!(missing.register(&chrome).is_err());
         std::fs::remove_dir_all(&dir).ok();
     }

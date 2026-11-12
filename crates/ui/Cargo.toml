@@ -1,15 +1,15 @@
 [package]
-name = "pullbay-ui"
-description = "Pullbay's egui views, UI state and messages"
+name = "udm-ui"
+description = "UDM's egui views, UI state and messages"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# Never pullbay-infrastructure (AGENTS.md section 3): the window reaches the disk,
-# the system and the daemon through the ports in pullbay-application.
+# Never udm-infrastructure (AGENTS.md section 3): the window reaches the disk,
+# the system and the daemon through the ports in udm-application.
 [dependencies]
-pullbay-domain.workspace = true
-pullbay-application.workspace = true
+udm-domain.workspace = true
+udm-application.workspace = true
 # The window's error types (AGENTS.md section 9).
 thiserror.workspace = true
 # The column layout and tray style the window saves, and the translation

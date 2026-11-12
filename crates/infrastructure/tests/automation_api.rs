@@ -14,16 +14,16 @@
 
 use serde_json::{json, Value};
 
-use pullbay_application::daemon::AUTOMATION_API;
-use pullbay_application::remote::Listing;
-use pullbay_domain::address::Link;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::checksum::Checksum;
-use pullbay_domain::download::{Answer, Download, DownloadEntry};
-use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::queue::Queue;
-use pullbay_domain::settings::Duplicate;
-use pullbay_infrastructure::protocol::{Incoming, Outgoing};
+use udm_application::daemon::AUTOMATION_API;
+use udm_application::remote::Listing;
+use udm_domain::address::Link;
+use udm_domain::bytes::ByteCount;
+use udm_domain::checksum::Checksum;
+use udm_domain::download::{Answer, Download, DownloadEntry};
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::queue::Queue;
+use udm_domain::settings::Duplicate;
+use udm_infrastructure::protocol::{Incoming, Outgoing};
 
 const SCHEMA: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/automation-api.schema.json"));
 
@@ -141,7 +141,7 @@ fn members<'a>(root: &'a Value, name: &str) -> Vec<&'a Value> {
 
 #[test]
 fn the_schema_is_this_versions() {
-    assert_eq!(schema()["x-pullbay-api"], json!(AUTOMATION_API));
+    assert_eq!(schema()["x-udm-api"], json!(AUTOMATION_API));
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn the_requests_the_daemon_takes_fit() {
         ..Download::default()
     };
     let requests = [
-        Incoming::Hello { version: Some("1".into()), client: Some("pullbay-cli".into()) },
+        Incoming::Hello { version: Some("1".into()), client: Some("udm-cli".into()) },
         Incoming::Ping,
         Incoming::Add(add),
         Incoming::List,
@@ -226,7 +226,7 @@ fn the_events_the_daemon_sends_fit() {
     let root = schema();
     let (id, url) = (DownloadId::new(7), Link::new("https://example.com/a.iso"));
     let events = [
-        Outgoing::Hello { name: "pullbay-daemon".into(), version: "0.5.0".into(), api: Some(AUTOMATION_API) },
+        Outgoing::Hello { name: "udm-daemon".into(), version: "0.5.0".into(), api: Some(AUTOMATION_API) },
         Outgoing::Pong,
         Outgoing::Ack { id, url: url.clone(), status: "accepted".into() },
         Outgoing::Rejected { url: url.clone(), message: "no".into(), error_kind: Some(json!({ "kind": "other" })) },
@@ -267,6 +267,6 @@ fn the_events_the_daemon_sends_fit() {
 fn the_tools_list_fits() {
     let root = schema();
     let listing = Listing { downloads: vec![entry()], queues: vec![Queue::main()] };
-    let printed: Value = serde_json::from_str(&pullbay_infrastructure::tool::json(&listing).unwrap()).unwrap();
+    let printed: Value = serde_json::from_str(&udm_infrastructure::tool::json(&listing).unwrap()).unwrap();
     assert_fits(&root, "listing", &printed);
 }

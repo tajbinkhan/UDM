@@ -1,6 +1,6 @@
-use pullbay_domain::id::DeviceId;
-use pullbay_domain::pairing::{PairingError, Pairings};
-use pullbay_domain::ports::PairedDevices;
+use udm_domain::id::DeviceId;
+use udm_domain::pairing::{PairingError, Pairings};
+use udm_domain::ports::PairedDevices;
 
 /// Unpair a device: Options' Remove button, or the page's Unpair. Its
 /// credential stops working at once.
@@ -26,7 +26,7 @@ impl<'a, D: PairedDevices + ?Sized> RemoveDevice<'a, D> {
 mod tests {
     use super::*;
     use crate::pairing::tests::Book;
-    use pullbay_domain::pairing::{DeviceName, Verifier};
+    use udm_domain::pairing::{DeviceName, Verifier};
 
     #[test]
     fn a_removed_device_is_gone_even_when_the_list_cannot_be_saved() {

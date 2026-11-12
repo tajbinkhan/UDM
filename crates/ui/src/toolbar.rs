@@ -34,7 +34,7 @@ struct Button {
     queues: Option<bool>,
 }
 
-/// Big buttons are this size, as in the toolbar Pullbay's layout follows.
+/// Big buttons are this size, as in the toolbar UDM's layout follows.
 const LARGE: Vec2 = Vec2::new(58.0, 50.0);
 const SMALL: Vec2 = Vec2::new(28.0, 26.0);
 
@@ -112,7 +112,7 @@ pub fn show(ui: &mut egui::Ui, s: &State, small: bool) -> Option<Command> {
             icon: Icon::StartQueue,
             label: tr("Start Queue"),
             tip: tr("Start the main queue, or pick a queue from the arrow"),
-            command: Command::StartQueue(pullbay_domain::queue::MAIN_QUEUE),
+            command: Command::StartQueue(udm_domain::queue::MAIN_QUEUE),
             enabled: on,
             queues: Some(true),
         },
@@ -120,7 +120,7 @@ pub fn show(ui: &mut egui::Ui, s: &State, small: bool) -> Option<Command> {
             icon: Icon::StopQueue,
             label: tr("Stop Queue"),
             tip: tr("Stop the main queue, or pick a queue from the arrow"),
-            command: Command::StopQueue(pullbay_domain::queue::MAIN_QUEUE),
+            command: Command::StopQueue(udm_domain::queue::MAIN_QUEUE),
             enabled: on,
             queues: Some(false),
         },

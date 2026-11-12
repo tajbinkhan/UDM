@@ -1,34 +1,34 @@
-//! Checking GitHub for a newer Pullbay release, and the Setup program attached
+//! Checking GitHub for a newer UDM release, and the Setup program attached
 //! to it. The window shows a notice with a link to the release page; Update
 //! now has the daemon download that Setup, check it against what GitHub
 //! says about it, and run it. `GitHub` is the adapter for `ReleaseSource`.
 
-use pullbay_domain::bytes::ByteCount;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use udm_domain::bytes::ByteCount;
 
-use pullbay_domain::download::Download;
-use pullbay_domain::ports::ReleaseSource;
-use pullbay_domain::update::UpdateError;
 use tracing::info;
+use udm_domain::download::Download;
+use udm_domain::ports::ReleaseSource;
+use udm_domain::update::UpdateError;
 
 use crate::connect::{config_for, ProxyRetries};
 use crate::engine;
 use crate::live_settings::LiveSettings;
 
-use pullbay_domain::update::{Release, SetupAsset};
+use udm_domain::update::{Release, SetupAsset};
 
-/// The releases of Pullbay's repository, newest first by GitHub's reckoning.
+/// The releases of UDM's repository, newest first by GitHub's reckoning.
 pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/pullbay/releases/latest";
 
 /// Where release files are served from; a Setup anywhere else is not used.
 const DOWNLOADS: &str = "https://github.com/tajbinkhan/pullbay/releases/download/";
-/// The largest Setup Pullbay downloads.
+/// The largest Setup UDM downloads.
 pub const MAX_SETUP_BYTES: ByteCount = ByteCount::mib(256);
 
-/// The Setup asset among a release's `assets`, if there is one Pullbay can
-/// use: named `Pullbay-Setup-*.exe`, served from the repository's releases,
+/// The Setup asset among a release's `assets`, if there is one UDM can
+/// use: named `UDM-Setup-*.exe`, served from the repository's releases,
 /// and of a sensible size.
 fn setup_asset(assets: &serde_json::Value) -> Option<SetupAsset> {
     assets.as_array()?.iter().find_map(|a| {
@@ -36,7 +36,7 @@ fn setup_asset(assets: &serde_json::Value) -> Option<SetupAsset> {
         let url = a["browser_download_url"].as_str()?;
         let size = ByteCount::new(a["size"].as_u64()?);
         let lower = name.to_ascii_lowercase();
-        let usable = lower.starts_with("pullbay-setup-")
+        let usable = lower.starts_with("udm-setup-")
             && lower.ends_with(".exe")
             && !name.contains(['/', '\\', ':'])
             && url.starts_with(DOWNLOADS)
@@ -128,7 +128,7 @@ impl GitHub {
 impl ReleaseSource for GitHub {
     fn latest(&self) -> Result<Release, UpdateError> {
         let headers = [
-            ("User-Agent".to_string(), format!("Pullbay/{VERSION}")),
+            ("User-Agent".to_string(), format!("UDM/{VERSION}")),
             ("Accept".to_string(), "application/vnd.github+json".to_string()),
         ];
         let body =
@@ -139,7 +139,7 @@ impl ReleaseSource for GitHub {
     }
 
     fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError> {
-        let headers = [("User-Agent".to_string(), format!("Pullbay/{VERSION}"))];
+        let headers = [("User-Agent".to_string(), format!("UDM/{VERSION}"))];
         info!(url = %setup.url, "downloading the update");
         let body =
             self.fetch(&setup.url, &headers, MAX_SETUP_BYTES).map_err(|e| UpdateError::Download(e.to_string()))?;
@@ -151,9 +151,9 @@ impl ReleaseSource for GitHub {
     }
 
     fn run_setup(&self, path: &Path) -> Result<(), UpdateError> {
-        // /frompullbay closes Pullbay without asking: the user asked for this.
+        // /fromudm closes UDM without asking: the user asked for this.
         Command::new(path)
-            .arg("/frompullbay=yes")
+            .arg("/fromudm=yes")
             .spawn()
             .map(|_| ())
             .map_err(|e| UpdateError::Start { path: path.display().to_string(), reason: e.to_string() })
@@ -164,7 +164,7 @@ impl ReleaseSource for GitHub {
 mod tests {
     use super::*;
     use crate::engine::testserver::TestServer;
-    use pullbay_domain::settings::Settings;
+    use udm_domain::settings::Settings;
 
     fn github(url: &str) -> GitHub {
         GitHub::new(Arc::new(LiveSettings::new(Settings::default(), None)), Arc::default(), url)
@@ -192,7 +192,7 @@ mod tests {
     fn a_setup_that_does_not_match_its_release_is_refused() {
         let server = TestServer::start(b"not a program".to_vec());
         let setup = SetupAsset {
-            name: "Pullbay-Setup-9.exe".into(),
+            name: "UDM-Setup-9.exe".into(),
             url: server.url.clone(),
             size: ByteCount::new(13),
             sha256: None,
@@ -224,13 +224,13 @@ mod tests {
         };
         let json = format!(
             r#"{{"tag_name":"v0.5.0","html_url":"https://github.com/tajbinkhan/pullbay/releases/tag/v0.5.0","assets":[
-                {{"name":"pullbay-0.5.0.zip","browser_download_url":"https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/pullbay-0.5.0.zip","size":5}},
-                {{"name":"Pullbay-Setup-0.5.0.exe","browser_download_url":"https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/Pullbay-Setup-0.5.0.exe","size":{},"digest":"sha256:{sha}"}}
+                {{"name":"udm-0.5.0.zip","browser_download_url":"https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/udm-0.5.0.zip","size":5}},
+                {{"name":"UDM-Setup-0.5.0.exe","browser_download_url":"https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/UDM-Setup-0.5.0.exe","size":{},"digest":"sha256:{sha}"}}
             ]}}"#,
             body.len()
         );
         let setup = parse_release(json.as_bytes()).unwrap().setup.unwrap();
-        assert_eq!(setup.name, "Pullbay-Setup-0.5.0.exe");
+        assert_eq!(setup.name, "UDM-Setup-0.5.0.exe");
         assert_eq!(setup.sha256.as_deref(), Some(sha.as_str()));
         assert!(check_setup(&setup, body).is_ok());
         assert_eq!(check_setup(&setup, b"MZ setuP").unwrap_err(), ReleaseError::WrongChecksum);
@@ -243,10 +243,8 @@ mod tests {
             ReleaseError::NotProgram
         );
 
-        let elsewhere = json.replace(
-            "https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/Pullbay",
-            "https://evil.example/Pullbay",
-        );
+        let elsewhere = json
+            .replace("https://github.com/tajbinkhan/pullbay/releases/download/v0.5.0/UDM", "https://evil.example/UDM");
         assert_eq!(parse_release(elsewhere.as_bytes()).unwrap().setup, None, "only from the repository's releases");
     }
 }

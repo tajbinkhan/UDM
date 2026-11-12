@@ -1,5 +1,5 @@
 //! The main window's menu bar: Tasks, File, Downloads, View and Help, in
-//! the layout of the download manager Pullbay follows.
+//! the layout of the download manager UDM follows.
 //!
 //! `model` describes the menus for the window's current state. On Windows
 //! that becomes a native menu bar on the window (muda), with Alt mnemonics;
@@ -7,9 +7,9 @@
 //! the window's thread through muda's event handler, is queued here, and the
 //! window takes it on its next frame (`take`).
 
-use pullbay_domain::id::QueueId;
-use pullbay_domain::sync::LockExt;
 use std::sync::{Arc, Mutex, Once};
+use udm_domain::id::QueueId;
+use udm_domain::sync::LockExt;
 
 use eframe::egui;
 use tray_icon::menu::{MenuEvent, MenuId};
@@ -282,13 +282,13 @@ pub fn model(s: &State) -> Vec<Node> {
         item(tr("&Keyboard shortcuts"), Command::Help(crate::help::KEYS), true),
         item(tr("Tip of the &Day..."), Command::Tip, true),
         Node::Separator,
-        item(tr("Pullbay &Home Page"), Command::Help(crate::help::HOME), true),
+        item(tr("UDM &Home Page"), Command::Help(crate::help::HOME), true),
         item(tr("&Contact Support"), Command::Help(crate::help::SUPPORT), true),
         item(tr("&Report a problem..."), Command::ReportProblem, true),
         Node::Separator,
         item(tr("Check for &updates..."), Command::CheckUpdate, on),
         Node::Separator,
-        item(tr("&About Pullbay"), Command::About, true),
+        item(tr("&About UDM"), Command::About, true),
     ];
 
     vec![

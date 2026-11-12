@@ -1,16 +1,16 @@
 name: Bug report
-description: Something in Pullbay doesn't work as it should.
+description: Something in UDM doesn't work as it should.
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting. Please check [Known gaps](https://github.com/tajbinkhan/pullbay/blob/main/docs/known-gaps.md) first, and use the crash form if a Pullbay program closed by itself.
+        Thanks for reporting. Please check [Known gaps](https://github.com/tajbinkhan/pullbay/blob/main/docs/known-gaps.md) first, and use the crash form if a UDM program closed by itself.
   - type: input
     id: version
     attributes:
-      label: Pullbay version
-      description: In the window, Help > About Pullbay.
+      label: UDM version
+      description: In the window, Help > About UDM.
       placeholder: "0.4.0"
     validations:
       required: true
@@ -36,9 +36,9 @@ body:
   - type: dropdown
     id: install
     attributes:
-      label: How you installed Pullbay
+      label: How you installed UDM
       options:
-        - Setup (Pullbay-Setup .exe)
+        - Setup (UDM-Setup .exe)
         - Windows portable zip
         - macOS .dmg
         - .deb package
@@ -75,5 +75,5 @@ body:
     attributes:
       label: Logs
       description: |
-        The end of `pullbay-daemon.log`, `pullbay-gui.log` or `pullbay-host.log` from the data folder: `%LOCALAPPDATA%\Pullbay` on Windows, `~/Library/Application Support/Pullbay` on macOS, `~/.local/share/pullbay` on Linux (a portable copy keeps them in its `Data` folder). The logs show download addresses, so look them over before you paste.
+        The end of `udm-daemon.log`, `udm-gui.log` or `udm-host.log` from the data folder: `%LOCALAPPDATA%\UDM` on Windows, `~/Library/Application Support/UDM` on macOS, `~/.local/share/udm` on Linux (a portable copy keeps them in its `Data` folder). The logs show download addresses, so look them over before you paste.
       render: text

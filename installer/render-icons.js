@@ -1,9 +1,10 @@
-// Renders assets/icon.svg into every icon file Pullbay ships:
-// extension/icons/{16,32,48,128}.png, assets/icon-256.png, assets/icon-1024.png
+// Renders assets/icon-1024.png, the icon's source, into every other icon
+// file UDM ships: extension/icons/{16,32,48,128}.png, assets/icon-256.png
 // and assets/icon-64.rgba (the window and tray icon, raw RGBA). Run
-// make-icon.js afterwards to pack installer/pullbay.ico.
+// make-icon.js afterwards to pack installer/udm.ico.
 //
-// It draws the SVG on a canvas in headless Chrome. Set CHROME to the browser
+// It scales the picture on a canvas in headless Chrome, halving it step by
+// step so the small sizes stay sharp. Set CHROME to the browser
 // when it is not in its usual Windows place.
 //
 //   node installer/render-icons.js
@@ -16,19 +17,30 @@ const { execFileSync } = require("node:child_process");
 const root = path.join(__dirname, "..");
 const chrome =
   process.env.CHROME || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const svg = fs.readFileSync(path.join(root, "assets", "icon.svg"), "utf8");
-const sizes = [16, 32, 48, 64, 128, 256, 1024];
+const source = fs.readFileSync(path.join(root, "assets", "icon-1024.png"));
+const sizes = [16, 32, 48, 64, 128, 256];
 
 const page = `<!doctype html><body><script>
 const img = new Image();
 img.onload = () => {
   const out = {};
   for (const s of ${JSON.stringify(sizes)}) {
+    // Halve until the next halving would pass the size, then draw it.
+    let from = img, side = img.width;
+    while (side / 2 >= s) {
+      const half = document.createElement("canvas");
+      half.width = half.height = side / 2;
+      const h = half.getContext("2d");
+      h.imageSmoothingQuality = "high";
+      h.drawImage(from, 0, 0, side / 2, side / 2);
+      from = half;
+      side /= 2;
+    }
     const c = document.createElement("canvas");
     c.width = c.height = s;
     const g = c.getContext("2d");
     g.imageSmoothingQuality = "high";
-    g.drawImage(img, 0, 0, s, s);
+    g.drawImage(from, 0, 0, s, s);
     out[s] = { png: c.toDataURL("image/png").split(",")[1] };
     if (s === 64) out[s].rgba = btoa(String.fromCharCode(...g.getImageData(0, 0, s, s).data));
   }
@@ -37,10 +49,10 @@ img.onload = () => {
   pre.textContent = JSON.stringify(out);
   document.body.appendChild(pre);
 };
-img.src = "data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}";
+img.src = "data:image/png;base64,${source.toString("base64")}";
 </script></body>`;
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pullbay-icon-"));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "udm-icon-"));
 const html = path.join(dir, "render.html");
 fs.writeFileSync(html, page);
 const dom = execFileSync(
@@ -60,5 +72,4 @@ const write = (file, data) => {
 };
 for (const s of [16, 32, 48, 128]) write(`extension/icons/${s}.png`, Buffer.from(out[s].png, "base64"));
 write("assets/icon-256.png", Buffer.from(out[256].png, "base64"));
-write("assets/icon-1024.png", Buffer.from(out[1024].png, "base64"));
 write("assets/icon-64.rgba", Buffer.from(out[64].rgba, "base64"));

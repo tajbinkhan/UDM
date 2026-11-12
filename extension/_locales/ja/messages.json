@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "ブラウザーのダウンロードを Pullbay ダウンロード マネージャーに送ります。"
+    "message": "ブラウザーのダウンロードを UDM ダウンロード マネージャーに送ります。"
   },
-  "downloadWithPullbay": {
-    "message": "Pullbay でダウンロード"
+  "downloadWithUdm": {
+    "message": "UDM でダウンロード"
   },
-  "downloadLaterWithPullbay": {
-    "message": "Pullbay で後でダウンロード"
+  "downloadLaterWithUdm": {
+    "message": "UDM で後でダウンロード"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "Pullbay でギャラリーをダウンロード"
+  "downloadGalleryWithUdm": {
+    "message": "UDM でギャラリーをダウンロード"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "Pullbay ですべてのリンクをダウンロード"
+  "downloadAllLinksWithUdm": {
+    "message": "UDM ですべてのリンクをダウンロード"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "Pullbay で選択したリンクをダウンロード"
+  "downloadSelectedLinksWithUdm": {
+    "message": "UDM で選択したリンクをダウンロード"
   },
-  "pullbayDisconnected": {
-    "message": "Pullbay との接続が切断されました"
+  "udmDisconnected": {
+    "message": "UDM との接続が切断されました"
   },
   "captureDownloads": {
     "message": "ダウンロードを取り込む"
   },
   "captureDownloadsTitle": {
-    "message": "ブラウザーが開始したダウンロードを Pullbay に送ります"
+    "message": "ブラウザーが開始したダウンロードを UDM に送ります"
   },
   "captureInTab": {
     "message": "このタブで取り込む"
@@ -36,16 +36,16 @@
     "message": "このタブではオフ"
   },
   "statusConnected": {
-    "message": "接続済みです。ブラウザーで開始したダウンロードは Pullbay に送られます。"
+    "message": "接続済みです。ブラウザーで開始したダウンロードは UDM に送られます。"
   },
   "statusConnectedCaptureOff": {
     "message": "接続済みです。取り込みがオフのため、ダウンロードはブラウザーで行われます。"
   },
   "statusNotConnected": {
-    "message": "Pullbay に接続されていません。ダウンロードはブラウザーに残ります。"
+    "message": "UDM に接続されていません。ダウンロードはブラウザーに残ります。"
   },
   "statusNotConnectedReason": {
-    "message": "Pullbay に接続されていません: $REASON$。ダウンロードはブラウザーに残ります。",
+    "message": "UDM に接続されていません: $REASON$。ダウンロードはブラウザーに残ります。",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "このページのすべてのリンク"
   },
   "allLinksTitle": {
-    "message": "このページのリンクを Pullbay に一覧表示し、ダウンロードするものを選びます"
+    "message": "このページのリンクを UDM に一覧表示し、ダウンロードするものを選びます"
   },
   "videoButton": {
     "message": "動画ボタン"
@@ -117,7 +117,7 @@
     "message": "中断"
   },
   "stateConfirming": {
-    "message": "Pullbay で応答待ち"
+    "message": "UDM で応答待ち"
   },
   "stateWaiting": {
     "message": "開始待ち"
@@ -190,22 +190,22 @@
     "message": "字幕:"
   },
   "videoProtected": {
-    "message": "この動画は DRM で保護されているため、Pullbay はダウンロードしません。"
+    "message": "この動画は DRM で保護されているため、UDM はダウンロードしません。"
   },
   "streamProtected": {
-    "message": "DRM で保護されているため、Pullbay はダウンロードしません。"
+    "message": "DRM で保護されているため、UDM はダウンロードしません。"
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay が実行されていないか、接続されていません。"
+  "udmNotConnected": {
+    "message": "UDM が実行されていないか、接続されていません。"
   },
   "noVideoFound": {
     "message": "まだ動画が見つかりません。しばらく再生してから、もう一度お試しください。"
   },
-  "sentToPullbay": {
-    "message": "Pullbay に送りました。"
+  "sentToUdm": {
+    "message": "UDM に送りました。"
   },
-  "couldNotReachPullbay": {
-    "message": "Pullbay に接続できませんでした。"
+  "couldNotReachUdm": {
+    "message": "UDM に接続できませんでした。"
   },
   "hlsStream": {
     "message": "HLS ストリーム"
@@ -229,7 +229,7 @@
     "message": "Vimeo 動画"
   },
   "mediaNoAnswer": {
-    "message": "Pullbay から応答がありませんでした。"
+    "message": "UDM から応答がありませんでした。"
   },
   "soundOnly": {
     "message": "音声のみ ($FORMAT$)",
@@ -256,16 +256,16 @@
     "message": "音声"
   },
   "takeoverFailed": {
-    "message": "Pullbay がダウンロードを引き継げませんでした"
+    "message": "UDM がダウンロードを引き継げませんでした"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay が実行されていないか接続されていないため、$FILE$ はブラウザーでダウンロードされます。",
+    "message": "UDM が実行されていないか接続されていないため、$FILE$ はブラウザーでダウンロードされます。",
     "placeholders": {
       "file": { "content": "$1" }
     }
   },
   "takeoverError": {
-    "message": "Pullbay が $FILE$ を開始できなかったため ($REASON$)、ブラウザーでダウンロードされます。",
+    "message": "UDM が $FILE$ を開始できなかったため ($REASON$)、ブラウザーでダウンロードされます。",
     "placeholders": {
       "file": { "content": "$1" },
       "reason": { "content": "$2" }
@@ -278,13 +278,13 @@
     "message": "この通知をクリックすると、今後表示されなくなります。"
   },
   "downloadLastVideo": {
-    "message": "Pullbay で最後の動画をダウンロード"
+    "message": "UDM で最後の動画をダウンロード"
   },
   "recentVideos": {
-    "message": "最近の動画 (Pullbay)"
+    "message": "最近の動画 (UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "Pullbay でページをダウンロード"
+  "downloadPageWithUdm": {
+    "message": "UDM でページをダウンロード"
   },
   "noLinksFound": {
     "message": "このページにリンクが見つかりませんでした。"
@@ -293,13 +293,13 @@
     "message": "選択範囲にリンクが見つかりませんでした。"
   },
   "linksUnreadable": {
-    "message": "このページのリンクは、ブラウザーの制限により Pullbay で読み取れません。"
+    "message": "このページのリンクは、ブラウザーの制限により UDM で読み取れません。"
   },
-  "cannotReachPullbay": {
-    "message": "Pullbay に接続できません。Pullbay は実行中ですか？"
+  "cannotReachUdm": {
+    "message": "UDM に接続できません。UDM は実行中ですか？"
   },
-  "cannotReachPullbayReason": {
-    "message": "Pullbay に接続できません ($REASON$)。",
+  "cannotReachUdmReason": {
+    "message": "UDM に接続できません ($REASON$)。",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -310,8 +310,8 @@
   "browserDownloadsHeading": {
     "message": "ブラウザーでダウンロード中"
   },
-  "sendToPullbay": {
-    "message": "Pullbay に送る"
+  "sendToUdm": {
+    "message": "UDM に送る"
   },
   "pageVideo": {
     "message": "このページの動画"
@@ -336,6 +336,6 @@
     }
   },
   "chooseVideos": {
-    "message": "Pullbay で動画を選ぶ..."
+    "message": "UDM で動画を選ぶ..."
   }
 }

@@ -1,7 +1,7 @@
 //! Installing yt-dlp and ffmpeg for video pages, and gallery-dl for image
 //! galleries. `ForgeTools` reads a project's latest release from GitHub's
 //! or Codeberg's API and downloads its files (`ToolReleases`); `ToolDir` is
-//! Pullbay's own `tools` folder
+//! UDM's own `tools` folder
 //! (`paths::tools_dir`), which puts a checked download in place, lets it run
 //! and remembers the release it came from (`ToolFolder`). The checking is the
 //! `InstallTool` use case's: a download is only handed to `ToolDir` once its
@@ -39,11 +39,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::download::Download;
-use pullbay_domain::ports::{ReleaseFile, ToolFolder, ToolRelease, ToolReleases};
-use pullbay_domain::sync::LockExt;
-use pullbay_domain::tools::{Cpu, Forge, InstalledTool, Packing, Platform, System, Tool, ToolError};
+use udm_domain::bytes::ByteCount;
+use udm_domain::download::Download;
+use udm_domain::ports::{ReleaseFile, ToolFolder, ToolRelease, ToolReleases};
+use udm_domain::sync::LockExt;
+use udm_domain::tools::{Cpu, Forge, InstalledTool, Packing, Platform, System, Tool, ToolError};
 
 use crate::connect::{config_for, ProxyRetries};
 use crate::engine;
@@ -59,7 +59,7 @@ const CODEBERG_API: &str = "https://codeberg.org/api/v1/repos/";
 const CODEBERG_DOWNLOADS: &str = "https://codeberg.org/";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The system this copy of Pullbay is built for.
+/// The system this copy of UDM is built for.
 pub fn platform() -> Platform {
     let system = if cfg!(windows) {
         System::Windows
@@ -131,7 +131,7 @@ impl ForgeTools {
     }
 
     fn headers(json: bool) -> Vec<(String, String)> {
-        let mut h = vec![("User-Agent".to_string(), format!("Pullbay/{VERSION}"))];
+        let mut h = vec![("User-Agent".to_string(), format!("UDM/{VERSION}"))];
         if json {
             h.push(("Accept".to_string(), "application/vnd.github+json".to_string()));
         }
@@ -161,7 +161,7 @@ pub fn parse_release(json: &[u8], repository: &str, downloads: &str) -> Result<T
             let sha256 = a["digest"]
                 .as_str()
                 .and_then(|d| d.strip_prefix("sha256:"))
-                .filter(|h| pullbay_domain::tools::is_sha256(h))
+                .filter(|h| udm_domain::tools::is_sha256(h))
                 .map(str::to_ascii_lowercase);
             let usable = url.starts_with(&prefix) && !name.contains(['/', '\\', ':']) && !name.starts_with('.');
             usable.then(|| ReleaseFile { name: name.into(), url: url.into(), sha256 })
@@ -204,10 +204,10 @@ fn save_error(path: &Path, e: &io::Error) -> ToolError {
 }
 
 fn no_folder(path: &Path) -> ToolError {
-    ToolError::Save { path: path.display().to_string(), reason: "Pullbay's data folder cannot be found".into() }
+    ToolError::Save { path: path.display().to_string(), reason: "UDM's data folder cannot be found".into() }
 }
 
-/// Pullbay's `tools` folder, and `tools.json` in it naming the release each
+/// UDM's `tools` folder, and `tools.json` in it naming the release each
 /// installed tool came from.
 pub struct ToolDir {
     dir: Option<PathBuf>,
@@ -424,16 +424,16 @@ impl ToolFolder for ToolDir {
 mod tests {
     use super::*;
     use crate::engine::testserver::{self, TestServer};
-    use pullbay_application::tools::InstallTool;
-    use pullbay_domain::settings::Settings;
     use std::collections::HashMap;
+    use udm_application::tools::InstallTool;
+    use udm_domain::settings::Settings;
 
     fn live() -> Arc<LiveSettings> {
         Arc::new(LiveSettings::new(Settings::default(), None))
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pullbay_tools_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_tools_{}_{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -441,15 +441,14 @@ mod tests {
 
     fn sha(bytes: &[u8]) -> String {
         use sha2::Digest as _;
-        pullbay_domain::tools::hex(&sha2::Sha256::digest(bytes))
+        udm_domain::tools::hex(&sha2::Sha256::digest(bytes))
     }
 
     /// A fake GitHub on the local test server: the API's answer for
     /// `yt-dlp/yt-dlp`'s latest release, the program for this system and
     /// the checksum file listing `listed` for it.
     fn release_site(program: &[u8], listed: &str) -> TestServer {
-        let name =
-            pullbay_domain::tools::source(Tool::YtDlp, platform()).map_or("yt-dlp_linux", |s| s.asset).to_string();
+        let name = udm_domain::tools::source(Tool::YtDlp, platform()).map_or("yt-dlp_linux", |s| s.asset).to_string();
         let program = program.to_vec();
         let listed = listed.to_string();
         TestServer::start_files_linking(move |base| {
@@ -486,7 +485,7 @@ mod tests {
 
     #[test]
     fn a_checked_program_is_installed_and_runs() {
-        if pullbay_domain::tools::source(Tool::YtDlp, platform()).is_none() {
+        if udm_domain::tools::source(Tool::YtDlp, platform()).is_none() {
             return;
         }
         let program = b"#!/bin/sh\necho fake yt-dlp\n";
@@ -513,7 +512,7 @@ mod tests {
 
     #[test]
     fn a_program_that_does_not_match_is_never_installed() {
-        if pullbay_domain::tools::source(Tool::YtDlp, platform()).is_none() {
+        if udm_domain::tools::source(Tool::YtDlp, platform()).is_none() {
             return;
         }
         let server = release_site(b"tampered", &sha(b"the real one"));
@@ -534,7 +533,7 @@ mod tests {
     /// without digests, and `SHA256SUMS` lists every program.
     #[test]
     fn gallery_dl_is_installed_from_codeberg_when_it_matches() {
-        let Some(source) = pullbay_domain::tools::source(Tool::GalleryDl, platform()) else { return };
+        let Some(source) = udm_domain::tools::source(Tool::GalleryDl, platform()) else { return };
         let program = b"#!/bin/sh\necho fake gallery-dl\n".to_vec();
         let (name, listed) = (source.asset.to_string(), sha(&program));
         let server = TestServer::start_files_linking(move |base| {

@@ -6,7 +6,7 @@
 //!
 //! Loopback keeps other machines out but not other local processes, so both
 //! ends authenticate. At start the daemon makes a random token and writes it
-//! to `%LOCALAPPDATA%\Pullbay\daemon.token`, which only the current user (plus
+//! to `%LOCALAPPDATA%\UDM\daemon.token`, which only the current user (plus
 //! SYSTEM and Administrators) can read under the profile's default ACL.
 //!
 //! The token never crosses the socket. Each side proves it holds it with an
@@ -14,9 +14,9 @@
 //!
 //! 1. host -> daemon: `auth_hello { client_nonce }`
 //! 2. daemon -> host: `auth_challenge { server_nonce, proof }`, where `proof`
-//!    is `HMAC(token, "pullbay-daemon", client_nonce, server_nonce)`
+//!    is `HMAC(token, "udm-daemon", client_nonce, server_nonce)`
 //! 3. host checks that proof, then sends `auth { proof }` with the
-//!    `"pullbay-host"` label
+//!    `"udm-host"` label
 //! 4. daemon checks it and replies `auth_ok`
 //!
 //! Either side closes the connection on a bad proof. A process squatting on
@@ -25,7 +25,7 @@
 
 use std::fs;
 use std::io::{self, Read};
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::thread;
@@ -37,15 +37,34 @@ use sha2::Sha256;
 
 use crate::protocol::{read_message, write_frame};
 
-/// The daemon's port for the usual copy of Pullbay.
+/// The daemon's port for the usual copy of UDM.
 pub const DAEMON_PORT: u16 = 51515;
 
 /// The loopback address the daemon serves on. Loopback only, so nothing off
 /// this machine can reach it, and local clients must still authenticate. A
-/// copy named by `PULLBAY_INSTANCE` gets a port of its own (see
+/// copy named by `UDM_INSTANCE` gets a port of its own (see
 /// `paths::instance`).
 pub fn daemon_addr() -> String {
     format!("127.0.0.1:{}", daemon_port(crate::paths::instance().as_deref()))
+}
+
+/// How long a connection to the daemon's port may take. On loopback the
+/// system answers for a listening port at once, however busy the daemon is,
+/// so this only cuts short a port nothing listens on: Windows tries such a
+/// port again for about two seconds before it reports the refusal, which
+/// every start of a daemon that was not running would otherwise wait out.
+/// Should a connection to a running daemon ever take longer, the client
+/// starts a second daemon, which cannot bind and exits, and connects on its
+/// next try.
+const CONNECT_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// Open a connection to the daemon's port, failing within `CONNECT_TIMEOUT`.
+fn dial() -> io::Result<TcpStream> {
+    dial_port(daemon_port(crate::paths::instance().as_deref()))
+}
+
+fn dial_port(port: u16) -> io::Result<TcpStream> {
+    TcpStream::connect_timeout(&SocketAddr::from((Ipv4Addr::LOCALHOST, port)), CONNECT_TIMEOUT)
 }
 
 /// The port for instance `name`: the usual one without a name, else one
@@ -72,8 +91,8 @@ const NONCE_BYTES: usize = 32;
 
 /// Labels that make the daemon's proof and the host's proof differ, so one
 /// can never be replayed as the other.
-pub const DAEMON_LABEL: &str = "pullbay-daemon";
-pub const HOST_LABEL: &str = "pullbay-host";
+pub const DAEMON_LABEL: &str = "udm-daemon";
+pub const HOST_LABEL: &str = "udm-host";
 
 /// How long the host waits for a daemon it just started. A first launch of a
 /// freshly built exe can be slow while antivirus scans it.
@@ -155,15 +174,15 @@ pub fn restart_daemon() -> io::Result<TcpStream> {
     stop_daemons()?;
     // The old one's listener goes with its process.
     let deadline = Instant::now() + STARTUP_WAIT;
-    while TcpStream::connect(daemon_addr()).is_ok() && Instant::now() < deadline {
+    while dial().is_ok() && Instant::now() < deadline {
         thread::sleep(STARTUP_POLL);
     }
     connect_or_spawn()
 }
 
-/// End every `pullbay-daemon` process this user may end, and UIDM's
-/// `uidm-daemon` from before Pullbay got its name, which holds the same
-/// port and cannot prove itself to Pullbay. A named copy (see
+/// End every `udm-daemon` process this user may end, and the
+/// `pullbay-daemon` and `uidm-daemon` of UDM's earlier names, which hold the
+/// same port and cannot prove themselves to UDM. A named copy (see
 /// `paths::instance`) ends none: it cannot tell its own daemon from the
 /// installed one's, so its restart only reconnects.
 fn stop_daemons() -> io::Result<()> {
@@ -173,13 +192,13 @@ fn stop_daemons() -> io::Result<()> {
     #[cfg(windows)]
     let mut cmd = {
         let mut c = std::process::Command::new("taskkill");
-        c.args(["/F", "/IM", "pullbay-daemon.exe", "/IM", "uidm-daemon.exe"]);
+        c.args(["/F", "/IM", "udm-daemon.exe", "/IM", "pullbay-daemon.exe", "/IM", "uidm-daemon.exe"]);
         c
     };
     #[cfg(not(windows))]
     let mut cmd = {
         let mut c = std::process::Command::new("pkill");
-        c.args(["-x", "pullbay-daemon|uidm-daemon"]);
+        c.args(["-x", "udm-daemon|pullbay-daemon|uidm-daemon"]);
         c
     };
     // A non-zero exit means none was running, which is fine.
@@ -219,7 +238,7 @@ fn retry_proof(first: io::Error) -> io::Result<TcpStream> {
 /// Connect once and run the client side of the handshake. Returns the stream
 /// ready for normal frames only after the daemon has proved itself.
 fn connect_authenticated() -> io::Result<TcpStream> {
-    let mut stream = TcpStream::connect(daemon_addr())?;
+    let mut stream = dial()?;
     let token = read_token()?;
     let client_nonce = new_nonce()?;
     stream.set_read_timeout(Some(AUTH_TIMEOUT))?;
@@ -234,7 +253,7 @@ fn connect_authenticated() -> io::Result<TcpStream> {
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                format!("the listener on {} could not prove it is the Pullbay daemon", daemon_addr()),
+                format!("the listener on {} could not prove it is the UDM daemon", daemon_addr()),
             ))
         }
     };
@@ -351,7 +370,7 @@ impl Read for Deadline<'_> {
     }
 }
 
-/// Launch `pullbay-daemon` from the host's own directory as a detached
+/// Launch `udm-daemon` from the host's own directory as a detached
 /// process, so it keeps running after the host and the browser exit. It
 /// writes its own log (see `logging`), so its standard streams go nowhere.
 fn spawn_daemon() -> io::Result<()> {
@@ -360,10 +379,10 @@ fn spawn_daemon() -> io::Result<()> {
     // daemon would keep its files in that copy; it runs outside it instead.
     #[cfg(windows)]
     if crate::package::data_copy().is_some() {
-        let (program, args) = crate::platform::program("pullbay-daemon")?;
+        let (program, args) = crate::platform::program("udm-daemon")?;
         return crate::package::spawn_outside(&program, &args);
     }
-    let mut daemon = crate::platform::program_command("pullbay-daemon")?;
+    let mut daemon = crate::platform::program_command("udm-daemon")?;
 
     let program = daemon.get_program().to_owned();
     crate::platform::spawn_reaped(
@@ -408,6 +427,22 @@ mod tests {
         assert!((52000..53000).contains(&test), "{test}");
         assert_eq!(daemon_port(Some("test")), test, "the same name gives the same port");
         assert_ne!(daemon_port(Some("test")), daemon_port(Some("dev")));
+    }
+
+    #[test]
+    fn a_port_nothing_listens_on_fails_fast() {
+        // Windows takes about two seconds to refuse a loopback port with no
+        // listener; a daemon that is not running must not cost a client that.
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let start = Instant::now();
+        assert!(dial_port(port).is_err());
+        assert!(start.elapsed() < Duration::from_millis(1500), "took {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn a_listening_port_connects() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        assert!(dial_port(listener.local_addr().unwrap().port()).is_ok());
     }
 
     #[test]

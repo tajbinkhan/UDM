@@ -3,20 +3,20 @@
 //! connection use it: the window's `daemon_client` sends commands and reads
 //! events, and the daemon's `server` reads commands and sends events.
 
-use pullbay_application::daemon::service::ServiceError;
-use pullbay_application::daemon::{Command, Event, Failure};
-use pullbay_application::downloads::{ConfirmError, StartOrWaitError};
-use pullbay_domain::download::{DownloadError, Mismatch};
-use pullbay_domain::grab::InvalidGrab;
-use pullbay_domain::pairing::PairingError;
-use pullbay_domain::ports::{ControlError, SettingsError};
-use pullbay_domain::queue::QueueError;
-use pullbay_domain::update::UpdateError;
 use serde::{Deserialize, Serialize};
+use udm_application::daemon::service::ServiceError;
+use udm_application::daemon::{Command, Event, Failure};
+use udm_application::downloads::{ConfirmError, StartOrWaitError};
+use udm_domain::download::{DownloadError, Mismatch};
+use udm_domain::grab::InvalidGrab;
+use udm_domain::pairing::PairingError;
+use udm_domain::ports::{ControlError, SettingsError};
+use udm_domain::queue::QueueError;
+use udm_domain::update::UpdateError;
 
 use crate::protocol::{Incoming, NewPackage, Outgoing, Secret};
-use pullbay_domain::id::PackageId;
-use pullbay_domain::package::{Packaging, Password};
+use udm_domain::id::PackageId;
+use udm_domain::package::{Packaging, Password};
 
 /// The wire message for `command`.
 pub fn incoming(command: Command) -> Incoming {
@@ -316,7 +316,7 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
 }
 
 /// A failure as the wire carries it: its English text, which clients that
-/// do not translate show (the browser extension, `pullbay-host send`), and its
+/// do not translate show (the browser extension, `udm-host send`), and its
 /// kind and values as `error_kind`. A failure known only by its text has no
 /// kind.
 pub fn text_and_kind(failure: Failure) -> (String, Option<serde_json::Value>) {
@@ -372,8 +372,8 @@ enum WireService {
     CrawlRunning,
     BadBody(String),
     NotDownloadAddress(String),
-    Tool(pullbay_domain::tools::ToolError),
-    Gallery(pullbay_domain::gallery::GalleryError),
+    Tool(udm_domain::tools::ToolError),
+    Gallery(udm_domain::gallery::GalleryError),
     Pairing(PairingError),
     NoPackage(PackageId),
     PackageBusy,
@@ -467,9 +467,9 @@ impl From<WireService> for ServiceError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::bytes::ByteCount;
-    use pullbay_domain::download::Download;
-    use pullbay_domain::id::{DownloadId, QueueId};
+    use udm_domain::bytes::ByteCount;
+    use udm_domain::download::Download;
+    use udm_domain::id::{DownloadId, QueueId};
 
     /// `msg` as JSON, after a trip through `f` and back.
     fn json<T: serde::Serialize>(msg: &T) -> serde_json::Value {
@@ -493,7 +493,7 @@ mod tests {
 
     #[test]
     fn packages_go_as_their_ops_and_the_password_stays_out_of_logs() {
-        use pullbay_domain::package::{Package, PackageName, Unpack, UnpackFailure};
+        use udm_domain::package::{Package, PackageName, Unpack, UnpackFailure};
         let name = PackageName::parse("Trip").unwrap();
         let one = Packaging::One { name: name.clone(), folder: Some("/dl/Trip".into()) };
         for (packaging, extra) in [
@@ -570,8 +570,8 @@ mod tests {
 
     #[test]
     fn playlists_and_tools_keep_their_shape() {
-        use pullbay_domain::media::{Playlist, PlaylistEntry};
-        use pullbay_domain::tools::{Tool, ToolError, ToolState};
+        use udm_domain::media::{Playlist, PlaylistEntry};
+        use udm_domain::tools::{Tool, ToolError, ToolState};
         let playlist = Playlist {
             title: "T".into(),
             entries: vec![PlaylistEntry { url: "https://v/1".into(), title: "One".into(), duration: None }],
@@ -608,7 +608,7 @@ mod tests {
 
     #[test]
     fn galleries_keep_their_shape() {
-        use pullbay_domain::gallery::{Gallery, GalleryError, Picture};
+        use udm_domain::gallery::{Gallery, GalleryError, Picture};
         assert_eq!(
             json(&incoming(Command::PickGallery { page: "https://g/a".into(), user_agent: None })),
             serde_json::json!({"op": "pick_gallery", "page": "https://g/a", "user_agent": null})
@@ -651,7 +651,7 @@ mod tests {
             ServiceError::NotDownloadAddress("javascript:x".into()).into(),
             ServiceError::CrawlRunning.into(),
             QueueError::NameTaken("Night".into()).into(),
-            QueueError::Invalid(pullbay_domain::queue::InvalidQueue::StartTime("25:00".into())).into(),
+            QueueError::Invalid(udm_domain::queue::InvalidQueue::StartTime("25:00".into())).into(),
             DownloadError::BadSpeedLimit { kbps: 1, lo: 2, hi: 3 }.into(),
             ServiceError::Confirm(ConfirmError::Download(DownloadError::AnswerNoFolder)).into(),
             ServiceError::Confirm(ConfirmError::Start(StartOrWaitError::Start(ControlError("busy".into())))).into(),
@@ -659,8 +659,8 @@ mod tests {
                 .into(),
             UpdateError::Save { path: "/t/s".into(), reason: "denied".into() }.into(),
             ServiceError::Grab(InvalidGrab::Depth).into(),
-            SettingsError::Invalid(pullbay_domain::settings::InvalidSettings::FolderNotFull(
-                pullbay_domain::settings::SettingsField::CategoryFolder("Music".into()),
+            SettingsError::Invalid(udm_domain::settings::InvalidSettings::FolderNotFull(
+                udm_domain::settings::SettingsField::CategoryFolder("Music".into()),
                 "rel".into(),
             ))
             .into(),
@@ -668,7 +668,7 @@ mod tests {
             Failure::InvalidMessage("expected value".into()),
             Failure::Probe("HTTP 404".into()),
             ServiceError::Pairing(PairingError::NotListening).into(),
-            ServiceError::Pairing(PairingError::NoDevice(pullbay_domain::id::DeviceId::new(3))).into(),
+            ServiceError::Pairing(PairingError::NoDevice(udm_domain::id::DeviceId::new(3))).into(),
             ServiceError::NoPackage(PackageId::new(2)).into(),
             ServiceError::PackageBusy.into(),
         ];
@@ -705,8 +705,8 @@ mod tests {
 
     #[test]
     fn remote_control_goes_as_its_ops() {
-        use pullbay_domain::id::DeviceId;
-        use pullbay_domain::pairing::{
+        use udm_domain::id::DeviceId;
+        use udm_domain::pairing::{
             DeviceInfo, DeviceName, ListenerState, PairingCode, PairingOffer, RemoteFault, RemoteState,
         };
         for (command, op) in [
@@ -825,14 +825,14 @@ mod tests {
     /// rename shows up here rather than in the clients.
     #[test]
     fn the_kind_names_the_error_and_its_values() {
-        use pullbay_domain::command::CommandError;
-        use pullbay_domain::queue::InvalidQueue;
-        use pullbay_domain::settings::{InvalidSettings, ProxyEntry, SettingsField};
         use serde_json::json;
+        use udm_domain::command::CommandError;
+        use udm_domain::queue::InvalidQueue;
+        use udm_domain::settings::{InvalidSettings, ProxyEntry, SettingsField};
         let golden: Vec<(Failure, serde_json::Value)> = vec![
             (ServiceError::CrawlRunning.into(), json!({"Service": "CrawlRunning"})),
             (
-                pullbay_domain::tools::ToolError::WrongChecksum("yt-dlp.exe".into()).into(),
+                udm_domain::tools::ToolError::WrongChecksum("yt-dlp.exe".into()).into(),
                 json!({"Service": {"Tool": {"WrongChecksum": "yt-dlp.exe"}}}),
             ),
             (ServiceError::BadBody("http://a/".into()).into(), json!({"Service": {"BadBody": "http://a/"}})),

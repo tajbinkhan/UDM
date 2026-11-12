@@ -4,11 +4,11 @@
   (PAC and WPAD) are Windows-only; the system proxy comes from the
   `http_proxy`, `https_proxy`, `ftp_proxy`, `all_proxy` and `no_proxy`
   variables. On macOS closing to the tray minimizes the window rather than
-  hiding it. On Linux the window closes and Pullbay stays in the tray; a
+  hiding it. On Linux the window closes and UDM stays in the tray; a
   caught download's save-as dialog or download window opens the main
   window with it.
   macOS notifications have no buttons. Passwords and saved requests are
-  sealed with a key in Pullbay's data folder that only your user can read,
+  sealed with a key in UDM's data folder that only your user can read,
   rather than the Keychain or the Secret Service. **Update now** opens the
   release page instead of installing. Microsoft Defender is Windows' own:
   choose a scanner program such as `clamscan`. These builds were tested on
@@ -44,7 +44,7 @@
   Mirroring the layout means rebuilding every panel, table and dialog from
   the right, since egui has no switch for it. Both wait for an egui that
   shapes text, or a text engine such as `cosmic-text` or `parley` drawn into
-  egui. Also missing: a language picker on first start (Pullbay follows the
+  egui. Also missing: a language picker on first start (UDM follows the
   system's display language, and **View > Language** changes it), Setup's own
   languages (the installer is English), the phone page's languages beyond the
   first four, and plural forms (where a language needs them, its table words
@@ -96,7 +96,7 @@
   ads), and HLS `SAMPLE-AES` without a key system are refused. The size
   shown for a quality is an estimate from its bit rate. Without ffmpeg,
   separate video and audio stay two files.
-- Video pages: Pullbay does not give yt-dlp the browser's cookies, so videos
+- Video pages: UDM does not give yt-dlp the browser's cookies, so videos
   that need signing in (private or members-only ones, most of Facebook and
   Instagram) are not offered. yt-dlp's automatic captions are not offered,
   only a page's own subtitles. A page on another site is tried with yt-dlp
@@ -107,14 +107,14 @@
   asked about as a duplicate (video pages, like streams, are never
   duplicates), only a taken file name is. A pasted playlist address in Add
   URL is downloaded as a page, not listed.
-- Installing yt-dlp and ffmpeg: Pullbay checks each download against the
+- Installing yt-dlp and ffmpeg: UDM checks each download against the
   SHA-256 published in the same GitHub release, not against yt-dlp's GPG
   signature. There is no ffmpeg to install on macOS (no build there
   publishes a checksum), so Options names Homebrew. Unpacking ffmpeg needs
   the system's `tar` (Windows 10 version 1803 and later have it). A yt-dlp
   that is running cannot be replaced on Windows, so an update waits for the
-  next day's look. Only a yt-dlp Pullbay installed is kept up to date.
-- Image galleries: Pullbay does not give gallery-dl the browser's cookies or
+  next day's look. Only a yt-dlp UDM installed is kept up to date.
+- Image galleries: UDM does not give gallery-dl the browser's cookies or
   the user's gallery-dl configuration, so galleries that need signing in
   are not listed. At most 1000 pictures of a gallery are listed. There is
   no gallery-dl to install on macOS or on ARM processors (the project builds

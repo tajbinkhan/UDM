@@ -1,10 +1,10 @@
-use pullbay_domain::pairing::RemoteState;
+use udm_domain::pairing::RemoteState;
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient};
 
 /// Show a pairing code for a phone, as Options' Pair a phone does:
-/// `pullbay-cli pair`, for a daemon with no window, such as a server's.
+/// `udm-cli pair`, for a daemon with no window, such as a server's.
 pub struct PairPhone<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
 }
@@ -31,10 +31,10 @@ mod tests {
     use crate::daemon::service::ServiceError;
     use crate::daemon::{Event, Failure};
     use crate::memory::FakeDaemon;
-    use pullbay_domain::id::DeviceId;
-    use pullbay_domain::pairing::DeviceInfo;
-    use pullbay_domain::pairing::{DeviceName, PairingCode, PairingError, PairingOffer};
     use std::time::Duration;
+    use udm_domain::id::DeviceId;
+    use udm_domain::pairing::DeviceInfo;
+    use udm_domain::pairing::{DeviceName, PairingCode, PairingError, PairingOffer};
 
     const WAIT: Duration = Duration::from_secs(5);
 

@@ -1,6 +1,6 @@
-use pullbay_domain::download::{self, DownloadError};
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::{DownloadControl, DownloadList};
+use udm_domain::download::{self, DownloadError};
+use udm_domain::id::DownloadId;
+use udm_domain::ports::{DownloadControl, DownloadList};
 
 /// Set or clear a download's own speed limit. It is kept on the row (so in
 /// the history) and in the kept request, and a running download changes
@@ -56,7 +56,7 @@ impl<'a, D: DownloadList> SetLimitRemember<'a, D> {
 mod tests {
     use super::*;
     use crate::memory::{Control, Downloads};
-    use pullbay_domain::download::{Download, Status};
+    use udm_domain::download::{Download, Status};
 
     #[test]
     fn the_limit_reaches_the_row_the_request_and_the_engine() {

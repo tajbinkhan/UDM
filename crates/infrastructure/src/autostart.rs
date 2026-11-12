@@ -1,8 +1,8 @@
-//! Starting Pullbay's window, hidden in the tray, when the user signs in:
+//! Starting UDM's window, hidden in the tray, when the user signs in:
 //!
-//! - Windows: the `Pullbay` value under `HKCU\...\CurrentVersion\Run`;
-//! - macOS: `~/Library/LaunchAgents/com.pullbay.gui.plist`, a launchd agent;
-//! - Linux: `~/.config/autostart/pullbay.desktop`, the freedesktop.org way.
+//! - Windows: the `UDM` value under `HKCU\...\CurrentVersion\Run`;
+//! - macOS: `~/Library/LaunchAgents/com.udm.gui.plist`, a launchd agent;
+//! - Linux: `~/.config/autostart/udm.desktop`, the freedesktop.org way.
 //!
 //! A portable copy (`paths::portable_root`) has none, so it leaves the
 //! computer as it found it.
@@ -11,7 +11,7 @@ use std::io;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 
-/// Add or remove the entry that starts Pullbay's window at sign-in. A
+/// Add or remove the entry that starts UDM's window at sign-in. A
 /// portable copy refuses to add one and removes none, since an entry there
 /// would be the installed copy's.
 pub fn set_autostart(enabled: bool) -> io::Result<()> {
@@ -22,10 +22,10 @@ pub fn set_autostart(enabled: bool) -> io::Result<()> {
         };
     }
     #[cfg(windows)]
-    return crate::registry::set_autostart(enabled, &crate::platform::sibling_exe("pullbay-gui")?);
+    return crate::registry::set_autostart(enabled, &crate::platform::sibling_exe("udm-gui")?);
     #[cfg(unix)]
     {
-        let (gui, first) = crate::platform::program("pullbay-gui")?;
+        let (gui, first) = crate::platform::program("udm-gui")?;
         let path = entry_path()?;
         if !enabled {
             return match std::fs::remove_file(&path) {
@@ -40,35 +40,48 @@ pub fn set_autostart(enabled: bool) -> io::Result<()> {
     }
 }
 
-/// The sign-in entry UIDM, as Pullbay was called up to 0.3.3, wrote: a
-/// Run value on Windows, a file in [`crate::paths::autostart_dir`] elsewhere.
+/// The sign-in entries UDM wrote under its earlier names, Pullbay (0.4) and
+/// UIDM (up to 0.3.3): Run values on Windows, files in
+/// [`crate::paths::autostart_dir`] elsewhere.
 #[cfg(windows)]
-const UIDM_ENTRY: &str = "UIDM";
+const OLD_ENTRIES: [&str; 2] = ["Pullbay", "UIDM"];
 #[cfg(target_os = "macos")]
-const UIDM_ENTRY: &str = "com.uidm.gui.plist";
+const OLD_ENTRIES: [&str; 2] = ["com.pullbay.gui.plist", "com.uidm.gui.plist"];
 #[cfg(all(unix, not(target_os = "macos")))]
-const UIDM_ENTRY: &str = "uidm.desktop";
+const OLD_ENTRIES: [&str; 2] = ["pullbay.desktop", "uidm.desktop"];
 
-/// Replace the entry that started UIDM at sign-in with Pullbay's. True
-/// when there was one.
-pub fn move_uidm_entry() -> io::Result<bool> {
+/// Replace the entries that started Pullbay or UIDM at sign-in with UDM's.
+/// True when there was one.
+pub fn move_old_entries() -> io::Result<bool> {
+    let mut any = false;
+    for old in OLD_ENTRIES {
+        any |= drop_old_entry(old)?;
+    }
+    if any {
+        set_autostart(true)?;
+    }
+    Ok(any)
+}
+
+/// Remove the old sign-in entry `old`. True when there was one.
+fn drop_old_entry(old: &str) -> io::Result<bool> {
     #[cfg(windows)]
     {
         let run = crate::registry::RUN_KEY;
-        if crate::registry::get_string(run, UIDM_ENTRY)?.is_none() {
+        if crate::registry::get_string(run, old)?.is_none() {
             return Ok(false);
         }
-        crate::registry::delete_value(run, UIDM_ENTRY)?;
+        crate::registry::delete_value(run, old)?;
+        Ok(true)
     }
     #[cfg(unix)]
     {
-        match std::fs::remove_file(crate::paths::autostart_dir()?.join(UIDM_ENTRY)) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
-            other => other?,
+        match std::fs::remove_file(crate::paths::autostart_dir()?.join(old)) {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
         }
     }
-    set_autostart(true)?;
-    Ok(true)
 }
 
 /// Where the sign-in entry lives.
@@ -76,9 +89,9 @@ pub fn move_uidm_entry() -> io::Result<bool> {
 fn entry_path() -> io::Result<PathBuf> {
     let dir = crate::paths::autostart_dir()?;
     #[cfg(target_os = "macos")]
-    return Ok(dir.join("com.pullbay.gui.plist"));
+    return Ok(dir.join("com.udm.gui.plist"));
     #[cfg(not(target_os = "macos"))]
-    return Ok(dir.join("pullbay.desktop"));
+    return Ok(dir.join("udm.desktop"));
 }
 
 /// The sign-in entry that starts `gui` with `first` (the program's name
@@ -92,7 +105,7 @@ fn entry(gui: &Path, first: &[String]) -> String {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
              <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
              <plist version=\"1.0\">\n<dict>\n\
-             \t<key>Label</key>\n\t<string>com.pullbay.gui</string>\n\
+             \t<key>Label</key>\n\t<string>com.udm.gui</string>\n\
              \t<key>ProgramArguments</key>\n\t<array>\n{}\t</array>\n\
              \t<key>RunAtLoad</key>\n\t<true/>\n\
              </dict>\n</plist>\n",
@@ -112,7 +125,7 @@ fn entry(gui: &Path, first: &[String]) -> String {
         let exec: Vec<String> =
             std::iter::once(quote(&gui.display().to_string())).chain(first.iter().map(|a| quote(a))).collect();
         format!(
-            "[Desktop Entry]\nType=Application\nName=Pullbay\nComment=Download manager\nIcon=pullbay\n\
+            "[Desktop Entry]\nType=Application\nName=UDM\nComment=Download manager\nIcon=udm\n\
              Exec={} --minimized\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
             exec.join(" ")
         )
@@ -125,14 +138,14 @@ mod tests {
 
     #[test]
     fn the_entry_starts_the_window_minimized() {
-        let text = entry(Path::new("/opt/Pullbay app/pullbay-gui"), &[]);
+        let text = entry(Path::new("/opt/UDM app/udm-gui"), &[]);
         assert!(text.contains("--minimized"));
         if cfg!(target_os = "macos") {
-            assert!(text.contains("<string>/opt/Pullbay app/pullbay-gui</string>"));
+            assert!(text.contains("<string>/opt/UDM app/udm-gui</string>"));
         } else {
-            assert!(text.contains("Exec=\"/opt/Pullbay app/pullbay-gui\" --minimized"));
-            let image = entry(Path::new("/home/me/Pullbay.AppImage"), &["pullbay-gui".to_string()]);
-            assert!(image.contains("Exec=\"/home/me/Pullbay.AppImage\" \"pullbay-gui\" --minimized"), "{image}");
+            assert!(text.contains("Exec=\"/opt/UDM app/udm-gui\" --minimized"));
+            let image = entry(Path::new("/home/me/UDM.AppImage"), &["udm-gui".to_string()]);
+            assert!(image.contains("Exec=\"/home/me/UDM.AppImage\" \"udm-gui\" --minimized"), "{image}");
         }
     }
 }

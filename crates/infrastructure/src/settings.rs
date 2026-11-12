@@ -1,7 +1,7 @@
-//! Reading and writing the user's settings in `settings.json`, in Pullbay's
-//! settings folder (`%APPDATA%\Pullbay` on Windows; see
+//! Reading and writing the user's settings in `settings.json`, in UDM's
+//! settings folder (`%APPDATA%\UDM` on Windows; see
 //! `paths::config_dir`), and the settings rules that need the filesystem.
-//! The settings themselves are `pullbay_domain::settings`.
+//! The settings themselves are `udm_domain::settings`.
 //!
 //! A missing file, or a missing field in an older file, means the default
 //! for that value, so new options can be added without breaking existing
@@ -11,7 +11,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use pullbay_domain::settings::*;
+use udm_domain::settings::*;
 
 /// Read settings from `path`. A missing file gives the defaults; an
 /// unreadable or invalid one is an error, so the caller can say so instead
@@ -46,18 +46,18 @@ pub fn save(settings: &Settings, path: &Path) -> io::Result<()> {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CheckError {
     #[error(transparent)]
-    Invalid(#[from] pullbay_domain::settings::InvalidSettings),
+    Invalid(#[from] udm_domain::settings::InvalidSettings),
     #[error("{0} is a file, not a folder: {1}")]
     FolderIsFile(SettingsField, String),
     #[error("ffmpeg must be the full path of ffmpeg.exe: {0}")]
     FfmpegIsFolder(String),
 }
 
-impl From<CheckError> for pullbay_domain::ports::SettingsError {
+impl From<CheckError> for udm_domain::ports::SettingsError {
     fn from(e: CheckError) -> Self {
         match e {
-            CheckError::Invalid(e) => pullbay_domain::ports::SettingsError::Invalid(e),
-            other => pullbay_domain::ports::SettingsError::Refused(other.to_string()),
+            CheckError::Invalid(e) => udm_domain::ports::SettingsError::Invalid(e),
+            other => udm_domain::ports::SettingsError::Refused(other.to_string()),
         }
     }
 }
@@ -87,14 +87,14 @@ pub fn validate(settings: &Settings) -> Result<(), CheckError> {
     Ok(())
 }
 
-/// ffmpeg: the one set in Options if it exists, otherwise the one Pullbay
+/// ffmpeg: the one set in Options if it exists, otherwise the one UDM
 /// installed (`paths::tools_dir`), otherwise the first on `PATH`.
 pub fn ffmpeg(settings: &Settings) -> Option<PathBuf> {
     let set = settings.ffmpeg_path.trim();
     if !set.is_empty() {
         return Some(PathBuf::from(set)).filter(|p| p.is_file());
     }
-    // The one Pullbay installed (Options > General), then the PATH's.
+    // The one UDM installed (Options > General), then the PATH's.
     let own = crate::paths::tools_dir().map(|d| d.join(crate::platform::exe_name("ffmpeg")));
     let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
     own.into_iter()
@@ -122,7 +122,7 @@ fn add_default_exclusions(value: &mut serde_json::Value) {
 
 /// Give a settings file from before HDS support `f4m` among its video types,
 /// once: those files list the types the video button offers, so without
-/// this an upgraded Pullbay never offers HDS streams.
+/// this an upgraded UDM never offers HDS streams.
 fn add_hds_type(value: &mut serde_json::Value) {
     let Some(map) = value.as_object_mut() else {
         return;
@@ -172,7 +172,7 @@ fn split_browser_menu(value: &mut serde_json::Value) {
     }
 }
 
-/// `settings.json` in Pullbay's settings folder (`%APPDATA%\Pullbay` on Windows).
+/// `settings.json` in UDM's settings folder (`%APPDATA%\UDM` on Windows).
 pub fn settings_path() -> io::Result<PathBuf> {
     Ok(crate::paths::config_dir()?.join("settings.json"))
 }
@@ -217,8 +217,8 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
 /// `unpack::seven_zip`.
 pub struct DiskChecks;
 
-impl pullbay_application::window::SettingsChecks for DiskChecks {
-    fn validate(&self, settings: &Settings) -> Result<(), pullbay_domain::ports::SettingsError> {
+impl udm_application::window::SettingsChecks for DiskChecks {
+    fn validate(&self, settings: &Settings) -> Result<(), udm_domain::ports::SettingsError> {
         Ok(validate(settings)?)
     }
 
@@ -234,7 +234,7 @@ impl pullbay_application::window::SettingsChecks for DiskChecks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::id::QueueId;
+    use udm_domain::id::QueueId;
 
     /// A Windows full path as a full path on this system: `C:\a\b` stays
     /// on Windows and is `/a/b` elsewhere.
@@ -247,7 +247,7 @@ mod tests {
     }
 
     fn temp_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("pullbay_settings_{}_{name}", std::process::id()))
+        std::env::temp_dir().join(format!("udm_settings_{}_{name}", std::process::id()))
     }
 
     #[test]
@@ -263,7 +263,7 @@ mod tests {
     fn save_load_roundtrip() {
         let path = temp_path("roundtrip.json");
         let s = Settings {
-            download_dir: Some(full("C:\\Downloads\\Pullbay")),
+            download_dir: Some(full("C:\\Downloads\\UDM")),
             connections: 12,
             max_concurrent: 5,
             speed_limit_enabled: true,
@@ -361,7 +361,7 @@ mod tests {
             server_file_date_created: true,
             resume_ignores_date: true,
             manual_user_agent: USER_AGENT_PRESETS[0].1.into(),
-            temp_dir: Some(full("D:\\Pullbay temp")),
+            temp_dir: Some(full("D:\\UDM temp")),
             capture_skip_key: CaptureKey::SHIFT,
             capture_force_key: CaptureKey { insert: true, ..CaptureKey::CTRL },
             capture_keys_left_click: true,
@@ -466,9 +466,9 @@ mod tests {
 
     #[test]
     fn category_folders() {
-        let base = std::env::temp_dir().join("pullbay-dl");
+        let base = std::env::temp_dir().join("udm-dl");
         let mut s = Settings { download_dir: Some(base.display().to_string()), ..Settings::default() };
-        let custom = std::env::temp_dir().join("pullbay-music");
+        let custom = std::env::temp_dir().join("udm-music");
         s.categories[2].folder = Some(custom.display().to_string());
         let f = s.folders(&default_downloads_dir());
         assert_eq!(f.for_name("a.ZIP"), base.join("Compressed"));
@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn a_category_can_be_limited_to_some_sites() {
-        let base = std::env::temp_dir().join("pullbay-dl");
+        let base = std::env::temp_dir().join("udm-dl");
         let mut s = Settings { download_dir: Some(base.display().to_string()), ..Settings::default() };
         let mut work = Category::new("Work", &["pdf"]);
         work.sites = vec!["*.corp.example".into()];
@@ -502,7 +502,7 @@ mod tests {
     #[test]
     fn a_category_remembers_the_last_folder_chosen() {
         let mut s = Settings::default();
-        let chosen = std::env::temp_dir().join("pullbay-chosen");
+        let chosen = std::env::temp_dir().join("udm-chosen");
         assert!(!s.remember_folder("Compressed", &chosen), "off by default");
         s.categories[0].remember_folder = true;
         assert!(s.remember_folder("compressed", &chosen));
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn each_category_has_a_folder() {
         let mut s = Settings::default();
-        let base = std::env::temp_dir().join("pullbay-base");
+        let base = std::env::temp_dir().join("udm-base");
         s.download_dir = Some(base.display().to_string());
         s.categories[1].folder = Some("D:\\Docs".into());
         assert_eq!(s.category_folder("Music", &default_downloads_dir()), base.join("Music"));
@@ -526,9 +526,9 @@ mod tests {
     #[test]
     fn general_can_remember_its_folder_too() {
         let mut s = Settings::default();
-        let base = std::env::temp_dir().join("pullbay-base");
+        let base = std::env::temp_dir().join("udm-base");
         s.download_dir = Some(base.display().to_string());
-        let chosen = std::env::temp_dir().join("pullbay-general");
+        let chosen = std::env::temp_dir().join("udm-general");
         assert!(!s.remember_folder(GENERAL, &chosen), "off by default");
         assert!(s.set_remember_folder(GENERAL, true));
         assert!(s.remembers_folder(GENERAL));
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn one_context_menu_list_becomes_one_per_browser_family() {
-        let path = std::env::temp_dir().join(format!("pullbay-menu-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("udm-menu-{}.json", std::process::id()));
         fs::write(&path, br#"{"browser_menu_hidden":["all_links","last_video"]}"#).unwrap();
         let s = load(&path).unwrap();
         assert_eq!(s.browser_menu_hidden_chromium, ["all_links", "last_video"]);

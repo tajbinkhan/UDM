@@ -1,12 +1,12 @@
 use std::path::Path;
 
-use pullbay_domain::download::{Answer, Download, DownloadError, DuplicateStep};
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::{
+use udm_domain::download::{Answer, Download, DownloadError, DuplicateStep};
+use udm_domain::id::DownloadId;
+use udm_domain::ports::{
     Attention, DownloadControl, DownloadFiles, DownloadList, EarlyStarts, QueueStore, SettingsError, SettingsStore,
 };
-use pullbay_domain::queue::{self, MAIN_QUEUE};
-use pullbay_domain::settings::Duplicate;
+use udm_domain::queue::{self, MAIN_QUEUE};
+use udm_domain::settings::Duplicate;
 
 use super::{Existing, RemoveDownload, StartOrWait, StartOrWaitError, UseExisting};
 
@@ -199,8 +199,8 @@ where
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Early, Files, Prefs, Queues, Shown};
-    use pullbay_domain::download::{DownloadEntry, Status};
-    use pullbay_domain::settings::{FileExists, Settings};
+    use udm_domain::download::{DownloadEntry, Status};
+    use udm_domain::settings::{FileExists, Settings};
 
     struct World {
         queues: Queues,

@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
-use pullbay_domain::ports::{FileHashes, ToolFolder, ToolReleases};
-use pullbay_domain::tools::{self, Platform, Tool, ToolError};
+use udm_domain::ports::{FileHashes, ToolFolder, ToolReleases};
+use udm_domain::tools::{self, Platform, Tool, ToolError};
 
 use super::InstallTool;
 
 /// "Keep yt-dlp up to date": once a day, when the user turned it on and
-/// Pullbay installed yt-dlp, install a newer release the same checked way
-/// the Install button does. A yt-dlp Pullbay did not install is left to
+/// UDM installed yt-dlp, install a newer release the same checked way
+/// the Install button does. A yt-dlp UDM did not install is left to
 /// whatever installed it.
 pub struct UpdateYtDlp<'a, R: ?Sized, F: ?Sized, H: ?Sized> {
     install: InstallTool<'a, R, F, H>,
@@ -44,7 +44,7 @@ where
 mod tests {
     use super::*;
     use crate::memory::{Hashes, ToolShelf, ToolSite};
-    use pullbay_domain::tools::{Cpu, InstalledTool, System, UPDATE_EVERY_SECS};
+    use udm_domain::tools::{Cpu, InstalledTool, System, UPDATE_EVERY_SECS};
 
     const LINUX: Platform = Platform { system: System::Linux, cpu: Cpu::X86_64 };
 
@@ -70,7 +70,7 @@ mod tests {
     }
 
     #[test]
-    fn nothing_happens_when_off_newest_or_not_pullbays() {
+    fn nothing_happens_when_off_newest_or_not_udms() {
         let hashes = Hashes::with("/dl/yt-dlp_linux", vec![0xab; 32]);
         let site = site("1");
         let shelf = ToolShelf::with(Tool::YtDlp, InstalledTool { version: "1".into(), checked: 0 });

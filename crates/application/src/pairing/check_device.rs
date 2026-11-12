@@ -1,9 +1,9 @@
 use std::net::IpAddr;
 
-use pullbay_domain::id::DeviceId;
-use pullbay_domain::pairing::{PairingError, Pairings};
-use pullbay_domain::ports::{PairedDevices, PairingKeys};
 use tracing::warn;
+use udm_domain::id::DeviceId;
+use udm_domain::pairing::{PairingError, Pairings};
+use udm_domain::ports::{PairedDevices, PairingKeys};
 
 /// Recognize a paired device by the credential it sent: every request of
 /// the remote-control page but pairing.

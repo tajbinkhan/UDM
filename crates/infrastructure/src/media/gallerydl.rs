@@ -1,13 +1,13 @@
 //! Image galleries read by gallery-dl. gallery-dl knows hundreds of
 //! picture sites (Wikimedia Commons, Flickr, DeviantArt, ...); here it only
-//! lists a page's files, and Pullbay's own engine downloads the ones the
+//! lists a page's files, and UDM's own engine downloads the ones the
 //! user ticks.
 //!
 //! The page is read with `gallery-dl --config-ignore --no-input
 //! --resolve-json -o output.jsonl=true --range 1-1000 -- URL`:
 //! `--resolve-json` (`-J`) prints what it finds as JSON, following an
 //! album's or a user page's links to their pictures, and `output.jsonl`
-//! prints one message per line as it goes, so Pullbay can stop it at
+//! prints one message per line as it goes, so UDM can stop it at
 //! `MAX_PICTURES` or at its timeout and keep what came. Each message is an
 //! array: `[2, {...}]` opens a directory (a post or an album, with its
 //! metadata), `[3, "url", {...}]` is a file with its `filename`,
@@ -21,8 +21,8 @@
 //! as yt-dlp's is not, so its answer is the same for everyone; no cookies
 //! are handed to it.
 //!
-//! gallery-dl is found in Pullbay's tools folder (Options > General
-//! installs it there), on `PATH`, or next to Pullbay's programs.
+//! gallery-dl is found in UDM's tools folder (Options > General
+//! installs it there), on `PATH`, or next to UDM's programs.
 
 use std::io::{BufRead as _, BufReader, Read as _};
 use std::path::{Path, PathBuf};
@@ -33,8 +33,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use pullbay_domain::gallery::{Gallery, GalleryError, Picture, MAX_PICTURES};
-use pullbay_domain::sync::LockExt;
+use udm_domain::gallery::{Gallery, GalleryError, Picture, MAX_PICTURES};
+use udm_domain::sync::LockExt;
 
 /// How long reading a page may take before it is given up.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(55);
@@ -46,8 +46,8 @@ const MAX_ANSWER: usize = 64 * 1024 * 1024;
 /// The end of its complaints kept, in bytes.
 const MAX_STDERR: usize = 64 * 1024;
 
-/// gallery-dl: the one Pullbay installed, else the first on `PATH`, else
-/// next to Pullbay's programs.
+/// gallery-dl: the one UDM installed, else the first on `PATH`, else
+/// next to UDM's programs.
 pub fn find() -> Option<PathBuf> {
     let name = crate::platform::exe_name("gallery-dl");
     let own = crate::paths::tools_dir();
@@ -384,7 +384,7 @@ mod tests {
     #[cfg(unix)]
     fn fake(name: &str, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt as _;
-        let dir = std::env::temp_dir().join(format!("pullbay_fake_gallerydl_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_fake_gallerydl_{}_{name}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("gallery-dl");
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();

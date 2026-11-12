@@ -1,11 +1,11 @@
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pullbay_domain::id::DeviceId;
-use pullbay_domain::pairing::{Credential, DeviceInfo, PairingError, Pairings, PendingPairing};
-use pullbay_domain::ports::{PairedDevices, PairingKeys, Timestamps};
-use pullbay_domain::sync::LockExt;
 use tracing::{debug, info, warn};
+use udm_domain::id::DeviceId;
+use udm_domain::pairing::{Credential, DeviceInfo, PairingError, Pairings, PendingPairing};
+use udm_domain::ports::{PairedDevices, PairingKeys, Timestamps};
+use udm_domain::sync::LockExt;
 
 use super::{CheckDevice, PairDevice, RemoveDevice, StartPairing};
 

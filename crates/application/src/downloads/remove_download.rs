@@ -1,7 +1,7 @@
-use pullbay_domain::download::DownloadError;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::{DownloadControl, DownloadFiles, DownloadList, QueueStore};
-use pullbay_domain::queue;
+use udm_domain::download::DownloadError;
+use udm_domain::id::DownloadId;
+use udm_domain::ports::{DownloadControl, DownloadFiles, DownloadList, QueueStore};
+use udm_domain::queue;
 
 /// Forget a download that is no longer running. Its files stay on disk
 /// unless asked, when they go to the Recycle Bin.
@@ -39,10 +39,10 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl, F: DownloadFiles> R
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Files, Queues};
-    use pullbay_domain::download::Status;
-    use pullbay_domain::queue::MAIN_QUEUE;
+    use udm_domain::download::Status;
+    use udm_domain::queue::MAIN_QUEUE;
 
-    fn saved(id: u64, status: Status, connections: usize) -> pullbay_domain::download::DownloadEntry {
+    fn saved(id: u64, status: Status, connections: usize) -> udm_domain::download::DownloadEntry {
         let mut e = row(id, status);
         e.connections = connections;
         e.path = Some(format!("/dl/{id}.zip"));

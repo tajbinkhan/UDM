@@ -5,7 +5,7 @@
 // its frames' addresses, addresses in its inline scripts and in images'
 // onclick handlers, the text selected in a text box, the images inside a
 // selection, and the links of frames made from nothing (about:blank or
-// srcdoc), which the browser runs no script of Pullbay's in.
+// srcdoc), which the browser runs no script of UDM's in.
 //
 // The worker injects this file into each frame before asking it for its
 // links, and content.js loads it too, so it may run twice in one frame: it
@@ -22,8 +22,8 @@ var LINKS_MAX = 5000;
 var LINKS_FRAME_DEPTH = 3;
 // File types a quoted relative path in a script or handler must have to be
 // taken for a link (everything else there is mostly junk: routes, CSS
-// classes, template strings), besides Pullbay's captured types. These are the
-// defaults of Pullbay's categories.
+// classes, template strings), besides UDM's captured types. These are the
+// defaults of UDM's categories.
 var LINKS_FILE_TYPES = [
   "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "odt",
   "mp3", "flac", "wav", "m4a", "aac", "ogg", "exe", "msi", "apk", "msix", "mp4", "mkv", "avi", "mov", "webm", "wmv",
@@ -131,8 +131,8 @@ function dedupeLinks(links, max = LINKS_MAX) {
 // `selection`, only what the selection holds: the links, frames, scripts and
 // images it touches, the addresses in its text, or in the text selected in
 // a text box. `types` are file types a relative path in a script may have
-// (Pullbay's captured types). Frames made from nothing are walked into, as
-// they are part of the page and no script of Pullbay's runs in them.
+// (UDM's captured types). Frames made from nothing are walked into, as
+// they are part of the page and no script of UDM's runs in them.
 function collectPageLinks(doc, { selection = false, types = [], max = LINKS_MAX, depth = 0 } = {}) {
   const out = [];
   if (!doc) return out;

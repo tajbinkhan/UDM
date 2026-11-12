@@ -15,8 +15,8 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-use pullbay_application::window::ScriptFont;
-use pullbay_domain::sync::RwLockExt;
+use udm_application::window::ScriptFont;
+use udm_domain::sync::RwLockExt;
 
 pub struct Language {
     /// A BCP 47 tag: the ISO 639-1 code, as Windows names its display
@@ -158,7 +158,7 @@ fn table(index: usize) -> &'static Table {
 }
 
 /// The language Options names, or for an empty setting the first Windows
-/// display language Pullbay has, else English.
+/// display language UDM has, else English.
 pub fn resolve(setting: &str) -> &'static Language {
     let wanted = if setting.is_empty() { crate::win::display_languages() } else { vec![setting.to_string()] };
     wanted.iter().find_map(|tag| matching(tag)).unwrap_or(&LANGUAGES[0])

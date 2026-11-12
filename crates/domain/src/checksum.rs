@@ -73,7 +73,7 @@ impl fmt::Display for Algorithm {
 pub enum ChecksumError {
     #[error("the checksum is empty")]
     Empty,
-    #[error("{0} is not a checksum algorithm Pullbay knows")]
+    #[error("{0} is not a checksum algorithm UDM knows")]
     UnknownAlgorithm(String),
     #[error("the checksum has characters that are not hexadecimal digits")]
     NotHex,

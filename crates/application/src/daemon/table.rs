@@ -1,7 +1,7 @@
 //! Applying the daemon's events to the download list
-//! (`pullbay_domain::table`).
+//! (`udm_domain::table`).
 
-use pullbay_domain::table::{Change, DownloadTable};
+use udm_domain::table::{Change, DownloadTable};
 
 use super::Event;
 
@@ -46,7 +46,7 @@ pub fn apply(table: &mut DownloadTable, event: &Event, now: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::id::DownloadId;
+    use udm_domain::id::DownloadId;
 
     #[test]
     fn download_events_change_the_list_and_others_do_not() {

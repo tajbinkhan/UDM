@@ -4,9 +4,10 @@
 //! Three formats:
 //!
 //! - text: one URL per line;
-//! - JSON: `{"pullbay_list": 1, "items": [...]}`, each item with its URL, file
-//!   name, folder, size, status, referrer and description;
-//! - IDM export files (`.ef2`), for moving between IDM and Pullbay: each
+//! - JSON: `{"udm_list": 1, "items": [...]}`, each item with its URL, file
+//!   name, folder, size, status, referrer and description. Lists that
+//!   Pullbay (`pullbay_list`) and UIDM (`uidm_list`) exported import too;
+//! - IDM export files (`.ef2`), for moving between IDM and UDM: each
 //!   download between a `<` line and a `>` line, its URL first, then
 //!   `referer:`, `cookie:`, `pd:` (a form's POST body) and `User-Agent:`
 //!   lines where IDM had them.
@@ -15,21 +16,23 @@
 //! from the list entries, which have none. An imported IDM file can bring
 //! its cookies, user agent, form body and a login with its downloads.
 
-use pullbay_domain::bytes::ByteCount;
 use std::path::Path;
+use udm_domain::bytes::ByteCount;
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
-use pullbay_domain::batch;
-use pullbay_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
+use udm_domain::batch;
+use udm_domain::download::{Download, DownloadEntry, DownloadLogin, Status};
 
 /// The version written in a JSON export.
 pub const FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListFile {
-    pub pullbay_list: u32,
+    /// The format's version. The key had UDM's earlier names before.
+    #[serde(alias = "pullbay_list", alias = "uidm_list")]
+    pub udm_list: u32,
     pub items: Vec<ListItem>,
 }
 
@@ -74,8 +77,7 @@ pub fn export_text(entries: &[&DownloadEntry]) -> String {
 
 /// `entries` as a JSON list.
 pub fn export_json(entries: &[&DownloadEntry]) -> String {
-    let list =
-        ListFile { pullbay_list: FORMAT_VERSION, items: entries.iter().map(|e| ListItem::from_entry(e)).collect() };
+    let list = ListFile { udm_list: FORMAT_VERSION, items: entries.iter().map(|e| ListItem::from_entry(e)).collect() };
     serde_json::to_string_pretty(&list).unwrap_or_default()
 }
 
@@ -185,10 +187,10 @@ pub fn decode(bytes: &[u8]) -> String {
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
     #[error(transparent)]
-    Batch(#[from] pullbay_domain::batch::BatchError),
-    #[error("This is not a Pullbay list: {0}")]
+    Batch(#[from] udm_domain::batch::BatchError),
+    #[error("This is not a UDM list: {0}")]
     NotList(#[source] serde_json::Error),
-    #[error("This list was written by a newer Pullbay.")]
+    #[error("This list was written by a newer UDM.")]
     Newer,
     #[error("The list has {0} downloads; at most {max} can be added at once.", max = batch::MAX_BATCH)]
     TooMany(usize),
@@ -212,7 +214,7 @@ pub fn import(text: &str) -> Result<(Vec<Download>, usize), ImportError> {
         return Ok((items, rejected));
     }
     let list: ListFile = serde_json::from_str(trimmed).map_err(ImportError::NotList)?;
-    if list.pullbay_list > FORMAT_VERSION {
+    if list.udm_list > FORMAT_VERSION {
         return Err(ImportError::Newer);
     }
     keep_valid(
@@ -280,22 +282,22 @@ fn safe_folder(folder: &Path) -> bool {
 /// The `ListFiles` adapter: the formats above.
 pub struct ListFormats;
 
-impl pullbay_application::window::ListFiles for ListFormats {
-    fn read(&self, path: &std::path::Path) -> Result<String, pullbay_application::window::ListError> {
-        std::fs::read(path).map(|b| decode(&b)).map_err(|e| pullbay_application::window::ListError(e.to_string()))
+impl udm_application::window::ListFiles for ListFormats {
+    fn read(&self, path: &std::path::Path) -> Result<String, udm_application::window::ListError> {
+        std::fs::read(path).map(|b| decode(&b)).map_err(|e| udm_application::window::ListError(e.to_string()))
     }
 
-    fn write(&self, path: &std::path::Path, text: &str) -> Result<(), pullbay_application::window::ListError> {
+    fn write(&self, path: &std::path::Path, text: &str) -> Result<(), udm_application::window::ListError> {
         crate::settings::write_atomic(path, text.as_bytes())
-            .map_err(|e| pullbay_application::window::ListError(e.to_string()))
+            .map_err(|e| udm_application::window::ListError(e.to_string()))
     }
 
-    fn import(&self, text: &str) -> Result<(Vec<Download>, usize), pullbay_application::window::ListError> {
-        import(text).map_err(|e| pullbay_application::window::ListError(e.to_string()))
+    fn import(&self, text: &str) -> Result<(Vec<Download>, usize), udm_application::window::ListError> {
+        import(text).map_err(|e| udm_application::window::ListError(e.to_string()))
     }
 
-    fn export(&self, format: pullbay_application::window::ListFormat, entries: &[&DownloadEntry]) -> String {
-        use pullbay_application::window::ListFormat;
+    fn export(&self, format: udm_application::window::ListFormat, entries: &[&DownloadEntry]) -> String {
+        use udm_application::window::ListFormat;
         match format {
             ListFormat::Json => export_json(entries),
             ListFormat::Text => export_text(entries),
@@ -307,12 +309,12 @@ impl pullbay_application::window::ListFiles for ListFormats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::id::DownloadId;
+    use udm_domain::id::DownloadId;
 
     #[test]
     fn a_written_list_reads_back() {
-        use pullbay_application::window::ListFiles;
-        let dir = std::env::temp_dir().join(format!("pullbay_listfile_{}", std::process::id()));
+        use udm_application::window::ListFiles;
+        let dir = std::env::temp_dir().join(format!("udm_listfile_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("list.txt");
         let text = "http://127.0.0.1/a.zip
@@ -374,7 +376,7 @@ http://127.0.0.1/b.zip
         let a = entry(1, "https://x/a.zip", Some(DL_A_ZIP), Status::Done);
         let b = entry(2, "https://x/b.iso?sig=1", None, Status::Failed);
         let json = export_json(&[&a, &b]);
-        assert!(json.contains("\"pullbay_list\": 1"));
+        assert!(json.contains("\"udm_list\": 1"));
         let (items, rejected) = import(&json).unwrap();
         assert_eq!(rejected, 0);
         assert_eq!(items.len(), 2);
@@ -426,7 +428,7 @@ http://127.0.0.1/b.zip
 
     #[test]
     fn imports_check_what_they_take() {
-        let json = r#"{"pullbay_list":1,"items":[
+        let json = r#"{"udm_list":1,"items":[
             {"url":"https://x/a.zip","folder":"relative\\dir","cookies":"secret"},
             {"url":"javascript:alert(1)"},
             {"url":"https://x/a.zip"},
@@ -439,7 +441,16 @@ http://127.0.0.1/b.zip
         assert_eq!(items[0].cookies, None);
         assert_eq!(items[1].filename, None);
         assert!(import("{not json").is_err());
-        assert!(import(r#"{"pullbay_list":9,"items":[]}"#).is_err());
+        assert!(import(r#"{"udm_list":9,"items":[]}"#).is_err());
+    }
+
+    #[test]
+    fn lists_the_old_names_exported_import() {
+        for key in ["pullbay_list", "uidm_list"] {
+            let json = format!(r#"{{"{key}":1,"items":[{{"url":"https://x/a.zip"}}]}}"#);
+            let (items, _) = import(&json).unwrap();
+            assert_eq!(items.len(), 1, "{key}");
+        }
     }
 
     /// An export file as IDM 6.43 writes one, with a login some files carry.

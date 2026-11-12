@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::checksum::Algorithm;
-use pullbay_domain::ports::{FileHashes, ToolFolder, ToolReleases};
-use pullbay_domain::tools::{self, Platform, Tool, ToolError, MAX_TOOL_BYTES};
+use udm_domain::bytes::ByteCount;
+use udm_domain::checksum::Algorithm;
+use udm_domain::ports::{FileHashes, ToolFolder, ToolReleases};
+use udm_domain::tools::{self, Platform, Tool, ToolError, MAX_TOOL_BYTES};
 
 /// Install button: download `tool`'s official build for this platform from
 /// its project's latest release (on GitHub, or Codeberg for gallery-dl),
 /// check it against the SHA-256 the release's checksum file lists (and the
 /// forge's own, when it lists one), and
-/// only then put it in Pullbay's tools folder and let it run. A file that
+/// only then put it in UDM's tools folder and let it run. A file that
 /// does not match is deleted.
 pub struct InstallTool<'a, R: ?Sized, F: ?Sized, H: ?Sized> {
     releases: &'a R,
@@ -72,7 +72,7 @@ where
 mod tests {
     use super::*;
     use crate::memory::{Hashes, ToolShelf, ToolSite};
-    use pullbay_domain::tools::{Cpu, System};
+    use udm_domain::tools::{Cpu, System};
 
     const LINUX: Platform = Platform { system: System::Linux, cpu: Cpu::X86_64 };
     const MAC: Platform = Platform { system: System::MacOs, cpu: Cpu::Aarch64 };

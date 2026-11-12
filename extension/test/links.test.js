@@ -85,7 +85,7 @@ test("addresses in an inline script: absolute ones, and relative files of a know
     "https://mirror.org/movie.mkv",
     "https://site.net/app/custom.abc",
   ]);
-  assert.deepEqual(linksFromScriptText("x = 'custom.abc'", "https://site.net/"), [], "a type Pullbay does not capture is junk");
+  assert.deepEqual(linksFromScriptText("x = 'custom.abc'", "https://site.net/"), [], "a type UDM does not capture is junk");
 });
 
 test("an image's onclick handler gives its picture", () => {

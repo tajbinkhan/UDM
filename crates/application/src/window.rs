@@ -5,11 +5,11 @@
 
 use std::path::{Path, PathBuf};
 
-use pullbay_domain::download::{Download, DownloadEntry};
-use pullbay_domain::grab::{Filter, GrabRequest, Project, Template};
-use pullbay_domain::ports::{FilesError, SettingsError};
-use pullbay_domain::settings::{Settings, Sound};
-use pullbay_domain::theme::{CustomTheme, InvalidTheme, SystemContrast};
+use udm_domain::download::{Download, DownloadEntry};
+use udm_domain::grab::{Filter, GrabRequest, Project, Template};
+use udm_domain::ports::{FilesError, SettingsError};
+use udm_domain::settings::{Settings, Sound};
+use udm_domain::theme::{CustomTheme, InvalidTheme, SystemContrast};
 
 /// The window's own files, such as its layout: small, rewritten whole, and
 /// kept per user.
@@ -268,8 +268,8 @@ pub enum ThemeFileError {
     NameTaken(String),
 }
 
-/// A browser Pullbay can register with: its name, and the place it looks for
-/// programs like Pullbay, which some browsers share.
+/// A browser UDM can register with: its name, and the place it looks for
+/// programs like UDM, which some browsers share.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserSlot {
     pub name: String,
@@ -284,7 +284,7 @@ impl BrowserSlot {
     }
 }
 
-/// The browser a program is, as far as Pullbay can tell.
+/// The browser a program is, as far as UDM can tell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentifiedBrowser {
     /// The browser whose registration it reads.
@@ -293,20 +293,20 @@ pub struct IdentifiedBrowser {
     pub known: bool,
 }
 
-/// Registering Pullbay with the browsers, for Options.
+/// Registering UDM with the browsers, for Options.
 pub trait BrowserRegistry: Send + Sync {
-    /// The browsers Pullbay knows that are installed for this user or
+    /// The browsers UDM knows that are installed for this user or
     /// registered, each with whether it is registered.
     fn known(&self) -> Vec<(BrowserSlot, bool)>;
 
-    /// The browser the program at `program` is, or `None` when Pullbay cannot
+    /// The browser the program at `program` is, or `None` when UDM cannot
     /// tell.
     fn identify(&self, program: &Path) -> Option<IdentifiedBrowser>;
 
-    /// Whether Pullbay is registered with `browser`.
+    /// Whether UDM is registered with `browser`.
     fn registered(&self, browser: &BrowserSlot) -> bool;
 
-    /// Register Pullbay with `browser`, or with `on` false take it out.
+    /// Register UDM with `browser`, or with `on` false take it out.
     fn set_registered(&self, browser: &BrowserSlot, on: bool) -> Result<(), FilesError>;
 
     /// A name for the browser at `program`, from its file name.
@@ -315,7 +315,7 @@ pub trait BrowserRegistry: Send + Sync {
     /// The installed browsers that read Google Chrome's registration.
     fn chrome_readers(&self) -> Vec<String>;
 
-    /// Whether `browser` can be restarted: one Pullbay knows the program of,
+    /// Whether `browser` can be restarted: one UDM knows the program of,
     /// or an added one, whose `program` is given.
     fn can_restart(&self, browser: &BrowserSlot, program: Option<&Path>) -> bool;
 

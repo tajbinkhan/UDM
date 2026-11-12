@@ -392,7 +392,7 @@ pub fn links_in(text: &str) -> Vec<Address> {
     urls
 }
 
-/// Whether `s` starts like an address Pullbay can download: http, https,
+/// Whether `s` starts like an address UDM can download: http, https,
 /// ftp or ftps.
 pub fn is_download_url(s: &str) -> bool {
     is_web_url(s) || is_ftp_url(s)

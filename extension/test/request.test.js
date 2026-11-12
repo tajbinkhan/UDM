@@ -182,7 +182,7 @@ test("the bubble comes back when every download held for is decided, or after a 
 
 function connected(options) {
   const w = loadWorker(options);
-  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "udm-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: { capture_types: ["zip"], capture_min_size_kb: 0, capture_excluded_sites: [] } });
   return w;
 }
@@ -198,7 +198,7 @@ function browse(w, { id = "r1", url, from, tabId = 3, type = "main_frame", heade
 
 const lastAdd = (w) => w.sent.filter((m) => m.op === "add").at(-1);
 
-test("Chrome: the whole request goes to Pullbay and the bubble stays hidden", async () => {
+test("Chrome: the whole request goes to UDM and the bubble stays hidden", async () => {
   const w = connected();
   browse(w, {
     url: "https://cdn.net/a.zip",
@@ -239,7 +239,7 @@ test("Chrome: a download left in the browser shows its bubble again", async () =
   same(w.chrome.downloads.ui, [false, true]);
 });
 
-test("a tab opened only for a download Pullbay took is closed", async () => {
+test("a tab opened only for a download UDM took is closed", async () => {
   const w = connected();
   await w.chrome.tabs.onCreated.fire({ id: 9, openerTabId: 1, url: "", pendingUrl: "https://cdn.net/a.zip" });
   w.chrome.tabs.known.set(9, { id: 9, url: "", pendingUrl: "https://cdn.net/a.zip" });
@@ -266,13 +266,13 @@ test("a link in an about:blank frame has the frame above it as referrer", async 
     { frameId: 5, parentFrameId: 3, url: "about:blank" },
   ]);
   await w.chrome.contextMenus.onClicked.fire(
-    { menuItemId: "pullbay-link", linkUrl: "https://cdn.net/a.zip", pageUrl: "https://site.net/page", frameUrl: "about:blank", frameId: 5 },
+    { menuItemId: "udm-link", linkUrl: "https://cdn.net/a.zip", pageUrl: "https://site.net/page", frameUrl: "about:blank", frameId: 5 },
     { id: 1, incognito: false },
   );
   same([lastAdd(w).referrer, lastAdd(w).page], ["https://embed.net/f", "https://site.net/page"]);
   // Without the frames, the page.
   await w.chrome.contextMenus.onClicked.fire(
-    { menuItemId: "pullbay-link", linkUrl: "https://cdn.net/b.zip", pageUrl: "https://site.net/page", frameUrl: "about:srcdoc", frameId: 8 },
+    { menuItemId: "udm-link", linkUrl: "https://cdn.net/b.zip", pageUrl: "https://site.net/page", frameUrl: "about:srcdoc", frameId: 8 },
     { id: 2, incognito: false },
   );
   assert.equal(lastAdd(w).referrer, "https://site.net/page");

@@ -3,7 +3,7 @@
 //! AES-128 segments, join each track into one file (for HDS, an FLV of the
 //! fragments' tags), and make one video with ffmpeg when it is there.
 //!
-//! Segments are saved one file each in a `<file>.pullbayparts` folder next to
+//! Segments are saved one file each in a `<file>.udmparts` folder next to
 //! the output (or in the temporary folder, when one is set), first as `.tmp` and renamed once complete, so a canceled or
 //! failed download resumes segment by segment: complete ones are not fetched
 //! again. The folder goes once the video is made.
@@ -12,9 +12,6 @@
 //! fragmented MP4 segments), an HDS stream as its `.flv`, and a stream with
 //! separate audio is saved as two files, with a note saying so.
 
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::sync::LockExt;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -25,11 +22,14 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use udm_domain::bytes::ByteCount;
+use udm_domain::id::DownloadId;
+use udm_domain::sync::LockExt;
 
 use url::Url;
 
 use super::limit::Throttle;
-use pullbay_domain::filename::{numbered_name, sanitize_filename};
+use udm_domain::filename::{numbered_name, sanitize_filename};
 
 use super::{
     backoff, choose_output, fetch_with, http, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved,
@@ -37,7 +37,7 @@ use super::{
 };
 use crate::media::{dash, hds, hls};
 use crate::net::NetConfig;
-use pullbay_domain::media::{
+use udm_domain::media::{
     sniff, MediaChoice, MediaFile, MediaInfo, MediaKind, MediaOption, Segment, Subtitle, Track, DRM_REFUSED,
 };
 
@@ -46,15 +46,18 @@ const MAX_PLAYLIST_BYTES: u64 = 16 * 1024 * 1024;
 /// Report progress at most this often.
 const REPORT_INTERVAL: Duration = Duration::from_millis(250);
 
-/// The folder a stream's segments wait in while it downloads. One UIDM
-/// left (`<output>.uidmparts`) is renamed to it first, so it resumes.
+/// The folder a stream's segments wait in while it downloads. One Pullbay
+/// or UIDM left (`<output>.pullbayparts`, `<output>.uidmparts`) is renamed
+/// to it first, so it resumes.
 pub(super) fn parts_dir(output: &Path) -> PathBuf {
-    let dir = super::resume::beside(output, ".pullbayparts");
-    super::resume::adopt(&super::resume::beside(output, ".uidmparts"), &dir);
+    let dir = super::resume::beside(output, ".udmparts");
+    for old in [".pullbayparts", ".uidmparts"] {
+        super::resume::adopt(&super::resume::beside(output, old), &dir);
+    }
     dir
 }
 
-/// Pullbay will not download this stream, for the reason `why`, which the
+/// UDM will not download this stream, for the reason `why`, which the
 /// user sees.
 fn refused(why: impl std::fmt::Display) -> EngineError {
     EngineError::Refused(why.to_string())
@@ -192,7 +195,7 @@ fn read_playlist(
     let mut body = Vec::new();
     (&mut reader).take(SNIFF_BYTES).read_to_end(&mut body)?;
     if sniff(&String::from_utf8_lossy(&body)).is_none() {
-        if let Some(ext) = pullbay_domain::media::sniff_file(&body) {
+        if let Some(ext) = udm_domain::media::sniff_file(&body) {
             return Ok(Err(MediaInfo {
                 file: Some(MediaFile { ext: ext.into(), size: size.map(ByteCount::new) }),
                 ..MediaInfo::default()
@@ -269,7 +272,7 @@ pub(super) fn stem(req: &DownloadRequest) -> String {
         .filename
         .as_deref()
         .and_then(sanitize_filename)
-        .unwrap_or_else(|| pullbay_domain::filename::name_from_url(&req.url))
+        .unwrap_or_else(|| udm_domain::filename::name_from_url(&req.url))
         .into_string();
     let stem = Path::new(&name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or(name);
     if stem.is_empty() {
@@ -326,7 +329,7 @@ pub(super) fn run(
     let beside = parts_dir(&output);
     let parts = match (&req.reuse_partial, &req.temp_dir) {
         (Some(p), _) if p.is_dir() => p.clone(),
-        (_, Some(dir)) => super::temp_name(dir, &output, ".pullbayparts"),
+        (_, Some(dir)) => super::temp_name(dir, &output, ".udmparts"),
         _ => beside.clone(),
     };
     fs::create_dir_all(&parts)?;
@@ -419,14 +422,14 @@ fn join_subtitle(jobs: &[Job], joined: &Path) -> Result<bool, EngineError> {
         }
         parts.push(text);
     }
-    fs::write(joined, pullbay_domain::media::join_webvtt(&parts))?;
+    fs::write(joined, udm_domain::media::join_webvtt(&parts))?;
     Ok(true)
 }
 
 /// Where a subtitle track goes beside a video saved without ffmpeg:
 /// `<stem>.<language>.vtt`, or a number when it has no language.
 fn subtitle_name(stem: &str, sub: &Joined, n: usize) -> String {
-    let tag = sub.language.and_then(pullbay_domain::media::language_code).unwrap_or_else(|| (n + 1).to_string());
+    let tag = sub.language.and_then(udm_domain::media::language_code).unwrap_or_else(|| (n + 1).to_string());
     format!("{stem}.{tag}.vtt")
 }
 
@@ -464,7 +467,7 @@ fn finish(
             let webm = output.extension().is_some_and(|e| e == "webm");
             cmd.args(["-c:s", if webm { "webvtt" } else { "mov_text" }]);
             for (i, sub) in subs.iter().enumerate() {
-                let lang = if webm { pullbay_domain::media::language_code } else { pullbay_domain::media::iso639_2 };
+                let lang = if webm { udm_domain::media::language_code } else { udm_domain::media::iso639_2 };
                 if let Some(lang) = sub.language.and_then(lang) {
                     cmd.arg(format!("-metadata:s:s:{i}")).arg(format!("language={lang}"));
                 }
@@ -760,13 +763,13 @@ mod tests {
 
     #[test]
     fn parts_folder_sits_next_to_the_output() {
-        assert_eq!(parts_dir(Path::new(r"C:\dl\movie.mp4")), PathBuf::from(r"C:\dl\movie.mp4.pullbayparts"));
+        assert_eq!(parts_dir(Path::new(r"C:\dl\movie.mp4")), PathBuf::from(r"C:\dl\movie.mp4.udmparts"));
     }
 
     #[test]
     fn credentials_stay_on_the_added_origin() {
         let headers = vec![
-            ("User-Agent".to_string(), "Pullbay".to_string()),
+            ("User-Agent".to_string(), "UDM".to_string()),
             ("Cookie".to_string(), "session=1".to_string()),
             ("authorization".to_string(), "Bearer t".to_string()),
         ];
@@ -792,12 +795,12 @@ mod tests {
         use super::super::super::{Engine, Progress};
         use super::*;
         use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
-        use pullbay_domain::media::MediaKind;
-        use pullbay_domain::settings::{FileExists, Folders};
         use std::sync::mpsc;
+        use udm_domain::media::MediaKind;
+        use udm_domain::settings::{FileExists, Folders};
 
         fn temp_dir(name: &str) -> PathBuf {
-            let dir = std::env::temp_dir().join(format!("pullbay_stream_{}_{name}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("udm_stream_{}_{name}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
             dir
@@ -930,7 +933,7 @@ mod tests {
                 kind: Some(MediaKind::Hls),
                 video: None,
                 audio: None,
-                audio_only: Some(pullbay_domain::media::Target::Mp3),
+                audio_only: Some(udm_domain::media::Target::Mp3),
                 subtitles: None,
                 max_height: None,
             };
@@ -1219,7 +1222,7 @@ mod tests {
             assert_eq!(path, dir.join("Movie night.flv"));
             let saved = fs::read(&path).unwrap();
             assert_eq!(saved, flv, "the FLV header, the metadata, then each fragment's tags");
-            assert_eq!(pullbay_domain::media::sniff_file(&saved), Some("flv"));
+            assert_eq!(udm_domain::media::sniff_file(&saved), Some("flv"));
             assert!(note.unwrap().contains(".flv"));
             assert_eq!(parts.last(), Some(&[2, 2]));
             assert!(!parts_dir(&path).exists());

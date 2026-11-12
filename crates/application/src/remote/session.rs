@@ -1,10 +1,10 @@
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, TryRecvError};
 use std::time::Duration;
 
-use pullbay_domain::download::DownloadEntry;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::pairing::RemoteState;
-use pullbay_domain::queue::Queue;
+use udm_domain::download::DownloadEntry;
+use udm_domain::id::DownloadId;
+use udm_domain::pairing::RemoteState;
+use udm_domain::queue::Queue;
 
 use crate::daemon::{Command, DaemonClient, Event, Failure, Lost};
 
@@ -12,13 +12,13 @@ use crate::daemon::{Command, DaemonClient, Event, Failure, Lost};
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RemoteError {
     /// The daemon could not be reached or started, and why.
-    #[error("could not reach Pullbay's daemon: {0}")]
+    #[error("could not reach UDM's daemon: {0}")]
     Connect(String),
     /// The connection went before the answer came, and why.
-    #[error("lost the connection to Pullbay's daemon: {0}")]
+    #[error("lost the connection to UDM's daemon: {0}")]
     Lost(String),
     /// Nothing answered within this many seconds.
-    #[error("Pullbay's daemon did not answer within {0} seconds")]
+    #[error("UDM's daemon did not answer within {0} seconds")]
     NoAnswer(u64),
     /// The daemon refused the request.
     #[error(transparent)]
@@ -204,8 +204,8 @@ impl<'a, C: DaemonClient + ?Sized> Session<'a, C> {
 mod tests {
     use super::*;
     use crate::memory::FakeDaemon;
-    use pullbay_domain::download::Status;
-    use pullbay_domain::queue::MAIN_QUEUE;
+    use udm_domain::download::Status;
+    use udm_domain::queue::MAIN_QUEUE;
 
     const WAIT: Duration = Duration::from_secs(5);
 

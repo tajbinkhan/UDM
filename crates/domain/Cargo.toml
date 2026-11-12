@@ -1,6 +1,6 @@
 [package]
-name = "pullbay-domain"
-description = "Pullbay's entities, value objects, business rules and port traits"
+name = "udm-domain"
+description = "UDM's entities, value objects, business rules and port traits"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -3,23 +3,23 @@
 //! Framing: a 4-byte little-endian length, then that many bytes of UTF-8 JSON.
 //! This is the browser's standard and is transport-agnostic, so your own
 //! extension and host are free to use whatever JSON shapes you like. The types
-//! below are Pullbay's own contract, not a copy of any other product's protocol.
+//! below are UDM's own contract, not a copy of any other product's protocol.
 
 use std::io::{self, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
-use pullbay_domain::address::Link;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::grab::{GrabFile, GrabRequest};
-use pullbay_domain::id::{DeviceId, DownloadId, PackageId, QueueId};
-use pullbay_domain::media::MediaInfo;
-use pullbay_domain::package::{Package, PackageName};
-use pullbay_domain::pairing::RemoteState;
-use pullbay_domain::queue::{Queue, WhenDone};
-use pullbay_domain::settings::Settings;
+use udm_domain::address::Link;
+use udm_domain::bytes::ByteCount;
+use udm_domain::grab::{GrabFile, GrabRequest};
+use udm_domain::id::{DeviceId, DownloadId, PackageId, QueueId};
+use udm_domain::media::MediaInfo;
+use udm_domain::package::{Package, PackageName};
+use udm_domain::pairing::RemoteState;
+use udm_domain::queue::{Queue, WhenDone};
+use udm_domain::settings::Settings;
 
-use pullbay_domain::download::*;
+use udm_domain::download::*;
 
 /// The package an `add_many` keeps its downloads in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -211,7 +211,7 @@ pub enum Incoming {
     /// `playlist` listed them), for the window to pick from. No answer.
     PickVideos {
         page: String,
-        playlist: pullbay_domain::media::Playlist,
+        playlist: udm_domain::media::Playlist,
         #[serde(default)]
         user_agent: Option<String>,
     },
@@ -233,14 +233,14 @@ pub enum Incoming {
     /// Install the official build of `yt_dlp` or `ffmpeg`, checked against
     /// its published checksum; answered with `tools`.
     InstallTool {
-        tool: pullbay_domain::tools::Tool,
+        tool: udm_domain::tools::Tool,
     },
     /// Where yt-dlp and ffmpeg are; answered with `tools`.
     ListTools,
-    /// Look for a newer Pullbay release now; answered with `update`.
+    /// Look for a newer UDM release now; answered with `update`.
     CheckUpdate,
     /// Download the newest release's Setup, check it and run it, then
-    /// quit so it can replace Pullbay's files. Failures come back as
+    /// quit so it can replace UDM's files. Failures come back as
     /// `update_failed`.
     InstallUpdate,
     /// Convert a finished video with ffmpeg: to an MP4, or its sound to an
@@ -248,7 +248,7 @@ pub enum Incoming {
     /// progress; the original stays unless `delete_original`.
     Convert {
         id: DownloadId,
-        to: pullbay_domain::media::Target,
+        to: udm_domain::media::Target,
         #[serde(default)]
         delete_original: bool,
     },
@@ -308,7 +308,7 @@ pub enum Incoming {
     SetSettings {
         settings: Settings,
     },
-    /// What `pullbay-gui` was started with on the command line. With a window
+    /// What `udm-gui` was started with on the command line. With a window
     /// open it runs now; otherwise it waits for the window this process is
     /// about to open. Answered with `command_line`.
     CommandLine(CommandLine),
@@ -454,7 +454,7 @@ pub enum Outgoing {
         file: Option<String>,
     },
     CountdownCanceled,
-    /// A finished queue or download asked Pullbay to exit: windows close.
+    /// A finished queue or download asked UDM to exit: windows close.
     Quit,
     /// Which download waits for a new link from the browser, if any. Sent to
     /// every client when it changes, and after `downloads` in a `list` reply.
@@ -523,7 +523,7 @@ pub enum Outgoing {
     /// sent them.
     PickVideos {
         page: String,
-        playlist: pullbay_domain::media::Playlist,
+        playlist: udm_domain::media::Playlist,
         #[serde(default)]
         user_agent: Option<String>,
     },
@@ -538,7 +538,7 @@ pub enum Outgoing {
         request: u64,
         page: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        gallery: Option<pullbay_domain::gallery::Gallery>,
+        gallery: Option<udm_domain::gallery::Gallery>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
         /// The error's kind and values (see `wire`); `error` is its
@@ -549,9 +549,9 @@ pub enum Outgoing {
     /// Where yt-dlp and ffmpeg are. After `install_tool`, `done` names the
     /// tool, and `error` says why it was not installed, if it was not.
     Tools {
-        tools: Vec<pullbay_domain::tools::ToolState>,
+        tools: Vec<udm_domain::tools::ToolState>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        done: Option<pullbay_domain::tools::Tool>,
+        done: Option<udm_domain::tools::Tool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
         /// The error's kind and values (see `wire`), for clients that
@@ -596,7 +596,7 @@ pub enum Outgoing {
     /// that asked, and to every window when the weekly check finds one.
     Update {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        newer: Option<pullbay_domain::update::Release>,
+        newer: Option<udm_domain::update::Release>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
         /// The error's kind and values (see `wire`), for clients that
@@ -617,7 +617,7 @@ pub enum Outgoing {
     ZipPreview {
         id: DownloadId,
         #[serde(default)]
-        entries: Vec<pullbay_domain::download::ZipEntry>,
+        entries: Vec<udm_domain::download::ZipEntry>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
         /// The error's kind and values (see `wire`), for clients that
@@ -754,8 +754,8 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buf: &mut [u8]) -> io::Result<bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::settings::{Duplicate, FileExists};
     use std::io::Cursor;
+    use udm_domain::settings::{Duplicate, FileExists};
 
     #[test]
     fn a_browser_download_carries_its_whole_request() {
@@ -855,7 +855,7 @@ mod tests {
     /// that predate the id types read the same and are written back
     /// unchanged.
     /// Addresses and file names travel as plain strings, and a request
-    /// whose address Pullbay does not take still decodes, so the daemon can
+    /// whose address UDM does not take still decodes, so the daemon can
     /// refuse it by name (`rejected`) and the browser keep the download.
     #[test]
     fn addresses_and_names_keep_their_wire_shape() {

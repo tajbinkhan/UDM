@@ -6,8 +6,8 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use pullbay_domain::queue::Moment;
 use tracing::{info, warn};
+use udm_domain::queue::Moment;
 
 use crate::{logging, power};
 
@@ -103,23 +103,59 @@ pub fn spawn_awake_keeper(wanted: impl Fn() -> bool + Send + 'static) {
 /// `before_exit`, so a daemon started by the browser does not linger. The
 /// daemon passes its service's `may_exit`, which a server's daemon
 /// (`Seat::Server`) never says, so that one runs until it is stopped.
-pub fn spawn_idle_monitor(idle: impl Fn() -> bool + Send + 'static, before_exit: impl FnOnce() + Send + 'static) {
+/// `joined` counts the clients that have connected so far
+/// (`server::Clients::joined`), so a client that comes and goes between two
+/// looks still starts the wait again.
+pub fn spawn_idle_monitor(
+    idle: impl Fn() -> bool + Send + 'static,
+    joined: impl Fn() -> u64 + Send + 'static,
+    before_exit: impl FnOnce() + Send + 'static,
+) {
     thread::spawn(move || {
-        let mut idle_since: Option<Instant> = None;
+        let mut watch = IdleWatch::new(joined());
         loop {
             thread::sleep(IDLE_POLL);
-            match (idle(), idle_since) {
-                (true, None) => idle_since = Some(Instant::now()),
-                (true, Some(t)) if t.elapsed() >= IDLE_EXIT => {
-                    info!(seconds = IDLE_EXIT.as_secs(), "idle, exiting");
-                    before_exit();
-                    std::process::exit(0);
-                }
-                (false, _) => idle_since = None,
-                _ => {}
+            if watch.look(idle(), joined(), Instant::now()) {
+                info!(seconds = IDLE_EXIT.as_secs(), "idle, exiting");
+                before_exit();
+                std::process::exit(0);
             }
         }
     });
+}
+
+/// The idle monitor's count: since when the daemon has had nothing to do, as
+/// far as its looks every `IDLE_POLL` can tell.
+#[derive(Debug)]
+struct IdleWatch {
+    since: Option<Instant>,
+    joined: u64,
+}
+
+impl IdleWatch {
+    fn new(joined: u64) -> Self {
+        IdleWatch { since: None, joined }
+    }
+
+    /// Take one look: whether the daemon is `idle` now, and how many clients
+    /// had `joined` by then. True when it has been idle for `IDLE_EXIT`. A
+    /// client that joined since the last look means the daemon was busy in
+    /// between, so the wait starts again from `now` even if it left already.
+    fn look(&mut self, idle: bool, joined: u64, now: Instant) -> bool {
+        let came = joined != self.joined;
+        self.joined = joined;
+        if !idle {
+            self.since = None;
+            return false;
+        }
+        match self.since {
+            Some(since) if !came => now.duration_since(since) >= IDLE_EXIT,
+            _ => {
+                self.since = Some(now);
+                false
+            }
+        }
+    }
 }
 
 /// Exit the process cleanly, after running `before_exit`, when it is asked to
@@ -194,6 +230,38 @@ mod stop_signal {
 mod tests {
     use super::*;
     use std::sync::mpsc::channel;
+
+    #[test]
+    fn the_daemon_exits_after_a_minute_with_nothing_to_do() {
+        let start = Instant::now();
+        let mut watch = IdleWatch::new(0);
+        assert!(!watch.look(true, 0, start), "the first idle look starts the wait");
+        assert!(!watch.look(true, 0, start + IDLE_EXIT - IDLE_POLL));
+        assert!(watch.look(true, 0, start + IDLE_EXIT));
+    }
+
+    #[test]
+    fn a_busy_look_starts_the_wait_again() {
+        let start = Instant::now();
+        let mut watch = IdleWatch::new(0);
+        watch.look(true, 0, start);
+        watch.look(false, 1, start + IDLE_POLL);
+        assert!(!watch.look(true, 1, start + IDLE_EXIT), "idle again only since this look");
+        assert!(watch.look(true, 1, start + IDLE_EXIT * 2));
+    }
+
+    #[test]
+    fn a_client_that_came_and_went_between_looks_starts_the_wait_again() {
+        // A `udm-cli get` of a small file connects, downloads and leaves
+        // within one IDLE_POLL; every look still sees the daemon idle.
+        let start = Instant::now();
+        let mut watch = IdleWatch::new(0);
+        watch.look(true, 0, start);
+        let after_client = start + IDLE_EXIT - IDLE_POLL;
+        assert!(!watch.look(true, 1, after_client), "the client that joined counts as activity");
+        assert!(!watch.look(true, 1, start + IDLE_EXIT), "a minute has not passed since it");
+        assert!(watch.look(true, 1, after_client + IDLE_EXIT));
+    }
 
     #[test]
     fn a_burst_of_changes_is_saved_once() {

@@ -2,7 +2,19 @@
 
 Each release's full notes are in [`release-notes/`](release-notes/), and the same text is on its
 [GitHub Release](https://github.com/tajbinkhan/pullbay/releases). This page lists them, newest
-first. Pullbay was called UIDM up to version 0.3.3.
+first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
+
+## Unreleased
+
+Pullbay is now called UDM (Unified Download Manager), with a new icon. Installing it over Pullbay or UIDM keeps
+your settings, list, saved site passwords and half-finished downloads, and Pullbay's Update now
+can install it.
+
+On Windows, the first download after the background service has stopped starts about two seconds
+sooner: the browser, the window and `udm-cli` no longer wait for Windows to report that the
+service isn't running before they start it. The service also no longer quits while short
+commands keep using it. A command or download that came and went within five seconds did not
+count, so the service could quit less than a minute after it.
 
 ## [0.4.0](release-notes/v0.4.0.md) - 2026-11-09
 

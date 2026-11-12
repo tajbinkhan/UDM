@@ -1,10 +1,10 @@
-use pullbay_domain::id::DownloadId;
+use udm_domain::id::DownloadId;
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient};
 
 /// Take a download out of the list, and with `delete_files` its files to
-/// the Recycle Bin or trash: `pullbay-cli remove`.
+/// the Recycle Bin or trash: `udm-cli remove`.
 pub struct ForgetDownload<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
 }
@@ -26,9 +26,9 @@ mod tests {
     use super::*;
     use crate::daemon::{Event, Failure};
     use crate::memory::{row, FakeDaemon};
-    use pullbay_domain::download::Status;
-    use pullbay_domain::queue::Queue;
     use std::time::Duration;
+    use udm_domain::download::Status;
+    use udm_domain::queue::Queue;
 
     #[test]
     fn a_download_is_forgotten_unless_the_daemon_refuses() {

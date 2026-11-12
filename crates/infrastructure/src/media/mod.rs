@@ -7,7 +7,7 @@
 //! offers. The engine fetches the segments and joins them (see
 //! `engine::stream`).
 //!
-//! Streams protected by DRM, and live streams, are refused: Pullbay does not get
+//! Streams protected by DRM, and live streams, are refused: UDM does not get
 //! around DRM, and a live stream has no end to download to.
 //!
 //! `convert` turns a finished video into an MP4, or its sound into an MP3

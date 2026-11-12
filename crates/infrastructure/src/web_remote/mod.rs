@@ -21,12 +21,12 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use pullbay_application::pairing::PhoneGate;
-use pullbay_domain::pairing::{ListenerState, PairingCode, RemoteFault};
-use pullbay_domain::ports::RemoteListener;
-use pullbay_domain::settings::Settings;
-use pullbay_domain::sync::LockExt;
 use tracing::{info, warn};
+use udm_application::pairing::PhoneGate;
+use udm_domain::pairing::{ListenerState, PairingCode, RemoteFault};
+use udm_domain::ports::RemoteListener;
+use udm_domain::settings::Settings;
+use udm_domain::sync::LockExt;
 
 use certificate::Certificate;
 use serve::Served;
@@ -223,13 +223,13 @@ mod tests {
     use std::net::TcpStream;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use pullbay_application::daemon::{ClientId, Command, Event, Failure, Reply, Requests};
-    use pullbay_application::pairing::{PairingDesk, Phone};
-    use pullbay_domain::download::{DownloadEntry, Status};
-    use pullbay_domain::id::DownloadId;
-    use pullbay_domain::ports::{PairedDevices, Timestamps};
-    use pullbay_domain::queue::Queue;
     use serde_json::{json, Value};
+    use udm_application::daemon::{ClientId, Command, Event, Failure, Reply, Requests};
+    use udm_application::pairing::{PairingDesk, Phone};
+    use udm_domain::download::{DownloadEntry, Status};
+    use udm_domain::id::DownloadId;
+    use udm_domain::ports::{PairedDevices, Timestamps};
+    use udm_domain::queue::Queue;
 
     use super::devices::{DeviceFile, OsKeys};
 
@@ -320,7 +320,7 @@ mod tests {
     }
 
     fn rig(name: &str) -> Rig {
-        let dir = std::env::temp_dir().join(format!("pullbay-web-remote-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm-web-remote-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let devices = dir.join("devices.bin");
         let clock = Arc::new(Clock::default());
@@ -548,7 +548,7 @@ mod tests {
         let me = pair(&rig);
         let other = pair(&rig);
         assert_eq!(get(&at, "/api/downloads", Some(&me)).0, 200);
-        rig.desk.remove(pullbay_domain::id::DeviceId::new(1)).unwrap();
+        rig.desk.remove(udm_domain::id::DeviceId::new(1)).unwrap();
         assert_eq!(get(&at, "/api/downloads", Some(&me)).0, 401);
         assert_eq!(post(&at, "/api/unpair", Some(&other), &json!({})).0, 200);
         assert_eq!(get(&at, "/api/downloads", Some(&other)).0, 401);

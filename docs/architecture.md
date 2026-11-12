@@ -1,40 +1,40 @@
-# How Pullbay fits together
+# How UDM fits together
 
 The three programs, how they talk to each other, how the daemon checks who is talking to it, and how the download engine fetches a file.
 
 ## The three programs
 
 ```
-browser extension --stdio--> pullbay-host --+
-                                          +--loopback TCP--> pullbay-daemon --> engine
-desktop window (pullbay-gui) ---------------+   (authenticated)   (owns downloads)
+browser extension --stdio--> udm-host --+
+                                          +--loopback TCP--> udm-daemon --> engine
+desktop window (udm-gui) ---------------+   (authenticated)   (owns downloads)
 ```
 
-- **`pullbay-daemon`** owns the download engine and keeps a list of every
+- **`udm-daemon`** owns the download engine and keeps a list of every
   download it has seen. It listens on `127.0.0.1:51515`; winning that bind is
   its single-instance lock. Replies to a request go to the client that asked;
   download events go to every client, so the window, the popup and any open
   browser all stay in step. It exits by itself after 60 seconds with no
   clients and no queued or running downloads, except in server mode
-  (`pullbay-daemon --server`, [Run Pullbay on a server](server.md)), where it
+  (`udm-daemon --server`, [Run UDM on a server](server.md)), where it
   runs until it is stopped, logs to standard output and shows nothing on a
   screen. It also shows the
   notifications, plays the sounds and runs the virus scans, since it is the
   one process running whenever a download ends. Its log is
-  `pullbay-daemon.log` in the data folder, beside the host's `pullbay-host.log`,
-  the window's `pullbay-gui.log`, the command-line tool's `pullbay-cli.log` and the AI
-  assistants' server's `pullbay-mcp.log`.
+  `udm-daemon.log` in the data folder, beside the host's `udm-host.log`,
+  the window's `udm-gui.log`, the command-line tool's `udm-cli.log` and the AI
+  assistants' server's `udm-mcp.log`.
   A log over 5 MB moves to `.old` when the daemon starts and then once an hour. Passwords in addresses are hidden
   as `***`. It keeps its files in two folders:
 
   | | Windows | macOS | Linux |
   | --- | --- | --- | --- |
-  | settings folder | `%APPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `~/.config/pullbay` |
-  | data folder | `%LOCALAPPDATA%\Pullbay` | `~/Library/Application Support/Pullbay` | `~/.local/share/pullbay` |
+  | settings folder | `%APPDATA%\UDM` | `~/Library/Application Support/UDM` | `~/.config/udm` |
+  | data folder | `%LOCALAPPDATA%\UDM` | `~/Library/Application Support/UDM` | `~/.local/share/udm` |
 
   On Linux, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` move them. On any system,
-  `PULLBAY_CONFIG_DIR` and `PULLBAY_DATA_DIR` name them outright, for a server
-  ([Run Pullbay on a server](server.md)).
+  `UDM_CONFIG_DIR` and `UDM_DATA_DIR` name them outright, for a server
+  ([Run UDM on a server](server.md)).
   - `settings.json` (settings folder): the settings. A missing file or field
     means the default.
   - `history.json` (data folder): the download list and the next id,
@@ -43,36 +43,36 @@ desktop window (pullbay-gui) ---------------+   (authenticated)   (owns download
   - `requests.bin` (data folder): the original requests of downloads that can
     still be retried, cookies included, encrypted for the current user (with
     Windows DPAPI on Windows). It is deleted when none is left.
-- **`pullbay-host`** is what the browser launches. It connects to the daemon,
+- **`udm-host`** is what the browser launches. It connects to the daemon,
   starting it if nothing answers, then copies frames between the browser's
   stdin/stdout and the daemon without parsing them. It waits up to 10 seconds
   for a daemon it just started, so it gives up within about 15 seconds if no
   genuine daemon answers. When the browser closes the port, the host closes
   its side, delivers any reply still in flight for up to 2 seconds, and exits.
   The daemon is started with the host's stdio marked non-inheritable, so it
-  never holds the browser's pipes open. `pullbay-host send` connects the same
+  never holds the browser's pipes open. `udm-host send` connects the same
   way to hand the daemon links from other programs.
-- **`pullbay-gui`** is the desktop window: one more daemon client. It starts the
+- **`udm-gui`** is the desktop window: one more daemon client. It starts the
   daemon too if needed, asks for the full list on connect, and applies every
-  event to the same `DownloadTable` (`pullbay_domain::table`) the daemon keeps.
-- **`pullbay-cli`** is the command-line tool, another daemon client that
+  event to the same `DownloadTable` (`udm_domain::table`) the daemon keeps.
+- **`udm-cli`** is the command-line tool, another daemon client that
   starts the daemon the same way. Each run connects, says `hello` as
-  `pullbay-cli`, does one thing (add a download and follow its events, list,
+  `udm-cli`, does one thing (add a download and follow its events, list,
   pause, resume, remove, start or stop a queue) and exits; see
   [Command line and automation](command-line.md).
-- **`pullbay-mcp`** is the server AI assistants start (Claude Desktop, Claude
+- **`udm-mcp`** is the server AI assistants start (Claude Desktop, Claude
   Code, Cursor, VS Code). It speaks the Model Context Protocol, JSON-RPC one
   message a line, on its standard input and output, and is another daemon
-  client: it connects at the first tool call, says `hello` as `pullbay-mcp`,
+  client: it connects at the first tool call, says `hello` as `udm-mcp`,
   keeps the connection for the next calls (connecting again if the daemon
-  went) and turns each tool call into the same requests `pullbay-cli` makes;
+  went) and turns each tool call into the same requests `udm-cli` makes;
   see [AI assistants (MCP)](ai-assistants.md).
 - **The extension** keeps one native-messaging port open, reconnecting with
-  backoff (1 s doubling to 30 s) if Pullbay goes away.
+  backoff (1 s doubling to 30 s) if UDM goes away.
 
 Every link uses the same framing: a 4-byte little-endian length, then that
 many bytes of UTF-8 JSON. Between browser and host that is the browser's
-native-messaging standard; Pullbay reuses it everywhere so the host can relay
+native-messaging standard; UDM reuses it everywhere so the host can relay
 frames untouched.
 
 ## Host-daemon authentication
@@ -82,16 +82,16 @@ port. Both ends therefore prove they hold a shared secret, and the secret never
 crosses the socket.
 
 At start the daemon writes a random 256-bit token to
-`%LOCALAPPDATA%\Pullbay\daemon.token`, which the profile's default ACL limits to
+`%LOCALAPPDATA%\UDM\daemon.token`, which the profile's default ACL limits to
 the current user, SYSTEM and Administrators. It writes the token only after it
 wins the bind, so a second daemon cannot overwrite the running one's token.
 Each connection then runs:
 
 1. client to daemon: `auth_hello { client_nonce }`
 2. daemon to client: `auth_challenge { server_nonce, proof }`, where `proof` is
-   `HMAC-SHA256(token, "pullbay-daemon", client_nonce, server_nonce)`
+   `HMAC-SHA256(token, "udm-daemon", client_nonce, server_nonce)`
 3. the client checks that proof, then sends `auth { proof }` with the
-   `"pullbay-host"` label
+   `"udm-host"` label
 4. the daemon checks it and replies `auth_ok`
 
 Every field is length-prefixed before it is hashed, and the two labels keep one
@@ -107,7 +107,7 @@ The daemon can also serve an HTTPS page to paired phones on the network (see
 [Remote control](remote-control.md), which has its threat model). It is off
 until the user turns it on, and it is not a client of the loopback port: the
 page's requests run inside the daemon, through the same commands a window sends,
-on a connection of their own (`pullbay_application::pairing::LocalClient`), so
+on a connection of their own (`udm_application::pairing::LocalClient`), so
 the token above never reaches the page or the phone. Each request carries the
 phone's own credential instead, which `PairingDesk` checks against the digests
 it keeps in `remote/devices.bin`.
@@ -134,7 +134,7 @@ Given an `add`, the engine:
    The connection that had it stops at the new end of its first half without a
    new request, so the download no longer ends at the pace of its slowest
    range. The split ranges are saved in the sidecar like the first ones.
-3. Records progress in a `<file>.pullbaypart` JSON sidecar next to the output,
+3. Records progress in a `<file>.udmpart` JSON sidecar next to the output,
    flushed about every 1 MiB and again on cancel or failure. Re-running the
    download reads the sidecar and refetches only the missing bytes of each
    segment. The sidecar is checked against the server's ETag, Last-Modified and
@@ -166,7 +166,7 @@ fallback. The file's folder is its category's, from that final name, unless
 the save-as dialog chose one.
 
 A new download never writes into an existing file unless that file is a
-partial copy of the same download, which its `.pullbaypart` sidecar proves (same
+partial copy of the same download, which its `.udmpart` sidecar proves (same
 size, and same ETag or Last-Modified when the server sends them). Otherwise it
 is saved as `name (1).ext`, `name (2).ext`, and so on, or replaces the file
 when Options says to overwrite. When Options says to ask, the engine stops
@@ -180,7 +180,7 @@ file its earlier attempt wrote.
 Before it writes anything, the engine checks that it may create files in the
 folder; if not, the download fails with `Saving here needs administrator
 rights: <folder>`. A request with `elevate` set is downloaded into a staging
-folder instead, and the finished file is moved into its folder by `pullbay-daemon
+folder instead, and the finished file is moved into its folder by `udm-daemon
 --move-elevated <from> <to>`, started with the `runas` verb so Windows shows
 its UAC prompt. The helper copies the file, so it takes the folder's
 permissions, then deletes the staged one.

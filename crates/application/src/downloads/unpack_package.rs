@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use pullbay_domain::download::{DownloadEntry, Status};
-use pullbay_domain::id::{DownloadId, PackageId};
-use pullbay_domain::package::{archive_sets, complete, Package, Password, Unpack, UnpackError, UnpackFailure};
-use pullbay_domain::ports::{DownloadFiles, DownloadList, FilesError, PackageStore, UnpackJob, Unpacker};
-use pullbay_domain::settings::Settings;
+use udm_domain::download::{DownloadEntry, Status};
+use udm_domain::id::{DownloadId, PackageId};
+use udm_domain::package::{archive_sets, complete, Package, Password, Unpack, UnpackError, UnpackFailure};
+use udm_domain::ports::{DownloadFiles, DownloadList, FilesError, PackageStore, UnpackJob, Unpacker};
+use udm_domain::settings::Settings;
 
 /// Why a package's unpacking was not started.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -172,8 +172,8 @@ fn file_name(e: &DownloadEntry) -> String {
 mod tests {
     use super::*;
     use crate::memory::{row, Downloads, Files, Packages, Unpacks};
-    use pullbay_domain::package::{ArchiveKind, Family, PackageName};
-    use pullbay_domain::settings::UnpackTo;
+    use udm_domain::package::{ArchiveKind, Family, PackageName};
+    use udm_domain::settings::UnpackTo;
 
     fn done(id: u64, path: &str) -> DownloadEntry {
         let mut e = row(id, Status::Done);

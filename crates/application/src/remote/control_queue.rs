@@ -1,10 +1,10 @@
-use pullbay_domain::queue::{self, Queue, MAIN_QUEUE};
+use udm_domain::queue::{self, Queue, MAIN_QUEUE};
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient};
 
 /// Start or stop a queue, named by its name or id, or the main queue:
-/// `pullbay-cli queue start|stop`.
+/// `udm-cli queue start|stop`.
 pub struct ControlQueue<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
 }
@@ -33,8 +33,8 @@ impl<'a, 's, C: DaemonClient + ?Sized> ControlQueue<'a, 's, C> {
 mod tests {
     use super::*;
     use crate::memory::FakeDaemon;
-    use pullbay_domain::id::QueueId;
     use std::time::Duration;
+    use udm_domain::id::QueueId;
 
     fn daemon() -> FakeDaemon {
         FakeDaemon::listing(Vec::new(), vec![Queue::main(), Queue::new(QueueId::new(2), "Night")], |_| Vec::new())

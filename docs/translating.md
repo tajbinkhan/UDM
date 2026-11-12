@@ -1,6 +1,6 @@
-# Help translate Pullbay
+# Help translate UDM
 
-Pullbay's window comes in 17 languages and its browser extension in the same
+UDM's window comes in 17 languages and its browser extension in the same
 17. Most of them were made with a language model and have not been read by a
 native speaker yet. If you speak one of them, a review is the most useful help
 you can give; a new language is welcome too.
@@ -45,7 +45,7 @@ checks below passed, but nobody has read the result in the running window.
 ## Reviewing a table
 
 1. Pick the language in **Options > General > Language** (or **View >
-   Language**) and use Pullbay for a while: the main window, Options, the
+   Language**) and use UDM for a while: the main window, Options, the
    save-as dialog, a download window, the Scheduler and the Site grabber.
 2. Fix what reads wrong in the JSON file. Keep each `{placeholder}` (you may
    move it), a `&` before a menu letter, the `...` after a command that opens a
@@ -70,7 +70,7 @@ resume, scheduler, site grabber.
 3. Add `extension/_locales/<code>/messages.json` with every message in
    `extension/_locales/en/messages.json`, and the same placeholders.
 4. Add a row to the table above.
-5. Run `cargo test -p pullbay-ui i18n` and `node --test extension/test/*.test.js`.
+5. Run `cargo test -p udm-ui i18n` and `node --test extension/test/*.test.js`.
 
 The tests check that every key is still a string in the window, keeps its
 placeholders, and that every language has every string; that every extension

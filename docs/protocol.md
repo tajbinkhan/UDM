@@ -2,7 +2,7 @@
 
 The [automation API](command-line.md#the-automation-api) is the documented, versioned part of
 these messages for other programs, with a [JSON Schema](automation-api.schema.json); the rest are
-Pullbay's own and may change between releases.
+UDM's own and may change between releases.
 
 Client to daemon (the host relays the browser's unchanged):
 
@@ -85,7 +85,7 @@ Client to daemon (the host relays the browser's unchanged):
 Daemon to clients:
 
 ```json
-{ "op": "hello", "name": "pullbay-daemon", "version": "0.5.0", "api": 1 }
+{ "op": "hello", "name": "udm-daemon", "version": "0.5.0", "api": 1 }
 { "op": "pong" }
 { "op": "ack", "id": 1, "url": "https://...", "status": "accepted" }
 { "op": "added", "id": 1, "url": "https://..." }
@@ -138,10 +138,10 @@ Daemon to clients:
 `api` in the daemon's `hello` is the automation API's version; daemons
 older than the API leave it out. `connections` on an `add` is how many connections
 that download opens (brought into 1 to 16) instead of the setting's, and is
-kept for its retries. `pullbay-cli` names itself `client: "pullbay-cli"`, and
-`pullbay-mcp` `client: "pullbay-mcp"`.
+kept for its retries. `udm-cli` names itself `client: "udm-cli"`, and
+`udm-mcp` `client: "udm-mcp"`.
 
-`command_line` is what `pullbay-gui` sends for its switches. With a window
+`command_line` is what `udm-gui` sends for its switches. With a window
 open the daemon runs it at once and answers `window_open: true`; otherwise
 it holds it for up to a minute and runs it when the next window says
 `hello`.
@@ -163,7 +163,7 @@ other event covers. A `hello` with `client: "window"` tells the daemon a
 window is open to show save-as dialogs. `confirm` answers the dialog of a
 `confirming` download or starts a `waiting` one, keeping its id; `filename`
 and `folder` default to the proposed ones, and `start: false` makes it
-`waiting`. `elevate: true` saves it into a folder Pullbay may not write to,
+`waiting`. `elevate: true` saves it into a folder UDM may not write to,
 with administrator rights. `file_exists` (`rename` or `overwrite`) decides what happens if
 the name is taken, for this start and later ones; without it the setting
 decides. `name_taken` means the name is taken under the `ask` setting:
@@ -189,9 +189,9 @@ path or `null` for its folder (`null` means a folder named after it inside the
 download folder). File types are lowercase letters and digits without the
 dot. `notify` is `toast`, `dialog` or `off`; `scanner` is `defender` or
 `custom`, and a custom `scanner_command` must name a program and contain
-`{path}`. Turning `start_with_windows` on or off adds or removes the `Pullbay`
+`{path}`. Turning `start_with_windows` on or off adds or removes the `UDM`
 value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, which
-runs `pullbay-gui.exe --minimized`.
+runs `udm-gui.exe --minimized`.
 
 A finished download's entry carries `"scan": { "result": "scanning" }`, then
 `clean`, `threat` or `failed` (the last two with a `detail`, the end of the
@@ -255,7 +255,7 @@ with gallery-dl and answers that client alone with a `gallery` echoing
 `url`, and when known a `name`, `extension`, `width` and `height`; at most
 1000), or `error` and `error_kind` say why there are none. `install_tool`
 (`yt_dlp`, `ffmpeg` or `gallery_dl`) downloads the tool's official build, checks it
-against its release's published SHA-256 and installs it in Pullbay's tools
+against its release's published SHA-256 and installs it in UDM's tools
 folder; it answers `tools` with `done` naming the tool and, when it was not
 installed, `error` and `error_kind`. `list_tools` answers `tools` alone.
 `probe_links` (the window's link picker) asks each link's server for its size
@@ -271,8 +271,8 @@ an `http(s)` address, `depth` is 0 to 10, `max_pages` 1 to 10,000,
 `max_bytes` 1 to 2,000 MB, `delay_ms` 200 to 60,000 and `types` is not empty.
 The settings gain `clipboard_monitor`, `video_button`,
 `video_button_excluded_sites`, `ffmpeg_path` (a full path to
-`ffmpeg.exe`, or empty to look in Pullbay's tools folder and on `PATH`) and
-`ytdlp_auto_update` (update a yt-dlp Pullbay installed once a day).
+`ffmpeg.exe`, or empty to look in UDM's tools folder and on `PATH`) and
+`ytdlp_auto_update` (update a yt-dlp UDM installed once a day).
 
 ---
 
