@@ -12,9 +12,9 @@
 # Build with --build-arg FFMPEG=1 to add ffmpeg, which joins the video and
 # audio of HLS and DASH streams.
 
-# The build: the whole workspace's dependencies are compiled, the window's
-# too (they share one package), so the GTK headers are needed here but not in
-# the image.
+# The build: without the window, but the file pickers' GTK (rfd, in
+# udm-infrastructure) is still compiled, so the GTK headers are needed here
+# but not in the image.
 FROM rust:1-slim-bookworm AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends pkg-config libssl-dev libgtk-3-dev \

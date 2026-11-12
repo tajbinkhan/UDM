@@ -195,4 +195,5 @@ export const previewZip = (id: Id) => commands.previewZip(id);
 export const convertDownload = (id: Id, target: ConvertTarget, deleteOriginal: boolean) => commands.convertDownload(id, target, deleteOriginal);
 export const verifyChecksum = (id: Id, checksum: string) => commands.verifyChecksum(id, checksum);
 export const openWith = (id: Id) => commands.openWith(id);
+export const dragFile = (id: Id) => commands.dragFile(id);
 export const answerException = (choice: ExceptionChoice, dontShow: boolean) => commands.answerException(choice, dontShow);

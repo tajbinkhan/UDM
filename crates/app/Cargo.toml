@@ -16,16 +16,10 @@ name = "udm-daemon"
 path = "src/bin/udm-daemon.rs"
 
 # Desktop window that lists and controls downloads; another daemon client.
-# Its views are in udm-ui; this binary wires them to the adapters.
+# Its Tauri shell is udm-ui (ADR 0002); this binary wires it to the adapters.
 [[bin]]
 name = "udm-gui"
 path = "src/bin/udm-gui.rs"
-
-# The Tauri window (ADR 0002), built beside udm-gui until it does everything
-# the egui window does (AGENTS.md section 16). Its shell is udm-ui-tauri.
-[[bin]]
-name = "udm-gui-next"
-path = "src/bin/udm-gui-next.rs"
 required-features = ["tauri-window"]
 
 # The command-line tool: downloads and controls UDM from a terminal or a
@@ -43,27 +37,24 @@ path = "src/bin/udm-mcp.rs"
 
 [features]
 default = ["tauri-window", "embed-frontend"]
-# The Tauri window, udm-gui-next. On Linux it needs WebKitGTK.
-tauri-window = ["dep:udm-ui-tauri"]
+# The window, udm-gui. On Linux it needs WebKitGTK.
+tauri-window = ["dep:udm-ui"]
 # Build the frontend into it (`pnpm --dir frontend build` first). Without
 # this it loads Vite's dev server, for working on the frontend.
-embed-frontend = ["tauri-window", "udm-ui-tauri/embed"]
+embed-frontend = ["tauri-window", "udm-ui/embed"]
 
 [dependencies]
 udm-domain.workspace = true
 udm-application.workspace = true
 udm-infrastructure.workspace = true
-udm-ui.workspace = true
 # Optional so the server image (Dockerfile) builds without a webview.
-udm-ui-tauri = { workspace = true, optional = true }
+udm-ui = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 # The binaries' log events; `udm_infrastructure::logging` writes them.
 tracing.workspace = true
 # Startup errors, with what each step was doing (AGENTS.md section 9).
 anyhow.workspace = true
-# The window's run result, which `udm-gui`'s main returns.
-eframe = "0.31.1"
 
 # The workspace's lints: no unwrap, expect or panic outside tests.
 [lints]

@@ -802,6 +802,8 @@
       "view": {
         "address": "http://127.0.0.1:8765/udm-idm-test-40MB.bin",
         "canOpen": true,
+        "canOpenWith": false,
+        "dragOut": false,
         "failed": false,
         "headline": "Download complete",
         "id": 17,
@@ -1071,7 +1073,8 @@
             "key": "all",
             "label": "All Files",
             "open": null,
-            "selected": true
+            "selected": true,
+            "tip": null
           },
           {
             "depth": 0,
@@ -1079,7 +1082,8 @@
             "key": "links",
             "label": "Link View",
             "open": true,
-            "selected": false
+            "selected": false,
+            "tip": null
           },
           {
             "depth": 0,
@@ -1087,7 +1091,8 @@
             "key": "folders",
             "label": "Folder View",
             "open": true,
-            "selected": false
+            "selected": false,
+            "tip": null
           }
         ],
         "unsaved": false
@@ -1254,7 +1259,8 @@
             "key": "all",
             "label": "All Files",
             "open": null,
-            "selected": true
+            "selected": true,
+            "tip": null
           },
           {
             "depth": 0,
@@ -1262,7 +1268,8 @@
             "key": "links",
             "label": "Link View",
             "open": true,
-            "selected": false
+            "selected": false,
+            "tip": null
           },
           {
             "depth": 1,
@@ -1270,7 +1277,8 @@
             "key": "page/http://127.0.0.1:8765/index.html",
             "label": "127.0.0.1:8765/index.html",
             "open": null,
-            "selected": false
+            "selected": false,
+            "tip": null
           },
           {
             "depth": 0,
@@ -1278,7 +1286,8 @@
             "key": "folders",
             "label": "Folder View",
             "open": true,
-            "selected": false
+            "selected": false,
+            "tip": null
           },
           {
             "depth": 1,
@@ -1286,7 +1295,8 @@
             "key": "host/127.0.0.1",
             "label": "127.0.0.1",
             "open": null,
-            "selected": false
+            "selected": false,
+            "tip": null
           }
         ],
         "unsaved": true
@@ -1436,6 +1446,7 @@
             "convert": false,
             "delete": true,
             "deleteCompleted": true,
+            "dragOut": false,
             "open": false,
             "openWith": false,
             "progress": false,
@@ -1690,7 +1701,8 @@
               "key": "all",
               "label": "All Downloads",
               "open": true,
-              "selected": true
+              "selected": true,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1700,7 +1712,8 @@
               "key": "all/Compressed",
               "label": "Compressed",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1710,7 +1723,8 @@
               "key": "all/Documents",
               "label": "Documents",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1720,7 +1734,8 @@
               "key": "all/Music",
               "label": "Music",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1730,7 +1745,8 @@
               "key": "all/Programs",
               "label": "Programs",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1740,7 +1756,8 @@
               "key": "all/Video",
               "label": "Video",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 0,
@@ -1748,7 +1765,8 @@
               "key": "unfinished",
               "label": "Unfinished",
               "open": false,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 0,
@@ -1756,7 +1774,8 @@
               "key": "finished",
               "label": "Finished",
               "open": false,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 0,
@@ -1764,7 +1783,8 @@
               "key": "grabber",
               "label": "Grabber projects",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 0,
@@ -1772,7 +1792,8 @@
               "key": "queues",
               "label": "Queues",
               "open": false,
-              "selected": false
+              "selected": false,
+              "tip": null
             }
           ]
         },

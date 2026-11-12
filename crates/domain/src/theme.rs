@@ -122,8 +122,8 @@ impl std::fmt::Display for ThemeName {
 /// The colors of a look. Each is one key of a theme file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
-    /// A dark look: the window starts from egui's dark style, and the tray
-    /// menu and icons follow.
+    /// A dark look: the window's webviews draw their own controls dark, and
+    /// the tray menu and icons follow.
     pub dark: bool,
     /// Windows, panels and the download list.
     pub background: Color,

@@ -450,33 +450,6 @@ pub fn desktop_session() -> (Option<String>, Option<String>) {
     (var("XDG_CURRENT_DESKTOP"), var("XDG_SESSION_TYPE"))
 }
 
-/// The Windows font folder, which the window's fonts come from. Elsewhere
-/// the window draws with egui's own.
-pub fn fonts_dir() -> Option<PathBuf> {
-    #[cfg(windows)]
-    return std::env::var_os("WINDIR").map(|w| PathBuf::from(w).join("Fonts"));
-    #[cfg(not(windows))]
-    None
-}
-
-/// The folders the system keeps fonts in, where the window looks for a
-/// script's font (`system::ThisSystem::script_font`): the Windows font
-/// folder and the user's own, or macOS's. Linux asks fontconfig instead.
-pub fn system_font_dirs() -> Vec<PathBuf> {
-    #[cfg(windows)]
-    return fonts_dir()
-        .into_iter()
-        .chain(root(Root::Local).map(|local| local.join("Microsoft").join("Windows").join("Fonts")))
-        .collect();
-    #[cfg(target_os = "macos")]
-    return ["/System/Library/Fonts", "/System/Library/Fonts/Supplemental", "/Library/Fonts"]
-        .into_iter()
-        .map(PathBuf::from)
-        .collect();
-    #[cfg(all(unix, not(target_os = "macos")))]
-    Vec::new()
-}
-
 /// The folder the window keeps its layout and the drop target's place in:
 /// `%LOCALAPPDATA%\UDM` on Windows (a portable copy's `Data` folder),
 /// shared by every instance. Elsewhere the window keeps neither.

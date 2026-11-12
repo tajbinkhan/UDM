@@ -157,47 +157,8 @@ pub struct SystemProxy {
     pub bypass: Vec<String>,
 }
 
-/// The system's fonts the window draws with, as font files: `None` for
-/// one that is missing, where egui's own takes over.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SystemFonts {
-    /// The font for text (Segoe UI on Windows).
-    pub text: Option<Vec<u8>>,
-    /// The font for code and fixed-width columns (Consolas on Windows).
-    pub code: Option<Vec<u8>>,
-}
-
-/// A script the window's text font may lack, whose glyphs come from a
-/// font of the system's: Chinese and Japanese share Han characters but
-/// draw them differently, so each has its own. Vietnamese is Latin with
-/// stacked accents that egui's own font lacks (Segoe UI has them).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ScriptFont {
-    SimplifiedChinese,
-    TraditionalChinese,
-    Japanese,
-    Korean,
-    Vietnamese,
-}
-
-/// A font file, and which of its faces to use when it is a collection
-/// (`.ttc`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FontFile {
-    pub bytes: Vec<u8>,
-    pub index: u32,
-}
-
 /// What the window asks of the operating system.
 pub trait SystemServices: Send + Sync {
-    /// The fonts the window draws with, read once as it opens.
-    fn fonts(&self) -> SystemFonts;
-
-    /// A system font with the glyphs of `script`, for a language written
-    /// in it. `None` when the system has none. It reads a large file, so
-    /// the window asks on a worker.
-    fn script_font(&self, script: ScriptFont) -> Option<FontFile>;
-
     /// The system's fixed proxies, without a configuration script. `None`
     /// when none is set.
     fn fixed_proxy(&self) -> Option<SystemProxy>;
@@ -223,11 +184,6 @@ pub trait SystemServices: Send + Sync {
     /// Keep `password` for `username` in the system's credential store
     /// under `target`.
     fn save_credential(&self, target: &str, username: &str, password: &str) -> Result<(), FilesError>;
-
-    /// Start another copy of the window that waits in the tray, with no
-    /// window until one is wanted. The window does this as it closes to the
-    /// tray where a window cannot be hidden (Linux).
-    fn start_window_in_tray(&self) -> Result<(), FilesError>;
 
     /// The system's high-contrast colors while its high-contrast setting
     /// is on, `None` while it is off or where the system has none.

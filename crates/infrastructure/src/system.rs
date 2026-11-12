@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use udm_application::window::{FontFile, ScriptFont, SystemFonts, SystemProxy, SystemServices};
+use udm_application::window::{SystemProxy, SystemServices};
 use udm_domain::ports::FilesError;
 use udm_domain::settings::Sound;
 use udm_domain::theme::SystemContrast;
@@ -12,37 +12,6 @@ use udm_domain::theme::SystemContrast;
 pub struct ThisSystem;
 
 impl SystemServices for ThisSystem {
-    fn fonts(&self) -> SystemFonts {
-        // Segoe UI and Consolas, from the Windows font folder, so nothing
-        // is bundled. Elsewhere egui's own fonts are used.
-        let read = |file: &str| crate::paths::fonts_dir().and_then(|d| std::fs::read(d.join(file)).ok());
-        SystemFonts { text: read("segoeui.ttf"), code: read("consola.ttf") }
-    }
-
-    fn script_font(&self, script: ScriptFont) -> Option<FontFile> {
-        let found = fontconfig(script).or_else(|| {
-            let dirs = crate::paths::system_font_dirs();
-            font_files(script)
-                .iter()
-                .flat_map(|(file, index)| dirs.iter().map(move |d| (d.join(file), *index)))
-                .find(|(path, _)| path.is_file())
-        });
-        let Some((path, index)) = found else {
-            tracing::warn!(?script, "no system font for the script");
-            return None;
-        };
-        match std::fs::read(&path) {
-            Ok(bytes) => {
-                tracing::info!(path = %path.display(), index, "script font");
-                Some(FontFile { bytes, index })
-            }
-            Err(e) => {
-                tracing::warn!(path = %path.display(), error = %e, "cannot read the script font");
-                None
-            }
-        }
-    }
-
     fn fixed_proxy(&self) -> Option<SystemProxy> {
         let rules = crate::net::system_fixed_proxy()?;
         Some(SystemProxy {
@@ -76,17 +45,6 @@ impl SystemServices for ThisSystem {
 
     fn save_credential(&self, target: &str, username: &str, password: &str) -> Result<(), FilesError> {
         crate::net::save_credential(target, username, password).map_err(|e| FilesError(e.to_string()))
-    }
-
-    fn start_window_in_tray(&self) -> Result<(), FilesError> {
-        let mut cmd = crate::platform::program_command("udm-gui").map_err(|e| FilesError(e.to_string()))?;
-        cmd.arg(crate::cli::IN_TRAY)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        // Its own process group, as the daemon has: this copy is about to
-        // exit, and the new one outlives it.
-        crate::platform::spawn_reaped(crate::platform::detach(&mut cmd)).map_err(|e| FilesError(e.to_string()))
     }
 
     fn contrast(&self) -> Option<SystemContrast> {
@@ -159,101 +117,4 @@ fn contrast() -> Option<SystemContrast> {
 #[cfg(not(windows))]
 fn contrast() -> Option<SystemContrast> {
     None
-}
-
-/// The font files Windows and macOS have for `script`, best first, with
-/// the face of a collection to use. Windows ships them with the language's
-/// support (Microsoft YaHei, JhengHei, Yu Gothic, Malgun Gothic); Arial
-/// Unicode, which Office and macOS have, covers the four Asian scripts
-/// last, and Arial Vietnamese.
-fn font_files(script: ScriptFont) -> &'static [(&'static str, u32)] {
-    match script {
-        ScriptFont::SimplifiedChinese => &[
-            ("msyh.ttc", 0),
-            ("simsun.ttc", 0),
-            ("Hiragino Sans GB.ttc", 0),
-            ("Arial Unicode.ttf", 0),
-            ("ARIALUNI.TTF", 0),
-        ],
-        ScriptFont::TraditionalChinese => {
-            &[("msjh.ttc", 0), ("mingliu.ttc", 0), ("Arial Unicode.ttf", 0), ("ARIALUNI.TTF", 0)]
-        }
-        ScriptFont::Japanese => &[
-            ("YuGothR.ttc", 0),
-            ("meiryo.ttc", 0),
-            ("msgothic.ttc", 0),
-            ("ヒラギノ角ゴシック W3.ttc", 0),
-            ("Arial Unicode.ttf", 0),
-            ("ARIALUNI.TTF", 0),
-        ],
-        ScriptFont::Korean => &[
-            ("malgun.ttf", 0),
-            ("gulim.ttc", 0),
-            ("AppleSDGothicNeo.ttc", 0),
-            ("Arial Unicode.ttf", 0),
-            ("ARIALUNI.TTF", 0),
-        ],
-        ScriptFont::Vietnamese => &[("segoeui.ttf", 0), ("arial.ttf", 0), ("tahoma.ttf", 0), ("Arial.ttf", 0)],
-    }
-}
-
-/// fontconfig's sans-serif font for the script's language, on Linux and the
-/// BSDs, when that font covers the language (fontconfig answers with its
-/// closest font even when none does). Elsewhere `None`.
-fn fontconfig(script: ScriptFont) -> Option<(std::path::PathBuf, u32)> {
-    if !cfg!(all(unix, not(target_os = "macos"))) {
-        return None;
-    }
-    let lang = match script {
-        ScriptFont::SimplifiedChinese => "zh-cn",
-        ScriptFont::TraditionalChinese => "zh-tw",
-        ScriptFont::Japanese => "ja",
-        ScriptFont::Korean => "ko",
-        ScriptFont::Vietnamese => "vi",
-    };
-    let out = std::process::Command::new("fc-match")
-        .args(["-f", "%{file}\n%{index}\n%{lang}\n", &format!("sans-serif:lang={lang}")])
-        .output()
-        .ok()?;
-    parse_fc_match(&String::from_utf8_lossy(&out.stdout), lang)
-}
-
-/// `fc-match -f '%{file}\n%{index}\n%{lang}\n'`'s answer, if the font it
-/// names covers `lang`.
-fn parse_fc_match(text: &str, lang: &str) -> Option<(std::path::PathBuf, u32)> {
-    let mut lines = text.lines();
-    let file = lines.next().filter(|f| !f.is_empty())?;
-    let index = lines.next()?.trim().parse().ok()?;
-    let covers = lines.next().unwrap_or("").split('|').any(|l| l.eq_ignore_ascii_case(lang));
-    covers.then(|| (std::path::PathBuf::from(file), index))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fc_match_names_a_font_only_when_it_covers_the_language() {
-        let noto = "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc\n2\nen|ja|ko|zh-cn|zh-tw\n";
-        assert_eq!(
-            parse_fc_match(noto, "zh-cn"),
-            Some((std::path::PathBuf::from("/usr/share/fonts/noto/NotoSansCJK-Regular.ttc"), 2))
-        );
-        let dejavu = "/usr/share/fonts/DejaVuSans.ttf\n0\nen|de|ru\n";
-        assert_eq!(parse_fc_match(dejavu, "ja"), None);
-        assert_eq!(parse_fc_match("", "ja"), None);
-    }
-
-    #[test]
-    fn every_script_has_font_files_to_look_for() {
-        for script in [
-            ScriptFont::SimplifiedChinese,
-            ScriptFont::TraditionalChinese,
-            ScriptFont::Japanese,
-            ScriptFont::Korean,
-            ScriptFont::Vietnamese,
-        ] {
-            assert!(!font_files(script).is_empty());
-        }
-    }
 }

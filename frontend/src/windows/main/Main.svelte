@@ -4,6 +4,7 @@
   import {
     askPackagePassword,
     openWith,
+    dragFile,
     reportAction,
     browseCategory,
     checkUpdate,
@@ -457,6 +458,7 @@
             ondelete={() => can?.delete && void runListAction({ action: 'delete' })}
             onselectall={() => void runListAction({ action: 'selectAll' })}
             onmenu={(x, y) => (listMenu = { x, y })}
+            ondrag={can?.dragOut ? (r) => void dragFile(r.id) : undefined}
             mono={view.chrome.listMono}
             size={view.chrome.listSize}
           />

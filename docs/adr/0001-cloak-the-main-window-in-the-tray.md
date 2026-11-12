@@ -1,5 +1,7 @@
 # Cloak the main window in the tray instead of hiding it
 
+Status: superseded by [ADR 0002](0002-draw-the-window-with-tauri.md). The egui window is gone; each Tauri dialog is a window of its own, and the main window hides normally.
+
 Every UDM dialog and download window is drawn during the main window's frame, and Windows sends no paint messages to a window hidden with `SW_HIDE`, so with UDM in the tray a caught download's save-as dialog and its download window could not open. We keep the main window "visible" to Windows but cloaked through DWM (`DWMWA_CLOAK`), minimized and without a taskbar button, so its frames keep coming and dialogs open on their own while it stays out of sight, as IDM's do.
 
 ## Considered options
