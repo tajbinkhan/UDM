@@ -667,7 +667,8 @@ mod tests {
         d.extras.notify = NotifyChoice::Off;
         d.extras.auto_start_types = "EXE, msi".into();
         d.extras.unpack_to = UnpackChoice::Folder;
-        d.extras.unpack_folder = " /tmp/u ".into();
+        let folder = if cfg!(windows) { r"C:\u" } else { "/tmp/u" };
+        d.extras.unpack_folder = format!(" {folder} ");
         d.extras.remote_all = false;
         d.extras.remote_addresses = "192.168.1.5, 10.0.0.2".into();
         let out = settings(&d, &s).unwrap();
@@ -675,7 +676,7 @@ mod tests {
         assert_eq!(out.speed_limit_per_file_kbps, Some(200));
         assert_eq!(out.notify, Notify::Off);
         assert_eq!(out.auto_start_types, ["exe", "msi"]);
-        assert_eq!((out.unpack_to, out.unpack_folder.as_str()), (UnpackTo::Folder, "/tmp/u"));
+        assert_eq!((out.unpack_to, out.unpack_folder.as_str()), (UnpackTo::Folder, folder));
         assert_eq!(out.remote_addresses, ["192.168.1.5", "10.0.0.2"]);
         d.extras.remote_port = 70_000;
         assert_eq!(settings(&d, &s), Err(OptionsError::Port));
