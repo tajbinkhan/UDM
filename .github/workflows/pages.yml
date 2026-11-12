@@ -1,0 +1,52 @@
+# Publishes UDM's project page (site/) to GitHub Pages at
+# https://tajbinkhan.github.io/UDM/ whenever it changes on main. The page is
+# plain HTML and CSS; the logo and the social preview image are copied in from
+# assets/ so they are kept in one place.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - assets/icon-256.png
+      - assets/social-preview.png
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+# One deployment at a time; a newer one waits rather than cancelling one in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Put the page together
+        run: |
+          mkdir -p _site
+          cp site/index.html site/style.css site/robots.txt site/sitemap.xml _site/
+          cp assets/icon-256.png assets/social-preview.png _site/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

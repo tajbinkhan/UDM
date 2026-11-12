@@ -1,10 +1,16 @@
-# UDM (Unified Download Manager)
+# UDM: free, open-source IDM alternative for Windows, macOS and Linux
 
 <p align="center">
   <img src="assets/icon-256.png" alt="UDM's logo" width="160">
 </p>
 
 <h3 align="center">The download manager you know from IDM. On Windows, macOS and Linux. Free.</h3>
+
+<p align="center">
+  UDM (Unified Download Manager) is a fast download manager and video downloader, written in Rust:
+  up to 16 connections per file, resume after interruptions, and downloads caught from your browser.
+  <br><a href="https://tajbinkhan.github.io/UDM/">tajbinkhan.github.io/UDM</a>
+</p>
 
 <p align="center">
   <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Windows-2a78d6?style=flat-square&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0yIDMuNWw4LjUtMS4ydjguMkgyek0xMS41IDIuMkwyMiAuOHY5LjdIMTEuNXpNMiAxMS41aDguNXY4LjJMMiAxOC41ek0xMS41IDExLjVIMjJ2OS43bC0xMC41LTEuNHoiLz48L3N2Zz4%3D" alt="Download for Windows" height="34"></a>
