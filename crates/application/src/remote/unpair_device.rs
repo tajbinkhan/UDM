@@ -1,9 +1,9 @@
-use pullbay_domain::id::DeviceId;
+use udm_domain::id::DeviceId;
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient};
 
-/// Unpair a device at once: `pullbay-cli unpair`.
+/// Unpair a device at once: `udm-cli unpair`.
 pub struct UnpairDevice<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
 }
@@ -25,8 +25,8 @@ mod tests {
     use crate::daemon::Event;
     use crate::memory::FakeDaemon;
     use crate::remote::ListDevices;
-    use pullbay_domain::pairing::{DeviceInfo, DeviceName, RemoteState};
     use std::time::Duration;
+    use udm_domain::pairing::{DeviceInfo, DeviceName, RemoteState};
 
     #[test]
     fn devices_are_listed_and_unpaired() {

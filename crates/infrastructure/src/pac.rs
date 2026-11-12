@@ -6,7 +6,6 @@
 //! On macOS and Linux there is no script runner, so a script falls back
 //! to the fixed proxies.
 
-use pullbay_domain::sync::LockExt;
 use std::collections::HashMap;
 #[cfg(windows)]
 use std::ffi::c_void;
@@ -14,6 +13,7 @@ use std::ffi::c_void;
 use std::ptr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use udm_domain::sync::LockExt;
 
 /// Where the script comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -176,7 +176,7 @@ fn ask(_source: &PacSource, _url: &str) -> Result<Option<String>, NoScript> {
 
 #[cfg(windows)]
 fn ask(source: &PacSource, url: &str) -> Result<Option<String>, NoScript> {
-    let agent = wide("Pullbay");
+    let agent = wide("UDM");
     // SAFETY: plain calls with valid strings; the session is closed below.
     let session = unsafe { WinHttpOpen(agent.as_ptr(), WINHTTP_ACCESS_TYPE_NO_PROXY, ptr::null(), ptr::null(), 0) };
     if session.is_null() {
@@ -307,7 +307,7 @@ pub fn proxy_for(source: &PacSource, url: &str) -> Result<Option<String>, NoScri
             }
         }
     }
-    let key = (source.clone(), pullbay_domain::site::host_of(url));
+    let key = (source.clone(), udm_domain::site::host_of(url));
     if let Some((answer, at)) = CACHE.lock_or_recover().get_or_insert_with(HashMap::new).get(&key) {
         if at.elapsed() < CACHE_FOR {
             return answer.clone();

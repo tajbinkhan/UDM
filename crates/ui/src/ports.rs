@@ -3,20 +3,20 @@
 //! theme files.
 //!
 //! `main` installs them once, before the window opens, with the adapters
-//! from `pullbay_infrastructure`. Views read them through [`ports`]. This is a
+//! from `udm_infrastructure`. Views read them through [`ports`]. This is a
 //! step on the way to #199, where views get what they need through
 //! `AppState` instead.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use pullbay_application::window::{
+use udm_application::window::{
     BrowserRegistry, FilePicker, GrabLibrary, ListFiles, SettingsChecks, SystemServices, ThemeFiles, WindowFiles,
 };
-use pullbay_domain::ports::{
+use udm_domain::ports::{
     Clock, DownloadFiles, FileHashes, FileOpener, GrabDownloads, ProblemReports, SaveFolders, Timestamps,
 };
-use pullbay_domain::queue::Moment;
+use udm_domain::queue::Moment;
 
 /// What the views reach through ports.
 pub struct Ports {
@@ -26,7 +26,7 @@ pub struct Ports {
     pub times: Arc<dyn Timestamps>,
     /// The system's Downloads folder.
     pub folders: Arc<dyn SaveFolders>,
-    /// Whether Pullbay may write to a folder.
+    /// Whether UDM may write to a folder.
     pub files: Arc<dyn DownloadFiles>,
     /// Opening and showing files.
     pub opener: Arc<dyn FileOpener>,
@@ -46,7 +46,7 @@ pub struct Ports {
     /// The operating system: its proxy, wake timers, sounds and
     /// credential store.
     pub system: Arc<dyn SystemServices>,
-    /// Registering Pullbay with the browsers.
+    /// Registering UDM with the browsers.
     pub browsers: Arc<dyn BrowserRegistry>,
     /// The system's file and folder dialogs, called on workers.
     pub pickers: Arc<dyn FilePicker>,
@@ -73,7 +73,7 @@ impl Ports {
         self.folders.downloads_dir()
     }
 
-    /// Whether Pullbay may write to `folder` without administrator rights.
+    /// Whether UDM may write to `folder` without administrator rights.
     pub fn can_write(&self, folder: &Path) -> bool {
         self.files.can_write(folder)
     }
@@ -106,16 +106,16 @@ pub fn ports() -> &'static Ports {
 #[cfg(test)]
 mod fakes {
     use super::*;
-    use pullbay_application::window::{
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use udm_application::window::{
         BrowserSlot, FileKind, IdentifiedBrowser, ListError, ListFormat, SystemFonts, SystemProxy,
     };
-    use pullbay_domain::checksum::Algorithm;
-    use pullbay_domain::download::{Download, DownloadEntry};
-    use pullbay_domain::grab::{GrabFile, GrabRequest};
-    use pullbay_domain::ports::{FilesError, HashError, SettingsError};
-    use pullbay_domain::report::{Program, Report, SavedReport, ThisCopy};
-    use pullbay_domain::settings::{Settings, Sound};
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use udm_domain::checksum::Algorithm;
+    use udm_domain::download::{Download, DownloadEntry};
+    use udm_domain::grab::{GrabFile, GrabRequest};
+    use udm_domain::ports::{FilesError, HashError, SettingsError};
+    use udm_domain::report::{Program, Report, SavedReport, ThisCopy};
+    use udm_domain::settings::{Settings, Sound};
 
     struct Utc;
 
@@ -140,7 +140,7 @@ mod fakes {
 
     impl SaveFolders for Temp {
         fn downloads_dir(&self) -> PathBuf {
-            std::env::temp_dir().join("pullbay-test-downloads")
+            std::env::temp_dir().join("udm-test-downloads")
         }
     }
 
@@ -221,10 +221,7 @@ mod fakes {
         fn fonts(&self) -> SystemFonts {
             SystemFonts::default()
         }
-        fn script_font(
-            &self,
-            _: pullbay_application::window::ScriptFont,
-        ) -> Option<pullbay_application::window::FontFile> {
+        fn script_font(&self, _: udm_application::window::ScriptFont) -> Option<udm_application::window::FontFile> {
             None
         }
         fn fixed_proxy(&self) -> Option<SystemProxy> {
@@ -249,7 +246,7 @@ mod fakes {
         fn save_credential(&self, _: &str, _: &str, _: &str) -> Result<(), FilesError> {
             Ok(())
         }
-        fn contrast(&self) -> Option<pullbay_domain::theme::SystemContrast> {
+        fn contrast(&self) -> Option<udm_domain::theme::SystemContrast> {
             None
         }
     }
@@ -258,7 +255,7 @@ mod fakes {
         fn open_folder(&self) -> Result<PathBuf, FilesError> {
             Err(FilesError("no themes folder in tests".into()))
         }
-        fn read(&self) -> Vec<pullbay_application::window::ThemeFile> {
+        fn read(&self) -> Vec<udm_application::window::ThemeFile> {
             Vec::new()
         }
     }

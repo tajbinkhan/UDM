@@ -1,6 +1,6 @@
-# Builds Pullbay's installers for every system and attaches them to a GitHub
+# Builds UDM's installers for every system and attaches them to a GitHub
 # Release. Release files don't count against the repository's storage, and
-# Pullbay's own update check reads the latest release.
+# UDM's own update check reads the latest release.
 #
 # To release: set the version in Cargo.toml, write the notes in
 # release-notes/v<version>.md (start from release-notes/TEMPLATE.md), commit,
@@ -61,13 +61,22 @@ jobs:
         shell: pwsh
         run: .\installer\build.ps1 -SkipBuild
 
+      # Pullbay 0.4's Update now only takes a Setup named Pullbay-Setup-*.exe.
+      # The same Setup under that name lets it update to UDM (installer\udm.iss
+      # takes its /frompullbay=yes).
+      - name: Name a copy of the installer for Pullbay
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          Copy-Item "dist\UDM-Setup-$version.exe" "dist\Pullbay-Setup-$version.exe"
+
       - name: Make the portable zip
         shell: pwsh
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
-          $out = "dist\portable\Pullbay"
+          $out = "dist\portable\UDM"
           New-Item -ItemType Directory -Force "$out\target\release" | Out-Null
-          Copy-Item target\release\pullbay-host.exe, target\release\pullbay-daemon.exe, target\release\pullbay-gui.exe, target\release\pullbay-cli.exe, target\release\pullbay-mcp.exe "$out\target\release"
+          Copy-Item target\release\udm-host.exe, target\release\udm-daemon.exe, target\release\udm-gui.exe, target\release\udm-cli.exe, target\release\udm-mcp.exe "$out\target\release"
           Copy-Item -Recurse extension, host "$out"
           Copy-Item install-host.ps1, README.md "$out"
           # The marker makes the zip a portable copy (docs/portable.md).
@@ -76,7 +85,7 @@ jobs:
           Copy-Item installer\make-firefox.ps1 "$out\installer"
           Remove-Item -Recurse -Force "$out\extension\test"
           .\installer\make-firefox.ps1 -Out "$out\firefox"
-          Compress-Archive -Path $out -DestinationPath "dist\Pullbay-$version-windows-portable.zip"
+          Compress-Archive -Path $out -DestinationPath "dist\UDM-$version-windows-portable.zip"
           Remove-Item -Recurse -Force dist\portable
 
       - uses: actions/upload-artifact@v5
@@ -151,7 +160,7 @@ jobs:
           if-no-files-found: error
 
   # The server image (Dockerfile, docs/server.md), pushed to GitHub
-  # Container Registry as ghcr.io/<owner>/pullbay with the version's tags and
+  # Container Registry as ghcr.io/<owner>/udm with the version's tags and
   # latest. It waits for the installers so a release that fails to build
   # publishes no image; started by hand, it is built but not pushed. Only
   # linux/amd64: an arm64 build under emulation takes too long here.
@@ -184,7 +193,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository_owner }}/udm
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -234,5 +243,5 @@ jobs:
           fi
           gh release create "$TAG" dist/* \
             --repo "${{ github.repository }}" \
-            --title "Pullbay $TAG" \
+            --title "UDM $TAG" \
             "$@"

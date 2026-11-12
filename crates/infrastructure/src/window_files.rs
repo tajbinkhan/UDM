@@ -2,14 +2,14 @@
 //! folder (`paths::window_dir`) and are written atomically, in order, by
 //! one writer thread.
 
-use pullbay_domain::sync::LockExt;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Mutex, MutexGuard};
 use std::thread;
+use udm_domain::sync::LockExt;
 
-use pullbay_application::window::WindowFiles;
 use tracing::warn;
+use udm_application::window::WindowFiles;
 
 /// A save for the writer thread: the file and its new contents.
 type Write = (PathBuf, Vec<u8>);
@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn a_save_is_read_back_and_the_later_one_wins() {
-        let dir = std::env::temp_dir().join(format!("pullbay_window_files_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_window_files_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let files = WindowDir::at(Some(dir.clone()));
         assert_eq!(files.read("window.json"), None);

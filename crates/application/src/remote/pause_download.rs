@@ -1,11 +1,11 @@
-use pullbay_domain::download::Status;
-use pullbay_domain::id::DownloadId;
+use udm_domain::download::Status;
+use udm_domain::id::DownloadId;
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient, Event};
 
 /// Stop a running download, keeping its partial file so it resumes later,
-/// or every one: `pullbay-cli pause`.
+/// or every one: `udm-cli pause`.
 pub struct PauseDownload<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
 }
@@ -58,8 +58,8 @@ fn stopped(event: &Event, id: DownloadId) -> bool {
 mod tests {
     use super::*;
     use crate::memory::{row, FakeDaemon};
-    use pullbay_domain::queue::Queue;
     use std::time::Duration;
+    use udm_domain::queue::Queue;
 
     fn session_on(daemon: &FakeDaemon) -> Session<'_, FakeDaemon> {
         Session::open(daemon, Duration::from_secs(5)).unwrap()

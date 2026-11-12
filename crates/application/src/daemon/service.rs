@@ -1,6 +1,6 @@
 //! The daemon as a service: what it does with each client's command, its
 //! scheduler pass, and its notification thread's work, through the ports
-//! of `domain` and this crate. `pullbay-daemon` wires adapters in through
+//! of `domain` and this crate. `udm-daemon` wires adapters in through
 //! [`Wiring`], runs the server and the background threads, and hands each
 //! command to [`Served`].
 //!
@@ -8,11 +8,6 @@
 //! update check) runs on a thread of its own, and answers on the client's
 //! [`Reply`].
 
-use pullbay_domain::address::Link;
-use pullbay_domain::id::{DownloadId, PackageId, QueueId};
-use pullbay_domain::package::{Packaging, Password, Unpack};
-use pullbay_domain::seat::Seat;
-use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -20,24 +15,29 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
+use udm_domain::address::Link;
+use udm_domain::id::{DownloadId, PackageId, QueueId};
+use udm_domain::package::{Packaging, Password, Unpack};
+use udm_domain::seat::Seat;
+use udm_domain::sync::LockExt;
 
-use pullbay_domain::download::{
+use tracing::{info, warn};
+use udm_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, DuplicateStep, OnDone, Properties, Scan, Status, ZipEntry,
 };
-use pullbay_domain::grab::{self, GrabRequest, RenderedPage};
-use pullbay_domain::ports::{
+use udm_domain::grab::{self, GrabRequest, RenderedPage};
+use udm_domain::ports::{
     Answers, Attention, Browser, Clock, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
     EarlyStarts, FileHashes, FileOpener, GrabDownloads, GrabProjects, GrabRuns, LimitLift, Notifications, PackageStore,
     PausedDownloads, PowerControl, Probes, ProxyFallback, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState,
     ReleaseSource, RemoteListener, SaveFolders, SettingsStore, SiteCrawler, SyncChecks, Timestamps, ToolFolder,
     ToolReleases, TransferEngine, Unpacker, UpdateChecks, UserIdle, VirusScanner,
 };
-use pullbay_domain::queue::{
+use udm_domain::queue::{
     self, PowerRequest, PowerStep, Queue, ScheduleStep, StopReason, WhenDone, COUNTDOWN_SECS, MAIN_QUEUE,
 };
-use pullbay_domain::quota::QuotaLimit;
-use pullbay_domain::settings::{Duplicate, Settings};
-use tracing::{info, warn};
+use udm_domain::quota::QuotaLimit;
+use udm_domain::settings::{Duplicate, Settings};
 
 use super::{ClientId, ClientList, Command, Countdowns, DownloadFeed, Event, Failure, Reply, Requests};
 use crate::downloads::{
@@ -57,28 +57,28 @@ use crate::queues::{
 use crate::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use crate::tools::{InstallTool, ListTools, UpdateYtDlp};
 use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
-use pullbay_domain::media::Playlist;
-use pullbay_domain::pairing::{PairingError, PairingOffer, RemoteState};
-use pullbay_domain::tools::{Platform, Tool, ToolError, ToolState};
+use udm_domain::media::Playlist;
+use udm_domain::pairing::{PairingError, PairingOffer, RemoteState};
+use udm_domain::tools::{Platform, Tool, ToolError, ToolState};
 
 /// Why the daemon refused a client's command. Clients hear it as a
 /// [`Failure`], kind and values, so the window can translate it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ServiceError {
     #[error(transparent)]
-    Queue(#[from] pullbay_domain::queue::QueueError),
+    Queue(#[from] udm_domain::queue::QueueError),
     #[error(transparent)]
-    Download(#[from] pullbay_domain::download::DownloadError),
+    Download(#[from] udm_domain::download::DownloadError),
     #[error(transparent)]
     Confirm(#[from] crate::downloads::ConfirmError),
     #[error(transparent)]
-    Update(#[from] pullbay_domain::update::UpdateError),
+    Update(#[from] udm_domain::update::UpdateError),
     #[error(transparent)]
     Grab(#[from] grab::InvalidGrab),
     #[error(transparent)]
-    Tool(#[from] pullbay_domain::tools::ToolError),
+    Tool(#[from] udm_domain::tools::ToolError),
     #[error(transparent)]
-    Gallery(#[from] pullbay_domain::gallery::GalleryError),
+    Gallery(#[from] udm_domain::gallery::GalleryError),
     #[error("A site crawl is already running.")]
     CrawlRunning,
     /// The address of a download whose form body cannot be sent.
@@ -89,7 +89,7 @@ pub enum ServiceError {
     NotDownloadAddress(String),
     /// Pairing a phone or removing one failed.
     #[error(transparent)]
-    Pairing(#[from] pullbay_domain::pairing::PairingError),
+    Pairing(#[from] udm_domain::pairing::PairingError),
     #[error("There is no package {0}.")]
     NoPackage(PackageId),
     #[error("The package is being unpacked already.")]
@@ -114,7 +114,7 @@ const FAILED_GRACE: Duration = Duration::from_secs(1);
 /// The `client` a desktop window names in its `hello`.
 const WINDOW_CLIENT: &str = "window";
 
-/// How long a command line waits for the window its `pullbay-gui` opens. One
+/// How long a command line waits for the window its `udm-gui` opens. One
 /// older than this belonged to a window that never connected.
 pub const COMMAND_LINE_WAIT: Duration = Duration::from_secs(60);
 
@@ -225,7 +225,7 @@ pub struct Parts<W: Wiring> {
     pub crawler: Arc<dyn SiteCrawler>,
     /// Where yt-dlp's and ffmpeg's releases come from.
     pub tool_releases: Arc<dyn ToolReleases>,
-    /// Pullbay's folder of installed tools.
+    /// UDM's folder of installed tools.
     pub tool_folder: Arc<dyn ToolFolder>,
     /// The system the tools are installed for.
     pub platform: Platform,
@@ -281,7 +281,7 @@ pub struct DaemonService<W: Wiring> {
     pub crawler: Arc<dyn SiteCrawler>,
     /// Where yt-dlp's and ffmpeg's releases come from.
     pub tool_releases: Arc<dyn ToolReleases>,
-    /// Pullbay's folder of installed tools.
+    /// UDM's folder of installed tools.
     pub tool_folder: Arc<dyn ToolFolder>,
     /// The system the tools are installed for.
     pub platform: Platform,
@@ -311,7 +311,7 @@ pub struct DaemonService<W: Wiring> {
     pub link_probes: Mutex<HashMap<ClientId, Arc<AtomicBool>>>,
     /// Links from a page, held for the window that is being opened.
     pub picked_links: Mutex<Option<Event>>,
-    /// A command line held for the window its `pullbay-gui` is opening, and
+    /// A command line held for the window its `udm-gui` is opening, and
     /// when it came.
     pub command_line: Mutex<Option<(CommandLine, Instant)>>,
     /// Grabber projects whose scheduled run is going on, by name.
@@ -323,7 +323,7 @@ pub struct DaemonService<W: Wiring> {
     /// When "Keep yt-dlp up to date" was last looked at.
     tools_checked: Mutex<Option<Instant>>,
     /// The galleries being read, and the pages lately read that held none.
-    gallery_reads: Arc<Mutex<pullbay_domain::gallery::GalleryReads>>,
+    gallery_reads: Arc<Mutex<udm_domain::gallery::GalleryReads>>,
 }
 
 impl<W: Wiring> DaemonService<W> {
@@ -395,15 +395,15 @@ impl<W: Wiring> DaemonService<W> {
         &self,
         id: QueueId,
         f: impl FnOnce(&mut Queue) -> T,
-    ) -> Result<T, pullbay_domain::queue::QueueError> {
+    ) -> Result<T, udm_domain::queue::QueueError> {
         let result = self.store.edit(|queues| {
-            queues.iter_mut().find(|q| q.id == id).map(f).ok_or(pullbay_domain::queue::QueueError::NoQueue(id))
+            queues.iter_mut().find(|q| q.id == id).map(f).ok_or(udm_domain::queue::QueueError::NoQueue(id))
         })?;
         self.store.queues_changed();
         Ok(result)
     }
 
-    /// Whether Pullbay can send `download`'s request: its address must be
+    /// Whether UDM can send `download`'s request: its address must be
     /// http, https or ftp, as the command line's must, and a form body must
     /// be readable.
     fn check_download(&self, download: &Download) -> Result<(), ServiceError> {
@@ -421,7 +421,7 @@ impl<W: Wiring> DaemonService<W> {
         self.transfers.settings()
     }
 
-    /// What happens once at start: the queues set to start with Pullbay
+    /// What happens once at start: the queues set to start with UDM
     /// start, and with "resume at startup", every interrupted download
     /// goes again.
     pub fn start_up(&self) {
@@ -635,7 +635,7 @@ impl<W: Wiring> DaemonService<W> {
         UngroupPackage::new(&*self.store).run(id).map_err(ServiceError::from)
     }
 
-    /// Do what `pullbay-gui`'s command line asked. `/q` counts only when that
+    /// Do what `udm-gui`'s command line asked. `/q` counts only when that
     /// call opened the window (`started`), as in IDM, where it works only
     /// for the first copy. Problems go to the windows, since the caller may
     /// be gone.
@@ -904,8 +904,8 @@ impl<W: Wiring> DaemonService<W> {
         if download.start == Some(false) || (download.start.is_none() && settings.add_only) {
             return self.add_later(download);
         }
-        let name = pullbay_domain::filename::proposed_name(download.url.as_str(), download.filename.as_deref());
-        // A folder Pullbay may not write to asks first, so the dialog can offer
+        let name = udm_domain::filename::proposed_name(download.url.as_str(), download.filename.as_deref());
+        // A folder UDM may not write to asks first, so the dialog can offer
         // administrator rights or another folder.
         let folder = match download.folder.as_deref().map(Path::new).filter(|f| f.is_absolute()) {
             Some(f) => f.to_path_buf(),
@@ -927,7 +927,7 @@ impl<W: Wiring> DaemonService<W> {
         if !download.may_be_duplicate() {
             return None;
         }
-        self.store.find_last(|e| pullbay_domain::download::same_address(&e.url, &download.url))
+        self.store.find_last(|e| udm_domain::download::same_address(&e.url, &download.url))
     }
 
     /// Apply `choice` to `download`, whose address download `old` already
@@ -997,7 +997,7 @@ impl<W: Wiring> DaemonService<W> {
         keep.prepare(&mut items, packaging);
         let names: Vec<String> = items
             .iter()
-            .map(|d| pullbay_domain::filename::proposed_name(d.url.as_str(), d.filename.as_deref()).into_string())
+            .map(|d| udm_domain::filename::proposed_name(d.url.as_str(), d.filename.as_deref()).into_string())
             .collect();
         let choice = self.settings_now().if_duplicate;
         let added = AddMany::new(&*self.store, &*self.store, &*self.transfers, &*self.files, &self.intake)
@@ -1303,7 +1303,7 @@ impl<W: Wiring> DaemonService<W> {
     pub fn convert(
         self: &Arc<Self>,
         id: DownloadId,
-        to: pullbay_domain::media::Target,
+        to: udm_domain::media::Target,
         delete_original: bool,
     ) -> Result<(), ServiceError> {
         let output =
@@ -1359,7 +1359,7 @@ impl<W: Wiring> DaemonService<W> {
             reply.send(Event::ZipPreview { id, entries, error });
         };
         let Some(entry) = entry else {
-            return answer(Vec::new(), Some(pullbay_domain::download::DownloadError::NoDownload(id).into()));
+            return answer(Vec::new(), Some(udm_domain::download::DownloadError::NoDownload(id).into()));
         };
         let download = download.unwrap_or_else(|| Download { url: entry.url.clone(), ..Download::default() });
         let probes = Arc::clone(&self.probes);
@@ -1527,7 +1527,7 @@ impl<W: Wiring> DaemonService<W> {
         id: DownloadId,
         download: Option<Download>,
         restart: bool,
-    ) -> Result<Option<pullbay_domain::download::Mismatch>, ServiceError> {
+    ) -> Result<Option<udm_domain::download::Mismatch>, ServiceError> {
         match RefreshLink::new(&*self.store, &*self.store, &*self.transfers).run(id, download, restart)? {
             Refreshed::Waiting => Ok(None),
             Refreshed::Mismatch(reason) => Ok(Some(reason)),
@@ -1576,7 +1576,7 @@ impl<W: Wiring> DaemonService<W> {
     /// The settings as they are, with only the video button's fields taken
     /// from `asked`. The browser extension changes nothing else, and only
     /// the window changes settings at large: a browser connection, from an
-    /// extension that is not Pullbay's or a bug in it, must not point the virus
+    /// extension that is not UDM's or a bug in it, must not point the virus
     /// scanner, ffmpeg, folders or proxy somewhere else.
     pub fn with_video_button(&self, asked: &Settings) -> Settings {
         let mut settings = self.settings_now();
@@ -1709,14 +1709,14 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 if let Some(links) = lock(&daemon.picked_links).take() {
                     send(links);
                 }
-                // The command line of the `pullbay-gui` that opened this window.
+                // The command line of the `udm-gui` that opened this window.
                 let held = lock(&daemon.command_line).take();
                 if let Some((cmd, _)) = held.filter(|(_, at)| at.elapsed() < COMMAND_LINE_WAIT) {
                     daemon.run_command_line(cmd, true);
                 }
             }
             send(Event::Hello {
-                name: "pullbay-daemon".to_string(),
+                name: "udm-daemon".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 api: Some(super::AUTOMATION_API),
             })
@@ -1725,7 +1725,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::CommandLine(cmd) => {
             let window_open = daemon.clients.window_open();
             if window_open && cmd.is_empty() {
-                // Starting Pullbay again brings the open window forward, as in
+                // Starting UDM again brings the open window forward, as in
                 // IDM, instead of opening a second one.
                 daemon.clients.to_windows(Event::Show);
             } else if window_open {
@@ -1865,8 +1865,8 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         }
         Command::CancelRefresh => daemon.transfers.wait_for_link(None),
         Command::PickLinks { page, mut links, user_agent } => {
-            links.retain(|l| pullbay_domain::batch::is_web_url(&l.url));
-            links.truncate(pullbay_domain::batch::MAX_BATCH);
+            links.retain(|l| udm_domain::batch::is_web_url(&l.url));
+            links.truncate(udm_domain::batch::MAX_BATCH);
             info!(links = links.len(), page = %page, "links to pick from");
             let msg = Event::PickLinks { page, links, user_agent };
             if daemon.clients.window_open() {
@@ -1894,7 +1894,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         }
         Command::PickGallery { page, user_agent } => {
             let page: String = page.trim().chars().take(2000).collect();
-            if !pullbay_domain::batch::is_web_url(&page) {
+            if !udm_domain::batch::is_web_url(&page) {
                 return;
             }
             info!(page = %page, "gallery to pick from");
@@ -1998,8 +1998,8 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::download::DownloadError;
-    use pullbay_domain::queue::QueueError;
+    use udm_domain::download::DownloadError;
+    use udm_domain::queue::QueueError;
 
     /// Clients hear the same words as before the errors were typed.
     #[test]

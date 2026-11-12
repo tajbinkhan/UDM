@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "Отправляет загрузки из браузера в диспетчер загрузок Pullbay."
+    "message": "Отправляет загрузки из браузера в диспетчер загрузок UDM."
   },
-  "downloadWithPullbay": {
-    "message": "Загрузить с помощью Pullbay"
+  "downloadWithUdm": {
+    "message": "Загрузить с помощью UDM"
   },
-  "downloadLaterWithPullbay": {
-    "message": "Загрузить позже с помощью Pullbay"
+  "downloadLaterWithUdm": {
+    "message": "Загрузить позже с помощью UDM"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "Скачать галерею с помощью Pullbay"
+  "downloadGalleryWithUdm": {
+    "message": "Скачать галерею с помощью UDM"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "Загрузить все ссылки с помощью Pullbay"
+  "downloadAllLinksWithUdm": {
+    "message": "Загрузить все ссылки с помощью UDM"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "Загрузить выделенные ссылки с помощью Pullbay"
+  "downloadSelectedLinksWithUdm": {
+    "message": "Загрузить выделенные ссылки с помощью UDM"
   },
-  "pullbayDisconnected": {
-    "message": "Pullbay отключён"
+  "udmDisconnected": {
+    "message": "UDM отключён"
   },
   "captureDownloads": {
     "message": "Перехватывать загрузки"
   },
   "captureDownloadsTitle": {
-    "message": "Отправлять в Pullbay загрузки, начатые в браузере"
+    "message": "Отправлять в UDM загрузки, начатые в браузере"
   },
   "captureInTab": {
     "message": "Перехват на этой вкладке"
@@ -36,16 +36,16 @@
     "message": "Выключен на этой вкладке"
   },
   "statusConnected": {
-    "message": "Подключено. Загрузки, начатые в браузере, передаются в Pullbay."
+    "message": "Подключено. Загрузки, начатые в браузере, передаются в UDM."
   },
   "statusConnectedCaptureOff": {
     "message": "Подключено. Перехват выключен, поэтому браузер загружает сам."
   },
   "statusNotConnected": {
-    "message": "Нет подключения к Pullbay. Загрузки остаются в браузере."
+    "message": "Нет подключения к UDM. Загрузки остаются в браузере."
   },
   "statusNotConnectedReason": {
-    "message": "Нет подключения к Pullbay: $REASON$. Загрузки остаются в браузере.",
+    "message": "Нет подключения к UDM: $REASON$. Загрузки остаются в браузере.",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "Все ссылки на этой странице"
   },
   "allLinksTitle": {
-    "message": "Показать ссылки этой страницы в Pullbay, чтобы выбрать, какие загрузить"
+    "message": "Показать ссылки этой страницы в UDM, чтобы выбрать, какие загрузить"
   },
   "videoButton": {
     "message": "Кнопка видео"
@@ -117,7 +117,7 @@
     "message": "Прервано"
   },
   "stateConfirming": {
-    "message": "Ожидает вашего ответа в Pullbay"
+    "message": "Ожидает вашего ответа в UDM"
   },
   "stateWaiting": {
     "message": "Ожидает запуска"
@@ -190,22 +190,22 @@
     "message": "Субтитры:"
   },
   "videoProtected": {
-    "message": "Это видео защищено DRM, поэтому Pullbay не будет его загружать."
+    "message": "Это видео защищено DRM, поэтому UDM не будет его загружать."
   },
   "streamProtected": {
-    "message": "Защищено DRM; Pullbay не будет это загружать."
+    "message": "Защищено DRM; UDM не будет это загружать."
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay не запущен или не подключён."
+  "udmNotConnected": {
+    "message": "UDM не запущен или не подключён."
   },
   "noVideoFound": {
     "message": "Видео пока не найдено. Дайте ему немного воспроизвестись и повторите попытку."
   },
-  "sentToPullbay": {
-    "message": "Отправлено в Pullbay."
+  "sentToUdm": {
+    "message": "Отправлено в UDM."
   },
-  "couldNotReachPullbay": {
-    "message": "Не удалось связаться с Pullbay."
+  "couldNotReachUdm": {
+    "message": "Не удалось связаться с UDM."
   },
   "hlsStream": {
     "message": "Поток HLS"
@@ -229,7 +229,7 @@
     "message": "Видео Vimeo"
   },
   "mediaNoAnswer": {
-    "message": "Pullbay не ответил."
+    "message": "UDM не ответил."
   },
   "soundOnly": {
     "message": "Только звук ($FORMAT$)",
@@ -256,16 +256,16 @@
     "message": "Аудио"
   },
   "takeoverFailed": {
-    "message": "Pullbay не удалось перехватить загрузку"
+    "message": "UDM не удалось перехватить загрузку"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay не запущен или не подключён, поэтому $FILE$ загружает браузер.",
+    "message": "UDM не запущен или не подключён, поэтому $FILE$ загружает браузер.",
     "placeholders": {
       "file": { "content": "$1" }
     }
   },
   "takeoverError": {
-    "message": "Pullbay не удалось запустить $FILE$ ($REASON$), поэтому файл загружает браузер.",
+    "message": "UDM не удалось запустить $FILE$ ($REASON$), поэтому файл загружает браузер.",
     "placeholders": {
       "file": { "content": "$1" },
       "reason": { "content": "$2" }
@@ -278,13 +278,13 @@
     "message": "Щёлкните это уведомление, чтобы больше не показывать такие уведомления."
   },
   "downloadLastVideo": {
-    "message": "Загрузить последнее видео с помощью Pullbay"
+    "message": "Загрузить последнее видео с помощью UDM"
   },
   "recentVideos": {
-    "message": "Недавние видео (Pullbay)"
+    "message": "Недавние видео (UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "Загрузить страницу с помощью Pullbay"
+  "downloadPageWithUdm": {
+    "message": "Загрузить страницу с помощью UDM"
   },
   "noLinksFound": {
     "message": "На этой странице не найдено ссылок."
@@ -293,13 +293,13 @@
     "message": "В выделенном фрагменте не найдено ссылок."
   },
   "linksUnreadable": {
-    "message": "Браузер не позволяет Pullbay прочитать ссылки этой страницы."
+    "message": "Браузер не позволяет UDM прочитать ссылки этой страницы."
   },
-  "cannotReachPullbay": {
-    "message": "Не удаётся связаться с Pullbay. Он запущен?"
+  "cannotReachUdm": {
+    "message": "Не удаётся связаться с UDM. Он запущен?"
   },
-  "cannotReachPullbayReason": {
-    "message": "Не удаётся связаться с Pullbay ($REASON$).",
+  "cannotReachUdmReason": {
+    "message": "Не удаётся связаться с UDM ($REASON$).",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -310,8 +310,8 @@
   "browserDownloadsHeading": {
     "message": "Загружается в браузере"
   },
-  "sendToPullbay": {
-    "message": "Отправить в Pullbay"
+  "sendToUdm": {
+    "message": "Отправить в UDM"
   },
   "pageVideo": {
     "message": "Видео на этой странице"
@@ -336,6 +336,6 @@
     }
   },
   "chooseVideos": {
-    "message": "Выбрать видео в Pullbay..."
+    "message": "Выбрать видео в UDM..."
   }
 }

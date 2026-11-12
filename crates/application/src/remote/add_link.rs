@@ -1,9 +1,9 @@
-use pullbay_domain::address::{Address, Link};
-use pullbay_domain::download::Download;
-use pullbay_domain::filename::FileName;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::queue::{self, Queue};
-use pullbay_domain::settings::Duplicate;
+use udm_domain::address::{Address, Link};
+use udm_domain::download::Download;
+use udm_domain::filename::FileName;
+use udm_domain::id::DownloadId;
+use udm_domain::queue::{self, Queue};
+use udm_domain::settings::Duplicate;
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient, Event};
@@ -29,9 +29,9 @@ impl AddRequest {
     }
 
     /// The download the daemon is asked for. It shows no save-as dialog,
-    /// whatever the settings say (a folder Pullbay cannot write to still
+    /// whatever the settings say (a folder UDM cannot write to still
     /// asks), and an address already in the list is added again under a new
-    /// name, as `pullbay-cli get` does: nobody is at the window to answer.
+    /// name, as `udm-cli get` does: nobody is at the window to answer.
     fn download(&self, queue: Option<&Queue>) -> Download {
         Download {
             url: Link::from(self.url.clone()),
@@ -55,7 +55,7 @@ pub struct Added {
 }
 
 /// Add a link to the list, starting it now or leaving it to wait in a
-/// queue, and return once the daemon has taken it: `pullbay-mcp`'s
+/// queue, and return once the daemon has taken it: `udm-mcp`'s
 /// `add_download`. Unlike `GetFile`, it does not follow the download.
 pub struct AddLink<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
@@ -91,9 +91,9 @@ mod tests {
     use super::*;
     use crate::daemon::Failure;
     use crate::memory::FakeDaemon;
-    use pullbay_domain::id::QueueId;
-    use pullbay_domain::queue::MAIN_QUEUE;
     use std::time::Duration;
+    use udm_domain::id::QueueId;
+    use udm_domain::queue::MAIN_QUEUE;
 
     const URL: &str = "https://dl.example/a.iso";
 

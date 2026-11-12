@@ -1,8 +1,8 @@
-use pullbay_domain::ports::ToolFolder;
-use pullbay_domain::tools::{self, Platform, Tool, ToolState};
+use udm_domain::ports::ToolFolder;
+use udm_domain::tools::{self, Platform, Tool, ToolState};
 
 /// What Options shows about yt-dlp and ffmpeg: where each is found, the
-/// release Pullbay installed, and whether Pullbay can install it here.
+/// release UDM installed, and whether UDM can install it here.
 pub struct ListTools<'a, F: ?Sized> {
     folder: &'a F,
     platform: Platform,
@@ -31,7 +31,7 @@ impl<'a, F: ToolFolder + ?Sized> ListTools<'a, F> {
 mod tests {
     use super::*;
     use crate::memory::ToolShelf;
-    use pullbay_domain::tools::{Cpu, InstalledTool, System};
+    use udm_domain::tools::{Cpu, InstalledTool, System};
 
     #[test]
     fn each_tool_says_where_it_is_and_what_installs_it() {

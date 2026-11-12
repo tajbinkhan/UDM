@@ -1,4 +1,4 @@
-//! Newer Pullbay releases: looking for one, by hand or once a week, and
+//! Newer UDM releases: looking for one, by hand or once a week, and
 //! installing it.
 
 mod check_for_update;

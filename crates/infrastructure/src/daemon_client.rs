@@ -1,22 +1,22 @@
 //! A client's connection to the daemon: the adapter for
-//! `pullbay_application::daemon::DaemonClient` over `ipc` and `protocol`,
-//! for the desktop window (`new`), for `pullbay-cli` (`program`) and for
-//! `pullbay-mcp` (`assistant`).
+//! `udm_application::daemon::DaemonClient` over `ipc` and `protocol`,
+//! for the desktop window (`new`), for `udm-cli` (`program`) and for
+//! `udm-mcp` (`assistant`).
 //!
 //! It connects (starting or restarting the daemon as `ipc` does, with its
 //! handshake), introduces itself, maps each `Command` to an `Incoming`
 //! frame and each `Outgoing` frame to an `Event`, and says when the
 //! connection goes.
 
-use pullbay_domain::sync::LockExt;
 use std::io::{self, ErrorKind};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
+use udm_domain::sync::LockExt;
 
-use pullbay_application::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
-use pullbay_domain::download::CommandLine;
+use udm_application::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
+use udm_domain::download::CommandLine;
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::ipc;
@@ -65,7 +65,7 @@ impl IpcDaemonClient {
     }
 
     /// A program's connection that stays open between its requests, as
-    /// `pullbay-mcp`'s does: it hears what `program` hears but downloads'
+    /// `udm-mcp`'s does: it hears what `program` hears but downloads'
     /// progress, which nobody follows there and which would pile up unread
     /// between requests.
     pub fn assistant(client: &str) -> Self {
@@ -172,10 +172,10 @@ fn for_window(event: &Event) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_application::daemon::Failure;
-    use pullbay_domain::id::DownloadId;
     use std::net::TcpListener;
     use std::sync::mpsc::{channel, Receiver};
+    use udm_application::daemon::Failure;
+    use udm_domain::id::DownloadId;
 
     /// A pretend daemon on a local port: it hands each accepted
     /// connection to `serve`.
@@ -256,10 +256,10 @@ mod tests {
             for _ in 0..3 {
                 let _ = read(&mut stream);
             }
-            send(&mut stream, &Outgoing::Hello { name: "pullbay".into(), version: "1".into(), api: None });
+            send(&mut stream, &Outgoing::Hello { name: "udm".into(), version: "1".into(), api: None });
             send(&mut stream, &Outgoing::Ack { id: DownloadId::new(2), url: "http://x/f".into(), status: "s".into() });
         });
-        let client = IpcDaemonClient { hears: |_| true, ..IpcDaemonClient::with_connector("pullbay-cli", connector) };
+        let client = IpcDaemonClient { hears: |_| true, ..IpcDaemonClient::with_connector("udm-cli", connector) };
         let rx = events(&client);
         assert_eq!(next(&rx), Event::Connected);
         assert!(matches!(next(&rx), Event::Hello { .. }));
@@ -268,13 +268,13 @@ mod tests {
 
     #[test]
     fn an_assistant_hears_the_replies_but_not_the_progress() {
-        let hears = IpcDaemonClient::assistant("pullbay-mcp").hears;
+        let hears = IpcDaemonClient::assistant("udm-mcp").hears;
         assert!(hears(&Event::Pong));
         assert!(hears(&Event::Ack { id: DownloadId::new(2), url: "http://x/f".into(), status: "s".into() }));
         assert!(!hears(&Event::Progress {
             id: DownloadId::new(2),
             url: "http://x/f".into(),
-            done: pullbay_domain::bytes::ByteCount::new(1),
+            done: udm_domain::bytes::ByteCount::new(1),
             total: None,
             parts: None,
             segments: None,

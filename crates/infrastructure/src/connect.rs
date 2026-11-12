@@ -1,17 +1,17 @@
 //! The proxy and logins a download connects with (`config_for`), from the
 //! settings, the download's own login and the proxy its browser reported.
 
-use pullbay_domain::sync::LockExt;
 use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard};
+use udm_domain::sync::LockExt;
 
-use pullbay_domain::download::Download;
+use udm_domain::download::Download;
 
 use crate::net::{self, Login, NetConfig, ProxyKind, ProxyLogin};
-use pullbay_domain::settings::{ProxyMode, Settings, SocksVersion};
+use udm_domain::settings::{ProxyMode, Settings, SocksVersion};
 
 /// Addresses retried through the browser's proxy after failing through
-/// Pullbay's own proxy setting; they keep using it.
+/// UDM's own proxy setting; they keep using it.
 #[derive(Default)]
 pub struct ProxyRetries(Mutex<HashSet<String>>);
 
@@ -36,7 +36,7 @@ impl ProxyRetries {
 
 /// The proxy and logins for `download`. A download from the browser uses
 /// the browser's proxy when the settings say so: always, or once it failed
-/// through Pullbay's own setting (`retries`).
+/// through UDM's own setting (`retries`).
 pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> NetConfig {
     let browser_wanted =
         s.use_browser_proxy && (!s.browser_proxy_after_errors || retries.contains(download.url.as_str()));
@@ -111,9 +111,7 @@ pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> 
     // its host, even those for one of its folders.
     let host = url::Url::parse(download.url.as_str()).ok().and_then(|u| u.host_str().map(str::to_string));
     if let (Some(l), Some(host)) = (&download.login, host) {
-        logins.retain(|s| {
-            !pullbay_domain::site::site_matches(pullbay_domain::site::split_login_pattern(&s.site).0, &host)
-        });
+        logins.retain(|s| !udm_domain::site::site_matches(udm_domain::site::split_login_pattern(&s.site).0, &host));
         logins.push(Login {
             site: host,
             username: l.username.clone(),
@@ -133,8 +131,8 @@ pub fn config_for(download: &Download, s: &Settings, retries: &ProxyRetries) -> 
     }
 }
 
-impl pullbay_domain::ports::ProxyFallback for ProxyRetries {
-    fn claim_retry(&self, url: pullbay_domain::address::Link) -> bool {
+impl udm_domain::ports::ProxyFallback for ProxyRetries {
+    fn claim_retry(&self, url: udm_domain::address::Link) -> bool {
         self.insert(url.into_string())
     }
 }
@@ -159,11 +157,11 @@ mod tests {
 
     #[test]
     fn the_browsers_whole_proxy_setting_is_used() {
-        use pullbay_domain::download::{BrowserProxy, BrowserProxyMode};
+        use udm_domain::download::{BrowserProxy, BrowserProxyMode};
         let s = Settings {
             use_browser_proxy: true,
             proxy_mode: ProxyMode::Manual,
-            proxy_http: "pullbay:8080".into(),
+            proxy_http: "udm:8080".into(),
             ..Settings::default()
         };
         let through = |setting: Option<BrowserProxy>, s: &Settings| {
@@ -176,7 +174,7 @@ mod tests {
             config_for(&d, s, &ProxyRetries::default()).proxy.and_then(|p| p.proxy_for(d.url.as_str()))
         };
         // The browser connects directly: so does the download, whatever
-        // Pullbay's own setting and the older field say.
+        // UDM's own setting and the older field say.
         let direct = BrowserProxy::default();
         assert_eq!(through(Some(direct.clone()), &s), None);
         let fixed = BrowserProxy {
@@ -190,9 +188,9 @@ mod tests {
         assert_eq!(through(Some(fixed), &s).as_deref(), Some("http://bp:3128"));
         // Older extensions send only the fixed proxy.
         assert_eq!(through(None, &s).as_deref(), Some("http://old:1"));
-        // Without the option, Pullbay's own setting applies.
+        // Without the option, UDM's own setting applies.
         let own = Settings { use_browser_proxy: false, ..s.clone() };
-        assert_eq!(through(Some(direct), &own).as_deref(), Some("http://pullbay:8080"));
+        assert_eq!(through(Some(direct), &own).as_deref(), Some("http://udm:8080"));
     }
 
     #[test]

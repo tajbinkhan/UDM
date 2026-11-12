@@ -1,5 +1,5 @@
 //! Where the daemon runs: beside someone's desktop, or on a server nobody
-//! sits at (`pullbay-daemon --server`, the Docker image). The two differ in
+//! sits at (`udm-daemon --server`, the Docker image). The two differ in
 //! how long the daemon lives and in whether it may put anything on a
 //! screen.
 

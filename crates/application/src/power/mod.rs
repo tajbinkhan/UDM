@@ -1,4 +1,4 @@
-//! What happens when a queue or a download is done: nothing, closing Pullbay,
+//! What happens when a queue or a download is done: nothing, closing UDM,
 //! or a countdown before sleeping, hibernating or shutting down.
 
 mod cancel_countdown;

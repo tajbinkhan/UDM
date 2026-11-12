@@ -2,10 +2,10 @@
 //! the error's kind and values, so the window can say it in the user's
 //! language. Each message reads as the daemon's English text did before.
 
-use pullbay_domain::download::{DownloadError, Mismatch};
-use pullbay_domain::ports::{ProbeError, SettingsError};
-use pullbay_domain::queue::QueueError;
-use pullbay_domain::update::UpdateError;
+use udm_domain::download::{DownloadError, Mismatch};
+use udm_domain::ports::{ProbeError, SettingsError};
+use udm_domain::queue::QueueError;
+use udm_domain::update::UpdateError;
 
 use super::service::ServiceError;
 
@@ -52,14 +52,14 @@ impl From<UpdateError> for Failure {
     }
 }
 
-impl From<pullbay_domain::tools::ToolError> for Failure {
-    fn from(e: pullbay_domain::tools::ToolError) -> Self {
+impl From<udm_domain::tools::ToolError> for Failure {
+    fn from(e: udm_domain::tools::ToolError) -> Self {
         Failure::Service(e.into())
     }
 }
 
-impl From<pullbay_domain::gallery::GalleryError> for Failure {
-    fn from(e: pullbay_domain::gallery::GalleryError) -> Self {
+impl From<udm_domain::gallery::GalleryError> for Failure {
+    fn from(e: udm_domain::gallery::GalleryError) -> Self {
         Failure::Service(e.into())
     }
 }
@@ -73,9 +73,9 @@ impl From<ProbeError> for Failure {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::bytes::ByteCount;
-    use pullbay_domain::id::QueueId;
-    use pullbay_domain::settings::InvalidSettings;
+    use udm_domain::bytes::ByteCount;
+    use udm_domain::id::QueueId;
+    use udm_domain::settings::InvalidSettings;
 
     /// Clients that read only the text hear what they heard before.
     #[test]

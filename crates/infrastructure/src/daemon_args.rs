@@ -1,40 +1,40 @@
-//! `pullbay-daemon`'s command line. A daemon the browser, the window or
-//! `pullbay-cli` starts gets no arguments and runs beside the desktop; a
+//! `udm-daemon`'s command line. A daemon the browser, the window or
+//! `udm-cli` starts gets no arguments and runs beside the desktop; a
 //! server's is started with `--server` by its service manager or container
 //! (`docs/server.md`), and may name its folders here instead of in the
 //! environment (`paths::Folders`).
 //!
 //! ```text
-//! pullbay-daemon
-//! pullbay-daemon --server [--config DIR] [--data DIR] [--downloads DIR]
-//! pullbay-daemon --help | --version
+//! udm-daemon
+//! udm-daemon --server [--config DIR] [--data DIR] [--downloads DIR]
+//! udm-daemon --help | --version
 //! ```
 
 use std::path::{Path, PathBuf};
 
-use pullbay_domain::seat::Seat;
+use udm_domain::seat::Seat;
 
 use crate::paths::Folders;
 
-/// What `pullbay-daemon --help` prints.
+/// What `udm-daemon --help` prints.
 pub const USAGE: &str = "\
-Usage: pullbay-daemon [--server [options]]
+Usage: udm-daemon [--server [options]]
 
-Pullbay's background service, which runs the downloads. The browser, the window and
-pullbay-cli start it without arguments when they need it, and it exits once it has
+UDM's background service, which runs the downloads. The browser, the window and
+udm-cli start it without arguments when they need it, and it exits once it has
 had nothing to do for a minute.
 
   --server           Run on a server or NAS: keep running until stopped, log to
                      standard output, and show no window or notification
-    --config DIR     keep the settings in DIR (or set PULLBAY_CONFIG_DIR)
+    --config DIR     keep the settings in DIR (or set UDM_CONFIG_DIR)
     --data DIR       keep the download list, the token and the keys in DIR
-                     (or set PULLBAY_DATA_DIR)
+                     (or set UDM_DATA_DIR)
     --downloads DIR  download into DIR when the settings name no folder
-                     (or set PULLBAY_DOWNLOADS_DIR)
+                     (or set UDM_DOWNLOADS_DIR)
   --help, --version
 
-Programs that talk to a server's daemon, such as pullbay-cli, find it through the
-same PULLBAY_DATA_DIR. See docs/server.md.";
+Programs that talk to a server's daemon, such as udm-cli, find it through the
+same UDM_DATA_DIR. See docs/server.md.";
 
 /// What the command line asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,7 +57,7 @@ pub enum Invocation {
 /// Why a command line cannot be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UsageError {
-    #[error("{0} is not an option of pullbay-daemon")]
+    #[error("{0} is not an option of udm-daemon")]
     UnknownOption(String),
     #[error("{0} needs a folder after it")]
     NeedsFolder(String),
@@ -122,7 +122,7 @@ mod tests {
     use super::*;
 
     fn run(args: &[&str]) -> Result<Invocation, UsageError> {
-        parse(args, Path::new("/srv/pullbay"))
+        parse(args, Path::new("/srv/udm"))
     }
 
     #[test]
@@ -140,7 +140,7 @@ mod tests {
                 seat: Seat::Server,
                 folders: Folders {
                     config: Some("/config".into()),
-                    data: Some("/srv/pullbay/state".into()),
+                    data: Some("/srv/udm/state".into()),
                     downloads: Some("/downloads".into()),
                 },
             }

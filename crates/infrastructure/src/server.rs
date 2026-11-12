@@ -15,7 +15,6 @@
 //! application's `Requests` port, which the daemon wires in; its answers
 //! come back as `Event`s on a `Reply`, which go out as frames.
 
-use pullbay_domain::sync::LockExt;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::{TcpListener, TcpStream};
@@ -24,10 +23,11 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Instant;
+use udm_domain::sync::LockExt;
 
 use tracing::{info, warn};
 
-use pullbay_application::daemon::{ClientId, ClientList, Event, Failure, Reply, Requests};
+use udm_application::daemon::{ClientId, ClientList, Event, Failure, Reply, Requests};
 
 use crate::app::MAX_MESSAGE_BYTES;
 use crate::front::Windows;
@@ -75,6 +75,8 @@ pub struct Clients {
     ended: Box<dyn Fn(Ended) + Send + Sync>,
     /// Wakes the scheduler when a download ends or a queue changes.
     wake: Box<dyn Fn() + Send + Sync>,
+    /// How many clients have connected so far, for the idle monitor.
+    joined: AtomicU64,
 }
 
 /// Lock `m`. Every lock below guards a map or set changed by single inserts
@@ -95,6 +97,7 @@ impl Clients {
             browser_seen: Mutex::default(),
             ended,
             wake,
+            joined: AtomicU64::new(0),
         }
     }
 
@@ -103,7 +106,15 @@ impl Clients {
     pub fn connect(&self, id: ClientId) -> (Reply, Receiver<Vec<u8>>) {
         let (tx, rx) = channel();
         lock(&self.clients).insert(id, tx.clone());
+        self.joined.fetch_add(1, Ordering::SeqCst);
         (reply_to(tx), rx)
+    }
+
+    /// How many clients have connected so far, gone ones included. The idle
+    /// monitor compares it between its looks, so a client that came and went
+    /// in between still counts as activity.
+    pub fn joined(&self) -> u64 {
+        self.joined.load(Ordering::SeqCst)
     }
 
     /// Whether no client is connected.
@@ -282,7 +293,7 @@ pub fn receive(clients: &Clients, requests: &dyn Requests, client: ClientId, raw
 
 /// A client id no other client of this daemon has had: for each socket the
 /// server accepts, and each connection the remote-control page makes inside
-/// the daemon (`pullbay_application::pairing::LocalClient`).
+/// the daemon (`udm_application::pairing::LocalClient`).
 pub fn next_client() -> ClientId {
     static NEXT_CLIENT: AtomicU64 = AtomicU64::new(1);
     ClientId::new(NEXT_CLIENT.fetch_add(1, Ordering::Relaxed))
@@ -411,7 +422,7 @@ fn denied(why: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_application::daemon::Command;
+    use udm_application::daemon::Command;
 
     struct Echo(Mutex<Vec<u64>>);
 
@@ -457,6 +468,16 @@ mod tests {
         clients.broadcast(Event::Pong);
         assert_eq!(got(&window_frames).len(), 2);
         assert!(matches!(got(&browser_frames)[..], [Outgoing::Pong]));
+    }
+
+    #[test]
+    fn joined_counts_every_client_that_connected_gone_ones_too() {
+        let clients = clients();
+        assert_eq!(clients.joined(), 0);
+        let (_reply, _frames) = clients.connect(ClientId::new(1));
+        clients.client_gone(ClientId::new(1));
+        assert!(clients.is_empty());
+        assert_eq!(clients.joined(), 1, "the idle monitor still sees that a client came");
     }
 
     #[test]

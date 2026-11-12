@@ -8,24 +8,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use pullbay_domain::address::Link;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::checksum::Algorithm;
-use pullbay_domain::download::{CommandLine, Download, DownloadEntry, Status};
-use pullbay_domain::filename::FileName;
-use pullbay_domain::id::{DownloadId, QueueId};
-use pullbay_domain::media::Conversion;
-use pullbay_domain::package::{Package, Password, UnpackError};
-use pullbay_domain::ports::{
+use udm_domain::address::Link;
+use udm_domain::bytes::ByteCount;
+use udm_domain::checksum::Algorithm;
+use udm_domain::download::{CommandLine, Download, DownloadEntry, Status};
+use udm_domain::filename::FileName;
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::media::Conversion;
+use udm_domain::package::{Package, Password, UnpackError};
+use udm_domain::ports::{
     Answers, Attention, Clock, ControlError, Converter, DownloadControl, DownloadFiles, DownloadIntake, DownloadList,
     EarlyStarts, FileHashes, FilesError, HashError, LimitLift, PackageStore, PausedDownloads, PowerControl,
     ProblemReports, QueueFinish, QueueRuns, QueueSounds, QueueStore, QuotaState, ReleaseSource, SettingsError,
     SettingsStore, SyncChecks, UnpackJob, Unpacked, Unpacker, UpdateChecks, UserIdle,
 };
-use pullbay_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
-use pullbay_domain::quota::QuotaNotice;
-use pullbay_domain::settings::Settings;
-use pullbay_domain::update::{Release, SetupAsset, UpdateError};
+use udm_domain::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone, MAIN_QUEUE, MAIN_QUEUE_NAME};
+use udm_domain::quota::QuotaNotice;
+use udm_domain::settings::Settings;
+use udm_domain::update::{Release, SetupAsset, UpdateError};
 
 use crate::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
 
@@ -241,7 +241,7 @@ pub struct Control {
     waiting_for_link: Mutex<Option<DownloadId>>,
     refuse: HashSet<DownloadId>,
     /// What [`DownloadControl::check_partial`] answers.
-    partial_check: Option<Result<Option<pullbay_domain::download::Mismatch>, ControlError>>,
+    partial_check: Option<Result<Option<udm_domain::download::Mismatch>, ControlError>>,
 }
 
 /// One call to [`DownloadControl::restart`].
@@ -295,7 +295,7 @@ impl Control {
     }
 
     /// A control whose partial-file checks answer `answer`.
-    pub fn checking(answer: Result<Option<pullbay_domain::download::Mismatch>, ControlError>) -> Self {
+    pub fn checking(answer: Result<Option<udm_domain::download::Mismatch>, ControlError>) -> Self {
         Control { partial_check: Some(answer), ..Control::default() }
     }
 }
@@ -345,7 +345,7 @@ impl DownloadControl for Control {
         &self,
         _download: &Download,
         _partial: &str,
-    ) -> Result<Option<pullbay_domain::download::Mismatch>, ControlError> {
+    ) -> Result<Option<udm_domain::download::Mismatch>, ControlError> {
         self.partial_check.clone().expect("the test sets what the check answers")
     }
 
@@ -393,7 +393,7 @@ impl Files {
         Files { existing: paths.iter().map(PathBuf::from).collect(), ..Files::default() }
     }
 
-    /// Files where Pullbay may not write into `dir`.
+    /// Files where UDM may not write into `dir`.
     pub fn read_only(dir: &str) -> Self {
         Files { read_only: [PathBuf::from(dir)].into(), ..Files::default() }
     }
@@ -1136,7 +1136,7 @@ impl DaemonClient for FakeDaemon {
 #[derive(Default)]
 pub struct Reports {
     pub refuse: bool,
-    files: Mutex<Vec<(pullbay_domain::report::Report, bool)>>,
+    files: Mutex<Vec<(udm_domain::report::Report, bool)>>,
 }
 
 impl Reports {
@@ -1147,8 +1147,8 @@ impl Reports {
 
     /// Put a report from `program` about `kind` at `at_ms` in the folder,
     /// not yet offered.
-    pub fn add(&self, program: pullbay_domain::report::Program, kind: pullbay_domain::report::Kind, at_ms: u64) {
-        let report = pullbay_domain::report::Report {
+    pub fn add(&self, program: udm_domain::report::Program, kind: udm_domain::report::Kind, at_ms: u64) {
+        let report = udm_domain::report::Report {
             program,
             kind,
             copy: self.this_copy(),
@@ -1164,27 +1164,27 @@ impl Reports {
     }
 
     /// The reports in the folder.
-    pub fn written(&self) -> Vec<pullbay_domain::report::Report> {
+    pub fn written(&self) -> Vec<udm_domain::report::Report> {
         self.files.lock().unwrap().iter().map(|(r, _)| r.clone()).collect()
     }
 
-    fn saved(r: &pullbay_domain::report::Report) -> pullbay_domain::report::SavedReport {
+    fn saved(r: &udm_domain::report::Report) -> udm_domain::report::SavedReport {
         let name = r.file_name();
-        let summary = pullbay_domain::report::Summary::read(&name, &r.to_text()).unwrap();
-        pullbay_domain::report::SavedReport { path: PathBuf::from("/reports").join(name), summary }
+        let summary = udm_domain::report::Summary::read(&name, &r.to_text()).unwrap();
+        udm_domain::report::SavedReport { path: PathBuf::from("/reports").join(name), summary }
     }
 }
 
 impl ProblemReports for Reports {
-    fn this_copy(&self) -> pullbay_domain::report::ThisCopy {
-        pullbay_domain::report::ThisCopy { version: "9.9.9".into(), ..Default::default() }
+    fn this_copy(&self) -> udm_domain::report::ThisCopy {
+        udm_domain::report::ThisCopy { version: "9.9.9".into(), ..Default::default() }
     }
 
-    fn log_tail(&self, program: pullbay_domain::report::Program) -> (String, Vec<String>) {
+    fn log_tail(&self, program: udm_domain::report::Program) -> (String, Vec<String>) {
         (format!("{}.log", program.name()), vec![format!("last {} line", program.name())])
     }
 
-    fn save(&self, report: &pullbay_domain::report::Report) -> Result<pullbay_domain::report::SavedReport, FilesError> {
+    fn save(&self, report: &udm_domain::report::Report) -> Result<udm_domain::report::SavedReport, FilesError> {
         if self.refuse {
             return Err(FilesError("the disk is full".into()));
         }
@@ -1192,19 +1192,19 @@ impl ProblemReports for Reports {
         Ok(Self::saved(report))
     }
 
-    fn delete(&self, report: &pullbay_domain::report::SavedReport) -> Result<(), FilesError> {
+    fn delete(&self, report: &udm_domain::report::SavedReport) -> Result<(), FilesError> {
         self.files.lock().unwrap().retain(|(r, _)| r.file_name() != report.file_name());
         Ok(())
     }
 
-    fn unoffered(&self) -> Vec<pullbay_domain::report::SavedReport> {
+    fn unoffered(&self) -> Vec<udm_domain::report::SavedReport> {
         let files = self.files.lock().unwrap();
         let mut found: Vec<_> = files.iter().filter(|(_, offered)| !offered).map(|(r, _)| Self::saved(r)).collect();
         found.sort_by_key(|r| r.summary.at_ms);
         found
     }
 
-    fn mark_offered(&self, reports: &[pullbay_domain::report::SavedReport]) {
+    fn mark_offered(&self, reports: &[udm_domain::report::SavedReport]) {
         for (r, offered) in self.files.lock().unwrap().iter_mut() {
             if reports.iter().any(|s| s.file_name() == r.file_name()) {
                 *offered = true;
@@ -1228,7 +1228,7 @@ impl crate::window::ThemeFiles for Shelf {
 
 /// A system whose high-contrast setting gives these colors (or is off), and
 /// that is asked nothing else.
-pub struct Contrast(pub Option<pullbay_domain::theme::SystemContrast>);
+pub struct Contrast(pub Option<udm_domain::theme::SystemContrast>);
 
 impl crate::window::SystemServices for Contrast {
     fn fonts(&self) -> crate::window::SystemFonts {
@@ -1259,7 +1259,7 @@ impl crate::window::SystemServices for Contrast {
         false
     }
 
-    fn play(&self, _sound: pullbay_domain::settings::Sound, _file: Option<&Path>) {}
+    fn play(&self, _sound: udm_domain::settings::Sound, _file: Option<&Path>) {}
 
     fn save_credential(&self, _target: &str, _username: &str, _password: &str) -> Result<(), FilesError> {
         Ok(())
@@ -1269,7 +1269,7 @@ impl crate::window::SystemServices for Contrast {
         Ok(())
     }
 
-    fn contrast(&self) -> Option<pullbay_domain::theme::SystemContrast> {
+    fn contrast(&self) -> Option<udm_domain::theme::SystemContrast> {
         self.0
     }
 }
@@ -1277,7 +1277,7 @@ impl crate::window::SystemServices for Contrast {
 /// A tool's latest release as a test sets it: its files (with GitHub's
 /// digest, if any) and the checksum file's text. Downloads land in `/dl`.
 pub struct ToolSite {
-    release: pullbay_domain::ports::ToolRelease,
+    release: udm_domain::ports::ToolRelease,
     sums: String,
     asked: Mutex<Vec<String>>,
     downloaded: Mutex<Vec<String>>,
@@ -1287,14 +1287,14 @@ impl ToolSite {
     pub fn release(version: &str, files: &[(&str, Option<&str>)], sums: &str) -> Self {
         let files = files
             .iter()
-            .map(|(name, sha)| pullbay_domain::ports::ReleaseFile {
+            .map(|(name, sha)| udm_domain::ports::ReleaseFile {
                 name: name.to_string(),
                 url: format!("https://github.test/{name}"),
                 sha256: sha.map(String::from),
             })
             .collect();
         ToolSite {
-            release: pullbay_domain::ports::ToolRelease { version: version.into(), files },
+            release: udm_domain::ports::ToolRelease { version: version.into(), files },
             sums: sums.into(),
             asked: Mutex::default(),
             downloaded: Mutex::default(),
@@ -1310,46 +1310,46 @@ impl ToolSite {
     }
 }
 
-impl pullbay_domain::ports::ToolReleases for ToolSite {
+impl udm_domain::ports::ToolReleases for ToolSite {
     fn latest(
         &self,
-        forge: pullbay_domain::tools::Forge,
+        forge: udm_domain::tools::Forge,
         repository: &str,
-    ) -> Result<pullbay_domain::ports::ToolRelease, pullbay_domain::tools::ToolError> {
+    ) -> Result<udm_domain::ports::ToolRelease, udm_domain::tools::ToolError> {
         self.asked.lock().unwrap().push(format!("{forge:?} {repository}"));
         Ok(self.release.clone())
     }
 
-    fn text(&self, _: &pullbay_domain::ports::ReleaseFile) -> Result<String, pullbay_domain::tools::ToolError> {
+    fn text(&self, _: &udm_domain::ports::ReleaseFile) -> Result<String, udm_domain::tools::ToolError> {
         Ok(self.sums.clone())
     }
 
     fn download(
         &self,
-        file: &pullbay_domain::ports::ReleaseFile,
+        file: &udm_domain::ports::ReleaseFile,
         _: ByteCount,
-    ) -> Result<PathBuf, pullbay_domain::tools::ToolError> {
+    ) -> Result<PathBuf, udm_domain::tools::ToolError> {
         self.downloaded.lock().unwrap().push(file.name.clone());
         Ok(PathBuf::from("/dl").join(&file.name))
     }
 }
 
-/// Pullbay's tools folder in memory: what it installed, at `/tools`.
+/// UDM's tools folder in memory: what it installed, at `/tools`.
 #[derive(Default)]
 pub struct ToolShelf {
-    tools: Mutex<HashMap<pullbay_domain::tools::Tool, pullbay_domain::tools::InstalledTool>>,
-    installs: Mutex<Vec<(pullbay_domain::tools::Tool, String, u64)>>,
+    tools: Mutex<HashMap<udm_domain::tools::Tool, udm_domain::tools::InstalledTool>>,
+    installs: Mutex<Vec<(udm_domain::tools::Tool, String, u64)>>,
     discarded: Mutex<Vec<PathBuf>>,
 }
 
 impl ToolShelf {
-    pub fn with(tool: pullbay_domain::tools::Tool, installed: pullbay_domain::tools::InstalledTool) -> Self {
+    pub fn with(tool: udm_domain::tools::Tool, installed: udm_domain::tools::InstalledTool) -> Self {
         let shelf = ToolShelf::default();
         shelf.tools.lock().unwrap().insert(tool, installed);
         shelf
     }
 
-    pub fn installs(&self) -> Vec<(pullbay_domain::tools::Tool, String, u64)> {
+    pub fn installs(&self) -> Vec<(udm_domain::tools::Tool, String, u64)> {
         self.installs.lock().unwrap().clone()
     }
 
@@ -1358,21 +1358,21 @@ impl ToolShelf {
     }
 }
 
-impl pullbay_domain::ports::ToolFolder for ToolShelf {
-    fn installed(&self, tool: pullbay_domain::tools::Tool) -> Option<pullbay_domain::tools::InstalledTool> {
+impl udm_domain::ports::ToolFolder for ToolShelf {
+    fn installed(&self, tool: udm_domain::tools::Tool) -> Option<udm_domain::tools::InstalledTool> {
         self.tools.lock().unwrap().get(&tool).cloned()
     }
 
     fn install(
         &self,
-        tool: pullbay_domain::tools::Tool,
+        tool: udm_domain::tools::Tool,
         _file: &Path,
-        _packing: pullbay_domain::tools::Packing,
+        _packing: udm_domain::tools::Packing,
         version: &str,
         now: u64,
-    ) -> Result<PathBuf, pullbay_domain::tools::ToolError> {
+    ) -> Result<PathBuf, udm_domain::tools::ToolError> {
         self.installs.lock().unwrap().push((tool, version.to_string(), now));
-        let installed = pullbay_domain::tools::InstalledTool { version: version.into(), checked: now };
+        let installed = udm_domain::tools::InstalledTool { version: version.into(), checked: now };
         self.tools.lock().unwrap().insert(tool, installed);
         Ok(PathBuf::from("/tools").join(tool.name()))
     }
@@ -1381,13 +1381,13 @@ impl pullbay_domain::ports::ToolFolder for ToolShelf {
         self.discarded.lock().unwrap().push(file.to_path_buf());
     }
 
-    fn note_checked(&self, tool: pullbay_domain::tools::Tool, now: u64) {
+    fn note_checked(&self, tool: udm_domain::tools::Tool, now: u64) {
         if let Some(t) = self.tools.lock().unwrap().get_mut(&tool) {
             t.checked = now;
         }
     }
 
-    fn found(&self, tool: pullbay_domain::tools::Tool) -> Option<PathBuf> {
+    fn found(&self, tool: udm_domain::tools::Tool) -> Option<PathBuf> {
         self.tools.lock().unwrap().contains_key(&tool).then(|| PathBuf::from("/tools").join(tool.name()))
     }
 }
@@ -1396,15 +1396,12 @@ impl pullbay_domain::ports::ToolFolder for ToolShelf {
 /// why not. Other pages are `Unsupported`; the other probes are not asked.
 #[derive(Default)]
 pub struct GalleryPages {
-    pages: HashMap<String, Result<pullbay_domain::gallery::Gallery, pullbay_domain::gallery::GalleryError>>,
+    pages: HashMap<String, Result<udm_domain::gallery::Gallery, udm_domain::gallery::GalleryError>>,
     asked: Mutex<Vec<(String, Option<String>)>>,
 }
 
 impl GalleryPages {
-    pub fn with(
-        page: &str,
-        found: Result<pullbay_domain::gallery::Gallery, pullbay_domain::gallery::GalleryError>,
-    ) -> Self {
+    pub fn with(page: &str, found: Result<udm_domain::gallery::Gallery, udm_domain::gallery::GalleryError>) -> Self {
         GalleryPages { pages: HashMap::from([(page.to_string(), found)]), asked: Mutex::default() }
     }
 
@@ -1414,34 +1411,34 @@ impl GalleryPages {
     }
 }
 
-impl pullbay_domain::ports::Probes for GalleryPages {
-    fn link(&self, _: &Download) -> Result<pullbay_domain::ports::LinkFacts, pullbay_domain::ports::ProbeError> {
-        Err(pullbay_domain::ports::ProbeError("not asked".into()))
+impl udm_domain::ports::Probes for GalleryPages {
+    fn link(&self, _: &Download) -> Result<udm_domain::ports::LinkFacts, udm_domain::ports::ProbeError> {
+        Err(udm_domain::ports::ProbeError("not asked".into()))
     }
 
-    fn file(&self, _: &Download) -> Result<pullbay_domain::ports::FileFacts, pullbay_domain::ports::ProbeError> {
-        Err(pullbay_domain::ports::ProbeError("not asked".into()))
+    fn file(&self, _: &Download) -> Result<udm_domain::ports::FileFacts, udm_domain::ports::ProbeError> {
+        Err(udm_domain::ports::ProbeError("not asked".into()))
     }
 
-    fn media(&self, _: &Download) -> pullbay_domain::media::MediaInfo {
-        pullbay_domain::media::MediaInfo::default()
+    fn media(&self, _: &Download) -> udm_domain::media::MediaInfo {
+        udm_domain::media::MediaInfo::default()
     }
 
     fn zip(
         &self,
         _: &Download,
         _: Option<ByteCount>,
-    ) -> Result<Vec<pullbay_domain::download::ZipEntry>, pullbay_domain::ports::ProbeError> {
-        Err(pullbay_domain::ports::ProbeError("not asked".into()))
+    ) -> Result<Vec<udm_domain::download::ZipEntry>, udm_domain::ports::ProbeError> {
+        Err(udm_domain::ports::ProbeError("not asked".into()))
     }
 
     fn gallery(
         &self,
-        page: &pullbay_domain::address::Address,
+        page: &udm_domain::address::Address,
         user_agent: Option<&str>,
-    ) -> Result<pullbay_domain::gallery::Gallery, pullbay_domain::gallery::GalleryError> {
+    ) -> Result<udm_domain::gallery::Gallery, udm_domain::gallery::GalleryError> {
         self.asked.lock().unwrap().push((page.as_str().to_string(), user_agent.map(String::from)));
-        self.pages.get(page.as_str()).cloned().unwrap_or(Err(pullbay_domain::gallery::GalleryError::Unsupported))
+        self.pages.get(page.as_str()).cloned().unwrap_or(Err(udm_domain::gallery::GalleryError::Unsupported))
     }
 }
 
@@ -1458,7 +1455,7 @@ impl Seconds {
     }
 }
 
-impl pullbay_domain::ports::Timestamps for Seconds {
+impl udm_domain::ports::Timestamps for Seconds {
     fn unix_now(&self) -> u64 {
         self.0.load(Ordering::SeqCst)
     }

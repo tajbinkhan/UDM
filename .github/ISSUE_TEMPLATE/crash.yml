@@ -1,16 +1,16 @@
 name: Crash report
-description: A Pullbay program closed by itself, or stopped responding.
+description: A UDM program closed by itself, or stopped responding.
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting. Pullbay usually writes what went wrong to its log before it closes, so the logs below help most.
+        Thanks for reporting. UDM usually writes what went wrong to its log before it closes, so the logs below help most.
   - type: input
     id: version
     attributes:
-      label: Pullbay version
-      description: In the window, Help > About Pullbay. If the window won't open, the version of the file you installed.
+      label: UDM version
+      description: In the window, Help > About UDM. If the window won't open, the version of the file you installed.
       placeholder: "0.4.0"
     validations:
       required: true
@@ -36,9 +36,9 @@ body:
   - type: dropdown
     id: install
     attributes:
-      label: How you installed Pullbay
+      label: How you installed UDM
       options:
-        - Setup (Pullbay-Setup .exe)
+        - Setup (UDM-Setup .exe)
         - Windows portable zip
         - macOS .dmg
         - .deb package
@@ -55,7 +55,7 @@ body:
       options:
         - The window
         - The downloads stopped (the background service)
-        - The browser lost its connection to Pullbay
+        - The browser lost its connection to UDM
         - Not sure
     validations:
       required: true
@@ -71,7 +71,7 @@ body:
     attributes:
       label: Logs
       description: |
-        The end of `pullbay-daemon.log`, `pullbay-gui.log` and `pullbay-host.log` from the data folder: `%LOCALAPPDATA%\Pullbay` on Windows, `~/Library/Application Support/Pullbay` on macOS, `~/.local/share/pullbay` on Linux (a portable copy keeps them in its `Data` folder). Look for a line with `panicked`. The logs show download addresses, so look them over before you paste.
+        The end of `udm-daemon.log`, `udm-gui.log` and `udm-host.log` from the data folder: `%LOCALAPPDATA%\UDM` on Windows, `~/Library/Application Support/UDM` on macOS, `~/.local/share/udm` on Linux (a portable copy keeps them in its `Data` folder). Look for a line with `panicked`. The logs show download addresses, so look them over before you paste.
       render: text
     validations:
       required: true

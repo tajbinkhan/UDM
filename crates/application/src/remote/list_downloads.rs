@@ -1,7 +1,7 @@
 use super::{Listing, RemoteError, Session};
 use crate::daemon::DaemonClient;
 
-/// Every download and queue the daemon has: `pullbay-cli list`.
+/// Every download and queue the daemon has: `udm-cli list`.
 pub struct ListDownloads<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
 }
@@ -20,8 +20,8 @@ impl<'a, 's, C: DaemonClient + ?Sized> ListDownloads<'a, 's, C> {
 mod tests {
     use super::*;
     use crate::memory::{row, FakeDaemon};
-    use pullbay_domain::download::Status;
     use std::time::Duration;
+    use udm_domain::download::Status;
 
     #[test]
     fn it_lists_what_the_daemon_has() {

@@ -1,5 +1,5 @@
-use pullbay_domain::ports::{FilesError, ProblemReports};
-use pullbay_domain::report::SavedReport;
+use udm_domain::ports::{FilesError, ProblemReports};
+use udm_domain::report::SavedReport;
 
 /// Delete a report the user chose not to keep, such as the one written
 /// while the window was frozen once it answers again.
@@ -25,7 +25,7 @@ mod tests {
     use super::*;
     use crate::memory::Reports;
     use crate::report::{FindNewReports, SaveReport};
-    use pullbay_domain::report::{Kind, Program};
+    use udm_domain::report::{Kind, Program};
 
     #[test]
     fn a_discarded_report_is_gone_and_not_offered() {

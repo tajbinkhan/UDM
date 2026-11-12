@@ -1,35 +1,35 @@
-//! Pullbay daemon: the long-lived process that owns the download engine.
+//! UDM daemon: the long-lived process that owns the download engine.
 //!
 //! Clients (a host per browser connection, and the desktop window) connect over
 //! loopback TCP and speak the same length-prefixed JSON frames as the browser.
 //! Each connection starts with a mutual handshake over the token this daemon
-//! wrote at start (see `pullbay_infrastructure::ipc`); until the client passes
+//! wrote at start (see `udm_infrastructure::ipc`); until the client passes
 //! it, it gets no events and its requests are not read. The listening socket,
-//! the handshake and the client list are `pullbay_infrastructure::server`; the
-//! background threads are `pullbay_infrastructure::background`.
+//! the handshake and the client list are `udm_infrastructure::server`; the
+//! background threads are `udm_infrastructure::background`.
 //!
 //! Replies to a request (`hello`, `pong`, `ack`, `downloads`, `added_many`,
 //! `media_info`, the site grabber's `grab_progress` and `grab_done`, `error`)
 //! go to the client that asked. Download events (`added`, `started`, `progress`, `done`,
 //! `failed`, `canceled`, `removed`) go to every connected client. The daemon
-//! also applies each event to its download store (`pullbay_infrastructure::store`),
+//! also applies each event to its download store (`udm_infrastructure::store`),
 //! so a client that connects late can ask for the whole list.
 //!
 //! Because downloads live here rather than in the host, they keep running when
 //! the browser closes. The daemon exits on its own once it has had no clients
 //! and no downloads for `background::IDLE_EXIT`.
 //!
-//! With `--server` (see `pullbay_infrastructure::daemon_args` and
+//! With `--server` (see `udm_infrastructure::daemon_args` and
 //! `docs/server.md`) it runs on a server or in a container instead: it stays
 //! running, takes its folders from the command line or the environment
-//! (`pullbay_infrastructure::paths::Folders`), logs to standard output, and
+//! (`udm_infrastructure::paths::Folders`), logs to standard output, and
 //! starts no window and shows no notification (`Seat::Server`). It still
 //! listens on loopback only, with the same token handshake.
 //!
 //! The list survives restarts: every change is written to the history file
 //! (debounced, and again on exit), and the requests that may still be retried
-//! go to a DPAPI-encrypted file next to it (see `pullbay_infrastructure::history`). Settings are
-//! loaded at start and changed with `set_settings` (see `pullbay_infrastructure::settings`).
+//! go to a DPAPI-encrypted file next to it (see `udm_infrastructure::history`). Settings are
+//! loaded at start and changed with `set_settings` (see `udm_infrastructure::settings`).
 //!
 //! With the save-as dialog on, a new download is probed first and waits as
 //! `confirming` until a window answers with `confirm`. If no window is open
@@ -58,46 +58,46 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
-use pullbay_application::daemon::service::{
+use tracing::{error, info, warn};
+use udm_application::daemon::service::{
     confirm_answer, when_done, DaemonService, Note, Parts, RunProject, Served, Wiring,
 };
-use pullbay_application::daemon::Requests;
-use pullbay_application::downloads::{RemoveDownload, RetryDownload, StartOrWait};
-use pullbay_application::pairing::{PairingDesk, Phone};
-use pullbay_domain::download::Answer;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::{Browser, Probes, SiteCrawler};
-use pullbay_domain::seat::Seat;
-use pullbay_domain::settings::Settings;
-use pullbay_infrastructure::background;
-use pullbay_infrastructure::browser_bridge::BrowserBridge;
-use pullbay_infrastructure::clock::LocalClock;
-use pullbay_infrastructure::connect::ProxyRetries;
-use pullbay_infrastructure::conversions::Conversions;
-use pullbay_infrastructure::crawler::Crawler;
-use pullbay_infrastructure::daemon_args::{self, Invocation};
-use pullbay_infrastructure::files::DiskFiles;
-use pullbay_infrastructure::front::{self, AnswerWait, Front, Hook, Notices, Notifier, Windows};
-use pullbay_infrastructure::grab::{self, FoundFiles, ProjectFiles, ScheduledGrabs};
-use pullbay_infrastructure::history;
-use pullbay_infrastructure::idle::SystemIdle;
-use pullbay_infrastructure::live_settings::{LiveSettings, QueueChimes};
-use pullbay_infrastructure::logging;
-use pullbay_infrastructure::net;
-use pullbay_infrastructure::platform::Desktop;
-use pullbay_infrastructure::power_control::{PowerOff, RunEnds};
-use pullbay_infrastructure::probes::ServerProbes;
-use pullbay_infrastructure::queue_runs::{PauseBook, RunBook};
-use pullbay_infrastructure::quota::QuotaHold;
-use pullbay_infrastructure::scan::Antivirus;
-use pullbay_infrastructure::server::{next_client, Clients, Server};
-use pullbay_infrastructure::settings;
-use pullbay_infrastructure::store::{DownloadStore, Ended, StoreEvents, StoreFiles, StoreIntake};
-use pullbay_infrastructure::transfers::{self, EarlyHandOver, GoOn, SyncChecker, Transfers};
-use pullbay_infrastructure::update::{GitHub, LATEST_RELEASE};
-use pullbay_infrastructure::web_remote::devices::{DeviceFile, OsKeys};
-use pullbay_infrastructure::web_remote::WebRemote;
-use tracing::{error, info, warn};
+use udm_application::daemon::Requests;
+use udm_application::downloads::{RemoveDownload, RetryDownload, StartOrWait};
+use udm_application::pairing::{PairingDesk, Phone};
+use udm_domain::download::Answer;
+use udm_domain::id::DownloadId;
+use udm_domain::ports::{Browser, Probes, SiteCrawler};
+use udm_domain::seat::Seat;
+use udm_domain::settings::Settings;
+use udm_infrastructure::background;
+use udm_infrastructure::browser_bridge::BrowserBridge;
+use udm_infrastructure::clock::LocalClock;
+use udm_infrastructure::connect::ProxyRetries;
+use udm_infrastructure::conversions::Conversions;
+use udm_infrastructure::crawler::Crawler;
+use udm_infrastructure::daemon_args::{self, Invocation};
+use udm_infrastructure::files::DiskFiles;
+use udm_infrastructure::front::{self, AnswerWait, Front, Hook, Notices, Notifier, Windows};
+use udm_infrastructure::grab::{self, FoundFiles, ProjectFiles, ScheduledGrabs};
+use udm_infrastructure::history;
+use udm_infrastructure::idle::SystemIdle;
+use udm_infrastructure::live_settings::{LiveSettings, QueueChimes};
+use udm_infrastructure::logging;
+use udm_infrastructure::net;
+use udm_infrastructure::platform::Desktop;
+use udm_infrastructure::power_control::{PowerOff, RunEnds};
+use udm_infrastructure::probes::ServerProbes;
+use udm_infrastructure::queue_runs::{PauseBook, RunBook};
+use udm_infrastructure::quota::QuotaHold;
+use udm_infrastructure::scan::Antivirus;
+use udm_infrastructure::server::{next_client, Clients, Server};
+use udm_infrastructure::settings;
+use udm_infrastructure::store::{DownloadStore, Ended, StoreEvents, StoreFiles, StoreIntake};
+use udm_infrastructure::transfers::{self, EarlyHandOver, GoOn, SyncChecker, Transfers};
+use udm_infrastructure::update::{GitHub, LATEST_RELEASE};
+use udm_infrastructure::web_remote::devices::{DeviceFile, OsKeys};
+use udm_infrastructure::web_remote::WebRemote;
 
 /// This copy's version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -152,9 +152,9 @@ impl Paths {
             store: StoreFiles {
                 history: warn("history", history::history_path()),
                 requests: warn("saved requests", history::requests_path()),
-                quota: warn("quota", pullbay_infrastructure::quota::quota_path()),
+                quota: warn("quota", udm_infrastructure::quota::quota_path()),
             },
-            remote: warn("remote control", pullbay_infrastructure::paths::remote_dir()),
+            remote: warn("remote control", udm_infrastructure::paths::remote_dir()),
         }
     }
 }
@@ -300,8 +300,8 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         Box::new(move |url: &str| GitHub::new(Arc::clone(&settings), Arc::clone(&retries), url))
     };
     let tool_releases =
-        Arc::new(pullbay_infrastructure::video_tools::ForgeTools::new(Arc::clone(&settings), Arc::clone(&retries)));
-    let tool_folder = Arc::new(pullbay_infrastructure::video_tools::ToolDir::new(Arc::clone(&settings)));
+        Arc::new(udm_infrastructure::video_tools::ForgeTools::new(Arc::clone(&settings), Arc::clone(&retries)));
+    let tool_folder = Arc::new(udm_infrastructure::video_tools::ToolDir::new(Arc::clone(&settings)));
     let remote = Arc::new(WebRemote::new(paths.remote.clone()));
     let pairing = Arc::new(PairingDesk::open(
         Arc::new(DeviceFile::in_dir(paths.remote.as_deref())),
@@ -317,8 +317,8 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         projects: grab::projects_dir().ok().map(|dir| Arc::new(ProjectFiles(dir))),
         files,
         scanner: Arc::new(Antivirus),
-        hashes: Arc::new(pullbay_infrastructure::hash::DiskHashes),
-        unpacker: Arc::new(pullbay_infrastructure::unpack::Unpacking),
+        hashes: Arc::new(udm_infrastructure::hash::DiskHashes),
+        unpacker: Arc::new(udm_infrastructure::unpack::Unpacking),
         opener: Arc::new(Desktop),
         settings,
         transfers,
@@ -334,7 +334,7 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         crawler,
         tool_releases,
         tool_folder,
-        platform: pullbay_infrastructure::video_tools::platform(),
+        platform: udm_infrastructure::video_tools::platform(),
         found: FoundFiles,
         browser_proxy_retries: retries,
         run_book: RunBook::default(),
@@ -368,19 +368,19 @@ fn main() {
             return;
         }
         Ok(Invocation::Version) => {
-            println!("pullbay-daemon {VERSION}");
+            println!("udm-daemon {VERSION}");
             return;
         }
         Err(e) => {
-            eprintln!("pullbay-daemon: {e}\nSee pullbay-daemon --help.");
+            eprintln!("udm-daemon: {e}\nSee udm-daemon --help.");
             std::process::exit(2);
         }
     };
     // Before anything looks a folder up.
-    pullbay_infrastructure::paths::choose_folders(folders);
+    udm_infrastructure::paths::choose_folders(folders);
     if seat.has_desktop() {
-        // Before the log, which would make Pullbay's data folder first.
-        let moved = pullbay_infrastructure::from_uidm::move_from_uidm();
+        // Before the log, which would make UDM's data folder first.
+        let moved = udm_infrastructure::from_old_names::move_from_old_names();
         logging::init(logging::Program::Daemon);
         moved.log();
     } else {
@@ -389,7 +389,7 @@ fn main() {
     }
     // A panic leaves a report in the data folder, which the window offers
     // (`crash`).
-    pullbay_infrastructure::crash::install(logging::Program::Daemon);
+    udm_infrastructure::crash::install(logging::Program::Daemon);
     if let Err(e) = run(seat) {
         error!(error = format!("{e:#}"), "fatal");
         std::process::exit(1);
@@ -397,11 +397,11 @@ fn main() {
 }
 
 /// Started by a download saved with administrator rights (see
-/// `pullbay_infrastructure::elevate`): move its finished file into place and
+/// `udm_infrastructure::elevate`): move its finished file into place and
 /// exit.
 fn move_elevated(from: &Path, to: &Path) -> ! {
     logging::init(logging::Program::Daemon);
-    if let Err(e) = pullbay_infrastructure::elevate::move_file(from, to) {
+    if let Err(e) = udm_infrastructure::elevate::move_file(from, to) {
         error!(from = %from.display(), to = %to.display(), error = %e, "could not move the file");
         std::process::exit(1);
     }
@@ -418,17 +418,17 @@ fn run(seat: Seat) -> anyhow::Result<()> {
         if seat.has_desktop() {
             return Ok(());
         }
-        anyhow::bail!("another Pullbay daemon is already running for this user and instance");
+        anyhow::bail!("another UDM daemon is already running for this user and instance");
     };
     // Only the daemon holding the bind moves the logs aside, so no two
     // programs move one at once.
     logging::trim();
     info!(version = VERSION, "daemon started");
-    if let Some(folder) = pullbay_infrastructure::paths::portable_root() {
+    if let Some(folder) = udm_infrastructure::paths::portable_root() {
         info!(folder = %folder.display(), "running as a portable copy");
     }
     if seat.has_desktop() {
-        match pullbay_infrastructure::browsers::register_found() {
+        match udm_infrastructure::browsers::register_found() {
             Ok(names) if !names.is_empty() => info!(browsers = %names.join(", "), "registered with the browsers"),
             Ok(_) => {}
             Err(e) => warn!(error = %e, "could not register with the browsers"),
@@ -436,8 +436,8 @@ fn run(seat: Seat) -> anyhow::Result<()> {
     } else {
         let shown = |r: io::Result<PathBuf>| r.map(|p| p.display().to_string()).unwrap_or_else(|e| e.to_string());
         info!(
-            settings = %shown(pullbay_infrastructure::paths::config_dir()),
-            data = %shown(pullbay_infrastructure::paths::data_dir()),
+            settings = %shown(udm_infrastructure::paths::config_dir()),
+            data = %shown(udm_infrastructure::paths::data_dir()),
             default_downloads = %settings::default_downloads_dir().display(),
             "running as a server"
         );
@@ -460,7 +460,7 @@ fn run(seat: Seat) -> anyhow::Result<()> {
     }
     #[cfg(windows)]
     if seat.has_desktop() {
-        if let Err(e) = pullbay_infrastructure::notify::register_app() {
+        if let Err(e) = udm_infrastructure::notify::register_app() {
             warn!(error = %e, "could not register for notifications");
         }
     }
@@ -470,8 +470,12 @@ fn run(seat: Seat) -> anyhow::Result<()> {
         background::spawn_awake_keeper(move || daemon.wants_awake());
     }
     {
-        let (idle, transfers) = (Arc::clone(&daemon), Arc::clone(&daemon.transfers));
-        background::spawn_idle_monitor(move || idle.may_exit(), move || transfers.save_history());
+        let (idle, joined, transfers) = (Arc::clone(&daemon), Arc::clone(&clients), Arc::clone(&daemon.transfers));
+        background::spawn_idle_monitor(
+            move || idle.may_exit(),
+            move || joined.joined(),
+            move || transfers.save_history(),
+        );
     }
     if !seat.exits_when_idle() {
         // Nothing else stops a server's daemon; `docker stop` asks.
@@ -495,27 +499,27 @@ fn run(seat: Seat) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_application::daemon::service::{ServiceError, COMMAND_LINE_WAIT};
-    use pullbay_application::daemon::ClientId;
-    use pullbay_application::daemon::{Event, Failure, Reply};
-    use pullbay_domain::bytes::ByteCount;
-    use pullbay_domain::download::DownloadLogin;
-    use pullbay_domain::download::{Download, DownloadEntry, OnDone, Properties, Status};
-    use pullbay_domain::grab::GrabRequest;
-    use pullbay_domain::id::QueueId;
-    use pullbay_domain::ports::QuotaState;
-    use pullbay_domain::queue::{self, Queue, WhenDone, MAIN_QUEUE};
-    use pullbay_domain::quota::Usage;
-    use pullbay_domain::settings::{Duplicate, FileExists};
-    use pullbay_infrastructure::engine;
-    use pullbay_infrastructure::protocol::Outgoing;
-    use pullbay_infrastructure::server;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Mutex;
     use std::thread;
     use std::time::{Duration, Instant};
+    use udm_application::daemon::service::{ServiceError, COMMAND_LINE_WAIT};
+    use udm_application::daemon::ClientId;
+    use udm_application::daemon::{Event, Failure, Reply};
+    use udm_domain::bytes::ByteCount;
+    use udm_domain::download::DownloadLogin;
+    use udm_domain::download::{Download, DownloadEntry, OnDone, Properties, Status};
+    use udm_domain::grab::GrabRequest;
+    use udm_domain::id::QueueId;
+    use udm_domain::ports::QuotaState;
+    use udm_domain::queue::{self, Queue, WhenDone, MAIN_QUEUE};
+    use udm_domain::quota::Usage;
+    use udm_domain::settings::{Duplicate, FileExists};
+    use udm_infrastructure::engine;
+    use udm_infrastructure::protocol::Outgoing;
+    use udm_infrastructure::server;
 
     const BODY: &[u8] = b"the new bytes";
 
@@ -617,7 +621,7 @@ mod tests {
     /// A daemon with no files, saving to a fresh folder, with a pretend
     /// window connected so nothing opens on screen.
     fn setup(name: &str, choice: Duplicate) -> Setup {
-        let dir = std::env::temp_dir().join(format!("pullbay_dup_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_dup_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let Built { daemon, clients: connections, .. } =
@@ -640,7 +644,7 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, b"old").unwrap();
             let id = self.daemon.transfers.engine().reserve_id();
-            let url = pullbay_domain::address::Link::new(url);
+            let url = udm_domain::address::Link::new(url);
             self.daemon.store.publish(&Outgoing::Added { id, url: url.clone() });
             self.daemon.store.publish(&Outgoing::Done { id, url, path: path.display().to_string(), note: None });
             id
@@ -648,7 +652,7 @@ mod tests {
 
         fn failed(&self, url: &str) -> DownloadId {
             let id = self.daemon.transfers.engine().reserve_id();
-            let url = pullbay_domain::address::Link::new(url);
+            let url = udm_domain::address::Link::new(url);
             self.daemon.store.publish(&Outgoing::Added { id, url: url.clone() });
             self.daemon.store.publish(&Outgoing::Failed { id, url, error: "gone".into() });
             id
@@ -720,7 +724,7 @@ mod tests {
         };
 
         // A window is open: it is added now, and /q does nothing, as it was
-        // not this call that started Pullbay.
+        // not this call that started UDM.
         let (reply, _) = ask("https://example.com/open.bin");
         assert!(matches!(reply, Outgoing::CommandLine { window_open: true }));
         let e = entry("https://example.com/open.bin").expect("added now");
@@ -763,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn starting_pullbay_again_brings_the_open_window_forward() {
+    fn starting_udm_again_brings_the_open_window_forward() {
         let t = setup("again", Duplicate::NewName);
         let ask = || -> Outgoing {
             let (tx, rx) = server::reply_channel();
@@ -795,7 +799,7 @@ mod tests {
             // The window hears the kind too, to say it in its language.
             let Outgoing::Rejected { message, error_kind, .. } = reply else { unreachable!() };
             assert_eq!(
-                pullbay_infrastructure::wire::failure(message, error_kind),
+                udm_infrastructure::wire::failure(message, error_kind),
                 Failure::Service(ServiceError::NotDownloadAddress(url.to_string()))
             );
         }
@@ -1157,9 +1161,9 @@ mod tests {
             video_button_excluded_sites: vec!["v.net".into()],
             video_auto_capture: true,
             browser_menu_hidden_firefox: vec!["download".into()],
-            capture_force_key: pullbay_domain::settings::CaptureKey {
+            capture_force_key: udm_domain::settings::CaptureKey {
                 delete: true,
-                ..pullbay_domain::settings::CaptureKey::NONE
+                ..udm_domain::settings::CaptureKey::NONE
             },
             ..Settings::default()
         };
@@ -1168,7 +1172,7 @@ mod tests {
         assert_eq!(kept.video_button_excluded_sites, ["v.net"]);
         assert!(!kept.video_auto_capture, "web players' files are the window's to turn on");
         assert!(kept.browser_menu_hidden_firefox.is_empty());
-        assert_eq!(kept.capture_force_key, pullbay_domain::settings::CaptureKey::CTRL);
+        assert_eq!(kept.capture_force_key, udm_domain::settings::CaptureKey::CTRL);
     }
 
     #[test]
@@ -1210,7 +1214,7 @@ mod tests {
 
         let gone = t.dir.join("gone.bin");
         let id = t.finished("https://x/gone.bin", &gone);
-        let sidecar = t.dir.join("gone.bin.pullbaypart");
+        let sidecar = t.dir.join("gone.bin.udmpart");
         std::fs::write(&sidecar, b"{}").unwrap();
         t.daemon.remove(id, true).unwrap();
         assert!(!gone.exists() && !sidecar.exists());
@@ -1289,15 +1293,15 @@ mod tests {
 
     #[test]
     fn a_split_archive_is_kept_as_a_package_and_unpacked_once_its_parts_are_in() {
-        use pullbay_application::downloads::KeepPackages;
-        use pullbay_domain::package::{Packaging, Unpack};
-        use pullbay_domain::ports::PackageStore;
+        use udm_application::downloads::KeepPackages;
+        use udm_domain::package::{Packaging, Unpack};
+        use udm_domain::ports::PackageStore;
         let t = setup("package", Duplicate::NewName);
         {
             let mut s = t.daemon.settings.lock();
             s.sound_on_done = false;
             s.sound_on_failed = false;
-            s.notify = pullbay_domain::settings::Notify::Off;
+            s.notify = udm_domain::settings::Notify::Off;
             s.unpack_auto = true;
         }
         let tar = tar_of("hello.txt", b"hello from a package");
@@ -1331,17 +1335,17 @@ mod tests {
 
     #[test]
     fn a_finished_download_is_checked_against_its_checksum() {
-        use pullbay_domain::checksum::{to_hex, Algorithm, Checksum};
+        use udm_domain::checksum::{to_hex, Algorithm, Checksum};
         let t = setup("checksum", Duplicate::NewName);
         {
             // No sound or toast from a test.
             let mut s = t.daemon.settings.lock();
             s.sound_on_done = false;
             s.sound_on_failed = false;
-            s.notify = pullbay_domain::settings::Notify::Off;
+            s.notify = udm_domain::settings::Notify::Off;
         }
         let url = serve();
-        let digest = pullbay_infrastructure::hash::digest_of(BODY, Algorithm::Sha256).unwrap();
+        let digest = udm_infrastructure::hash::digest_of(BODY, Algorithm::Sha256).unwrap();
         let right = Checksum::parse(&format!("sha256:{}", to_hex(&digest))).unwrap();
         let wrong = Checksum::parse(&format!("sha256:{}", "0".repeat(64))).unwrap();
         let mut ids = Vec::new();
@@ -1419,7 +1423,7 @@ mod tests {
 
     #[test]
     fn the_speed_limit_can_turn_on_at_every_start() {
-        let dir = std::env::temp_dir().join(format!("pullbay_limit_startup_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_limit_startup_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("settings.json");
         let start = |on_startup: bool| {
@@ -1516,7 +1520,7 @@ mod tests {
             .unwrap();
         let s = t.daemon.settings.lock().clone();
         assert_eq!(s.categories[0].last_folder.as_deref(), Some(chosen.display().to_string().as_str()));
-        assert_eq!(s.folders(&pullbay_infrastructure::settings::default_downloads_dir()).for_name("b.zip"), chosen);
+        assert_eq!(s.folders(&udm_infrastructure::settings::default_downloads_dir()).for_name("b.zip"), chosen);
     }
 
     #[test]
@@ -1627,7 +1631,7 @@ mod tests {
             .unwrap();
         let s = t.daemon.settings.lock().clone();
         assert!(s.general_remember_folder);
-        assert_eq!(s.folders(&pullbay_infrastructure::settings::default_downloads_dir()).for_name("other.xyz"), chosen);
+        assert_eq!(s.folders(&udm_infrastructure::settings::default_downloads_dir()).for_name("other.xyz"), chosen);
         assert_eq!(s.later_queue, Some(queue));
         // Download later now goes to that queue without being told.
         let (later, _) = t.daemon.add_later(Download { url: "https://x/more.xyz".into(), ..Download::default() });
@@ -1659,7 +1663,7 @@ mod tests {
         {
             let mut q = t.daemon.store.quota();
             q.started(DownloadId::new(99), ByteCount::ZERO);
-            q.progress(DownloadId::new(99), ByteCount::new(2 << 20), pullbay_infrastructure::quota::now_minute());
+            q.progress(DownloadId::new(99), ByteCount::new(2 << 20), udm_infrastructure::quota::now_minute());
         }
         t.daemon.check_quota();
         assert!(t.window_got(|m| matches!(m, Outgoing::Quota { paused: true, resumes_at: Some(_), .. })));
@@ -1702,7 +1706,7 @@ mod tests {
         });
         let request =
             GrabRequest { start: format!("http://{addr}/"), depth: 0, delay_ms: 200, ..GrabRequest::default() };
-        let project: pullbay_domain::grab::Project = serde_json::from_value(serde_json::json!({
+        let project: udm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "nightly",
             "request": request,
             "run": "explore_and_download",
@@ -1721,19 +1725,19 @@ mod tests {
         assert_eq!(t.len(), 1, "nothing new the second time");
 
         // Downloading the ticked files reads no page.
-        let checked = pullbay_domain::grab::Project {
+        let checked = udm_domain::grab::Project {
             name: "ticked".into(),
-            run: pullbay_domain::grab::RunAction::DownloadChecked,
+            run: udm_domain::grab::RunAction::DownloadChecked,
             request: GrabRequest { start: "http://127.0.0.1:1/".into(), ..request },
             files: vec![
-                pullbay_domain::grab::GrabFile {
+                udm_domain::grab::GrabFile {
                     url: format!("http://{addr}/a.pdf"),
                     name: "a.pdf".into(),
                     page: String::new(),
                     size: None,
                     text: None,
                 },
-                pullbay_domain::grab::GrabFile {
+                udm_domain::grab::GrabFile {
                     url: format!("http://{addr}/b.pdf"),
                     name: "b.pdf".into(),
                     page: String::new(),
@@ -1781,9 +1785,9 @@ mod tests {
             matches!(
                 failed,
                 Event::Update {
-                    error: Some(Failure::Service(ServiceError::Update(
-                        pullbay_domain::update::UpdateError::Unreachable(_)
-                    ))),
+                    error: Some(Failure::Service(ServiceError::Update(udm_domain::update::UpdateError::Unreachable(
+                        _
+                    )))),
                     ..
                 }
             ),
@@ -1797,7 +1801,7 @@ mod tests {
         let t = setup("tools", Duplicate::NewName);
         let tools = t.daemon.tools();
         let names: Vec<_> = tools.iter().map(|s| s.tool).collect();
-        assert_eq!(names, pullbay_domain::tools::Tool::ALL);
+        assert_eq!(names, udm_domain::tools::Tool::ALL);
         assert!(tools.iter().all(|s| !s.command.is_empty()));
     }
 
@@ -1968,14 +1972,14 @@ mod tests {
         let url = serve_versions(Arc::clone(&file));
         let id = t.add(&url);
         let path = PathBuf::from(t.wait(id, Status::Done).path.unwrap());
-        let found = pullbay_domain::grab::GrabFile {
+        let found = udm_domain::grab::GrabFile {
             url: url.clone(),
             name: "mirror.bin".into(),
             page: String::new(),
             size: None,
             text: None,
         };
-        let mut project: pullbay_domain::grab::Project = serde_json::from_value(serde_json::json!({
+        let mut project: udm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "manuals",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
             "run": "download_checked",
@@ -2016,15 +2020,15 @@ mod tests {
     fn a_scheduled_project_stops_its_downloads_at_its_stop_time() {
         let t = setup("grab_stop_time", Duplicate::NewName);
         let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
-        let today = pullbay_infrastructure::clock::local_now().day;
-        let mut project: pullbay_domain::grab::Project = serde_json::from_value(serde_json::json!({
+        let today = udm_infrastructure::clock::local_now().day;
+        let mut project: udm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "slow",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
             "run": "download_checked",
             "schedule": { "start": "00:00", "stop": "01:00" },
         }))
         .unwrap();
-        project.files = vec![pullbay_domain::grab::GrabFile {
+        project.files = vec![udm_domain::grab::GrabFile {
             url,
             name: "slow.bin".into(),
             page: String::new(),
@@ -2050,7 +2054,7 @@ mod tests {
         t.daemon
             .store
             .update_queue(MAIN_QUEUE, |q| {
-                q.stop_at_once = Some(pullbay_infrastructure::clock::local_now().total());
+                q.stop_at_once = Some(udm_infrastructure::clock::local_now().total());
             })
             .unwrap();
         t.daemon.tick();
@@ -2064,8 +2068,8 @@ mod tests {
     fn a_scheduled_project_leaves_a_run_the_user_started_alone() {
         let t = setup("grab_user_run", Duplicate::NewName);
         let url = serve_ranges(Arc::new(vec![7u8; 4 * 1024 * 1024]), Arc::new(AtomicU64::new(0)));
-        let today = pullbay_infrastructure::clock::local_now().day;
-        let mut project: pullbay_domain::grab::Project = serde_json::from_value(serde_json::json!({
+        let today = udm_infrastructure::clock::local_now().day;
+        let mut project: udm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "joins",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
             "run": "download_checked",
@@ -2073,7 +2077,7 @@ mod tests {
             "force_close": true,
         }))
         .unwrap();
-        project.files = vec![pullbay_domain::grab::GrabFile {
+        project.files = vec![udm_domain::grab::GrabFile {
             url,
             name: "joins.bin".into(),
             page: String::new(),
@@ -2094,10 +2098,10 @@ mod tests {
     #[test]
     fn a_scheduled_project_force_closes_when_asked() {
         // Never really shut down, even if a check below fails.
-        std::env::set_var(pullbay_infrastructure::power_control::POWER_DRY_RUN_ENV, "1");
+        std::env::set_var(udm_infrastructure::power_control::POWER_DRY_RUN_ENV, "1");
         let t = setup("grab_force_close", Duplicate::NewName);
         let dir = t.dir.join("projects");
-        let mut project: pullbay_domain::grab::Project = serde_json::from_value(serde_json::json!({
+        let mut project: udm_domain::grab::Project = serde_json::from_value(serde_json::json!({
             "name": "shutdown",
             "request": GrabRequest { start: "http://127.0.0.1:1/".into(), ..GrabRequest::default() },
             "run": "download_checked",
@@ -2119,13 +2123,8 @@ mod tests {
         // Done once the queue is, which does not force on its own.
         let file = Arc::new(Mutex::new((b"data".to_vec(), Some("\"d1\"".to_string()))));
         let url = serve_versions(file);
-        project.files = vec![pullbay_domain::grab::GrabFile {
-            url,
-            name: "d.bin".into(),
-            page: String::new(),
-            size: None,
-            text: None,
-        }];
+        project.files =
+            vec![udm_domain::grab::GrabFile { url, name: "d.bin".into(), page: String::new(), size: None, text: None }];
         project.checked = vec![true];
         t.daemon.run_scheduled_grab(&grab::ProjectFiles(dir.clone()), project, 2);
         assert_eq!(t.daemon.store.queues()[0].force_close_once, Some(true));
@@ -2228,7 +2227,7 @@ mod tests {
         let t = setup("convert", Duplicate::NewName);
         let clip = t.dir.join("talk.mkv");
         let id = t.finished("https://x/talk.mkv", &clip);
-        let made = pullbay_infrastructure::platform::no_window(&mut std::process::Command::new(&ffmpeg))
+        let made = udm_infrastructure::platform::no_window(&mut std::process::Command::new(&ffmpeg))
             .args([
                 "-hide_banner",
                 "-loglevel",
@@ -2244,7 +2243,7 @@ mod tests {
             .status()
             .unwrap();
         assert!(made.success());
-        t.daemon.convert(id, pullbay_domain::media::Target::M4a, true).unwrap();
+        t.daemon.convert(id, udm_domain::media::Target::M4a, true).unwrap();
         let new = t.daemon.store.table().max_id();
         let done = t.wait(new, Status::Done);
         let out = PathBuf::from(done.path.unwrap());
@@ -2252,7 +2251,7 @@ mod tests {
         assert!(std::fs::metadata(&out).unwrap().len() > 0);
         assert_eq!(done.note.as_deref(), Some("Converted from talk.mkv"));
         assert!(t.daemon.entry(id).is_none() && !clip.exists(), "the original went, as asked");
-        assert!(t.daemon.convert(DownloadId::new(new.get() + 100), pullbay_domain::media::Target::Mp3, false).is_err());
+        assert!(t.daemon.convert(DownloadId::new(new.get() + 100), udm_domain::media::Target::Mp3, false).is_err());
     }
 
     /// Each request's path and the Cookie header it brought.
@@ -2328,7 +2327,7 @@ mod tests {
         assert!(other_seen.iter().all(|(_, c)| c.is_none()), "no cookies to another host: {other_seen:?}");
         // The files it adds carry them on the login site only.
         let elsewhere =
-            pullbay_domain::grab::GrabFile { url: format!("http://localhost:{other}/b.pdf"), ..out.files[0].clone() };
+            udm_domain::grab::GrabFile { url: format!("http://localhost:{other}/b.pdf"), ..out.files[0].clone() };
         let ids = t.daemon.download_in_queue(
             &req,
             login.as_deref(),
@@ -2341,7 +2340,7 @@ mod tests {
         assert_eq!(cookies, [Some("session=abc".to_string()), None]);
     }
 
-    /// `pullbay-cli`'s connection, in this process: its commands go to the
+    /// `udm-cli`'s connection, in this process: its commands go to the
     /// daemon's server code as frames, and what the server queues for it
     /// comes back as events, as over the socket.
     struct Program {
@@ -2366,41 +2365,38 @@ mod tests {
         }
     }
 
-    impl pullbay_application::daemon::DaemonClient for Program {
+    impl udm_application::daemon::DaemonClient for Program {
         fn connect(&self, _restart: bool, mut on_event: Box<dyn FnMut(Event) + Send>) {
             let frames = self.frames.lock().unwrap().take().expect("connected once");
             on_event(Event::Connected);
             thread::spawn(move || {
                 for frame in frames {
                     if let Ok(msg) = serde_json::from_slice::<Outgoing>(&frame) {
-                        on_event(pullbay_infrastructure::wire::event(msg));
+                        on_event(udm_infrastructure::wire::event(msg));
                     }
                 }
             });
-            self.send(pullbay_application::daemon::Command::Hello {
-                version: None,
-                client: Some("pullbay-cli".into()),
-            });
+            self.send(udm_application::daemon::Command::Hello { version: None, client: Some("udm-cli".into()) });
         }
 
-        fn send(&self, command: pullbay_application::daemon::Command) -> bool {
-            let raw = serde_json::to_vec(&pullbay_infrastructure::wire::incoming(command)).unwrap();
+        fn send(&self, command: udm_application::daemon::Command) -> bool {
+            let raw = serde_json::to_vec(&udm_infrastructure::wire::incoming(command)).unwrap();
             server::receive(&self.connections, &Served(Arc::clone(&self.daemon)), self.client, &raw, &self.reply);
             true
         }
 
         fn run_command_line(
             &self,
-            _command: pullbay_domain::download::CommandLine,
-        ) -> Result<bool, pullbay_application::daemon::DaemonError> {
-            unimplemented!("pullbay-cli sends no command line")
+            _command: udm_domain::download::CommandLine,
+        ) -> Result<bool, udm_application::daemon::DaemonError> {
+            unimplemented!("udm-cli sends no command line")
         }
     }
 
     /// Progress nobody watches.
     struct Unwatched;
 
-    impl pullbay_application::remote::Watch for Unwatched {
+    impl udm_application::remote::Watch for Unwatched {
         fn added(&mut self, _id: DownloadId) {}
         fn started(&mut self, _path: &str, _total: Option<ByteCount>, _connections: usize) {}
         fn progress(&mut self, _done: ByteCount, _total: Option<ByteCount>) {}
@@ -2409,8 +2405,8 @@ mod tests {
 
     #[test]
     fn the_command_line_tool_downloads_a_file_checks_it_and_forgets_it() {
-        use pullbay_application::remote::{ForgetDownload, GetFile, GetRequest, Got, ListDownloads, Session};
-        use pullbay_domain::ports::FileHashes;
+        use udm_application::remote::{ForgetDownload, GetFile, GetRequest, Got, ListDownloads, Session};
+        use udm_domain::ports::FileHashes;
         let t = setup("cli_get", Duplicate::Ask);
         // Asked for by a program, it starts at once even when the settings
         // say to ask.
@@ -2418,18 +2414,18 @@ mod tests {
         let url = serve();
         let program = Program::new(&t, 7);
         let session = Session::open(&program, Duration::from_secs(10)).unwrap();
-        let mut request = GetRequest::new(pullbay_domain::address::Address::parse(&url).unwrap());
+        let mut request = GetRequest::new(udm_domain::address::Address::parse(&url).unwrap());
         let folder = t.dir.join("from the tool");
         request.folder = Some(folder.display().to_string());
         request.connections = Some(3);
         let reference = t.dir.join("reference");
         std::fs::write(&reference, BODY).unwrap();
-        let algorithm = pullbay_domain::checksum::Algorithm::Sha256;
-        let digest = pullbay_infrastructure::hash::DiskHashes.digest(&reference, algorithm).unwrap();
-        let sum = format!("sha256:{}", pullbay_domain::checksum::to_hex(&digest));
-        request.checksum = Some(pullbay_domain::checksum::Checksum::parse(&sum).unwrap());
+        let algorithm = udm_domain::checksum::Algorithm::Sha256;
+        let digest = udm_infrastructure::hash::DiskHashes.digest(&reference, algorithm).unwrap();
+        let sum = format!("sha256:{}", udm_domain::checksum::to_hex(&digest));
+        request.checksum = Some(udm_domain::checksum::Checksum::parse(&sum).unwrap());
 
-        let got = GetFile::new(&session, &pullbay_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
+        let got = GetFile::new(&session, &udm_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
         let Ok(Got::Saved { id, path, .. }) = got else {
             panic!("not saved: {got:?}");
         };
@@ -2437,7 +2433,7 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), BODY);
 
         // The same address again is a second file, not a question.
-        let again = GetFile::new(&session, &pullbay_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
+        let again = GetFile::new(&session, &udm_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
         assert!(
             matches!(&again, Ok(Got::Saved { path, .. }) if Path::new(path) == folder.join("f (1).bin")),
             "{again:?}"
@@ -2451,7 +2447,7 @@ mod tests {
 
     #[test]
     fn the_command_line_tool_pauses_and_resumes_a_running_download() {
-        use pullbay_application::remote::{GetFile, GetRequest, Got, PauseDownload, ResumeDownload, Resumed, Session};
+        use udm_application::remote::{GetFile, GetRequest, Got, PauseDownload, ResumeDownload, Resumed, Session};
         let t = setup("cli_pause", Duplicate::NewName);
         let body = Arc::new(vec![7u8; 4 * 1024 * 1024]);
         let url = serve_ranges(Arc::clone(&body), Arc::new(AtomicU64::new(0)));
@@ -2460,9 +2456,9 @@ mod tests {
         let request = GetRequest {
             follow: false,
             connections: Some(2),
-            ..GetRequest::new(pullbay_domain::address::Address::parse(&url).unwrap())
+            ..GetRequest::new(udm_domain::address::Address::parse(&url).unwrap())
         };
-        let got = GetFile::new(&session, &pullbay_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
+        let got = GetFile::new(&session, &udm_infrastructure::hash::DiskHashes).run(&request, &mut Unwatched);
         let Ok(Got::Added(id)) = got else {
             panic!("not added: {got:?}");
         };
@@ -2482,9 +2478,9 @@ mod tests {
 
     #[test]
     fn an_assistant_adds_lists_and_removes_downloads_through_the_mcp_server() {
-        use pullbay_application::remote::Assistant;
-        use pullbay_infrastructure::mcp::Server;
         use serde_json::{json, Value};
+        use udm_application::remote::Assistant;
+        use udm_infrastructure::mcp::Server;
         let t = setup("mcp", Duplicate::Ask);
         // An assistant's download starts with no dialog even under ask.
         t.daemon.settings.lock().ask_where_to_save = true;
@@ -2542,21 +2538,21 @@ mod tests {
     }
 
     /// A server's daemon (`--server`, no window) serves the phone page the
-    /// same way, its pairing asked for as `pullbay-cli pair` asks.
+    /// same way, its pairing asked for as `udm-cli pair` asks.
     #[test]
     fn a_servers_daemon_serves_the_phone_page_too() {
         phone_controls(Seat::Server, "server");
     }
 
     fn phone_controls(seat: Seat, name: &str) {
-        use pullbay_application::daemon::Command;
-        use pullbay_application::pairing::Phone;
-        use pullbay_domain::id::DeviceId;
-        use pullbay_domain::settings::Notify;
-        use pullbay_infrastructure::web_remote::{http, serve};
         use serde_json::{json, Value};
+        use udm_application::daemon::Command;
+        use udm_application::pairing::Phone;
+        use udm_domain::id::DeviceId;
+        use udm_domain::settings::Notify;
+        use udm_infrastructure::web_remote::{http, serve};
 
-        let dir = std::env::temp_dir().join(format!("pullbay_phone_{name}_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_phone_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let Built { daemon, clients: connections, remote, .. } =

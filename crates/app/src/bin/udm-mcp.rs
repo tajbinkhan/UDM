@@ -1,13 +1,13 @@
-//! `pullbay-mcp`, Pullbay's server for AI assistants: it speaks the Model
+//! `udm-mcp`, UDM's server for AI assistants: it speaks the Model
 //! Context Protocol on standard input and output, so an assistant such as
 //! Claude Desktop, Claude Code, Cursor or VS Code that starts it can list,
 //! add, pause, resume and remove downloads and start and stop queues.
 //!
 //! It is a client of the daemon like the window, and starts the daemon when
-//! none runs. The protocol and its tools are `pullbay_infrastructure::mcp`;
-//! each tool is a use case in `pullbay_application::remote`, run by its
+//! none runs. The protocol and its tools are `udm_infrastructure::mcp`;
+//! each tool is a use case in `udm_application::remote`, run by its
 //! `Assistant`. This binary wires them together (AGENTS.md section 8).
-//! Standard output carries the protocol alone; the log is `pullbay-mcp.log`
+//! Standard output carries the protocol alone; the log is `udm-mcp.log`
 //! in the data folder.
 
 // Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
@@ -18,24 +18,24 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 
-use pullbay_application::remote::Assistant;
-use pullbay_infrastructure as infra;
+use udm_application::remote::Assistant;
+use udm_infrastructure as infra;
 
 /// What the server calls itself in its `hello` to the daemon.
-const CLIENT: &str = "pullbay-mcp";
+const CLIENT: &str = "udm-mcp";
 
 /// How long connecting, which may start the daemon, and each answer may
 /// take.
 const WAIT: Duration = Duration::from_secs(30);
 
 fn main() -> anyhow::Result<()> {
-    // Before the log, which would make Pullbay's data folder first.
-    let moved = infra::from_uidm::move_from_uidm();
+    // Before the log, which would make UDM's data folder first.
+    let moved = infra::from_old_names::move_from_old_names();
     infra::logging::init(infra::logging::Program::Mcp);
     // A panic leaves a report in the data folder (`crash`).
     infra::crash::install(infra::logging::Program::Mcp);
     moved.log();
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), "pullbay-mcp starting");
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "udm-mcp starting");
     let client = infra::daemon_client::IpcDaemonClient::assistant(CLIENT);
     let mut assistant = Assistant::new(&client, WAIT);
     let served =

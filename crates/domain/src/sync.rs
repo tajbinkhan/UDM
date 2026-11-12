@@ -1,8 +1,8 @@
-//! Pullbay's one policy for poisoned locks (AGENTS.md section 9): take the
+//! UDM's one policy for poisoned locks (AGENTS.md section 9): take the
 //! guard back and go on.
 //!
 //! A lock is poisoned when a thread panicked while holding it. Recovering is
-//! right for Pullbay because:
+//! right for UDM because:
 //!
 //! - Every lock guards plain data (a list, a map, a set, settings, a flag).
 //!   Most changes are single inserts, removals or assignments, but some

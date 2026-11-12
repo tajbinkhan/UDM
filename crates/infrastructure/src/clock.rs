@@ -1,8 +1,8 @@
-//! The computer's local clock. The queue rules in `pullbay_domain::queue` take
+//! The computer's local clock. The queue rules in `udm_domain::queue` take
 //! the time as a parameter; this is where it comes from.
 
-use pullbay_domain::ports::{Clock, Timestamps};
-use pullbay_domain::queue::{days_from_civil, Moment};
+use udm_domain::ports::{Clock, Timestamps};
+use udm_domain::queue::{days_from_civil, Moment};
 
 /// The [`Clock`] port over the computer's clock.
 pub struct LocalClock;

@@ -2,10 +2,10 @@
 //! ([`install`]), and [`ReportFiles`], the `ProblemReports` adapter the
 //! window offers reports through and writes its freeze reports with. The
 //! report's layout, the file names and the issue they become are
-//! `pullbay_domain::report`'s.
+//! `udm_domain::report`'s.
 //!
 //! Reports go in [`crate::paths::reports_dir`], one text file each
-//! (`pullbay-<program>-<kind>-<ms>.txt`), readable only by the user on
+//! (`udm-<program>-<kind>-<ms>.txt`), readable only by the user on
 //! Unix. A program writes at most [`MAX_PER_RUN`] crash reports (a thread
 //! that keeps panicking does not fill the disk), and the folder keeps the
 //! newest [`KEEP`]. `offered.txt` beside them lists the ones the window has
@@ -20,7 +20,7 @@
 //! through [`scrub`] first: the daemon's token is cut out wherever it
 //! appears, addresses lose their passwords ([`logging::redact`]), and
 //! cookies, authorization headers, passwords and tokens lose their values
-//! (`pullbay_domain::report::scrub`). The logs hold no cookies, headers or
+//! (`udm_domain::report::scrub`). The logs hold no cookies, headers or
 //! token to begin with (see `logging`); download addresses stay, so the
 //! help page asks the user to look a report over before attaching it.
 
@@ -33,8 +33,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use pullbay_domain::ports::{FilesError, ProblemReports};
-use pullbay_domain::report::{
+use udm_domain::ports::{FilesError, ProblemReports};
+use udm_domain::report::{
     self, Install, InstallFacts, Kind, Os, Program, Report, SavedReport, Summary, System, ThisCopy, LOG_LINES,
 };
 
@@ -58,7 +58,7 @@ const SUMMARY_BYTES: u64 = 16 * 1024;
 /// Write a crash report whenever this process panics, after the hooks
 /// already set (`logging::init`'s, which logs the panic, and the standard
 /// one), so the report's log ends with the panic. Panics the code expects
-/// and catches (`pullbay_domain::report::expecting_panic`) get none.
+/// and catches (`udm_domain::report::expecting_panic`) get none.
 pub fn install(program: logging::Program) {
     let program = report_program(program);
     let previous = std::panic::take_hook();
@@ -332,7 +332,7 @@ impl ProblemReports for ReportFiles {
     }
 }
 
-/// This copy of Pullbay: its version, the system and the install.
+/// This copy of UDM: its version, the system and the install.
 pub fn this_copy() -> ThisCopy {
     ThisCopy { version: env!("CARGO_PKG_VERSION").to_string(), system: system(), install: install_kind() }
 }
@@ -435,9 +435,9 @@ fn facts(os: Os, dir: &Path, home: Option<&Path>, portable: bool, appimage: bool
         in_cargo_target,
         setup_uninstaller: os == Os::Windows && dir.join("unins000.exe").is_file(),
         in_app_bundle,
-        in_system_lib: os == Os::Linux && dir == Path::new("/usr/lib/pullbay"),
-        dpkg_owns: os == Os::Linux && Path::new("/var/lib/dpkg/info/pullbay.list").is_file(),
-        in_user_lib: os == Os::Linux && home.is_some_and(|h| dir == h.join(".local/lib/pullbay")),
+        in_system_lib: os == Os::Linux && dir == Path::new("/usr/lib/udm"),
+        dpkg_owns: os == Os::Linux && Path::new("/var/lib/dpkg/info/udm.list").is_file(),
+        in_user_lib: os == Os::Linux && home.is_some_and(|h| dir == h.join(".local/lib/udm")),
     }
 }
 
@@ -446,7 +446,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pullbay-crash-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm-crash-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }
@@ -461,7 +461,7 @@ mod tests {
             what: what.into(),
             location: Some("crates/x.rs:1:2".into()),
             backtrace: Some("   0: x\n".into()),
-            log_name: "pullbay-daemon.log".into(),
+            log_name: "udm-daemon.log".into(),
             log_tail: log,
         }
     }
@@ -491,12 +491,12 @@ mod tests {
                 vec!["password=pw2 was refused".into()],
             ))
             .unwrap();
-        assert_eq!(saved.path, dir.join("pullbay-daemon-crash-1000.txt"));
+        assert_eq!(saved.path, dir.join("udm-daemon-crash-1000.txt"));
         let text = fs::read_to_string(&saved.path).unwrap();
         for secret in ["a=b", "pw1", "pw2"] {
             assert!(!text.contains(secret), "{secret} in {text}");
         }
-        assert!(text.contains("The end of pullbay-daemon.log:\npassword=*** was refused\n"), "{text}");
+        assert!(text.contains("The end of udm-daemon.log:\npassword=*** was refused\n"), "{text}");
         assert_eq!(saved.summary.what, "request with Cookie: ***");
         #[cfg(unix)]
         {
@@ -516,7 +516,7 @@ mod tests {
         assert!(!second.path.exists());
         files.delete(&second).unwrap();
         files.mark_offered(&[]);
-        assert_eq!(fs::read_to_string(dir.join(OFFERED)).unwrap(), "pullbay-daemon-crash-1000.txt\n");
+        assert_eq!(fs::read_to_string(dir.join(OFFERED)).unwrap(), "udm-daemon-crash-1000.txt\n");
         assert!(files.unoffered().is_empty());
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -599,11 +599,11 @@ mod tests {
     fn the_install_is_read_from_the_programs_folder() {
         let home = Path::new("/home/u");
         let at = |os, dir: &str| Install::detect(&facts(os, Path::new(dir), Some(home), false, false));
-        assert_eq!(at(Os::Linux, "/src/pullbay/target/release"), Install::Source);
-        assert_eq!(at(Os::Linux, "/home/u/.local/lib/pullbay"), Install::TarGz);
-        assert_eq!(at(Os::MacOs, "/Applications/Pullbay.app/Contents/MacOS"), Install::Dmg);
+        assert_eq!(at(Os::Linux, "/src/udm/target/release"), Install::Source);
+        assert_eq!(at(Os::Linux, "/home/u/.local/lib/udm"), Install::TarGz);
+        assert_eq!(at(Os::MacOs, "/Applications/UDM.app/Contents/MacOS"), Install::Dmg);
         assert_eq!(at(Os::MacOs, "/opt/MacOS"), Install::Unknown);
-        assert!(facts(Os::Linux, Path::new("/usr/lib/pullbay"), None, false, false).in_system_lib);
+        assert!(facts(Os::Linux, Path::new("/usr/lib/udm"), None, false, false).in_system_lib);
         assert_eq!(Install::detect(&facts(Os::Linux, Path::new("/x"), None, false, true)), Install::AppImage);
     }
 }

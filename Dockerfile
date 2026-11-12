@@ -1,12 +1,12 @@
-# Pullbay on a server or NAS, without a window (docs/server.md).
+# UDM on a server or NAS, without a window (docs/server.md).
 #
-#   docker build -t pullbay .
-#   docker run -d --name pullbay -v pullbay-config:/config -v /srv/downloads:/downloads pullbay
-#   docker exec pullbay pullbay-cli get https://example.com/file.zip --no-wait
+#   docker build -t udm .
+#   docker run -d --name udm -v udm-config:/config -v /srv/downloads:/downloads udm
+#   docker exec udm udm-cli get https://example.com/file.zip --no-wait
 #
 # The daemon runs in server mode: it stays up, logs to standard output
 # (docker logs), and listens on 127.0.0.1 inside the container only, so the
-# image publishes no port. pullbay-cli and pullbay-mcp in the container reach
+# image publishes no port. udm-cli and udm-mcp in the container reach
 # it through `docker exec`.
 #
 # Build with --build-arg FFMPEG=1 to add ffmpeg, which joins the video and
@@ -23,10 +23,10 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked -p pullbay-app \
-      --bin pullbay-daemon --bin pullbay-cli --bin pullbay-mcp \
+    cargo build --release --locked -p udm-app \
+      --bin udm-daemon --bin udm-cli --bin udm-mcp \
  && mkdir -p /out \
- && cp target/release/pullbay-daemon target/release/pullbay-cli target/release/pullbay-mcp /out/
+ && cp target/release/udm-daemon target/release/udm-cli target/release/udm-mcp /out/
 
 # The image: the three programs, OpenSSL for HTTPS and FTPS, the CA
 # certificates, the time zones (TZ sets the one queue schedules use), and
@@ -39,23 +39,23 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates libssl3 tzdata tini \
  && if [ "$FFMPEG" = 1 ]; then apt-get install -y --no-install-recommends ffmpeg; fi \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --uid 1000 --user-group --create-home --home-dir /home/pullbay pullbay \
+ && useradd --uid 1000 --user-group --create-home --home-dir /home/udm udm \
  && mkdir -p /config /downloads \
- && chown pullbay:pullbay /config /downloads
+ && chown udm:udm /config /downloads
 COPY --from=build /out/ /usr/local/bin/
 
 # Every program in the container finds the same folders, so `docker exec`
 # reaches the running daemon with its token.
-ENV PULLBAY_CONFIG_DIR=/config \
-    PULLBAY_DATA_DIR=/config/data \
-    PULLBAY_DOWNLOADS_DIR=/downloads
+ENV UDM_CONFIG_DIR=/config \
+    UDM_DATA_DIR=/config/data \
+    UDM_DOWNLOADS_DIR=/downloads
 VOLUME ["/config", "/downloads"]
-USER pullbay
+USER udm
 WORKDIR /downloads
 
-LABEL org.opencontainers.image.title="Pullbay" \
-      org.opencontainers.image.description="Pullbay's download daemon in server mode" \
+LABEL org.opencontainers.image.title="UDM" \
+      org.opencontainers.image.description="UDM's download daemon in server mode" \
       org.opencontainers.image.source="https://github.com/tajbinkhan/pullbay" \
       org.opencontainers.image.licenses="MIT"
 
-ENTRYPOINT ["/usr/bin/tini", "--", "pullbay-daemon", "--server"]
+ENTRYPOINT ["/usr/bin/tini", "--", "udm-daemon", "--server"]

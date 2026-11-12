@@ -8,7 +8,7 @@
 //!   use the proxy the browser reported.
 //! - Site logins pair a site pattern, optionally with a path, with a
 //!   username; the password lives in Windows Credential Manager, or on macOS
-//!   and Linux in Pullbay's own encrypted `credentials.bin`. When a
+//!   and Linux in UDM's own encrypted `credentials.bin`. When a
 //!   server answers 401, the engine sends the matching login with HTTP Basic
 //!   or Digest, to the host that asked and to no other.
 //!
@@ -27,8 +27,8 @@ use sha2::Sha256;
 use crate::dpapi;
 #[cfg(windows)]
 use crate::registry;
-use pullbay_domain::site::glob;
-use pullbay_domain::site::{host_of, site_matches, split_login_pattern};
+use udm_domain::site::glob;
+use udm_domain::site::{host_of, site_matches, split_login_pattern};
 
 /// Where the Windows Internet settings keep the system proxy.
 #[cfg(windows)]
@@ -197,7 +197,7 @@ impl ProxyRules {
     }
 }
 
-/// A SOCKS proxy that Pullbay speaks to itself, for the FTP connections the HTTP client
+/// A SOCKS proxy that UDM speaks to itself, for the FTP connections the HTTP client
 /// does not make.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SocksProxy {
@@ -459,13 +459,13 @@ pub fn proxy_from_env(var: impl Fn(&str) -> Option<String>) -> Option<ProxyRules
 /// The proxies a download goes through when it uses the browser's proxy
 /// setting `p`. `None` connects directly, as the browser does. The
 /// browser's own fixed proxies, script, automatic detection and bypass list
-/// carry over; under "system" the system proxy is read here, as Pullbay's own
+/// carry over; under "system" the system proxy is read here, as UDM's own
 /// System mode reads it. A script given as text runs as one at an address
 /// does (see `pac::PacSource::Script`). HTTPS and QUIC proxies, which the
 /// download engine cannot speak, are left out.
-pub fn browser_proxy_rules(p: &pullbay_domain::download::BrowserProxy) -> Option<ProxyRules> {
+pub fn browser_proxy_rules(p: &udm_domain::download::BrowserProxy) -> Option<ProxyRules> {
     use crate::pac::PacSource;
-    use pullbay_domain::download::BrowserProxyMode;
+    use udm_domain::download::BrowserProxyMode;
     let bypass = browser_bypass(&p.bypass);
     match p.mode {
         BrowserProxyMode::Direct => None,
@@ -475,7 +475,7 @@ pub fn browser_proxy_rules(p: &pullbay_domain::download::BrowserProxy) -> Option
         }
         BrowserProxyMode::Pac => {
             let source = match (p.pac_url.as_deref().map(str::trim), p.pac_script.as_deref()) {
-                (Some(url), _) if pullbay_domain::batch::is_web_url(url) => PacSource::Url(url.to_string()),
+                (Some(url), _) if udm_domain::batch::is_web_url(url) => PacSource::Url(url.to_string()),
                 (_, Some(script)) if !script.trim().is_empty() => PacSource::Script(script.to_string()),
                 // A script nothing here can fetch (a file:// one): direct,
                 // as the browser goes when its script cannot be read.
@@ -745,7 +745,7 @@ pub fn authorization(challenges: &[String], login: &Login, method: &str, url: &s
 
 /// The Credential Manager entry for a site's login.
 pub fn credential_target(site: &str) -> String {
-    format!("Pullbay/login/{}", site.trim().to_ascii_lowercase())
+    format!("UDM/login/{}", site.trim().to_ascii_lowercase())
 }
 
 /// Store a site login's password in Credential Manager.
@@ -755,12 +755,28 @@ pub fn save_login_password(site: &str, username: &str, password: &str) -> io::Re
 
 /// A site login's password from Credential Manager, if stored.
 pub fn load_login_password(site: &str) -> Option<String> {
-    load_credential(&credential_target(site))
+    load_saved(&credential_target(site))
 }
 
-/// Remove a site login's password; a missing one is not an error.
+/// Remove a site login's password, and the one Pullbay saved for it; a
+/// missing one is not an error.
 pub fn delete_login_password(site: &str) -> io::Result<()> {
-    delete_credential(&credential_target(site))
+    let target = credential_target(site);
+    if let Some(old) = pullbay_target(&target) {
+        delete_credential(&old)?;
+    }
+    delete_credential(&target)
+}
+
+/// The entry `target` had while UDM was called Pullbay (0.4), whose saved
+/// passwords are still read.
+fn pullbay_target(target: &str) -> Option<String> {
+    target.strip_prefix("UDM/").map(|rest| format!("Pullbay/{rest}"))
+}
+
+/// The password saved under `target`, or under the name Pullbay gave it.
+pub fn load_saved(target: &str) -> Option<String> {
+    load_credential(target).or_else(|| pullbay_target(target).and_then(|old| load_credential(&old)))
 }
 
 pub use credentials::{delete_credential, load_credential, save_credential};
@@ -862,7 +878,7 @@ mod credentials {
     }
 }
 
-/// On macOS and Linux, the passwords live in `credentials.bin` in Pullbay's
+/// On macOS and Linux, the passwords live in `credentials.bin` in UDM's
 /// data folder, a JSON map of entry to user name and password, encrypted
 /// like the saved requests (`dpapi`).
 #[cfg(unix)]
@@ -871,8 +887,8 @@ mod credentials {
     use std::io;
     use std::sync::Mutex;
 
-    use pullbay_domain::sync::LockExt;
     use serde::{Deserialize, Serialize};
+    use udm_domain::sync::LockExt;
 
     #[derive(Serialize, Deserialize)]
     struct Entry {
@@ -959,7 +975,7 @@ impl ProxyKind {
 }
 
 /// Where the `kind` proxy's password is kept: `proxy.bin` for HTTP and
-/// `proxy-<kind>.bin` for the others, in `%LOCALAPPDATA%\Pullbay`.
+/// `proxy-<kind>.bin` for the others, in `%LOCALAPPDATA%\UDM`.
 pub fn proxy_password_path(kind: ProxyKind) -> io::Result<PathBuf> {
     Ok(crate::history::history_path()?.with_file_name(kind.file_name()))
 }
@@ -1082,7 +1098,7 @@ mod tests {
     #[test]
     fn the_browsers_proxy_setting_maps_to_proxy_rules() {
         use crate::pac::PacSource;
-        use pullbay_domain::download::{BrowserProxy, BrowserProxyMode};
+        use udm_domain::download::{BrowserProxy, BrowserProxyMode};
         let p = |mode, f: &dyn Fn(&mut BrowserProxy)| {
             let mut p = BrowserProxy { mode, ..BrowserProxy::default() };
             f(&mut p);
@@ -1257,7 +1273,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn system_proxy_from_the_registry() {
-        let key = r"Software\Pullbay-test-proxy";
+        let key = r"Software\UDM-test-proxy";
         registry::set_dword(key, "ProxyEnable", 0).unwrap();
         registry::set_string(key, "ProxyServer", "http=h:1;https=s:2").unwrap();
         registry::set_string(key, "ProxyOverride", "<local>;*.corp.net").unwrap();
@@ -1269,7 +1285,7 @@ mod tests {
         for v in ["ProxyEnable", "ProxyServer", "ProxyOverride"] {
             registry::delete_value(key, v).unwrap();
         }
-        assert_eq!(system_proxy_at(r"Software\Pullbay-test-missing"), None);
+        assert_eq!(system_proxy_at(r"Software\UDM-test-missing"), None);
     }
 
     fn login(site: &str) -> Login {
@@ -1368,14 +1384,20 @@ mod tests {
 
     #[test]
     fn passwords_are_kept_by_windows() {
-        let site = "pullbay-test.example";
+        let site = "udm-test.example";
         save_login_password(site, "me", "s3cret — ü").unwrap();
         assert_eq!(load_login_password(site).as_deref(), Some("s3cret — ü"));
         delete_login_password(site).unwrap();
         assert_eq!(load_login_password(site), None);
         delete_login_password(site).unwrap();
 
-        let path = std::env::temp_dir().join(format!("pullbay_proxy_{}.bin", std::process::id()));
+        // A password Pullbay saved still loads, and removing it removes that one.
+        save_credential(&format!("Pullbay/login/{site}"), "me", "old").unwrap();
+        assert_eq!(load_login_password(site).as_deref(), Some("old"));
+        delete_login_password(site).unwrap();
+        assert_eq!(load_login_password(site), None);
+
+        let path = std::env::temp_dir().join(format!("udm_proxy_{}.bin", std::process::id()));
         save_proxy_password(&path, "pr0xy").unwrap();
         assert!(!fs::read(&path).unwrap().windows(5).any(|w| w == b"pr0xy"));
         assert_eq!(load_proxy_password(&path), "pr0xy");

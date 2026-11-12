@@ -8,7 +8,7 @@
 //! a login of its own, then logs in as `user@host`. Through a SOCKS proxy,
 //! both the control and the data connections are tunnelled with SOCKS
 //! CONNECT; data then always uses passive mode, since the server could not
-//! reach Pullbay behind the proxy.
+//! reach UDM behind the proxy.
 //!
 //! FTPS: an `ftps://` address speaks TLS from the first byte (implicit TLS,
 //! port 990 when it names none). An `ftp://` server that refuses a plain
@@ -29,7 +29,7 @@ use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use pullbay_domain::sync::LockExt;
+use udm_domain::sync::LockExt;
 
 use super::http::Probe;
 use super::EngineError;
@@ -46,7 +46,7 @@ const IMPLICIT_TLS_PORT: u16 = 990;
 
 /// Whether `url` is an FTP address: `ftp://` or `ftps://`.
 pub fn is_ftp(url: &str) -> bool {
-    pullbay_domain::batch::is_ftp_url(url)
+    udm_domain::batch::is_ftp_url(url)
 }
 
 /// Whether `url` is an `ftps://` address, TLS from the first byte.
@@ -176,7 +176,7 @@ impl Refusal {
 /// What an FTP fetch needs besides the address.
 #[derive(Clone, Default)]
 pub struct FtpOptions {
-    /// Open data connections from the server to Pullbay (PORT) instead of the
+    /// Open data connections from the server to UDM (PORT) instead of the
     /// other way round.
     pub active: bool,
     pub logins: Vec<Login>,
@@ -325,7 +325,7 @@ impl Control {
             .filter(|l| l.plain || tls)
             .map(|l| (l.username.clone(), l.password.clone()));
         let given = from_url.is_some() || saved.is_some();
-        let (user, pass) = from_url.or(saved).unwrap_or_else(|| ("anonymous".into(), "pullbay@".into()));
+        let (user, pass) = from_url.or(saved).unwrap_or_else(|| ("anonymous".into(), "udm@".into()));
         if has_control(&user) || has_control(&pass) {
             return Err(EngineError::Protocol("the FTP login has control characters in it".into()).into());
         }
@@ -551,8 +551,8 @@ fn mdtm_to_http_date(text: &str) -> Option<String> {
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
         return None;
     }
-    let day = pullbay_domain::queue::days_from_civil(y as i64, mo, d);
-    let weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][pullbay_domain::queue::weekday(day) as usize];
+    let day = udm_domain::queue::days_from_civil(y as i64, mo, d);
+    let weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][udm_domain::queue::weekday(day) as usize];
     let month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][mo as usize - 1];
     Some(format!("{weekday}, {d:02} {month} {y:04} {h:02}:{mi:02}:{s:02} GMT"))
 }
@@ -654,7 +654,7 @@ pub(crate) mod server {
         let public = private.to_public_key().to_pkcs1_der().unwrap().as_bytes().to_vec();
         let key = Key { signer: rsa::pkcs1v15::SigningKey::new(private), public };
         let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()]).unwrap();
-        params.distinguished_name.push(rcgen::DnType::CommonName, "Pullbay FTPS test server");
+        params.distinguished_name.push(rcgen::DnType::CommonName, "UDM FTPS test server");
         params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
         params.serial_number = Some(rcgen::SerialNumber::from(rand_core::RngCore::next_u64(&mut rand_core::OsRng)));
         (params.self_signed(&key).unwrap().pem(), key_pem)

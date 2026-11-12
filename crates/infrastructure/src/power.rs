@@ -5,7 +5,7 @@
 use std::io;
 use std::process::Command;
 
-use pullbay_domain::queue::WhenDone;
+use udm_domain::queue::WhenDone;
 
 #[cfg(windows)]
 #[link(name = "powrprof")]
@@ -123,7 +123,7 @@ pub const WAKE_EARLY_SECS: i64 = 30;
 pub struct WakeTimer {
     #[cfg(windows)]
     handle: isize,
-    at: Option<pullbay_domain::queue::Moment>,
+    at: Option<udm_domain::queue::Moment>,
 }
 
 #[cfg(windows)]
@@ -160,8 +160,8 @@ extern "system" {
 
 /// A local date and time as a UTC FILETIME (100 ns units since 1601).
 #[cfg(windows)]
-fn local_to_file_time(at: pullbay_domain::queue::Moment) -> Option<i64> {
-    let (y, m, d) = pullbay_domain::queue::civil_from_days(at.day);
+fn local_to_file_time(at: udm_domain::queue::Moment) -> Option<i64> {
+    let (y, m, d) = udm_domain::queue::civil_from_days(at.day);
     let local = SystemTime {
         year: u16::try_from(y).ok()?,
         month: m as u16,
@@ -192,14 +192,14 @@ impl WakeTimer {
     }
 
     /// When the timer wakes the computer, if it is set.
-    pub fn at(&self) -> Option<pullbay_domain::queue::Moment> {
+    pub fn at(&self) -> Option<udm_domain::queue::Moment> {
         self.at
     }
 
     /// Wake the computer `WAKE_EARLY_SECS` before `at` (local time), or
     /// cancel the wake with `None`. Setting the time it already has does
     /// nothing.
-    pub fn set(&mut self, at: Option<pullbay_domain::queue::Moment>) -> io::Result<()> {
+    pub fn set(&mut self, at: Option<udm_domain::queue::Moment>) -> io::Result<()> {
         if at == self.at {
             return Ok(());
         }
@@ -280,7 +280,7 @@ struct Guid(u32, u16, u16, [u8; 8]);
 /// Whether the active power plan lets programs wake the computer, on mains
 /// power and on battery. `None` when it cannot be read or on other systems.
 /// Windows' "Allow wake timers" is 0 to disable, 1 to enable and 2 for
-/// important timers only, which also blocks Pullbay's.
+/// important timers only, which also blocks UDM's.
 pub fn wake_timers_allowed() -> Option<(bool, bool)> {
     #[cfg(windows)]
     {
@@ -313,11 +313,11 @@ mod wake_tests {
     #[test]
     fn a_wake_timer_can_be_set_moved_and_cleared() {
         let now = crate::clock::local_now();
-        let soon = pullbay_domain::queue::Moment::from_total(now.total() + 24 * 60);
+        let soon = udm_domain::queue::Moment::from_total(now.total() + 24 * 60);
         let mut timer = WakeTimer::new();
         timer.set(Some(soon)).unwrap();
         assert_eq!(timer.at(), Some(soon));
-        let later = pullbay_domain::queue::Moment::from_total(soon.total() + 60);
+        let later = udm_domain::queue::Moment::from_total(soon.total() + 60);
         timer.set(Some(later)).unwrap();
         assert_eq!(timer.at(), Some(later));
         timer.set(None).unwrap();
@@ -326,8 +326,8 @@ mod wake_tests {
 
     #[test]
     fn local_time_converts_to_a_file_time_a_day_apart() {
-        let a = pullbay_domain::queue::Moment { day: 20_000, minute: 600 };
-        let b = pullbay_domain::queue::Moment { day: 20_001, minute: 600 };
+        let a = udm_domain::queue::Moment { day: 20_000, minute: 600 };
+        let b = udm_domain::queue::Moment { day: 20_001, minute: 600 };
         let (fa, fb) = (local_to_file_time(a).unwrap(), local_to_file_time(b).unwrap());
         // A day, give or take a daylight-saving hour.
         assert!((fb - fa - 864_000_000_000).abs() <= 36_000_000_000);

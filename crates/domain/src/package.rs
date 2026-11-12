@@ -265,7 +265,7 @@ pub fn complete(statuses: &[Option<Status>]) -> bool {
     !statuses.is_empty() && statuses.iter().all(|s| *s == Some(Status::Done))
 }
 
-/// The kinds of archive Pullbay knows.
+/// The kinds of archive UDM knows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArchiveKind {
     Zip,
@@ -281,7 +281,7 @@ pub enum ArchiveKind {
 }
 
 impl ArchiveKind {
-    /// Pullbay unpacks it itself; the others need 7-Zip.
+    /// UDM unpacks it itself; the others need 7-Zip.
     pub fn built_in(self) -> bool {
         matches!(self, ArchiveKind::Zip | ArchiveKind::Tar | ArchiveKind::TarGz | ArchiveKind::TarXz)
             || matches!(self, ArchiveKind::Gzip | ArchiveKind::Xz)
@@ -407,7 +407,7 @@ pub struct ArchiveSet {
 }
 
 impl ArchiveSet {
-    /// Pullbay can unpack it itself: a built-in kind in one file, or cut
+    /// UDM can unpack it itself: a built-in kind in one file, or cut
     /// into pieces it can join. A spanned zip and RAR need 7-Zip.
     pub fn built_in(&self) -> bool {
         self.kind.built_in() && (self.family == Family::Pieces || self.parts.len() == 1)

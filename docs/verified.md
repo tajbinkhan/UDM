@@ -89,7 +89,7 @@
   Chrome) was tried; the Windows and macOS code (SChannel and
   Security.framework serving the certificate) was linted from Linux only.
   After server mode (#253) came in, the daemon test runs on a server's
-  daemon too, and `pullbay-cli pair`, `devices` and `unpair` have use case
+  daemon too, and `udm-cli pair`, `devices` and `unpair` have use case
   and report tests (the QR code, `--host` in the link); the Docker
   `ports` lines were not run.
 
@@ -100,10 +100,10 @@
   a server, no notification or window whatever the settings say and a
   save-as dialog starting as proposed. A behavior test on the real adapters
   checks that a server's daemon with nothing to do is idle but never may
-  exit. On Linux, a named copy ran `pullbay-daemon --server` with its
+  exit. On Linux, a named copy ran `udm-daemon --server` with its
   folders from the command line and then from the environment alone: it
   logged to standard output, listened on 127.0.0.1 only, downloaded a file
-  `pullbay-cli` asked for (with `PULLBAY_DATA_DIR` set) into the downloads
+  `udm-cli` asked for (with `UDM_DATA_DIR` set) into the downloads
   folder, kept running past the idle minute, kept the list across a
   restart, exited 0 after saving on `SIGTERM`, refused to start (exit 1)
   beside a running one, and left the XDG folders empty. Docker was not
@@ -142,9 +142,9 @@
   connections beat a per-connection limit, and that a server with every
   fault at once still gives a byte-identical file. Two of them failed on
   the engine as it was, and pass now. On Linux, `tools/bench/bench.py` ran
-  a release build of `pullbay-cli` and its own daemon (a named copy in a
+  a release build of `udm-cli` and its own daemon (a named copy in a
   scratch folder, notifications off), curl and wget against
-  `tools/bench/faultserver.py` in every scenario; every Pullbay run was
+  `tools/bench/faultserver.py` in every scenario; every UDM run was
   byte-identical, curl failed `drops` as expected, and the daemon was gone
   afterwards. The IDM side (`IDMan.exe /d`, its CPU time through
   `GetProcessTimes`) and the harness on Windows and macOS were not run:
@@ -172,7 +172,7 @@
   batches. A daemon test runs `add_download` (now, into a folder, and into
   the main queue), `list_downloads` with a status, `remove_download` and a
   refused `pause_download` through the server on the real service and
-  engine against a local server. On Linux, the built `pullbay-mcp`, fed
+  engine against a local server. On Linux, the built `udm-mcp`, fed
   `initialize`, `tools/list` and tool calls on standard input, started a
   named copy's daemon, downloaded a file from a local server, queued another
   in the main queue, listed them, refused to pause a finished one, removed
@@ -181,7 +181,7 @@
   and the Windows and macOS code was linted from Linux but not run there.
 
 - The command-line tool and the automation API (#256). Use case tests run
-  each `pullbay-cli` command against a pretend daemon; daemon tests run
+  each `udm-cli` command against a pretend daemon; daemon tests run
   `get`, `list`, `remove`, `pause` and `resume` on the real service and
   engine against a local server (no dialog under ask, a second copy under a
   new name, the checksum read back, the download's own connections kept for
@@ -221,15 +221,15 @@
 
 - The installer. Built with Inno Setup 6.7.3, then installed and uninstalled
   silently on Windows 11. The install put the three programs, the extension
-  (without its tests) and the icon in `%LOCALAPPDATA%\Programs\Pullbay`. It
-  wrote a host manifest pointing at the installed `pullbay-host.exe`, pointed
+  (without its tests) and the icon in `%LOCALAPPDATA%\Programs\UDM`. It
+  wrote a host manifest pointing at the installed `udm-host.exe`, pointed
   the Chrome and Edge keys at it, and added the Start menu shortcut and the
   Installed apps entry. Started the way Chrome starts it (the manifest's
   path, the extension origin as argument), the installed host started the
   installed daemon, which downloaded a file intact. Uninstalling while that
   daemon ran closed it, then removed the folder, both keys, the shortcut, the
   Installed apps entry and the notification registration, leaving
-  `%LOCALAPPDATA%\Pullbay` alone. Installing over a running daemon closed it
+  `%LOCALAPPDATA%\UDM` alone. Installing over a running daemon closed it
   and replaced the files without a restart. The wizard pages and their
   prompts were not tried on screen.
 - Asking about taken file names (#8). Engine tests against a local server:
@@ -308,7 +308,7 @@
   all four segments into `Video\Canvas Test Video.ts`, named after the page;
   after the video raised an `encrypted` event the menu said it is DRM
   protected; the popup's per-site switch added and removed the site in
-  Pullbay's settings.
+  UDM's settings.
 - 20 more extension tests (27 in all): classifying responses (playlists by
   type and name, files with their size from `Content-Range`, segments, small
   files and errors left out), per-tab lists (one entry per URL, a size learned
@@ -341,13 +341,13 @@
   leaves downloads by type, size and site, applies changed rules at once,
   skips exactly one download after **Skip next download**, and starts a
   download waiting for its dialog from the popup; **Download later with
-  Pullbay** adds with `start: false`. Form downloads: URL-encoded forms rebuild
+  UDM** adds with `start: false`. Form downloads: URL-encoded forms rebuild
   as the browser encodes them, multipart forms with a boundary of their own
   and without their file fields, and raw bodies byte for byte; forms that
   send a file and bodies the browser withheld stay in the browser; a
   download matches the latest POST to its URL within a minute; a form's
-  download reaches Pullbay as the same POST with its content type while a link
-  next to it stays a GET; and a POST Pullbay cannot start goes back to the
+  download reaches UDM as the same POST with its content type while a link
+  next to it stays a GET; and a POST UDM cannot start goes back to the
   browser as a POST with its form. A web player's file a script asked for
   with a POST goes as the same POST. The browser's whole proxy setting goes
   along with a download, read from Chrome's and Firefox's shapes. A
@@ -398,7 +398,7 @@
   scanner command lines (quoting, a file name with quotes and `&` staying one
   argument, a command without `{path}` refused) and real scanner runs with
   exit codes 0, 1 and 7. Under Wine against the real daemon: Start with
-  Windows writes `"...\pullbay-gui.exe" --minimized` to the Run key and removes
+  Windows writes `"...\udm-gui.exe" --minimized` to the Run key and removes
   it again; the app id is registered; a scanner reporting a threat and one
   reporting clean show as such; **Pause all** stops a running and a queued
   download and **Resume all** finishes both, the running one in its own
@@ -455,7 +455,7 @@
   the browser, forwards cookies, referrer and user agent, and the file lands
   under its `Content-Disposition` name; private, `blob:` and self-started
   downloads stay in the browser, as does everything while capture is off; a
-  download Pullbay cannot start goes back to the browser; the context menu works
+  download UDM cannot start goes back to the browser; the context menu works
   connected and falls back to the browser when not; the worker notices when the
   host dies, reconnects and restores the list.
 - Window: driven through Windows UI Automation. It starts the daemon, shows a

@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "将浏览器下载发送到 Pullbay 下载管理器。"
+    "message": "将浏览器下载发送到 UDM 下载管理器。"
   },
-  "downloadWithPullbay": {
-    "message": "使用 Pullbay 下载"
+  "downloadWithUdm": {
+    "message": "使用 UDM 下载"
   },
-  "downloadLaterWithPullbay": {
-    "message": "使用 Pullbay 稍后下载"
+  "downloadLaterWithUdm": {
+    "message": "使用 UDM 稍后下载"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "使用 Pullbay 下载图库"
+  "downloadGalleryWithUdm": {
+    "message": "使用 UDM 下载图库"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "使用 Pullbay 下载所有链接"
+  "downloadAllLinksWithUdm": {
+    "message": "使用 UDM 下载所有链接"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "使用 Pullbay 下载选中的链接"
+  "downloadSelectedLinksWithUdm": {
+    "message": "使用 UDM 下载选中的链接"
   },
-  "pullbayDisconnected": {
-    "message": "Pullbay 已断开连接"
+  "udmDisconnected": {
+    "message": "UDM 已断开连接"
   },
   "captureDownloads": {
     "message": "捕获下载"
   },
   "captureDownloadsTitle": {
-    "message": "将浏览器开始的下载发送到 Pullbay"
+    "message": "将浏览器开始的下载发送到 UDM"
   },
   "captureInTab": {
     "message": "在此标签页中捕获"
@@ -36,16 +36,16 @@
     "message": "在此标签页中已关闭"
   },
   "statusConnected": {
-    "message": "已连接。你在浏览器中开始的下载将交给 Pullbay。"
+    "message": "已连接。你在浏览器中开始的下载将交给 UDM。"
   },
   "statusConnectedCaptureOff": {
     "message": "已连接。捕获已关闭，因此浏览器自行处理下载。"
   },
   "statusNotConnected": {
-    "message": "未连接到 Pullbay。下载留在浏览器中。"
+    "message": "未连接到 UDM。下载留在浏览器中。"
   },
   "statusNotConnectedReason": {
-    "message": "未连接到 Pullbay：$REASON$。下载留在浏览器中。",
+    "message": "未连接到 UDM：$REASON$。下载留在浏览器中。",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "此页面上的所有链接"
   },
   "allLinksTitle": {
-    "message": "在 Pullbay 中列出此页面的链接，以便选择要下载的链接"
+    "message": "在 UDM 中列出此页面的链接，以便选择要下载的链接"
   },
   "videoButton": {
     "message": "视频按钮"
@@ -117,7 +117,7 @@
     "message": "已中断"
   },
   "stateConfirming": {
-    "message": "正在 Pullbay 中等待你的回答"
+    "message": "正在 UDM 中等待你的回答"
   },
   "stateWaiting": {
     "message": "等待开始"
@@ -190,22 +190,22 @@
     "message": "字幕："
   },
   "videoProtected": {
-    "message": "此视频受 DRM 保护，因此 Pullbay 不会下载它。"
+    "message": "此视频受 DRM 保护，因此 UDM 不会下载它。"
   },
   "streamProtected": {
-    "message": "受 DRM 保护；Pullbay 不会下载它。"
+    "message": "受 DRM 保护；UDM 不会下载它。"
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay 未运行或未连接。"
+  "udmNotConnected": {
+    "message": "UDM 未运行或未连接。"
   },
   "noVideoFound": {
     "message": "尚未找到视频。请让它播放片刻，然后重试。"
   },
-  "sentToPullbay": {
-    "message": "已发送到 Pullbay。"
+  "sentToUdm": {
+    "message": "已发送到 UDM。"
   },
-  "couldNotReachPullbay": {
-    "message": "无法连接到 Pullbay。"
+  "couldNotReachUdm": {
+    "message": "无法连接到 UDM。"
   },
   "hlsStream": {
     "message": "HLS 流"
@@ -229,7 +229,7 @@
     "message": "Vimeo 视频"
   },
   "mediaNoAnswer": {
-    "message": "Pullbay 没有响应。"
+    "message": "UDM 没有响应。"
   },
   "soundOnly": {
     "message": "仅声音 ($FORMAT$)",
@@ -256,16 +256,16 @@
     "message": "音频"
   },
   "takeoverFailed": {
-    "message": "Pullbay 无法接管下载"
+    "message": "UDM 无法接管下载"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay 未运行或未连接，因此由浏览器下载 $FILE$。",
+    "message": "UDM 未运行或未连接，因此由浏览器下载 $FILE$。",
     "placeholders": {
       "file": { "content": "$1" }
     }
   },
   "takeoverError": {
-    "message": "Pullbay 无法开始下载 $FILE$ ($REASON$)，因此由浏览器下载。",
+    "message": "UDM 无法开始下载 $FILE$ ($REASON$)，因此由浏览器下载。",
     "placeholders": {
       "file": { "content": "$1" },
       "reason": { "content": "$2" }
@@ -278,13 +278,13 @@
     "message": "单击此通知可不再显示此类通知。"
   },
   "downloadLastVideo": {
-    "message": "使用 Pullbay 下载最后一个视频"
+    "message": "使用 UDM 下载最后一个视频"
   },
   "recentVideos": {
-    "message": "最近的视频 (Pullbay)"
+    "message": "最近的视频 (UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "使用 Pullbay 下载页面"
+  "downloadPageWithUdm": {
+    "message": "使用 UDM 下载页面"
   },
   "noLinksFound": {
     "message": "此页面上未找到链接。"
@@ -293,13 +293,13 @@
     "message": "选中的内容中未找到链接。"
   },
   "linksUnreadable": {
-    "message": "浏览器不允许 Pullbay 读取此页面的链接。"
+    "message": "浏览器不允许 UDM 读取此页面的链接。"
   },
-  "cannotReachPullbay": {
-    "message": "无法连接到 Pullbay。它是否正在运行？"
+  "cannotReachUdm": {
+    "message": "无法连接到 UDM。它是否正在运行？"
   },
-  "cannotReachPullbayReason": {
-    "message": "无法连接到 Pullbay ($REASON$)。",
+  "cannotReachUdmReason": {
+    "message": "无法连接到 UDM ($REASON$)。",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -310,8 +310,8 @@
   "browserDownloadsHeading": {
     "message": "正在浏览器中下载"
   },
-  "sendToPullbay": {
-    "message": "发送到 Pullbay"
+  "sendToUdm": {
+    "message": "发送到 UDM"
   },
   "pageVideo": {
     "message": "此页面上的视频"
@@ -336,6 +336,6 @@
     }
   },
   "chooseVideos": {
-    "message": "在 Pullbay 中选择视频..."
+    "message": "在 UDM 中选择视频..."
   }
 }

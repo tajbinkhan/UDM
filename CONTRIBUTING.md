@@ -1,13 +1,13 @@
-# Contributing to Pullbay
+# Contributing to UDM
 
-Thanks for helping. This page says how to build Pullbay, what a change has to pass, and where the
+Thanks for helping. This page says how to build UDM, what a change has to pass, and where the
 rules for the code are.
 
 ## Before you start
 
 - Look through the [issues](https://github.com/tajbinkhan/pullbay/issues) first. For a bigger
   change, open one or comment on one, so the work is agreed before you write it.
-- Read [AGENTS.md](AGENTS.md). It is the single source of truth for how code in Pullbay is
+- Read [AGENTS.md](AGENTS.md). It is the single source of truth for how code in UDM is
   written, by people and by AI agents alike. Its section 16 says where the code on `main` still
   differs from the rules.
 - Found a security hole? Don't open an issue. Report it privately as [SECURITY.md](SECURITY.md)
@@ -16,26 +16,26 @@ rules for the code are.
 ## Build
 
 On macOS and Linux a stable Rust toolchain is enough, plus on Linux the GTK 3 and OpenSSL
-development packages (`sudo apt install libgtk-3-dev libssl-dev` on Ubuntu). On Windows, Pullbay
+development packages (`sudo apt install libgtk-3-dev libssl-dev` on Ubuntu). On Windows, UDM
 builds with the `stable-x86_64-pc-windows-gnu` toolchain and MinGW-w64 (WinLibs) on `PATH`.
 
 ```bash
 cargo build --release
 ```
 
-This makes `pullbay-gui` (the window), `pullbay-daemon` (the engine) and `pullbay-host` (the
+This makes `udm-gui` (the window), `udm-daemon` (the engine) and `udm-host` (the
 browser's relay) in `target/release/`. Keep the three together: the host and the window start the
 daemon from their own folder.
 
-To try your build beside an installed Pullbay, give it a name in `PULLBAY_INSTANCE`. That copy
+To try your build beside an installed UDM, give it a name in `UDM_INSTANCE`. That copy
 keeps its settings and list in folders of its own and runs its daemon on a port of its own:
 
 ```bash
-PULLBAY_INSTANCE=test ./target/debug/pullbay-gui
+UDM_INSTANCE=test ./target/debug/udm-gui
 ```
 
 Packaging each system's files, the installer, the Windows toolchain and every module's place are in
-[Building Pullbay](docs/building.md).
+[Building UDM](docs/building.md).
 
 ## Quality gates
 
@@ -80,7 +80,7 @@ crate of ours. AGENTS.md has the full rules. The ones most often missed:
 - Every new use case comes with tests.
 - Text the window shows goes through the translations (see below).
 
-Pullbay copies how Internet Download Manager behaves. Learn that only by running IDM as a user
+UDM copies how Internet Download Manager behaves. Learn that only by running IDM as a user
 does. Don't decompile or unpack its files, and don't copy its text, icons or images.
 
 ## Adding a language
@@ -105,7 +105,7 @@ tables are reviewed.
 
 egui draws text without shaping it or laying it out right to left, so Arabic, Hebrew, Persian,
 Urdu and scripts that need shaping, such as Bengali or Hindi, don't display correctly yet. More in
-[Building Pullbay](docs/building.md#adding-a-language).
+[Building UDM](docs/building.md#adding-a-language).
 
 ## Pull requests
 
@@ -117,4 +117,4 @@ Urdu and scripts that need shaping, such as Bengali or Hindi, don't display corr
   [the template](release-notes/TEMPLATE.md).
 
 By sending a pull request you agree that your work is released under the
-[MIT License](LICENSE), like the rest of Pullbay.
+[MIT License](LICENSE), like the rest of UDM.

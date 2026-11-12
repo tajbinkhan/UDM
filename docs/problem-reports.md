@@ -1,17 +1,17 @@
 # Problem reports
 
-When a Pullbay program closes by itself or stops responding, Pullbay writes a report to its data
+When a UDM program closes by itself or stops responding, UDM writes a report to its data
 folder. The window offers the report the next time it opens, and can open a GitHub issue for it in
-your browser. Nothing is sent anywhere by Pullbay: you see the issue before you submit it, and you
+your browser. Nothing is sent anywhere by UDM: you see the issue before you submit it, and you
 attach the report yourself.
 
-## When Pullbay writes one
+## When UDM writes one
 
 - **A program crashes.** The window, the background service (the daemon), the browser's host,
-  `pullbay-cli` and `pullbay-mcp` each write a report as they close. A program writes at most three in one run, so
+  `udm-cli` and `udm-mcp` each write a report as they close. A program writes at most three in one run, so
   one that keeps failing doesn't fill the disk.
 - **The window freezes.** If the window takes more than 10 seconds to draw itself, a watchdog
-  writes a report while it waits, so one is kept even if you close Pullbay by force. When the
+  writes a report while it waits, so one is kept even if you close UDM by force. When the
   window answers again, a strip under the toolbar says how long it stopped for: **Save a report**
   keeps the report, and the close box deletes it.
 - **The daemon stops answering.** The window checks every few seconds that the daemon still
@@ -24,8 +24,8 @@ it into the issue; **Show the report** only shows the file.
 
 ## Report a problem
 
-**Help > Report a problem** opens a new bug report on GitHub with Pullbay's version, your system
-and how Pullbay was installed filled in. Describe what happened and submit it there. To attach a
+**Help > Report a problem** opens a new bug report on GitHub with UDM's version, your system
+and how UDM was installed filled in. Describe what happened and submit it there. To attach a
 log or a report, see below for where they are.
 
 ## Where the reports are
@@ -34,24 +34,24 @@ In a `reports` folder in the data folder:
 
 | System | Folder |
 |---|---|
-| Windows | `%LOCALAPPDATA%\Pullbay\reports` |
-| macOS | `~/Library/Application Support/Pullbay/reports` |
-| Linux | `~/.local/share/pullbay/reports` |
+| Windows | `%LOCALAPPDATA%\UDM\reports` |
+| macOS | `~/Library/Application Support/UDM/reports` |
+| Linux | `~/.local/share/udm/reports` |
 
 A [portable copy](portable.md) keeps them in `Data\reports`. Each report is a text file named after
-the program, what happened and when, such as `pullbay-daemon-crash-1762778096123.txt`. Pullbay
+the program, what happened and when, such as `udm-daemon-crash-1762778096123.txt`. UDM
 keeps the newest 20 and deletes older ones. `offered.txt` beside them lists the ones the window has
 already offered. You can delete any of these files.
 
 ## What a report holds
 
-- Pullbay's version, the system (Windows, macOS or the Linux distribution, the desktop and X11 or
-  Wayland, and the processor) and how Pullbay was installed.
+- UDM's version, the system (Windows, macOS or the Linux distribution, the desktop and X11 or
+  Wayland, and the processor) and how UDM was installed.
 - For a crash: the error, where in the code it happened, the thread, and a backtrace. On Windows
   the backtrace lists no function names.
 - The last 200 lines of that program's log.
 
-Before a report is written, Pullbay takes out the daemon's access token, the passwords in
+Before a report is written, UDM takes out the daemon's access token, the passwords in
 addresses (`ftp://user:***@host`), and the values of cookies, authorization headers, passwords and
 tokens. The logs don't record those to begin with. A report can still show the addresses of your
 downloads and the names of files and folders, so look it over before you attach it to a public

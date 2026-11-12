@@ -1,8 +1,8 @@
 use std::sync::Mutex;
 
-use pullbay_domain::gallery::{gallery_page, Gallery, GalleryError, GalleryReads};
-use pullbay_domain::ports::{Probes, Timestamps};
-use pullbay_domain::sync::LockExt;
+use udm_domain::gallery::{gallery_page, Gallery, GalleryError, GalleryReads};
+use udm_domain::ports::{Probes, Timestamps};
+use udm_domain::sync::LockExt;
 
 /// "Download gallery": list the pictures gallery-dl finds on a page. Only
 /// http and https pages are read, one read of a page at a time and at most
@@ -52,7 +52,7 @@ where
 mod tests {
     use super::*;
     use crate::memory::{GalleryPages, Seconds};
-    use pullbay_domain::gallery::{Picture, MISS_KEPT_SECS};
+    use udm_domain::gallery::{Picture, MISS_KEPT_SECS};
 
     fn pictures(urls: &[&str]) -> Gallery {
         Gallery {

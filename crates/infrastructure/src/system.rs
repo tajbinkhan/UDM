@@ -3,10 +3,10 @@
 
 use std::path::Path;
 
-use pullbay_application::window::{FontFile, ScriptFont, SystemFonts, SystemProxy, SystemServices};
-use pullbay_domain::ports::FilesError;
-use pullbay_domain::settings::Sound;
-use pullbay_domain::theme::SystemContrast;
+use udm_application::window::{FontFile, ScriptFont, SystemFonts, SystemProxy, SystemServices};
+use udm_domain::ports::FilesError;
+use udm_domain::settings::Sound;
+use udm_domain::theme::SystemContrast;
 
 /// The operating system this copy runs on.
 pub struct ThisSystem;
@@ -79,7 +79,7 @@ impl SystemServices for ThisSystem {
     }
 
     fn start_window_in_tray(&self) -> Result<(), FilesError> {
-        let mut cmd = crate::platform::program_command("pullbay-gui").map_err(|e| FilesError(e.to_string()))?;
+        let mut cmd = crate::platform::program_command("udm-gui").map_err(|e| FilesError(e.to_string()))?;
         cmd.arg(crate::cli::IN_TRAY)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -98,7 +98,7 @@ impl SystemServices for ThisSystem {
 /// (Settings > Accessibility > Contrast themes) is on.
 #[cfg(windows)]
 fn contrast() -> Option<SystemContrast> {
-    use pullbay_domain::theme::Color;
+    use udm_domain::theme::Color;
 
     #[repr(C)]
     struct HighContrastW {
@@ -155,7 +155,7 @@ fn contrast() -> Option<SystemContrast> {
 /// macOS and Linux have no contrast colors every program takes; their
 /// contrast settings (macOS's Increase contrast, GNOME's High Contrast)
 /// change their own controls' look instead, so the High contrast theme
-/// gives Pullbay's own colors there.
+/// gives UDM's own colors there.
 #[cfg(not(windows))]
 fn contrast() -> Option<SystemContrast> {
     None

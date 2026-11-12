@@ -1,6 +1,6 @@
-use pullbay_domain::download::{DownloadError, OnDone};
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::DownloadList;
+use udm_domain::download::{DownloadError, OnDone};
+use udm_domain::id::DownloadId;
+use udm_domain::ports::DownloadList;
 
 /// Set or clear what a download does once it finishes.
 pub struct SetOnDone<'a, D> {
@@ -28,8 +28,8 @@ impl<'a, D: DownloadList> SetOnDone<'a, D> {
 mod tests {
     use super::*;
     use crate::memory::Downloads;
-    use pullbay_domain::download::Status;
-    use pullbay_domain::queue::WhenDone;
+    use udm_domain::download::Status;
+    use udm_domain::queue::WhenDone;
 
     #[test]
     fn only_an_unfinished_download_takes_an_on_done() {

@@ -1,4 +1,4 @@
-use pullbay_domain::ports::{LimitLift, SettingsStore, UserIdle};
+use udm_domain::ports::{LimitLift, SettingsStore, UserIdle};
 
 /// Lift the speed limit while nobody uses the computer, when the settings
 /// ask for that, and apply it again once someone does. Runs with the
@@ -32,8 +32,8 @@ impl<'a, S: SettingsStore, I: UserIdle, L: LimitLift> LiftLimitWhileAway<'a, S, 
 mod tests {
     use super::*;
     use crate::memory::{Idle, Lift, Prefs};
-    use pullbay_domain::settings::Settings;
     use std::time::Duration;
+    use udm_domain::settings::Settings;
 
     fn away_after(minutes: u32) -> Settings {
         Settings {

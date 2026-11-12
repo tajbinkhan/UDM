@@ -29,7 +29,7 @@ Windows nothing starts the daemon, though; see Known gaps.
 
 Sleep and hibernate use `SetSuspendState`; shutting down runs
 `shutdown.exe /s /t 0`. The daemon saves the history as the countdown starts.
-With the environment variable `PULLBAY_POWER_DRY_RUN` set, the daemon only logs
+With the environment variable `UDM_POWER_DRY_RUN` set, the daemon only logs
 what it would do, which is how these were tested.
 
 `refresh_link` with a `download` gives download `id` (failed, canceled,

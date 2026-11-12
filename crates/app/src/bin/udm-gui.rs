@@ -1,4 +1,4 @@
-//! Pullbay's desktop window. The views live in `pullbay_ui`; this binary builds
+//! UDM's desktop window. The views live in `udm_ui`; this binary builds
 //! the adapters they reach through ports and starts the window
 //! (AGENTS.md section 8).
 
@@ -9,11 +9,11 @@
 
 use std::sync::Arc;
 
-use pullbay_infrastructure as infra;
+use udm_infrastructure as infra;
 
 fn main() -> eframe::Result {
-    // Before the log, which would make Pullbay's data folder first.
-    let moved = infra::from_uidm::move_from_uidm();
+    // Before the log, which would make UDM's data folder first.
+    let moved = infra::from_old_names::move_from_old_names();
     infra::logging::init(infra::logging::Program::Gui);
     // A panic leaves a report in the data folder, which the next window
     // offers (`crash`).
@@ -21,7 +21,7 @@ fn main() -> eframe::Result {
     moved.log();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let ports = pullbay_ui::Ports {
+    let ports = udm_ui::Ports {
         clock: Arc::new(infra::clock::LocalClock),
         times: Arc::new(infra::clock::LocalClock),
         folders: Arc::new(infra::files::DiskFiles),
@@ -39,12 +39,12 @@ fn main() -> eframe::Result {
         reports: Arc::new(infra::crash::ReportFiles::new()),
         themes: Arc::new(infra::themes::ThemeDir::new()),
     };
-    pullbay_ui::run(pullbay_ui::Start {
+    udm_ui::run(udm_ui::Start {
         ports,
-        daemon: Arc::new(infra::daemon_client::IpcDaemonClient::new(pullbay_ui::WINDOW_CLIENT)),
+        daemon: Arc::new(infra::daemon_client::IpcDaemonClient::new(udm_ui::WINDOW_CLIENT)),
         minimized: args.iter().any(|a| a == "--minimized"),
         in_tray: args.iter().any(|a| a == infra::cli::IN_TRAY),
-        command_line: infra::cli::parse(&args, &cwd).map_err(|e| pullbay_ui::UiError::new(e.to_string())).transpose(),
+        command_line: infra::cli::parse(&args, &cwd).map_err(|e| udm_ui::UiError::new(e.to_string())).transpose(),
         instance: infra::paths::instance(),
     })
 }

@@ -1,7 +1,7 @@
-use pullbay_domain::ports::{ReleaseSource, UpdateChecks};
-use pullbay_domain::update::{self, Release, UpdateError};
+use udm_domain::ports::{ReleaseSource, UpdateChecks};
+use udm_domain::update::{self, Release, UpdateError};
 
-/// Ask for the latest release and note that Pullbay looked.
+/// Ask for the latest release and note that UDM looked.
 pub struct CheckForUpdate<'a, S, N> {
     source: &'a S,
     checks: &'a N,

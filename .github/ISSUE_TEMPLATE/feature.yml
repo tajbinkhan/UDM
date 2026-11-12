@@ -1,16 +1,16 @@
 name: Feature request
-description: Something Pullbay should do, or do differently.
+description: Something UDM should do, or do differently.
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the idea. If IDM does this, say how it behaves there: Pullbay follows IDM's behavior.
+        Thanks for the idea. If IDM does this, say how it behaves there: UDM follows IDM's behavior.
   - type: textarea
     id: idea
     attributes:
       label: What you'd like
-      description: What Pullbay should do, from your side.
+      description: What UDM should do, from your side.
     validations:
       required: true
   - type: textarea
@@ -26,8 +26,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: Pullbay version
-      description: In the window, Help > About Pullbay.
+      label: UDM version
+      description: In the window, Help > About UDM.
       placeholder: "0.4.0"
     validations:
       required: true
@@ -48,9 +48,9 @@ body:
   - type: dropdown
     id: install
     attributes:
-      label: How you installed Pullbay
+      label: How you installed UDM
       options:
-        - Setup (Pullbay-Setup .exe)
+        - Setup (UDM-Setup .exe)
         - Windows portable zip
         - macOS .dmg
         - .deb package

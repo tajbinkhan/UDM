@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use pullbay_domain::checksum::{to_hex, Checksum};
-use pullbay_domain::ports::{FileHashes, HashError};
+use udm_domain::checksum::{to_hex, Checksum};
+use udm_domain::ports::{FileHashes, HashError};
 
 /// What comparing a file with a checksum found.
 #[derive(Debug, Clone, PartialEq, Eq)]

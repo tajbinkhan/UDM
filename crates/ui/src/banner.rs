@@ -3,11 +3,11 @@
 //! quota, a newer release, a download waiting for a new link and a problem
 //! to report. Each is
 //! shown only while it applies, and its text wraps so its buttons stay in
-//! view. Pullbay's window has no status bar; this is where its messages went.
+//! view. UDM's window has no status bar; this is where its messages went.
 
 use eframe::egui::{self, Color32};
 
-use pullbay_domain::report::{Kind, Program};
+use udm_domain::report::{Kind, Program};
 
 use crate::i18n::{tr, trf};
 use crate::state::ReportOffer;
@@ -25,7 +25,7 @@ pub enum Connection<'a> {
 pub struct Release<'a> {
     pub version: &'a str,
     pub url: &'a str,
-    /// It has a setup Pullbay can install.
+    /// It has a setup UDM can install.
     pub installable: bool,
 }
 
@@ -84,10 +84,10 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
         Connection::Up => {}
         Connection::Connecting => strip(ui, Tone::Info, |ui| {
             ui.spinner();
-            ui.label(tr("Connecting to the Pullbay daemon..."));
+            ui.label(tr("Connecting to the UDM daemon..."));
         }),
         Connection::Lost(why) => strip(ui, Tone::Error, |ui| {
-            ui.label(trf!("Disconnected from the Pullbay daemon: {reason}", reason = why));
+            ui.label(trf!("Disconnected from the UDM daemon: {reason}", reason = why));
             if ui.button(tr("Retry")).clicked() {
                 actions.push(Action::Reconnect);
             }
@@ -144,7 +144,7 @@ pub fn show(ui: &mut egui::Ui, notes: &Notes, connected: bool, actions: &mut Vec
     }
     if let Some(r) = &notes.release {
         strip(ui, Tone::Info, |ui| {
-            ui.hyperlink_to(trf!("Pullbay {version} is available", version = r.version), r.url);
+            ui.hyperlink_to(trf!("UDM {version} is available", version = r.version), r.url);
             // About checks again and offers Update now.
             if r.installable && ui.add_enabled(connected, egui::Button::new(tr("Update now"))).clicked() {
                 actions.push(Action::CheckUpdate);
@@ -162,7 +162,7 @@ fn report(ui: &mut egui::Ui, offer: &ReportOffer, actions: &mut Vec<Action>) {
     let save = |ui: &mut egui::Ui, actions: &mut Vec<Action>| {
         if ui
             .button(tr("Save a report"))
-            .on_hover_text(tr("Write a report with the version, the system and the end of the log to Pullbay's data folder. Nothing is sent."))
+            .on_hover_text(tr("Write a report with the version, the system and the end of the log to UDM's data folder. Nothing is sent."))
             .clicked()
         {
             actions.push(Action::SaveReport);
@@ -177,7 +177,7 @@ fn report(ui: &mut egui::Ui, offer: &ReportOffer, actions: &mut Vec<Action>) {
             }
         }),
         ReportOffer::Silent { secs } => strip(ui, Tone::Warn, |ui| {
-            ui.label(trf!("The Pullbay daemon has not answered for {seconds} seconds.", seconds = secs));
+            ui.label(trf!("The UDM daemon has not answered for {seconds} seconds.", seconds = secs));
             save(ui, actions);
             if ui.button(tr("Restart daemon")).clicked() {
                 actions.push(Action::RestartDaemon);
@@ -192,19 +192,15 @@ fn report(ui: &mut egui::Ui, offer: &ReportOffer, actions: &mut Vec<Action>) {
         }),
         ReportOffer::Saved { report, earlier, more } => strip(ui, Tone::Info, |ui| {
             ui.label(match (earlier, report.summary.kind, report.summary.program) {
-                (true, Kind::Crash, Program::Window) => {
-                    tr("The Pullbay window closed unexpectedly and saved a report.")
-                }
-                (true, Kind::Crash, Program::Daemon) => {
-                    tr("The Pullbay daemon closed unexpectedly and saved a report.")
-                }
+                (true, Kind::Crash, Program::Window) => tr("The UDM window closed unexpectedly and saved a report."),
+                (true, Kind::Crash, Program::Daemon) => tr("The UDM daemon closed unexpectedly and saved a report."),
                 (true, Kind::Crash, Program::Host) => {
-                    tr("Pullbay's browser connection closed unexpectedly and saved a report.")
+                    tr("UDM's browser connection closed unexpectedly and saved a report.")
                 }
                 (true, Kind::Crash, Program::Cli) => {
-                    tr("The Pullbay command-line tool closed unexpectedly and saved a report.")
+                    tr("The UDM command-line tool closed unexpectedly and saved a report.")
                 }
-                (true, ..) => tr("Pullbay saved a report on a problem it saw earlier."),
+                (true, ..) => tr("UDM saved a report on a problem it saw earlier."),
                 (false, ..) => tr("The report is saved."),
             });
             if *more > 0 {

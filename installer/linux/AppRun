@@ -1,26 +1,26 @@
 #!/bin/sh
-# The AppImage's entry point. One AppImage holds Pullbay's five programs:
+# The AppImage's entry point. One AppImage holds UDM's five programs:
 #
-#   Pullbay.AppImage                      the window
-#   Pullbay.AppImage pullbay-daemon          a program by name (Pullbay starts its
-#                                      other programs this way)
-#   Pullbay.AppImage pullbay-cli get URL     the command-line tool
-#   Pullbay.AppImage pullbay-mcp             the AI assistants' server
-#   Pullbay.AppImage chrome-extension://… a browser starting the native host
-#   Pullbay.AppImage <manifest> pullbay@pullbay.local   Firefox starting it
+#   UDM.AppImage                    the window
+#   UDM.AppImage udm-daemon         a program by name (UDM starts its
+#                                   other programs this way)
+#   UDM.AppImage udm-cli get URL    the command-line tool
+#   UDM.AppImage udm-mcp            the AI assistants' server
+#   UDM.AppImage chrome-extension://…  a browser starting the native host
+#   UDM.AppImage <manifest> udm@udm.local  Firefox starting it
 HERE="$(dirname "$(readlink -f "$0")")"
 BIN="$HERE/usr/bin"
 case "$1" in
-  pullbay-gui|pullbay-daemon|pullbay-host|pullbay-cli|pullbay-mcp)
+  udm-gui|udm-daemon|udm-host|udm-cli|udm-mcp)
     prog="$1"
     shift
     exec "$BIN/$prog" "$@"
     ;;
   chrome-extension://*)
-    exec "$BIN/pullbay-host" "$@"
+    exec "$BIN/udm-host" "$@"
     ;;
 esac
-if [ "$2" = "pullbay@pullbay.local" ]; then
-  exec "$BIN/pullbay-host" "$@"
+if [ "$2" = "udm@udm.local" ]; then
+  exec "$BIN/udm-host" "$@"
 fi
-exec "$BIN/pullbay-gui" "$@"
+exec "$BIN/udm-gui" "$@"

@@ -11,7 +11,7 @@ const { linkFileName, linkDescription } = require("../rules.js");
 
 function connected(options, settings = {}) {
   const w = loadWorker(options);
-  w.port.onMessage.fire({ op: "hello", name: "pullbay-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "hello", name: "udm-daemon", version: "x" });
   w.port.onMessage.fire({ op: "settings", settings: { capture_types: [], capture_min_size_kb: 0, capture_excluded_sites: [], ...settings } });
   return w;
 }
@@ -24,69 +24,69 @@ const click = (w, info, tab = { id: 1, incognito: false }) => w.chrome.contextMe
 
 test("the page item sends the page's address, or the frame's", async () => {
   const w = connected();
-  same(w.chrome.contextMenus.items.get("pullbay-page").contexts, ["page", "frame"]);
-  assert.equal(w.chrome.contextMenus.items.get("pullbay-page").title, "Download page with Pullbay");
+  same(w.chrome.contextMenus.items.get("udm-page").contexts, ["page", "frame"]);
+  assert.equal(w.chrome.contextMenus.items.get("udm-page").title, "Download page with UDM");
 
-  await click(w, { menuItemId: "pullbay-page", pageUrl: "https://site.net/article" });
+  await click(w, { menuItemId: "udm-page", pageUrl: "https://site.net/article" });
   const add = lastAdd(w);
   assert.deepEqual([add.url, add.referrer, add.page], ["https://site.net/article", "https://site.net/article", "https://site.net/article"]);
 
-  await click(w, { menuItemId: "pullbay-page", pageUrl: "https://site.net/article", frameUrl: "https://embed.net/player" });
+  await click(w, { menuItemId: "udm-page", pageUrl: "https://site.net/article", frameUrl: "https://embed.net/player" });
   assert.deepEqual([lastAdd(w).url, lastAdd(w).referrer, lastAdd(w).page], ["https://embed.net/player", "https://site.net/article", "https://site.net/article"]);
 
   // Not a web page (the browser's own pages): nothing.
   const before = w.sent.length;
-  await click(w, { menuItemId: "pullbay-page", pageUrl: "chrome://newtab/" });
+  await click(w, { menuItemId: "udm-page", pageUrl: "chrome://newtab/" });
   assert.equal(w.sent.length, before);
 });
 
 test("the page item can be left out of the menu like the others", () => {
   const w = connected({}, { browser_menu_hidden_chromium: ["page"] });
-  assert.equal(w.chrome.contextMenus.items.has("pullbay-page"), false);
-  assert.ok(w.chrome.contextMenus.items.has("pullbay-link"));
+  assert.equal(w.chrome.contextMenus.items.has("udm-page"), false);
+  assert.ok(w.chrome.contextMenus.items.has("udm-link"));
 });
 
-test("the gallery item sends the tab's page for Pullbay to read with gallery-dl", async () => {
+test("the gallery item sends the tab's page for UDM to read with gallery-dl", async () => {
   const w = connected();
-  same(w.chrome.contextMenus.items.get("pullbay-gallery").contexts, ["page", "frame", "image"]);
-  assert.equal(w.chrome.contextMenus.items.get("pullbay-gallery").title, "Download gallery with Pullbay");
-  await click(w, { menuItemId: "pullbay-gallery", pageUrl: "https://commons.example/wiki/Category:Cats", frameUrl: "https://embed.net/" });
+  same(w.chrome.contextMenus.items.get("udm-gallery").contexts, ["page", "frame", "image"]);
+  assert.equal(w.chrome.contextMenus.items.get("udm-gallery").title, "Download gallery with UDM");
+  await click(w, { menuItemId: "udm-gallery", pageUrl: "https://commons.example/wiki/Category:Cats", frameUrl: "https://embed.net/" });
   const sent = w.sent.filter((m) => m.op === "pick_gallery");
   assert.equal(sent.length, 1);
   assert.equal(sent[0].page, "https://commons.example/wiki/Category:Cats");
   assert.equal(typeof sent[0].user_agent, "string");
 
   // The browser's own pages and files are not read.
-  await click(w, { menuItemId: "pullbay-gallery", pageUrl: "chrome://newtab/" });
-  await click(w, { menuItemId: "pullbay-gallery", pageUrl: "file:///home/me/a.html" });
+  await click(w, { menuItemId: "udm-gallery", pageUrl: "chrome://newtab/" });
+  await click(w, { menuItemId: "udm-gallery", pageUrl: "file:///home/me/a.html" });
   assert.equal(w.sent.filter((m) => m.op === "pick_gallery").length, 1);
 
-  // Left out like the others, and a notice while Pullbay is away.
-  assert.equal(connected({}, { browser_menu_hidden_chromium: ["gallery"] }).chrome.contextMenus.items.has("pullbay-gallery"), false);
+  // Left out like the others, and a notice while UDM is away.
+  assert.equal(connected({}, { browser_menu_hidden_chromium: ["gallery"] }).chrome.contextMenus.items.has("udm-gallery"), false);
   const away = loadWorker();
-  await click(away, { menuItemId: "pullbay-gallery", pageUrl: "https://flickr.example/photos/a/albums/1" });
-  assert.deepEqual(notices(away), ["Cannot reach Pullbay. Is it running?"]);
+  await click(away, { menuItemId: "udm-gallery", pageUrl: "https://flickr.example/photos/a/albums/1" });
+  assert.deepEqual(notices(away), ["Cannot reach UDM. Is it running?"]);
 });
 
 test("a link's download attribute and title go with it as name and description", async () => {
   const w = connected();
   w.chrome.tabs.reply = (msg) =>
     msg.url === "https://cdn.net/get?id=7" ? { download: "../files/Report: 2024?.pdf", title: "  Annual\n report ", text: "Get it" } : null;
-  await click(w, { menuItemId: "pullbay-link", linkUrl: "https://cdn.net/get?id=7", pageUrl: "https://site.net/", frameId: 3 });
+  await click(w, { menuItemId: "udm-link", linkUrl: "https://cdn.net/get?id=7", pageUrl: "https://site.net/", frameId: 3 });
   const [tabId, msg, options] = w.chrome.tabs.messages.at(-1);
   assert.deepEqual([tabId, msg.type, msg.url, options.frameId], [1, "link:details", "https://cdn.net/get?id=7", 3]);
   assert.deepEqual([lastAdd(w).filename, lastAdd(w).description], ["Report_ 2024_.pdf", "Annual report"]);
 
   // No title: its text describes it. A bare `download` names nothing.
   w.chrome.tabs.reply = () => ({ download: "", title: "", text: " Setup  for Windows " });
-  await click(w, { menuItemId: "pullbay-later-link", linkUrl: "https://cdn.net/setup.exe", pageUrl: "https://site.net/" });
+  await click(w, { menuItemId: "udm-later-link", linkUrl: "https://cdn.net/setup.exe", pageUrl: "https://site.net/" });
   assert.deepEqual([lastAdd(w).filename, lastAdd(w).description, lastAdd(w).start], [undefined, "Setup for Windows", false]);
 
   // The frame cannot say (not its link, or no content script): neither.
   w.chrome.tabs.reply = () => {
     throw new Error("Could not establish connection");
   };
-  await click(w, { menuItemId: "pullbay-link", linkUrl: "https://cdn.net/b.zip", pageUrl: "https://site.net/" });
+  await click(w, { menuItemId: "udm-link", linkUrl: "https://cdn.net/b.zip", pageUrl: "https://site.net/" });
   assert.deepEqual([lastAdd(w).url, lastAdd(w).filename, lastAdd(w).description], ["https://cdn.net/b.zip", undefined, undefined]);
 });
 
@@ -104,27 +104,27 @@ test("a link's file name and description are made safe", () => {
 test("download all or selected links says when there are none", async () => {
   const w = connected();
   w.chrome.scripting = { executeScript: async () => [{ result: [] }, { result: [{ url: "javascript:void(0)", text: "x" }] }] };
-  await click(w, { menuItemId: "pullbay-all-links", pageUrl: "https://site.net/" });
-  await click(w, { menuItemId: "pullbay-selection-links", pageUrl: "https://site.net/" });
+  await click(w, { menuItemId: "udm-all-links", pageUrl: "https://site.net/" });
+  await click(w, { menuItemId: "udm-selection-links", pageUrl: "https://site.net/" });
   assert.deepEqual(notices(w), ["No links found on this page.", "No links found in the selection."]);
   assert.equal(w.sent.some((m) => m.op === "pick_links"), false);
 
   // A page extensions may not read says so too.
   w.chrome.scripting = { executeScript: async () => Promise.reject(new Error("Cannot access a chrome:// URL")) };
-  await click(w, { menuItemId: "pullbay-all-links", pageUrl: "https://chromewebstore.google.com/" });
-  assert.equal(notices(w).at(-1), "The browser does not let Pullbay read the links of this page.");
+  await click(w, { menuItemId: "udm-all-links", pageUrl: "https://chromewebstore.google.com/" });
+  assert.equal(notices(w).at(-1), "The browser does not let UDM read the links of this page.");
 });
 
-test("a menu item says when Pullbay cannot be reached", async () => {
+test("a menu item says when UDM cannot be reached", async () => {
   const w = loadWorker();
-  await click(w, { menuItemId: "pullbay-page", pageUrl: "https://site.net/" });
-  await click(w, { menuItemId: "pullbay-all-links", pageUrl: "https://site.net/" });
-  assert.deepEqual(notices(w), ["Cannot reach Pullbay. Is it running?", "Cannot reach Pullbay. Is it running?"]);
+  await click(w, { menuItemId: "udm-page", pageUrl: "https://site.net/" });
+  await click(w, { menuItemId: "udm-all-links", pageUrl: "https://site.net/" });
+  assert.deepEqual(notices(w), ["Cannot reach UDM. Is it running?", "Cannot reach UDM. Is it running?"]);
   assert.equal(w.sent.some((m) => m.op === "add" || m.op === "pick_links"), false);
 
   // A link still downloads, in the browser, and the notice says so.
-  await click(w, { menuItemId: "pullbay-link", linkUrl: "https://cdn.net/a.zip", pageUrl: "https://site.net/" });
-  assert.equal(notices(w).at(-1), "Cannot reach Pullbay. Is it running? The browser downloads it instead.");
+  await click(w, { menuItemId: "udm-link", linkUrl: "https://cdn.net/a.zip", pageUrl: "https://site.net/" });
+  assert.equal(notices(w).at(-1), "Cannot reach UDM. Is it running? The browser downloads it instead.");
   assert.deepEqual(w.browserCalls.at(-1).slice(0, 2), ["download", "https://cdn.net/a.zip"]);
 });
 
@@ -133,8 +133,8 @@ test("the cannot-reach notice gives the browser's reason when the host went away
   w.chrome.runtime.lastError = { message: "Native host has exited." };
   await w.port.onDisconnect.fire();
   w.chrome.runtime.lastError = null;
-  await click(w, { menuItemId: "pullbay-page", pageUrl: "https://site.net/" });
-  assert.deepEqual(notices(w), ["Cannot reach Pullbay (Native host has exited.)."]);
+  await click(w, { menuItemId: "udm-page", pageUrl: "https://site.net/" });
+  assert.deepEqual(notices(w), ["Cannot reach UDM (Native host has exited.)."]);
   // The worker reconnects on its own; answer it so nothing is left waiting.
   await new Promise((r) => setTimeout(r, 1100));
   w.port.onMessage.fire({ op: "hello" });
@@ -142,8 +142,8 @@ test("the cannot-reach notice gives the browser's reason when the host went away
 
 test("Firefox hides selected links when the selection has none", async () => {
   const w = connected({ firefox: true });
-  const item = () => w.chrome.contextMenus.items.get("pullbay-selection-links");
-  const shown = (info) => w.chrome.contextMenus.onShown.fire({ menuIds: ["pullbay-selection-links"], contexts: ["selection"], frameId: 2, ...info }, { id: 5 });
+  const item = () => w.chrome.contextMenus.items.get("udm-selection-links");
+  const shown = (info) => w.chrome.contextMenus.onShown.fire({ menuIds: ["udm-selection-links"], contexts: ["selection"], frameId: 2, ...info }, { id: 5 });
 
   w.chrome.tabs.reply = (msg) => (msg.type === "selection:hasLinks" ? { links: false } : null);
   await shown({ selectionText: "just words" });
@@ -164,17 +164,17 @@ test("Firefox hides selected links when the selection has none", async () => {
   assert.equal(w.chrome.tabs.messages.length, asked);
 
   // A menu without the item is left alone.
-  await w.chrome.contextMenus.onShown.fire({ menuIds: ["pullbay-link"], contexts: ["link"] }, { id: 5 });
+  await w.chrome.contextMenus.onShown.fire({ menuIds: ["udm-link"], contexts: ["link"] }, { id: 5 });
   assert.equal(w.chrome.tabs.messages.length, asked);
 });
 
 test("Chrome, without menus.onShown, leaves selected links as it is", () => {
   const w = connected();
   assert.equal(w.chrome.contextMenus.onShown, undefined);
-  assert.equal(w.chrome.contextMenus.items.get("pullbay-selection-links").visible, undefined);
+  assert.equal(w.chrome.contextMenus.items.get("udm-selection-links").visible, undefined);
 });
 
-test("the popup lists the browser's downloads in progress and hands one to Pullbay", async () => {
+test("the popup lists the browser's downloads in progress and hands one to UDM", async () => {
   const w = connected();
   w.chrome.cookies.getAll = async ({ url }) => (url.startsWith("https://cdn.net/") ? [{ name: "s", value: "1" }] : []);
   // The tab in front is not where a download that started earlier came from.
@@ -195,7 +195,7 @@ test("the popup lists the browser's downloads in progress and hands one to Pullb
   const add = lastAdd(w);
   assert.deepEqual([add.url, add.referrer, add.filename, add.cookies, add.page], ["https://cdn.net/big.iso", "https://cdn.net/files", "big.iso", "s=1", undefined]);
 
-  // Pullbay refusing it gives it back to the browser, as a captured download.
+  // UDM refusing it gives it back to the browser, as a captured download.
   w.port.onMessage.fire({ op: "rejected", url: "https://cdn.net/big.iso", message: "no" });
   assert.deepEqual(w.browserCalls.at(-1).slice(0, 2), ["download", "https://cdn.net/big.iso"]);
 
@@ -203,11 +203,11 @@ test("the popup lists the browser's downloads in progress and hands one to Pullb
   for (const d of w.chrome.downloads.items.slice(1, 3)) assert.equal((await w.popup({ type: "sendBrowserDownload", id: d.id })).ok, false);
 });
 
-test("the popup cannot hand over a download while Pullbay is away", async () => {
+test("the popup cannot hand over a download while UDM is away", async () => {
   const w = loadWorker();
   const d = download({ url: "https://cdn.net/a.zip", state: "in_progress" });
   w.chrome.downloads.items.push(d);
   assert.equal((await w.popup({ type: "sendBrowserDownload", id: d.id })).ok, false);
   assert.deepEqual(w.browserCalls, [], "the browser keeps it");
-  assert.deepEqual(notices(w), ["Cannot reach Pullbay. Is it running?"]);
+  assert.deepEqual(notices(w), ["Cannot reach UDM. Is it running?"]);
 });

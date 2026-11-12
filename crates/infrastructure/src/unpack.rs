@@ -32,13 +32,13 @@ use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::filename::{sanitize_filename, FileName};
-use pullbay_domain::package::{
+use udm_domain::bytes::ByteCount;
+use udm_domain::filename::{sanitize_filename, FileName};
+use udm_domain::package::{
     check_space, entry_path, free_name, ArchiveKind, Family, Password, UnpackError, UnpackFailure, MAX_FILES,
 };
-use pullbay_domain::ports::{UnpackJob, Unpacked, Unpacker};
-use pullbay_domain::settings::Settings;
+use udm_domain::ports::{UnpackJob, Unpacked, Unpacker};
+use udm_domain::settings::Settings;
 
 /// The `Unpacker` adapter.
 pub struct Unpacking;
@@ -67,7 +67,7 @@ pub fn seven_zip(settings: &Settings) -> Option<PathBuf> {
     on_path.into_iter().chain(installed).flat_map(|dir| names.iter().map(move |n| dir.join(n))).find(|p| p.is_file())
 }
 
-/// Whether Pullbay unpacks `job` itself: a kind it knows, in one file or
+/// Whether UDM unpacks `job` itself: a kind it knows, in one file or
 /// cut into pieces it joins.
 fn built_in(job: &UnpackJob) -> bool {
     job.kind.built_in() && (job.family == Family::Pieces || job.parts.len() == 1)
@@ -106,7 +106,7 @@ struct Staging(PathBuf);
 impl Staging {
     fn new(into: &Path) -> io::Result<Staging> {
         for n in 0..1000 {
-            let path = into.join(format!(".pullbay-unpacking-{}-{n}", std::process::id()));
+            let path = into.join(format!(".udm-unpacking-{}-{n}", std::process::id()));
             match fs::create_dir(&path) {
                 Ok(()) => return Ok(Staging(path)),
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -481,7 +481,7 @@ fn free_bytes(_: &Path) -> Option<u64> {
     None
 }
 
-/// 7-Zip, for what Pullbay does not unpack itself.
+/// 7-Zip, for what UDM does not unpack itself.
 mod seven {
     use super::*;
 
@@ -650,7 +650,7 @@ mod tests {
     fn scratch(name: &str) -> PathBuf {
         static N: AtomicUsize = AtomicUsize::new(0);
         let n = N.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("pullbay_unpack_{}_{name}_{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_unpack_{}_{name}_{n}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir

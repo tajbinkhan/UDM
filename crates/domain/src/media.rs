@@ -1,6 +1,6 @@
-//! Streamed video as Pullbay describes it: the formats, the qualities and
+//! Streamed video as UDM describes it: the formats, the qualities and
 //! tracks a stream offers, and which of them to download. Reading the
-//! playlists and manifests is `pullbay_infrastructure::media`.
+//! playlists and manifests is `udm_infrastructure::media`.
 
 use std::path::{Path, PathBuf};
 
@@ -246,7 +246,7 @@ impl PlaylistQuality {
 }
 
 impl Playlist {
-    /// The entries yt-dlp listed that Pullbay can download: http and https
+    /// The entries yt-dlp listed that UDM can download: http and https
     /// pages, without repeats, at most `MAX_PLAYLIST_ENTRIES`.
     pub fn cleaned(self) -> Playlist {
         let mut seen = std::collections::HashSet::new();
@@ -443,8 +443,8 @@ pub fn iso639_2(tag: &str) -> Option<String> {
 }
 
 /// Why a stream is refused, in words for the user.
-pub const DRM_REFUSED: &str = "This video is protected by DRM (copy protection), so Pullbay will not download it.";
-pub const LIVE_REFUSED: &str = "This is a live stream. Pullbay downloads recorded videos, which have an end.";
+pub const DRM_REFUSED: &str = "This video is protected by DRM (copy protection), so UDM will not download it.";
+pub const LIVE_REFUSED: &str = "This is a live stream. UDM downloads recorded videos, which have an end.";
 
 /// `url` resolved against `base`, as a browser would.
 pub fn resolve(base: &str, url: &str) -> Result<String, AddressError> {
@@ -509,7 +509,7 @@ pub fn sniff_hds(text: &str) -> bool {
 }
 
 /// The kind of video or audio file that starts with `head`, as a file
-/// extension, or `None` when it is no media file Pullbay knows.
+/// extension, or `None` when it is no media file UDM knows.
 pub fn sniff_file(head: &[u8]) -> Option<&'static str> {
     let at = |i: usize, sig: &[u8]| head.get(i..i + sig.len()) == Some(sig);
     if at(4, b"ftyp") {

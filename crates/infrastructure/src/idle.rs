@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use pullbay_domain::ports::UserIdle;
+use udm_domain::ports::UserIdle;
 
 /// The time since the last input, as the operating system tells it.
 #[derive(Debug, Default, Clone, Copy)]

@@ -1,4 +1,4 @@
-//! The categories tree at the window's left, laid out like the one Pullbay's
+//! The categories tree at the window's left, laid out like the one UDM's
 //! window follows: All Downloads, Unfinished and Finished, each opening to
 //! a branch per category, then the saved grabber projects, the queues and
 //! the packages.
@@ -8,11 +8,11 @@
 use std::collections::HashSet;
 
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, Vec2};
-use pullbay_domain::download::{DownloadEntry, Status};
-use pullbay_domain::id::{PackageId, QueueId};
-use pullbay_domain::package::{Package, Unpack};
-use pullbay_domain::queue::Queue;
-use pullbay_domain::settings::GENERAL;
+use udm_domain::download::{DownloadEntry, Status};
+use udm_domain::id::{PackageId, QueueId};
+use udm_domain::package::{Package, Unpack};
+use udm_domain::queue::Queue;
+use udm_domain::settings::GENERAL;
 
 use crate::i18n::{tr, trf};
 use crate::Action;

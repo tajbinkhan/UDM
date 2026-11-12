@@ -1,6 +1,6 @@
-//! Pullbay run from another program: the use cases behind `pullbay-cli`
+//! UDM run from another program: the use cases behind `udm-cli`
 //! (pairing a phone with the remote-control page among them) and
-//! `pullbay-mcp` (`Assistant`, through the `Tools` port).
+//! `udm-mcp` (`Assistant`, through the `Tools` port).
 //! Each works on a `Session`, a connection of its own to the daemon through
 //! the `DaemonClient` port, as the window's is, so the daemon starts if
 //! it is not running and no window needs to be open. They ask the daemon

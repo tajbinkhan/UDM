@@ -1,7 +1,7 @@
 //! The download quota: "no more than N MB every N hours". The daemon counts
 //! the bytes every download receives, per minute; these are the counting
 //! rules and the decision what the count asks for. Keeping the count across
-//! restarts is `pullbay_infrastructure::quota`.
+//! restarts is `udm_infrastructure::quota`.
 
 use std::collections::{HashMap, VecDeque};
 

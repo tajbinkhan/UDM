@@ -1,5 +1,5 @@
-use pullbay_domain::ports::UpdateChecks;
-use pullbay_domain::update;
+use udm_domain::ports::UpdateChecks;
+use udm_domain::update;
 
 /// Decide whether the weekly look for a newer release is due, and if so
 /// claim it at once, so two windows connecting together do not both look.
@@ -28,7 +28,7 @@ impl<'a, N: UpdateChecks> ClaimWeeklyCheck<'a, N> {
 mod tests {
     use super::*;
     use crate::memory::Checked;
-    use pullbay_domain::update::CHECK_EVERY_SECS;
+    use udm_domain::update::CHECK_EVERY_SECS;
 
     #[test]
     fn the_first_window_after_a_week_claims_the_check() {

@@ -4,7 +4,7 @@
 //! each client's commands to, with a `Reply` for the answers.
 //!
 //! These are plain values: how they travel (the framing, the JSON shapes,
-//! the handshake) is the adapters' business, in `pullbay-infrastructure`.
+//! the handshake) is the adapters' business, in `udm-infrastructure`.
 
 mod failure;
 pub mod service;
@@ -16,22 +16,22 @@ pub use table::{apply, change_of};
 use std::fmt;
 use std::sync::Arc;
 
-use pullbay_domain::address::Link;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::download::{
+use udm_domain::address::Link;
+use udm_domain::bytes::ByteCount;
+use udm_domain::download::{
     Answer, CommandLine, Download, DownloadEntry, OnDone, PageLink, Properties, SegmentInfo, Validator, ZipEntry,
 };
-use pullbay_domain::gallery::Gallery;
-use pullbay_domain::grab::{GrabFile, GrabRequest};
-use pullbay_domain::id::{DeviceId, DownloadId, PackageId, QueueId};
-use pullbay_domain::media::{MediaInfo, Playlist, Target};
-use pullbay_domain::package::{Package, Packaging, Password};
-use pullbay_domain::pairing::RemoteState;
-use pullbay_domain::queue::{Queue, WhenDone};
-use pullbay_domain::quota::QuotaNotice;
-use pullbay_domain::settings::Settings;
-use pullbay_domain::tools::{Tool, ToolState};
-use pullbay_domain::update::Release;
+use udm_domain::gallery::Gallery;
+use udm_domain::grab::{GrabFile, GrabRequest};
+use udm_domain::id::{DeviceId, DownloadId, PackageId, QueueId};
+use udm_domain::media::{MediaInfo, Playlist, Target};
+use udm_domain::package::{Package, Packaging, Password};
+use udm_domain::pairing::RemoteState;
+use udm_domain::queue::{Queue, WhenDone};
+use udm_domain::quota::QuotaNotice;
+use udm_domain::settings::Settings;
+use udm_domain::tools::{Tool, ToolState};
+use udm_domain::update::Release;
 
 /// The version of the automation API: the messages `docs/command-line.md`
 /// documents for other programs, and `docs/automation-api.schema.json`
@@ -75,7 +75,7 @@ pub enum Command {
     },
     /// Answered with `Pong`.
     Ping,
-    /// A command line from `pullbay-gui`; answered with `CommandLine`.
+    /// A command line from `udm-gui`; answered with `CommandLine`.
     CommandLine(CommandLine),
     /// Read a stream's playlist; answered with `MediaInfo`.
     ProbeMedia {
@@ -234,7 +234,7 @@ pub enum Command {
     },
     /// Stop waiting for a new link from the browser.
     CancelRefresh,
-    /// Look for a newer Pullbay release now; answered with `Update`.
+    /// Look for a newer UDM release now; answered with `Update`.
     CheckUpdate,
     /// Download and run the newest release's Setup; failures come back as
     /// `UpdateFailed`.
@@ -423,7 +423,7 @@ pub enum Event {
         file: Option<String>,
     },
     CountdownCanceled,
-    /// Pullbay exits: windows close.
+    /// UDM exits: windows close.
     Quit,
     /// Which download waits for a new link from the browser, if any.
     RefreshWaiting {

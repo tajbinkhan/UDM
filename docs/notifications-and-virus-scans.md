@@ -1,10 +1,10 @@
 # Notifications and virus scans
 
 Windows only shows notifications from an app it knows, so at start the daemon
-registers the app id `Pullbay.DownloadManager` under
-`HKCU\Software\Classes\AppUserModelId` with Pullbay's name and an icon it writes
-to `%LOCALAPPDATA%\Pullbay\pullbay.png`. A copy started with `PULLBAY_INSTANCE=test`
-registers `Pullbay.DownloadManager.test` with the name `Pullbay (test)` and the icon
+registers the app id `UDM.DownloadManager` under
+`HKCU\Software\Classes\AppUserModelId` with UDM's name and an icon it writes
+to `%LOCALAPPDATA%\UDM\udm.png`. A copy started with `UDM_INSTANCE=test`
+registers `UDM.DownloadManager.test` with the name `UDM (test)` and the icon
 in its own data folder instead, so it leaves the installed copy's entry alone.
 Each button carries an argument such as
 `open:12`, which the daemon acts on while it runs. A failure is announced one

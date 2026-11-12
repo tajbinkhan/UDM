@@ -5,11 +5,11 @@
 // the direct video and audio files, the HLS (.m3u8), DASH (.mpd) and HDS
 // (.f4m) playlists its pages loaded, and the YouTube, Facebook, Instagram or
 // Vimeo video it shows. Those sites' players fetch pieces that are none of
-// those, so their page is kept instead, and Pullbay reads the page with
+// those, so their page is kept instead, and UDM reads the page with
 // yt-dlp. On any other page where the browser saw no stream, the menu asks
-// Pullbay to try the page with yt-dlp (otherVideoPage), and keeps it only
+// UDM to try the page with yt-dlp (otherVideoPage), and keeps it only
 // when yt-dlp finds a video or a playlist there. The segments a player fetches one by one are
-// left out: Pullbay fetches those itself from the playlist. These are plain
+// left out: UDM fetches those itself from the playlist. These are plain
 // functions: the worker loads them with importScripts, the tests with
 // require. In the worker, rules.js is loaded first.
 
@@ -31,7 +31,7 @@ function uiText(name, subs) {
 
 // Most media kept per tab; the oldest go first.
 const MEDIA_PER_TAB = 50;
-// Smaller direct files are sounds and adverts' beacons, not videos. Pullbay's
+// Smaller direct files are sounds and adverts' beacons, not videos. UDM's
 // `video_min_size_kb` overrides it.
 const MEDIA_MIN_FILE_BYTES = 128 * 1024;
 
@@ -59,7 +59,7 @@ const MEDIA_FILE_EXTENSIONS = {
   wmv: "video",
   flv: "video",
   "3gp": "video",
-  // Only for a whole file Pullbay found under a playlist's name: .ts segments
+  // Only for a whole file UDM found under a playlist's name: .ts segments
   // stay out (SEGMENT_EXTENSIONS).
   ts: "video",
   aac: "audio",
@@ -91,7 +91,7 @@ function responseSize(statusCode, headers) {
 // What a response is: { kind: "hls" | "dash" | "hds" | "file", mime, size },
 // or null for anything that is not a video, audio file or stream playlist.
 // `d` is a webRequest response: { url, statusCode, responseHeaders }.
-// `rules` is Pullbay's settings, or null before they arrive: their
+// `rules` is UDM's settings, or null before they arrive: their
 // `video_types` (with `m3u8`, `mpd` and `f4m` for streams) and `video_min_size_kb`
 // narrow what counts.
 function classifyMedia(d, rules) {
@@ -116,8 +116,8 @@ function classifyMedia(d, rules) {
   return { kind: "file", mime, size };
 }
 
-// Whether the response `d` is media a web player loaded that Pullbay takes at
-// once, without the video button: Pullbay's `video_auto_capture` is on, and it
+// Whether the response `d` is media a web player loaded that UDM takes at
+// once, without the video button: UDM's `video_auto_capture` is on, and it
 // is a whole file (not an HLS or DASH stream, nor a stream's segment) of
 // one of `video_auto_types`, by its address or else its MIME type, that a
 // page's <video> or <audio> element asked for (`d.type` "media"; players
@@ -140,7 +140,7 @@ function autoCaptureMedia(d, rules, taken) {
   );
 }
 
-// The sites whose video pages Pullbay reads with yt-dlp, because their
+// The sites whose video pages UDM reads with yt-dlp, because their
 // players name no file or playlist the browser could catch (YouTube's
 // SABR, Facebook's and Instagram's signed pieces, Vimeo's player config).
 // Each `match` takes a parsed address and gives the one address the video
@@ -396,7 +396,7 @@ function recordMedia(store, tabId, url, found, now, frameId, headers) {
 }
 
 // What the player's own request for media `entry` adds to a probe or an
-// "add" message, so Pullbay asks the server the way the player did: the
+// "add" message, so UDM asks the server the way the player did: the
 // headers it sent (`request_headers`, an Origin or a site's token header
 // among them; a server can refuse a stream asked for without them) and its
 // Referer (`referrer`). Cookies go in their own field, from the cookie
@@ -432,7 +432,7 @@ function fileLabel(entry) {
   return audio ? uiText("audioFileType", ext.toUpperCase()) : uiText("videoFileType", ext.toUpperCase());
 }
 
-// When Pullbay found that a stream entry is really a whole video or audio file
+// When UDM found that a stream entry is really a whole video or audio file
 // (`info.file`: a page loaded an MP4 under a .m3u8 name or a playlist's
 // type), the entry becomes that file, downloaded as one. Returns whether it
 // did.
@@ -485,12 +485,12 @@ function mediaLabel(entry) {
   return entry.kind === "file" ? fileLabel(entry) : streamLabel(entry);
 }
 
-// The sound-only formats the menu offers (Pullbay converts with ffmpeg).
+// The sound-only formats the menu offers (UDM converts with ffmpeg).
 const SOUND_FORMATS = ["m4a", "mp3", "opus", "flac"];
 const SOUND_NAMES = { m4a: "M4A", mp3: "MP3", opus: "Opus", flac: "FLAC" };
 
 // A YouTube video page that is part of a playlist (`list=` in its address):
-// the playlist's own page, whose videos Pullbay can list. null otherwise.
+// the playlist's own page, whose videos UDM can list. null otherwise.
 function playlistPageUrl(url) {
   let u;
   try {
@@ -521,13 +521,13 @@ function otherVideoPage(url) {
 }
 
 // The video button's menu for a tab's `entries`, newest first. `infos` maps a
-// stream's (or video page's) URL to what Pullbay said it offers (a MediaInfo). Each item is
+// stream's (or video page's) URL to what UDM said it offers (a MediaInfo). Each item is
 // { entry, label, options: [{ label, size, video, audio }], subtitles, drm, error },
 // where `subtitles` lists the stream's subtitle tracks as { id, label, on },
 // `on` for the ones the stream marks as default.
 // A stream that is one quality of another listed stream (an HLS variant
 // playlist the player loaded after its master playlist) is left out, and so
-// is an address Pullbay found is no stream at all, unless nothing else can be
+// is an address UDM found is no stream at all, unless nothing else can be
 // downloaded.
 function mediaMenu(entries, infos) {
   const parts = new Set();
@@ -551,7 +551,7 @@ function mediaMenu(entries, infos) {
       items.push({ entry: e.id, label, options: [], drm: !!info.drm, error: info.error || "", notStream: !!info.not_stream });
       continue;
     }
-    // A playlist or channel: its videos are picked in Pullbay's window.
+    // A playlist or channel: its videos are picked in UDM's window.
     const listed = ((info.playlist || {}).entries || []).length;
     if (listed > 0) {
       const title = String(info.playlist.title || "").trim();
@@ -573,7 +573,7 @@ function mediaMenu(entries, infos) {
     if (options.length === 0 && (info.audio || []).length > 0) {
       options.push({ label: info.audio[0].label, size: info.audio[0].size || null, audio: info.audio[0].id });
     }
-    // The sound alone (Pullbay needs ffmpeg for it): from the stream's audio
+    // The sound alone (UDM needs ffmpeg for it): from the stream's audio
     // track when it has one, else from its smallest video.
     const sound = (info.audio || [])[0];
     const smallest = (info.video || []).at(-1);
@@ -597,7 +597,7 @@ function mediaMenu(entries, infos) {
   return items.filter((i) => !(usable && i.notStream)).map(({ notStream, ...i }) => i);
 }
 
-// Whether the video button shows on a page at `url` under Pullbay's `rules`.
+// Whether the video button shows on a page at `url` under UDM's `rules`.
 function videoButtonAllowed(rules, url) {
   if (!rules) return true;
   if (rules.video_button === false) return false;

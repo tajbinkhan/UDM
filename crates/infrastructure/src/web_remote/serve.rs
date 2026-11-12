@@ -17,15 +17,15 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use pullbay_application::pairing::{PhoneError, PhoneGate, PhoneReply, PhoneRequest};
-use pullbay_application::remote::{Listing, RemoteError};
-use pullbay_domain::address::Address;
-use pullbay_domain::download::{DownloadEntry, Status};
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::pairing::PairingError;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{info, warn};
+use udm_application::pairing::{PhoneError, PhoneGate, PhoneReply, PhoneRequest};
+use udm_application::remote::{Listing, RemoteError};
+use udm_domain::address::Address;
+use udm_domain::download::{DownloadEntry, Status};
+use udm_domain::id::DownloadId;
+use udm_domain::pairing::PairingError;
 
 use super::http::{read_request, write_response, ReadError, Request, Response};
 
@@ -324,7 +324,7 @@ fn row(e: &DownloadEntry) -> serde_json::Value {
         .and_then(|p| p.rsplit(['/', '\\']).next())
         .filter(|n| !n.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| pullbay_domain::filename::name_from_url(url).as_str().to_string());
+        .unwrap_or_else(|| udm_domain::filename::name_from_url(url).as_str().to_string());
     let host = url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default();
     json!({
         "id": e.id.get(),

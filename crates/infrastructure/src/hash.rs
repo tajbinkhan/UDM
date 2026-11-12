@@ -4,8 +4,8 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
-use pullbay_domain::checksum::Algorithm;
-use pullbay_domain::ports::{FileHashes, HashError};
+use udm_domain::checksum::Algorithm;
+use udm_domain::ports::{FileHashes, HashError};
 
 /// Read the file this many bytes at a time.
 const CHUNK: usize = 1 << 20;
@@ -83,7 +83,7 @@ pub fn digest_of(mut reader: impl Read, algorithm: Algorithm) -> io::Result<Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::checksum::{to_hex, Checksum};
+    use udm_domain::checksum::{to_hex, Checksum};
 
     /// The well-known digests of "The quick brown fox jumps over the lazy dog".
     const FOX: &[u8] = b"The quick brown fox jumps over the lazy dog";
@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn a_file_on_disk_matches_its_checksum() {
-        let dir = std::env::temp_dir().join(format!("pullbay-hash-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm-hash-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("fox.txt");
         std::fs::write(&path, FOX).unwrap();
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_an_error() {
-        let missing = std::env::temp_dir().join("pullbay-hash-no-such-file.bin");
+        let missing = std::env::temp_dir().join("udm-hash-no-such-file.bin");
         assert!(DiskHashes.digest(&missing, Algorithm::Md5).is_err());
     }
 

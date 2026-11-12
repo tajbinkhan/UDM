@@ -2,14 +2,14 @@
 //! with the engine, building each request the way `Transfers` would for a
 //! download of it (the settings' proxy and logins, the browser's cookies).
 
-use pullbay_domain::bytes::ByteCount;
 use std::sync::Arc;
+use udm_domain::bytes::ByteCount;
 
-use pullbay_domain::address::Address;
-use pullbay_domain::download::{Download, ZipEntry};
-use pullbay_domain::gallery::{Gallery, GalleryError};
-use pullbay_domain::media::MediaInfo;
-use pullbay_domain::ports::{FileFacts, LinkFacts, ProbeError, Probes};
+use udm_domain::address::Address;
+use udm_domain::download::{Download, ZipEntry};
+use udm_domain::gallery::{Gallery, GalleryError};
+use udm_domain::media::MediaInfo;
+use udm_domain::ports::{FileFacts, LinkFacts, ProbeError, Probes};
 
 use crate::engine;
 use crate::transfers::Transfers;
@@ -58,7 +58,7 @@ impl Probes for ServerProbes {
 
     fn media(&self, download: &Download) -> MediaInfo {
         let req = self.transfers.request_for(download.clone());
-        let page = download.media.as_ref().is_some_and(|m| m.kind == Some(pullbay_domain::media::MediaKind::Page));
+        let page = download.media.as_ref().is_some_and(|m| m.kind == Some(udm_domain::media::MediaKind::Page));
         engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref(), page)
     }
 
@@ -101,7 +101,7 @@ mod tests {
     use crate::engine::testserver::{self, TestServer};
     use crate::live_settings::LiveSettings;
     use crate::store::{DownloadStore, Ended, StoreEvents, StoreFiles};
-    use pullbay_domain::settings::Settings;
+    use udm_domain::settings::Settings;
 
     struct Quiet;
 
@@ -113,7 +113,7 @@ mod tests {
 
     /// Probes saving to `name`'s folder under the temp folder.
     fn probes(name: &str) -> (ServerProbes, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("pullbay_probes_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_probes_{}_{name}", std::process::id()));
         let events: Arc<dyn StoreEvents> = Arc::new(Quiet);
         let (store, _, next_id) = DownloadStore::open(StoreFiles::default(), Arc::clone(&events));
         let settings = Settings { download_dir: Some(dir.display().to_string()), ..Settings::default() };
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn a_video_page_or_stream_is_named_without_asking_its_server() {
-        use pullbay_domain::media::{MediaChoice, MediaKind};
+        use udm_domain::media::{MediaChoice, MediaKind};
         let (probes, dir) = probes("media");
         let server = TestServer::start(testserver::body(10));
         for kind in [MediaKind::Page, MediaKind::Hls] {

@@ -16,9 +16,9 @@ use std::path::Path;
 
 use eframe::egui::{self, accesskit, Align, Id, Key, Pos2, Rect, Sense, Stroke};
 use egui_extras::TableBuilder;
-use pullbay_domain::download::{Answer, DownloadEntry, Status};
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::queue::Queue;
+use udm_domain::download::{Answer, DownloadEntry, Status};
+use udm_domain::id::DownloadId;
+use udm_domain::queue::Queue;
 
 use crate::columns::{self, Column, Layout};
 use crate::i18n::{tr, trf};
@@ -681,7 +681,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
         tr("Refresh download address..."),
         Action::OpenRefresh(e.id),
     );
-    if e.error.as_deref().and_then(pullbay_domain::download::login_wanted).is_some() {
+    if e.error.as_deref().and_then(udm_domain::download::login_wanted).is_some() {
         item(ui, on, tr("Log in..."), Action::OpenLogin(e.id));
     }
     let ids: Vec<DownloadId> = if list.selected.contains(&e.id) {
@@ -716,7 +716,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
     }
     item(ui, true, tr("Connections..."), Action::OpenConnections(e.id));
     item(ui, on && !done, tr("Speed limit..."), Action::OpenSpeedLimit(e.id));
-    if e.path.as_deref().filter(|_| done).is_some_and(pullbay_domain::media::is_video) {
+    if e.path.as_deref().filter(|_| done).is_some_and(udm_domain::media::is_video) {
         item(ui, on, tr("Convert..."), Action::OpenConvert(e.id));
     }
     ui.separator();
@@ -726,7 +726,7 @@ fn row_menu(ui: &mut egui::Ui, e: &DownloadEntry, list: &List, i: usize, actions
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::bytes::ByteCount;
+    use udm_domain::bytes::ByteCount;
 
     fn entry(status: Status, total: Option<u64>, done: u64) -> DownloadEntry {
         DownloadEntry {

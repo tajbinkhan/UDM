@@ -1,6 +1,6 @@
 //! The window's look, after shadcn/ui: 1px borders, rounded corners, flat
 //! fills and Segoe UI (what shadcn's system font stack picks on Windows).
-//! The colors and sizes are a `pullbay_domain::theme::Look`: the built-in
+//! The colors and sizes are a `udm_domain::theme::Look`: the built-in
 //! Light, Dark and High contrast themes, the system's contrast colors, or a
 //! theme file's. Following the system, egui picks Light or Dark as the
 //! system's app mode is.
@@ -13,12 +13,12 @@ use eframe::egui::{
     Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Id, Margin, Shadow, Stroke, TextStyle, Theme,
     Vec2, Visuals,
 };
-use pullbay_application::window::{FontFile, ScriptFont};
-use pullbay_domain::theme::{Appearance, Color, Look, Palette, Sizes, DARK, LIGHT};
+use udm_application::window::{FontFile, ScriptFont};
+use udm_domain::theme::{Appearance, Color, Look, Palette, Sizes, DARK, LIGHT};
 
 /// Sets the fonts (the system's `system`, where it has them) and the
 /// built-in light and dark looks, until the settings give one.
-pub fn apply(ctx: &egui::Context, system: pullbay_application::window::SystemFonts) {
+pub fn apply(ctx: &egui::Context, system: udm_application::window::SystemFonts) {
     ctx.set_fonts(fonts(system));
     set_looks(ctx, &LIGHT, &DARK);
 }
@@ -42,7 +42,7 @@ pub fn set_appearance(ctx: &egui::Context, appearance: &Appearance, size_percent
 
 /// The id under which each egui theme's progress bar colors are kept.
 fn bar_colors_id(dark: bool) -> Id {
-    Id::new(("pullbay_progress_colors", dark))
+    Id::new(("udm_progress_colors", dark))
 }
 
 fn set_looks(ctx: &egui::Context, light: &Look, dark: &Look) {
@@ -55,7 +55,7 @@ fn set_looks(ctx: &egui::Context, light: &Look, dark: &Look) {
 
 fn set_style(style: &mut egui::Style, look: &Look) {
     style.visuals = visuals(&look.palette, &look.sizes);
-    // At the normal sizes, the 9 pt Segoe UI of the window Pullbay's layout
+    // At the normal sizes, the 9 pt Segoe UI of the window UDM's layout
     // follows, with its tight padding: 20 px controls, 4 px gaps. Other
     // text sizes scale the text styles and the icons along.
     let text = f32::from(look.sizes.text);
@@ -103,7 +103,7 @@ fn color(c: Color) -> Color32 {
 /// The system's fonts for text and code (Segoe UI and Consolas on Windows).
 /// egui's own fonts stay behind them for any glyph they lack, and take over
 /// where the system has none.
-fn fonts(system: pullbay_application::window::SystemFonts) -> FontDefinitions {
+fn fonts(system: udm_application::window::SystemFonts) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     for (name, bytes, family) in
         [("system-text", system.text, FontFamily::Proportional), ("system-code", system.code, FontFamily::Monospace)]

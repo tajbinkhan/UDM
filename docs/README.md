@@ -1,38 +1,38 @@
-# Pullbay: help pages
+# UDM: help pages
 
-Pullbay is a free download manager for Windows, macOS and Linux. It works the way Internet
+UDM is a free download manager for Windows, macOS and Linux. It works the way Internet
 Download Manager users expect: a browser extension that hands downloads over, a list of every
 download, categories, queues and a scheduler. Its downloads run in a background program, so they
 keep going after the browser closes.
 
-These pages were the README's manual. Each covers one part of Pullbay.
+These pages were the README's manual. Each covers one part of UDM.
 
 ## Start here
 
 - **[Install](install.md)**: Setup, the portable zip, the `.dmg`, the Linux packages, loading the
   browser extension (Chrome, Edge, Brave, Vivaldi, Opera and Firefox), ffmpeg and yt-dlp, updates,
-  and moving over from UIDM.
-- **[Portable mode](portable.md)**: running from a USB stick with everything in Pullbay's own
+  and moving over from Pullbay or UIDM.
+- **[Portable mode](portable.md)**: running from a USB stick with everything in UDM's own
   folder.
-- **[Run Pullbay on a server](server.md)**: the daemon's server mode, the Docker image and its
-  Compose file and Unraid template, and adding downloads with `pullbay-cli`.
-- **[Using Pullbay](using-pullbay.md)**: the window, the save-as dialog, categories, queues, the
+- **[Run UDM on a server](server.md)**: the daemon's server mode, the Docker image and its
+  Compose file and Unraid template, and adding downloads with `udm-cli`.
+- **[Using UDM](using-udm.md)**: the window, the save-as dialog, categories, queues, the
   tray, the download window, the video button, adding many links and Options.
 - **[Themes and interface size](themes.md)**: the built-in themes, high contrast, an interface
   up to 200%, and making a theme of your own.
 - **[Keyboard shortcuts](keyboard-shortcuts.md)**: every key the window answers, and what a
   screen reader reads in the download list.
-- **[Command line and automation](command-line.md)**: IDM's switches, the `pullbay-cli` tool,
+- **[Command line and automation](command-line.md)**: IDM's switches, the `udm-cli` tool,
   sending links from other programs, and the automation API for programs of your own.
 - **[AI assistants (MCP)](ai-assistants.md)**: letting Claude Desktop, Claude Code, Cursor or VS
-  Code list, add, pause, resume and remove downloads through `pullbay-mcp`.
+  Code list, add, pause, resume and remove downloads through `udm-mcp`.
 - **[Remote control from a phone](remote-control.md)**: turning on the page phones on the home
   network use, pairing one with a QR code, removing it, the firewall, and how it is protected.
 
 ## Downloading
 
 - **[What the browser extension takes](browser-capture.md)**: which downloads the extension hands
-  to Pullbay, which it leaves with the browser, and the keys that change that.
+  to UDM, which it leaves with the browser, and the keys that change that.
 - **[Streams, batches and the site grabber](streams-batches-and-grabber.md)**: HLS, DASH and HDS
   videos, YouTube and other video sites through yt-dlp, subtitles, numbered batches, and crawling
   a site for its files.
@@ -40,17 +40,17 @@ These pages were the README's manual. Each covers one part of Pullbay.
   starting and stopping them by the clock, and what happens when a queue is done.
 - **[Proxies and logins](proxies-and-logins.md)**: the system proxy, manual and SOCKS proxies, PAC
   scripts, and site logins.
-- **[Notifications and virus scans](notifications-and-virus-scans.md)**: what Pullbay tells you
+- **[Notifications and virus scans](notifications-and-virus-scans.md)**: what UDM tells you
   when a download ends, and scanning finished files.
 
 ## How it works
 
-- **[How Pullbay fits together](architecture.md)**: the daemon, the host and the window, how the
+- **[How UDM fits together](architecture.md)**: the daemon, the host and the window, how the
   daemon checks its clients, and how the engine splits and resumes a file.
 - **[Messages](protocol.md)**: every message the extension, the window and the daemon exchange.
   The stable part of them is the [automation API](command-line.md#the-automation-api), with its
   [JSON Schema](automation-api.schema.json).
-- **[Building Pullbay](building.md)**: where the code lives, building and packaging it on each
+- **[Building UDM](building.md)**: where the code lives, building and packaging it on each
   system, and adding a language.
 - **[Help translate](translating.md)**: the languages, which ones wait for review, and how to
   review or add one.
@@ -59,9 +59,9 @@ These pages were the README's manual. Each covers one part of Pullbay.
 
 - **[Known gaps](known-gaps.md)**: what doesn't work yet, or works differently on macOS and Linux.
 - **[Verified](verified.md)**: what each change was checked against.
-- **[Benchmark](bench/README.md)**: the harness that times Pullbay against IDM and other download
+- **[Benchmark](bench/README.md)**: the harness that times UDM against IDM and other download
   managers on servers that misbehave, and its results (none against IDM yet).
 - **[Releases](https://github.com/tajbinkhan/pullbay/releases)**: download the latest version.
-- **[Problem reports](problem-reports.md)**: what Pullbay writes down when a program crashes or
+- **[Problem reports](problem-reports.md)**: what UDM writes down when a program crashes or
   freezes, where it keeps it, and Help > Report a problem.
 - **[Report a problem](https://github.com/tajbinkhan/pullbay/issues)**: or ask a question.

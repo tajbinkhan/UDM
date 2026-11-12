@@ -9,8 +9,8 @@
 //! (`SAMPLE-AES`, or any `KEYFORMAT` other than `identity`, such as FairPlay
 //! or Widevine) are DRM, and refused.
 
-use pullbay_domain::address::AddressError;
-use pullbay_domain::media::{
+use udm_domain::address::AddressError;
+use udm_domain::media::{
     resolve, MediaInfo, MediaKind, MediaOption, Segment, SegmentKey, Track, DRM_REFUSED, LIVE_REFUSED,
 };
 
@@ -121,7 +121,7 @@ fn attr<'a>(attrs: &'a [(String, String)], name: &str) -> Option<&'a str> {
     attrs.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
 }
 
-/// Whether a key tag names a key system Pullbay must not handle.
+/// Whether a key tag names a key system UDM must not handle.
 fn is_drm_key(attrs: &[(String, String)]) -> bool {
     let method = attr(attrs, "METHOD").unwrap_or("NONE");
     let format = attr(attrs, "KEYFORMAT").unwrap_or("identity");
@@ -320,10 +320,10 @@ pub fn describe(master: &Master, duration: Option<f64>) -> MediaInfo {
         .iter()
         .map(|v| MediaOption {
             id: v.url.clone(),
-            label: pullbay_domain::media::quality_label(v.height, v.bandwidth),
+            label: udm_domain::media::quality_label(v.height, v.bandwidth),
             height: v.height,
             bandwidth: v.bandwidth,
-            size: pullbay_domain::media::estimate_size(v.bandwidth, duration),
+            size: udm_domain::media::estimate_size(v.bandwidth, duration),
             ..MediaOption::default()
         })
         .collect();
@@ -401,7 +401,7 @@ pub fn pick_audio<'a>(master: &'a Master, variant: &Variant, choice: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::bytes::ByteCount;
+    use udm_domain::bytes::ByteCount;
 
     const BASE: &str = "https://cdn.x/v/master.m3u8";
 

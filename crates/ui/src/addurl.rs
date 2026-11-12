@@ -4,8 +4,8 @@
 //! opens the gallery dialog on the address instead, for a page of pictures.
 
 use eframe::egui;
-use pullbay_domain::checksum::Checksum;
-use pullbay_domain::download::{Download, DownloadLogin};
+use udm_domain::checksum::Checksum;
+use udm_domain::download::{Download, DownloadLogin};
 
 use crate::i18n::tr;
 
@@ -79,7 +79,7 @@ pub fn show(ctx: &egui::Context, d: &mut AddDialog, connected: bool) -> Outcome 
                         );
                     });
                     if !checksum_ok {
-                        ui.colored_label(ui.visuals().error_fg_color, tr("This is not a checksum Pullbay knows."));
+                        ui.colored_label(ui.visuals().error_fg_color, tr("This is not a checksum UDM knows."));
                     }
                     ui.group(|ui| {
                         ui.checkbox(&mut d.use_login, tr("Use authorization"));
@@ -99,7 +99,7 @@ pub fn show(ctx: &egui::Context, d: &mut AddDialog, connected: bool) -> Outcome 
                     if ui.add(egui::Button::new(tr("Cancel")).min_size(size)).clicked() {
                         outcome = Outcome::Close;
                     }
-                    let page = pullbay_domain::gallery::gallery_page(&url).ok();
+                    let page = udm_domain::gallery::gallery_page(&url).ok();
                     let gallery = ui
                         .add_enabled(
                             connected && page.is_some(),

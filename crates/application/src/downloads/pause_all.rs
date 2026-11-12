@@ -1,4 +1,4 @@
-use pullbay_domain::ports::{DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueStore};
+use udm_domain::ports::{DownloadControl, DownloadList, PausedDownloads, QueueRuns, QueueStore};
 
 use super::StopRunning;
 
@@ -34,9 +34,9 @@ where
 mod tests {
     use super::*;
     use crate::memory::{Control, Downloads, Paused, Queues, Runs};
-    use pullbay_domain::download::Status;
-    use pullbay_domain::id::DownloadId;
-    use pullbay_domain::queue::MAIN_QUEUE;
+    use udm_domain::download::Status;
+    use udm_domain::id::DownloadId;
+    use udm_domain::queue::MAIN_QUEUE;
 
     #[test]
     fn what_was_stopped_is_remembered() {

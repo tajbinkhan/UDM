@@ -1,14 +1,14 @@
 //! Pairing phones with the remote-control page, and running what a paired
-//! phone asks (see `pullbay_domain::pairing` for the rules).
+//! phone asks (see `udm_domain::pairing` for the rules).
 //!
 //! The use cases work on the daemon's `Pairings`: `StartPairing` shows a
 //! code, `PairDevice` exchanges it for a device's credential,
 //! `CheckDevice` recognizes a credential, and `RemoveDevice` unpairs.
 //! `PairingDesk` holds the state they share, for the window's commands
 //! and the page alike. `Phone` is the page's side (the `PhoneGate` port the
-//! HTTPS server in `pullbay-infrastructure` drives): it checks each
+//! HTTPS server in `udm-infrastructure` drives): it checks each
 //! request's credential and runs it through the daemon's own commands on a
-//! `LocalClient`, with the `remote` use cases `pullbay-cli` uses.
+//! `LocalClient`, with the `remote` use cases `udm-cli` uses.
 
 mod check_device;
 mod desk;
@@ -32,12 +32,12 @@ pub(crate) mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use pullbay_domain::address::Address;
-    use pullbay_domain::download::{DownloadEntry, Status};
-    use pullbay_domain::id::{DeviceId, DownloadId};
-    use pullbay_domain::pairing::{Device, DeviceSecret, PairingError, Verifier, RANDOM_BYTES};
-    use pullbay_domain::ports::{DevicesError, PairedDevices, PairingKeys, Timestamps};
-    use pullbay_domain::queue::Queue;
+    use udm_domain::address::Address;
+    use udm_domain::download::{DownloadEntry, Status};
+    use udm_domain::id::{DeviceId, DownloadId};
+    use udm_domain::pairing::{Device, DeviceSecret, PairingError, Verifier, RANDOM_BYTES};
+    use udm_domain::ports::{DevicesError, PairedDevices, PairingKeys, Timestamps};
+    use udm_domain::queue::Queue;
 
     use super::*;
     use crate::daemon::{ClientId, Command, Event, Failure, Reply, Requests};
@@ -256,7 +256,7 @@ pub(crate) mod tests {
         let book = Arc::new(Book::default());
         book.save(&[Device {
             id: DeviceId::new(3),
-            name: pullbay_domain::pairing::DeviceName::clean("Tablet"),
+            name: udm_domain::pairing::DeviceName::clean("Tablet"),
             paired_at: 7,
             last_seen: None,
             verifier: Verifier::new([2; RANDOM_BYTES]),

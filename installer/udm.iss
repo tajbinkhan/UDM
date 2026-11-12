@@ -1,4 +1,4 @@
-; Inno Setup script for Pullbay's Windows installer. It installs for the current
+; Inno Setup script for UDM's Windows installer. It installs for the current
 ; user only, needs no administrator rights, and does what install-host.ps1
 ; does: the three programs, the extension folder and its Firefox copy, the
 ; native-messaging host registered with Chrome, Edge and Firefox, and a Start
@@ -6,53 +6,53 @@
 ;
 ; Build it with installer\build.ps1, which builds the programs and passes the
 ; version from Cargo.toml. To call the compiler yourself:
-;   ISCC.exe /DAppVersion=0.3.0 installer\pullbay.iss
+;   ISCC.exe /DAppVersion=0.3.0 installer\udm.iss
 
 #ifndef AppVersion
   #define AppVersion "0.3.0"
 #endif
-#define HostName "com.pullbay.host"
+#define HostName "com.udm.host"
 ; Fixed by the public key in extension\manifest.json.
 #define ExtensionId "epmjakacaejhdhldkpbjnakhfmjjbhfm"
 ; From extension\firefox.json.
-#define FirefoxId "pullbay@pullbay.local"
+#define FirefoxId "udm@udm.local"
 #define Root ".."
 
 [Setup]
 AppId={{8C6F2B1E-5D3A-4E7B-9A41-2F0C7D9E6B13}
-AppName=Pullbay
+AppName=UDM
 AppVersion={#AppVersion}
-AppVerName=Pullbay {#AppVersion}
+AppVerName=UDM {#AppVersion}
 AppPublisher=Tajbin Khan
 AppPublisherURL=https://github.com/tajbinkhan/pullbay
 AppSupportURL=https://github.com/tajbinkhan/pullbay/issues
 VersionInfoVersion={#AppVersion}
-VersionInfoDescription=Pullbay setup
+VersionInfoDescription=UDM setup
 ; Per user: the browsers read native-messaging hosts from HKCU, and the
 ; daemon keeps its data under the user's profile. {autopf} is then
 ; %LOCALAPPDATA%\Programs.
 PrivilegesRequired=lowest
 #if Ver >= EncodeVer(6, 7, 0)
 ; Inno Setup 6.7 turns on Windows' RedirectionGuard for Setup, and every
-; program Setup starts inherits it: Pullbay from the last page or after Update
+; program Setup starts inherits it: UDM from the last page or after Update
 ; now, then its daemon, then yt-dlp. yt-dlp then fails with WinError 448 on
 ; a junction a user made, such as pnpm's on PATH. The guard stops junction
 ; tricks that gain privileges, and this Setup never has more than the user.
 RedirectionGuard=no
 #endif
-DefaultDirName={autopf}\Pullbay
+DefaultDirName={autopf}\UDM
 DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#Root}\dist
-OutputBaseFilename=Pullbay-Setup-{#AppVersion}
-SetupIconFile=pullbay.ico
-UninstallDisplayIcon={app}\pullbay.ico
-UninstallDisplayName=Pullbay
+OutputBaseFilename=UDM-Setup-{#AppVersion}
+SetupIconFile=udm.ico
+UninstallDisplayIcon={app}\udm.ico
+UninstallDisplayName=UDM
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
-; Running Pullbay programs are closed in [Code], after asking.
+; Running UDM programs are closed in [Code], after asking.
 CloseApplications=no
 
 [Tasks]
@@ -62,19 +62,19 @@ Name: desktopicon; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm
 Name: videotools; Description: "Install yt-dlp, FFmpeg and Deno with winget, for YouTube and other video sites (downloads them now)"; GroupDescription: "Video tools:"; Check: CanInstallVideoTools
 
 [Files]
-Source: "{#Root}\target\release\pullbay-host.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\target\release\pullbay-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\target\release\pullbay-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\target\release\pullbay-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\target\release\pullbay-mcp.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\target\release\udm-host.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\target\release\udm-daemon.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\target\release\udm-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\target\release\udm-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Root}\target\release\udm-mcp.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\extension\*"; DestDir: "{app}\extension"; Excludes: "test\*,firefox.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Made by build.ps1 with make-firefox.ps1.
 Source: "{#Root}\firefox\*"; DestDir: "{app}\firefox"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "pullbay.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "udm.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
-; The browsers find pullbay-host.exe through the manifest these keys name. The
+; The browsers find udm-host.exe through the manifest these keys name. The
 ; manifest itself is written in [Code], with this install's path in it.
 Root: HKCU; Subkey: "Software\Google\Chrome\NativeMessagingHosts\{#HostName}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#HostName}.json"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Edge\NativeMessagingHosts\{#HostName}"; ValueType: string; ValueName: ""; ValueData: "{app}\{#HostName}.json"; Flags: uninsdeletekey
@@ -85,47 +85,56 @@ Root: HKCU; Subkey: "Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\{
 Root: HKCU; Subkey: "Software\Chromium\NativeMessagingHosts\{#HostName}"; Flags: uninsdeletekey dontcreatekey
 
 [Icons]
-Name: "{autoprograms}\Pullbay"; Filename: "{app}\pullbay-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\pullbay.ico"; Comment: "Pullbay download manager"
-Name: "{autodesktop}\Pullbay"; Filename: "{app}\pullbay-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\pullbay.ico"; Comment: "Pullbay download manager"; Tasks: desktopicon
+Name: "{autoprograms}\UDM"; Filename: "{app}\udm-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\udm.ico"; Comment: "UDM download manager"
+Name: "{autodesktop}\UDM"; Filename: "{app}\udm-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\udm.ico"; Comment: "UDM download manager"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\pullbay-gui.exe"; Description: "{cm:LaunchProgram,Pullbay}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\udm-gui.exe"; Description: "{cm:LaunchProgram,UDM}"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\extension"; Description: "Open the extension folder, to load it in the browser"; Flags: shellexec nowait postinstall skipifsilent unchecked
 
 [InstallDelete]
-; UIDM's shortcuts, from before Pullbay got its name.
+; The shortcuts of UDM's earlier names, Pullbay (0.4) and UIDM (up to 0.3.3).
+Type: files; Name: "{autoprograms}\Pullbay.lnk"
+Type: files; Name: "{autodesktop}\Pullbay.lnk"
 Type: files; Name: "{autoprograms}\UIDM.lnk"
 Type: files; Name: "{autodesktop}\UIDM.lnk"
 
 [UninstallDelete]
 Type: files; Name: "{app}\{#HostName}.json"
 Type: files; Name: "{app}\{#HostName}.firefox.json"
-Type: files; Name: "{localappdata}\Pullbay\{#HostName}.json"
-Type: files; Name: "{localappdata}\Pullbay\{#HostName}.firefox.json"
+Type: files; Name: "{localappdata}\UDM\{#HostName}.json"
+Type: files; Name: "{localappdata}\UDM\{#HostName}.firefox.json"
 
 [Code]
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
-  { Written by the daemon so Windows shows Pullbay's notifications. }
-  NotificationKey = 'Software\Classes\AppUserModelId\Pullbay.DownloadManager';
+  { Written by the daemon so Windows shows UDM's notifications. }
+  NotificationKey = 'Software\Classes\AppUserModelId\UDM.DownloadManager';
 
 var
-  { The folder UIDM, as Pullbay was called up to 0.3.3, was installed in,
-    when this Setup updates it; empty otherwise. }
+  { The folder Pullbay or UIDM, as UDM was called in 0.4 and up to 0.3.3,
+    was installed in, when this Setup updates it; empty otherwise. }
   OldDir: String;
+  { That earlier name, Pullbay or UIDM; empty otherwise. }
+  OldName: String;
 
-{ An update of UIDM installs into a folder named Pullbay beside UIDM's,
-  which goes once its programs are closed. Pullbay's own updates keep the
-  folder they were in. }
+{ An update of Pullbay or UIDM installs into a folder named UDM beside the
+  old one, which goes once its programs are closed. UDM's own updates keep
+  the folder they were in. }
 procedure InitializeWizard();
 var
-  Dir: String;
+  Dir, Name: String;
 begin
   Dir := RemoveBackslash(WizardForm.DirEdit.Text);
-  if CompareText(ExtractFileName(Dir), 'UIDM') = 0 then
+  Name := ExtractFileName(Dir);
+  if (CompareText(Name, 'Pullbay') = 0) or (CompareText(Name, 'UIDM') = 0) then
   begin
     OldDir := Dir;
-    WizardForm.DirEdit.Text := AddBackslash(ExtractFileDir(Dir)) + 'Pullbay';
+    if CompareText(Name, 'UIDM') = 0 then
+      OldName := 'UIDM'
+    else
+      OldName := 'Pullbay';
+    WizardForm.DirEdit.Text := AddBackslash(ExtractFileDir(Dir)) + 'UDM';
   end;
 end;
 
@@ -152,7 +161,7 @@ begin
   Result := Result + '"';
 end;
 
-{ A native-messaging manifest: where pullbay-host.exe is, and the only
+{ A native-messaging manifest: where udm-host.exe is, and the only
   extension allowed to start it. Allowed is the last line, such as
   "allowed_origins": [...]. }
 procedure WriteHostManifest(FileName, Allowed: String);
@@ -162,9 +171,9 @@ begin
   Json :=
     '{' + #13#10 +
     '  "name": "{#HostName}",' + #13#10 +
-    '  "description": "Pullbay download manager native-messaging host",' + #13#10 +
+    '  "description": "UDM download manager native-messaging host",' + #13#10 +
     '  "type": "stdio",' + #13#10 +
-    '  "path": ' + JsonString(ExpandConstant('{app}\pullbay-host.exe')) + ',' + #13#10 +
+    '  "path": ' + JsonString(ExpandConstant('{app}\udm-host.exe')) + ',' + #13#10 +
     '  ' + Allowed + #13#10 +
     '}' + #13#10;
   Path := ExpandConstant('{app}\') + FileName;
@@ -172,11 +181,11 @@ begin
     RaiseException('Could not write ' + Path);
 end;
 
-{ Find the Pullbay programs running from this install's folder, and UIDM's
-  from the folder this Setup updates, and with Stop end them. True when any
+{ Find the UDM programs running from this install's folder, and Pullbay's
+  or UIDM's from the folder this Setup updates, and with Stop end them. True when any
   were running. Programs of the same name elsewhere (a development build)
   are left alone. }
-function PullbayRunning(Stop: Boolean): Boolean;
+function UdmRunning(Stop: Boolean): Boolean;
 var
   Dir, Old, Script: String;
   Code: Integer;
@@ -189,7 +198,7 @@ begin
   StringChangeEx(Old, '''', '''''', True);
   Script :=
     '$d = ''' + Dir + '''; $o = ''' + Old + '''; ' +
-    '$p = @(Get-Process pullbay-gui,pullbay-daemon,pullbay-host,pullbay-cli,pullbay-mcp,uidm-gui,uidm-daemon,uidm-host -ErrorAction SilentlyContinue | ' +
+    '$p = @(Get-Process udm-gui,udm-daemon,udm-host,udm-cli,udm-mcp,pullbay-gui,pullbay-daemon,pullbay-host,uidm-gui,uidm-daemon,uidm-host -ErrorAction SilentlyContinue | ' +
     'Where-Object { $_.Path -and ($_.Path.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) -or ' +
     '($o -and $_.Path.StartsWith($o, [StringComparison]::OrdinalIgnoreCase))) }); ' +
     'if ($p.Count -eq 0) { exit 0 }; ';
@@ -202,25 +211,26 @@ begin
   Result := Code = 1;
 end;
 
-{ Close a running Pullbay after asking. False when the user says no. }
-function ClosePullbay(Silent: Boolean): Boolean;
+{ Close a running UDM after asking. False when the user says no. }
+function CloseUdm(Silent: Boolean): Boolean;
 begin
   Result := True;
-  if not PullbayRunning(False) then
+  if not UdmRunning(False) then
     exit;
   if not Silent then
-    Result := MsgBox('Pullbay is running. It will be closed first.' + #13#10#13#10 +
-      'Downloads in progress stop and can be resumed from Pullbay''s list.',
+    Result := MsgBox('UDM is running. It will be closed first.' + #13#10#13#10 +
+      'Downloads in progress stop and can be resumed from UDM''s list.',
       mbConfirmation, MB_OKCANCEL) = IDOK;
   if Result then
-    PullbayRunning(True);
+    UdmRunning(True);
 end;
 
-{ Started by Pullbay's Update now (/frompullbay=yes), or UIDM's
-  (/fromuidm=yes): the user already agreed to close it. }
-function FromPullbay(): Boolean;
+{ Started by UDM's Update now (/fromudm=yes), Pullbay's (/frompullbay=yes)
+  or UIDM's (/fromuidm=yes): the user already agreed to close it. }
+function FromUdm(): Boolean;
 begin
-  Result := (ExpandConstant('{param:frompullbay|no}') = 'yes') or
+  Result := (ExpandConstant('{param:fromudm|no}') = 'yes') or
+    (ExpandConstant('{param:frompullbay|no}') = 'yes') or
     (ExpandConstant('{param:fromuidm|no}') = 'yes');
 end;
 
@@ -266,7 +276,7 @@ begin
 end;
 
 { winget puts the tools on the user's PATH in the registry. Setup's own PATH
-  is the one it started with, and Pullbay started from the last page inherits
+  is the one it started with, and UDM started from the last page inherits
   it, so read the new one in. }
 procedure RefreshPath();
 var
@@ -304,8 +314,8 @@ begin
   RefreshPath();
   if not (Ok and YtDlpFound()) then
     SuppressibleMsgBox('winget could not install the video tools (exit code ' + IntToStr(Code) + ').' + #13#10#13#10 +
-      'Pullbay still downloads ordinary files. For YouTube and other video sites, use Install yt-dlp ' +
-      'and Install ffmpeg in Pullbay''s Options > General, or run this later:' + #13#10 +
+      'UDM still downloads ordinary files. For YouTube and other video sites, use Install yt-dlp ' +
+      'and Install ffmpeg in UDM''s Options > General, or run this later:' + #13#10 +
       '    winget install yt-dlp.yt-dlp',
       mbError, MB_OK, IDOK);
 end;
@@ -313,8 +323,8 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
-  if not ClosePullbay(WizardSilent or FromPullbay()) then
-    Result := 'Pullbay is still running. Close it and run Setup again.';
+  if not CloseUdm(WizardSilent or FromUdm()) then
+    Result := 'UDM is still running. Close it and run Setup again.';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -323,8 +333,8 @@ begin
   begin
     WriteHostManifest('{#HostName}.json', '"allowed_origins": ["chrome-extension://{#ExtensionId}/"]');
     WriteHostManifest('{#HostName}.firefox.json', '"allowed_extensions": ["{#FirefoxId}"]');
-    { UIDM's programs are closed by now. Its settings, list, browser
-      registrations and sign-in entry move when Pullbay first starts. }
+    { The old name's programs are closed by now. Its settings, list,
+      browser registrations and sign-in entry move when UDM first starts. }
     if (OldDir <> '') and DirExists(OldDir) then
       DelTree(OldDir, True, True, True);
     if WizardIsTaskSelected('videotools') then
@@ -342,14 +352,14 @@ begin
     Video := ''
   else
     Video := #13#10#13#10 +
-      'For YouTube and other video sites, use Install yt-dlp and Install ffmpeg in Pullbay''s ' +
+      'For YouTube and other video sites, use Install yt-dlp and Install ffmpeg in UDM''s ' +
       'Options > General, or run: winget install yt-dlp.yt-dlp';
   if OldDir <> '' then
     Video := #13#10#13#10 +
-      'UIDM is now called Pullbay. Remove the UIDM extension from the browser first: ' +
-      'it went with UIDM''s folder, and Pullbay''s takes its place.' + Video;
+      OldName + ' is now called UDM. Remove the ' + OldName + ' extension from the browser first: ' +
+      'it went with ' + OldName + '''s folder, and UDM''s takes its place.' + Video;
   WizardForm.FinishedLabel.Caption :=
-      'Pullbay is installed. To catch downloads in Chrome or Edge, load its extension once:' + #13#10#13#10 +
+      'UDM is installed. To catch downloads in Chrome or Edge, load its extension once:' + #13#10#13#10 +
       '1. Open chrome://extensions (or edge://extensions) and turn on Developer mode.' + #13#10 +
       '2. Click Load unpacked and choose this folder:' + #13#10 +
       '    ' + ExpandConstant('{app}\extension') + #13#10 +
@@ -360,7 +370,7 @@ end;
 
 function InitializeUninstall(): Boolean;
 begin
-  Result := ClosePullbay(UninstallSilent);
+  Result := CloseUdm(UninstallSilent);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -371,15 +381,15 @@ begin
     exit;
   RegDeleteKeyIncludingSubkeys(HKCU, NotificationKey);
   { "Start with Windows", when it points at this install. }
-  if RegQueryStringValue(HKCU, RunKey, 'Pullbay', Command) and
+  if RegQueryStringValue(HKCU, RunKey, 'UDM', Command) and
      (Pos(Lowercase(ExpandConstant('{app}')), Lowercase(Command)) > 0) then
-    RegDeleteValue(HKCU, RunKey, 'Pullbay');
+    RegDeleteValue(HKCU, RunKey, 'UDM');
   if not UninstallSilent and
-     (MsgBox('Also remove your Pullbay settings and download list?' + #13#10#13#10 +
+     (MsgBox('Also remove your UDM settings and download list?' + #13#10#13#10 +
        'Downloaded files are kept either way.',
        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then
   begin
-    DelTree(ExpandConstant('{userappdata}\Pullbay'), True, True, True);
-    DelTree(ExpandConstant('{localappdata}\Pullbay'), True, True, True);
+    DelTree(ExpandConstant('{userappdata}\UDM'), True, True, True);
+    DelTree(ExpandConstant('{localappdata}\UDM'), True, True, True);
   end;
 end;

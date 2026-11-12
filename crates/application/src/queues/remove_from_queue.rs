@@ -1,6 +1,6 @@
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::{DownloadList, QueueStore};
-use pullbay_domain::queue::{self, QueueError};
+use udm_domain::id::DownloadId;
+use udm_domain::ports::{DownloadList, QueueStore};
+use udm_domain::queue::{self, QueueError};
 
 /// Take a download out of its queue, keeping it in the list. Nothing puts it
 /// back by itself, so no queue starts it until it is started by hand or
@@ -29,8 +29,8 @@ impl<'a, Q: QueueStore, D: DownloadList> RemoveFromQueue<'a, Q, D> {
 mod tests {
     use super::*;
     use crate::memory::{Downloads, Queues};
-    use pullbay_domain::download::Status;
-    use pullbay_domain::queue::MAIN_QUEUE;
+    use udm_domain::download::Status;
+    use udm_domain::queue::MAIN_QUEUE;
 
     #[test]
     fn it_leaves_the_queue_but_stays_listed() {

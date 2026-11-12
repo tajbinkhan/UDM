@@ -1,33 +1,33 @@
-//! `pullbay-cli`, the command-line tool: its arguments, what it prints and
+//! `udm-cli`, the command-line tool: its arguments, what it prints and
 //! its exit codes. What each command does is a use case in
-//! `pullbay_application::remote`; this module turns the arguments into
+//! `udm_application::remote`; this module turns the arguments into
 //! their requests (`parse`) and their results into text (`Terminal` for a
 //! download's progress, `table` and `json` for the list, `Report` for the
 //! rest). It writes to standard error only through `Terminal`; the binary
 //! prints each `Report`.
 //!
 //! ```text
-//! pullbay-cli get URL [-d DIR] [-n NAME] [-c N] [-H "Name: value"]... [--checksum SUM] [--no-wait] [-q]
-//! pullbay-cli list [--json]
-//! pullbay-cli pause ID | --all
-//! pullbay-cli resume ID | --all
-//! pullbay-cli remove ID [--delete-files]
-//! pullbay-cli queue start|stop [QUEUE]
+//! udm-cli get URL [-d DIR] [-n NAME] [-c N] [-H "Name: value"]... [--checksum SUM] [--no-wait] [-q]
+//! udm-cli list [--json]
+//! udm-cli pause ID | --all
+//! udm-cli resume ID | --all
+//! udm-cli remove ID [--delete-files]
+//! udm-cli queue start|stop [QUEUE]
 //! ```
 
 use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use pullbay_application::remote::{GetRequest, Got, Listing, RemoteError, Resumed, Watch};
-use pullbay_domain::address::Address;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::checksum::{Checksum, ChecksumError};
-use pullbay_domain::download::{DownloadEntry, Status};
-use pullbay_domain::filename::FileName;
-use pullbay_domain::id::{DeviceId, DownloadId};
-use pullbay_domain::pairing::{DeviceInfo, RemoteState};
-use pullbay_domain::settings::CONNECTIONS_RANGE;
+use udm_application::remote::{GetRequest, Got, Listing, RemoteError, Resumed, Watch};
+use udm_domain::address::Address;
+use udm_domain::bytes::ByteCount;
+use udm_domain::checksum::{Checksum, ChecksumError};
+use udm_domain::download::{DownloadEntry, Status};
+use udm_domain::filename::FileName;
+use udm_domain::id::{DeviceId, DownloadId};
+use udm_domain::pairing::{DeviceInfo, RemoteState};
+use udm_domain::settings::CONNECTIONS_RANGE;
 
 /// The exit codes, for scripts to test.
 pub mod exit {
@@ -45,9 +45,9 @@ pub mod exit {
     pub const STOPPED: i32 = 4;
 }
 
-/// What `pullbay-cli --help` prints.
+/// What `udm-cli --help` prints.
 pub const USAGE: &str = "\
-Usage: pullbay-cli <command> [options]
+Usage: udm-cli <command> [options]
 
 Commands:
   get URL            Download URL now and show its progress until it ends
@@ -56,7 +56,7 @@ Commands:
     -c, --connections N    open N connections (1 to 16) instead of the setting's
     -H, --header 'N: V'    send this header too (may be repeated)
         --checksum SUM     fail unless the file matches SUM (sha256:HEX, or a bare hex digest)
-        --no-wait          print the download's id and return once Pullbay has it
+        --no-wait          print the download's id and return once UDM has it
     -q, --quiet            show no progress
   list [--json]      List the downloads and the queues
   pause ID|--all     Stop a download, keeping what it has, or every download
@@ -73,8 +73,8 @@ Commands:
   unpair ID          Unpair a phone at once
   help, version
 
-Pullbay starts in the background if it is not running. Exit codes: 0 done, 1 failed or
-refused, 2 bad command line, 3 Pullbay could not be reached, 4 the download stopped
+UDM starts in the background if it is not running. Exit codes: 0 done, 1 failed or
+refused, 2 bad command line, 3 UDM could not be reached, 4 the download stopped
 before it finished.";
 
 /// What the command line asks for.
@@ -135,7 +135,7 @@ pub enum UsageError {
     NotDownloadAddress(String),
     #[error("{0} is not a file name; give the folder with --folder")]
     NotFileName(String),
-    #[error("{0} is not a folder Pullbay can save in")]
+    #[error("{0} is not a folder UDM can save in")]
     BadFolder(String),
     #[error("{0} is not a number of connections from {low} to {high}", low = CONNECTIONS_RANGE.0, high = CONNECTIONS_RANGE.1)]
     BadConnections(String),
@@ -536,7 +536,7 @@ impl Watch for Terminal {
 
     fn needs_answer(&mut self, path: Option<&str>) {
         let about = path.map(|p| format!(" about {p}")).unwrap_or_default();
-        self.say(&format!("Waiting for an answer in Pullbay's save-as dialog{about}"));
+        self.say(&format!("Waiting for an answer in UDM's save-as dialog{about}"));
     }
 }
 
@@ -608,20 +608,20 @@ impl Report {
 
     /// The command line was wrong.
     pub fn usage(e: &UsageError) -> Self {
-        Self::telling(exit::USAGE, format!("pullbay-cli: {e}\nTry pullbay-cli --help."))
+        Self::telling(exit::USAGE, format!("udm-cli: {e}\nTry udm-cli --help."))
     }
 
     /// The request did not get done.
     pub fn error(e: &RemoteError) -> Self {
         let code = if e.unreachable() { exit::UNREACHABLE } else { exit::FAILED };
-        Self::telling(code, format!("pullbay-cli: {e}"))
+        Self::telling(code, format!("udm-cli: {e}"))
     }
 
     /// A pairing code shown: the QR code and what to do with it, with the
     /// link pointed at `host` when it is given.
     pub fn pairing(state: &RemoteState, host: Option<&str>, now: u64) -> Self {
         let Some(offer) = &state.pairing else {
-            return Self::telling(exit::FAILED, "pullbay-cli: no pairing code was shown");
+            return Self::telling(exit::FAILED, "udm-cli: no pairing code was shown");
         };
         let link = host.map_or_else(|| offer.link.clone(), |h| link_at(&offer.link, h));
         let page = link.split('#').next().unwrap_or(&link).to_string();
@@ -674,7 +674,7 @@ impl Report {
             }
             Got::Stopped(id) => Self::telling(
                 exit::STOPPED,
-                format!("Download {id} stopped before it finished; pullbay-cli resume {id} goes on with it"),
+                format!("Download {id} stopped before it finished; udm-cli resume {id} goes on with it"),
             ),
             Got::Waiting(id) => Self::telling(exit::STOPPED, format!("Download {id} waits in a queue")),
             Got::Removed(id) => Self::telling(exit::STOPPED, format!("Download {id} was removed from the list")),
@@ -699,9 +699,9 @@ impl Report {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_application::daemon::Failure;
-    use pullbay_domain::queue::Queue;
     use std::path::PathBuf;
+    use udm_application::daemon::Failure;
+    use udm_domain::queue::Queue;
 
     fn cwd() -> PathBuf {
         if cfg!(windows) {
@@ -872,7 +872,7 @@ mod tests {
 
     #[test]
     fn the_pairing_report_has_a_qr_code_the_code_and_the_fingerprint() {
-        use pullbay_domain::pairing::{ListenerState, PairingCode, PairingOffer};
+        use udm_domain::pairing::{ListenerState, PairingCode, PairingOffer};
         let code = PairingCode::from_random(&[5; 32]);
         let state = RemoteState {
             listener: ListenerState { fingerprint: Some("AB:CD".into()), ..ListenerState::default() },
@@ -891,7 +891,7 @@ mod tests {
         assert!(out.contains("5:00 more") && out.contains("AB:CD"));
         let devices = Report::devices(&[DeviceInfo {
             id: DeviceId::new(2),
-            name: pullbay_domain::pairing::DeviceName::clean("Pixel"),
+            name: udm_domain::pairing::DeviceName::clean("Pixel"),
             paired_at: 86_400 + 3_660,
             last_seen: None,
         }]);

@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "브라우저 다운로드를 Pullbay 다운로드 관리자로 보냅니다."
+    "message": "브라우저 다운로드를 UDM 다운로드 관리자로 보냅니다."
   },
-  "downloadWithPullbay": {
-    "message": "Pullbay로 다운로드"
+  "downloadWithUdm": {
+    "message": "UDM로 다운로드"
   },
-  "downloadLaterWithPullbay": {
-    "message": "Pullbay로 나중에 다운로드"
+  "downloadLaterWithUdm": {
+    "message": "UDM로 나중에 다운로드"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "Pullbay로 갤러리 다운로드"
+  "downloadGalleryWithUdm": {
+    "message": "UDM로 갤러리 다운로드"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "Pullbay로 모든 링크 다운로드"
+  "downloadAllLinksWithUdm": {
+    "message": "UDM로 모든 링크 다운로드"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "Pullbay로 선택한 링크 다운로드"
+  "downloadSelectedLinksWithUdm": {
+    "message": "UDM로 선택한 링크 다운로드"
   },
-  "pullbayDisconnected": {
-    "message": "Pullbay 연결이 끊어졌습니다"
+  "udmDisconnected": {
+    "message": "UDM 연결이 끊어졌습니다"
   },
   "captureDownloads": {
     "message": "다운로드 가로채기"
   },
   "captureDownloadsTitle": {
-    "message": "브라우저에서 시작한 다운로드를 Pullbay로 보내기"
+    "message": "브라우저에서 시작한 다운로드를 UDM로 보내기"
   },
   "captureInTab": {
     "message": "이 탭에서 가로채기"
@@ -36,16 +36,16 @@
     "message": "이 탭에서 꺼짐"
   },
   "statusConnected": {
-    "message": "연결되었습니다. 브라우저에서 시작한 다운로드는 Pullbay로 보내집니다."
+    "message": "연결되었습니다. 브라우저에서 시작한 다운로드는 UDM로 보내집니다."
   },
   "statusConnectedCaptureOff": {
     "message": "연결되었습니다. 가로채기가 꺼져 있으므로 브라우저가 직접 다운로드합니다."
   },
   "statusNotConnected": {
-    "message": "Pullbay에 연결되어 있지 않습니다. 다운로드는 브라우저에 남습니다."
+    "message": "UDM에 연결되어 있지 않습니다. 다운로드는 브라우저에 남습니다."
   },
   "statusNotConnectedReason": {
-    "message": "Pullbay에 연결되어 있지 않습니다($REASON$). 다운로드는 브라우저에 남습니다.",
+    "message": "UDM에 연결되어 있지 않습니다($REASON$). 다운로드는 브라우저에 남습니다.",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "이 페이지의 모든 링크"
   },
   "allLinksTitle": {
-    "message": "이 페이지의 링크를 Pullbay에 나열하여 다운로드할 링크 선택"
+    "message": "이 페이지의 링크를 UDM에 나열하여 다운로드할 링크 선택"
   },
   "videoButton": {
     "message": "동영상 단추"
@@ -117,7 +117,7 @@
     "message": "중단됨"
   },
   "stateConfirming": {
-    "message": "Pullbay에서 응답 대기 중"
+    "message": "UDM에서 응답 대기 중"
   },
   "stateWaiting": {
     "message": "시작 대기 중"
@@ -190,22 +190,22 @@
     "message": "자막:"
   },
   "videoProtected": {
-    "message": "이 동영상은 DRM으로 보호되어 있으므로 Pullbay에서 다운로드하지 않습니다."
+    "message": "이 동영상은 DRM으로 보호되어 있으므로 UDM에서 다운로드하지 않습니다."
   },
   "streamProtected": {
-    "message": "DRM으로 보호되어 있으므로 Pullbay에서 다운로드하지 않습니다."
+    "message": "DRM으로 보호되어 있으므로 UDM에서 다운로드하지 않습니다."
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay가 실행 중이 아니거나 연결되어 있지 않습니다."
+  "udmNotConnected": {
+    "message": "UDM가 실행 중이 아니거나 연결되어 있지 않습니다."
   },
   "noVideoFound": {
     "message": "아직 동영상을 찾지 못했습니다. 잠시 재생한 후 다시 시도하십시오."
   },
-  "sentToPullbay": {
-    "message": "Pullbay로 보냈습니다."
+  "sentToUdm": {
+    "message": "UDM로 보냈습니다."
   },
-  "couldNotReachPullbay": {
-    "message": "Pullbay에 연결할 수 없습니다."
+  "couldNotReachUdm": {
+    "message": "UDM에 연결할 수 없습니다."
   },
   "hlsStream": {
     "message": "HLS 스트림"
@@ -229,7 +229,7 @@
     "message": "Vimeo 동영상"
   },
   "mediaNoAnswer": {
-    "message": "Pullbay에서 응답하지 않았습니다."
+    "message": "UDM에서 응답하지 않았습니다."
   },
   "soundOnly": {
     "message": "소리만($FORMAT$)",
@@ -256,16 +256,16 @@
     "message": "오디오"
   },
   "takeoverFailed": {
-    "message": "Pullbay가 다운로드를 가져오지 못했습니다"
+    "message": "UDM가 다운로드를 가져오지 못했습니다"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay가 실행 중이 아니거나 연결되어 있지 않으므로 브라우저에서 다운로드합니다: $FILE$",
+    "message": "UDM가 실행 중이 아니거나 연결되어 있지 않으므로 브라우저에서 다운로드합니다: $FILE$",
     "placeholders": {
       "file": { "content": "$1" }
     }
   },
   "takeoverError": {
-    "message": "Pullbay에서 시작할 수 없으므로($REASON$) 브라우저에서 다운로드합니다: $FILE$",
+    "message": "UDM에서 시작할 수 없으므로($REASON$) 브라우저에서 다운로드합니다: $FILE$",
     "placeholders": {
       "file": { "content": "$1" },
       "reason": { "content": "$2" }
@@ -278,13 +278,13 @@
     "message": "이 알림을 클릭하면 더 이상 표시되지 않습니다."
   },
   "downloadLastVideo": {
-    "message": "Pullbay로 마지막 동영상 다운로드"
+    "message": "UDM로 마지막 동영상 다운로드"
   },
   "recentVideos": {
-    "message": "최근 동영상(Pullbay)"
+    "message": "최근 동영상(UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "Pullbay로 페이지 다운로드"
+  "downloadPageWithUdm": {
+    "message": "UDM로 페이지 다운로드"
   },
   "noLinksFound": {
     "message": "이 페이지에서 링크를 찾을 수 없습니다."
@@ -293,13 +293,13 @@
     "message": "선택 영역에서 링크를 찾을 수 없습니다."
   },
   "linksUnreadable": {
-    "message": "브라우저에서 Pullbay가 이 페이지의 링크를 읽을 수 없도록 합니다."
+    "message": "브라우저에서 UDM가 이 페이지의 링크를 읽을 수 없도록 합니다."
   },
-  "cannotReachPullbay": {
-    "message": "Pullbay에 연결할 수 없습니다. 실행 중입니까?"
+  "cannotReachUdm": {
+    "message": "UDM에 연결할 수 없습니다. 실행 중입니까?"
   },
-  "cannotReachPullbayReason": {
-    "message": "Pullbay에 연결할 수 없습니다($REASON$).",
+  "cannotReachUdmReason": {
+    "message": "UDM에 연결할 수 없습니다($REASON$).",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -310,8 +310,8 @@
   "browserDownloadsHeading": {
     "message": "브라우저에서 다운로드 중"
   },
-  "sendToPullbay": {
-    "message": "Pullbay로 보내기"
+  "sendToUdm": {
+    "message": "UDM로 보내기"
   },
   "pageVideo": {
     "message": "이 페이지의 동영상"
@@ -336,6 +336,6 @@
     }
   },
   "chooseVideos": {
-    "message": "Pullbay에서 동영상 선택..."
+    "message": "UDM에서 동영상 선택..."
   }
 }

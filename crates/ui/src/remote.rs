@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use pullbay_application::daemon::Command;
-use pullbay_domain::pairing::{RemoteState, PAIRING_LIFETIME};
-use pullbay_domain::settings::{Settings, REMOTE_PORT_RANGE};
+use udm_application::daemon::Command;
+use udm_domain::pairing::{RemoteState, PAIRING_LIFETIME};
+use udm_domain::settings::{Settings, REMOTE_PORT_RANGE};
 
 use crate::errors;
 use crate::i18n::{tr, trf};
@@ -138,7 +138,7 @@ impl RemoteDraft {
 
 /// Draw the page, adding what to ask the daemon to `asks`.
 pub fn tab(ui: &mut egui::Ui, draft: &mut RemoteDraft, now: u64, asks: &mut Vec<Command>) {
-    ui.checkbox(&mut draft.enabled, tr("Let phones on this network control Pullbay"));
+    ui.checkbox(&mut draft.enabled, tr("Let phones on this network control UDM"));
     ui.label(
         egui::RichText::new(tr(
             "A paired phone's browser can see the download list and add, pause, resume and remove downloads. Nothing listens on the network while this is off.",
@@ -167,7 +167,7 @@ pub fn tab(ui: &mut egui::Ui, draft: &mut RemoteDraft, now: u64, asks: &mut Vec<
     });
     ui.label(
         egui::RichText::new(tr(
-            "Your firewall may ask whether to let Pullbay's daemon accept connections: allow it on private networks only.",
+            "Your firewall may ask whether to let UDM's daemon accept connections: allow it on private networks only.",
         ))
         .weak(),
     );
@@ -251,7 +251,7 @@ fn pairing(ui: &mut egui::Ui, draft: &mut RemoteDraft, state: &RemoteState, now:
                     ));
                     ui.label(
                         egui::RichText::new(tr(
-                            "The phone warns that the page's certificate is not trusted, as it is Pullbay's own. Before going on, check that the certificate's SHA-256 fingerprint is the one above.",
+                            "The phone warns that the page's certificate is not trusted, as it is UDM's own. Before going on, check that the certificate's SHA-256 fingerprint is the one above.",
                         ))
                         .weak(),
                     );

@@ -1,7 +1,7 @@
-//! A download as Pullbay keeps it: what to fetch and how (`Download`), its
+//! A download as UDM keeps it: what to fetch and how (`Download`), its
 //! place in the list (`DownloadEntry`, `Status`), and the save-as
 //! dialog's answer (`Answer`). The daemon and its clients exchange these
-//! inside the messages of `pullbay_infrastructure::protocol`.
+//! inside the messages of `udm_infrastructure::protocol`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -69,7 +69,7 @@ pub struct Answer {
     /// "Download later" uses without asking.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remember_queue: bool,
-    /// Save into the folder with administrator rights, because Pullbay may
+    /// Save into the folder with administrator rights, because UDM may
     /// not write there itself.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub elevate: bool,
@@ -564,7 +564,7 @@ pub struct OnDone {
     /// Show the completion dialog for it, whatever Options > When done says.
     #[serde(default)]
     pub dialog: bool,
-    /// Then exit Pullbay, or sleep, hibernate or shut down after the usual
+    /// Then exit UDM, or sleep, hibernate or shut down after the usual
     /// countdown.
     #[serde(default)]
     pub then: WhenDone,
@@ -1135,7 +1135,7 @@ impl Download {
     }
 }
 
-/// IDM's command-line switches, parsed by `pullbay_infrastructure::cli`.
+/// IDM's command-line switches, parsed by `udm_infrastructure::cli`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CommandLine {
     /// The download `/d` names, with the folder, name and start choices of
@@ -1145,14 +1145,14 @@ pub struct CommandLine {
     /// `/s`: start the main queue.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub start_queue: bool,
-    /// `/q`: exit Pullbay once the download finishes. Like IDM, only a call
-    /// that starts Pullbay does this; one that finds it running does not.
+    /// `/q`: exit UDM once the download finishes. Like IDM, only a call
+    /// that starts UDM does this; one that finds it running does not.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub quit_after: bool,
 }
 
 impl CommandLine {
-    /// Whether it asks for nothing: `pullbay-gui` started with no switches,
+    /// Whether it asks for nothing: `udm-gui` started with no switches,
     /// which only brings an open window forward.
     pub fn is_empty(&self) -> bool {
         self.download.is_none() && !self.start_queue

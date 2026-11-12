@@ -1,6 +1,6 @@
 // Downloads started by a form POST.
 //
-// The downloads API only reports a URL, so Pullbay would fetch it with GET and
+// The downloads API only reports a URL, so UDM would fetch it with GET and
 // often save an error page instead. The service worker records the method
 // and body of recent requests in frames and of scripts' requests
 // (webRequest), and these functions match a new download to one and
@@ -40,7 +40,7 @@ function encodeForm(formData) {
 function multipartBoundary() {
   let random = "";
   for (let i = 0; i < 24; i++) random += Math.floor(Math.random() * 16).toString(16);
-  return `----PullbayFormBoundary${random}`;
+  return `----UdmFormBoundary${random}`;
 }
 
 // multipart/form-data from webRequest's parsed formData, with `boundary`,

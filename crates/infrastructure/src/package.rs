@@ -24,7 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 
-/// The folder this process's writes to Pullbay's data folder really go to, when
+/// The folder this process's writes to UDM's data folder really go to, when
 /// Windows sends them to an app package's copy; `None` when they reach the
 /// real folder.
 pub fn data_copy() -> Option<PathBuf> {
@@ -39,7 +39,7 @@ pub fn data_copy() -> Option<PathBuf> {
         .into_iter()
         .flatten()
         .flatten()
-        .map(|entry| entry.path().join(r"LocalCache\Local\Pullbay"))
+        .map(|entry| entry.path().join(r"LocalCache\Local\UDM"))
         .find(|copy| copy.join(&name).is_file());
     let _ = fs::remove_file(&probe);
     found
@@ -125,11 +125,8 @@ mod tests {
 
     #[test]
     fn quotes_like_the_c_runtime_reads() {
-        assert_eq!(quote(r"C:\Pullbay\pullbay-daemon.exe"), r"C:\Pullbay\pullbay-daemon.exe");
-        assert_eq!(
-            quote(r"C:\Program Files\Pullbay\pullbay-daemon.exe"),
-            r#""C:\Program Files\Pullbay\pullbay-daemon.exe""#
-        );
+        assert_eq!(quote(r"C:\UDM\udm-daemon.exe"), r"C:\UDM\udm-daemon.exe");
+        assert_eq!(quote(r"C:\Program Files\UDM\udm-daemon.exe"), r#""C:\Program Files\UDM\udm-daemon.exe""#);
         assert_eq!(quote(""), r#""""#);
         assert_eq!(quote(r#"say "hi""#), r#""say \"hi\"""#);
         assert_eq!(quote(r"a dir\"), r#""a dir\\""#);

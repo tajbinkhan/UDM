@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "Kirim unduhan browser ke pengelola unduhan Pullbay."
+    "message": "Kirim unduhan browser ke pengelola unduhan UDM."
   },
-  "downloadWithPullbay": {
-    "message": "Unduh dengan Pullbay"
+  "downloadWithUdm": {
+    "message": "Unduh dengan UDM"
   },
-  "downloadLaterWithPullbay": {
-    "message": "Unduh nanti dengan Pullbay"
+  "downloadLaterWithUdm": {
+    "message": "Unduh nanti dengan UDM"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "Unduh galeri dengan Pullbay"
+  "downloadGalleryWithUdm": {
+    "message": "Unduh galeri dengan UDM"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "Unduh semua tautan dengan Pullbay"
+  "downloadAllLinksWithUdm": {
+    "message": "Unduh semua tautan dengan UDM"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "Unduh tautan yang dipilih dengan Pullbay"
+  "downloadSelectedLinksWithUdm": {
+    "message": "Unduh tautan yang dipilih dengan UDM"
   },
-  "pullbayDisconnected": {
-    "message": "Pullbay terputus"
+  "udmDisconnected": {
+    "message": "UDM terputus"
   },
   "captureDownloads": {
     "message": "Tangkap unduhan"
   },
   "captureDownloadsTitle": {
-    "message": "Kirim unduhan yang dimulai browser ke Pullbay"
+    "message": "Kirim unduhan yang dimulai browser ke UDM"
   },
   "captureInTab": {
     "message": "Tangkap di tab ini"
@@ -36,16 +36,16 @@
     "message": "Nonaktif di tab ini"
   },
   "statusConnected": {
-    "message": "Tersambung. Unduhan yang Anda mulai di browser dikirim ke Pullbay."
+    "message": "Tersambung. Unduhan yang Anda mulai di browser dikirim ke UDM."
   },
   "statusConnectedCaptureOff": {
     "message": "Tersambung. Penangkapan nonaktif, jadi browser tetap mengunduh sendiri."
   },
   "statusNotConnected": {
-    "message": "Tidak tersambung ke Pullbay. Unduhan tetap di browser."
+    "message": "Tidak tersambung ke UDM. Unduhan tetap di browser."
   },
   "statusNotConnectedReason": {
-    "message": "Tidak tersambung ke Pullbay: $REASON$. Unduhan tetap di browser.",
+    "message": "Tidak tersambung ke UDM: $REASON$. Unduhan tetap di browser.",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "Semua tautan di halaman ini"
   },
   "allLinksTitle": {
-    "message": "Tampilkan tautan halaman ini di Pullbay untuk memilih yang akan diunduh"
+    "message": "Tampilkan tautan halaman ini di UDM untuk memilih yang akan diunduh"
   },
   "videoButton": {
     "message": "Tombol video"
@@ -117,7 +117,7 @@
     "message": "Terputus"
   },
   "stateConfirming": {
-    "message": "Menunggu Anda di Pullbay"
+    "message": "Menunggu Anda di UDM"
   },
   "stateWaiting": {
     "message": "Menunggu untuk dimulai"
@@ -190,22 +190,22 @@
     "message": "Subtitel:"
   },
   "videoProtected": {
-    "message": "Video ini dilindungi DRM, jadi Pullbay tidak akan mengunduhnya."
+    "message": "Video ini dilindungi DRM, jadi UDM tidak akan mengunduhnya."
   },
   "streamProtected": {
-    "message": "Dilindungi DRM; Pullbay tidak akan mengunduhnya."
+    "message": "Dilindungi DRM; UDM tidak akan mengunduhnya."
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay tidak berjalan atau tidak tersambung."
+  "udmNotConnected": {
+    "message": "UDM tidak berjalan atau tidak tersambung."
   },
   "noVideoFound": {
     "message": "Belum ada video yang ditemukan. Biarkan video diputar sebentar, lalu coba lagi."
   },
-  "sentToPullbay": {
-    "message": "Dikirim ke Pullbay."
+  "sentToUdm": {
+    "message": "Dikirim ke UDM."
   },
-  "couldNotReachPullbay": {
-    "message": "Tidak dapat menjangkau Pullbay."
+  "couldNotReachUdm": {
+    "message": "Tidak dapat menjangkau UDM."
   },
   "hlsStream": {
     "message": "Stream HLS"
@@ -229,7 +229,7 @@
     "message": "Video Vimeo"
   },
   "mediaNoAnswer": {
-    "message": "Pullbay tidak menjawab."
+    "message": "UDM tidak menjawab."
   },
   "soundOnly": {
     "message": "Hanya suara ($FORMAT$)",
@@ -256,16 +256,16 @@
     "message": "Audio"
   },
   "takeoverFailed": {
-    "message": "Pullbay tidak dapat mengambil alih unduhan"
+    "message": "UDM tidak dapat mengambil alih unduhan"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay tidak berjalan atau tidak tersambung, jadi browser mengunduh $FILE$.",
+    "message": "UDM tidak berjalan atau tidak tersambung, jadi browser mengunduh $FILE$.",
     "placeholders": {
       "file": { "content": "$1" }
     }
   },
   "takeoverError": {
-    "message": "Pullbay tidak dapat memulai $FILE$ ($REASON$), jadi browser yang mengunduhnya.",
+    "message": "UDM tidak dapat memulai $FILE$ ($REASON$), jadi browser yang mengunduhnya.",
     "placeholders": {
       "file": { "content": "$1" },
       "reason": { "content": "$2" }
@@ -278,13 +278,13 @@
     "message": "Klik pemberitahuan ini agar tidak ditampilkan lagi."
   },
   "downloadLastVideo": {
-    "message": "Unduh video terakhir dengan Pullbay"
+    "message": "Unduh video terakhir dengan UDM"
   },
   "recentVideos": {
-    "message": "Video terbaru (Pullbay)"
+    "message": "Video terbaru (UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "Unduh halaman dengan Pullbay"
+  "downloadPageWithUdm": {
+    "message": "Unduh halaman dengan UDM"
   },
   "noLinksFound": {
     "message": "Tidak ada tautan yang ditemukan di halaman ini."
@@ -293,13 +293,13 @@
     "message": "Tidak ada tautan yang ditemukan di bagian yang dipilih."
   },
   "linksUnreadable": {
-    "message": "Browser tidak mengizinkan Pullbay membaca tautan halaman ini."
+    "message": "Browser tidak mengizinkan UDM membaca tautan halaman ini."
   },
-  "cannotReachPullbay": {
-    "message": "Tidak dapat menjangkau Pullbay. Apakah Pullbay sedang berjalan?"
+  "cannotReachUdm": {
+    "message": "Tidak dapat menjangkau UDM. Apakah UDM sedang berjalan?"
   },
-  "cannotReachPullbayReason": {
-    "message": "Tidak dapat menjangkau Pullbay ($REASON$).",
+  "cannotReachUdmReason": {
+    "message": "Tidak dapat menjangkau UDM ($REASON$).",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -310,8 +310,8 @@
   "browserDownloadsHeading": {
     "message": "Mengunduh di browser"
   },
-  "sendToPullbay": {
-    "message": "Kirim ke Pullbay"
+  "sendToUdm": {
+    "message": "Kirim ke UDM"
   },
   "pageVideo": {
     "message": "Video di halaman ini"
@@ -336,6 +336,6 @@
     }
   },
   "chooseVideos": {
-    "message": "Pilih video di Pullbay..."
+    "message": "Pilih video di UDM..."
   }
 }

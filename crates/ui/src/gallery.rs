@@ -3,19 +3,19 @@
 //! with a box to tick, and the one folder they are saved in. It opens on the
 //! page alone, from the browser's "Download gallery" or from Add URL, and
 //! asks the daemon to read it; the list fills in when the answer comes.
-//! Ticked pictures are added as one batch, downloaded by Pullbay's own
+//! Ticked pictures are added as one batch, downloaded by UDM's own
 //! engine, which asks the batch questions (`answers`) like the link
 //! picker's.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
-use pullbay_domain::gallery::{gallery_folder, Gallery};
-use pullbay_domain::id::QueueId;
-use pullbay_domain::package::Packaging;
-use pullbay_domain::queue::{Queue, MAIN_QUEUE};
-use pullbay_domain::settings::{Settings, GENERAL};
-use pullbay_domain::tools::Tool;
+use udm_domain::gallery::{gallery_folder, Gallery};
+use udm_domain::id::QueueId;
+use udm_domain::package::Packaging;
+use udm_domain::queue::{Queue, MAIN_QUEUE};
+use udm_domain::settings::{Settings, GENERAL};
+use udm_domain::tools::Tool;
 
 use super::{browse_button, take_picked, Action, Picked};
 use crate::a11y;
@@ -115,7 +115,7 @@ impl GalleryDialog {
 
     /// The ticked pictures as downloads waiting in the dialog's queue, or
     /// why the folder will not do.
-    fn downloads(&self) -> Result<Vec<pullbay_domain::download::Download>, String> {
+    fn downloads(&self) -> Result<Vec<udm_domain::download::Download>, String> {
         let Reading::Found(gallery) = &self.reading else {
             return Ok(Vec::new());
         };
@@ -297,8 +297,8 @@ fn list(ui: &mut egui::Ui, d: &mut GalleryDialog) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::gallery::Picture;
     use std::path::Path;
+    use udm_domain::gallery::Picture;
 
     fn gallery(names: &[&str]) -> Gallery {
         let pictures = names
@@ -315,7 +315,7 @@ mod tests {
     }
 
     fn base() -> std::path::PathBuf {
-        std::env::temp_dir().join("pullbay-gallery-test")
+        std::env::temp_dir().join("udm-gallery-test")
     }
 
     #[test]

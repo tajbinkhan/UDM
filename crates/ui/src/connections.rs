@@ -3,9 +3,9 @@
 //! state, updated live. A stream shows how many of its segments are in.
 
 use eframe::egui;
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::download::{DownloadEntry, SegmentInfo, SegmentState};
-use pullbay_domain::id::DownloadId;
+use udm_domain::bytes::ByteCount;
+use udm_domain::download::{DownloadEntry, SegmentInfo, SegmentState};
+use udm_domain::id::DownloadId;
 
 use crate::i18n::{tr, trf};
 

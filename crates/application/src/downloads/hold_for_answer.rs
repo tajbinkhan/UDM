@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::download::{AfterProbe, Download};
-use pullbay_domain::filename::FileName;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::{
+use udm_domain::bytes::ByteCount;
+use udm_domain::download::{AfterProbe, Download};
+use udm_domain::filename::FileName;
+use udm_domain::id::DownloadId;
+use udm_domain::ports::{
     Answers, ControlError, DownloadControl, DownloadFiles, DownloadList, EarlyStarts, SettingsStore,
 };
 
@@ -98,8 +98,8 @@ where
 mod tests {
     use super::*;
     use crate::memory::{row, Control, Downloads, Early, Files, Prefs, Waiting};
-    use pullbay_domain::download::Status;
-    use pullbay_domain::settings::Settings;
+    use udm_domain::download::Status;
+    use udm_domain::settings::Settings;
 
     fn probed(name: &str) -> Probed {
         Probed {
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_pullbay_may_not_write_to_asks_first() {
+    fn a_folder_udm_may_not_write_to_asks_first() {
         let settings = Settings { auto_start_types: vec!["zip".into()], ..Settings::default() };
         let w = World { files: Files::read_only("/dl"), ..World::new(settings) };
         assert_eq!(w.hold("a.zip", None), Held::Asked { early: false });

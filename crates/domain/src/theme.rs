@@ -176,7 +176,7 @@ pub const CORNER_RADIUS_RANGE: (u8, u8) = (0, 12);
 pub const BORDER_WIDTH_RANGE: (u8, u8) = (1, 4);
 
 impl Sizes {
-    /// Sized like the 9 pt Segoe UI of the window Pullbay's layout follows,
+    /// Sized like the 9 pt Segoe UI of the window UDM's layout follows,
     /// with its tight padding: 12 pt text, 20 pt controls, nearly square
     /// corners and hairline edges.
     pub const NORMAL: Sizes = Sizes { text: 12, control_height: 20, corner_radius: 2, border_width: 1 };

@@ -1,8 +1,8 @@
 # Portable mode
 
-A portable copy of Pullbay keeps everything in its own folder, so it can run
+A portable copy of UDM keeps everything in its own folder, so it can run
 from a USB stick and leave the computer as it found it. The Windows portable
-zip, `Pullbay-<version>-windows-portable.zip`, is one.
+zip, `UDM-<version>-windows-portable.zip`, is one.
 
 ## What makes a copy portable
 
@@ -20,13 +20,13 @@ In the folder holding `portable.txt`:
 | `Data` | the settings, the theme files (`Data\themes`), the download list, the grabber's projects, the logs, the window's layout, the browsers' host manifests, and the parts of downloads under way (`Data\parts`) when Options names no temporary folder |
 | `Downloads` | new downloads, unless Options or the save-as dialog names another folder |
 
-A named copy (`PULLBAY_INSTANCE`, see [Building](building.md)) uses
+A named copy (`UDM_INSTANCE`, see [Building](building.md)) uses
 `Data-<name>` instead of `Data`.
 
 ## What it leaves on the computer
 
 Nothing in the registry but the browser registrations: the
-`NativeMessagingHosts\com.pullbay.host` key of each browser Pullbay is
+`NativeMessagingHosts\com.udm.host` key of each browser UDM is
 registered with. A portable copy:
 
 - registers with the browsers it finds the first time it runs, and points
@@ -35,9 +35,9 @@ registered with. A portable copy:
 - does not start when you sign in: **Start with Windows** in Options is
   greyed out;
 - does not register a name and icon for its notifications, so Windows may show
-  them without Pullbay's name, or not at all. The download-complete window
+  them without UDM's name, or not at all. The download-complete window
   opens as usual;
-- does not move anything UIDM left behind, which belongs to an installed copy.
+- does not move anything Pullbay or UIDM left behind, which belongs to an installed copy.
 
 Two things still live outside the folder:
 
@@ -53,7 +53,7 @@ browser keeps a note of that folder until you remove the extension.
 ## Starting
 
 1. Unpack the zip, for example onto a USB stick.
-2. Start `target\release\pullbay-gui.exe`. Pullbay registers with Chrome,
+2. Start `target\release\udm-gui.exe`. UDM registers with Chrome,
    Edge, Firefox and the other browsers it finds.
 3. Load the extension once from the copy's `extension` folder (Firefox: the
    `firefox` folder), as [Install](install.md#windows) describes.
@@ -64,9 +64,9 @@ browser keeps a note of that folder until you remove the extension.
 ## Leaving
 
 1. In Options, on the **Browser capture** page, untick every browser under
-   **Browsers**. That removes Pullbay's registrations from the registry.
+   **Browsers**. That removes UDM's registrations from the registry.
 2. Remove the extension from the browser.
-3. Quit Pullbay from the tray, and take the folder with you.
+3. Quit UDM from the tray, and take the folder with you.
 
 `install-host.ps1 -Uninstall` removes every browser registration at once, as
 for an installed copy.

@@ -1,11 +1,11 @@
-use pullbay_domain::download::Download;
-use pullbay_domain::id::{DownloadId, PackageId};
-use pullbay_domain::package::{plan_packages, Package, Packaging};
-use pullbay_domain::ports::PackageStore;
+use udm_domain::download::Download;
+use udm_domain::id::{DownloadId, PackageId};
+use udm_domain::package::{plan_packages, Package, Packaging};
+use udm_domain::ports::PackageStore;
 
 /// Keep downloads added together as packages: all of them as one, under a
 /// name and in one folder, or each split archive among them as one of its
-/// own (see `pullbay_domain::package::plan_packages`).
+/// own (see `udm_domain::package::plan_packages`).
 pub struct KeepPackages<'a, P> {
     packages: &'a P,
 }
@@ -59,7 +59,7 @@ impl<'a, P: PackageStore> KeepPackages<'a, P> {
 mod tests {
     use super::*;
     use crate::memory::Packages;
-    use pullbay_domain::package::{PackageName, Unpack};
+    use udm_domain::package::{PackageName, Unpack};
 
     fn added(names: &[&str]) -> Vec<(DownloadId, String)> {
         names.iter().enumerate().map(|(i, n)| (DownloadId::new(i as u64 + 10), n.to_string())).collect()

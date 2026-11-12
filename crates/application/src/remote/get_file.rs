@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use pullbay_domain::address::{Address, Link};
-use pullbay_domain::bytes::ByteCount;
-use pullbay_domain::checksum::Checksum;
-use pullbay_domain::download::{Download, Status};
-use pullbay_domain::filename::FileName;
-use pullbay_domain::id::DownloadId;
-use pullbay_domain::ports::FileHashes;
-use pullbay_domain::settings::Duplicate;
+use udm_domain::address::{Address, Link};
+use udm_domain::bytes::ByteCount;
+use udm_domain::checksum::Checksum;
+use udm_domain::download::{Download, Status};
+use udm_domain::filename::FileName;
+use udm_domain::id::DownloadId;
+use udm_domain::ports::FileHashes;
+use udm_domain::settings::Duplicate;
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient, Event};
@@ -108,7 +108,7 @@ pub trait Watch {
 }
 
 /// Hand a file to the daemon to download now, and follow it to the end:
-/// `pullbay-cli get`. The download goes on in the daemon if the program
+/// `udm-cli get`. The download goes on in the daemon if the program
 /// stops following it.
 pub struct GetFile<'a, 's, C: DaemonClient + ?Sized, H: ?Sized> {
     session: &'a Session<'s, C>,

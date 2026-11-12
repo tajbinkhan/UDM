@@ -1,6 +1,6 @@
 {
     "manifest_version": 3,
-    "name": "Pullbay",
+    "name": "UDM",
     "version": "0.4.0",
     "description": "__MSG_extDescription__",
     "default_locale": "en",
@@ -13,7 +13,7 @@
     ],
     "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
     "action": {
-        "default_title": "Pullbay",
+        "default_title": "UDM",
         "default_popup": "popup.html",
         "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
     }

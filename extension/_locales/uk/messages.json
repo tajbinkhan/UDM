@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "Надсилає завантаження з браузера до менеджера завантажень Pullbay."
+    "message": "Надсилає завантаження з браузера до менеджера завантажень UDM."
   },
-  "downloadWithPullbay": {
-    "message": "Завантажити за допомогою Pullbay"
+  "downloadWithUdm": {
+    "message": "Завантажити за допомогою UDM"
   },
-  "downloadLaterWithPullbay": {
-    "message": "Завантажити пізніше за допомогою Pullbay"
+  "downloadLaterWithUdm": {
+    "message": "Завантажити пізніше за допомогою UDM"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "Завантажити галерею за допомогою Pullbay"
+  "downloadGalleryWithUdm": {
+    "message": "Завантажити галерею за допомогою UDM"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "Завантажити всі посилання за допомогою Pullbay"
+  "downloadAllLinksWithUdm": {
+    "message": "Завантажити всі посилання за допомогою UDM"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "Завантажити виділені посилання за допомогою Pullbay"
+  "downloadSelectedLinksWithUdm": {
+    "message": "Завантажити виділені посилання за допомогою UDM"
   },
-  "pullbayDisconnected": {
-    "message": "З'єднання з Pullbay розірвано"
+  "udmDisconnected": {
+    "message": "З'єднання з UDM розірвано"
   },
   "captureDownloads": {
     "message": "Перехоплювати завантаження"
   },
   "captureDownloadsTitle": {
-    "message": "Надсилати до Pullbay завантаження, розпочаті в браузері"
+    "message": "Надсилати до UDM завантаження, розпочаті в браузері"
   },
   "captureInTab": {
     "message": "Перехоплювати в цій вкладці"
@@ -36,16 +36,16 @@
     "message": "Вимкнено в цій вкладці"
   },
   "statusConnected": {
-    "message": "Підключено. Завантаження, розпочаті в браузері, надсилаються до Pullbay."
+    "message": "Підключено. Завантаження, розпочаті в браузері, надсилаються до UDM."
   },
   "statusConnectedCaptureOff": {
     "message": "Підключено. Перехоплення вимкнено, тому браузер сам виконує свої завантаження."
   },
   "statusNotConnected": {
-    "message": "Немає з'єднання з Pullbay. Завантаження залишаються в браузері."
+    "message": "Немає з'єднання з UDM. Завантаження залишаються в браузері."
   },
   "statusNotConnectedReason": {
-    "message": "Немає з'єднання з Pullbay: $REASON$. Завантаження залишаються в браузері.",
+    "message": "Немає з'єднання з UDM: $REASON$. Завантаження залишаються в браузері.",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "Усі посилання на цій сторінці"
   },
   "allLinksTitle": {
-    "message": "Показати посилання цієї сторінки в Pullbay, щоб вибрати, які завантажити"
+    "message": "Показати посилання цієї сторінки в UDM, щоб вибрати, які завантажити"
   },
   "videoButton": {
     "message": "Кнопка відео"
@@ -117,7 +117,7 @@
     "message": "Перервано"
   },
   "stateConfirming": {
-    "message": "Очікує вашої відповіді в Pullbay"
+    "message": "Очікує вашої відповіді в UDM"
   },
   "stateWaiting": {
     "message": "Очікує запуску"
@@ -190,22 +190,22 @@
     "message": "Субтитри:"
   },
   "videoProtected": {
-    "message": "Це відео захищене DRM, тому Pullbay не завантажуватиме його."
+    "message": "Це відео захищене DRM, тому UDM не завантажуватиме його."
   },
   "streamProtected": {
-    "message": "Захищено DRM; Pullbay не завантажуватиме його."
+    "message": "Захищено DRM; UDM не завантажуватиме його."
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay не запущено або немає з'єднання."
+  "udmNotConnected": {
+    "message": "UDM не запущено або немає з'єднання."
   },
   "noVideoFound": {
     "message": "Відео ще не знайдено. Дайте йому трохи відтворитися, а потім спробуйте ще раз."
   },
-  "sentToPullbay": {
-    "message": "Надіслано до Pullbay."
+  "sentToUdm": {
+    "message": "Надіслано до UDM."
   },
-  "couldNotReachPullbay": {
-    "message": "Не вдалося зв'язатися з Pullbay."
+  "couldNotReachUdm": {
+    "message": "Не вдалося зв'язатися з UDM."
   },
   "hlsStream": {
     "message": "Потік HLS"
@@ -229,7 +229,7 @@
     "message": "Відео Vimeo"
   },
   "mediaNoAnswer": {
-    "message": "Pullbay не відповів."
+    "message": "UDM не відповів."
   },
   "soundOnly": {
     "message": "Лише звук ($FORMAT$)",
@@ -256,16 +256,16 @@
     "message": "Аудіо"
   },
   "takeoverFailed": {
-    "message": "Pullbay не вдалося перехопити завантаження"
+    "message": "UDM не вдалося перехопити завантаження"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay не запущено або немає з'єднання, тому браузер завантажує $FILE$.",
+    "message": "UDM не запущено або немає з'єднання, тому браузер завантажує $FILE$.",
     "placeholders": {
       "file": { "content": "$1" }
     }
   },
   "takeoverError": {
-    "message": "Pullbay не вдалося почати $FILE$ ($REASON$), тому браузер завантажує його.",
+    "message": "UDM не вдалося почати $FILE$ ($REASON$), тому браузер завантажує його.",
     "placeholders": {
       "file": { "content": "$1" },
       "reason": { "content": "$2" }
@@ -278,13 +278,13 @@
     "message": "Клацніть це сповіщення, щоб більше не показувати такі сповіщення."
   },
   "downloadLastVideo": {
-    "message": "Завантажити останнє відео за допомогою Pullbay"
+    "message": "Завантажити останнє відео за допомогою UDM"
   },
   "recentVideos": {
-    "message": "Останні відео (Pullbay)"
+    "message": "Останні відео (UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "Завантажити сторінку за допомогою Pullbay"
+  "downloadPageWithUdm": {
+    "message": "Завантажити сторінку за допомогою UDM"
   },
   "noLinksFound": {
     "message": "На цій сторінці не знайдено посилань."
@@ -293,13 +293,13 @@
     "message": "У виділеному фрагменті не знайдено посилань."
   },
   "linksUnreadable": {
-    "message": "Браузер не дозволяє Pullbay читати посилання цієї сторінки."
+    "message": "Браузер не дозволяє UDM читати посилання цієї сторінки."
   },
-  "cannotReachPullbay": {
-    "message": "Не вдається зв'язатися з Pullbay. Чи запущено програму?"
+  "cannotReachUdm": {
+    "message": "Не вдається зв'язатися з UDM. Чи запущено програму?"
   },
-  "cannotReachPullbayReason": {
-    "message": "Не вдається зв'язатися з Pullbay ($REASON$).",
+  "cannotReachUdmReason": {
+    "message": "Не вдається зв'язатися з UDM ($REASON$).",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -310,8 +310,8 @@
   "browserDownloadsHeading": {
     "message": "Завантаження в браузері"
   },
-  "sendToPullbay": {
-    "message": "Надіслати до Pullbay"
+  "sendToUdm": {
+    "message": "Надіслати до UDM"
   },
   "pageVideo": {
     "message": "Відео на цій сторінці"
@@ -336,6 +336,6 @@
     }
   },
   "chooseVideos": {
-    "message": "Вибрати відео в Pullbay..."
+    "message": "Вибрати відео в UDM..."
   }
 }

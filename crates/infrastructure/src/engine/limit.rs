@@ -7,11 +7,11 @@
 //! of tokens. The limit can change or turn off at any time; sleepers notice
 //! within `SLICE` and stop waiting on the old rate.
 
-use pullbay_domain::sync::LockExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
+use udm_domain::sync::LockExt;
 
 /// Longest single sleep, so a limit change or cancel is noticed promptly.
 const SLICE: Duration = Duration::from_millis(100);

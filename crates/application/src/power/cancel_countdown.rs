@@ -1,4 +1,4 @@
-use pullbay_domain::ports::PowerControl;
+use udm_domain::ports::PowerControl;
 
 /// Stop the countdown, so its action does not happen.
 pub struct CancelCountdown<'a, P> {
@@ -24,7 +24,7 @@ impl<'a, P: PowerControl> CancelCountdown<'a, P> {
 mod tests {
     use super::*;
     use crate::memory::Power;
-    use pullbay_domain::queue::{PowerRequest, WhenDone};
+    use udm_domain::queue::{PowerRequest, WhenDone};
 
     #[test]
     fn a_stopped_countdown_does_nothing() {

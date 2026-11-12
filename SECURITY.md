@@ -16,27 +16,27 @@ published when a release that fixes it is out.
 
 Helpful things to include:
 
-- The Pullbay version (**Help > About Pullbay**), your system, and how you installed it.
+- The UDM version (**Help > About UDM**), your system, and how you installed it.
 - What an attacker can do, and what they need first (a web page you visit, a program on the same
   computer, a file you open).
 - Steps to reproduce it, or a proof of concept.
 
 ## Supported versions
 
-Fixes go into the latest release only. Pullbay checks for updates itself, so please update before
+Fixes go into the latest release only. UDM checks for updates itself, so please update before
 you report.
 
 ## What counts
 
-Pullbay handles downloads for the browser, so these matter most:
+UDM handles downloads for the browser, so these matter most:
 
 - The daemon, which listens on `127.0.0.1` and checks every client with a token and an HMAC
   handshake ([how](docs/architecture.md)).
-- `pullbay-host`, the program the browser starts, and the messages it relays.
+- `udm-host`, the program the browser starts, and the messages it relays.
 - The browser extension, and what a web page can make it do.
-- Saved logins, cookies and requests, which Pullbay keeps sealed for your user.
+- Saved logins, cookies and requests, which UDM keeps sealed for your user.
 - Where a download is saved, and file names a server or a page can choose.
 - The update check and the installers.
 
-Bugs that need someone already able to run programs as your user, or to change Pullbay's own
+Bugs that need someone already able to run programs as your user, or to change UDM's own
 files, are ordinary bugs. Open an [issue](https://github.com/tajbinkhan/pullbay/issues) for those.

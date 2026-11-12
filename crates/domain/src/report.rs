@@ -1,7 +1,7 @@
-//! Problem reports: what Pullbay writes down when one of its programs
+//! Problem reports: what UDM writes down when one of its programs
 //! panics, when the window's frame stops, or when the daemon stops
 //! answering, and the GitHub issue a report, or Help > Report a problem,
-//! starts. These are the rules only: `pullbay_infrastructure::crash` finds
+//! starts. These are the rules only: `udm_infrastructure::crash` finds
 //! out the system and the install, reads the logs, scrubs them and writes
 //! the files, and the window offers what it finds.
 //!
@@ -35,16 +35,16 @@ pub const ISSUE_TEXT_CHARS: usize = 400;
 /// How many lines of a program's log a report ends with.
 pub const LOG_LINES: usize = 200;
 
-/// The Pullbay program a report is about.
+/// The UDM program a report is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Program {
     Window,
     Daemon,
     /// The native-messaging host the browser starts.
     Host,
-    /// `pullbay-cli`.
+    /// `udm-cli`.
     Cli,
-    /// `pullbay-mcp`, the AI assistants' server.
+    /// `udm-mcp`, the AI assistants' server.
     Mcp,
 }
 
@@ -71,7 +71,7 @@ impl Program {
         match self {
             Program::Window => "The window",
             Program::Daemon => "The downloads stopped (the background service)",
-            Program::Host => "The browser lost its connection to Pullbay",
+            Program::Host => "The browser lost its connection to UDM",
             Program::Cli | Program::Mcp => "Not sure",
         }
     }
@@ -186,10 +186,10 @@ fn session_name(session: &str) -> String {
     }
 }
 
-/// How this copy of Pullbay was installed, as the issue forms ask.
+/// How this copy of UDM was installed, as the issue forms ask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Install {
-    /// `Pullbay-Setup.exe`.
+    /// `UDM-Setup.exe`.
     Setup,
     /// The Windows portable zip.
     PortableZip,
@@ -207,11 +207,11 @@ pub enum Install {
 }
 
 impl Install {
-    /// The issue forms' answer to "How you installed Pullbay", when one
+    /// The issue forms' answer to "How you installed UDM", when one
     /// fits.
     pub fn form_choice(self) -> Option<&'static str> {
         Some(match self {
-            Install::Setup => "Setup (Pullbay-Setup .exe)",
+            Install::Setup => "Setup (UDM-Setup .exe)",
             Install::PortableZip => "Windows portable zip",
             Install::Dmg => "macOS .dmg",
             Install::Deb => ".deb package",
@@ -271,17 +271,17 @@ pub struct InstallFacts {
     pub setup_uninstaller: bool,
     /// macOS: the programs are inside an `.app`.
     pub in_app_bundle: bool,
-    /// Linux: the programs are in `/usr/lib/pullbay`, as the packages put
+    /// Linux: the programs are in `/usr/lib/udm`, as the packages put
     /// them.
     pub in_system_lib: bool,
-    /// Linux: dpkg lists Pullbay's package.
+    /// Linux: dpkg lists UDM's package.
     pub dpkg_owns: bool,
-    /// Linux: the programs are in `~/.local/lib/pullbay`, as `install.sh`
+    /// Linux: the programs are in `~/.local/lib/udm`, as `install.sh`
     /// puts them.
     pub in_user_lib: bool,
 }
 
-/// This copy of Pullbay: its version, the system and the install.
+/// This copy of UDM: its version, the system and the install.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ThisCopy {
     pub version: String,
@@ -311,11 +311,11 @@ pub struct Report {
 }
 
 /// The first line of every report file.
-const FIRST_LINE: &str = "Pullbay problem report";
+const FIRST_LINE: &str = "UDM problem report";
 const WHAT_HEADING: &str = "What happened:";
 
 impl Report {
-    /// The report's file name: `pullbay-<program>-<kind>-<ms>.txt`.
+    /// The report's file name: `udm-<program>-<kind>-<ms>.txt`.
     pub fn file_name(&self) -> String {
         file_name(self.program, self.kind, self.at_ms)
     }
@@ -351,15 +351,15 @@ impl Report {
     }
 }
 
-/// `pullbay-<program>-<kind>-<ms>.txt`.
+/// `udm-<program>-<kind>-<ms>.txt`.
 pub fn file_name(program: Program, kind: Kind, at_ms: u64) -> String {
-    format!("pullbay-{}-{}-{at_ms}.txt", program.name(), kind.name())
+    format!("udm-{}-{}-{at_ms}.txt", program.name(), kind.name())
 }
 
 /// The program, kind and time a report's file name gives, or `None` for a
 /// file that is not a report.
 pub fn parse_file_name(name: &str) -> Option<(Program, Kind, u64)> {
-    let rest = name.strip_prefix("pullbay-")?.strip_suffix(".txt")?;
+    let rest = name.strip_prefix("udm-")?.strip_suffix(".txt")?;
     let mut parts = rest.splitn(3, '-');
     let program = Program::parse(parts.next()?)?;
     let kind = Kind::parse(parts.next()?)?;
@@ -461,12 +461,12 @@ pub fn issue_url(copy: &ThisCopy, report: Option<&SavedReport>) -> String {
             fields.push(("program", program.form_choice().to_string()));
             fields.push((
                 "what-happened",
-                format!("<!-- What were you doing just before? -->\n\nPullbay's report says: {what}"),
+                format!("<!-- What were you doing just before? -->\n\nUDM's report says: {what}"),
             ));
             fields.push((
                 "logs",
                 format!(
-                    "Pullbay saved a report, {}, written {}. Please attach it below, after looking it over.",
+                    "UDM saved a report, {}, written {}. Please attach it below, after looking it over.",
                     r.file_name(),
                     utc(s.at_ms)
                 ),
@@ -494,7 +494,7 @@ const WORD_SECRETS: [&str; 7] = ["password", "passwd", "token", "secret", "api_k
 /// `?token=...&`, `Bearer abc`. A name joined to another word by `_` or `-`
 /// (`login_cookies`, `access_token`) counts too; one inside a word
 /// (`passwords`, `tokenize`) does not. Addresses' passwords are
-/// `pullbay_infrastructure::logging::redact`'s, which reports go through
+/// `udm_infrastructure::logging::redact`'s, which reports go through
 /// as well.
 pub fn scrub(text: &str) -> Cow<'_, str> {
     // ASCII lowercasing keeps every byte where it was.
@@ -709,8 +709,8 @@ mod tests {
             thread: Some("main".into()),
             what: "index out of bounds: the len is 3 but the index is 7\nmore".into(),
             location: Some("crates/ui/src/lib.rs:12:5".into()),
-            backtrace: Some("   0: pullbay_ui::run\n".into()),
-            log_name: "pullbay-gui.log".into(),
+            backtrace: Some("   0: udm_ui::run\n".into()),
+            log_name: "udm-gui.log".into(),
             log_tail: vec!["line one".into(), "line two".into()],
         }
     }
@@ -719,13 +719,13 @@ mod tests {
     fn a_report_reads_back_as_its_summary() {
         let r = report();
         let name = r.file_name();
-        assert_eq!(name, "pullbay-window-crash-1762778096123.txt");
+        assert_eq!(name, "udm-window-crash-1762778096123.txt");
         let text = r.to_text();
-        assert!(text.starts_with("Pullbay problem report\nProgram: window\nKind: crash\nVersion: 0.4.0\n"), "{text}");
+        assert!(text.starts_with("UDM problem report\nProgram: window\nKind: crash\nVersion: 0.4.0\n"), "{text}");
         assert!(text.contains("System: Ubuntu 24.04.1 LTS, GNOME, Wayland, x86_64\n"), "{text}");
         assert!(text.contains("Install: .deb package\nTime: 2025-11-10 12:34:56 UTC\nThread: main\n"), "{text}");
-        assert!(text.contains("\nBacktrace:\n   0: pullbay_ui::run\n"), "{text}");
-        assert!(text.ends_with("The end of pullbay-gui.log:\nline one\nline two\n"), "{text}");
+        assert!(text.contains("\nBacktrace:\n   0: udm_ui::run\n"), "{text}");
+        assert!(text.ends_with("The end of udm-gui.log:\nline one\nline two\n"), "{text}");
         let summary = Summary::read(&name, &text).unwrap();
         assert_eq!(
             summary,
@@ -748,7 +748,7 @@ mod tests {
                 assert_eq!(parse_file_name(&file_name(program, kind, 42)), Some((program, kind, 42)));
             }
         }
-        for name in ["pullbay-window-crash-.txt", "pullbay-window-crash-1a.txt", "pullbay-gui-crash-1.txt", "x.txt"] {
+        for name in ["udm-window-crash-.txt", "udm-window-crash-1a.txt", "udm-gui-crash-1.txt", "x.txt"] {
             assert_eq!(parse_file_name(name), None, "{name}");
         }
     }
@@ -815,7 +815,7 @@ mod tests {
     fn a_reports_issue_is_short_and_asks_for_the_file() {
         let long = "x".repeat(20_000);
         let saved = SavedReport {
-            path: PathBuf::from("/data/reports/pullbay-daemon-crash-1.txt"),
+            path: PathBuf::from("/data/reports/udm-daemon-crash-1.txt"),
             summary: Summary {
                 program: Program::Daemon,
                 kind: Kind::Crash,
@@ -831,7 +831,7 @@ mod tests {
         let get = |k: &str| q.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()).unwrap_or_default();
         assert_eq!(get("version"), "0.3.9", "the version that crashed");
         assert_eq!(get("program"), "The downloads stopped (the background service)");
-        assert!(get("logs").contains("pullbay-daemon-crash-1.txt"), "{}", get("logs"));
+        assert!(get("logs").contains("udm-daemon-crash-1.txt"), "{}", get("logs"));
         assert!(get("title").starts_with("The daemon crashed: xxx"));
         let silent = SavedReport {
             summary: Summary { program: Program::Window, kind: Kind::Silent, ..saved.summary.clone() },

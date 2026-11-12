@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
-use pullbay_domain::bytes::ByteCount;
+use udm_domain::bytes::ByteCount;
 
 use super::EngineError;
 use crate::net::{self, NetConfig};
@@ -36,7 +36,7 @@ fn runtime() -> Result<&'static tokio::runtime::Runtime, EngineError> {
     }
     let built = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
-        .thread_name("pullbay-http")
+        .thread_name("udm-http")
         .enable_all()
         .build()
         .map_err(|e| EngineError::Io(format!("the HTTP runtime did not start: {e}")))?;
@@ -80,8 +80,8 @@ pub struct Probe {
 impl Probe {
     /// What identifies this version of the file, for telling later whether
     /// the server's copy changed.
-    pub fn validator(&self) -> pullbay_domain::download::Validator {
-        pullbay_domain::download::Validator {
+    pub fn validator(&self) -> udm_domain::download::Validator {
+        udm_domain::download::Validator {
             size: self.total.map(ByteCount::new),
             etag: self.etag.clone(),
             last_modified: self.last_modified.clone(),
@@ -341,7 +341,7 @@ impl Client {
         match build_on(&self.http, None) {
             Err(Failed::Status(401, resp)) => {
                 let asked = resp.get_url().to_string();
-                let host = pullbay_domain::site::host_of(&asked);
+                let host = udm_domain::site::host_of(&asked);
                 let challenges = resp.all("www-authenticate");
                 let realm = net::realm(&challenges);
                 (*resp).drain();

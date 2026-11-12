@@ -1,9 +1,9 @@
 //! Image galleries: the pictures gallery-dl lists for a page (a Wikimedia
 //! Commons category, a Flickr album, a DeviantArt gallery, ...), which of
 //! them the user ticks, the one folder they are saved in, and how often a
-//! page may be read. gallery-dl only lists the pictures; Pullbay's own
+//! page may be read. gallery-dl only lists the pictures; UDM's own
 //! engine downloads them. Running gallery-dl is
-//! `pullbay_infrastructure::media::gallerydl`.
+//! `udm_infrastructure::media::gallerydl`.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -38,7 +38,7 @@ pub struct Gallery {
 /// One picture (or other file) of a gallery.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Picture {
-    /// The file's own address, which Pullbay downloads.
+    /// The file's own address, which UDM downloads.
     pub url: String,
     /// The name gallery-dl gives the file, without its extension.
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -59,9 +59,7 @@ pub enum GalleryError {
     #[error("{0} is not an http or https page.")]
     NotWebPage(String),
     /// gallery-dl is nowhere to be found.
-    #[error(
-        "Image galleries need gallery-dl. Install it in Pullbay's Options > General, or put gallery-dl next to Pullbay."
-    )]
+    #[error("Image galleries need gallery-dl. Install it in UDM's Options > General, or put gallery-dl next to UDM.")]
     Missing,
     /// gallery-dl knows no site like this page's.
     #[error("gallery-dl does not know this site.")]
@@ -79,7 +77,7 @@ pub enum GalleryError {
     #[error("This page is being read already.")]
     Busy,
     /// `MAX_READS` galleries are being read already.
-    #[error("Pullbay is reading other galleries. Try again when they are done.")]
+    #[error("UDM is reading other galleries. Try again when they are done.")]
     TooMany,
 }
 
@@ -139,7 +137,7 @@ impl Picture {
 }
 
 impl Gallery {
-    /// The pictures Pullbay can download: http and https addresses, each
+    /// The pictures UDM can download: http and https addresses, each
     /// once, at most `MAX_PICTURES`, with a name, extension and title of
     /// a sensible length.
     pub fn cleaned(self) -> Gallery {

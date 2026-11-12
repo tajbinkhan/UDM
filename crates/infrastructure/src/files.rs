@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pullbay_domain::ports::{DownloadFiles, FilesError};
+use udm_domain::ports::{DownloadFiles, FilesError};
 
 use crate::engine::{files_of, partial_files, sidecar_path};
 use crate::recycle::recycle;
@@ -98,7 +98,7 @@ pub fn move_partial(from: &Path, to: &Path) -> Result<(), FilesError> {
     Ok(())
 }
 
-impl pullbay_domain::ports::SaveFolders for DiskFiles {
+impl udm_domain::ports::SaveFolders for DiskFiles {
     fn downloads_dir(&self) -> PathBuf {
         crate::settings::default_downloads_dir()
     }
@@ -111,7 +111,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("pullbay_files_{}_{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("udm_files_{}_{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir

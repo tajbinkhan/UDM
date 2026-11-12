@@ -1,30 +1,30 @@
 {
   "extDescription": {
-    "message": "Browserdownloads naar de downloadmanager Pullbay sturen."
+    "message": "Browserdownloads naar de downloadmanager UDM sturen."
   },
-  "downloadWithPullbay": {
-    "message": "Downloaden met Pullbay"
+  "downloadWithUdm": {
+    "message": "Downloaden met UDM"
   },
-  "downloadLaterWithPullbay": {
-    "message": "Later downloaden met Pullbay"
+  "downloadLaterWithUdm": {
+    "message": "Later downloaden met UDM"
   },
-  "downloadGalleryWithPullbay": {
-    "message": "Galerij downloaden met Pullbay"
+  "downloadGalleryWithUdm": {
+    "message": "Galerij downloaden met UDM"
   },
-  "downloadAllLinksWithPullbay": {
-    "message": "Alle links downloaden met Pullbay"
+  "downloadAllLinksWithUdm": {
+    "message": "Alle links downloaden met UDM"
   },
-  "downloadSelectedLinksWithPullbay": {
-    "message": "De geselecteerde links downloaden met Pullbay"
+  "downloadSelectedLinksWithUdm": {
+    "message": "De geselecteerde links downloaden met UDM"
   },
-  "pullbayDisconnected": {
-    "message": "Pullbay is niet meer verbonden"
+  "udmDisconnected": {
+    "message": "UDM is niet meer verbonden"
   },
   "captureDownloads": {
     "message": "Downloads overnemen"
   },
   "captureDownloadsTitle": {
-    "message": "Downloads die de browser start naar Pullbay sturen"
+    "message": "Downloads die de browser start naar UDM sturen"
   },
   "captureInTab": {
     "message": "Overnemen in dit tabblad"
@@ -36,16 +36,16 @@
     "message": "Uit in dit tabblad"
   },
   "statusConnected": {
-    "message": "Verbonden. Downloads die je in de browser start, gaan naar Pullbay."
+    "message": "Verbonden. Downloads die je in de browser start, gaan naar UDM."
   },
   "statusConnectedCaptureOff": {
     "message": "Verbonden. Overname is uitgeschakeld, dus de browser houdt zijn eigen downloads."
   },
   "statusNotConnected": {
-    "message": "Niet verbonden met Pullbay. Downloads blijven in de browser."
+    "message": "Niet verbonden met UDM. Downloads blijven in de browser."
   },
   "statusNotConnectedReason": {
-    "message": "Niet verbonden met Pullbay: $REASON$. Downloads blijven in de browser.",
+    "message": "Niet verbonden met UDM: $REASON$. Downloads blijven in de browser.",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -75,7 +75,7 @@
     "message": "Alle links op deze pagina"
   },
   "allLinksTitle": {
-    "message": "De links van deze pagina in Pullbay weergeven om te kiezen welke je wilt downloaden"
+    "message": "De links van deze pagina in UDM weergeven om te kiezen welke je wilt downloaden"
   },
   "videoButton": {
     "message": "Videoknop"
@@ -117,7 +117,7 @@
     "message": "Onderbroken"
   },
   "stateConfirming": {
-    "message": "Wacht op jou in Pullbay"
+    "message": "Wacht op jou in UDM"
   },
   "stateWaiting": {
     "message": "Wacht om te starten"
@@ -190,22 +190,22 @@
     "message": "Ondertitels:"
   },
   "videoProtected": {
-    "message": "Deze video is beveiligd met DRM, dus Pullbay downloadt hem niet."
+    "message": "Deze video is beveiligd met DRM, dus UDM downloadt hem niet."
   },
   "streamProtected": {
-    "message": "Beveiligd met DRM; Pullbay downloadt dit niet."
+    "message": "Beveiligd met DRM; UDM downloadt dit niet."
   },
-  "pullbayNotConnected": {
-    "message": "Pullbay is niet actief of niet verbonden."
+  "udmNotConnected": {
+    "message": "UDM is niet actief of niet verbonden."
   },
   "noVideoFound": {
     "message": "Nog geen video gevonden. Laat hem even afspelen en probeer het dan opnieuw."
   },
-  "sentToPullbay": {
-    "message": "Naar Pullbay verzonden."
+  "sentToUdm": {
+    "message": "Naar UDM verzonden."
   },
-  "couldNotReachPullbay": {
-    "message": "Kan Pullbay niet bereiken."
+  "couldNotReachUdm": {
+    "message": "Kan UDM niet bereiken."
   },
   "hlsStream": {
     "message": "HLS-stream"
@@ -229,7 +229,7 @@
     "message": "Vimeo-video"
   },
   "mediaNoAnswer": {
-    "message": "Pullbay heeft niet geantwoord."
+    "message": "UDM heeft niet geantwoord."
   },
   "soundOnly": {
     "message": "Alleen geluid ($FORMAT$)",
@@ -256,16 +256,16 @@
     "message": "Audio"
   },
   "takeoverFailed": {
-    "message": "Pullbay kan de download niet overnemen"
+    "message": "UDM kan de download niet overnemen"
   },
   "takeoverNotConnected": {
-    "message": "Pullbay is niet actief of niet verbonden, dus de browser downloadt $FILE$.",
+    "message": "UDM is niet actief of niet verbonden, dus de browser downloadt $FILE$.",
     "placeholders": {
       "file": { "content": "$1" }
     }
   },
   "takeoverError": {
-    "message": "Pullbay kan $FILE$ niet starten ($REASON$), dus de browser downloadt het.",
+    "message": "UDM kan $FILE$ niet starten ($REASON$), dus de browser downloadt het.",
     "placeholders": {
       "file": { "content": "$1" },
       "reason": { "content": "$2" }
@@ -278,13 +278,13 @@
     "message": "Klik op deze melding om deze niet meer weer te geven."
   },
   "downloadLastVideo": {
-    "message": "De laatste video downloaden met Pullbay"
+    "message": "De laatste video downloaden met UDM"
   },
   "recentVideos": {
-    "message": "Recente video's (Pullbay)"
+    "message": "Recente video's (UDM)"
   },
-  "downloadPageWithPullbay": {
-    "message": "Pagina downloaden met Pullbay"
+  "downloadPageWithUdm": {
+    "message": "Pagina downloaden met UDM"
   },
   "noLinksFound": {
     "message": "Geen links gevonden op deze pagina."
@@ -293,13 +293,13 @@
     "message": "Geen links gevonden in de selectie."
   },
   "linksUnreadable": {
-    "message": "De browser staat Pullbay niet toe de links van deze pagina te lezen."
+    "message": "De browser staat UDM niet toe de links van deze pagina te lezen."
   },
-  "cannotReachPullbay": {
-    "message": "Kan Pullbay niet bereiken. Is Pullbay actief?"
+  "cannotReachUdm": {
+    "message": "Kan UDM niet bereiken. Is UDM actief?"
   },
-  "cannotReachPullbayReason": {
-    "message": "Kan Pullbay niet bereiken ($REASON$).",
+  "cannotReachUdmReason": {
+    "message": "Kan UDM niet bereiken ($REASON$).",
     "placeholders": {
       "reason": { "content": "$1" }
     }
@@ -310,8 +310,8 @@
   "browserDownloadsHeading": {
     "message": "Downloaden in de browser"
   },
-  "sendToPullbay": {
-    "message": "Naar Pullbay sturen"
+  "sendToUdm": {
+    "message": "Naar UDM sturen"
   },
   "pageVideo": {
     "message": "Video op deze pagina"
@@ -336,6 +336,6 @@
     }
   },
   "chooseVideos": {
-    "message": "Video's kiezen in Pullbay..."
+    "message": "Video's kiezen in UDM..."
   }
 }

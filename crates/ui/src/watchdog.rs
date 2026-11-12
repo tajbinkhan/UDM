@@ -12,8 +12,8 @@
 //!
 //! An idle window draws no frames and is never taken for a frozen one: only
 //! a frame that began and did not end counts. Whether something stalled is
-//! `pullbay_domain::report::Watch`'s rule; writing the report is
-//! `pullbay_application::report::SaveReport`'s.
+//! `udm_domain::report::Watch`'s rule; writing the report is
+//! `udm_application::report::SaveReport`'s.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -21,9 +21,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use pullbay_application::daemon::{Command, DaemonClient};
-use pullbay_application::report::SaveReport;
-use pullbay_domain::report::{Kind, Program, Stall, Watch};
+use udm_application::daemon::{Command, DaemonClient};
+use udm_application::report::SaveReport;
+use udm_domain::report::{Kind, Program, Stall, Watch};
 
 use crate::state::UiMessage;
 

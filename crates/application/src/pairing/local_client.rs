@@ -1,14 +1,14 @@
 use std::sync::{Arc, Mutex};
 
-use pullbay_domain::download::CommandLine;
-use pullbay_domain::sync::LockExt;
+use udm_domain::download::CommandLine;
+use udm_domain::sync::LockExt;
 
 use crate::daemon::{ClientId, Command, DaemonClient, DaemonError, Event, Failure, Reply, Requests};
 
 /// A connection to the daemon from inside it: each command goes straight
 /// to the service's `Requests` port, as a client's frames do, and its
 /// answers come back as events. The remote-control page runs the `remote`
-/// use cases on one, so it asks the daemon what `pullbay-cli` would,
+/// use cases on one, so it asks the daemon what `udm-cli` would,
 /// without a socket or the daemon's token.
 pub struct LocalClient {
     requests: Arc<dyn Requests>,

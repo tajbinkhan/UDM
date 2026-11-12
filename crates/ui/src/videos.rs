@@ -5,11 +5,11 @@
 //! (`answers`) like the link picker's.
 
 use eframe::egui;
-use pullbay_domain::id::QueueId;
-use pullbay_domain::media::{Playlist, PlaylistQuality, Target};
-use pullbay_domain::package::Packaging;
-use pullbay_domain::queue::{Queue, MAIN_QUEUE};
-use pullbay_domain::settings::Settings;
+use udm_domain::id::QueueId;
+use udm_domain::media::{Playlist, PlaylistQuality, Target};
+use udm_domain::package::Packaging;
+use udm_domain::queue::{Queue, MAIN_QUEUE};
+use udm_domain::settings::Settings;
 
 use super::Action;
 use crate::i18n::{tr, trf};
@@ -199,7 +199,7 @@ pub fn dialog(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pullbay_domain::media::PlaylistEntry;
+    use udm_domain::media::PlaylistEntry;
 
     fn dialog_of(titles: &[&str]) -> VideosDialog {
         let entries = titles

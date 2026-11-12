@@ -1,5 +1,5 @@
-use pullbay_domain::download::{Answer, Status};
-use pullbay_domain::id::DownloadId;
+use udm_domain::download::{Answer, Status};
+use udm_domain::id::DownloadId;
 
 use super::{RemoteError, Session};
 use crate::daemon::{Command, DaemonClient, Event};
@@ -18,7 +18,7 @@ pub enum Resumed {
 }
 
 /// Start a stopped download again, or everything a pause stopped:
-/// `pullbay-cli resume`.
+/// `udm-cli resume`.
 pub struct ResumeDownload<'a, 's, C: DaemonClient + ?Sized> {
     session: &'a Session<'s, C>,
 }
@@ -62,8 +62,8 @@ mod tests {
     use super::*;
     use crate::daemon::Failure;
     use crate::memory::{row, FakeDaemon};
-    use pullbay_domain::queue::Queue;
     use std::time::Duration;
+    use udm_domain::queue::Queue;
 
     fn daemon() -> FakeDaemon {
         let rows =

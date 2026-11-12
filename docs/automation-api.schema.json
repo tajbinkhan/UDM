@@ -1,9 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tajbinkhan/pullbay/blob/main/docs/automation-api.schema.json",
-  "title": "Pullbay automation API",
-  "description": "The messages other programs may exchange with Pullbay's daemon, version 1. Each message is one JSON object, framed by a 4-byte little-endian length, sent after the handshake that docs/architecture.md describes. A request is what a program sends; an event is what the daemon sends back or announces. Programs must ignore fields and messages they do not know: later versions add them without changing this version number. See docs/command-line.md.",
-  "x-pullbay-api": 1,
+  "title": "UDM automation API",
+  "description": "The messages other programs may exchange with UDM's daemon, version 1. Each message is one JSON object, framed by a 4-byte little-endian length, sent after the handshake that docs/architecture.md describes. A request is what a program sends; an event is what the daemon sends back or announces. Programs must ignore fields and messages they do not know: later versions add them without changing this version number. See docs/command-line.md.",
+  "x-udm-api": 1,
   "oneOf": [{ "$ref": "#/$defs/request" }, { "$ref": "#/$defs/event" }],
   "$defs": {
     "download_id": {
@@ -22,7 +22,7 @@
       "type": "object"
     },
     "status": {
-      "description": "Where a download is: queued and downloading run; done, failed, canceled (stopped, partial file kept) and interrupted (running when Pullbay stopped) have ended; confirming waits for the window's save-as dialog; waiting waits in a queue.",
+      "description": "Where a download is: queued and downloading run; done, failed, canceled (stopped, partial file kept) and interrupted (running when UDM stopped) have ended; confirming waits for the window's save-as dialog; waiting waits in a queue.",
       "enum": ["queued", "downloading", "done", "failed", "canceled", "interrupted", "confirming", "waiting"]
     },
     "entry": {
@@ -61,7 +61,7 @@
       }
     },
     "listing": {
-      "description": "What pullbay-cli list --json prints.",
+      "description": "What udm-cli list --json prints.",
       "type": "object",
       "required": ["downloads", "queues"],
       "properties": {
@@ -237,11 +237,11 @@
       "required": ["op", "name", "version"],
       "properties": {
         "op": { "const": "hello" },
-        "name": { "const": "pullbay-daemon" },
-        "version": { "description": "Pullbay's version.", "type": "string" },
+        "name": { "const": "udm-daemon" },
+        "version": { "description": "UDM's version.", "type": "string" },
         "api": { "type": "integer", "minimum": 1 }
       },
-      "examples": [{ "op": "hello", "name": "pullbay-daemon", "version": "0.5.0", "api": 1 }]
+      "examples": [{ "op": "hello", "name": "udm-daemon", "version": "0.5.0", "api": 1 }]
     },
     "pong": {
       "type": "object",
