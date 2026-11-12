@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "exception",
+  "description": "The offer to keep a download in the browser.",
+  "windows": ["exception"],
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-answer-exception"]
+}

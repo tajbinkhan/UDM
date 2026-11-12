@@ -32,6 +32,9 @@ import type {
   OpenWindow,
   PickInput,
   ToolKey,
+  ReportAction,
+  ConvertTarget,
+  ExceptionChoice,
   Update,
 } from './types';
 import { receive } from '../stores/projection.svelte';
@@ -186,3 +189,10 @@ export const restartBrowser = (index: number) => commands.restartBrowser(index);
 export const openThemesFolder = () => commands.openThemesFolder();
 export const playSound = (index: number, file: string) => commands.playSound(index, file);
 export const systemProxy = () => commands.systemProxy();
+export const heartbeat = (visible: boolean) => commands.heartbeat(visible);
+export const reportAction = (action: ReportAction) => commands.reportAction(action);
+export const previewZip = (id: Id) => commands.previewZip(id);
+export const convertDownload = (id: Id, target: ConvertTarget, deleteOriginal: boolean) => commands.convertDownload(id, target, deleteOriginal);
+export const verifyChecksum = (id: Id, checksum: string) => commands.verifyChecksum(id, checksum);
+export const openWith = (id: Id) => commands.openWith(id);
+export const answerException = (choice: ExceptionChoice, dontShow: boolean) => commands.answerException(choice, dontShow);

@@ -5,6 +5,7 @@
 
 mod dialogs;
 mod extras;
+mod filework;
 mod grabber;
 mod main;
 mod options;
@@ -13,6 +14,7 @@ mod tools;
 
 pub use dialogs::*;
 pub use extras::*;
+pub use filework::*;
 pub use grabber::*;
 pub use main::*;
 pub use options::*;
@@ -110,6 +112,8 @@ pub enum View {
     PickLinks(PickLinksView),
     PickVideos(PickVideosView),
     Gallery(GalleryView),
+    ZipPreview(ZipView),
+    Exception(ExceptionView),
 }
 
 /// A change to a view. The main window's list changes row by row; the

@@ -7,6 +7,8 @@
 const COMMANDS: &[&str] = &[
     "subscribe",
     "report_frontend_error",
+    "heartbeat",
+    "report_action",
     "close_window",
     "open_window",
     "quit_app",
@@ -89,6 +91,11 @@ const COMMANDS: &[&str] = &[
     "check_update",
     "install_update",
     "dismiss_release",
+    "preview_zip",
+    "convert_download",
+    "verify_checksum",
+    "open_with",
+    "answer_exception",
     "show_download",
 ];
 

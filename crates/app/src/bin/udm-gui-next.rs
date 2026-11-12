@@ -19,6 +19,11 @@ fn main() -> anyhow::Result<()> {
     infra::crash::install(infra::logging::Program::Gui);
     moved.log();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let (command_line, startup_error) = match infra::cli::parse(&args, &cwd) {
+        Ok(command_line) => (command_line, None),
+        Err(e) => (None, Some(e.to_string())),
+    };
     udm_ui_tauri::run(udm_ui_tauri::Start {
         daemon: Arc::new(infra::daemon_client::IpcDaemonClient::new(udm_ui::WINDOW_CLIENT)),
         clock: Arc::new(infra::clock::LocalClock),
@@ -33,7 +38,13 @@ fn main() -> anyhow::Result<()> {
         window_files: Arc::new(infra::window_files::WindowDir::new()),
         browsers: Arc::new(infra::browsers::Registry),
         themes: Arc::new(infra::themes::ThemeDir::new()),
+        reports: Arc::new(infra::crash::ReportFiles::new()),
+        clipboard: Arc::new(infra::clipboard::SystemClipboard),
+        hashes: Arc::new(infra::hash::DiskHashes),
         minimized: args.iter().any(|a| a == "--minimized" || a == infra::cli::IN_TRAY),
+        in_tray: args.iter().any(|a| a == infra::cli::IN_TRAY),
+        command_line,
+        startup_error,
     })
     .context("the window did not start")
 }

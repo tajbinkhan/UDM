@@ -32,6 +32,8 @@ const labels: Record<Kind, string> = {
   'pick-links': 'pick-links',
   'pick-videos': 'pick-videos',
   gallery: 'gallery',
+  'zip-preview': 'zip-preview',
+  exception: 'exception',
 };
 
 mockWindows(labels[kind]);
@@ -66,5 +68,7 @@ const entries: Record<Kind, () => Promise<unknown>> = {
   'pick-links': () => import('../src/windows/pick-links/entry'),
   'pick-videos': () => import('../src/windows/pick-videos/entry'),
   gallery: () => import('../src/windows/gallery/entry'),
+  'zip-preview': () => import('../src/windows/zip-preview/entry'),
+  exception: () => import('../src/windows/exception/entry'),
 };
 void entries[kind]();

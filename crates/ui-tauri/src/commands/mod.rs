@@ -18,6 +18,7 @@ mod options;
 mod scheduler;
 mod tools;
 
+pub use common::Heart;
 pub use options::Pickers;
 pub use tools::Lists;
 
@@ -38,6 +39,8 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         common::subscribe,
         common::report_frontend_error,
+        common::heartbeat,
+        common::report_action,
         common::close_window,
         common::open_window,
         common::quit_app,
@@ -121,6 +124,11 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         extras::check_update,
         extras::install_update,
         extras::dismiss_release,
+        extras::preview_zip,
+        extras::convert_download,
+        extras::verify_checksum,
+        extras::open_with,
+        extras::answer_exception,
     ])
 }
 

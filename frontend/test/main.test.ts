@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import Main from '../src/windows/main/Main.svelte';
 import { fixtures, sent, shell } from './helpers';
+import { receive } from '../src/stores/projection.svelte';
+import type { Update } from '../src/ipc/types';
 
 describe('the main window', () => {
   it('draws the rows, the tree and the toolbar the snapshot holds', () => {
@@ -44,5 +46,40 @@ describe('the main window', () => {
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Help' }));
     await fireEvent.click(screen.getByRole('menuitem', { name: 'About UDM' }));
     expect(sent(calls, 'open_window').at(-1)?.args).toEqual({ window: 'about' });
+  });
+});
+
+describe('the main window beyond IDM', () => {
+  function withChrome(change: (chrome: Record<string, unknown>) => void) {
+    const view = structuredClone(fixtures.views.main) as { view: { chrome: Record<string, unknown> } };
+    change(view.view.chrome);
+    receive({ kind: 'snapshot', seq: 0, look: fixtures.look.dark, view } as Update);
+  }
+
+  it('offers a problem report and acts on its buttons', async () => {
+    const calls = shell('main', 'main');
+    withChrome((c) => {
+      c.report = { text: 'The UDM daemon has not answered for 30 seconds.', tone: 'warn', more: '', save: true, restart: true, issue: false, busy: false };
+    });
+    render(Main);
+    await fireEvent.click(screen.getByRole('button', { name: 'Save a report' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Restart daemon' }));
+    expect(sent(calls, 'report_action').map((c) => c.args)).toEqual([{ action: 'save' }, { action: 'restartDaemon' }]);
+  });
+
+  it('checks a finished file against a checksum', async () => {
+    const calls = shell('main', 'main');
+    const done = fixtures.views.main.view.rows.find((r) => r.finished)!.id;
+    withChrome((c) => {
+      c.selected = [done];
+      (c.can as Record<string, boolean>).verify = true;
+      c.checksum = 'sha256:abc';
+    });
+    render(Main);
+    await fireEvent.contextMenu(screen.getByRole('grid'), { clientX: 200, clientY: 120 });
+    await fireEvent.click(screen.getByRole('menuitem', { name: /Verify checksum/ }));
+    expect((screen.getByLabelText(/Paste the MD5/) as HTMLInputElement).value).toBe('sha256:abc');
+    await fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    expect(sent(calls, 'verify_checksum').at(-1)?.args).toEqual({ id: done, checksum: 'sha256:abc' });
   });
 });

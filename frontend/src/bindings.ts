@@ -15,6 +15,14 @@ export const commands = {
 	subscribe: (channel: Channel<Update_Deserialize>, languages: string[]) => __TAURI_INVOKE<null>("subscribe", { channel, languages }),
 	/**  An unexpected error in a window, for udm-gui.log (AGENTS.md section 11). */
 	reportFrontendError: (message: string) => __TAURI_INVOKE<null>("report_frontend_error", { message }),
+	/**
+	 *  The calling window answers, and is `visible` or not (AGENTS.md section
+	 *  7.3). It reaches the watchdog directly, not through the state thread,
+	 *  so a stuck state thread does not make every window look stuck.
+	 */
+	heartbeat: (visible: boolean) => __TAURI_INVOKE<null>("heartbeat", { visible }),
+	/**  A button of the report strip, or Help's Report a problem. */
+	reportAction: (action: ReportAction) => __TAURI_INVOKE<null>("report_action", { action }),
 	/**  Close the calling window, as its title bar's close button does. */
 	closeWindow: () => __TAURI_INVOKE<null>("close_window"),
 	/**  Open one of the windows the main window's buttons and menus open. */
@@ -195,6 +203,19 @@ export const commands = {
 	installUpdate: () => __TAURI_INVOKE<null>("install_update"),
 	/**  Close the strip offering a newer release, until a newer one comes. */
 	dismissRelease: () => __TAURI_INVOKE<null>("dismiss_release"),
+	/**  Download File Info's Preview: list the files inside a waiting zip. */
+	previewZip: (id: Id) => __TAURI_INVOKE<null>("preview_zip", { id }),
+	/**  Convert a finished video, and maybe send the original to the Recycle Bin. */
+	convertDownload: (id: Id, target: ConvertTarget, deleteOriginal: boolean) => __TAURI_INVOKE<null>("convert_download", { id, target, deleteOriginal }),
+	/**
+	 *  Verify checksum: compare a finished download's file with `checksum`.
+	 *  Reading a large file takes a while, so this waits up to an hour.
+	 */
+	verifyChecksum: (id: Id, checksum: string) => __TAURI_INVOKE<VerifyResult>("verify_checksum", { id, checksum }),
+	/**  Show the system's Open with picker for a finished download's file. */
+	openWith: (id: Id) => __TAURI_INVOKE<null>("open_with", { id }),
+	/**  The answer to the offer to keep a download in the browser. */
+	answerException: (choice: ExceptionChoice, dontShow: boolean) => __TAURI_INVOKE<null>("answer_exception", { choice, dontShow }),
 };
 
 /* Types */
@@ -211,8 +232,20 @@ export type AboutView = {
 };
 
 /**  Add URL ("Enter new address to download"). */
-export type AddUrlView = {
+export type AddUrlView = AddUrlView_Serialize | AddUrlView_Deserialize;
+
+/**  Add URL ("Enter new address to download"). */
+export type AddUrlView_Deserialize = {
 	connected: boolean,
+	/**  A link the clipboard monitor caught, to fill in. */
+	address?: string | null,
+};
+
+/**  Add URL ("Enter new address to download"). */
+export type AddUrlView_Serialize = {
+	connected: boolean,
+	/**  A link the clipboard monitor caught, to fill in. */
+	address: string | null,
 };
 
 /**  The Download File Info dialog's answer. */
@@ -296,6 +329,12 @@ export type Can = {
 	progress: boolean,
 	/**  One stopped download is selected, whose link can be replaced. */
 	refresh: boolean,
+	/**  One finished video is selected, to convert. */
+	convert: boolean,
+	/**  One finished download with its file is selected, to check. */
+	verify: boolean,
+	/**  ... and the system has an Open with picker for it. */
+	openWith: boolean,
 	connected: boolean,
 };
 
@@ -369,6 +408,9 @@ export type ColumnHead_Serialize = {
 
 /**  The list's columns, in the order the window saves them. */
 export type ColumnKey = "name" | "queue" | "size" | "progress" | "speed" | "timeLeft" | "status" | "lastTry" | "saveTo" | "page" | "referrer" | "description";
+
+/**  What Convert makes from a finished video. */
+export type ConvertTarget = "mp4" | "mp3" | "m4a" | "opus" | "flac";
 
 /**
  *  The countdown before UDM exits, or the computer sleeps, hibernates or
@@ -458,6 +500,20 @@ export type ErrorKind =
 "offline" | 
 /**  The window or its download is gone. */
 "gone";
+
+export type ExceptionChoice = 
+/**  Don't capture the site. */
+"site" | 
+/**  Don't capture this address. */
+"address" | "keep";
+
+/**  After a captured download's save-as dialog is canceled twice. */
+export type ExceptionView = {
+	url: string,
+	/**  The site, for "Don't capture" it; empty when the address has none. */
+	host: string,
+	connected: boolean,
+};
 
 export type ExportFormat = 
 /**  IDM's export file. */
@@ -963,6 +1019,18 @@ export type MainChrome_Deserialize = {
 	newerInstallable: boolean,
 	/**  What each package's menu offers, by the package's tree node. */
 	packages: PackageMenu[],
+	/**  The strip offering a problem report. */
+	report?: ReportStrip | null,
+	/**
+	 *  The connection was lost: the banner offers Reconnect and Restart
+	 *  daemon.
+	 */
+	reconnect: boolean,
+	/**
+	 *  The checksum the one selected download was added with, for Verify
+	 *  checksum to start from.
+	 */
+	checksum: string,
 };
 
 /**  The main window apart from its rows. */
@@ -1010,6 +1078,18 @@ export type MainChrome_Serialize = {
 	newerInstallable: boolean,
 	/**  What each package's menu offers, by the package's tree node. */
 	packages: PackageMenu[],
+	/**  The strip offering a problem report. */
+	report: ReportStrip | null,
+	/**
+	 *  The connection was lost: the banner offers Reconnect and Restart
+	 *  daemon.
+	 */
+	reconnect: boolean,
+	/**
+	 *  The checksum the one selected download was added with, for Verify
+	 *  checksum to start from.
+	 */
+	checksum: string,
 };
 
 /**
@@ -1587,6 +1667,29 @@ export type RemoveView = {
 	hasFiles: boolean,
 };
 
+/**  What the report strip's buttons do. */
+export type ReportAction = "save" | "dismiss" | "openIssue" | "show" | "restartDaemon" | 
+/**  Help's Report a problem: a new issue without a report. */
+"newIssue" | 
+/**  The lost connection's banner: connect again. */
+"reconnect";
+
+/**  The strip offering a problem report, and what its buttons can do. */
+export type ReportStrip = {
+	text: string,
+	tone: StripTone,
+	/**  How many more reports wait in the folder. */
+	more: string,
+	/**  Save a report. */
+	save: boolean,
+	/**  Restart the daemon. */
+	restart: boolean,
+	/**  Open an issue, and show the report. */
+	issue: boolean,
+	/**  The report is being written. */
+	busy: boolean,
+};
+
 /**  One download in the list, each column's text already formatted. */
 export type Row = Row_Serialize | Row_Deserialize;
 
@@ -1650,6 +1753,8 @@ export type SaveAsView = SaveAsView_Serialize | SaveAsView_Deserialize;
 /**  Download File Info: where a probed download goes before it starts. */
 export type SaveAsView_Deserialize = {
 	id: Id,
+	/**  A zip on a server that sends ranges can list its files first. */
+	canPreview: boolean,
 	url: string,
 	categories: string[],
 	category: string,
@@ -1671,6 +1776,8 @@ export type SaveAsView_Deserialize = {
 /**  Download File Info: where a probed download goes before it starts. */
 export type SaveAsView_Serialize = {
 	id: Id,
+	/**  A zip on a server that sends ranges can list its files first. */
+	canPreview: boolean,
 	url: string,
 	categories: string[],
 	category: string,
@@ -1735,6 +1842,9 @@ export type SoundDraft = {
 };
 
 export type StartTabChoice = "status" | "speedLimit" | "whenDone";
+
+/**  How a strip in the main window reads. */
+export type StripTone = "info" | "warn";
 
 /**  What Get System found: the four proxies and the addresses without one. */
 export type SystemProxyView = {
@@ -1841,6 +1951,16 @@ export type Update_Serialize = { kind: "snapshot"; seq: number; look: Look; view
  */
 { kind: "gone"; seq: number };
 
+/**  What Verify checksum found. */
+export type VerifyResult = {
+	/**  The algorithm the checksum is, such as SHA-256. */
+	algorithm: string,
+	matches: boolean,
+	/**  The checksum given and the file's, in lowercase hex. */
+	expected: string,
+	actual: string,
+};
+
 /**  One video of a playlist. */
 export type VideoRow = {
 	index: number,
@@ -1858,7 +1978,42 @@ export type VideoTypeDraft = {
 export type View = View_Serialize | View_Deserialize;
 
 /**  A window's whole view, by its kind. */
-export type View_Deserialize = { window: "main"; view: MainView_Deserialize } | { window: "addUrl"; view: AddUrlView } | { window: "saveAs"; view: SaveAsView_Deserialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Deserialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Deserialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Deserialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Deserialize };
+export type View_Deserialize = { window: "main"; view: MainView_Deserialize } | { window: "addUrl"; view: AddUrlView_Deserialize } | { window: "saveAs"; view: SaveAsView_Deserialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Deserialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Deserialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Deserialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Deserialize } | { window: "zipPreview"; view: ZipView_Deserialize } | { window: "exception"; view: ExceptionView };
 
 /**  A window's whole view, by its kind. */
-export type View_Serialize = { window: "main"; view: MainView_Serialize } | { window: "addUrl"; view: AddUrlView } | { window: "saveAs"; view: SaveAsView_Serialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Serialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Serialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Serialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Serialize };
+export type View_Serialize = { window: "main"; view: MainView_Serialize } | { window: "addUrl"; view: AddUrlView_Serialize } | { window: "saveAs"; view: SaveAsView_Serialize } | { window: "download"; view: DownloadView } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Serialize } | { window: "scheduler"; view: SchedulerView } | { window: "grabber"; view: GrabberView_Serialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Serialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Serialize } | { window: "zipPreview"; view: ZipView_Serialize } | { window: "exception"; view: ExceptionView };
+
+/**  One file inside a zip. */
+export type ZipRow = {
+	name: string,
+	size: string,
+};
+
+/**  The files inside a zip download, read from the end of the archive. */
+export type ZipView = ZipView_Serialize | ZipView_Deserialize;
+
+/**  The files inside a zip download, read from the end of the archive. */
+export type ZipView_Deserialize = {
+	/**  "Inside" and the download's name. */
+	title: string,
+	/**  How many files and their size unpacked. */
+	summary: string,
+	/**  That only the first are shown. */
+	note: string,
+	rows: ZipRow[],
+	error?: string | null,
+	reading: boolean,
+};
+
+/**  The files inside a zip download, read from the end of the archive. */
+export type ZipView_Serialize = {
+	/**  "Inside" and the download's name. */
+	title: string,
+	/**  How many files and their size unpacked. */
+	summary: string,
+	/**  That only the first are shown. */
+	note: string,
+	rows: ZipRow[],
+	error: string | null,
+	reading: boolean,
+};

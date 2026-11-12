@@ -2,7 +2,7 @@
      before it starts now or waits in a queue. Closing it cancels the
      download, as Cancel does. -->
 <script lang="ts">
-  import { answerDownload, closeWindow, messageOf } from '../../ipc';
+  import { answerDownload, closeWindow, messageOf, previewZip } from '../../ipc';
   import type { DuplicateChoice, SaveAsView } from '../../ipc/types';
   import { projection } from '../../stores/projection.svelte';
   import { t } from '../../i18n';
@@ -79,6 +79,14 @@
         <div class="side big">
           <FileGlyph kind={view.icon} size={40} />
           <span>{view.size}</span>
+          {#if view.canPreview}
+            <button
+              class="btn small"
+              type="button"
+              title={t('List the files inside, reading only the end of the archive')}
+              onclick={() => view && void previewZip(view.id)}>{t('Preview')}</button
+            >
+          {/if}
         </div>
 
         <label for="save-as">{t('Save As')}</label>

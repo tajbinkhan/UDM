@@ -777,6 +777,7 @@
     },
     "add-url": {
       "view": {
+        "address": null,
         "connected": true
       },
       "window": "addUrl"
@@ -895,6 +896,14 @@
         "connected": true
       },
       "window": "dropTarget"
+    },
+    "exception": {
+      "view": {
+        "connected": true,
+        "host": "cdn.example.com",
+        "url": "https://cdn.example.com/files/song.mp3"
+      },
+      "window": "exception"
     },
     "gallery": {
       "view": {
@@ -1424,16 +1433,19 @@
           "banner": null,
           "can": {
             "connected": true,
+            "convert": false,
             "delete": true,
             "deleteCompleted": true,
             "open": false,
+            "openWith": false,
             "progress": false,
             "redownload": true,
             "refresh": false,
             "resume": false,
             "resumeAll": false,
             "stop": false,
-            "stopAll": true
+            "stopAll": true,
+            "verify": false
           },
           "categories": [
             {
@@ -1478,6 +1490,7 @@
             }
           ],
           "categoriesPanel": true,
+          "checksum": "",
           "columns": [
             {
               "key": "name",
@@ -1635,6 +1648,8 @@
               "running": false
             }
           ],
+          "reconnect": false,
+          "report": null,
           "selected": [
             2,
             4
@@ -3625,6 +3640,7 @@
     },
     "save-as": {
       "view": {
+        "canPreview": false,
         "categories": [
           "General",
           "Compressed",
@@ -3762,6 +3778,26 @@
         }
       },
       "window": "scheduler"
+    },
+    "zip-preview": {
+      "view": {
+        "error": null,
+        "note": "",
+        "reading": false,
+        "rows": [
+          {
+            "name": "docs/readme.txt",
+            "size": "2.0 KB"
+          },
+          {
+            "name": "bin/tool.exe",
+            "size": "3.0 MB"
+          }
+        ],
+        "summary": "2 files, 3.0 MB unpacked",
+        "title": "Inside udm-windows.zip"
+      },
+      "window": "zipPreview"
     }
   }
 }

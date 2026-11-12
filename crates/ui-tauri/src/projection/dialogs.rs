@@ -23,7 +23,7 @@ fn settings(state: &AppState) -> Settings {
 }
 
 pub fn add_url(state: &AppState) -> AddUrlView {
-    AddUrlView { connected: state.connected() }
+    AddUrlView { connected: state.connected(), address: state.clipboard_offer.clone() }
 }
 
 /// `name` in `folder`, joined with the separator `folder` already uses, so
@@ -69,6 +69,7 @@ pub fn save_as(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<SaveAsView
     }
     Some(SaveAsView {
         id: Id(id.get()),
+        can_preview: e.resumable && name.to_ascii_lowercase().ends_with(".zip"),
         url: e.url.to_string(),
         categories,
         remember_folder: settings.remembers_folder(&category),

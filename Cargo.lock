@@ -7010,6 +7010,7 @@ name = "udm-infrastructure"
 version = "0.4.0"
 dependencies = [
  "aes 0.8.4",
+ "arboard",
  "base64 0.22.1",
  "bytes",
  "cbc",

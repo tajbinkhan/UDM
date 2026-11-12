@@ -3,5 +3,5 @@
   "identifier": "links",
   "description": "The links of the clipboard or an imported list, to tick and add.",
   "windows": ["links"],
-  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-add-links"]
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-add-links"]
 }

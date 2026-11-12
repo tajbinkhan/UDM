@@ -67,6 +67,8 @@ pub fn view(ctx: &Ctx, state: &AppState, label: &Label) -> Option<View> {
         Label::PickLinks => View::PickLinks(crate::extras::links_view(ctx, state)?),
         Label::PickVideos => View::PickVideos(crate::extras::videos_view(ctx, state)?),
         Label::Gallery => View::Gallery(crate::extras::gallery_view(ctx, state, &ctx.downloads)?),
+        Label::ZipPreview => View::ZipPreview(crate::filework::zip_view(ctx.lang, state)?),
+        Label::Exception => View::Exception(crate::filework::exception_view(state)?),
         Label::Batch => View::Batch(crate::contract::BatchView { connected: state.connected() }),
         Label::Links => View::Links(crate::tools::links_view(ctx, state)?),
         Label::Properties(id) => View::Properties(crate::tools::properties_view(ctx, state, *id)?),

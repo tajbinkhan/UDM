@@ -136,6 +136,14 @@ pub struct AppState {
     pub asks: crate::extras::Asks,
     /// What Options shows beyond the settings.
     pub services: crate::services::Services,
+    /// The problem reports to offer.
+    pub reports: crate::reports::Offers,
+    /// A link the clipboard monitor caught, for Add URL.
+    pub clipboard_offer: Option<String>,
+    /// The zip preview and the capture exception offer.
+    pub files: crate::filework::FileWork,
+    /// The system has an Open with picker.
+    pub can_open_with: bool,
 }
 
 impl Default for AppState {
@@ -171,6 +179,10 @@ impl Default for AppState {
             tip_seen: false,
             asks: crate::extras::Asks::default(),
             services: crate::services::Services::default(),
+            reports: crate::reports::Offers::default(),
+            clipboard_offer: None,
+            files: crate::filework::FileWork::default(),
+            can_open_with: false,
         }
     }
 }
@@ -257,6 +269,32 @@ pub enum UiMessage {
     BrowserNote(Option<crate::contract::Banner>),
     /// The theme files and the system's contrast colors.
     ThemesRead(Box<udm_application::themes::ThemesRead>),
+    /// Reports a crash or an earlier stall left, newest first.
+    ReportsFound(Vec<udm_domain::report::SavedReport>),
+    /// A window or the state thread stood still; the report written then.
+    Froze {
+        lasted_ms: u64,
+        draft: Option<udm_domain::report::SavedReport>,
+    },
+    /// The daemon has not answered a ping for these seconds.
+    DaemonSilent(u64),
+    DaemonAnswering,
+    ReportSaving,
+    ReportSaved(udm_domain::report::SavedReport),
+    /// The first report offer goes.
+    ReportDismissed,
+    /// The clipboard monitor caught a link to offer.
+    ClipboardOffer(String),
+    /// List the files inside a waiting zip download.
+    PreviewZip(DownloadId),
+    /// A captured download's save-as dialog was canceled.
+    SaveAsCanceled(DownloadId),
+    /// The offer to keep a download in the browser was answered.
+    ExceptionAnswered,
+    /// The tray's clipboard batch found no link.
+    ClipboardEmpty,
+    /// The command line given at start could not be passed on, and why.
+    StartupError(String),
 }
 
 impl AppState {
@@ -345,6 +383,9 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
                 state.done.remove(&id);
             }
             Some(crate::windows::Label::Remove) => state.to_remove.clear(),
+            Some(crate::windows::Label::AddUrl) => state.clipboard_offer = None,
+            Some(crate::windows::Label::ZipPreview) => state.files.zip = None,
+            Some(crate::windows::Label::Exception) => state.files.exception = None,
             Some(crate::windows::Label::Links) => state.links = None,
             Some(crate::windows::Label::Login) => {
                 // Closing it answers the first site's downloads with nothing.
@@ -415,6 +456,22 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
         UiMessage::BrowsersRead(read) => state.services.browsers = read.map(|r| *r),
         UiMessage::BrowserNote(note) => state.services.browser_note = note,
         UiMessage::ThemesRead(read) => state.services.themes = *read,
+        UiMessage::ReportsFound(found) => state.reports.found(found),
+        UiMessage::Froze { lasted_ms, draft } => state.reports.froze(lasted_ms, draft),
+        UiMessage::DaemonSilent(secs) => state.reports.silent(secs),
+        UiMessage::DaemonAnswering => state.reports.answering(),
+        UiMessage::ReportSaving => state.reports.saving(),
+        UiMessage::ReportSaved(report) => state.reports.saved(report),
+        UiMessage::ReportDismissed => state.reports.dismiss(),
+        UiMessage::ClipboardOffer(url) => state.clipboard_offer = Some(url),
+        UiMessage::PreviewZip(id) => state.files.zip = Some(crate::filework::ZipPreview { id, result: None }),
+        UiMessage::SaveAsCanceled(id) => crate::filework::canceled(state, id),
+        UiMessage::ExceptionAnswered => state.files.exception = None,
+        UiMessage::ClipboardEmpty => {
+            state.notice =
+                Some(Notice { text: "The clipboard holds no http, https or ftp link.".into(), error: false });
+        }
+        UiMessage::StartupError(text) => state.notice = Some(Notice { text, error: false }),
         UiMessage::Columns(columns) => {
             if !columns.is_empty() {
                 state.columns = columns;
@@ -427,6 +484,7 @@ fn apply_event(state: &mut AppState, event: Event, at: Instant, unix: u64) {
     daemon::apply(&mut state.table, &event, unix);
     crate::extras::take(state, &event, at);
     crate::services::take(state, &event);
+    crate::filework::take(state, &event);
     match event {
         Event::Connected => {
             state.link = Link::Connected;

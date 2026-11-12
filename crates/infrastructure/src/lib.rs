@@ -51,6 +51,7 @@ pub mod background;
 pub mod browser_bridge;
 pub mod browsers;
 pub mod cli;
+pub mod clipboard;
 pub mod clock;
 pub mod connect;
 pub mod conversions;

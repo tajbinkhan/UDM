@@ -12,7 +12,7 @@ use udm_domain::package::Password;
 
 use super::{label_of, lang, post};
 use crate::actor::{CurrentLanguage, Inbox, Outbox};
-use crate::contract::{Id, InvokeError, PickInput};
+use crate::contract::{ConvertTarget, ExceptionChoice, Id, InvokeError, PickInput, VerifyResult};
 use crate::errors;
 use crate::state::UiMessage;
 
@@ -182,4 +182,80 @@ pub async fn dismiss_release(
     current: State<'_, CurrentLanguage>,
 ) -> Result<(), InvokeError> {
     post(&outbox, &current, Inbox::DismissRelease)
+}
+
+/// Download File Info's Preview: list the files inside a waiting zip.
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_zip(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    id: Id,
+) -> Result<(), InvokeError> {
+    let id = DownloadId::new(id.0);
+    post(&outbox, &current, Inbox::Ui(UiMessage::PreviewZip(id)))?;
+    send(&outbox, &current, Command::PreviewZip { id })
+}
+
+/// Convert a finished video, and maybe send the original to the Recycle Bin.
+#[tauri::command]
+#[specta::specta]
+pub async fn convert_download(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    id: Id,
+    target: ConvertTarget,
+    delete_original: bool,
+) -> Result<(), InvokeError> {
+    use udm_domain::media::Target;
+    let to = match target {
+        ConvertTarget::Mp4 => Target::Mp4,
+        ConvertTarget::Mp3 => Target::Mp3,
+        ConvertTarget::M4a => Target::M4a,
+        ConvertTarget::Opus => Target::Opus,
+        ConvertTarget::Flac => Target::Flac,
+    };
+    send(&outbox, &current, Command::Convert { id: DownloadId::new(id.0), to, delete_original })
+}
+
+/// Verify checksum: compare a finished download's file with `checksum`.
+/// Reading a large file takes a while, so this waits up to an hour.
+#[tauri::command]
+#[specta::specta]
+pub async fn verify_checksum(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    id: Id,
+    checksum: String,
+) -> Result<VerifyResult, InvokeError> {
+    let (tx, rx) = mpsc::channel();
+    post(&outbox, &current, Inbox::Verify { id: DownloadId::new(id.0), text: checksum, reply: tx })?;
+    let offline = errors::offline(lang(&current));
+    tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(3600)))
+        .await
+        .map_err(|_| offline.clone())?
+        .map_err(|_| offline)?
+}
+
+/// Show the system's Open with picker for a finished download's file.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_with(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    id: Id,
+) -> Result<(), InvokeError> {
+    post(&outbox, &current, Inbox::OpenWith(DownloadId::new(id.0)))
+}
+
+/// The answer to the offer to keep a download in the browser.
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_exception(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    choice: ExceptionChoice,
+    dont_show: bool,
+) -> Result<(), InvokeError> {
+    post(&outbox, &current, Inbox::Exception { choice, stop_offering: dont_show })
 }

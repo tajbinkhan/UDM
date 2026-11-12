@@ -3,5 +3,5 @@
   "identifier": "remove",
   "description": "Confirm deletion of downloads.",
   "windows": ["remove"],
-  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-remove-downloads"]
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-remove-downloads"]
 }

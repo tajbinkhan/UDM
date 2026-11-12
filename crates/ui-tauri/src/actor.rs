@@ -17,12 +17,14 @@ use tauri::ipc::Channel;
 use tauri::AppHandle;
 use udm_application::daemon::{Command, DaemonClient, Event};
 use udm_application::window::{
-    BrowserRegistry, GrabLibrary, ListFiles, ListFormat, SystemProxy, SystemServices, ThemeFiles, WindowFiles,
+    BrowserRegistry, Clipboard, GrabLibrary, ListFiles, ListFormat, SystemProxy, SystemServices, ThemeFiles,
+    WindowFiles,
 };
 use udm_domain::download::{OnDone, Status};
 use udm_domain::grab::{project_login_target, GrabRequest};
 use udm_domain::id::{DownloadId, QueueId};
 use udm_domain::package::Packaging;
+use udm_domain::ports::ProblemReports;
 use udm_domain::ports::{Clock, FileOpener, GrabDownloads, SaveFolders, Timestamps};
 use udm_domain::settings::Notify;
 
@@ -240,6 +242,28 @@ pub enum Inbox {
     },
     /// Read the system's proxy setting for Get System.
     SystemProxy(Sender<Option<SystemProxy>>),
+    /// A button of the report strip, or Help's Report a problem.
+    Report(contract::ReportAction),
+    /// The clipboard's text changed.
+    Clipboard(String),
+    /// Check a finished download's file against a checksum.
+    Verify {
+        id: DownloadId,
+        text: String,
+        reply: Sender<Result<contract::VerifyResult, contract::InvokeError>>,
+    },
+    /// Show the system's Open with picker for a finished download's file.
+    OpenWith(DownloadId),
+    /// The tray's Add batch download from clipboard.
+    ClipboardBatch,
+    /// The tray's Speed Limiter and Show drop target.
+    ToggleLimiter,
+    ToggleDropTarget,
+    /// The answer to the offer to keep a download in the browser.
+    Exception {
+        choice: contract::ExceptionChoice,
+        stop_offering: bool,
+    },
 }
 
 /// A change Options makes to the browsers, at once.
@@ -281,6 +305,14 @@ pub struct Ports {
     pub browsers: Arc<dyn BrowserRegistry>,
     /// The theme files.
     pub themes: Arc<dyn ThemeFiles>,
+    /// Problem reports.
+    pub reports: Arc<dyn ProblemReports>,
+    /// What the state thread and the windows tell the watchdog.
+    pub beats: Arc<crate::watchdog::Beats>,
+    /// The clipboard, for the clipboard monitor.
+    pub clipboard: Arc<dyn Clipboard>,
+    /// Hashing a finished download's file, for Verify checksum.
+    pub hashes: Arc<dyn udm_domain::ports::FileHashes>,
     pub language: CurrentLanguage,
     pub daemon: Arc<dyn DaemonClient>,
     pub clock: Arc<dyn Clock>,
@@ -309,6 +341,11 @@ struct Actor {
     /// The layout file as last read or saved, so it is written only when it
     /// changes.
     layout: Option<Vec<u8>>,
+    /// Whether the clipboard monitor is on, for its thread.
+    watching_clipboard: Arc<std::sync::atomic::AtomicBool>,
+    /// The last link the clipboard monitor offered, so a link copied twice
+    /// is offered once.
+    clipboard_last: Option<String>,
     /// The system's Downloads folder, read once.
     downloads: std::path::PathBuf,
 }
@@ -328,6 +365,8 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
             closing: HashSet::new(),
             titles: HashMap::new(),
             layout: None,
+            watching_clipboard: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            clipboard_last: None,
             downloads: std::path::PathBuf::new(),
         };
         actor.downloads = actor.ports.folders.downloads_dir();
@@ -338,7 +377,9 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
         apply(&mut actor.state, UiMessage::LayoutRead(Box::new(file)));
         actor.layout = crate::layout::bytes(&actor.state);
         actor.connect();
+        actor.state.can_open_with = actor.ports.opener.can_open_with();
         actor.watch_themes();
+        actor.watch_clipboard();
         actor.run(rx);
     });
     if let Err(e) = spawned {
@@ -349,11 +390,33 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
 
 impl Actor {
     fn connect(&self) {
+        self.connect_with(false);
+    }
+
+    /// Connect, first restarting the daemon if `restart`.
+    fn connect_with(&self, restart: bool) {
         let outbox = self.outbox.clone();
         let times = Arc::clone(&self.ports.times);
+        let (beats, reports) = (Arc::clone(&self.ports.beats), Arc::clone(&self.ports.reports));
         self.ports.daemon.connect(
-            false,
+            restart,
             Box::new(move |event| {
+                match &event {
+                    Event::Pong => beats.answered(),
+                    Event::Connected => {
+                        beats.connected(true);
+                        // The reports a crash or an earlier stall left.
+                        let (outbox, reports) = (outbox.clone(), Arc::clone(&reports));
+                        thread::spawn(move || {
+                            let found = udm_application::report::FindNewReports::new(&*reports).run();
+                            if !found.is_empty() {
+                                let _ = outbox.send(Inbox::Ui(UiMessage::ReportsFound(found)));
+                            }
+                        });
+                    }
+                    Event::Lost(_) => beats.connected(false),
+                    _ => {}
+                }
                 let lost = matches!(event, Event::Lost(_));
                 let msg = UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: times.unix_now() };
                 let _ = outbox.send(Inbox::Ui(msg));
@@ -377,6 +440,8 @@ impl Actor {
             match rx.recv_timeout(wait) {
                 Ok(msg) => {
                     urgent = !matches!(&msg, Inbox::Ui(UiMessage::Daemon { event, .. }) if matches!(**event, Event::Progress { .. }));
+                    let beats = Arc::clone(&self.ports.beats);
+                    let _work = beats.work();
                     self.handle(msg);
                     dirty = true;
                 }
@@ -558,6 +623,98 @@ impl Actor {
         }
     }
 
+    /// Look at the clipboard every 0.7 seconds while the clipboard monitor
+    /// is on, as the egui window does, and send its text when it changed.
+    fn watch_clipboard(&self) {
+        let (outbox, clipboard, on) =
+            (self.outbox.clone(), Arc::clone(&self.ports.clipboard), Arc::clone(&self.watching_clipboard));
+        let spawned = thread::Builder::new().name("udm-clipboard".into()).spawn(move || {
+            let mut seen = None;
+            loop {
+                thread::sleep(Duration::from_millis(700));
+                if !on.load(Ordering::Relaxed) {
+                    seen = None;
+                    continue;
+                }
+                let now = clipboard.sequence();
+                // What was there when the monitor came on is not offered.
+                if seen.replace(now).is_none_or(|before| before == now) {
+                    continue;
+                }
+                if let Some(text) = clipboard.text() {
+                    if outbox.send(Inbox::Clipboard(text)).is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        if let Err(e) = spawned {
+            tracing::warn!(error = %e, "the clipboard is not watched");
+        }
+    }
+
+    /// The clipboard's new text: a link of a captured type is started, or
+    /// offered in Add URL.
+    fn clipboard_text(&mut self, text: &str) {
+        let Some(settings) = self.state.settings.as_ref().filter(|s| s.clipboard_monitor) else { return };
+        let Some(url) = udm_domain::batch::clipboard_link(text, &settings.capture_types) else { return };
+        let url = url.to_string();
+        if self.clipboard_last.as_deref() == Some(url.as_str()) {
+            return;
+        }
+        self.clipboard_last = Some(url.clone());
+        if settings.clipboard_start {
+            let download = udm_domain::download::Download { url: url.as_str().into(), ..Default::default() };
+            if self.send(Command::Add(download)) {
+                return;
+            }
+        }
+        apply(&mut self.state, UiMessage::ClipboardOffer(url));
+        if let Err(e) = windows::open(&self.app, Label::AddUrl, self.lang()) {
+            tracing::warn!(error = %e, "Add URL did not open");
+        }
+    }
+
+    /// Hash a finished download's file on a worker and compare it with the
+    /// checksum `text`.
+    fn verify(
+        &mut self,
+        id: DownloadId,
+        text: &str,
+        reply: Sender<Result<contract::VerifyResult, contract::InvokeError>>,
+    ) {
+        let lang = self.lang();
+        let sum = match udm_domain::checksum::Checksum::parse(text) {
+            Ok(sum) => sum,
+            Err(_) => {
+                let _ = reply.send(Err(crate::errors::invalid(lang, "This is not a checksum UDM knows.")));
+                return;
+            }
+        };
+        let Some(path) = self.state.table.get(id).and_then(|e| e.path.clone()) else {
+            let _ = reply.send(Err(crate::errors::gone(lang)));
+            return;
+        };
+        let hashes = Arc::clone(&self.ports.hashes);
+        thread::spawn(move || {
+            let found = udm_application::downloads::VerifyChecksum::new(&*hashes)
+                .run(std::path::Path::new(&path), &sum)
+                .map(|v| contract::VerifyResult {
+                    algorithm: sum.algorithm().to_string(),
+                    matches: v.matches,
+                    expected: sum.hex(),
+                    actual: v.actual,
+                })
+                .map_err(|e| {
+                    crate::errors::invalid_text(fill(
+                        lang.tr("The file could not be read: {error}"),
+                        &[("error", &e.to_string())],
+                    ))
+                });
+            let _ = reply.send(found);
+        });
+    }
+
     /// Read the browsers on a worker, with the ones the user added.
     fn read_browsers(&mut self) {
         let added = self.state.settings.as_ref().map(|s| s.added_browsers.clone()).unwrap_or_default();
@@ -640,6 +797,79 @@ impl Actor {
             }
             let read = read_browsers(&*registry, &settings.added_browsers);
             let _ = outbox.send(Inbox::Ui(UiMessage::BrowsersRead(Some(Box::new(read)))));
+        });
+    }
+
+    /// What a button of the report strip asks.
+    fn report_action(&mut self, action: contract::ReportAction) {
+        use crate::reports::Offer;
+        use contract::ReportAction as A;
+        use udm_domain::report::{Kind, Program};
+        let first = self.state.reports.first().cloned();
+        let (reports, opener) = (Arc::clone(&self.ports.reports), Arc::clone(&self.ports.opener));
+        match (action, first) {
+            (A::Save, Some(Offer::Froze { draft: Some(report), .. })) => {
+                apply(&mut self.state, UiMessage::ReportSaved(report.clone()));
+                thread::spawn(move || reports.mark_offered(std::slice::from_ref(&report)));
+            }
+            (A::Save, Some(Offer::Froze { secs, draft: None })) => self.save_report(
+                Program::Window,
+                Kind::Freeze,
+                format!("A window or the window's state thread stopped for {secs} seconds."),
+            ),
+            (A::Save, Some(Offer::Silent { secs })) => self.save_report(
+                Program::Daemon,
+                Kind::Silent,
+                format!("The daemon had not answered a ping for {secs} seconds, with its connection open."),
+            ),
+            (A::Dismiss, first) => {
+                if let Some(Offer::Froze { draft: Some(report), .. }) = first {
+                    thread::spawn(move || {
+                        if let Err(e) = udm_application::report::DiscardReport::new(&*reports).run(&report) {
+                            tracing::warn!(error = %e, "the report was not deleted");
+                        }
+                    });
+                }
+                apply(&mut self.state, UiMessage::ReportDismissed);
+            }
+            (A::OpenIssue, Some(Offer::Saved { report, .. })) => {
+                thread::spawn(move || {
+                    let url = udm_domain::report::issue_url(&reports.this_copy(), Some(&report));
+                    opener.open(&url);
+                    opener.reveal(&report.path.display().to_string());
+                });
+            }
+            (A::Show, Some(Offer::Saved { report, .. })) => {
+                thread::spawn(move || opener.reveal(&report.path.display().to_string()));
+            }
+            (A::RestartDaemon, _) => {
+                apply(&mut self.state, UiMessage::DaemonAnswering);
+                self.connect_with(true);
+            }
+            (A::Reconnect, _) => self.connect(),
+            (A::NewIssue, _) => {
+                thread::spawn(move || opener.open(&udm_domain::report::issue_url(&reports.this_copy(), None)));
+            }
+            _ => {}
+        }
+    }
+
+    /// Write a report on a worker, offering it once written.
+    fn save_report(&mut self, program: udm_domain::report::Program, kind: udm_domain::report::Kind, what: String) {
+        apply(&mut self.state, UiMessage::ReportSaving);
+        let (outbox, reports, times) =
+            (self.outbox.clone(), Arc::clone(&self.ports.reports), Arc::clone(&self.ports.times));
+        thread::spawn(move || {
+            let saved =
+                udm_application::report::SaveReport::new(&*reports).run(program, kind, &what, times.unix_now() * 1000);
+            let msg = match saved {
+                Ok(report) => UiMessage::ReportSaved(report),
+                Err(e) => {
+                    tracing::warn!(error = %e, "the report was not saved");
+                    UiMessage::ReportDismissed
+                }
+            };
+            let _ = outbox.send(Inbox::Ui(msg));
         });
     }
 
@@ -813,6 +1043,7 @@ impl Actor {
                 self.subscribers.insert(label, Subscriber { channel, seq: 0, last: None, look: None });
             }
             Inbox::Closed(text) => {
+                self.ports.beats.forget(&text);
                 let Some(label) = Label::parse(&text) else { return };
                 self.subscribers.remove(&label);
                 self.opened.remove(&label);
@@ -843,6 +1074,7 @@ impl Actor {
                     if waiting && !self.state.answered.contains(&id) {
                         self.send(Command::Cancel { id });
                         apply(&mut self.state, UiMessage::Answered(id));
+                        apply(&mut self.state, UiMessage::SaveAsCanceled(id));
                     }
                 }
                 apply(&mut self.state, UiMessage::WindowClosed(text));
@@ -931,6 +1163,50 @@ impl Actor {
                 }
             }
             Inbox::Browser(action) => self.browser_action(action),
+            Inbox::Report(action) => self.report_action(action),
+            Inbox::Clipboard(text) => self.clipboard_text(&text),
+            Inbox::ClipboardBatch => {
+                // The clipboard is read on a worker; its links open the
+                // links window, as the menu's command does.
+                let (outbox, clipboard) = (self.outbox.clone(), Arc::clone(&self.ports.clipboard));
+                thread::spawn(move || {
+                    let text: String = clipboard.text().unwrap_or_default().chars().take(1_000_000).collect();
+                    let items = crate::tools::links_of(&text);
+                    let msg = if items.is_empty() {
+                        UiMessage::ClipboardEmpty
+                    } else {
+                        UiMessage::Links(Some(Box::new(crate::tools::LinkList { file: None, items, rejected: 0 })))
+                    };
+                    let _ = outbox.send(Inbox::Ui(msg));
+                });
+            }
+            Inbox::ToggleLimiter => {
+                if let Some(mut settings) = self.state.settings.clone() {
+                    settings.speed_limit_enabled = !settings.speed_limit_enabled;
+                    self.send(Command::SetSettings { settings });
+                }
+            }
+            Inbox::ToggleDropTarget => {
+                let on = self.state.settings.as_ref().is_some_and(|s| s.drop_target);
+                self.set_drop_target(!on);
+            }
+            Inbox::Verify { id, text, reply } => self.verify(id, &text, reply),
+            Inbox::OpenWith(id) => {
+                if let Some(path) = self.state.table.get(id).and_then(|e| e.path.clone()) {
+                    let opener = Arc::clone(&self.ports.opener);
+                    thread::spawn(move || opener.open_with(&path));
+                }
+            }
+            Inbox::Exception { choice, stop_offering } => {
+                let url = self.state.files.exception.clone();
+                let next = url.zip(self.state.settings.as_ref()).and_then(|(url, current)| {
+                    crate::filework::exception_settings(current, &url, choice, stop_offering)
+                });
+                if let Some(settings) = next {
+                    self.send(Command::SetSettings { settings });
+                }
+                apply(&mut self.state, UiMessage::ExceptionAnswered);
+            }
             Inbox::OpenThemesFolder => {
                 let (themes, opener) = (Arc::clone(&self.ports.themes), Arc::clone(&self.ports.opener));
                 thread::spawn(move || match themes.open_folder() {
@@ -1243,6 +1519,11 @@ impl Actor {
         self.ports.language.store(index, Ordering::Relaxed);
         let look = projection::look(&self.state);
         crate::windows::set_zoom(look.zoom);
+        let monitor = self.state.settings.as_ref().is_some_and(|s| s.clipboard_monitor);
+        self.watching_clipboard.store(monitor, Ordering::Relaxed);
+        let (limiter, drop_target) =
+            self.state.settings.as_ref().map_or((false, false), |s| (s.speed_limit_enabled, s.drop_target));
+        crate::tray::show(&self.app, limiter, drop_target, &projection::main::tooltip(&ctx, &self.state));
         let mut gone = Vec::new();
         let mut titles = Vec::new();
         for (label, sub) in &mut self.subscribers {

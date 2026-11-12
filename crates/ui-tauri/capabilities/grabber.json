@@ -3,5 +3,5 @@
   "identifier": "grabber",
   "description": "The site grabber: its wizard, crawl, results, projects, templates and filters.",
   "windows": ["grabber"],
-  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-pick-path", "core:window:allow-set-size", "core:window:allow-set-title", "allow-grab-start", "allow-grab-stop", "allow-grab-select", "allow-grab-new", "allow-grab-add", "allow-grab-template", "allow-grab-open", "allow-grab-save", "allow-grab-save-template", "allow-grab-save-filters", "allow-grab-add-on-close"]
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-pick-path", "core:window:allow-set-size", "core:window:allow-set-title", "allow-grab-start", "allow-grab-stop", "allow-grab-select", "allow-grab-new", "allow-grab-add", "allow-grab-template", "allow-grab-open", "allow-grab-save", "allow-grab-save-template", "allow-grab-save-filters", "allow-grab-add-on-close"]
 }

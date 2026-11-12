@@ -118,6 +118,10 @@ windows.workspace = true
 # The Trash on macOS and Linux (the Recycle Bin is called directly).
 [target.'cfg(unix)'.dependencies]
 trash = "5"
+# The clipboard's text for the Tauri window's clipboard monitor (Windows'
+# is read directly). The version the egui window uses, so Cargo.lock gains
+# nothing.
+arboard = { version = "3.7.0", default-features = false }
 # The local time zone for queue schedules (localtime_r).
 libc = "0.2"
 

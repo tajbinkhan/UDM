@@ -3,5 +3,5 @@
   "identifier": "refresh",
   "description": "A new link for a download.",
   "windows": ["refresh"],
-  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-refresh-link", "allow-cancel-refresh"]
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-refresh-link", "allow-cancel-refresh"]
 }

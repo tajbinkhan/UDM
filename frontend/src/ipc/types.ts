@@ -4,6 +4,13 @@ import type * as B from '../bindings';
 
 export type {
   AboutView,
+  ReportAction,
+  ReportStrip,
+  ConvertTarget,
+  ExceptionChoice,
+  ExceptionView,
+  VerifyResult,
+  ZipView,
   ToolKey,
   ToolRow,
   DeviceRow,

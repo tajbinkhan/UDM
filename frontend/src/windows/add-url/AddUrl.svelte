@@ -2,10 +2,22 @@
      its server. -->
 <script lang="ts">
   import { addDownload, closeWindow, messageOf } from '../../ipc';
+  import type { AddUrlView } from '../../ipc/types';
+  import { projection } from '../../stores/projection.svelte';
   import { t } from '../../i18n';
   import Window from '../../components/Window.svelte';
 
   let address = $state('');
+  const view: AddUrlView | null = $derived(projection.view?.window === 'addUrl' ? projection.view.view : null);
+  // A link the clipboard monitor caught fills the field, each new one once.
+  let offered: string | null = null;
+  $effect(() => {
+    const caught = view?.address ?? null;
+    if (caught && caught !== offered) {
+      offered = caught;
+      address = caught;
+    }
+  });
   let useLogin = $state(false);
   let user = $state('');
   let password = $state('');

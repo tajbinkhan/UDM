@@ -42,6 +42,10 @@ pub enum Label {
     PickLinks,
     PickVideos,
     Gallery,
+    /// The files inside a zip download.
+    ZipPreview,
+    /// The offer to keep a download in the browser.
+    Exception,
 }
 
 impl Label {
@@ -64,6 +68,8 @@ impl Label {
             "pick-links" => return Some(Label::PickLinks),
             "pick-videos" => return Some(Label::PickVideos),
             "gallery" => return Some(Label::Gallery),
+            "zip-preview" => return Some(Label::ZipPreview),
+            "exception" => return Some(Label::Exception),
             _ => {}
         }
         let kinds: [(&str, MakeLabel); 4] = [
@@ -102,6 +108,8 @@ impl Label {
             Label::PickLinks => "pick-links.html",
             Label::PickVideos => "pick-videos.html",
             Label::Gallery => "gallery.html",
+            Label::ZipPreview => "zip-preview.html",
+            Label::Exception => "exception.html",
         }
     }
 
@@ -129,6 +137,8 @@ impl Label {
             Label::PickLinks => (760.0, 480.0),
             Label::PickVideos => (640.0, 440.0),
             Label::Gallery => (700.0, 480.0),
+            Label::ZipPreview => (520.0, 400.0),
+            Label::Exception => (460.0, 200.0),
         }
     }
 
@@ -155,6 +165,8 @@ impl Label {
             Label::PickLinks => "Download links",
             Label::PickVideos => "Download videos",
             Label::Gallery => "Download gallery",
+            Label::ZipPreview => "Preview",
+            Label::Exception => "Keep it in the browser?",
         })
         .to_string()
     }
@@ -184,6 +196,8 @@ impl std::fmt::Display for Label {
             Label::PickLinks => write!(f, "pick-links"),
             Label::PickVideos => write!(f, "pick-videos"),
             Label::Gallery => write!(f, "gallery"),
+            Label::ZipPreview => write!(f, "zip-preview"),
+            Label::Exception => write!(f, "exception"),
         }
     }
 }
@@ -219,6 +233,8 @@ pub fn wanted(state: &AppState) -> BTreeSet<Label> {
         (a.links.is_some(), Label::PickLinks),
         (a.videos.is_some(), Label::PickVideos),
         (a.gallery.is_some(), Label::Gallery),
+        (state.files.zip.is_some(), Label::ZipPreview),
+        (state.files.exception.is_some(), Label::Exception),
     ] {
         if on {
             out.insert(label);
@@ -332,6 +348,8 @@ mod tests {
             Label::PickLinks,
             Label::PickVideos,
             Label::Gallery,
+            Label::ZipPreview,
+            Label::Exception,
         ] {
             assert_eq!(Label::parse(&label.to_string()), Some(label));
         }

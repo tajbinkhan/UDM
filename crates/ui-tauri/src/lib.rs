@@ -15,6 +15,7 @@ mod commands;
 mod contract;
 mod errors;
 mod extras;
+mod filework;
 #[cfg(test)]
 mod fixtures;
 mod grabber;
@@ -22,6 +23,7 @@ mod i18n;
 mod layout;
 mod options;
 mod projection;
+mod reports;
 mod scheduler;
 mod services;
 mod state;
@@ -31,6 +33,7 @@ mod theme;
 mod tips;
 mod tools;
 mod tray;
+mod watchdog;
 mod windows;
 
 use std::sync::atomic::AtomicUsize;
@@ -39,9 +42,9 @@ use std::sync::Arc;
 use tauri::{Manager, RunEvent, WindowEvent};
 use udm_application::daemon::DaemonClient;
 use udm_application::window::{
-    BrowserRegistry, FilePicker, GrabLibrary, ListFiles, SystemServices, ThemeFiles, WindowFiles,
+    BrowserRegistry, Clipboard, FilePicker, GrabLibrary, ListFiles, SystemServices, ThemeFiles, WindowFiles,
 };
-use udm_domain::ports::{Clock, FileOpener, GrabDownloads, SaveFolders, Timestamps};
+use udm_domain::ports::{Clock, FileOpener, GrabDownloads, ProblemReports, SaveFolders, Timestamps};
 
 pub use errors::UiError;
 
@@ -74,8 +77,21 @@ pub struct Start {
     pub browsers: Arc<dyn BrowserRegistry>,
     /// The theme files, for the custom themes.
     pub themes: Arc<dyn ThemeFiles>,
+    /// Problem reports: the ones a crash left, and the watchdog's.
+    pub reports: Arc<dyn ProblemReports>,
+    /// The clipboard, for the clipboard monitor.
+    pub clipboard: Arc<dyn Clipboard>,
+    /// Hashing a finished download's file, for Verify checksum.
+    pub hashes: Arc<dyn udm_domain::ports::FileHashes>,
     /// Start in the tray, without showing the main window.
     pub minimized: bool,
+    /// Started by a window closing to the tray: wait there, and do not hand
+    /// over to the window that is going.
+    pub in_tray: bool,
+    /// A command line to run, such as a download to add.
+    pub command_line: Option<udm_domain::download::CommandLine>,
+    /// Why the command line could not be read, to show once the window is up.
+    pub startup_error: Option<String>,
 }
 
 /// Open the window and run it until the user quits from the tray.
@@ -97,8 +113,36 @@ pub fn run(start: Start) -> Result<(), UiError> {
         window_files,
         browsers,
         themes,
-        minimized,
+        reports,
+        clipboard,
+        hashes,
+        mut minimized,
+        in_tray,
+        command_line,
+        mut startup_error,
     } = start;
+    // Started again while a window is open, the daemon brings that one
+    // forward or runs the command line there, and this copy opens no second
+    // window, as the egui window does. A command line kept for the next
+    // window runs once this one connects; its dialogs bring it forward.
+    let given = command_line.as_ref().is_some_and(|c| !c.is_empty());
+    let handed = if in_tray { Ok(false) } else { daemon.run_command_line(command_line.unwrap_or_default()) };
+    match handed {
+        Ok(true) => return Ok(()),
+        Ok(false) => minimized |= given,
+        Err(e) => {
+            let error = match e {
+                udm_application::daemon::DaemonError::Closed => "the daemon closed the connection".to_string(),
+                udm_application::daemon::DaemonError::Connect(why) => why,
+                udm_application::daemon::DaemonError::Refused(failure) => errors::failure(&failure),
+            };
+            startup_error = Some(i18n::fill(
+                i18n::LANGUAGES[0].tr("Could not pass the command line to UDM: {error}"),
+                &[("error", &error)],
+            ));
+        }
+    }
+    let beats = Arc::new(watchdog::Beats::default());
     let app = tauri::Builder::default()
         // A second copy hands over and exits; this one comes forward.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -116,13 +160,28 @@ pub fn run(start: Start) -> Result<(), UiError> {
                 folders,
                 browsers,
                 themes,
+                reports: Arc::clone(&reports),
+                beats: Arc::clone(&beats),
+                clipboard,
+                hashes,
                 language: Arc::clone(&language),
                 daemon,
                 clock,
                 times,
                 opener,
             };
+            let watched = watchdog::Watched {
+                beats: Arc::clone(&beats),
+                daemon: Arc::clone(&ports.daemon),
+                reports,
+                times: Arc::clone(&ports.times),
+            };
             let outbox: Outbox = actor::spawn(app.handle().clone(), ports);
+            watchdog::start(watched, outbox.clone());
+            if let Some(error) = startup_error.take() {
+                let _ = outbox.send(Inbox::Ui(state::UiMessage::StartupError(error)));
+            }
+            app.manage::<commands::Heart>(beats);
             app.manage(outbox.clone());
             app.manage(language);
             app.manage::<commands::Pickers>(pickers);

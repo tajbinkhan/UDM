@@ -88,7 +88,7 @@ the embedded frontend. In a plain browser,
 `http://localhost:1420/dev/index.html?window=main&look=dark` draws any
 window (`main`, `add-url`, `save-as`, `download`, `done`, `remove`,
 `about`, `options`, `scheduler`, `grabber`, `grabber-results`, `batch`, `links`, `properties`,
-`drop-target`, `login`, `countdown`, `refresh`, `password`, `pick-links`, `pick-videos`, `gallery`) from the test fixtures, with the shell mocked.
+`drop-target`, `login`, `countdown`, `refresh`, `password`, `pick-links`, `pick-videos`, `gallery`, `zip-preview`, `exception`) from the test fixtures, with the shell mocked.
 
 When a contract type or a command changes, write the TypeScript bindings and
 the fixtures again (the tests fail until they match):

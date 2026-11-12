@@ -58,6 +58,14 @@ pub struct MainChrome {
     pub newer_installable: bool,
     /// What each package's menu offers, by the package's tree node.
     pub packages: Vec<PackageMenu>,
+    /// The strip offering a problem report.
+    pub report: Option<ReportStrip>,
+    /// The connection was lost: the banner offers Reconnect and Restart
+    /// daemon.
+    pub reconnect: bool,
+    /// The checksum the one selected download was added with, for Verify
+    /// checksum to start from.
+    pub checksum: String,
 }
 
 /// A package's menu in the categories tree.
@@ -211,6 +219,12 @@ pub struct Can {
     pub progress: bool,
     /// One stopped download is selected, whose link can be replaced.
     pub refresh: bool,
+    /// One finished video is selected, to convert.
+    pub convert: bool,
+    /// One finished download with its file is selected, to check.
+    pub verify: bool,
+    /// ... and the system has an Open with picker for it.
+    pub open_with: bool,
     pub connected: bool,
 }
 
@@ -220,6 +234,47 @@ pub struct QueueItem {
     pub id: Id,
     pub name: String,
     pub running: bool,
+}
+
+/// How a strip in the main window reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StripTone {
+    Info,
+    Warn,
+}
+
+/// The strip offering a problem report, and what its buttons can do.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportStrip {
+    pub text: String,
+    pub tone: StripTone,
+    /// How many more reports wait in the folder.
+    pub more: String,
+    /// Save a report.
+    pub save: bool,
+    /// Restart the daemon.
+    pub restart: bool,
+    /// Open an issue, and show the report.
+    pub issue: bool,
+    /// The report is being written.
+    pub busy: bool,
+}
+
+/// What the report strip's buttons do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ReportAction {
+    Save,
+    Dismiss,
+    OpenIssue,
+    Show,
+    RestartDaemon,
+    /// Help's Report a problem: a new issue without a report.
+    NewIssue,
+    /// The lost connection's banner: connect again.
+    Reconnect,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]

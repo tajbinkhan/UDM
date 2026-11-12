@@ -9,6 +9,8 @@ import Password from '../src/windows/password/Password.svelte';
 import PickLinks from '../src/windows/pick-links/PickLinks.svelte';
 import PickVideos from '../src/windows/pick-videos/PickVideos.svelte';
 import Gallery from '../src/windows/gallery/Gallery.svelte';
+import ZipPreview from '../src/windows/zip-preview/ZipPreview.svelte';
+import Exception from '../src/windows/exception/Exception.svelte';
 import { sent, shell } from './helpers';
 
 describe('what the daemon asks', () => {
@@ -82,5 +84,22 @@ describe('what the daemon asks', () => {
     expect(sent(calls, 'add_picks').at(-1)?.args).toEqual({
       input: { indices: [0, 1, 2], queue: 1, start: true, package: null, quality: 0, folder: '/home/u/Downloads/Album' },
     });
+  });
+});
+
+describe('the file tools', () => {
+  it('the zip preview lists the files inside', () => {
+    shell('zip-preview', 'zip-preview');
+    render(ZipPreview);
+    expect(screen.getByText('2 files, 3.0 MB unpacked')).toBeTruthy();
+    expect(screen.getByText('bin/tool.exe')).toBeTruthy();
+  });
+
+  it('the offer keeps a site in the browser', async () => {
+    const calls = shell('exception', 'exception');
+    render(Exception);
+    await fireEvent.click(screen.getByLabelText("Don't show this again"));
+    await fireEvent.click(screen.getByRole('button', { name: "Don't capture cdn.example.com" }));
+    expect(sent(calls, 'answer_exception').at(-1)?.args).toEqual({ choice: 'site', dontShow: true });
   });
 });

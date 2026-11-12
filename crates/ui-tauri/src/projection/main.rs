@@ -309,12 +309,42 @@ pub fn tree(ctx: &Ctx, state: &AppState) -> Vec<TreeNode> {
     out
 }
 
+/// The tray icon's tooltip: how many downloads run, and how fast.
+pub fn tooltip(ctx: &Ctx, state: &AppState) -> String {
+    let lang = ctx.lang;
+    let active = state.table.entries().filter(|e| e.status == Status::Downloading).count();
+    let queued = state.table.entries().filter(|e| e.status == Status::Queued).count();
+    let speed: f64 = state
+        .speeds
+        .iter()
+        .filter(|(id, _)| state.table.get(**id).is_some_and(|e| e.status == Status::Downloading))
+        .map(|(_, s)| s.bytes_per_sec)
+        .sum();
+    let downloads = match (active, queued) {
+        (0, 0) => lang.tr("UDM: no active downloads").to_string(),
+        (0, q) => crate::i18n::fill(lang.tr("UDM: {queued} queued"), &[("queued", &q.to_string())]),
+        (a, _) => {
+            let speed = format::bytes(lang, udm_domain::bytes::ByteCount::new(speed.max(0.0) as u64), 1);
+            crate::i18n::fill(
+                lang.tr("UDM: {active} downloading at {speed}/s"),
+                &[("active", &a.to_string()), ("speed", &speed)],
+            )
+        }
+    };
+    if state.asks.limit_lifted {
+        format!("{downloads}\n{}", lang.tr("Speed limit lifted while you are away"))
+    } else {
+        downloads
+    }
+}
+
 /// Which actions the selection allows.
 pub fn can(state: &AppState) -> Can {
     let selected: Vec<&DownloadEntry> = state.selected.iter().filter_map(|id| state.table.get(*id)).collect();
     let all = || state.table.entries();
     let one = (selected.len() == 1).then(|| selected[0]);
     let connected = state.connected();
+    let open_with = state.can_open_with;
     Can {
         resume: connected && selected.iter().any(|e| is_startable(e.status)),
         stop: connected && selected.iter().any(|e| is_running(e.status)),
@@ -326,6 +356,12 @@ pub fn can(state: &AppState) -> Can {
         redownload: connected && selected.iter().any(|e| is_finished(e.status)),
         progress: one.is_some_and(|e| e.status != Status::Done),
         refresh: connected && one.is_some_and(|e| crate::extras::can_refresh(state, e.id)),
+        convert: connected
+            && one.is_some_and(|e| {
+                e.status == Status::Done && e.path.as_deref().is_some_and(udm_domain::media::is_video)
+            }),
+        verify: one.is_some_and(|e| e.status == Status::Done && e.path.is_some()),
+        open_with: open_with && one.is_some_and(|e| e.status == Status::Done && e.path.is_some()),
         connected,
     }
 }
@@ -344,7 +380,7 @@ fn banner(ctx: &Ctx, state: &AppState) -> Option<Banner> {
         Link::Connected => state
             .notice
             .as_ref()
-            .map(|n| Banner { text: n.text.clone(), error: n.error })
+            .map(|n| Banner { text: lang.tr(&n.text).to_string(), error: n.error })
             .or_else(|| crate::extras::notice(lang, state).map(|text| Banner { text, error: false })),
     }
 }
@@ -399,6 +435,14 @@ pub fn chrome(ctx: &Ctx, state: &AppState) -> MainChrome {
         },
         newer_installable: matches!(&state.asks.update, Some(Ok(Some(r))) if r.setup.is_some()),
         packages: state.asks.packages.iter().map(|p| crate::extras::package_menu(state, p)).collect(),
+        report: crate::reports::strip(lang, &state.reports),
+        reconnect: matches!(state.link, Link::Lost(_)),
+        checksum: match state.selected.iter().collect::<Vec<_>>().as_slice() {
+            [id] => {
+                state.table.get(**id).and_then(|e| e.checksum.as_ref()).map(ToString::to_string).unwrap_or_default()
+            }
+            _ => String::new(),
+        },
     }
 }
 

@@ -293,6 +293,16 @@ pub struct IdentifiedBrowser {
     pub known: bool,
 }
 
+/// The system clipboard's text, for the clipboard monitor that offers the
+/// links the user copies.
+pub trait Clipboard: Send + Sync {
+    /// The clipboard's text, if it holds any.
+    fn text(&self) -> Option<String>;
+    /// A number that changes whenever the clipboard does, so the text is
+    /// read only after a change.
+    fn sequence(&self) -> u32;
+}
+
 /// Registering UDM with the browsers, for Options.
 pub trait BrowserRegistry: Send + Sync {
     /// The browsers UDM knows that are installed for this user or

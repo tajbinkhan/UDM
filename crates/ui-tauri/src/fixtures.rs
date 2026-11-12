@@ -308,10 +308,19 @@ fn fixtures() -> serde_json::Value {
     .unwrap();
     send(&mut asks, Event::Packages { items: vec![package] });
     apply(&mut asks, UiMessage::AskPassword(udm_domain::id::PackageId::new(1)));
+    // A zip's files, and the offer to keep a download in the browser.
+    apply(&mut asks, UiMessage::PreviewZip(DownloadId::new(4)));
+    let entries = vec![
+        udm_domain::download::ZipEntry { name: "docs/readme.txt".into(), size: ByteCount::new(2_048) },
+        udm_domain::download::ZipEntry { name: "bin/tool.exe".into(), size: ByteCount::new(3_145_728) },
+    ];
+    send(&mut asks, Event::ZipPreview { id: DownloadId::new(4), entries, error: None });
+    asks.files.exception = Some("https://cdn.example.com/files/song.mp3".into());
     let asked = |label: Label| serde_json::to_value(projection::view(&ctx, &asks, &label)).unwrap();
     let countdown = asked(Label::Countdown);
     let (login, refresh, password) = (asked(Label::Login), asked(Label::Refresh), asked(Label::Password));
     let (pick_links, pick_videos, gallery) = (asked(Label::PickLinks), asked(Label::PickVideos), asked(Label::Gallery));
+    let (zip_preview, exception) = (asked(Label::ZipPreview), asked(Label::Exception));
     json!({
         "look": { "light": light, "dark": dark },
         "views": {
@@ -337,6 +346,8 @@ fn fixtures() -> serde_json::Value {
             "pick-links": pick_links,
             "pick-videos": pick_videos,
             "gallery": gallery,
+            "zip-preview": zip_preview,
+            "exception": exception,
         }
     })
 }

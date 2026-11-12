@@ -3,5 +3,5 @@
   "identifier": "login",
   "description": "The login prompt.",
   "windows": ["login"],
-  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-answer-login"]
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-answer-login"]
 }

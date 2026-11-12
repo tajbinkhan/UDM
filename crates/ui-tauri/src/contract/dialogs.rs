@@ -10,6 +10,8 @@ use super::{FileIcon, Id, QueueItem};
 #[serde(rename_all = "camelCase")]
 pub struct AddUrlView {
     pub connected: bool,
+    /// A link the clipboard monitor caught, to fill in.
+    pub address: Option<String>,
 }
 
 /// A login the Add URL dialog sends with the address.
@@ -25,6 +27,8 @@ pub struct LoginInput {
 #[serde(rename_all = "camelCase")]
 pub struct SaveAsView {
     pub id: Id,
+    /// A zip on a server that sends ranges can list its files first.
+    pub can_preview: bool,
     pub url: String,
     pub categories: Vec<String>,
     pub category: String,

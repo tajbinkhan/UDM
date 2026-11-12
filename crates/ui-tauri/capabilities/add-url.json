@@ -3,5 +3,5 @@
   "identifier": "add-url",
   "description": "Add URL: the address to download and its login.",
   "windows": ["add-url"],
-  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-add-download"]
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-add-download"]
 }

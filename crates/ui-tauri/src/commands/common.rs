@@ -65,3 +65,31 @@ pub async fn quit_app(app: tauri::AppHandle) -> Result<(), InvokeError> {
     app.exit(0);
     Ok(())
 }
+
+/// What the windows tell the watchdog (a managed type).
+pub type Heart = std::sync::Arc<crate::watchdog::Beats>;
+
+/// The calling window answers, and is `visible` or not (AGENTS.md section
+/// 7.3). It reaches the watchdog directly, not through the state thread,
+/// so a stuck state thread does not make every window look stuck.
+#[tauri::command]
+#[specta::specta]
+pub async fn heartbeat(
+    window: tauri::WebviewWindow,
+    heart: State<'_, Heart>,
+    visible: bool,
+) -> Result<(), InvokeError> {
+    heart.beat(window.label(), visible);
+    Ok(())
+}
+
+/// A button of the report strip, or Help's Report a problem.
+#[tauri::command]
+#[specta::specta]
+pub async fn report_action(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    action: crate::contract::ReportAction,
+) -> Result<(), InvokeError> {
+    post(&outbox, &current, Inbox::Report(action))
+}
