@@ -15,11 +15,40 @@
   import Proxy from './Proxy.svelte';
   import Logins from './Logins.svelte';
   import Sounds from './Sounds.svelte';
+  import Speed from './Speed.svelte';
+  import Behavior from './Behavior.svelte';
+  import Browser from './Browser.svelte';
+  import Archives from './Archives.svelte';
+  import Tools from './Tools.svelte';
+  import Remote from './Remote.svelte';
 
   const view: OptionsView | null = $derived(projection.view?.window === 'options' ? projection.view.view : null);
 
-  type Page = 'general' | 'types' | 'saveTo' | 'downloads' | 'connection' | 'proxy' | 'logins' | 'sounds';
+  type Page =
+    | 'general'
+    | 'types'
+    | 'saveTo'
+    | 'downloads'
+    | 'connection'
+    | 'proxy'
+    | 'logins'
+    | 'sounds'
+    | 'speed'
+    | 'behavior'
+    | 'browser'
+    | 'archives'
+    | 'tools'
+    | 'remote';
+  // IDM's two rows, and behind them a row of UDM's own pages.
   const rows: { key: Page; label: string }[][] = [
+    [
+      { key: 'speed', label: 'Speed' },
+      { key: 'behavior', label: 'Behavior' },
+      { key: 'browser', label: 'Browser' },
+      { key: 'archives', label: 'Archives' },
+      { key: 'tools', label: 'Tools' },
+      { key: 'remote', label: 'Remote' },
+    ],
     [
       { key: 'proxy', label: 'Proxy / Socks' },
       { key: 'logins', label: 'Sites Logins' },
@@ -38,7 +67,7 @@
   let error = $state('');
   let busy = $state(false);
   // The row holding the open page sits next to the page, as IDM's do.
-  const ordered = $derived(rows[0].some((r) => r.key === page) ? [rows[1], rows[0]] : rows);
+  const ordered = $derived([...rows.filter((r) => !r.some((x) => x.key === page)), ...rows.filter((r) => r.some((x) => x.key === page))]);
   const all = rows.flat();
 
   $effect(() => {
@@ -73,7 +102,7 @@
     <div class="options">
       <div class="tabs" role="tablist">
         {#each ordered as row, r (r)}
-          <div class="tabrow" class:front={r === 1}>
+          <div class="tabrow" class:front={r === ordered.length - 1}>
             {#each row as tab (tab.key)}
               <button
                 id="tab-{tab.key}"
@@ -103,6 +132,18 @@
           <Downloads />
         {:else if page === 'connection'}
           <Connection {view} />
+        {:else if page === 'speed'}
+          <Speed />
+        {:else if page === 'behavior'}
+          <Behavior />
+        {:else if page === 'browser'}
+          <Browser {view} />
+        {:else if page === 'archives'}
+          <Archives />
+        {:else if page === 'tools'}
+          <Tools {view} />
+        {:else if page === 'remote'}
+          <Remote {view} />
         {:else if page === 'proxy'}
           <Proxy />
         {:else if page === 'logins'}

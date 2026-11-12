@@ -47,6 +47,7 @@ pub fn options(lang: &'static Language, e: &crate::options::OptionsError) -> Inv
         E::CategoryName => lang.tr("Type a name for each category.").to_string(),
         E::CategoryTwice(name) => fill(lang.tr("There are two categories named \"{name}\"."), &[("name", name)]),
         E::Theme(name) => fill(lang.tr("\"{name}\" is not a theme."), &[("name", name)]),
+        E::Port => lang.tr("Type a port from 1 to 65535.").to_string(),
     };
     error(ErrorKind::Invalid, message)
 }

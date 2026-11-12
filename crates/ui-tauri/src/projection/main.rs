@@ -437,6 +437,7 @@ mod tests {
             offset: 0,
             today: "2026-11-12".into(),
             now: std::time::Instant::now(),
+            unix: 1_700_000_000,
             downloads: std::path::PathBuf::from("/home/u/Downloads"),
         }
     }

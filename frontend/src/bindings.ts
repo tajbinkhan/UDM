@@ -56,6 +56,34 @@ export const commands = {
 	 *  `None` when the user cancels.
 	 */
 	pickPath: (kind: PickKind, start: string) => __TAURI_INVOKE<string | null>("pick_path", { kind, start }),
+	/**  Install or update a tool: yt-dlp, ffmpeg or gallery-dl. */
+	installTool: (tool: ToolKey) => __TAURI_INVOKE<null>("install_tool", { tool }),
+	/**
+	 *  Ask how remote control stands, as Options' Remote page does while it
+	 *  is open.
+	 */
+	remoteStatus: () => __TAURI_INVOKE<null>("remote_status"),
+	/**  Show a pairing code for a phone (`on`), or withdraw it. */
+	pairPhone: (on: boolean) => __TAURI_INVOKE<null>("pair_phone", { on }),
+	/**  Unpair a phone at once. */
+	removeDevice: (id: Id) => __TAURI_INVOKE<null>("remove_device", { id }),
+	/**  Register UDM with a browser in Options' list, or stop. */
+	setBrowser: (index: number, on: boolean) => __TAURI_INVOKE<null>("set_browser", { index, on }),
+	/**  Add a browser by its program, picked with Browse. */
+	addBrowser: (program: string) => __TAURI_INVOKE<null>("add_browser", { program }),
+	/**  Remove a browser the user added. */
+	removeBrowser: (index: number) => __TAURI_INVOKE<null>("remove_browser", { index }),
+	/**  Close a browser and start it again, so it sees a change. */
+	restartBrowser: (index: number) => __TAURI_INVOKE<null>("restart_browser", { index }),
+	/**  Open the folder theme files go in. */
+	openThemesFolder: () => __TAURI_INVOKE<null>("open_themes_folder"),
+	/**
+	 *  Play the sound of event `index` (download complete, failed, queue
+	 *  started, queue done), from `file` or the system's own.
+	 */
+	playSound: (index: number, file: string) => __TAURI_INVOKE<null>("play_sound", { index, file }),
+	/**  Get System: the system's proxies, as the manual fields take them. */
+	systemProxy: () => __TAURI_INVOKE<SystemProxyView>("system_proxy"),
 	/**  Apply: save a queue's schedule and download count. */
 	saveQueue: (draft: QueueDraft) => __TAURI_INVOKE<null>("save_queue", { draft }),
 	/**  New queue, named `name`. */
@@ -243,6 +271,18 @@ export type BatchView = {
 	connected: boolean,
 };
 
+/**  A browser UDM can be registered with. */
+export type BrowserRowView = {
+	index: number,
+	name: string,
+	/**  For an added browser: its program and whose registration it reads. */
+	detail: string,
+	registered: boolean,
+	/**  The user added it, so it can be removed. */
+	added: boolean,
+	canRestart: boolean,
+};
+
 /**  Which toolbar buttons and menu items work for the selection. */
 export type Can = {
 	resume: boolean,
@@ -352,6 +392,14 @@ export type CssVar = {
 	value: string,
 };
 
+/**  A paired phone. */
+export type DeviceRow = {
+	id: Id,
+	name: string,
+	/**  When it was paired and last seen. */
+	detail: string,
+};
+
 /**  Download complete. */
 export type DoneView = {
 	id: Id,
@@ -416,6 +464,58 @@ export type ExportFormat =
 "ef2" | "text" | "json";
 
 export type ExportScope = "queue" | "selected" | "all";
+
+/**
+ *  The settings UDM has beyond IDM's pages: speed limits, how downloads
+ *  behave, the browser's buttons, archives, tools and remote control.
+ */
+export type ExtrasDraft = {
+	maxConcurrent: number,
+	limitOn: boolean,
+	limitKb: number,
+	limitOnStartup: boolean,
+	perFileOn: boolean,
+	perFileKb: number,
+	limitWhileActive: boolean,
+	idleMinutes: number,
+	notify: NotifyChoice,
+	fileExists: FileExistsChoice,
+	/**  File types started without asking, separated by spaces or commas. */
+	autoStartTypes: string,
+	resumeAtStartup: boolean,
+	serverFileDateCreated: boolean,
+	progressStartTab: StartTabChoice,
+	confirmRemove: boolean,
+	removeDeletesFiles: boolean,
+	/**  The interface size, in percent. */
+	textSize: number,
+	captureMinSizeKb: number,
+	selectionButton: SelectionChoice,
+	selectionSites: string,
+	videoExcludedSites: string,
+	videoMinSizeKb: number,
+	videoAutoTypes: string,
+	socksHttps: boolean,
+	socksFtp: boolean,
+	remoteDns: boolean,
+	proxyBypass: string,
+	browserProxyAfterErrors: boolean,
+	unpackAuto: boolean,
+	unpackTo: UnpackChoice,
+	unpackFolder: string,
+	unpackRecycle: boolean,
+	sevenZipPath: string,
+	ffmpegPath: string,
+	ytdlpAutoUpdate: boolean,
+	remoteEnabled: boolean,
+	remotePort: number,
+	/**  Listen on every network interface. */
+	remoteAll: boolean,
+	/**  The addresses to listen on otherwise, separated by spaces or commas. */
+	remoteAddresses: string,
+};
+
+export type FileExistsChoice = "rename" | "overwrite" | "ask";
 
 /**  The kind of file a row holds, for its icon. */
 export type FileIcon = "archive" | "document" | "music" | "program" | "video" | "image" | "other";
@@ -806,6 +906,8 @@ export type Look = {
 	/**  The language's BCP 47 tag, for the page's `lang`. */
 	language: string,
 	rightToLeft: boolean,
+	/**  The interface size, in percent: every window zooms by it. */
+	zoom: number,
 	/**
 	 *  The translation table: English text to the language's. `t()` falls
 	 *  back to the English for text the table lacks.
@@ -953,6 +1055,8 @@ export type MainView_Serialize = {
 	chrome: MainChrome_Serialize,
 };
 
+export type NotifyChoice = "off" | "toast" | "dialog";
+
 /**  The Options on completion tab's choices. */
 export type OnDoneInput = {
 	dialog: boolean,
@@ -1045,6 +1149,8 @@ export type OptionsDraft_Deserialize = {
 	passiveFtp: boolean,
 	logins: LoginDraft[],
 	sounds: SoundDraft[],
+	/**  What UDM adds to IDM's pages, on pages of its own. */
+	extras: ExtrasDraft,
 };
 
 /**  The settings the Options window edits. */
@@ -1114,6 +1220,8 @@ export type OptionsDraft_Serialize = {
 	passiveFtp: boolean,
 	logins: LoginDraft[],
 	sounds: SoundDraft[],
+	/**  What UDM adds to IDM's pages, on pages of its own. */
+	extras: ExtrasDraft,
 };
 
 /**  The Options window. */
@@ -1131,6 +1239,19 @@ export type OptionsView_Deserialize = {
 	defaultExcludedSites: string,
 	connections: number[],
 	serverConnections: number[],
+	tools: ToolRow[],
+	/**  What the last install said. */
+	toolNote?: Banner | null,
+	/**  `None` until the daemon said how it stands. */
+	remote?: RemoteView_Deserialize | null,
+	/**  `None` while they are read. */
+	browsers?: BrowserRowView[] | null,
+	/**  Which browsers read Chrome's registration. */
+	chromeNote: string,
+	/**  What the last browser change said. */
+	browserNote?: Banner | null,
+	/**  The theme files that give no theme, and why. */
+	themeNotes: string[],
 };
 
 /**  The Options window. */
@@ -1145,6 +1266,19 @@ export type OptionsView_Serialize = {
 	defaultExcludedSites: string,
 	connections: number[],
 	serverConnections: number[],
+	tools: ToolRow[],
+	/**  What the last install said. */
+	toolNote: Banner | null,
+	/**  `None` until the daemon said how it stands. */
+	remote: RemoteView_Serialize | null,
+	/**  `None` while they are read. */
+	browsers: BrowserRowView[] | null,
+	/**  Which browsers read Chrome's registration. */
+	chromeNote: string,
+	/**  What the last browser change said. */
+	browserNote: Banner | null,
+	/**  The theme files that give no theme, and why. */
+	themeNotes: string[],
 };
 
 /**  A package's menu in the categories tree. */
@@ -1158,6 +1292,19 @@ export type PackageMenu = {
 	/**  Open unpacked folder. */
 	opened: boolean,
 	connected: boolean,
+};
+
+/**  A pairing code being shown, with its QR code. */
+export type PairingView = {
+	link: string,
+	code: string,
+	/**  It was used or ran out. */
+	expired: boolean,
+	/**  The QR code's modules row by row, true for dark, `side` a row. */
+	modules: boolean[],
+	side: number,
+	/**  Where to type the code instead. */
+	typeNote: string,
 };
 
 /**  A package's archives want a password. */
@@ -1406,6 +1553,33 @@ export type RefreshView_Serialize = {
 	connected: boolean,
 };
 
+/**  How remote control stands. */
+export type RemoteView = RemoteView_Serialize | RemoteView_Deserialize;
+
+/**  How remote control stands. */
+export type RemoteView_Deserialize = {
+	status: string,
+	/**  The status is why it does not listen. */
+	error: boolean,
+	fingerprint?: string | null,
+	devices: DeviceRow[],
+	pairing?: PairingView | null,
+	/**  It listens, so a phone can pair. */
+	canPair: boolean,
+};
+
+/**  How remote control stands. */
+export type RemoteView_Serialize = {
+	status: string,
+	/**  The status is why it does not listen. */
+	error: boolean,
+	fingerprint: string | null,
+	devices: DeviceRow[],
+	pairing: PairingView | null,
+	/**  It listens, so a phone can pair. */
+	canPair: boolean,
+};
+
 /**  Confirm deletion of downloads. */
 export type RemoveView = {
 	count: number,
@@ -1544,6 +1718,8 @@ export type SegmentView = {
 	info: string,
 };
 
+export type SelectionChoice = "off" | "everywhere" | "sites";
+
 export type ServerLimitDraft = {
 	site: string,
 	max: number,
@@ -1556,6 +1732,14 @@ export type SortDir = "ascending" | "descending";
 export type SoundDraft = {
 	on: boolean,
 	file: string,
+};
+
+export type StartTabChoice = "status" | "speedLimit" | "whenDone";
+
+/**  What Get System found: the four proxies and the addresses without one. */
+export type SystemProxyView = {
+	proxies: ProxyDraft[],
+	bypass: string,
 };
 
 /**
@@ -1573,6 +1757,21 @@ export type Then = "nothing" | "exit" | "sleep" | "hibernate" | "shutDown";
 
 /**  How a row's status reads. */
 export type Tone = "normal" | "running" | "failed";
+
+/**  A tool UDM can install. */
+export type ToolKey = "ytDlp" | "ffmpeg" | "galleryDl";
+
+/**  A tool's row in Options > Tools: where it is, and installing it. */
+export type ToolRow = {
+	tool: ToolKey,
+	status: string,
+	/**  Install or Update, with its name. */
+	action: string,
+	/**  Where the install comes from, or the package manager's command. */
+	hint: string,
+	installable: boolean,
+	busy: boolean,
+};
 
 export type TreeIcon = "allDownloads" | { category: FileIcon } | "unfinished" | "finished" | "grabber" | "queues" | "queue";
 
@@ -1602,6 +1801,14 @@ export type TreeNode_Serialize = {
 	open: boolean | null,
 	selected: boolean,
 };
+
+export type UnpackChoice = 
+/**  A folder named after the package, beside the archives. */
+"subfolder" | 
+/**  The folder the archives are in. */
+"beside" | 
+/**  A folder named after the package, in `unpack_folder`. */
+"folder";
 
 /**
  *  What a window's subscription carries: a whole view first, then the

@@ -21,6 +21,8 @@ pub struct Ctx {
     pub today: String,
     /// Now, for countdowns.
     pub now: std::time::Instant,
+    /// Now, in seconds since 1970, for a pairing code's end.
+    pub unix: u64,
     /// The system's Downloads folder, for default folders.
     pub downloads: std::path::PathBuf,
 }
@@ -36,9 +38,14 @@ pub fn look(state: &AppState) -> Look {
     let lang = language(state);
     let theme = state.settings.as_ref().map(|s| s.theme.clone()).unwrap_or_default();
     Look {
-        theme: crate::theme::theme(&appearance(&theme, None, &[])),
+        theme: crate::theme::theme(&appearance(
+            &theme,
+            state.services.themes.contrast.as_ref(),
+            &state.services.themes.themes,
+        )),
         language: lang.code.to_string(),
         right_to_left: lang.right_to_left(),
+        zoom: state.settings.as_ref().map_or(100, |s| s.text_size),
         text: lang.table().iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
     }
 }
@@ -66,6 +73,10 @@ pub fn view(ctx: &Ctx, state: &AppState, label: &Label) -> Option<View> {
         Label::DropTarget => View::DropTarget(crate::contract::DropView { connected: state.connected() }),
         Label::Grabber => View::Grabber(Box::new(crate::grabber::view(ctx, state))),
         Label::Scheduler => View::Scheduler(crate::scheduler::view(ctx, state)),
-        Label::Options => View::Options(Box::new(crate::options::view(ctx.lang, state.settings.as_ref()?))),
+        Label::Options => {
+            let mut view = crate::options::view(ctx.lang, state.settings.as_ref()?);
+            crate::services::fill_view(ctx, state, &mut view);
+            View::Options(Box::new(view))
+        }
     })
 }

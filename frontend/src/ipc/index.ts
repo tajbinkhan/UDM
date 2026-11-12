@@ -31,9 +31,11 @@ import type {
   PropertiesInput,
   OpenWindow,
   PickInput,
+  ToolKey,
   Update,
 } from './types';
 import { receive } from '../stores/projection.svelte';
+import { zoom } from '../theme';
 
 export type * from './types';
 
@@ -96,7 +98,7 @@ export const setDownloadOnDone = (onDone: OnDoneInput) => commands.setDownloadOn
 /** Fit the window to its content's height, as the progress window does when
  * its details open and close. */
 export async function fitHeight(width: number, height: number): Promise<void> {
-  await getCurrentWindow().setSize(new LogicalSize(width, height));
+  await getCurrentWindow().setSize(new LogicalSize(width * zoom(), height * zoom()));
 }
 export const quitApp = () => commands.quitApp();
 export const saveOptions = (draft: OptionsDraft) => commands.saveOptions(draft);
@@ -123,7 +125,7 @@ export const grabAddOnClose = (on: boolean) => commands.grabAddOnClose(on);
 
 /** Resize this window, as the grabber does between its wizard and results. */
 export async function setWindowSize(width: number, height: number): Promise<void> {
-  await getCurrentWindow().setSize(new LogicalSize(width, height));
+  await getCurrentWindow().setSize(new LogicalSize(width * zoom(), height * zoom()));
 }
 
 /** This window's title, such as the grabber's step. */
@@ -173,3 +175,14 @@ export const addPicks = (input: PickInput) => commands.addPicks(input);
 export const checkUpdate = () => commands.checkUpdate();
 export const installUpdate = () => commands.installUpdate();
 export const dismissRelease = () => commands.dismissRelease();
+export const installTool = (tool: ToolKey) => commands.installTool(tool);
+export const remoteStatus = () => commands.remoteStatus();
+export const pairPhone = (on: boolean) => commands.pairPhone(on);
+export const removeDevice = (id: Id) => commands.removeDevice(id);
+export const setBrowser = (index: number, on: boolean) => commands.setBrowser(index, on);
+export const addBrowser = (program: string) => commands.addBrowser(program);
+export const removeBrowser = (index: number) => commands.removeBrowser(index);
+export const restartBrowser = (index: number) => commands.restartBrowser(index);
+export const openThemesFolder = () => commands.openThemesFolder();
+export const playSound = (index: number, file: string) => commands.playSound(index, file);
+export const systemProxy = () => commands.systemProxy();

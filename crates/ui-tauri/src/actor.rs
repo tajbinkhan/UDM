@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
 use tauri::AppHandle;
 use udm_application::daemon::{Command, DaemonClient, Event};
-use udm_application::window::{GrabLibrary, ListFiles, ListFormat, SystemServices, WindowFiles};
+use udm_application::window::{
+    BrowserRegistry, GrabLibrary, ListFiles, ListFormat, SystemProxy, SystemServices, ThemeFiles, WindowFiles,
+};
 use udm_domain::download::{OnDone, Status};
 use udm_domain::grab::{project_login_target, GrabRequest};
 use udm_domain::id::{DownloadId, QueueId};
@@ -25,6 +27,7 @@ use udm_domain::ports::{Clock, FileOpener, GrabDownloads, SaveFolders, Timestamp
 use udm_domain::settings::Notify;
 
 use crate::contract::{Look, OpenHow, Patch, Update, View};
+use crate::i18n::fill;
 use crate::projection::{self, main, Ctx};
 use crate::state::{apply, AppState, UiMessage};
 use crate::windows::{self, Label};
@@ -226,6 +229,30 @@ pub enum Inbox {
     },
     /// Connect to the daemon again.
     Reconnect,
+    /// A change to the browsers UDM is registered with.
+    Browser(BrowserAction),
+    /// Open the folder theme files go in.
+    OpenThemesFolder,
+    /// Play an event's sound, from `file` or the system's own.
+    PlaySound {
+        sound: udm_domain::settings::Sound,
+        file: String,
+    },
+    /// Read the system's proxy setting for Get System.
+    SystemProxy(Sender<Option<SystemProxy>>),
+}
+
+/// A change Options makes to the browsers, at once.
+#[derive(Debug, Clone)]
+pub enum BrowserAction {
+    /// Register UDM with the browser in row `index`, or stop.
+    Set { index: usize, on: bool },
+    /// Add the browser at `program`, registered.
+    Add { program: String },
+    /// Remove the browser the user added in row `index`.
+    Remove { index: usize },
+    /// Close the browser in row `index` and start it again.
+    Restart { index: usize },
 }
 
 /// The actor's mailbox, as the commands hold it (a managed type).
@@ -250,6 +277,10 @@ pub struct Ports {
     pub folders: Arc<dyn SaveFolders>,
     /// The window's own files: its layout.
     pub window_files: Arc<dyn WindowFiles>,
+    /// Registering UDM with the browsers.
+    pub browsers: Arc<dyn BrowserRegistry>,
+    /// The theme files.
+    pub themes: Arc<dyn ThemeFiles>,
     pub language: CurrentLanguage,
     pub daemon: Arc<dyn DaemonClient>,
     pub clock: Arc<dyn Clock>,
@@ -307,6 +338,7 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
         apply(&mut actor.state, UiMessage::LayoutRead(Box::new(file)));
         actor.layout = crate::layout::bytes(&actor.state);
         actor.connect();
+        actor.watch_themes();
         actor.run(rx);
     });
     if let Err(e) = spawned {
@@ -502,6 +534,115 @@ impl Actor {
         }
     }
 
+    /// Read the theme files and the system's contrast colors every two
+    /// seconds on a thread, as the egui window does, so a new or changed
+    /// file shows; sends them when they change.
+    fn watch_themes(&self) {
+        let (outbox, files, system) =
+            (self.outbox.clone(), Arc::clone(&self.ports.themes), Arc::clone(&self.ports.system));
+        let spawned = thread::Builder::new().name("udm-themes".into()).spawn(move || {
+            let mut last = None;
+            loop {
+                let read = udm_application::themes::ReadThemes::new(&*files, &*system).run();
+                if last.as_ref() != Some(&read) {
+                    last = Some(read.clone());
+                    if outbox.send(Inbox::Ui(UiMessage::ThemesRead(Box::new(read)))).is_err() {
+                        return;
+                    }
+                }
+                thread::sleep(Duration::from_secs(2));
+            }
+        });
+        if let Err(e) = spawned {
+            tracing::warn!(error = %e, "the theme files are not watched");
+        }
+    }
+
+    /// Read the browsers on a worker, with the ones the user added.
+    fn read_browsers(&mut self) {
+        let added = self.state.settings.as_ref().map(|s| s.added_browsers.clone()).unwrap_or_default();
+        let (outbox, registry) = (self.outbox.clone(), Arc::clone(&self.ports.browsers));
+        thread::spawn(move || {
+            let read = read_browsers(&*registry, &added);
+            let _ = outbox.send(Inbox::Ui(UiMessage::BrowsersRead(Some(Box::new(read)))));
+        });
+    }
+
+    /// A browser change, on a worker; the list is read again after it.
+    fn browser_action(&mut self, action: BrowserAction) {
+        let lang = self.lang();
+        let Some(rows) = self.state.services.browsers.as_ref().map(|b| b.rows.clone()) else { return };
+        let Some(mut settings) = self.state.settings.clone() else { return };
+        let (outbox, registry) = (self.outbox.clone(), Arc::clone(&self.ports.browsers));
+        apply(&mut self.state, UiMessage::BrowserNote(None));
+        thread::spawn(move || {
+            let note = |text: String, error: bool| {
+                let _ = outbox.send(Inbox::Ui(UiMessage::BrowserNote(Some(contract::Banner { text, error }))));
+            };
+            match action {
+                BrowserAction::Set { index, on } => {
+                    if let Some(row) = rows.get(index) {
+                        if let Err(e) = registry.set_registered(&row.browser, on) {
+                            note(crate::errors::files(&e).message, true);
+                        }
+                    }
+                }
+                BrowserAction::Add { program } => match registry.identify(std::path::Path::new(&program)) {
+                    None => note(
+                        fill(
+                            lang.tr("UDM cannot tell what browser {program} is. Pick the program of a browser built on Chromium (such as Chrome, Edge, Brave, Vivaldi, Opera or Yandex) or on Firefox."),
+                            &[("program", &program)],
+                        ),
+                        true,
+                    ),
+                    Some(target) => {
+                        if !settings.added_browsers.iter().any(|a| a.program == program) {
+                            let name = registry.display_name(std::path::Path::new(&program));
+                            settings.added_browsers.push(udm_domain::settings::AddedBrowser { name, program });
+                            let command = Command::SetSettings { settings: settings.clone() };
+                            let _ = outbox.send(Inbox::Send { command: Box::new(command), reply: None });
+                        }
+                        if let Err(e) = registry.set_registered(&target.browser, true) {
+                            note(crate::errors::files(&e).message, true);
+                        }
+                    }
+                },
+                BrowserAction::Remove { index } => {
+                    if let Some(row) = rows.get(index).filter(|r| r.added.is_some()) {
+                        let program = row.added.as_ref().map(|a| a.program.clone()).unwrap_or_default();
+                        settings.added_browsers.retain(|a| a.program != program);
+                        let command = Command::SetSettings { settings: settings.clone() };
+                        let _ = outbox.send(Inbox::Send { command: Box::new(command), reply: None });
+                        // Its place stays registered while another row reads it.
+                        let shared = rows.iter().enumerate().any(|(i, r)| i != index && r.browser.same_place(&row.browser));
+                        if !shared {
+                            if let Err(e) = registry.set_registered(&row.browser, false) {
+                                note(crate::errors::files(&e).message, true);
+                            }
+                        }
+                    }
+                }
+                BrowserAction::Restart { index } => {
+                    if let Some(row) = rows.get(index) {
+                        let program = row.added.as_ref().map(|a| std::path::PathBuf::from(&a.program));
+                        match registry.restart(&row.browser, program.as_deref()) {
+                            Ok(()) => note(fill(lang.tr("{browser} was restarted."), &[("browser", &row.name)]), false),
+                            Err(e) => note(
+                                fill(
+                                    lang.tr("Could not restart {browser}: {error}"),
+                                    &[("browser", &row.name), ("error", &crate::errors::files(&e).message)],
+                                ),
+                                true,
+                            ),
+                        }
+                    }
+                }
+            }
+            let read = read_browsers(&*registry, &settings.added_browsers);
+            let _ = outbox.send(Inbox::Ui(UiMessage::BrowsersRead(Some(Box::new(read)))));
+        });
+    }
+
     /// Read the projects folder on a worker.
     fn read_library(&self) {
         let outbox = self.outbox.clone();
@@ -663,6 +804,12 @@ impl Actor {
             }
             Inbox::Subscribe { label, channel } => {
                 tracing::info!(window = %label, "window subscribed");
+                // Options shows the tools, remote control and the browsers.
+                if label == Label::Options {
+                    self.send(Command::ListTools);
+                    self.send(Command::RemoteStatus);
+                    self.read_browsers();
+                }
                 self.subscribers.insert(label, Subscriber { channel, seq: 0, last: None, look: None });
             }
             Inbox::Closed(text) => {
@@ -684,6 +831,10 @@ impl Actor {
                 }
                 if label == Label::PickLinks {
                     self.send(Command::StopProbeLinks);
+                }
+                // Closing Options withdraws a pairing code it showed.
+                if label == Label::Options && self.state.services.remote.as_ref().is_some_and(|r| r.pairing.is_some()) {
+                    self.send(Command::CancelPairing);
                 }
                 // Closing Download File Info without answering cancels the
                 // download, as its Cancel button does.
@@ -778,6 +929,27 @@ impl Actor {
                 if let Err(e) = windows::open(&self.app, label, self.lang()) {
                     tracing::warn!(window = %label, error = %e, "a window did not open");
                 }
+            }
+            Inbox::Browser(action) => self.browser_action(action),
+            Inbox::OpenThemesFolder => {
+                let (themes, opener) = (Arc::clone(&self.ports.themes), Arc::clone(&self.ports.opener));
+                thread::spawn(move || match themes.open_folder() {
+                    Ok(folder) => opener.open(&folder.display().to_string()),
+                    Err(e) => tracing::warn!(error = %e, "the themes folder did not open"),
+                });
+            }
+            Inbox::PlaySound { sound, file } => {
+                let system = Arc::clone(&self.ports.system);
+                thread::spawn(move || {
+                    let file = Some(file.trim()).filter(|f| !f.is_empty()).map(std::path::PathBuf::from);
+                    system.play(sound, file.as_deref());
+                });
+            }
+            Inbox::SystemProxy(reply) => {
+                let system = Arc::clone(&self.ports.system);
+                thread::spawn(move || {
+                    let _ = reply.send(system.fixed_proxy());
+                });
             }
             Inbox::SaveOptions { draft, reply } => {
                 let lang = self.lang();
@@ -1064,11 +1236,13 @@ impl Actor {
             offset: self.offset(),
             today,
             now: Instant::now(),
+            unix: self.ports.times.unix_now(),
             downloads: self.downloads.clone(),
         };
         let index = crate::i18n::LANGUAGES.iter().position(|l| l.code == ctx.lang.code).unwrap_or(0);
         self.ports.language.store(index, Ordering::Relaxed);
         let look = projection::look(&self.state);
+        crate::windows::set_zoom(look.zoom);
         let mut gone = Vec::new();
         let mut titles = Vec::new();
         for (label, sub) in &mut self.subscribers {
@@ -1128,4 +1302,38 @@ fn read(library: &dyn GrabLibrary) -> crate::grabber::Library {
         filters: library.filters(),
         recent: library.recent(),
     }
+}
+
+/// The browsers UDM knows, then the ones the user added that it can tell.
+/// Reads the disk: for workers.
+fn read_browsers(
+    registry: &dyn BrowserRegistry,
+    added: &[udm_domain::settings::AddedBrowser],
+) -> crate::services::BrowsersRead {
+    let mut rows: Vec<crate::services::BrowserRow> = registry
+        .known()
+        .into_iter()
+        .map(|(browser, registered)| crate::services::BrowserRow {
+            name: browser.name.clone(),
+            can_restart: registry.can_restart(&browser, None),
+            browser,
+            added: None,
+            known: true,
+            registered,
+        })
+        .collect();
+    for a in added {
+        let program = std::path::Path::new(&a.program);
+        if let Some(target) = registry.identify(program) {
+            rows.push(crate::services::BrowserRow {
+                registered: registry.registered(&target.browser),
+                can_restart: registry.can_restart(&target.browser, Some(program)),
+                browser: target.browser,
+                name: a.name.clone(),
+                added: Some(a.clone()),
+                known: target.known,
+            });
+        }
+    }
+    crate::services::BrowsersRead { rows, chrome_readers: registry.chrome_readers() }
 }

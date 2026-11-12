@@ -18,9 +18,15 @@ function paint(): void {
   root.dataset.scheme = scheme;
   root.lang = current.language;
   root.dir = current.rightToLeft ? 'rtl' : 'ltr';
+  root.style.zoom = current.zoom === 100 ? '' : `${current.zoom}%`;
 }
 
 dark.addEventListener('change', paint);
+
+/** The interface size as a factor, for windows that size themselves. */
+export function zoom(): number {
+  return (current?.zoom ?? 100) / 100;
+}
 
 /** Apply the look the shell sent. */
 export function applyLook(look: Look | null): void {

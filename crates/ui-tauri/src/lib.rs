@@ -23,6 +23,7 @@ mod layout;
 mod options;
 mod projection;
 mod scheduler;
+mod services;
 mod state;
 #[cfg(test)]
 mod testing;
@@ -37,7 +38,9 @@ use std::sync::Arc;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 use udm_application::daemon::DaemonClient;
-use udm_application::window::{FilePicker, GrabLibrary, ListFiles, SystemServices, WindowFiles};
+use udm_application::window::{
+    BrowserRegistry, FilePicker, GrabLibrary, ListFiles, SystemServices, ThemeFiles, WindowFiles,
+};
 use udm_domain::ports::{Clock, FileOpener, GrabDownloads, SaveFolders, Timestamps};
 
 pub use errors::UiError;
@@ -67,6 +70,10 @@ pub struct Start {
     pub folders: Arc<dyn SaveFolders>,
     /// The window's own files: its layout, shared with the egui window.
     pub window_files: Arc<dyn WindowFiles>,
+    /// Registering UDM with the browsers, for Options.
+    pub browsers: Arc<dyn BrowserRegistry>,
+    /// The theme files, for the custom themes.
+    pub themes: Arc<dyn ThemeFiles>,
     /// Start in the tray, without showing the main window.
     pub minimized: bool,
 }
@@ -88,6 +95,8 @@ pub fn run(start: Start) -> Result<(), UiError> {
         lists,
         folders,
         window_files,
+        browsers,
+        themes,
         minimized,
     } = start;
     let app = tauri::Builder::default()
@@ -105,6 +114,8 @@ pub fn run(start: Start) -> Result<(), UiError> {
                 lists: Arc::clone(&lists),
                 window_files,
                 folders,
+                browsers,
+                themes,
                 language: Arc::clone(&language),
                 daemon,
                 clock,

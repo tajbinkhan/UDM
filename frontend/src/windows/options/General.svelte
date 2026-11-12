@@ -1,6 +1,7 @@
 <!-- Options > General: starting with the system, the tray, the clipboard,
      the browsers' keys, menus and download panels, the theme and language. -->
 <script lang="ts">
+  import { openThemesFolder } from '../../ipc';
   import type { KeysDraft, OptionsView } from '../../ipc/types';
   import { t } from '../../i18n';
   import Sheet from '../../components/Sheet.svelte';
@@ -65,14 +66,20 @@
   <div class="opt-rule"></div>
   <div class="grid">
     <label for="theme">{t('Theme')}</label>
-    <select id="theme" class="select" bind:value={d.theme}>
-      {#each view.themes as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
-    </select>
+    <div class="row">
+      <select id="theme" class="select grow" bind:value={d.theme}>
+        {#each view.themes as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
+      </select>
+      <button class="btn" title={t('A .theme file put there is listed here within seconds')} onclick={() => void openThemesFolder()}
+        >{t('Open themes folder')}</button
+      >
+    </div>
     <label for="language">{t('Language')}</label>
     <select id="language" class="select" bind:value={d.language}>
       {#each view.languages as c (c.value)}<option value={c.value}>{c.label}</option>{/each}
     </select>
   </div>
+  {#each view.themeNotes as note, i (i)}<p class="error-text">{note}</p>{/each}
 </div>
 
 {#if sheet === 'keys' && keys}

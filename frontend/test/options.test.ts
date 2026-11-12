@@ -40,3 +40,36 @@ describe('the Options window', () => {
     expect(draft.logins).toContainEqual({ site: 'files.example.com', user: 'me', password: 'pw', stored: false });
   });
 });
+
+describe("Options' own pages", () => {
+  it('the speed and behavior pages reach the draft', async () => {
+    const calls = shell('options', 'options');
+    render(Options);
+    await fireEvent.click(screen.getByRole('tab', { name: 'Speed' }));
+    await fireEvent.input(screen.getByLabelText('Downloads at once'), { target: { value: '5' } });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Behavior' }));
+    await fireEvent.click(screen.getByLabelText('Show nothing'));
+    await fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    const draft = sent(calls, 'save_options').at(-1)?.args.draft as { doneDialog: boolean; extras: { maxConcurrent: number; notify: string } };
+    expect(draft.extras.maxConcurrent).toBe(5);
+    expect(draft.extras.notify).toBe('off');
+    expect(draft.doneDialog).toBe(false);
+  });
+
+  it('the tools install, the browsers register and a phone pairs', async () => {
+    const calls = shell('options', 'options');
+    render(Options);
+    await fireEvent.click(screen.getByRole('tab', { name: 'Tools' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Install gallery-dl' }));
+    expect(sent(calls, 'install_tool').at(-1)?.args).toEqual({ tool: 'galleryDl' });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Browser' }));
+    await fireEvent.click(screen.getByLabelText('Firefox'));
+    expect(sent(calls, 'set_browser').at(-1)?.args).toEqual({ index: 1, on: true });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Remote' }));
+    expect(screen.getByRole('img', { name: 'QR code for pairing a phone' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(sent(calls, 'remove_device').at(-1)?.args).toEqual({ id: 1 });
+    await fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(sent(calls, 'pair_phone').at(-1)?.args).toEqual({ on: false });
+  });
+});

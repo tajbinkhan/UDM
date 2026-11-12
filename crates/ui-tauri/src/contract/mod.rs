@@ -55,6 +55,8 @@ pub struct Look {
     /// The language's BCP 47 tag, for the page's `lang`.
     pub language: String,
     pub right_to_left: bool,
+    /// The interface size, in percent: every window zooms by it.
+    pub zoom: u32,
     /// The translation table: English text to the language's. `t()` falls
     /// back to the English for text the table lacks.
     pub text: BTreeMap<String, String>,

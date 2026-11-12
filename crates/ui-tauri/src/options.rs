@@ -10,11 +10,14 @@ use udm_domain::settings::{
 };
 use udm_domain::theme::ThemeName;
 
+use crate::contract::SystemProxyView;
 use crate::contract::{
-    CategoryDraft, Choice, DuplicateChoice, KeysDraft, LoginDraft, OptionsDraft, OptionsView, ProxyChoice, ProxyDraft,
-    ServerLimitDraft, SoundDraft, VideoTypeDraft,
+    CategoryDraft, Choice, DuplicateChoice, ExtrasDraft, FileExistsChoice, KeysDraft, LoginDraft, NotifyChoice,
+    OptionsDraft, OptionsView, ProxyChoice, ProxyDraft, SelectionChoice, ServerLimitDraft, SoundDraft, StartTabChoice,
+    UnpackChoice, VideoTypeDraft,
 };
 use crate::i18n::{Language, LANGUAGES};
+use udm_domain::settings::{FileExists, ProgressTab, SelectionButton, UnpackTo};
 
 /// Why the window's settings cannot be saved.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -27,6 +30,8 @@ pub enum OptionsError {
     CategoryTwice(String),
     #[error("\"{0}\" is not a theme.")]
     Theme(String),
+    #[error("Type a port from 1 to 65535.")]
+    Port,
 }
 
 fn keys(k: CaptureKey) -> KeysDraft {
@@ -97,6 +102,30 @@ fn theme_of(key: &str) -> Result<Theme, OptionsError> {
             _ => return Err(OptionsError::Theme(other.to_string())),
         },
     })
+}
+
+/// What Get System says when the system sets no proxy.
+pub const NO_SYSTEM_PROXY: &str = if cfg!(windows) {
+    "Windows has no proxy server turned on."
+} else {
+    "No proxy is set in http_proxy, https_proxy or all_proxy."
+};
+
+/// The system's proxies as Get System fills them in: HTTP, HTTPS, FTP and
+/// SOCKS, each on when the system names one, and the addresses that go
+/// without. `None` when the system sets no proxy.
+pub fn system_proxy(found: Option<&udm_application::window::SystemProxy>) -> Option<SystemProxyView> {
+    let p = found?;
+    let draft = |address: Option<&String>| {
+        let text = address.map(|a| a.split_once("://").map_or(a.as_str(), |(_, rest)| rest)).unwrap_or_default();
+        let (host, port) = split_address(text);
+        ProxyDraft { on: !host.is_empty(), host, port, user: String::new(), password: String::new() }
+    };
+    let proxies = vec![draft(p.http.as_ref()), draft(p.https.as_ref()), draft(p.ftp.as_ref()), draft(p.socks.as_ref())];
+    if proxies.iter().all(|d| !d.on) {
+        return None;
+    }
+    Some(SystemProxyView { proxies, bypass: p.bypass.join("; ") })
 }
 
 /// The draft the window starts from.
@@ -230,7 +259,158 @@ pub fn draft(s: &Settings) -> OptionsDraft {
             SoundDraft { on: s.sound_on_queue_started, file: s.sound_queue_started_file.clone() },
             SoundDraft { on: s.sound_on_queue_done, file: s.sound_queue_file.clone() },
         ],
+        extras: extras(s),
     }
+}
+
+fn kb(n: u64) -> u32 {
+    n.min(u64::from(u32::MAX)) as u32
+}
+
+fn extras(s: &Settings) -> ExtrasDraft {
+    ExtrasDraft {
+        max_concurrent: s.max_concurrent as u32,
+        limit_on: s.speed_limit_enabled,
+        limit_kb: kb(s.speed_limit_kbps),
+        limit_on_startup: s.speed_limit_on_startup,
+        per_file_on: s.speed_limit_per_file_kbps.is_some(),
+        per_file_kb: kb(s.speed_limit_per_file_kbps.unwrap_or(s.speed_limit_kbps.max(1))),
+        limit_while_active: s.speed_limit_only_while_active,
+        idle_minutes: s.speed_limit_idle_minutes,
+        notify: match s.notify {
+            Notify::Off => NotifyChoice::Off,
+            Notify::Toast => NotifyChoice::Toast,
+            Notify::Dialog => NotifyChoice::Dialog,
+        },
+        file_exists: match s.file_exists {
+            FileExists::Rename => FileExistsChoice::Rename,
+            FileExists::Overwrite => FileExistsChoice::Overwrite,
+            FileExists::Ask => FileExistsChoice::Ask,
+        },
+        auto_start_types: s.auto_start_types.join(", "),
+        resume_at_startup: s.resume_at_startup,
+        server_file_date_created: s.server_file_date_created,
+        progress_start_tab: match s.progress_start_tab {
+            ProgressTab::Status => StartTabChoice::Status,
+            ProgressTab::SpeedLimit => StartTabChoice::SpeedLimit,
+            ProgressTab::WhenDone => StartTabChoice::WhenDone,
+        },
+        confirm_remove: s.confirm_remove,
+        remove_deletes_files: s.remove_deletes_files,
+        text_size: s.text_size,
+        capture_min_size_kb: kb(s.capture_min_size_kb),
+        selection_button: match s.selection_button {
+            SelectionButton::Off => SelectionChoice::Off,
+            SelectionButton::Everywhere => SelectionChoice::Everywhere,
+            SelectionButton::Sites => SelectionChoice::Sites,
+        },
+        selection_sites: s.selection_button_sites.join("\n"),
+        video_excluded_sites: s.video_button_excluded_sites.join("\n"),
+        video_min_size_kb: kb(s.video_min_size_kb),
+        video_auto_types: s.video_auto_types.join(", "),
+        socks_https: s.proxy_socks_https,
+        socks_ftp: s.proxy_socks_ftp,
+        remote_dns: s.proxy_remote_dns,
+        proxy_bypass: s.proxy_bypass.clone(),
+        browser_proxy_after_errors: s.browser_proxy_after_errors,
+        unpack_auto: s.unpack_auto,
+        unpack_to: match s.unpack_to {
+            UnpackTo::Subfolder => UnpackChoice::Subfolder,
+            UnpackTo::Beside => UnpackChoice::Beside,
+            UnpackTo::Folder => UnpackChoice::Folder,
+        },
+        unpack_folder: s.unpack_folder.clone(),
+        unpack_recycle: s.unpack_recycle,
+        seven_zip_path: s.seven_zip_path.clone(),
+        ffmpeg_path: s.ffmpeg_path.clone(),
+        ytdlp_auto_update: s.ytdlp_auto_update,
+        remote_enabled: s.remote_enabled,
+        remote_port: u32::from(s.remote_port),
+        remote_all: s.remote_addresses.is_empty(),
+        remote_addresses: s.remote_addresses.join(", "),
+    }
+}
+
+/// The extras' values on `s`.
+fn apply_extras(e: &ExtrasDraft, done_dialog: bool, current: &Settings, s: &mut Settings) -> Result<(), OptionsError> {
+    s.max_concurrent = e.max_concurrent as usize;
+    s.speed_limit_enabled = e.limit_on;
+    s.speed_limit_kbps = u64::from(e.limit_kb);
+    s.speed_limit_on_startup = e.limit_on_startup;
+    s.speed_limit_per_file_kbps = e.per_file_on.then_some(u64::from(e.per_file_kb));
+    s.speed_limit_only_while_active = e.limit_while_active;
+    s.speed_limit_idle_minutes = e.idle_minutes;
+    // Downloads' "Show download complete dialog" and the notification
+    // choice set one setting: the one the user changed wins.
+    let notify = match e.notify {
+        NotifyChoice::Off => Notify::Off,
+        NotifyChoice::Toast => Notify::Toast,
+        NotifyChoice::Dialog => Notify::Dialog,
+    };
+    s.notify = if notify != current.notify {
+        notify
+    } else {
+        match (done_dialog, current.notify) {
+            (true, _) => Notify::Dialog,
+            (false, Notify::Dialog) => Notify::Toast,
+            (false, other) => other,
+        }
+    };
+    s.file_exists = match e.file_exists {
+        FileExistsChoice::Rename => FileExists::Rename,
+        FileExistsChoice::Overwrite => FileExists::Overwrite,
+        FileExistsChoice::Ask => FileExists::Ask,
+    };
+    s.auto_start_types = parse_extensions(&e.auto_start_types);
+    s.resume_at_startup = e.resume_at_startup;
+    s.server_file_date_created = e.server_file_date_created;
+    s.progress_start_tab = match e.progress_start_tab {
+        StartTabChoice::Status => ProgressTab::Status,
+        StartTabChoice::SpeedLimit => ProgressTab::SpeedLimit,
+        StartTabChoice::WhenDone => ProgressTab::WhenDone,
+    };
+    s.confirm_remove = e.confirm_remove;
+    s.remove_deletes_files = e.remove_deletes_files;
+    s.text_size = e.text_size;
+    s.capture_min_size_kb = u64::from(e.capture_min_size_kb);
+    s.selection_button = match e.selection_button {
+        SelectionChoice::Off => SelectionButton::Off,
+        SelectionChoice::Everywhere => SelectionButton::Everywhere,
+        SelectionChoice::Sites => SelectionButton::Sites,
+    };
+    s.selection_button_sites = sites(&e.selection_sites);
+    s.video_button_excluded_sites = sites(&e.video_excluded_sites);
+    s.video_min_size_kb = u64::from(e.video_min_size_kb);
+    s.video_auto_types = parse_extensions(&e.video_auto_types);
+    s.proxy_socks_https = e.socks_https;
+    s.proxy_socks_ftp = e.socks_ftp;
+    s.proxy_remote_dns = e.remote_dns;
+    s.proxy_bypass = e.proxy_bypass.trim().to_string();
+    s.browser_proxy_after_errors = e.browser_proxy_after_errors;
+    s.unpack_auto = e.unpack_auto;
+    s.unpack_to = match e.unpack_to {
+        UnpackChoice::Subfolder => UnpackTo::Subfolder,
+        UnpackChoice::Beside => UnpackTo::Beside,
+        UnpackChoice::Folder => UnpackTo::Folder,
+    };
+    s.unpack_folder = e.unpack_folder.trim().to_string();
+    s.unpack_recycle = e.unpack_recycle;
+    s.seven_zip_path = e.seven_zip_path.trim().to_string();
+    s.ffmpeg_path = e.ffmpeg_path.trim().to_string();
+    s.ytdlp_auto_update = e.ytdlp_auto_update;
+    s.remote_enabled = e.remote_enabled;
+    s.remote_port = u16::try_from(e.remote_port).map_err(|_| OptionsError::Port)?;
+    s.remote_addresses = if e.remote_all {
+        Vec::new()
+    } else {
+        e.remote_addresses
+            .split([',', ' ', ';', '\n'])
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    Ok(())
 }
 
 /// The Options window's view.
@@ -259,6 +439,13 @@ pub fn view(lang: &'static Language, s: &Settings) -> OptionsView {
         default_excluded_sites: words(&Settings::default().capture_excluded_sites),
         connections: span(CONNECTIONS_RANGE),
         server_connections: span(SERVER_CONNECTIONS_RANGE),
+        tools: Vec::new(),
+        tool_note: None,
+        remote: None,
+        browsers: None,
+        chrome_note: String::new(),
+        browser_note: None,
+        theme_notes: Vec::new(),
     }
 }
 
@@ -330,11 +517,6 @@ pub fn settings(d: &OptionsDraft, current: &Settings) -> Result<Settings, Option
     s.temp_dir = optional(&d.temp_dir);
     s.ask_where_to_save = d.ask_where_to_save;
     s.add_only = d.add_only;
-    s.notify = match (d.done_dialog, current.notify) {
-        (true, _) => Notify::Dialog,
-        (false, Notify::Dialog) => Notify::Toast,
-        (false, other) => other,
-    };
     s.start_while_asking = d.start_while_asking;
     s.later_queue = match (d.later_panel, current.later_queue) {
         (true, _) => None,
@@ -433,6 +615,7 @@ pub fn settings(d: &OptionsDraft, current: &Settings) -> Result<Settings, Option
     s.sound_queue_started_file = started.file.trim().to_string();
     s.sound_on_queue_done = finished.on;
     s.sound_queue_file = finished.file.trim().to_string();
+    apply_extras(&d.extras, d.done_dialog, current, &mut s)?;
     s.validate()?;
     Ok(s)
 }
@@ -475,6 +658,42 @@ mod tests {
     }
 
     #[test]
+    fn the_extras_reach_the_settings() {
+        let s = Settings::default();
+        let mut d = draft(&s);
+        d.extras.max_concurrent = 5;
+        d.extras.per_file_on = true;
+        d.extras.per_file_kb = 200;
+        d.extras.notify = NotifyChoice::Off;
+        d.extras.auto_start_types = "EXE, msi".into();
+        d.extras.unpack_to = UnpackChoice::Folder;
+        d.extras.unpack_folder = " /tmp/u ".into();
+        d.extras.remote_all = false;
+        d.extras.remote_addresses = "192.168.1.5, 10.0.0.2".into();
+        let out = settings(&d, &s).unwrap();
+        assert_eq!(out.max_concurrent, 5);
+        assert_eq!(out.speed_limit_per_file_kbps, Some(200));
+        assert_eq!(out.notify, Notify::Off);
+        assert_eq!(out.auto_start_types, ["exe", "msi"]);
+        assert_eq!((out.unpack_to, out.unpack_folder.as_str()), (UnpackTo::Folder, "/tmp/u"));
+        assert_eq!(out.remote_addresses, ["192.168.1.5", "10.0.0.2"]);
+        d.extras.remote_port = 70_000;
+        assert_eq!(settings(&d, &s), Err(OptionsError::Port));
+    }
+
+    #[test]
+    fn the_done_dialog_and_the_notification_agree() {
+        let s = Settings::default();
+        let mut d = draft(&s);
+        d.done_dialog = true;
+        assert_eq!(settings(&d, &s).unwrap().notify, Notify::Dialog);
+        let s = Settings { notify: Notify::Dialog, ..Settings::default() };
+        let mut d = draft(&s);
+        d.extras.notify = NotifyChoice::Off;
+        assert_eq!(settings(&d, &s).unwrap().notify, Notify::Off);
+    }
+
+    #[test]
     fn categories_keep_their_last_folder_when_renamed() {
         let mut s = Settings::default();
         s.categories[0].remember_folder = true;
@@ -495,6 +714,23 @@ mod tests {
         d.proxy_mode = ProxyChoice::Script;
         d.pac_url = "not a url".into();
         assert_eq!(settings(&d, &s), Err(OptionsError::Invalid(InvalidSettings::ScriptNotWeb)));
+    }
+
+    #[test]
+    fn get_system_fills_the_proxies() {
+        let found = udm_application::window::SystemProxy {
+            http: Some("proxy.lan:3128".into()),
+            https: None,
+            socks: Some("socks5://s.lan:1080".into()),
+            ftp: None,
+            bypass: vec!["<local>".into(), "*.lan".into()],
+        };
+        let v = system_proxy(Some(&found)).unwrap();
+        assert_eq!((v.proxies[0].host.as_str(), v.proxies[0].port.as_str()), ("proxy.lan", "3128"));
+        assert!(!v.proxies[1].on);
+        assert_eq!(v.proxies[3].host, "s.lan");
+        assert_eq!(v.bypass, "<local>; *.lan");
+        assert!(system_proxy(None).is_none());
     }
 
     #[test]
