@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UDM – Free IDM Alternative for Windows, Mac and Linux</title>
+  <meta name="description" content="UDM is a free, open-source download manager that works like IDM on Windows, macOS and Linux: 16 connections per file, resume, browser capture and video.">
+  <link rel="canonical" href="https://tajbinkhan.github.io/UDM/">
+  <link rel="icon" type="image/png" href="icon-256.png">
+  <link rel="apple-touch-icon" href="icon-256.png">
+  <meta name="theme-color" content="#2a78d6">
+  <meta name="color-scheme" content="light dark">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="UDM">
+  <meta property="og:title" content="UDM – Free IDM Alternative for Windows, Mac and Linux">
+  <meta property="og:description" content="The download manager you know from IDM. On Windows, macOS and Linux. Free and open source.">
+  <meta property="og:url" content="https://tajbinkhan.github.io/UDM/">
+  <meta property="og:image" content="https://tajbinkhan.github.io/UDM/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="UDM's logo beside the words: The download manager you know from IDM, on Windows, macOS and Linux, free">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="stylesheet" href="style.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "UDM (Unified Download Manager)",
+    "alternateName": "Unified Download Manager",
+    "description": "A free, open-source download manager for Windows, macOS and Linux that works like Internet Download Manager: up to 16 connections per file, resume after interruptions, capture from Chrome, Edge, Firefox and other browsers, and HLS, DASH and YouTube video downloads.",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows 10, Windows 11, macOS 11 or later, Linux",
+    "url": "https://tajbinkhan.github.io/UDM/",
+    "downloadUrl": "https://github.com/tajbinkhan/UDM/releases/latest",
+    "image": "https://tajbinkhan.github.io/UDM/social-preview.png",
+    "license": "https://opensource.org/licenses/MIT",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "Tajbin Khan", "url": "https://github.com/tajbinkhan" },
+    "codeRepository": "https://github.com/tajbinkhan/UDM",
+    "programmingLanguage": "Rust"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is UDM free?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. UDM is free and open source under the MIT License. There is no trial, no serial number, no account and no ads." }
+      },
+      {
+        "@type": "Question",
+        "name": "Is there an IDM alternative for Mac and Linux?",
+        "acceptedAnswer": { "@type": "Answer", "text": "UDM works the way Internet Download Manager does, with the same save-as dialog, categories, queues, scheduler and download windows, and it runs on Windows, macOS (Apple Silicon and Intel) and Linux." }
+      },
+      {
+        "@type": "Question",
+        "name": "Which browsers does UDM work with?",
+        "acceptedAnswer": { "@type": "Answer", "text": "UDM's extension catches downloads from Chrome, Edge, Brave, Vivaldi, Opera and Firefox, with their cookies and referrer, so files behind a sign-in work too." }
+      },
+      {
+        "@type": "Question",
+        "name": "Can UDM download videos?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. It downloads HLS, DASH and HDS streams in the quality you pick and joins them into one file with ffmpeg, and it reads YouTube, Facebook, Instagram and Vimeo pages with yt-dlp." }
+      },
+      {
+        "@type": "Question",
+        "name": "Does a download resume after a crash or restart?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. UDM resumes after a crash, a restart or a dropped connection without starting over, and its downloads keep going after the browser is closed." }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the content</a>
+
+  <header class="top">
+    <nav class="wrap nav" aria-label="Site">
+      <a class="brand" href="./"><img src="icon-256.png" alt="" width="32" height="32"> UDM</a>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#compare">UDM and IDM</a></li>
+        <li><a href="#faq">FAQ</a></li>
+        <li><a href="https://github.com/tajbinkhan/UDM">GitHub</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap">
+      <img class="logo" src="icon-256.png" alt="UDM's logo: a globe with a ring and a green download arrow" width="144" height="144">
+      <h1>The free download manager that works like IDM, on Windows, macOS and Linux</h1>
+      <p class="lead">UDM (Unified Download Manager) fetches each file over up to 16 connections, resumes
+        after interruptions, catches downloads from your browser and saves streamed videos as one file.
+        Open source, with no ads, no trial and no sign-up.</p>
+      <p class="actions">
+        <a class="button primary" href="https://github.com/tajbinkhan/UDM/releases/latest">Download UDM</a>
+        <a class="button" href="https://github.com/tajbinkhan/UDM">View the source</a>
+      </p>
+      <p class="small">Windows 10 and 11 · macOS 11 or later (Apple Silicon and Intel) · Linux (Ubuntu, Debian, Mint, Fedora, openSUSE and more)</p>
+    </section>
+
+    <section id="features" class="wrap">
+      <h2>What UDM does</h2>
+      <div class="grid">
+        <article>
+          <h3>Faster downloads</h3>
+          <p>Each file is fetched in parts over up to 16 connections at once, or as streams of one
+            connection when the server speaks HTTP/2. FTP works too.</p>
+        </article>
+        <article>
+          <h3>Resume anything</h3>
+          <p>Downloads pick up after a crash, a restart or a dropped connection. <b>New link</b> gives
+            an expired download a fresh address and carries on.</p>
+        </article>
+        <article>
+          <h3>Browser capture</h3>
+          <p>The extension hands downloads from Chrome, Edge, Brave, Vivaldi, Opera and Firefox to
+            UDM with their cookies, so files behind a sign-in work.</p>
+        </article>
+        <article>
+          <h3>Video downloader</h3>
+          <p>HLS, DASH and HDS streams in the quality you pick, with audio tracks and subtitles, joined
+            into one file. YouTube, Vimeo and more through yt-dlp.</p>
+        </article>
+        <article>
+          <h3>Queues and scheduler</h3>
+          <p>Download overnight: queues start on a schedule, can wake the computer, and put it to
+            sleep or shut it down when they're done.</p>
+        </article>
+        <article>
+          <h3>Many files at once</h3>
+          <p>Numbered patterns like <code>photo[001-120].jpg</code>, pasted lists, every link on a page,
+            or a site grabber that crawls a site for the files you want.</p>
+        </article>
+        <article>
+          <h3>Keeps going</h3>
+          <p>A background program owns the downloads, so they continue after you close the browser and
+            the window.</p>
+        </article>
+        <article>
+          <h3>Scripts and AI assistants</h3>
+          <p>IDM's command-line switches, a <code>udm-cli</code> tool, a versioned automation API, and an
+            MCP server for Claude, Cursor and VS Code.</p>
+        </article>
+        <article>
+          <h3>Speed limits and proxies</h3>
+          <p>Limit all downloads or one, set a quota, and work through system, PAC, HTTP, HTTPS and
+            SOCKS proxies with site logins.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="compare" class="wrap">
+      <h2>UDM and Internet Download Manager</h2>
+      <p>Nothing new to learn: the browser hands its downloads over, a save-as dialog asks where they
+        go, and the categories, queues, scheduler and download windows are where you expect them.</p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th scope="col"></th><th scope="col">UDM</th><th scope="col">IDM</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Windows</th><td><b>Yes</b></td><td>Yes</td></tr>
+            <tr><th scope="row">macOS and Linux</th><td><b>Yes</b></td><td>No</td></tr>
+            <tr><th scope="row">Price</th><td><b>Free, forever</b></td><td>Paid, after a 30-day trial</td></tr>
+            <tr><th scope="row">Sign-up or serial number</th><td><b>None</b></td><td>Registration needed</td></tr>
+            <tr><th scope="row">Open source</th><td><b>Yes (MIT)</b></td><td>No</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>On a local test server that misbehaves on purpose, UDM finished a 64 MiB file sooner than
+        IDM 6.43 in all eight scenarios on one Windows machine.
+        <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/bench/README.md">How it was measured</a>.</p>
+    </section>
+
+    <section id="download" class="wrap">
+      <h2>Download</h2>
+      <p>Every release is on the <a href="https://github.com/tajbinkhan/UDM/releases/latest">Releases page</a>:
+        a Windows installer and portable zip, a macOS disk image, and Linux <code>.deb</code>,
+        <code>.rpm</code>, AppImage and <code>.tar.gz</code> files. Then add the browser extension once
+        (<a href="https://github.com/tajbinkhan/UDM/blob/main/docs/install.md">install guide</a>).</p>
+      <p class="actions"><a class="button primary" href="https://github.com/tajbinkhan/UDM/releases/latest">Get the latest release</a></p>
+    </section>
+
+    <section id="faq" class="wrap">
+      <h2>Questions</h2>
+      <details>
+        <summary>Is UDM free?</summary>
+        <p>Yes. UDM is free and open source under the MIT License. There is no trial, no serial
+          number, no account and no ads.</p>
+      </details>
+      <details>
+        <summary>Is there an IDM alternative for Mac and Linux?</summary>
+        <p>UDM works the way Internet Download Manager does, with the same save-as dialog,
+          categories, queues, scheduler and download windows, and it runs on Windows, macOS (Apple
+          Silicon and Intel) and Linux.</p>
+      </details>
+      <details>
+        <summary>Which browsers does UDM work with?</summary>
+        <p>UDM's extension catches downloads from Chrome, Edge, Brave, Vivaldi, Opera and Firefox,
+          with their cookies and referrer, so files behind a sign-in work too.</p>
+      </details>
+      <details>
+        <summary>Can UDM download videos?</summary>
+        <p>Yes. It downloads HLS, DASH and HDS streams in the quality you pick and joins them into
+          one file with ffmpeg, and it reads YouTube, Facebook, Instagram and Vimeo pages with yt-dlp.</p>
+      </details>
+      <details>
+        <summary>Does a download resume after a crash or restart?</summary>
+        <p>Yes. UDM resumes after a crash, a restart or a dropped connection without starting over,
+          and its downloads keep going after the browser is closed.</p>
+      </details>
+      <p>More in the <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/README.md">help pages</a>
+        and the <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/known-gaps.md">known gaps</a>.</p>
+    </section>
+  </main>
+
+  <footer class="wrap foot">
+    <p>UDM is free software under the <a href="https://github.com/tajbinkhan/UDM/blob/main/LICENSE">MIT License</a>.
+      <a href="https://github.com/tajbinkhan/UDM/issues">Report a bug or ask for a feature</a>.</p>
+    <p class="small">UDM isn't affiliated with, endorsed by or connected to Tonec Inc. "Internet Download
+      Manager" and "IDM" are names of their owner, used here only to describe the program UDM works like.</p>
+  </footer>
+</body>
+</html>

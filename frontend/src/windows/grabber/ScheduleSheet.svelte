@@ -22,7 +22,7 @@
     oncancel: () => void;
   } = $props();
   // The sheet edits a copy of what it opened with.
-  let s = $state(untrack(() => structuredClone(start)));
+  let s = $state(untrack(() => structuredClone($state.snapshot(start))));
   const days: { day: number; label: string }[] = [
     { day: 6, label: 'Sunday' },
     { day: 0, label: 'Monday' },

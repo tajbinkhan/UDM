@@ -134,6 +134,8 @@ pub struct AppState {
     pub tip_seen: bool,
     /// What the daemon asks of the window beyond the list.
     pub asks: crate::extras::Asks,
+    /// What Options shows beyond the settings.
+    pub services: crate::services::Services,
 }
 
 impl Default for AppState {
@@ -168,6 +170,7 @@ impl Default for AppState {
             layout_rest: serde_json::Map::new(),
             tip_seen: false,
             asks: crate::extras::Asks::default(),
+            services: crate::services::Services::default(),
         }
     }
 }
@@ -246,6 +249,14 @@ pub enum UiMessage {
     /// The update check, or Install now, began.
     UpdateChecking,
     Installing,
+    /// Installing a tool began.
+    ToolInstalling(udm_domain::tools::Tool),
+    /// The browsers a worker read; `None` while they are read again.
+    BrowsersRead(Option<Box<crate::services::BrowsersRead>>),
+    /// What a browser change said.
+    BrowserNote(Option<crate::contract::Banner>),
+    /// The theme files and the system's contrast colors.
+    ThemesRead(Box<udm_application::themes::ThemesRead>),
 }
 
 impl AppState {
@@ -395,6 +406,15 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
             state.asks.update = None;
         }
         UiMessage::Installing => state.asks.installing = Some(None),
+        UiMessage::ToolInstalling(tool) => {
+            if !state.services.tool_busy.contains(&tool) {
+                state.services.tool_busy.push(tool);
+            }
+            state.services.tool_done = None;
+        }
+        UiMessage::BrowsersRead(read) => state.services.browsers = read.map(|r| *r),
+        UiMessage::BrowserNote(note) => state.services.browser_note = note,
+        UiMessage::ThemesRead(read) => state.services.themes = *read,
         UiMessage::Columns(columns) => {
             if !columns.is_empty() {
                 state.columns = columns;
@@ -406,6 +426,7 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
 fn apply_event(state: &mut AppState, event: Event, at: Instant, unix: u64) {
     daemon::apply(&mut state.table, &event, unix);
     crate::extras::take(state, &event, at);
+    crate::services::take(state, &event);
     match event {
         Event::Connected => {
             state.link = Link::Connected;

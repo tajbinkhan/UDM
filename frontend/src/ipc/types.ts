@@ -4,6 +4,18 @@ import type * as B from '../bindings';
 
 export type {
   AboutView,
+  ToolKey,
+  ToolRow,
+  DeviceRow,
+  PairingView,
+  BrowserRowView,
+  SystemProxyView,
+  ExtrasDraft,
+  NotifyChoice,
+  FileExistsChoice,
+  StartTabChoice,
+  SelectionChoice,
+  UnpackChoice,
   LoginView,
   CountdownView,
   PasswordView,
@@ -97,3 +109,4 @@ export type CategoryDraft = B.CategoryDraft_Deserialize;
 export type GrabberView = B.GrabberView_Deserialize;
 export type RefreshView = B.RefreshView_Deserialize;
 export type GalleryView = B.GalleryView_Deserialize;
+export type RemoteView = B.RemoteView_Deserialize;

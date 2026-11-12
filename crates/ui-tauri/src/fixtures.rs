@@ -115,6 +115,7 @@ fn fixtures() -> serde_json::Value {
         offset: 0,
         today: "2026-11-12".into(),
         now: std::time::Instant::now(),
+        unix: 1_700_000_000,
         downloads: std::path::PathBuf::from("/home/u/Downloads"),
     };
     let dark = projection::look(&s);
@@ -124,6 +125,66 @@ fn fixtures() -> serde_json::Value {
     let light = projection::look(&s);
     apply(&mut s, UiMessage::Select(vec![DownloadId::new(2), DownloadId::new(4)]));
     apply(&mut s, UiMessage::AskRemove);
+    // What Options shows beyond the settings: the tools, a paired phone
+    // and a pairing code, and the browsers.
+    if let Some(settings) = s.settings.as_mut() {
+        settings.remote_enabled = true;
+    }
+    let tool = |tool, path: Option<&str>, installed: Option<&str>| udm_domain::tools::ToolState {
+        tool,
+        path: path.map(Into::into),
+        installed: installed.map(Into::into),
+        installable: true,
+        command: String::new(),
+    };
+    let tools = vec![
+        tool(udm_domain::tools::Tool::YtDlp, Some("/home/u/.local/share/UDM/tools/yt-dlp"), Some("2026.11.01")),
+        tool(udm_domain::tools::Tool::Ffmpeg, Some("/usr/bin/ffmpeg"), None),
+        tool(udm_domain::tools::Tool::GalleryDl, None, None),
+    ];
+    let at = Instant::now();
+    let event = Event::Tools { tools, done: None, error: None };
+    apply(&mut s, UiMessage::Daemon { event: Box::new(event), at, unix: 0 });
+    let code = udm_domain::pairing::PairingCode::from_random(&[7; udm_domain::pairing::RANDOM_BYTES]);
+    let remote = udm_domain::pairing::RemoteState {
+        listener: udm_domain::pairing::ListenerState {
+            listening: vec!["0.0.0.0:8765".into()],
+            page: Some("https://192.168.1.5:8765/".into()),
+            fault: None,
+            fingerprint: Some("AB:CD:EF:01:23:45:67:89".into()),
+        },
+        devices: vec![udm_domain::pairing::DeviceInfo {
+            id: udm_domain::id::DeviceId::new(1),
+            name: udm_domain::pairing::DeviceName::clean("Pixel 8"),
+            paired_at: 1_699_900_000,
+            last_seen: Some(1_699_990_000),
+        }],
+        pairing: Some(udm_domain::pairing::PairingOffer {
+            link: "https://192.168.1.5:8765/#pair".into(),
+            code,
+            expires_at: 1_700_000_300,
+        }),
+    };
+    apply(&mut s, UiMessage::Daemon { event: Box::new(Event::Remote { state: remote }), at, unix: 0 });
+    let slot =
+        |name: &str, place: &str| udm_application::window::BrowserSlot { name: name.into(), place: place.into() };
+    let row = |name: &str, registered: bool, added: Option<&str>| crate::services::BrowserRow {
+        browser: slot(if added.is_some() { "Chromium" } else { name }, name),
+        name: name.into(),
+        added: added.map(|p| udm_domain::settings::AddedBrowser { name: name.into(), program: p.into() }),
+        known: added.is_none(),
+        registered,
+        can_restart: true,
+    };
+    let browsers = crate::services::BrowsersRead {
+        rows: vec![
+            row("Google Chrome", true, None),
+            row("Firefox", false, None),
+            row("Thorium", true, Some("/opt/thorium/thorium")),
+        ],
+        chrome_readers: vec!["Brave".into()],
+    };
+    apply(&mut s, UiMessage::BrowsersRead(Some(Box::new(browsers))));
     let view = |label: Label| serde_json::to_value(projection::view(&ctx, &s, &label)).unwrap();
     // The Download complete dialog is drawn from a finished download.
     let mut finished = s.table.get(DownloadId::new(17)).cloned().unwrap();

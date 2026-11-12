@@ -1,6 +1,6 @@
 <!-- Options > Sounds: a sound for each of UDM's events. -->
 <script lang="ts">
-  import { messageOf, pickPath } from '../../ipc';
+  import { messageOf, pickPath, playSound } from '../../ipc';
   import { t } from '../../i18n';
   import ListBox from '../../components/ListBox.svelte';
   import { editing } from './draft.svelte';
@@ -49,6 +49,7 @@
   <div class="row buttons">
     <button class="btn" disabled={picked < 0} onclick={() => void browse()}>{t('Browse...')}</button>
     <button class="btn" disabled={picked < 0 || !d.sounds[picked]?.file} onclick={() => picked >= 0 && (d.sounds[picked].file = '')}>{t('Default')}</button>
+    <button class="btn" disabled={picked < 0} onclick={() => picked >= 0 && void playSound(picked, d.sounds[picked].file)}>{t('Play')}</button>
   </div>
   {#if error}<p class="error-text" role="alert">{error}</p>{/if}
 </fieldset>

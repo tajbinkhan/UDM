@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tajbinkhan.github.io/UDM/sitemap.xml

@@ -94,6 +94,9 @@ fn vars(look: &Look) -> Vec<CssVar> {
         ("tint-purple", if dark { Color::rgb(0xb3, 0x9d, 0xfa) } else { Color::rgb(0x7c, 0x3a, 0xed) }),
         ("tint-red", p.error),
         ("tint-folder", if dark { Color::rgb(0xe8, 0xc0, 0x5a) } else { Color::rgb(0xd9, 0xa4, 0x2b) }),
+        // A QR code reads only dark on light, whatever the look.
+        ("qr-dark", Color::rgb(0, 0, 0)),
+        ("qr-light", Color::rgb(0xff, 0xff, 0xff)),
     ];
     let mut out: Vec<CssVar> =
         colors.iter().map(|(name, c)| CssVar { name: format!("--{name}"), value: c.to_string() }).collect();

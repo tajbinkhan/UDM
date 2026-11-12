@@ -30,6 +30,9 @@ serde.workspace = true
 serde_json.workspace = true
 # A picked link's file name, decoded from its address.
 percent-encoding.workspace = true
+# The QR code that pairs a phone with remote control: pure computation, as
+# the egui window uses it (AGENTS.md section 3).
+qrcode = { version = "0.14", default-features = false }
 # The frontend's unexpected errors go to udm-gui.log (AGENTS.md section 11).
 tracing.workspace = true
 # The window itself (ADR 0002). `tray-icon` for the tray, `image-png` for its

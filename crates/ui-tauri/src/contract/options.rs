@@ -8,6 +8,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use super::Id;
+
 /// A value and what a list shows for it.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -30,6 +32,19 @@ pub struct OptionsView {
     pub default_excluded_sites: String,
     pub connections: Vec<u32>,
     pub server_connections: Vec<u32>,
+    pub tools: Vec<ToolRow>,
+    /// What the last install said.
+    pub tool_note: Option<super::Banner>,
+    /// `None` until the daemon said how it stands.
+    pub remote: Option<RemoteView>,
+    /// `None` while they are read.
+    pub browsers: Option<Vec<BrowserRowView>>,
+    /// Which browsers read Chrome's registration.
+    pub chrome_note: String,
+    /// What the last browser change said.
+    pub browser_note: Option<super::Banner>,
+    /// The theme files that give no theme, and why.
+    pub theme_notes: Vec<String>,
 }
 
 /// Keys held while clicking a link.
@@ -197,6 +212,192 @@ pub struct OptionsDraft {
     pub logins: Vec<LoginDraft>,
     // Sounds: download complete, failed, queue started, queue done.
     pub sounds: Vec<SoundDraft>,
+    /// What UDM adds to IDM's pages, on pages of its own.
+    pub extras: ExtrasDraft,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NotifyChoice {
+    Off,
+    Toast,
+    Dialog,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FileExistsChoice {
+    Rename,
+    Overwrite,
+    Ask,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum StartTabChoice {
+    Status,
+    SpeedLimit,
+    WhenDone,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum SelectionChoice {
+    Off,
+    Everywhere,
+    Sites,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum UnpackChoice {
+    /// A folder named after the package, beside the archives.
+    Subfolder,
+    /// The folder the archives are in.
+    Beside,
+    /// A folder named after the package, in `unpack_folder`.
+    Folder,
+}
+
+/// The settings UDM has beyond IDM's pages: speed limits, how downloads
+/// behave, the browser's buttons, archives, tools and remote control.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtrasDraft {
+    // Speed.
+    pub max_concurrent: u32,
+    pub limit_on: bool,
+    pub limit_kb: u32,
+    pub limit_on_startup: bool,
+    pub per_file_on: bool,
+    pub per_file_kb: u32,
+    pub limit_while_active: bool,
+    pub idle_minutes: u32,
+    // Behavior.
+    pub notify: NotifyChoice,
+    pub file_exists: FileExistsChoice,
+    /// File types started without asking, separated by spaces or commas.
+    pub auto_start_types: String,
+    pub resume_at_startup: bool,
+    pub server_file_date_created: bool,
+    pub progress_start_tab: StartTabChoice,
+    pub confirm_remove: bool,
+    pub remove_deletes_files: bool,
+    /// The interface size, in percent.
+    pub text_size: u32,
+    // Browser.
+    pub capture_min_size_kb: u32,
+    pub selection_button: SelectionChoice,
+    pub selection_sites: String,
+    pub video_excluded_sites: String,
+    pub video_min_size_kb: u32,
+    pub video_auto_types: String,
+    // Proxy, advanced.
+    pub socks_https: bool,
+    pub socks_ftp: bool,
+    pub remote_dns: bool,
+    pub proxy_bypass: String,
+    pub browser_proxy_after_errors: bool,
+    // Archives.
+    pub unpack_auto: bool,
+    pub unpack_to: UnpackChoice,
+    pub unpack_folder: String,
+    pub unpack_recycle: bool,
+    pub seven_zip_path: String,
+    // Tools.
+    pub ffmpeg_path: String,
+    pub ytdlp_auto_update: bool,
+    // Remote control.
+    pub remote_enabled: bool,
+    pub remote_port: u32,
+    /// Listen on every network interface.
+    pub remote_all: bool,
+    /// The addresses to listen on otherwise, separated by spaces or commas.
+    pub remote_addresses: String,
+}
+
+/// A tool UDM can install.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolKey {
+    YtDlp,
+    Ffmpeg,
+    GalleryDl,
+}
+
+/// A tool's row in Options > Tools: where it is, and installing it.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolRow {
+    pub tool: ToolKey,
+    pub status: String,
+    /// Install or Update, with its name.
+    pub action: String,
+    /// Where the install comes from, or the package manager's command.
+    pub hint: String,
+    pub installable: bool,
+    pub busy: bool,
+}
+
+/// A paired phone.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceRow {
+    pub id: Id,
+    pub name: String,
+    /// When it was paired and last seen.
+    pub detail: String,
+}
+
+/// A pairing code being shown, with its QR code.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PairingView {
+    pub link: String,
+    pub code: String,
+    /// It was used or ran out.
+    pub expired: bool,
+    /// The QR code's modules row by row, true for dark, `side` a row.
+    pub modules: Vec<bool>,
+    pub side: u32,
+    /// Where to type the code instead.
+    pub type_note: String,
+}
+
+/// How remote control stands.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteView {
+    pub status: String,
+    /// The status is why it does not listen.
+    pub error: bool,
+    pub fingerprint: Option<String>,
+    pub devices: Vec<DeviceRow>,
+    pub pairing: Option<PairingView>,
+    /// It listens, so a phone can pair.
+    pub can_pair: bool,
+}
+
+/// A browser UDM can be registered with.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserRowView {
+    pub index: u32,
+    pub name: String,
+    /// For an added browser: its program and whose registration it reads.
+    pub detail: String,
+    pub registered: bool,
+    /// The user added it, so it can be removed.
+    pub added: bool,
+    pub can_restart: bool,
+}
+
+/// What Get System found: the four proxies and the addresses without one.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemProxyView {
+    pub proxies: Vec<ProxyDraft>,
+    pub bypass: String,
 }
 
 /// What a Browse button picks.

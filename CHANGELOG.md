@@ -8,7 +8,7 @@ first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
 A preview of UDM's next window, built with Tauri (ADR 0002), comes as `udm-gui-next` beside the
 current one. It has the main window, Add URL, Download File Info, the download progress window,
-Download complete, Confirm deletion, About, Options, the Scheduler, the site grabber, batch downloads, import and export, Find, file properties, the drop target, the list's font, a customizable toolbar and the tip of the day, the login prompt, the countdown before the computer sleeps or shuts down, New link, package passwords and the Packages list, the browser's links, videos and galleries to pick from, and the update check, laid out like Internet Download Manager's, in a
+Download complete, Confirm deletion, About, Options, the Scheduler, the site grabber, batch downloads, import and export, Find, file properties, the drop target, the list's font, a customizable toolbar and the tip of the day, the login prompt, the countdown before the computer sleeps or shuts down, New link, package passwords and the Packages list, the browser's links, videos and galleries to pick from, the update check, and Options' own pages for the speed limit, downloads' behavior, the browsers, archives, tools, remote control and custom themes, laid out like Internet Download Manager's, in a
 light and a dark look that follow the Theme setting (or the system's mode). The other windows
 still open in `udm-gui`.
 

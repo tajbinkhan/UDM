@@ -238,6 +238,16 @@ fn stays_in_app(url: &tauri::Url) -> bool {
     }
 }
 
+/// The interface size windows open at, in percent. The actor sets it from
+/// the settings each time it publishes; a window opened before the first
+/// settings arrive opens at 100%.
+static ZOOM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+
+/// Open later windows at this interface size, in percent.
+pub fn set_zoom(percent: u32) {
+    ZOOM.store(percent, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Open the window `label`, or bring it forward when it is open.
 pub fn open(app: &AppHandle, label: Label, lang: &'static Language) -> Result<WebviewWindow, tauri::Error> {
     if let Some(w) = app.get_webview_window(&label.to_string()) {
@@ -246,7 +256,9 @@ pub fn open(app: &AppHandle, label: Label, lang: &'static Language) -> Result<We
         let _ = w.set_focus();
         return Ok(w);
     }
+    let zoom = f64::from(ZOOM.load(std::sync::atomic::Ordering::Relaxed).clamp(50, 400)) / 100.0;
     let (width, height) = label.size();
+    let (width, height) = (width * zoom, height * zoom);
     let main = matches!(
         label,
         Label::Main | Label::Grabber | Label::Links | Label::PickLinks | Label::PickVideos | Label::Gallery

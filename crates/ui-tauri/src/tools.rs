@@ -465,6 +465,7 @@ mod tests {
             offset: 0,
             today: String::new(),
             now: std::time::Instant::now(),
+            unix: 1_700_000_000,
             downloads: std::path::PathBuf::from("/home/u/Downloads"),
         };
         let mut choices = column_choices(&ctx, &s);
