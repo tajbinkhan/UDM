@@ -23,7 +23,7 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cargo build --release --locked -p udm-app \
+    cargo build --release --locked -p udm-app --no-default-features \
       --bin udm-daemon --bin udm-cli --bin udm-mcp \
  && mkdir -p /out \
  && cp target/release/udm-daemon target/release/udm-cli target/release/udm-mcp /out/

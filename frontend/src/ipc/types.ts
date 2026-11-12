@@ -1,0 +1,87 @@
+// The contract's types as the webview receives them (AGENTS.md section 7.2).
+// Components import types from here, never from bindings.ts.
+import type * as B from '../bindings';
+
+export type {
+  AboutView,
+  Choice,
+  DuplicateChoice,
+  KeysDraft,
+  LoginDraft,
+  PickKind,
+  QueueDraft,
+  GrabDraft,
+  GrabScheduleDraft,
+  GrabRun,
+  BatchInput,
+  BatchPreview,
+  BatchView,
+  CategoryInput,
+  ColumnChoice,
+  DropView,
+  DuplicateView,
+  ExportFormat,
+  ExportScope,
+  FindInput,
+  LimiterDraft,
+  LinkRow,
+  LinksView,
+  PropertiesInput,
+  PropertiesView,
+  GrabRow,
+  GrabStats,
+  GrabPhase,
+  FilterChoice,
+  FilterInput,
+  GrabOpened,
+  SaveChoice,
+  SizeUnit,
+  QueueFiles,
+  QueueRow,
+  QuotaDraft,
+  SchedulerView,
+  ProxyChoice,
+  ProxyDraft,
+  ServerLimitDraft,
+  SoundDraft,
+  VideoTypeDraft,
+  AddUrlView,
+  AnswerInput,
+  Banner,
+  Can,
+  ColumnKey,
+  DoneView,
+  DownloadControl,
+  DownloadView,
+  FileIcon,
+  Id,
+  InvokeError,
+  LimitInput,
+  ListAction,
+  Look,
+  OnDoneInput,
+  OpenHow,
+  OpenWindow,
+  QueueItem,
+  RemoveView,
+  SaveAsView,
+  SegmentView,
+  SortDir,
+  Then,
+  Tone,
+  TreeIcon,
+} from '../bindings';
+
+export type Update = B.Update_Deserialize;
+export type View = B.View_Deserialize;
+export type Patch = B.Patch_Deserialize;
+export type MainView = B.MainView_Deserialize;
+export type MainPatch = B.MainPatch_Deserialize;
+export type MainChrome = B.MainChrome_Deserialize;
+export type Row = B.Row_Deserialize;
+export type ColumnHead = B.ColumnHead_Deserialize;
+export type TreeNode = B.TreeNode_Deserialize;
+export type OptionsView = B.OptionsView_Deserialize;
+export type OptionsDraft = B.OptionsDraft_Deserialize;
+export type CategoryDraft = B.CategoryDraft_Deserialize;
+export type GrabberView = B.GrabberView_Deserialize;

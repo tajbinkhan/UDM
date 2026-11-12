@@ -52,7 +52,24 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libssl-dev libxkbcommon-x11-0 libayatana-appindicator3-1
+          sudo apt-get install -y libgtk-3-dev libssl-dev libxkbcommon-x11-0 libayatana-appindicator3-1 libayatana-appindicator3-dev libwebkit2gtk-4.1-dev librsvg2-dev build-essential
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      # AGENTS.md section 13: the shell embeds the built frontend, so it is
+      # built before Cargo runs.
+      - name: Build the frontend
+        run: |
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend build
 
       # rustfmt.toml holds the settings. Run cargo fmt before committing.
       - name: Check formatting
@@ -69,10 +86,11 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked
 
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Check the frontend
+        run: |
+          pnpm --dir frontend check
+          pnpm --dir frontend lint
+          pnpm --dir frontend test
 
       - name: Test the extension
         run: node --test extension/test/*.test.js

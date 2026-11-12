@@ -46,6 +46,23 @@ jobs:
           $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
           if ("v$version" -ne "${{ github.ref_name }}") { throw "The tag ${{ github.ref_name }} does not match version $version in Cargo.toml" }
 
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      # AGENTS.md section 13: the shell embeds the built frontend, so it is
+      # built before Cargo runs.
+      - name: Build the frontend
+        run: |
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend build
+
       - name: Build
         run: cargo build --release --locked
 
@@ -115,6 +132,18 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      # AGENTS.md section 13: the shell embeds the built frontend, so it is
+      # built before Cargo runs.
+      - name: Build the frontend
+        run: |
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend build
+
       - name: Build the disk image
         run: installer/macos/package.sh
 
@@ -142,12 +171,24 @@ jobs:
       - name: Install the build tools and libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libssl-dev rpm
+          sudo apt-get install -y libgtk-3-dev libssl-dev rpm libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 
       - name: Install Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      # AGENTS.md section 13: the shell embeds the built frontend, so it is
+      # built before Cargo runs.
+      - name: Build the frontend
+        run: |
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir frontend build
 
       - name: Build the packages
         run: installer/linux/package.sh

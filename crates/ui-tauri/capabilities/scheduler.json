@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "scheduler",
+  "description": "Scheduler: the queues, their schedules and downloads, and the download limits.",
+  "windows": ["scheduler"],
+  "permissions": [
+    "allow-subscribe",
+    "allow-report-frontend-error",
+    "allow-close-window",
+    "allow-pick-path",
+    "allow-save-queue",
+    "allow-create-queue",
+    "allow-delete-queue",
+    "allow-control-queue",
+    "allow-move-queued",
+    "allow-remove-queued",
+    "allow-save-quota"
+  ]
+}

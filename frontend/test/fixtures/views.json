@@ -1,0 +1,2572 @@
+{
+  "look": {
+    "dark": {
+      "language": "en",
+      "rightToLeft": false,
+      "text": {},
+      "theme": {
+        "dark": [
+          {
+            "name": "--fg",
+            "value": "#fafafa"
+          },
+          {
+            "name": "--fg-muted",
+            "value": "#a6a6a6"
+          },
+          {
+            "name": "--fg-disabled",
+            "value": "#69696b"
+          },
+          {
+            "name": "--face",
+            "value": "#39393b"
+          },
+          {
+            "name": "--bar",
+            "value": "#202022"
+          },
+          {
+            "name": "--field",
+            "value": "#19191b"
+          },
+          {
+            "name": "--input-bg",
+            "value": "#222a36"
+          },
+          {
+            "name": "--input-border",
+            "value": "#eeeeee"
+          },
+          {
+            "name": "--header",
+            "value": "#19191b"
+          },
+          {
+            "name": "--list",
+            "value": "#39393b"
+          },
+          {
+            "name": "--tree",
+            "value": "#202022"
+          },
+          {
+            "name": "--frame",
+            "value": "#828283"
+          },
+          {
+            "name": "--scroll-track",
+            "value": "#161618"
+          },
+          {
+            "name": "--grid",
+            "value": "#545455"
+          },
+          {
+            "name": "--border",
+            "value": "#545455"
+          },
+          {
+            "name": "--button",
+            "value": "#343436"
+          },
+          {
+            "name": "--button-border",
+            "value": "#8e8e8e"
+          },
+          {
+            "name": "--button-hover",
+            "value": "#484849"
+          },
+          {
+            "name": "--button-pressed",
+            "value": "#565657"
+          },
+          {
+            "name": "--default-border",
+            "value": "#fafafa"
+          },
+          {
+            "name": "--hover",
+            "value": "#484849"
+          },
+          {
+            "name": "--selected",
+            "value": "#4b7bb7"
+          },
+          {
+            "name": "--selected-fg",
+            "value": "#fafafa"
+          },
+          {
+            "name": "--selected-blur",
+            "value": "#4c4c4e"
+          },
+          {
+            "name": "--menu",
+            "value": "#28282a"
+          },
+          {
+            "name": "--menu-hover",
+            "value": "#484849"
+          },
+          {
+            "name": "--focus",
+            "value": "#60a5fa"
+          },
+          {
+            "name": "--progress",
+            "value": "#06b025"
+          },
+          {
+            "name": "--progress-track",
+            "value": "#e2e2e2"
+          },
+          {
+            "name": "--segment",
+            "value": "#60a5fa"
+          },
+          {
+            "name": "--link",
+            "value": "#60a5fa"
+          },
+          {
+            "name": "--error",
+            "value": "#f87171"
+          },
+          {
+            "name": "--warning",
+            "value": "#fbbf24"
+          },
+          {
+            "name": "--shadow",
+            "value": "#00000060"
+          },
+          {
+            "name": "--tint-green",
+            "value": "#4ac26b"
+          },
+          {
+            "name": "--tint-blue",
+            "value": "#60a5fa"
+          },
+          {
+            "name": "--tint-purple",
+            "value": "#b39dfa"
+          },
+          {
+            "name": "--tint-red",
+            "value": "#f87171"
+          },
+          {
+            "name": "--tint-folder",
+            "value": "#e8c05a"
+          },
+          {
+            "name": "--text",
+            "value": "12px"
+          },
+          {
+            "name": "--control-height",
+            "value": "20px"
+          },
+          {
+            "name": "--radius",
+            "value": "2px"
+          },
+          {
+            "name": "--border-width",
+            "value": "1px"
+          },
+          {
+            "name": "--scheme",
+            "value": "dark"
+          }
+        ],
+        "followSystem": false,
+        "light": [
+          {
+            "name": "--fg",
+            "value": "#fafafa"
+          },
+          {
+            "name": "--fg-muted",
+            "value": "#a6a6a6"
+          },
+          {
+            "name": "--fg-disabled",
+            "value": "#69696b"
+          },
+          {
+            "name": "--face",
+            "value": "#39393b"
+          },
+          {
+            "name": "--bar",
+            "value": "#202022"
+          },
+          {
+            "name": "--field",
+            "value": "#19191b"
+          },
+          {
+            "name": "--input-bg",
+            "value": "#222a36"
+          },
+          {
+            "name": "--input-border",
+            "value": "#eeeeee"
+          },
+          {
+            "name": "--header",
+            "value": "#19191b"
+          },
+          {
+            "name": "--list",
+            "value": "#39393b"
+          },
+          {
+            "name": "--tree",
+            "value": "#202022"
+          },
+          {
+            "name": "--frame",
+            "value": "#828283"
+          },
+          {
+            "name": "--scroll-track",
+            "value": "#161618"
+          },
+          {
+            "name": "--grid",
+            "value": "#545455"
+          },
+          {
+            "name": "--border",
+            "value": "#545455"
+          },
+          {
+            "name": "--button",
+            "value": "#343436"
+          },
+          {
+            "name": "--button-border",
+            "value": "#8e8e8e"
+          },
+          {
+            "name": "--button-hover",
+            "value": "#484849"
+          },
+          {
+            "name": "--button-pressed",
+            "value": "#565657"
+          },
+          {
+            "name": "--default-border",
+            "value": "#fafafa"
+          },
+          {
+            "name": "--hover",
+            "value": "#484849"
+          },
+          {
+            "name": "--selected",
+            "value": "#4b7bb7"
+          },
+          {
+            "name": "--selected-fg",
+            "value": "#fafafa"
+          },
+          {
+            "name": "--selected-blur",
+            "value": "#4c4c4e"
+          },
+          {
+            "name": "--menu",
+            "value": "#28282a"
+          },
+          {
+            "name": "--menu-hover",
+            "value": "#484849"
+          },
+          {
+            "name": "--focus",
+            "value": "#60a5fa"
+          },
+          {
+            "name": "--progress",
+            "value": "#06b025"
+          },
+          {
+            "name": "--progress-track",
+            "value": "#e2e2e2"
+          },
+          {
+            "name": "--segment",
+            "value": "#60a5fa"
+          },
+          {
+            "name": "--link",
+            "value": "#60a5fa"
+          },
+          {
+            "name": "--error",
+            "value": "#f87171"
+          },
+          {
+            "name": "--warning",
+            "value": "#fbbf24"
+          },
+          {
+            "name": "--shadow",
+            "value": "#00000060"
+          },
+          {
+            "name": "--tint-green",
+            "value": "#4ac26b"
+          },
+          {
+            "name": "--tint-blue",
+            "value": "#60a5fa"
+          },
+          {
+            "name": "--tint-purple",
+            "value": "#b39dfa"
+          },
+          {
+            "name": "--tint-red",
+            "value": "#f87171"
+          },
+          {
+            "name": "--tint-folder",
+            "value": "#e8c05a"
+          },
+          {
+            "name": "--text",
+            "value": "12px"
+          },
+          {
+            "name": "--control-height",
+            "value": "20px"
+          },
+          {
+            "name": "--radius",
+            "value": "2px"
+          },
+          {
+            "name": "--border-width",
+            "value": "1px"
+          },
+          {
+            "name": "--scheme",
+            "value": "dark"
+          }
+        ]
+      }
+    },
+    "light": {
+      "language": "en",
+      "rightToLeft": false,
+      "text": {},
+      "theme": {
+        "dark": [
+          {
+            "name": "--fg",
+            "value": "#09090b"
+          },
+          {
+            "name": "--fg-muted",
+            "value": "#5f5f60"
+          },
+          {
+            "name": "--fg-disabled",
+            "value": "#909091"
+          },
+          {
+            "name": "--face",
+            "value": "#f0f0f0"
+          },
+          {
+            "name": "--bar",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--field",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--input-bg",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--input-border",
+            "value": "#909091"
+          },
+          {
+            "name": "--header",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--list",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--tree",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--frame",
+            "value": "#909091"
+          },
+          {
+            "name": "--scroll-track",
+            "value": "#f0f0f0"
+          },
+          {
+            "name": "--grid",
+            "value": "#e6e6e7"
+          },
+          {
+            "name": "--border",
+            "value": "#d3d3d3"
+          },
+          {
+            "name": "--button",
+            "value": "#fdfdfd"
+          },
+          {
+            "name": "--button-border",
+            "value": "#d3d3d3"
+          },
+          {
+            "name": "--button-hover",
+            "value": "#e9effd"
+          },
+          {
+            "name": "--button-pressed",
+            "value": "#d3e0fb"
+          },
+          {
+            "name": "--default-border",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--hover",
+            "value": "#e9effd"
+          },
+          {
+            "name": "--selected",
+            "value": "#d3e0fb"
+          },
+          {
+            "name": "--selected-fg",
+            "value": "#09090b"
+          },
+          {
+            "name": "--selected-blur",
+            "value": "#e1e1e2"
+          },
+          {
+            "name": "--menu",
+            "value": "#fafafa"
+          },
+          {
+            "name": "--menu-hover",
+            "value": "#e5ecfd"
+          },
+          {
+            "name": "--focus",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--progress",
+            "value": "#06b025"
+          },
+          {
+            "name": "--progress-track",
+            "value": "#e6e6e7"
+          },
+          {
+            "name": "--segment",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--link",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--error",
+            "value": "#dc2626"
+          },
+          {
+            "name": "--warning",
+            "value": "#b45309"
+          },
+          {
+            "name": "--shadow",
+            "value": "#00000014"
+          },
+          {
+            "name": "--tint-green",
+            "value": "#2e9e4f"
+          },
+          {
+            "name": "--tint-blue",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--tint-purple",
+            "value": "#7c3aed"
+          },
+          {
+            "name": "--tint-red",
+            "value": "#dc2626"
+          },
+          {
+            "name": "--tint-folder",
+            "value": "#d9a42b"
+          },
+          {
+            "name": "--text",
+            "value": "12px"
+          },
+          {
+            "name": "--control-height",
+            "value": "20px"
+          },
+          {
+            "name": "--radius",
+            "value": "2px"
+          },
+          {
+            "name": "--border-width",
+            "value": "1px"
+          },
+          {
+            "name": "--scheme",
+            "value": "light"
+          }
+        ],
+        "followSystem": false,
+        "light": [
+          {
+            "name": "--fg",
+            "value": "#09090b"
+          },
+          {
+            "name": "--fg-muted",
+            "value": "#5f5f60"
+          },
+          {
+            "name": "--fg-disabled",
+            "value": "#909091"
+          },
+          {
+            "name": "--face",
+            "value": "#f0f0f0"
+          },
+          {
+            "name": "--bar",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--field",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--input-bg",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--input-border",
+            "value": "#909091"
+          },
+          {
+            "name": "--header",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--list",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--tree",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--frame",
+            "value": "#909091"
+          },
+          {
+            "name": "--scroll-track",
+            "value": "#f0f0f0"
+          },
+          {
+            "name": "--grid",
+            "value": "#e6e6e7"
+          },
+          {
+            "name": "--border",
+            "value": "#d3d3d3"
+          },
+          {
+            "name": "--button",
+            "value": "#fdfdfd"
+          },
+          {
+            "name": "--button-border",
+            "value": "#d3d3d3"
+          },
+          {
+            "name": "--button-hover",
+            "value": "#e9effd"
+          },
+          {
+            "name": "--button-pressed",
+            "value": "#d3e0fb"
+          },
+          {
+            "name": "--default-border",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--hover",
+            "value": "#e9effd"
+          },
+          {
+            "name": "--selected",
+            "value": "#d3e0fb"
+          },
+          {
+            "name": "--selected-fg",
+            "value": "#09090b"
+          },
+          {
+            "name": "--selected-blur",
+            "value": "#e1e1e2"
+          },
+          {
+            "name": "--menu",
+            "value": "#fafafa"
+          },
+          {
+            "name": "--menu-hover",
+            "value": "#e5ecfd"
+          },
+          {
+            "name": "--focus",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--progress",
+            "value": "#06b025"
+          },
+          {
+            "name": "--progress-track",
+            "value": "#e6e6e7"
+          },
+          {
+            "name": "--segment",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--link",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--error",
+            "value": "#dc2626"
+          },
+          {
+            "name": "--warning",
+            "value": "#b45309"
+          },
+          {
+            "name": "--shadow",
+            "value": "#00000014"
+          },
+          {
+            "name": "--tint-green",
+            "value": "#2e9e4f"
+          },
+          {
+            "name": "--tint-blue",
+            "value": "#2563eb"
+          },
+          {
+            "name": "--tint-purple",
+            "value": "#7c3aed"
+          },
+          {
+            "name": "--tint-red",
+            "value": "#dc2626"
+          },
+          {
+            "name": "--tint-folder",
+            "value": "#d9a42b"
+          },
+          {
+            "name": "--text",
+            "value": "12px"
+          },
+          {
+            "name": "--control-height",
+            "value": "20px"
+          },
+          {
+            "name": "--radius",
+            "value": "2px"
+          },
+          {
+            "name": "--border-width",
+            "value": "1px"
+          },
+          {
+            "name": "--scheme",
+            "value": "light"
+          }
+        ]
+      }
+    }
+  },
+  "views": {
+    "about": {
+      "view": {
+        "daemon": "",
+        "version": "0.4.0"
+      },
+      "window": "about"
+    },
+    "add-url": {
+      "view": {
+        "connected": true
+      },
+      "window": "addUrl"
+    },
+    "batch": {
+      "view": {
+        "connected": true
+      },
+      "window": "batch"
+    },
+    "done": {
+      "view": {
+        "address": "http://127.0.0.1:8765/udm-idm-test-40MB.bin",
+        "canOpen": true,
+        "failed": false,
+        "headline": "Download complete",
+        "id": 17,
+        "savedAs": "/home/u/Downloads/udm-idm-test-40MB.bin",
+        "sizeLine": "Downloaded 40.00 MB (41943040 Bytes)"
+      },
+      "window": "done"
+    },
+    "download": {
+      "view": {
+        "address": "http://127.0.0.1:8765/office-suite-2016-x64.iso",
+        "canResume": false,
+        "details": false,
+        "doneTab": true,
+        "downloaded": "633.453 MB ( 16.28 % )",
+        "fraction": 0.16279999911785126,
+        "id": 12,
+        "limit": {
+          "kbPerSec": 10,
+          "on": false,
+          "remember": true
+        },
+        "onDone": {
+          "dialog": false,
+          "forceClose": false,
+          "then": "nothing"
+        },
+        "resume": "Yes",
+        "running": true,
+        "saveTo": "/home/u/Downloads/office-suite-2016-x64.iso",
+        "segments": [
+          {
+            "downloaded": "63.229 MB",
+            "info": "Receiving data...",
+            "reached": 0.016249999403953552,
+            "start": 0.0
+          },
+          {
+            "downloaded": "66.633 MB",
+            "info": "Receiving data...",
+            "reached": 0.1421249955892563,
+            "start": 0.125
+          },
+          {
+            "downloaded": "70.038 MB",
+            "info": "Receiving data...",
+            "reached": 0.2680000066757202,
+            "start": 0.25
+          },
+          {
+            "downloaded": "73.442 MB",
+            "info": "Receiving data...",
+            "reached": 0.39387500286102295,
+            "start": 0.375
+          },
+          {
+            "downloaded": "76.847 MB",
+            "info": "Receiving data...",
+            "reached": 0.5197499990463257,
+            "start": 0.5
+          },
+          {
+            "downloaded": "80.252 MB",
+            "info": "Receiving data...",
+            "reached": 0.6456249952316284,
+            "start": 0.625
+          },
+          {
+            "downloaded": "83.656 MB",
+            "info": "Receiving data...",
+            "reached": 0.7714999914169312,
+            "start": 0.75
+          },
+          {
+            "downloaded": "87.061 MB",
+            "info": "Receiving data...",
+            "reached": 0.8973749876022339,
+            "start": 0.875
+          }
+        ],
+        "size": "3.800 GB",
+        "speed": "2.724 MB/s",
+        "speedTab": true,
+        "status": "Receiving data...",
+        "timeLeft": "19m 56s",
+        "title": "16% office-suite-2016-x64.iso"
+      },
+      "window": "download"
+    },
+    "drop-target": {
+      "view": {
+        "connected": true
+      },
+      "window": "dropTarget"
+    },
+    "grabber": {
+      "view": {
+        "addOnClose": false,
+        "base": {
+          "delaySecs": 1,
+          "depth": 2,
+          "downloadAtOnce": 3,
+          "downloadFound": false,
+          "exploreAtOnce": 1,
+          "exploreOnly": "",
+          "exploreOnlyOn": false,
+          "exploreSkip": "*logout*; *logoff*; *log-out*; *signout*; *sign-out*",
+          "exploreSkipOn": true,
+          "filesOnly": "",
+          "filesOnlyOn": false,
+          "filesSkip": "",
+          "filesSkipOn": false,
+          "filesThisSite": false,
+          "hideDuplicates": true,
+          "ignorePopups": true,
+          "linkText": false,
+          "loginOn": false,
+          "loginPage": "",
+          "loginPageOn": false,
+          "loginPassword": "",
+          "loginUser": "",
+          "logoutOn": true,
+          "maxMb": 50,
+          "maxOn": false,
+          "maxPages": 200,
+          "maxSize": 10,
+          "maxUnit": "mb",
+          "minOn": false,
+          "minSize": 1,
+          "minUnit": "kb",
+          "noParent": false,
+          "offline": false,
+          "otherDepth": 0,
+          "overwrite": false,
+          "renderScripts": false,
+          "save": "categories",
+          "saveCategory": "General",
+          "saveFolder": "",
+          "skipTypes": "",
+          "start": "",
+          "subdomains": false,
+          "subfolders": false,
+          "types": "pdf",
+          "wholeSite": false
+        },
+        "categories": [
+          "General",
+          "Compressed",
+          "Documents",
+          "Music",
+          "Programs",
+          "Video"
+        ],
+        "checked": [],
+        "connected": true,
+        "filters": [],
+        "library": false,
+        "phase": "setup",
+        "project": "",
+        "queues": [
+          {
+            "id": 1,
+            "name": "Main queue",
+            "running": true
+          },
+          {
+            "id": 2,
+            "name": "Synchronization queue",
+            "running": false
+          }
+        ],
+        "recent": [],
+        "results": 0,
+        "rows": [],
+        "schedule": {
+          "date": "2026-11-12",
+          "days": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "forceClose": false,
+          "on": false,
+          "once": false,
+          "openFile": "",
+          "openOn": false,
+          "queue": 1,
+          "repeatHours": 2,
+          "repeatMinutes": 0,
+          "repeatOn": false,
+          "run": "explore",
+          "start": "03:00",
+          "stop": "06:00",
+          "stopOn": false,
+          "sync": false,
+          "then": "nothing",
+          "wake": true
+        },
+        "stats": {
+          "added": "0",
+          "explored": "0",
+          "matched": "0",
+          "pages": "0",
+          "status": "Ready",
+          "stopped": null
+        },
+        "templates": [],
+        "tree": [
+          {
+            "depth": 0,
+            "icon": "allDownloads",
+            "key": "all",
+            "label": "All Files",
+            "open": null,
+            "selected": true
+          },
+          {
+            "depth": 0,
+            "icon": "grabber",
+            "key": "links",
+            "label": "Link View",
+            "open": true,
+            "selected": false
+          },
+          {
+            "depth": 0,
+            "icon": "queues",
+            "key": "folders",
+            "label": "Folder View",
+            "open": true,
+            "selected": false
+          }
+        ],
+        "unsaved": false
+      },
+      "window": "grabber"
+    },
+    "grabber-results": {
+      "view": {
+        "addOnClose": false,
+        "base": {
+          "delaySecs": 1,
+          "depth": 2,
+          "downloadAtOnce": 3,
+          "downloadFound": false,
+          "exploreAtOnce": 1,
+          "exploreOnly": "",
+          "exploreOnlyOn": false,
+          "exploreSkip": "*logout*; *logoff*; *log-out*; *signout*; *sign-out*",
+          "exploreSkipOn": true,
+          "filesOnly": "",
+          "filesOnlyOn": false,
+          "filesSkip": "",
+          "filesSkipOn": false,
+          "filesThisSite": false,
+          "hideDuplicates": true,
+          "ignorePopups": true,
+          "linkText": false,
+          "loginOn": false,
+          "loginPage": "",
+          "loginPageOn": false,
+          "loginPassword": "",
+          "loginUser": "",
+          "logoutOn": true,
+          "maxMb": 50,
+          "maxOn": false,
+          "maxPages": 200,
+          "maxSize": 10,
+          "maxUnit": "mb",
+          "minOn": false,
+          "minSize": 1,
+          "minUnit": "kb",
+          "noParent": false,
+          "offline": false,
+          "otherDepth": 0,
+          "overwrite": false,
+          "renderScripts": false,
+          "save": "categories",
+          "saveCategory": "General",
+          "saveFolder": "",
+          "skipTypes": "",
+          "start": "",
+          "subdomains": false,
+          "subfolders": false,
+          "types": "pdf",
+          "wholeSite": false
+        },
+        "categories": [
+          "General",
+          "Compressed",
+          "Documents",
+          "Music",
+          "Programs",
+          "Video"
+        ],
+        "checked": [
+          true,
+          true,
+          true
+        ],
+        "connected": true,
+        "filters": [],
+        "library": true,
+        "phase": "done",
+        "project": "",
+        "queues": [
+          {
+            "id": 1,
+            "name": "Main queue",
+            "running": true
+          },
+          {
+            "id": 2,
+            "name": "Synchronization queue",
+            "running": false
+          }
+        ],
+        "recent": [
+          "docs-site"
+        ],
+        "results": 1,
+        "rows": [
+          {
+            "icon": "document",
+            "index": 0,
+            "kind": "PDF file",
+            "linkText": "User manual",
+            "name": "manual.pdf",
+            "page": "http://127.0.0.1:8765/index.html",
+            "size": "2.29 MB",
+            "url": "http://127.0.0.1:8765/files/manual.pdf"
+          },
+          {
+            "icon": "program",
+            "index": 1,
+            "kind": "EXE file",
+            "linkText": "Download",
+            "name": "setup.exe",
+            "page": "http://127.0.0.1:8765/index.html",
+            "size": "40.00 MB",
+            "url": "http://127.0.0.1:8765/files/setup.exe"
+          },
+          {
+            "icon": "document",
+            "index": 2,
+            "kind": "TXT file",
+            "linkText": "",
+            "name": "notes.txt",
+            "page": "http://127.0.0.1:8765/index.html",
+            "size": "3.03 KB",
+            "url": "http://127.0.0.1:8765/files/notes.txt"
+          }
+        ],
+        "schedule": {
+          "date": "2026-11-12",
+          "days": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "forceClose": false,
+          "on": false,
+          "once": false,
+          "openFile": "",
+          "openOn": false,
+          "queue": 1,
+          "repeatHours": 2,
+          "repeatMinutes": 0,
+          "repeatOn": false,
+          "run": "explore",
+          "start": "03:00",
+          "stop": "06:00",
+          "stopOn": false,
+          "sync": false,
+          "then": "nothing",
+          "wake": true
+        },
+        "stats": {
+          "added": "0",
+          "explored": "9",
+          "matched": "3",
+          "pages": "4",
+          "status": "Complete",
+          "stopped": null
+        },
+        "templates": [],
+        "tree": [
+          {
+            "depth": 0,
+            "icon": "allDownloads",
+            "key": "all",
+            "label": "All Files",
+            "open": null,
+            "selected": true
+          },
+          {
+            "depth": 0,
+            "icon": "grabber",
+            "key": "links",
+            "label": "Link View",
+            "open": true,
+            "selected": false
+          },
+          {
+            "depth": 1,
+            "icon": "grabber",
+            "key": "page/http://127.0.0.1:8765/index.html",
+            "label": "127.0.0.1:8765/index.html",
+            "open": null,
+            "selected": false
+          },
+          {
+            "depth": 0,
+            "icon": "queues",
+            "key": "folders",
+            "label": "Folder View",
+            "open": true,
+            "selected": false
+          },
+          {
+            "depth": 1,
+            "icon": "finished",
+            "key": "host/127.0.0.1",
+            "label": "127.0.0.1",
+            "open": null,
+            "selected": false
+          }
+        ],
+        "unsaved": true
+      },
+      "window": "grabber"
+    },
+    "links": {
+      "view": {
+        "connected": true,
+        "note": "Please check the links which you want to add to the download list of UDM, and click the OK button.",
+        "queues": [
+          {
+            "id": 1,
+            "name": "Main queue",
+            "running": true
+          },
+          {
+            "id": 2,
+            "name": "Synchronization queue",
+            "running": false
+          }
+        ],
+        "rows": [
+          {
+            "icon": "document",
+            "index": 0,
+            "kind": "PDF file",
+            "name": "report.pdf",
+            "saveTo": "Documents",
+            "text": "",
+            "url": "http://127.0.0.1:8765/files/report.pdf"
+          },
+          {
+            "icon": "archive",
+            "index": 1,
+            "kind": "ZIP file",
+            "name": "photos.zip",
+            "saveTo": "Compressed",
+            "text": "",
+            "url": "http://127.0.0.1:8765/files/photos.zip"
+          },
+          {
+            "icon": "music",
+            "index": 2,
+            "kind": "MP3 file",
+            "name": "talk.mp3",
+            "saveTo": "Music",
+            "text": "",
+            "url": "http://127.0.0.1:8765/files/talk.mp3"
+          }
+        ],
+        "title": "Batch download from clipboard"
+      },
+      "window": "links"
+    },
+    "main": {
+      "view": {
+        "chrome": {
+          "allColumns": [
+            {
+              "key": "name",
+              "shown": true,
+              "title": "File Name",
+              "width": 150
+            },
+            {
+              "key": "queue",
+              "shown": true,
+              "title": "Q",
+              "width": 22
+            },
+            {
+              "key": "size",
+              "shown": true,
+              "title": "Size",
+              "width": 70
+            },
+            {
+              "key": "status",
+              "shown": true,
+              "title": "Status",
+              "width": 72
+            },
+            {
+              "key": "timeLeft",
+              "shown": true,
+              "title": "Time left",
+              "width": 75
+            },
+            {
+              "key": "speed",
+              "shown": true,
+              "title": "Transfer rate",
+              "width": 95
+            },
+            {
+              "key": "lastTry",
+              "shown": true,
+              "title": "Last Try Date",
+              "width": 65
+            },
+            {
+              "key": "description",
+              "shown": true,
+              "title": "Description",
+              "width": 120
+            },
+            {
+              "key": "progress",
+              "shown": false,
+              "title": "Progress",
+              "width": 100
+            },
+            {
+              "key": "saveTo",
+              "shown": false,
+              "title": "Save to",
+              "width": 100
+            },
+            {
+              "key": "page",
+              "shown": false,
+              "title": "Parent web page",
+              "width": 100
+            },
+            {
+              "key": "referrer",
+              "shown": false,
+              "title": "Referrer",
+              "width": 100
+            }
+          ],
+          "banner": null,
+          "can": {
+            "connected": true,
+            "delete": true,
+            "deleteCompleted": true,
+            "open": false,
+            "progress": false,
+            "redownload": true,
+            "resume": false,
+            "resumeAll": false,
+            "stop": false,
+            "stopAll": true
+          },
+          "categories": [
+            {
+              "extensions": "zip rar 7z tar gz bz2 xz",
+              "folder": "",
+              "name": "Compressed",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            },
+            {
+              "extensions": "pdf doc docx xls xlsx ppt pptx txt rtf odt",
+              "folder": "",
+              "name": "Documents",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            },
+            {
+              "extensions": "mp3 flac wav m4a aac ogg",
+              "folder": "",
+              "name": "Music",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            },
+            {
+              "extensions": "exe msi apk msix",
+              "folder": "",
+              "name": "Programs",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            },
+            {
+              "extensions": "mp4 mkv avi mov webm wmv",
+              "folder": "",
+              "name": "Video",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            }
+          ],
+          "categoriesPanel": true,
+          "columns": [
+            {
+              "key": "name",
+              "sort": null,
+              "sortable": true,
+              "title": "File Name",
+              "width": 150
+            },
+            {
+              "key": "queue",
+              "sort": null,
+              "sortable": false,
+              "title": "Q",
+              "width": 22
+            },
+            {
+              "key": "size",
+              "sort": null,
+              "sortable": true,
+              "title": "Size",
+              "width": 70
+            },
+            {
+              "key": "status",
+              "sort": null,
+              "sortable": true,
+              "title": "Status",
+              "width": 72
+            },
+            {
+              "key": "timeLeft",
+              "sort": null,
+              "sortable": true,
+              "title": "Time left",
+              "width": 75
+            },
+            {
+              "key": "speed",
+              "sort": null,
+              "sortable": true,
+              "title": "Transfer rate",
+              "width": 95
+            },
+            {
+              "key": "lastTry",
+              "sort": "ascending",
+              "sortable": true,
+              "title": "Last Try Date",
+              "width": 65
+            },
+            {
+              "key": "description",
+              "sort": null,
+              "sortable": true,
+              "title": "Description",
+              "width": 120
+            }
+          ],
+          "defaultColumns": [
+            {
+              "key": "name",
+              "shown": true,
+              "title": "File Name",
+              "width": 150
+            },
+            {
+              "key": "queue",
+              "shown": true,
+              "title": "Q",
+              "width": 22
+            },
+            {
+              "key": "size",
+              "shown": true,
+              "title": "Size",
+              "width": 70
+            },
+            {
+              "key": "status",
+              "shown": true,
+              "title": "Status",
+              "width": 72
+            },
+            {
+              "key": "timeLeft",
+              "shown": true,
+              "title": "Time left",
+              "width": 75
+            },
+            {
+              "key": "speed",
+              "shown": true,
+              "title": "Transfer rate",
+              "width": 95
+            },
+            {
+              "key": "lastTry",
+              "shown": true,
+              "title": "Last Try Date",
+              "width": 65
+            },
+            {
+              "key": "description",
+              "shown": true,
+              "title": "Description",
+              "width": 120
+            },
+            {
+              "key": "progress",
+              "shown": false,
+              "title": "Progress",
+              "width": 100
+            },
+            {
+              "key": "saveTo",
+              "shown": false,
+              "title": "Save to",
+              "width": 100
+            },
+            {
+              "key": "page",
+              "shown": false,
+              "title": "Parent web page",
+              "width": 100
+            },
+            {
+              "key": "referrer",
+              "shown": false,
+              "title": "Referrer",
+              "width": 100
+            }
+          ],
+          "dropTarget": false,
+          "limiter": {
+            "kbPerSec": 1024,
+            "on": false,
+            "onStartup": false
+          },
+          "listMono": false,
+          "listSize": 12,
+          "nextTip": 0,
+          "panelWidth": 143,
+          "queues": [
+            {
+              "id": 1,
+              "name": "Main queue",
+              "running": true
+            },
+            {
+              "id": 2,
+              "name": "Synchronization queue",
+              "running": false
+            }
+          ],
+          "selected": [
+            2,
+            4
+          ],
+          "showTip": false,
+          "tips": [
+            "Hold Alt while clicking a link to keep its download in the browser, or Ctrl to send any link to UDM. Options > General > Keys sets the keys.",
+            "Right-click a link in the browser and choose Download later with UDM to add it to a queue without starting it.",
+            "A queue can start on a schedule and put the computer to sleep or shut it down when it is done. Downloads > Scheduler sets one up.",
+            "Tasks > Run site grabber finds the files of a type that a site links to, such as every PDF in its manuals.",
+            "Tasks > Add batch download adds a numbered series of files, such as img001.jpg to img120.jpg, with one address.",
+            "Ctrl+F finds a download in the list by its name, description or address, and F3 finds the next one.",
+            "Options > Proxy / Socks sets a proxy, and Options > Sites Logins the logins for sites that ask for one.",
+            "A category can remember the folder you last chose for it in Download File Info: tick its box under Options > Save to.",
+            "Options > Downloads > Virus checking can scan each finished download for viruses.",
+            "View > Customize URL List picks the list's columns and their order; dragging a column header's edge sets its width."
+          ],
+          "tipsOnStartup": false,
+          "title": "UDM",
+          "toolbar": [
+            "add",
+            "resume",
+            "stop",
+            "stopAll",
+            "delete",
+            "deleteCompleted",
+            "options",
+            "scheduler",
+            "startQueue",
+            "stopQueue",
+            "grabber"
+          ],
+          "toolbarSmall": false,
+          "tree": [
+            {
+              "depth": 0,
+              "icon": "allDownloads",
+              "key": "all",
+              "label": "All Downloads",
+              "open": true,
+              "selected": true
+            },
+            {
+              "depth": 1,
+              "icon": {
+                "category": "archive"
+              },
+              "key": "all/Compressed",
+              "label": "Compressed",
+              "open": null,
+              "selected": false
+            },
+            {
+              "depth": 1,
+              "icon": {
+                "category": "document"
+              },
+              "key": "all/Documents",
+              "label": "Documents",
+              "open": null,
+              "selected": false
+            },
+            {
+              "depth": 1,
+              "icon": {
+                "category": "music"
+              },
+              "key": "all/Music",
+              "label": "Music",
+              "open": null,
+              "selected": false
+            },
+            {
+              "depth": 1,
+              "icon": {
+                "category": "program"
+              },
+              "key": "all/Programs",
+              "label": "Programs",
+              "open": null,
+              "selected": false
+            },
+            {
+              "depth": 1,
+              "icon": {
+                "category": "video"
+              },
+              "key": "all/Video",
+              "label": "Video",
+              "open": null,
+              "selected": false
+            },
+            {
+              "depth": 0,
+              "icon": "unfinished",
+              "key": "unfinished",
+              "label": "Unfinished",
+              "open": false,
+              "selected": false
+            },
+            {
+              "depth": 0,
+              "icon": "finished",
+              "key": "finished",
+              "label": "Finished",
+              "open": false,
+              "selected": false
+            },
+            {
+              "depth": 0,
+              "icon": "grabber",
+              "key": "grabber",
+              "label": "Grabber projects",
+              "open": null,
+              "selected": false
+            },
+            {
+              "depth": 0,
+              "icon": "queues",
+              "key": "queues",
+              "label": "Queues",
+              "open": false,
+              "selected": false
+            }
+          ]
+        },
+        "rows": [
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "document",
+            "id": 1,
+            "lastTry": "2026-10-21 14:00",
+            "name": "interview-notes.pdf",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "69.03 KB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 2,
+            "lastTry": "2026-10-21 14:01",
+            "name": "HandBrake-1.11.2-x86_64-Win_GUI.exe",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "24.15 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "MP3: 64kbs, 44100Hz, Length: 3:05:42",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "music",
+            "id": 3,
+            "lastTry": "2026-10-22 14:02",
+            "name": "Screen-Capture (3).mp3",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "84.64 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "archive",
+            "id": 4,
+            "lastTry": "2026-10-22 14:03",
+            "name": "udm-windows.zip",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "4.24 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "archive",
+            "id": 5,
+            "lastTry": "2026-10-23 14:04",
+            "name": "sf-pro-display.zip",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "883.20 KB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "video",
+            "id": 6,
+            "lastTry": "2026-10-23 14:05",
+            "name": "Open.Movie.2026.1080p.mkv",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "8.14 GB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 7,
+            "lastTry": "2026-10-24 14:06",
+            "name": "UDM-Setup-0.1.0.exe",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "5.46 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 8,
+            "lastTry": "2026-10-24 14:07",
+            "name": "UltraViewer_setup_6.6.exe",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "3.47 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 9,
+            "lastTry": "2026-10-25 14:08",
+            "name": "launcher-0.6.0.exe",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "42.70 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "archive",
+            "id": 10,
+            "lastTry": "2026-10-25 14:09",
+            "name": "project-files-v2.zip",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "337.41 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 11,
+            "lastTry": "2026-10-26 14:10",
+            "name": "DTLite1260-2472i.exe",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "44.02 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": false,
+            "fraction": 0.16279999911785126,
+            "icon": "program",
+            "id": 12,
+            "lastTry": "2026-10-26 14:11",
+            "name": "office-suite-2016-x64.iso",
+            "page": "",
+            "progress": "16.28%",
+            "queued": true,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "3.80 GB",
+            "speed": "2.72 MB/s",
+            "status": "16.28%",
+            "timeLeft": "19m 56s",
+            "tone": "running"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 13,
+            "lastTry": "2026-10-27 14:12",
+            "name": "office-suite-2016-x86.iso",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "3.80 GB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 14,
+            "lastTry": "2026-10-27 14:13",
+            "name": "kubuntu-26.04.1-desktop-amd64.iso",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "4.72 GB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 15,
+            "lastTry": "2026-10-28 14:14",
+            "name": "rufus-4.15.exe",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "1.89 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 16,
+            "lastTry": "2026-10-28 14:15",
+            "name": "UDM-Setup-0.3.3.exe",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "7.56 MB",
+            "speed": "",
+            "status": "Complete",
+            "timeLeft": "",
+            "tone": "normal"
+          }
+        ]
+      },
+      "window": "main"
+    },
+    "options": {
+      "view": {
+        "connections": [
+          1,
+          2,
+          4,
+          8,
+          16
+        ],
+        "defaultCaptureTypes": "ZIP RAR 7Z TAR GZ BZ2 XZ PDF DOC DOCX XLS XLSX PPT PPTX TXT RTF ODT MP3 FLAC WAV M4A AAC OGG EXE MSI APK MSIX MP4 MKV AVI MOV WEBM WMV ISO IMG DMG DEB RPM BIN",
+        "defaultExcludedSites": "",
+        "draft": {
+          "addOnly": false,
+          "askWhereToSave": true,
+          "browserProxy": false,
+          "captureExcludedSites": "",
+          "captureExcludedUrls": [
+            "*.gstatic.com/*/sounds/*.mp3",
+            "*.fbcdn.net/rsrc.php/*.mp3",
+            "*.fbcdn.net/rsrc.php/*.ogg",
+            "web.whatsapp.com/res/*.mp3",
+            "www.youtube.com/s/search/audio/*.mp3",
+            "*.gvt1.com/edgedl/widevine-cdm/*.zip*",
+            "ciscobinary.openh264.org/*.zip",
+            "*.download.windowsupdate.com/*",
+            "msedge.b.tlu.dl.delivery.mp.microsoft.com/filestreamingservice/files/*",
+            "get*.opera.com/pub/opera/*/autoupdate/*.exe",
+            "get*.opera.com/pub/opera/*/autoupdate/*.msi",
+            "get.geo.opera.com/res/servicefiles/*.zip",
+            "api.browser.ya.ru/configs/all_zip?*",
+            "www.slimjetbrowser.com/release/*_console.exe",
+            "www.bing.com/api/shopping/v1/ux/images/autoApply/*.mp4",
+            "img6.wsimg.com/serpimg/img/solutionsimg/*.mp4"
+          ],
+          "capturePrivate": false,
+          "captureTypes": "ZIP RAR 7Z TAR GZ BZ2 XZ PDF DOC DOCX XLS XLSX PPT PPTX TXT RTF ODT MP3 FLAC WAV M4A AAC OGG EXE MSI APK MSIX MP4 MKV AVI MOV WEBM WMV ISO IMG DMG DEB RPM BIN",
+          "categories": [
+            {
+              "extensions": "zip rar 7z tar gz bz2 xz",
+              "folder": "",
+              "name": "Compressed",
+              "original": "Compressed",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            },
+            {
+              "extensions": "pdf doc docx xls xlsx ppt pptx txt rtf odt",
+              "folder": "",
+              "name": "Documents",
+              "original": "Documents",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            },
+            {
+              "extensions": "mp3 flac wav m4a aac ogg",
+              "folder": "",
+              "name": "Music",
+              "original": "Music",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            },
+            {
+              "extensions": "exe msi apk msix",
+              "folder": "",
+              "name": "Programs",
+              "original": "Programs",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            },
+            {
+              "extensions": "mp4 mkv avi mov webm wmv",
+              "folder": "",
+              "name": "Video",
+              "original": "Video",
+              "rememberFolder": false,
+              "sites": "",
+              "sitesOn": false
+            }
+          ],
+          "checkUpdates": true,
+          "clipboardMonitor": false,
+          "clipboardStart": false,
+          "closeToTray": true,
+          "connections": 8,
+          "doneDialog": true,
+          "downloadDir": "",
+          "forceKey": {
+            "alt": false,
+            "ctrl": true,
+            "delete": false,
+            "insert": false,
+            "on": true,
+            "shift": false
+          },
+          "forceSkipsPages": true,
+          "generalRememberFolder": false,
+          "ifDuplicate": "ask",
+          "keepAwake": true,
+          "keysLeftClick": false,
+          "language": "",
+          "laterPanel": true,
+          "listQueuePanel": true,
+          "logins": [],
+          "menuChromium": [
+            "page",
+            "download",
+            "download_later",
+            "all_links",
+            "selected_links",
+            "last_video",
+            "recent_videos",
+            "gallery"
+          ],
+          "menuFirefox": [
+            "page",
+            "download",
+            "download_later",
+            "all_links",
+            "selected_links",
+            "last_video",
+            "recent_videos",
+            "gallery"
+          ],
+          "minimizeToTray": true,
+          "offerExceptions": true,
+          "pacUrl": "",
+          "passiveFtp": true,
+          "progressDoneTab": true,
+          "progressHideButtons": true,
+          "progressOnStart": true,
+          "progressSpeedTab": true,
+          "progressStartDetails": false,
+          "proxies": [
+            {
+              "host": "",
+              "on": false,
+              "password": "",
+              "port": "",
+              "user": ""
+            },
+            {
+              "host": "",
+              "on": false,
+              "password": "",
+              "port": "",
+              "user": ""
+            },
+            {
+              "host": "",
+              "on": false,
+              "password": "",
+              "port": "",
+              "user": ""
+            },
+            {
+              "host": "",
+              "on": false,
+              "password": "",
+              "port": "",
+              "user": ""
+            }
+          ],
+          "proxyMode": "none",
+          "quotaEnabled": false,
+          "quotaHours": 24,
+          "quotaMb": 1024,
+          "quotaWarn": true,
+          "resumeIgnoresDate": false,
+          "scanAfterDownload": false,
+          "scannerCommand": "",
+          "scannerCustom": true,
+          "serverFileDate": true,
+          "serverLimits": [],
+          "skipKey": {
+            "alt": true,
+            "ctrl": false,
+            "delete": false,
+            "insert": false,
+            "on": true,
+            "shift": false
+          },
+          "socks4": false,
+          "sounds": [
+            {
+              "file": "",
+              "on": false
+            },
+            {
+              "file": "",
+              "on": false
+            },
+            {
+              "file": "",
+              "on": false
+            },
+            {
+              "file": "",
+              "on": false
+            }
+          ],
+          "startWhileAsking": false,
+          "startWithSystem": false,
+          "tempDir": "",
+          "theme": "light",
+          "trayIcon": true,
+          "userAgent": "",
+          "videoAutoCapture": false,
+          "videoButton": true,
+          "videoMini": false,
+          "videoProtectedNote": true,
+          "videoTypes": [
+            {
+              "ext": "mp4",
+              "on": true
+            },
+            {
+              "ext": "m4v",
+              "on": true
+            },
+            {
+              "ext": "webm",
+              "on": true
+            },
+            {
+              "ext": "mkv",
+              "on": true
+            },
+            {
+              "ext": "mov",
+              "on": true
+            },
+            {
+              "ext": "avi",
+              "on": true
+            },
+            {
+              "ext": "wmv",
+              "on": true
+            },
+            {
+              "ext": "flv",
+              "on": true
+            },
+            {
+              "ext": "3gp",
+              "on": true
+            },
+            {
+              "ext": "ogv",
+              "on": true
+            },
+            {
+              "ext": "mp3",
+              "on": true
+            },
+            {
+              "ext": "m4a",
+              "on": true
+            },
+            {
+              "ext": "aac",
+              "on": true
+            },
+            {
+              "ext": "ogg",
+              "on": true
+            },
+            {
+              "ext": "oga",
+              "on": true
+            },
+            {
+              "ext": "opus",
+              "on": true
+            },
+            {
+              "ext": "flac",
+              "on": true
+            },
+            {
+              "ext": "wav",
+              "on": true
+            },
+            {
+              "ext": "m3u8",
+              "on": true
+            },
+            {
+              "ext": "mpd",
+              "on": true
+            },
+            {
+              "ext": "f4m",
+              "on": true
+            }
+          ]
+        },
+        "languages": [
+          {
+            "label": "System default",
+            "value": ""
+          },
+          {
+            "label": "English",
+            "value": "en"
+          },
+          {
+            "label": "Bahasa Indonesia",
+            "value": "id"
+          },
+          {
+            "label": "Deutsch",
+            "value": "de"
+          },
+          {
+            "label": "Español",
+            "value": "es"
+          },
+          {
+            "label": "Français",
+            "value": "fr"
+          },
+          {
+            "label": "Italiano",
+            "value": "it"
+          },
+          {
+            "label": "Nederlands",
+            "value": "nl"
+          },
+          {
+            "label": "Polski",
+            "value": "pl"
+          },
+          {
+            "label": "Português (Brasil)",
+            "value": "pt-BR"
+          },
+          {
+            "label": "Tiếng Việt",
+            "value": "vi"
+          },
+          {
+            "label": "Türkçe",
+            "value": "tr"
+          },
+          {
+            "label": "Русский",
+            "value": "ru"
+          },
+          {
+            "label": "Українська",
+            "value": "uk"
+          },
+          {
+            "label": "日本語",
+            "value": "ja"
+          },
+          {
+            "label": "한국어",
+            "value": "ko"
+          },
+          {
+            "label": "简体中文",
+            "value": "zh-CN"
+          },
+          {
+            "label": "繁體中文",
+            "value": "zh-TW"
+          }
+        ],
+        "menuItems": [
+          {
+            "label": "Download page with UDM (the page or frame itself)",
+            "value": "page"
+          },
+          {
+            "label": "Download with UDM (links, pictures, videos)",
+            "value": "download"
+          },
+          {
+            "label": "Download later with UDM",
+            "value": "download_later"
+          },
+          {
+            "label": "Download all links with UDM",
+            "value": "all_links"
+          },
+          {
+            "label": "Download selected links with UDM",
+            "value": "selected_links"
+          },
+          {
+            "label": "Download the last video with UDM",
+            "value": "last_video"
+          },
+          {
+            "label": "The last 10 videos",
+            "value": "recent_videos"
+          },
+          {
+            "label": "Download gallery with UDM (pictures gallery-dl lists)",
+            "value": "gallery"
+          }
+        ],
+        "serverConnections": [
+          1,
+          2,
+          4,
+          8,
+          16
+        ],
+        "themes": [
+          {
+            "label": "System",
+            "value": "system"
+          },
+          {
+            "label": "Light",
+            "value": "light"
+          },
+          {
+            "label": "Dark",
+            "value": "dark"
+          },
+          {
+            "label": "High contrast",
+            "value": "highContrast"
+          }
+        ]
+      },
+      "window": "options"
+    },
+    "properties": {
+      "view": {
+        "address": "http://127.0.0.1:8765/HandBrake-1.11.2-x86_64-Win_GUI.exe",
+        "canMove": true,
+        "canOpen": true,
+        "description": "",
+        "editable": false,
+        "icon": "program",
+        "id": 2,
+        "kind": "EXE file",
+        "loginUser": "",
+        "name": "HandBrake-1.11.2-x86_64-Win_GUI.exe",
+        "page": "Unknown",
+        "referrer": "",
+        "saveTo": "/home/u/Downloads/HandBrake-1.11.2-x86_64-Win_GUI.exe",
+        "size": "24.15 MB (25323520 Bytes)",
+        "status": "Complete"
+      },
+      "window": "properties"
+    },
+    "remove": {
+      "view": {
+        "count": 2,
+        "hasFiles": true
+      },
+      "window": "remove"
+    },
+    "save-as": {
+      "view": {
+        "categories": [
+          "General",
+          "Compressed",
+          "Documents",
+          "Music",
+          "Programs",
+          "Video"
+        ],
+        "category": "General",
+        "description": "",
+        "duplicate": null,
+        "folders": [
+          "/home/u/Downloads/udm-idm-test-40MB.bin"
+        ],
+        "icon": "program",
+        "id": 17,
+        "queues": [
+          {
+            "id": 1,
+            "name": "Main queue",
+            "running": true
+          },
+          {
+            "id": 2,
+            "name": "Synchronization queue",
+            "running": false
+          }
+        ],
+        "rememberFolder": false,
+        "remembered": "/home/u/Downloads",
+        "saveAs": "/home/u/Downloads/udm-idm-test-40MB.bin",
+        "size": "40.00 MB",
+        "url": "http://127.0.0.1:8765/udm-idm-test-40MB.bin"
+      },
+      "window": "saveAs"
+    },
+    "scheduler": {
+      "view": {
+        "connected": true,
+        "files": [
+          {
+            "queue": 1,
+            "rows": [
+              {
+                "icon": "program",
+                "id": 12,
+                "name": "office-suite-2016-x64.iso",
+                "size": "3.80 GB",
+                "status": "16.28%",
+                "timeLeft": "19m 56s"
+              }
+            ]
+          },
+          {
+            "queue": 2,
+            "rows": []
+          }
+        ],
+        "maxAtOnce": 10,
+        "maxRetries": 10,
+        "newName": "Queue # 3",
+        "queues": [
+          {
+            "date": "2026-11-12",
+            "days": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "forceClose": false,
+            "id": 1,
+            "main": true,
+            "maxConcurrent": 1,
+            "name": "Main queue",
+            "once": false,
+            "openFile": "",
+            "openOn": false,
+            "repeatHours": 2,
+            "repeatMinutes": 0,
+            "repeatOn": false,
+            "retries": 10,
+            "retriesOn": false,
+            "running": true,
+            "start": "23:00",
+            "startOn": false,
+            "startOnLaunch": false,
+            "stop": "07:30",
+            "stopOn": false,
+            "sync": false,
+            "then": "nothing"
+          },
+          {
+            "date": "2026-11-12",
+            "days": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "forceClose": false,
+            "id": 2,
+            "main": false,
+            "maxConcurrent": 1,
+            "name": "Synchronization queue",
+            "once": false,
+            "openFile": "",
+            "openOn": false,
+            "repeatHours": 2,
+            "repeatMinutes": 0,
+            "repeatOn": false,
+            "retries": 10,
+            "retriesOn": false,
+            "running": false,
+            "start": "23:00",
+            "startOn": false,
+            "startOnLaunch": false,
+            "stop": "07:30",
+            "stopOn": false,
+            "sync": false,
+            "then": "nothing"
+          }
+        ],
+        "quota": {
+          "enabled": false,
+          "hours": 24,
+          "mb": 1024,
+          "warn": true
+        }
+      },
+      "window": "scheduler"
+    }
+  }
+}

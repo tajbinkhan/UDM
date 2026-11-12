@@ -1,0 +1,69 @@
+import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/svelte';
+import AddUrl from '../src/windows/add-url/AddUrl.svelte';
+import SaveAs from '../src/windows/save-as/SaveAs.svelte';
+import Download from '../src/windows/download/Download.svelte';
+import Done from '../src/windows/done/Done.svelte';
+import Remove from '../src/windows/remove/Remove.svelte';
+import { sent, shell } from './helpers';
+
+describe('the dialogs', () => {
+  it('Add URL sends the address and its login', async () => {
+    const calls = shell('add-url', 'add-url');
+    render(AddUrl);
+    await fireEvent.input(screen.getByLabelText('Address'), { target: { value: 'https://example.com/a.zip' } });
+    await fireEvent.click(screen.getByLabelText('Use authorization'));
+    await fireEvent.input(screen.getByLabelText('Login'), { target: { value: 'me' } });
+    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+    expect(sent(calls, 'add_download').at(-1)?.args).toEqual({
+      address: 'https://example.com/a.zip',
+      login: { user: 'me', password: 'pw' },
+    });
+  });
+
+  it('Download File Info answers with the category and the file', async () => {
+    const calls = shell('save-as-17', 'save-as');
+    render(SaveAs);
+    expect((screen.getByLabelText('Save As') as HTMLInputElement).value).toBe('/home/u/Downloads/udm-idm-test-40MB.bin');
+    await fireEvent.click(screen.getByRole('button', { name: 'Download Later' }));
+    expect(sent(calls, 'answer_download').at(-1)?.args).toEqual({
+      answer: {
+        category: 'General',
+        saveAs: '/home/u/Downloads/udm-idm-test-40MB.bin',
+        rememberFolder: false,
+        description: '',
+        start: false,
+        duplicate: null,
+        rememberDuplicate: false,
+      },
+    });
+  });
+
+  it('the progress window shows the download and pauses it', async () => {
+    const calls = shell('download-12', 'download');
+    render(Download);
+    expect(screen.getByText('633.453 MB ( 16.28 % )')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(sent(calls, 'control_download').at(-1)?.args).toEqual({ action: 'pause' });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Speed Limiter' }));
+    await fireEvent.click(screen.getByLabelText('Use Speed Limiter'));
+    expect(sent(calls, 'set_download_limit').at(-1)?.args).toEqual({ limit: { on: true, kbPerSec: 10, remember: true } });
+  });
+
+  it('Download complete opens the file', async () => {
+    const calls = shell('done-17', 'done');
+    render(Done);
+    expect(screen.getByText('Downloaded 40.00 MB (41943040 Bytes)')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(sent(calls, 'open_download').at(-1)?.args).toEqual({ id: 17, how: 'file' });
+  });
+
+  it('Confirm deletion removes with the boxes ticked', async () => {
+    const calls = shell('remove', 'remove');
+    render(Remove);
+    await fireEvent.click(screen.getByLabelText(/Delete completely downloaded files/));
+    await fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+    expect(sent(calls, 'remove_downloads').at(-1)?.args).toEqual({ deleteFiles: true, dontAsk: false });
+  });
+});

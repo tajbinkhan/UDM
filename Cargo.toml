@@ -4,7 +4,7 @@ resolver = "2"
 # <- infrastructure and ui <- app. The code still lives mostly in
 # infrastructure (the old `udm` library) and app (the three binaries);
 # AGENTS.md section 16 tracks the moves still to make.
-members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/ui", "crates/app"]
+members = ["crates/domain", "crates/application", "crates/infrastructure", "crates/ui", "crates/ui-tauri", "crates/app"]
 
 # The release scripts read the first `version = ` line of this file.
 [workspace.package]
@@ -17,6 +17,7 @@ udm-domain = { path = "crates/domain" }
 udm-application = { path = "crates/application" }
 udm-infrastructure = { path = "crates/infrastructure" }
 udm-ui = { path = "crates/ui" }
+udm-ui-tauri = { path = "crates/ui-tauri", default-features = false }
 
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
