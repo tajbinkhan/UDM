@@ -6,11 +6,21 @@ first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
 ## Unreleased
 
-A preview of UDM's next window, built with Tauri (ADR 0002), comes as `udm-gui-next` beside the
-current one. It has the main window, Add URL, Download File Info, the download progress window,
-Download complete, Confirm deletion, About, Options, the Scheduler, the site grabber, batch downloads, import and export, Find, file properties, the drop target, the list's font, a customizable toolbar and the tip of the day, the login prompt, the countdown before the computer sleeps or shuts down, New link, package passwords and the Packages list, the browser's links, videos and galleries to pick from, the update check, and Options' own pages for the speed limit, downloads' behavior, the browsers, archives, tools, remote control and custom themes, laid out like Internet Download Manager's, in a
-light and a dark look that follow the Theme setting (or the system's mode). The other windows
-still open in `udm-gui`.
+UDM's window is now drawn with Tauri (ADR 0002), in each system's webview, and the egui window
+is gone. It has every window IDM's has but Registration, in a light and a dark look that follow
+the Theme setting, plus UDM's own: the browser's link, video and gallery pickers, packages, the
+update check, Options' pages beyond IDM's, problem reports, the clipboard monitor, the zip
+preview, Convert, Verify checksum and Open with. On Windows a finished file drags out of the list
+or Download complete, and Setup installs the WebView2 runtime when Windows lacks it; on Linux the
+packages now need WebKitGTK 4.1. The domain's and the background service's errors show in your
+language again. Some of the new window's text is still English in other languages. What the
+egui window had beyond that is back too: Download File Info warns about a folder UDM may not
+save in and offers to save there with administrator rights (its Browse button now works), the
+Scheduler and the grabber's schedule warn when the power plan lets nothing wake the computer,
+Options leaves off the creation time where the system has none and starting at sign-in in a
+portable copy, the link picker hides web pages, images and repeated links, keeps only the types
+you name and renames the files by a pattern, and File Properties names a file's type as Windows
+does.
 
 Pullbay is now called UDM (Unified Download Manager), with a new icon. Installing it over Pullbay or UIDM keeps
 your settings, list, saved site passwords and half-finished downloads, and Pullbay's Update now

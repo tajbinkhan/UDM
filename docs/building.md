@@ -25,12 +25,10 @@ differs.
 | `crates/infrastructure/src/dpapi.rs`, `registry.rs`, `autostart.rs`, `browsers.rs` | Sealing saved requests and passwords, registry values, start at sign-in, and registering the host with each browser |
 | `crates/infrastructure/src/notify.rs`, `scan.rs`, `power.rs`, `update.rs` | Notifications and sounds, virus scans, sleep and shut down, the update check |
 | `crates/infrastructure/src/listfile.rs`, `from_old_names.rs` | Exporting and importing the download list; moving the files of UDM's earlier names, Pullbay and UIDM, over |
-| `crates/ui/src/` | The window: its state and messages (`state.rs`), views, dialogs, tray icon (`tray.rs`), tools for many downloads (`tools.rs`), and translations (`i18n.rs`, `lang/`) |
-| `crates/ui-tauri/` | The Tauri window's shell (ADR 0002): its state and the actor that owns it (`state.rs`, `actor.rs`), what each window shows (`projection/`), the commands the webview calls (`commands/`), the types that cross to it (`contract/`), the windows, tray and theme, `tauri.conf.json` and one capability file per window kind (`capabilities/`) |
-| `frontend/` | The Tauri window's web frontend: Svelte 5 and TypeScript, one page per window kind (`src/windows/`), the generated `src/bindings.ts`, and tests in `test/` |
-| `crates/app/src/bin/udm-gui-next.rs` | The Tauri window: builds its adapters and starts `udm-ui-tauri` |
+| `crates/ui/` | The window's Tauri shell (ADR 0002): its state and the actor that owns it (`state.rs`, `actor.rs`), what each window shows (`projection/`), the commands the webview calls (`commands/`), the types that cross to it (`contract/`), the windows, tray and theme, `tauri.conf.json`, one capability file per window kind (`capabilities/`), and the translations (`src/i18n.rs`, `src/lang/`) |
+| `frontend/` | The window's web frontend: Svelte 5 and TypeScript, one page per window kind (`src/windows/`), the generated `src/bindings.ts`, and tests in `test/` |
 | `crates/app/src/bin/udm-daemon.rs` | Daemon: wires the adapters into the service, starts the background threads and serves clients |
-| `crates/app/src/bin/udm-gui.rs` | Desktop window: builds its adapters and starts `udm-ui` |
+| `crates/app/src/bin/udm-gui.rs` | The window: builds its adapters and starts `udm-ui` |
 | `crates/app/src/bin/udm-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
 | `crates/app/src/bin/udm-cli.rs`, `crates/application/src/remote/`, `crates/infrastructure/src/tool.rs` | The command-line tool: its wiring, its commands (use cases over the daemon connection), and its arguments, output and exit codes |
 | `crates/app/src/bin/udm-mcp.rs`, `crates/application/src/remote/assistant.rs`, `crates/infrastructure/src/mcp.rs` | The AI assistants' MCP server: its wiring, the requests it runs on one daemon connection, and the protocol and its tools |
@@ -70,7 +68,7 @@ cargo test --workspace
 cargo build --release
 ```
 
-The Tauri window (`udm-gui-next`, ADR 0002) also needs Node 22 or newer and
+The window (`udm-gui`, ADR 0002) also needs Node 22 or newer and
 pnpm, and on Linux WebKitGTK 4.1 and its friends (`sudo apt install
 libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 build-essential`). The shell embeds the built frontend, so build it before
@@ -82,23 +80,23 @@ pnpm --dir frontend build
 ```
 
 To work on the frontend with hot reload, run `pnpm --dir frontend dev`, then
-`cargo run -p udm-app --bin udm-gui-next --no-default-features --features
+`cargo run -p udm-app --bin udm-gui --no-default-features --features
 tauri-window`, which loads Vite's server at `http://localhost:1420` instead of
 the embedded frontend. In a plain browser,
 `http://localhost:1420/dev/index.html?window=main&look=dark` draws any
 window (`main`, `add-url`, `save-as`, `download`, `done`, `remove`,
 `about`, `options`, `scheduler`, `grabber`, `grabber-results`, `batch`, `links`, `properties`,
-`drop-target`, `login`, `countdown`, `refresh`, `password`, `pick-links`, `pick-videos`, `gallery`) from the test fixtures, with the shell mocked.
+`drop-target`, `login`, `countdown`, `refresh`, `password`, `pick-links`, `pick-videos`, `gallery`, `zip-preview`, `exception`) from the test fixtures, with the shell mocked.
 
 When a contract type or a command changes, write the TypeScript bindings and
 the fixtures again (the tests fail until they match):
 
 ```bash
-UDM_WRITE_BINDINGS=1 UDM_WRITE_FIXTURES=1 cargo test -p udm-ui-tauri
+UDM_WRITE_BINDINGS=1 UDM_WRITE_FIXTURES=1 cargo test -p udm-ui
 ```
 
 The server image (`Dockerfile`) builds `udm-app` with
-`--no-default-features`, which leaves the Tauri window out.
+`--no-default-features`, which leaves the window out.
 
 `installer/linux/package.sh` makes the `.deb`, `.rpm`, AppImage and
 `.tar.gz` in `dist/` (it needs `dpkg-deb`, `rpmbuild` and Node, and
@@ -126,8 +124,8 @@ $env:UDM_INSTANCE = "test"; .\target\debug\udm-gui.exe
 
 A string the window shows needs its translation in every table in
 `crates/ui/src/lang/`; a test fails for one without them.
-`crates/ui/src/lang/untranslated.json` lists the strings that were untranslated before
-that test came in, and an entry leaves the list once it is translated.
+`crates/ui/src/lang/untranslated.json` lists the strings some table still lacks,
+and an entry leaves the list once every table has it.
 
 GitHub Actions builds and tests UDM on Windows, macOS and Linux on every
 push and pull request (`.github/workflows/build.yml`), and the extension's
@@ -196,18 +194,16 @@ cargo run --release --bin udm-host -- download https://example.com/file.zip
 ### Adding a language
 
 The window's strings are written in English in the code, and that English is
-each string's ID: `tr("Save")`, or `trf!("{count} files", count = n)` for text
-with values. A language is one JSON file in `crates/ui/src/lang/`, mapping each
+each string's ID: `t('Save')` in the frontend and `lang.tr("Save")` in the
+shell, with `{placeholders}` filled in afterwards. A language is one JSON file in `crates/ui/src/lang/`, mapping each
 English string to its translation, plus a line in `LANGUAGES` in
 `crates/ui/src/i18n.rs`; a missing string shows in English. The tests check that
-every key is still used and keeps its `{placeholders}`, and that a language
-without a system font of its own draws with egui's fonts. The extension's text is
+every key is still used and keeps its `{placeholders}`. The extension's text is
 in `extension/_locales/<code>/messages.json`, as Chrome expects; its tests
-check that every locale has the same messages as `en`. egui draws text without
-shaping it or laying it out right to left, so Arabic, Hebrew, Persian, Urdu and
-scripts that need shaping, such as Bengali or Hindi, would not display
-correctly yet. [Help translate](translating.md) has the steps and which tables
-wait for review.
+check that every locale has the same messages as `en`. The webview shapes the
+window's text and lays it out right to left; a right-to-left language also sets
+`Language::right_to_left`, which sets the windows' direction.
+[Help translate](translating.md) has the steps and which tables wait for review.
 
 ---
 

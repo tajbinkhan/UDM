@@ -777,6 +777,7 @@
     },
     "add-url": {
       "view": {
+        "address": null,
         "connected": true
       },
       "window": "addUrl"
@@ -801,6 +802,8 @@
       "view": {
         "address": "http://127.0.0.1:8765/udm-idm-test-40MB.bin",
         "canOpen": true,
+        "canOpenWith": false,
+        "dragOut": false,
         "failed": false,
         "headline": "Download complete",
         "id": 17,
@@ -895,6 +898,14 @@
         "connected": true
       },
       "window": "dropTarget"
+    },
+    "exception": {
+      "view": {
+        "connected": true,
+        "host": "cdn.example.com",
+        "url": "https://cdn.example.com/files/song.mp3"
+      },
+      "window": "exception"
     },
     "gallery": {
       "view": {
@@ -1062,7 +1073,8 @@
             "key": "all",
             "label": "All Files",
             "open": null,
-            "selected": true
+            "selected": true,
+            "tip": null
           },
           {
             "depth": 0,
@@ -1070,7 +1082,8 @@
             "key": "links",
             "label": "Link View",
             "open": true,
-            "selected": false
+            "selected": false,
+            "tip": null
           },
           {
             "depth": 0,
@@ -1078,10 +1091,12 @@
             "key": "folders",
             "label": "Folder View",
             "open": true,
-            "selected": false
+            "selected": false,
+            "tip": null
           }
         ],
-        "unsaved": false
+        "unsaved": false,
+        "wakeWarning": null
       },
       "window": "grabber"
     },
@@ -1245,7 +1260,8 @@
             "key": "all",
             "label": "All Files",
             "open": null,
-            "selected": true
+            "selected": true,
+            "tip": null
           },
           {
             "depth": 0,
@@ -1253,7 +1269,8 @@
             "key": "links",
             "label": "Link View",
             "open": true,
-            "selected": false
+            "selected": false,
+            "tip": null
           },
           {
             "depth": 1,
@@ -1261,7 +1278,8 @@
             "key": "page/http://127.0.0.1:8765/index.html",
             "label": "127.0.0.1:8765/index.html",
             "open": null,
-            "selected": false
+            "selected": false,
+            "tip": null
           },
           {
             "depth": 0,
@@ -1269,7 +1287,8 @@
             "key": "folders",
             "label": "Folder View",
             "open": true,
-            "selected": false
+            "selected": false,
+            "tip": null
           },
           {
             "depth": 1,
@@ -1277,10 +1296,12 @@
             "key": "host/127.0.0.1",
             "label": "127.0.0.1",
             "open": null,
-            "selected": false
+            "selected": false,
+            "tip": null
           }
         ],
-        "unsaved": true
+        "unsaved": true,
+        "wakeWarning": null
       },
       "window": "grabber"
     },
@@ -1424,16 +1445,20 @@
           "banner": null,
           "can": {
             "connected": true,
+            "convert": false,
             "delete": true,
             "deleteCompleted": true,
+            "dragOut": false,
             "open": false,
+            "openWith": false,
             "progress": false,
             "redownload": true,
             "refresh": false,
             "resume": false,
             "resumeAll": false,
             "stop": false,
-            "stopAll": true
+            "stopAll": true,
+            "verify": false
           },
           "categories": [
             {
@@ -1478,6 +1503,7 @@
             }
           ],
           "categoriesPanel": true,
+          "checksum": "",
           "columns": [
             {
               "key": "name",
@@ -1635,6 +1661,8 @@
               "running": false
             }
           ],
+          "reconnect": false,
+          "report": null,
           "selected": [
             2,
             4
@@ -1675,7 +1703,8 @@
               "key": "all",
               "label": "All Downloads",
               "open": true,
-              "selected": true
+              "selected": true,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1685,7 +1714,8 @@
               "key": "all/Compressed",
               "label": "Compressed",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1695,7 +1725,8 @@
               "key": "all/Documents",
               "label": "Documents",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1705,7 +1736,8 @@
               "key": "all/Music",
               "label": "Music",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1715,7 +1747,8 @@
               "key": "all/Programs",
               "label": "Programs",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 1,
@@ -1725,7 +1758,8 @@
               "key": "all/Video",
               "label": "Video",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 0,
@@ -1733,7 +1767,8 @@
               "key": "unfinished",
               "label": "Unfinished",
               "open": false,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 0,
@@ -1741,7 +1776,8 @@
               "key": "finished",
               "label": "Finished",
               "open": false,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 0,
@@ -1749,7 +1785,8 @@
               "key": "grabber",
               "label": "Grabber projects",
               "open": null,
-              "selected": false
+              "selected": false,
+              "tip": null
             },
             {
               "depth": 0,
@@ -1757,7 +1794,8 @@
               "key": "queues",
               "label": "Queues",
               "open": false,
-              "selected": false
+              "selected": false,
+              "tip": null
             }
           ]
         },
@@ -2107,6 +2145,7 @@
           8,
           16
         ],
+        "creationTime": true,
         "defaultCaptureTypes": "ZIP RAR 7Z TAR GZ BZ2 XZ PDF DOC DOCX XLS XLSX PPT PPTX TXT RTF ODT MP3 FLAC WAV M4A AAC OGG EXE MSI APK MSIX MP4 MKV AVI MOV WEBM WMV ISO IMG DMG DEB RPM BIN",
         "defaultExcludedSites": "",
         "draft": {
@@ -2548,6 +2587,7 @@
             "value": "gallery"
           }
         ],
+        "portable": false,
         "remote": {
           "canPair": true,
           "devices": [
@@ -3478,6 +3518,12 @@
     "pick-links": {
       "view": {
         "connected": true,
+        "filter": {
+          "hideImages": true,
+          "hidePages": true,
+          "hideRepeated": true,
+          "types": ""
+        },
         "page": "http://127.0.0.1:8765/index.html",
         "queues": [
           {
@@ -3521,6 +3567,7 @@
           }
         ],
         "suggestedPackage": "manual",
+        "total": 4,
         "types": [
           "exe",
           "pdf",
@@ -3625,6 +3672,8 @@
     },
     "save-as": {
       "view": {
+        "canElevate": true,
+        "canPreview": false,
         "categories": [
           "General",
           "Compressed",
@@ -3718,7 +3767,8 @@
             "stop": "07:30",
             "stopOn": false,
             "sync": false,
-            "then": "nothing"
+            "then": "nothing",
+            "wake": true
           },
           {
             "date": "2026-11-12",
@@ -3751,7 +3801,8 @@
             "stop": "07:30",
             "stopOn": false,
             "sync": false,
-            "then": "nothing"
+            "then": "nothing",
+            "wake": true
           }
         ],
         "quota": {
@@ -3759,9 +3810,30 @@
           "hours": 24,
           "mb": 1024,
           "warn": true
-        }
+        },
+        "wakeWarning": null
       },
       "window": "scheduler"
+    },
+    "zip-preview": {
+      "view": {
+        "error": null,
+        "note": "",
+        "reading": false,
+        "rows": [
+          {
+            "name": "docs/readme.txt",
+            "size": "2.0 KB"
+          },
+          {
+            "name": "bin/tool.exe",
+            "size": "3.0 MB"
+          }
+        ],
+        "summary": "2 files, 3.0 MB unpacked",
+        "title": "Inside udm-windows.zip"
+      },
+      "window": "zipPreview"
     }
   }
 }

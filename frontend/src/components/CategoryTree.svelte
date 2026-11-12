@@ -98,7 +98,7 @@
           <span class="twist"></span>
         {/if}
         <TreeGlyph icon={n.icon} />
-        <span class="label">{n.label}</span>
+        <span class="label" title={n.tip ?? undefined}>{n.label}</span>
       </div>
     {/each}
   </div>

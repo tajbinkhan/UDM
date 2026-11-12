@@ -3,6 +3,9 @@
 <script lang="ts">
   import {
     askPackagePassword,
+    openWith,
+    dragFile,
+    reportAction,
     browseCategory,
     checkUpdate,
     dismissRelease,
@@ -54,10 +57,13 @@
   import FontSheet from './FontSheet.svelte';
   import ToolbarSheet from './ToolbarSheet.svelte';
   import TipSheet from './TipSheet.svelte';
+  import ConvertSheet from './ConvertSheet.svelte';
+  import VerifySheet from './VerifySheet.svelte';
   import Sheet from '../../components/Sheet.svelte';
 
   type SheetOpen =
     | { kind: 'find' | 'export' | 'limiter' | 'columns' | 'font' | 'toolbar' | 'tip' }
+    | { kind: 'convert' | 'verify'; row: Row }
     | { kind: 'category'; original: string | null; start: CategoryInput }
     | { kind: 'note'; text: string };
   let sheet = $state<SheetOpen | null>(null);
@@ -212,6 +218,7 @@
       items: [
         item('H&elp contents', undefined),
         item('&Keyboard shortcuts', undefined),
+        item('&Report a problem', () => void reportAction('newIssue')),
         item('Tip of the &Day...', () => (sheet = { kind: 'tip' })),
         sep,
         item('&About UDM', () => void openWindow('about')),
@@ -286,12 +293,14 @@
 
   const listItems: MenuEntry[] = $derived([
     item('Open', when(can?.open && !!one, () => one && void openDownload(one.id, 'file'))),
-    item('Open with...', undefined),
+    item('Open with...', when(can?.openWith && !!one, () => one && void openWith(one.id))),
     item('Open folder', when(!!one?.saveTo, () => one && void openDownload(one.id, 'folder'))),
     sep,
     item('Move/Rename (Ctrl-M)', when(!!one, () => one && void tell(moveDownload(one.id, one.name)))),
     sep,
     item('Redownload', when(can?.redownload, act({ action: 'redownload' }))),
+    item('Verify checksum...', when(can?.verify && !!one, () => one && (sheet = { kind: 'verify', row: one }))),
+    item('Convert...', when(can?.convert && !!one, () => one && (sheet = { kind: 'convert', row: one }))),
     sep,
     item('Resume Download', when(can?.resume, act({ action: 'resume' }))),
     item('Stop Download', when(can?.stop, act({ action: 'stop' }))),
@@ -389,7 +398,40 @@
         </div>
       {/if}
       {#if view.chrome.banner}
-        <div class="banner" class:error={view.chrome.banner.error} role="status">{view.chrome.banner.text}</div>
+        <div class="banner strip" class:error={view.chrome.banner.error} role="status">
+          <span class="grow">{view.chrome.banner.text}</span>
+          {#if view.chrome.reconnect}
+            <button class="btn small" onclick={() => void reportAction('reconnect')}>{t('Reconnect')}</button>
+            <button class="btn small" onclick={() => void reportAction('restartDaemon')}>{t('Restart daemon')}</button>
+          {/if}
+        </div>
+      {/if}
+      {#if view.chrome.report}
+        {@const r = view.chrome.report}
+        <div class="banner strip" class:warn={r.tone === 'warn'} role="status">
+          <span class="grow">{r.text} {r.more}</span>
+          {#if r.save}
+            <button
+              class="btn small"
+              title={t("Write a report with the version, the system and the end of the log to UDM's data folder. Nothing is sent.")}
+              onclick={() => void reportAction('save')}>{t('Save a report')}</button
+            >
+          {/if}
+          {#if r.restart}<button class="btn small" onclick={() => void reportAction('restartDaemon')}>{t('Restart daemon')}</button>{/if}
+          {#if r.issue}
+            <button
+              class="btn small"
+              title={t(
+                'Open a new issue on GitHub in your browser with the version and system filled in, and show the report file to attach to it. Nothing is sent until you submit the issue.',
+              )}
+              onclick={() => void reportAction('openIssue')}>{t('Open an issue')}</button
+            >
+            <button class="btn small" onclick={() => void reportAction('show')}>{t('Show the report')}</button>
+          {/if}
+          {#if !r.busy}
+            <button class="btn small close" aria-label={t('Close')} onclick={() => void reportAction('dismiss')}>×</button>
+          {/if}
+        </div>
       {/if}
       <div class="body">
         {#if view.chrome.categoriesPanel}
@@ -416,6 +458,7 @@
             ondelete={() => can?.delete && void runListAction({ action: 'delete' })}
             onselectall={() => void runListAction({ action: 'selectAll' })}
             onmenu={(x, y) => (listMenu = { x, y })}
+            ondrag={can?.dragOut ? (r) => void dragFile(r.id) : undefined}
             mono={view.chrome.listMono}
             size={view.chrome.listSize}
           />
@@ -444,6 +487,10 @@
       <ToolbarSheet current={view.chrome.toolbar} small={view.chrome.toolbarSmall} labels={toolLabels} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'tip'}
       <TipSheet tips={view.chrome.tips} next={view.chrome.nextTip} onStartup={view.chrome.tipsOnStartup} onclose={() => (sheet = null)} />
+    {:else if sheet?.kind === 'convert'}
+      <ConvertSheet row={sheet.row} onclose={() => (sheet = null)} />
+    {:else if sheet?.kind === 'verify'}
+      <VerifySheet row={sheet.row} start={view.chrome.checksum} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'note'}
       <Sheet title={t('UDM')} width={320} oncancel={() => (sheet = null)}>
         <p class="note">{sheet.text}</p>
@@ -478,6 +525,10 @@
     min-width: 0;
     width: 22px;
     padding: 0;
+  }
+
+  .banner.warn {
+    color: var(--warning);
   }
 
   .banner.error {

@@ -1,7 +1,0 @@
-{
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "save-as",
-  "description": "Download File Info, one window per download waiting for its answer.",
-  "windows": ["save-as-*"],
-  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-close-window", "allow-answer-download", "allow-pick-path"]
-}

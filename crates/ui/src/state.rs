@@ -1,41 +1,28 @@
-//! The window's state (AGENTS.md section 7): what it draws from, the
-//! messages that change it, and [`apply`], the one function that does.
-//!
-//! The connection thread and the other threads outside the frame send
-//! [`UiMessage`]s on the window's channel; the frame drains it with
-//! `try_recv` and applies each. Those threads also keep a [`Watch`] of the
-//! daemon's events, so they can wake a hidden window when a dialog must
-//! open even when the frame is not running.
-//!
-//! The dialogs' own drafts still live in `App` (#199).
+//! The window's state (AGENTS.md section 7.1): what every window draws
+//! from, the messages that change it, and [`apply`], the one function that
+//! does. One thread, the state actor (`actor.rs`), owns it.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap};
 use std::time::{Duration, Instant};
-use udm_domain::bytes::ByteCount;
 
-use udm_application::daemon::{self, Event, Failure, Lost};
-use udm_application::themes::ThemesRead;
-use udm_application::window::BrowserSlot;
-use udm_domain::download::{login_wanted, DownloadEntry, SegmentInfo, Status};
-use udm_domain::grab::{Filter, GrabFile, GrabRequest, Project, Template};
-use udm_domain::id::{DownloadId, PackageId};
-use udm_domain::package::{Package, Unpack};
-use udm_domain::queue::{Queue, WhenDone};
-use udm_domain::report::{SavedReport, ThisCopy};
-use udm_domain::settings::{AddedBrowser, Notify, Settings};
+use udm_application::daemon::{self, Event, Lost};
+use udm_domain::bytes::ByteCount;
+use udm_domain::download::{SegmentInfo, Status};
+use udm_domain::id::{DownloadId, QueueId};
+use udm_domain::queue::Queue;
+use udm_domain::settings::{Notify, Settings};
 use udm_domain::table::DownloadTable;
 
-use crate::errors::{self, UiError};
-use crate::i18n::{tr, trf};
-use crate::{columns, gallery, links, progress, videos};
-use udm_application::daemon::service::ServiceError;
-use udm_domain::gallery::{Gallery, GalleryError};
-use udm_domain::tools::{Tool, ToolState};
+use crate::contract::{ColumnKey, SortDir};
 
 /// Ignore speed samples closer together than this; they are too noisy.
 const SPEED_MIN_INTERVAL: Duration = Duration::from_millis(400);
 
-#[derive(Clone)]
+/// The narrowest and widest a column can be dragged.
+pub const WIDTH_RANGE: (f32, f32) = (24.0, 800.0);
+
+/// The connection to UDM's background service.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Link {
     Connecting,
     Connected,
@@ -43,420 +30,321 @@ pub enum Link {
 }
 
 /// Bytes per second, smoothed across progress events.
+#[derive(Debug, Clone, Copy)]
 pub struct Speed {
     at: Instant,
     done: ByteCount,
     pub bytes_per_sec: f64,
 }
 
-/// Everything the window draws from that the daemon and the threads
-/// outside the frame change. Only [`apply`] changes it.
+/// Downloads by how far they got, the tree's three top branches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    All,
+    Unfinished,
+    Finished,
+}
+
+/// The categories tree's node the list shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Node {
+    Downloads {
+        progress: Progress,
+        category: Option<String>,
+    },
+    Queue(QueueId),
+    /// A package's downloads.
+    Package(udm_domain::id::PackageId),
+}
+
+impl Default for Node {
+    fn default() -> Self {
+        Node::Downloads { progress: Progress::All, category: None }
+    }
+}
+
+/// The column to sort by, and which way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sort {
+    pub column: ColumnKey,
+    pub dir: SortDir,
+}
+
+/// The list's font, from View > Font.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ListFont {
+    /// The fixed-width font rather than the window's own.
+    pub mono: bool,
+    /// In points, 8 to 24.
+    pub size: f32,
+}
+
+/// A message under the toolbar.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Notice {
+    pub text: String,
+    pub error: bool,
+}
+
+/// Everything the windows draw from. Only [`apply`] changes it.
 pub struct AppState {
     pub link: Link,
     pub table: DownloadTable,
-    pub speeds: HashMap<DownloadId, Speed>,
-    /// The daemon's most recent `error` reply, shown under the toolbar.
-    pub last_error: Option<String>,
-    /// The daemon did not know a request this window sent: it is an older
-    /// build than the window.
-    pub stale_daemon: bool,
-    /// The daemon's settings, once it has sent them.
     pub settings: Option<Settings>,
-    /// True from sending `set_settings` until the daemon answers with
-    /// `settings` or `error`.
-    pub saving: bool,
-    /// That answer, for the Options dialog to pick up.
-    pub save_result: Option<Result<(), UiError>>,
-    /// Downloads to show a completion dialog for, and whether each failed.
-    pub completed: VecDeque<(DownloadId, bool)>,
-    /// The daemon's queues, the main queue first.
     pub queues: Vec<Queue>,
-    /// The daemon's packages, oldest first.
-    pub packages: Vec<Package>,
-    /// Packages whose archives came to need a password since the window
-    /// last took them, to ask for it.
-    pub password_wanted: Vec<PackageId>,
-    /// A countdown before a finished queue or download sleeps or shuts down:
-    /// the action, when it happens, the queue's name, and the download's
-    /// file name when one download asked for it.
-    pub countdown: Option<(WhenDone, Instant, String, Option<String>)>,
-    /// The download waiting for a new link from the browser, if any.
-    pub refresh_waiting: Option<DownloadId>,
-    /// The daemon's answer that a new link is for another file: the
-    /// download, the link and why.
-    pub refresh_mismatch: Option<(DownloadId, String, String)>,
-    /// A passing message for the status bar, such as how many downloads a
-    /// batch added.
-    pub notice: Option<String>,
-    /// The site crawl's news, for the grabber dialog to pick up.
-    pub grab_events: VecDeque<GrabEvent>,
-    /// A copied link to offer to download.
-    pub clipboard: Option<String>,
-    /// The tray asked for a batch from the clipboard's links.
-    pub clipboard_batch: bool,
-    /// Downloads that failed for want of a login, to ask for one.
-    pub login_wanted: VecDeque<DownloadId>,
-    /// Each download's connections, from its latest progress.
+    pub speeds: HashMap<DownloadId, Speed>,
     pub segments: HashMap<DownloadId, Vec<SegmentInfo>>,
-    /// Downloads that started since the last frame, and whether a queue
-    /// started each.
-    pub started: Vec<(DownloadId, bool)>,
-    /// Links from a page for the link picker, until the window opens it.
-    pub picked_links: Option<links::LinksDialog>,
-    /// A playlist's videos to pick from, until the window opens the dialog.
-    pub picked_videos: Option<videos::VideosDialog>,
-    /// A gallery page the browser asked for, until the window opens its
-    /// dialog.
-    pub picked_gallery: Option<gallery::GalleryDialog>,
-    /// The daemon's answers to the gallery dialog's reads, until it takes
-    /// them: the request, and the pictures or why there are none.
-    pub gallery_read: Vec<(u64, Result<Gallery, gallery::Unread>)>,
-    /// Where yt-dlp and ffmpeg are, as the daemon last said, for Options.
-    pub tools: Vec<ToolState>,
-    /// The tools being installed now.
-    pub tools_busy: HashSet<Tool>,
-    /// What the last install did: that it worked, or why not.
-    pub tools_note: Option<Result<String, String>>,
-    /// The daemon's answers about the link picker's links, until the
-    /// picker takes them: the request, the link's place in it, and what
-    /// its server said.
-    pub link_info: Vec<(u64, usize, links::Probed)>,
-    /// The quota's warning for the status bar, while it matters.
-    pub quota: Option<String>,
-    /// The last update check's answer, for the About box: a newer release,
-    /// none, or why it could not look.
-    pub update: Option<Result<Option<udm_domain::update::Release>, UiError>>,
-    /// A newer release, for the status bar.
-    pub newer_release: Option<udm_domain::update::Release>,
-    /// Update now is under way: `None` while the daemon downloads the
-    /// update, or why it failed.
-    pub installing: Option<Option<String>>,
-    /// A zip preview the daemon sent: the download and its files, or why
-    /// not.
-    pub zip_listed: Option<ZipListed>,
-    /// Downloads are paused for the quota.
-    pub quota_paused: bool,
-    /// The speed limit is lifted while nobody uses the computer, as the
-    /// daemon last said.
-    pub limit_lifted: bool,
-    /// Whether the browser extension is connected, and when one last was,
-    /// as the daemon last said.
-    pub browser_link: Option<(bool, Option<u64>)>,
-    /// How remote control stands, as the daemon last answered Options.
-    pub remote: Option<udm_domain::pairing::RemoteState>,
-    /// The grabber's saved projects, the most recently used first, as a
-    /// worker last read them.
-    pub grab_projects: Vec<String>,
-    /// The grabber's templates, built-in and saved, as a worker last read
-    /// them.
-    pub grab_templates: Vec<Template>,
-    /// The request a new project starts from, as a worker last read it.
-    pub grab_template: GrabRequest,
-    /// The file-type filters the grabber offers, as a worker last read
-    /// them.
-    pub grab_filters: Vec<Filter>,
-    /// A project the category tree asked to open, read on a worker, or why
-    /// it could not be; until the window takes it.
-    pub grab_opened: Option<Result<Project, UiError>>,
-    /// The browsers a worker found for Options, until Options takes them.
-    pub browsers_read: Option<BrowsersRead>,
-    /// This copy's version, system and install, once a worker read them,
-    /// for the issues the window opens.
-    pub this_copy: Option<ThisCopy>,
-    /// The problems on offer to report, the one shown first.
-    pub reports: VecDeque<ReportOffer>,
-    /// The theme files and the system's contrast colors, as a worker last
-    /// read them.
-    pub themes: ThemesRead,
+    pub daemon_version: Option<String>,
+    /// The rows selected in the main window, in the order picked.
+    pub selected: Vec<DownloadId>,
+    pub node: Node,
+    /// The tree's branches that are open, by key.
+    pub open_nodes: BTreeSet<String>,
+    pub sort: Option<Sort>,
+    /// The columns shown, left to right, with their widths.
+    pub columns: Vec<(ColumnKey, f32)>,
+    pub categories_panel: bool,
+    pub notice: Option<Notice>,
+    /// The downloads the Confirm deletion dialog asks about.
+    pub to_remove: Vec<DownloadId>,
+    /// Downloads whose progress window is open.
+    pub progress: BTreeSet<DownloadId>,
+    /// Finished downloads whose completion dialog is open.
+    pub done: BTreeSet<DownloadId>,
+    /// Downloads answered in their Download File Info dialog, until the
+    /// daemon says they are no longer waiting for it.
+    pub answered: BTreeSet<DownloadId>,
+    /// The system's languages, best first, for an empty Language setting.
+    pub system_languages: Vec<String>,
+    /// The site grabber.
+    pub grab: crate::grabber::GrabState,
+    /// Links to pick from: the clipboard's, or an imported list's.
+    pub links: Option<crate::tools::LinkList>,
+    /// Downloads whose properties window is open.
+    pub properties: BTreeSet<DownloadId>,
+    /// The categories panel's width.
+    pub panel_width: f32,
+    pub list_font: Option<ListFont>,
+    pub toolbar_small: bool,
+    /// The toolbar's buttons and separators, in order.
+    pub toolbar: Vec<String>,
+    /// What the layout file holds that this window does not use.
+    pub layout_rest: serde_json::Map<String, serde_json::Value>,
+    /// The tip of the day was shown, or dismissed, since the window opened.
+    pub tip_seen: bool,
+    /// What the daemon asks of the window beyond the list.
+    pub asks: crate::extras::Asks,
+    /// What Options shows beyond the settings.
+    pub services: crate::services::Services,
+    /// The problem reports to offer.
+    pub reports: crate::reports::Offers,
+    /// A link the clipboard monitor caught, for Add URL.
+    pub clipboard_offer: Option<String>,
+    /// The zip preview and the capture exception offer.
+    pub files: crate::filework::FileWork,
+    /// The system has an Open with picker.
+    pub can_open_with: bool,
+    /// What the system can do, read once when the window starts.
+    pub system: SystemFacts,
+    /// Whether the power plan lets programs wake the computer, on mains
+    /// power and on battery, as a worker last read it while the Scheduler or
+    /// the grabber was open. `None` until read, or where it cannot be.
+    pub wake_timers: Option<(bool, bool)>,
+    /// What the system calls files of each extension (lower case), as
+    /// workers read them for File Properties; `None` where it names none.
+    pub type_names: HashMap<String, Option<String>>,
 }
 
-/// A problem the window offers to report, in the strip under the toolbar.
-#[derive(Debug, Clone, PartialEq)]
-pub enum ReportOffer {
-    /// The window's frame stopped for `secs`; the report the watchdog wrote
-    /// meanwhile, if it could.
-    Froze { secs: u64, draft: Option<SavedReport> },
-    /// The daemon has not answered for `secs`, its connection open.
-    Silent { secs: u64 },
-    /// The report asked for is being written.
-    Saving,
-    /// A report is saved, to open an issue with. `earlier`: the window
-    /// found it rather than wrote it; `more`: other new reports found
-    /// with it.
-    Saved { report: SavedReport, earlier: bool, more: usize },
+/// What the system can do, which some windows leave off.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SystemFacts {
+    /// Download File Info can offer administrator rights for a folder UDM
+    /// may not write to.
+    pub can_elevate: bool,
+    /// A finished file's creation time can be set.
+    pub creation_time: bool,
+    /// A portable copy, which does not start when the user signs in.
+    pub portable: bool,
 }
 
-impl ReportOffer {
-    /// The report file this offer is about, if there is one yet.
-    fn report(&self) -> Option<&SavedReport> {
-        match self {
-            ReportOffer::Froze { draft, .. } => draft.as_ref(),
-            ReportOffer::Saved { report, .. } => Some(report),
-            ReportOffer::Silent { .. } | ReportOffer::Saving => None,
+impl Default for AppState {
+    fn default() -> Self {
+        AppState {
+            link: Link::Connecting,
+            table: DownloadTable::new(),
+            settings: None,
+            queues: Vec::new(),
+            speeds: HashMap::new(),
+            segments: HashMap::new(),
+            daemon_version: None,
+            selected: Vec::new(),
+            node: Node::default(),
+            open_nodes: ["all".to_string()].into(),
+            sort: None,
+            columns: DEFAULT_COLUMNS.to_vec(),
+            categories_panel: true,
+            notice: None,
+            to_remove: Vec::new(),
+            progress: BTreeSet::new(),
+            done: BTreeSet::new(),
+            answered: BTreeSet::new(),
+            system_languages: Vec::new(),
+            grab: crate::grabber::GrabState::default(),
+            links: None,
+            properties: BTreeSet::new(),
+            panel_width: 143.0,
+            list_font: None,
+            toolbar_small: false,
+            toolbar: crate::layout::TOOLBAR.iter().map(|s| s.to_string()).collect(),
+            layout_rest: serde_json::Map::new(),
+            tip_seen: false,
+            asks: crate::extras::Asks::default(),
+            services: crate::services::Services::default(),
+            reports: crate::reports::Offers::default(),
+            clipboard_offer: None,
+            files: crate::filework::FileWork::default(),
+            can_open_with: false,
+            system: SystemFacts::default(),
+            wake_timers: None,
+            type_names: HashMap::new(),
         }
     }
 }
 
-/// The grabber's saved lists, as a worker reads them.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GrabLibrary {
-    pub projects: Vec<String>,
-    pub templates: Vec<Template>,
-    pub template: GrabRequest,
-    pub filters: Vec<Filter>,
-}
+/// The columns and widths of a new window, in the order of the download
+/// manager UDM's list follows.
+pub const DEFAULT_COLUMNS: [(ColumnKey, f32); 8] = [
+    (ColumnKey::Name, 150.0),
+    (ColumnKey::Queue, 22.0),
+    (ColumnKey::Size, 70.0),
+    (ColumnKey::Status, 72.0),
+    (ColumnKey::TimeLeft, 75.0),
+    (ColumnKey::Speed, 95.0),
+    (ColumnKey::LastTry, 65.0),
+    (ColumnKey::Description, 120.0),
+];
 
-/// A browser row for Options, as a worker read it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BrowserRow {
-    /// The browser whose registration it uses.
-    pub browser: BrowserSlot,
-    pub name: String,
-    /// The browser the user added by its program, if it is one.
-    pub added: Option<AddedBrowser>,
-    /// Whether its place is known rather than guessed from its family.
-    pub known: bool,
-    pub registered: bool,
-}
-
-/// What Options shows of the browsers: each one found, registered or
-/// added, and those that read Chrome's registration.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct BrowsersRead {
-    pub rows: Vec<BrowserRow>,
-    pub chrome_readers: Vec<String>,
-}
-
-/// News of a site crawl.
-pub enum GrabEvent {
-    /// Pages read, bytes read, files kept, file links looked at, and the
-    /// downloads added to a queue so far.
-    Progress(u64, ByteCount, usize, u64, Vec<DownloadId>),
-    /// The files kept, pages read, file links looked at, why it stopped,
-    /// and the login page site's cookies it used.
-    Done(Vec<GrabFile>, u64, u64, Option<String>, Option<String>),
+/// What changes the state.
+#[derive(Debug)]
+pub enum UiMessage {
+    /// An event from the daemon, with when it came.
+    Daemon {
+        event: Box<Event>,
+        at: Instant,
+        unix: u64,
+    },
+    Select(Vec<DownloadId>),
+    SelectAll,
+    SelectNode(Node),
+    ToggleNode(String),
+    Sort(ColumnKey),
+    Resize(ColumnKey, f32),
+    ToggleCategories,
+    /// Ask whether to remove the selected downloads.
+    AskRemove,
+    /// The Confirm deletion dialog closed, answered or not.
+    RemoveClosed,
+    ShowProgress(DownloadId),
+    /// The user closed one of the shell's windows by its label.
+    WindowClosed(String),
+    /// The Download File Info dialog of a download was answered.
+    Answered(DownloadId),
+    SystemLanguages(Vec<String>),
+    /// A crawl for this request began.
+    GrabStarted(Box<udm_domain::grab::GrabRequest>),
+    /// The projects folder was read, or there is none.
+    GrabLibraryRead(Option<Box<crate::grabber::Library>>),
+    /// A project was opened, or saved.
+    GrabOpened(Box<udm_domain::grab::Project>),
+    GrabSaved(Box<udm_domain::grab::Project>),
+    /// A new project, without results.
+    GrabReset,
+    /// The grabber's results tree's node.
+    GrabNode(String),
+    /// Links to pick from, or none.
+    Links(Option<Box<crate::tools::LinkList>>),
+    ShowProperties(DownloadId),
+    /// The column chooser's choice.
+    Columns(Vec<(ColumnKey, f32)>),
+    /// The layout file, read when the window starts.
+    LayoutRead(Box<crate::layout::LayoutFile>),
+    PanelWidth(f32),
+    ListFont(Option<ListFont>),
+    Toolbar {
+        small: bool,
+        buttons: Vec<String>,
+    },
+    /// The tip of the day was closed.
+    TipSeen,
+    /// Open the New link window for a download.
+    ShowRefresh(DownloadId),
+    /// These downloads got their login.
+    LoginAnswered(Vec<DownloadId>),
+    /// Ask a package's password.
+    AskPassword(udm_domain::id::PackageId),
+    /// The update check, or Install now, began.
+    UpdateChecking,
+    Installing,
+    /// Installing a tool began.
+    ToolInstalling(udm_domain::tools::Tool),
+    /// The browsers a worker read; `None` while they are read again.
+    BrowsersRead(Option<Box<crate::services::BrowsersRead>>),
+    /// What a browser change said.
+    BrowserNote(Option<crate::contract::Banner>),
+    /// The theme files and the system's contrast colors.
+    ThemesRead(Box<udm_application::themes::ThemesRead>),
+    /// Reports a crash or an earlier stall left, newest first.
+    ReportsFound(Vec<udm_domain::report::SavedReport>),
+    /// A window or the state thread stood still; the report written then.
+    Froze {
+        lasted_ms: u64,
+        draft: Option<udm_domain::report::SavedReport>,
+    },
+    /// The daemon has not answered a ping for these seconds.
+    DaemonSilent(u64),
+    DaemonAnswering,
+    ReportSaving,
+    ReportSaved(udm_domain::report::SavedReport),
+    /// The first report offer goes.
+    ReportDismissed,
+    /// The clipboard monitor caught a link to offer.
+    ClipboardOffer(String),
+    /// List the files inside a waiting zip download.
+    PreviewZip(DownloadId),
+    /// A captured download's save-as dialog was canceled.
+    SaveAsCanceled(DownloadId),
+    /// The offer to keep a download in the browser was answered.
+    ExceptionAnswered,
+    /// The tray's clipboard batch found no link.
+    ClipboardEmpty,
+    /// The command line given at start could not be passed on, and why.
+    StartupError(String),
+    /// What the system can do, read at start.
+    SystemRead(SystemFacts),
+    /// The power plan's wake timers, on mains power and on battery.
+    WakeTimersRead(Option<(bool, bool)>),
+    /// The link picker's filters changed.
+    LinkFilter(crate::contract::LinkFilter),
+    /// What the system calls files with extension `ext` (lower case).
+    TypeNameRead {
+        ext: String,
+        name: Option<String>,
+    },
 }
 
 impl AppState {
+    /// Whether finished downloads get the completion dialog.
     pub fn dialog_mode(&self) -> bool {
         self.settings.as_ref().is_some_and(|s| s.notify == Notify::Dialog)
     }
 
-    /// The tray icon's tooltip: how many downloads run, and how fast.
-    pub fn tooltip(&self) -> String {
-        let active = self.table.entries().filter(|e| e.status == Status::Downloading).count();
-        let queued = self.table.entries().filter(|e| e.status == Status::Queued).count();
-        let speed: f64 = self
-            .speeds
-            .iter()
-            .filter(|(id, _)| self.table.get(**id).is_some_and(|e| e.status == Status::Downloading))
-            .map(|(_, s)| s.bytes_per_sec)
-            .sum();
-        let downloads = match (active, queued) {
-            (0, 0) => tr("UDM: no active downloads").to_string(),
-            (0, q) => trf!("UDM: {queued} queued", queued = q),
-            (a, _) => {
-                trf!("UDM: {active} downloading at {speed}/s", active = a, speed = crate::human_rate(speed as u64))
-            }
-        };
-        if self.limit_lifted {
-            format!("{downloads}\n{}", tr("Speed limit lifted while you are away"))
-        } else {
-            downloads
-        }
+    pub fn connected(&self) -> bool {
+        self.link == Link::Connected
     }
 
-    /// What a daemon event changes in the list and the window's news.
-    fn apply_event(&mut self, msg: &Event) {
-        daemon::apply(&mut self.table, msg, crate::ports::ports().unix_now());
-        match msg {
-            Event::Queues { items } => self.queues = items.clone(),
-            Event::Packages { items } => {
-                // Ask once each time a package comes to need its password,
-                // not for one that needed it when the window connected.
-                let known = !self.packages.is_empty();
-                for p in items {
-                    let before = self.packages.iter().find(|o| o.id == p.id).map(|o| &o.unpack);
-                    let asks = matches!(p.unpack, Unpack::NeedsPassword { .. });
-                    let asked = matches!(before, Some(Unpack::NeedsPassword { .. }));
-                    if asks && !asked && (known || before.is_some()) && !self.password_wanted.contains(&p.id) {
-                        self.password_wanted.push(p.id);
-                    }
-                }
-                self.packages = items.clone();
-            }
-            Event::Countdown { action, seconds, queue, file } => {
-                let deadline = Instant::now() + Duration::from_secs(*seconds as u64);
-                self.countdown = Some((*action, deadline, queue.clone(), file.clone()));
-            }
-            Event::CountdownCanceled => self.countdown = None,
-            Event::RefreshWaiting { id } => self.refresh_waiting = *id,
-            Event::RefreshMismatch { id, url, reason } => {
-                self.refresh_mismatch = Some((*id, url.to_string(), errors::daemon(reason)));
-            }
-            Event::Settings { settings } => {
-                self.settings = Some(settings.clone());
-                if self.saving {
-                    self.saving = false;
-                    self.save_result = Some(Ok(()));
-                }
-            }
-            // An older daemon than this window cannot read its newer
-            // requests; its parser's complaint means nothing to the user.
-            Event::Error { error: Failure::InvalidMessage(why) } if why.starts_with("unknown variant") => {
-                self.saving = false;
-                self.stale_daemon = true;
-                self.last_error = Some(
-                    tr("The running UDM daemon is older than this window, so it did not understand a request. Restart the daemon to run the new one.")
-                        .into(),
-                );
-            }
-            Event::Error { error } if self.saving => {
-                self.saving = false;
-                self.save_result = Some(Err(UiError::from(error.clone())));
-            }
-            Event::Progress { id, done, segments, .. } => {
-                self.sample_speed(*id, *done);
-                if let Some(s) = segments {
-                    self.segments.insert(*id, s.clone());
-                }
-            }
-            Event::BrowserLink { connected, last_seen } => self.browser_link = Some((*connected, *last_seen)),
-            Event::LimitLifted { lifted } => self.limit_lifted = *lifted,
-            Event::Remote { state } => self.remote = Some(state.clone()),
-            Event::Started { id, .. } => {
-                self.segments.remove(id);
-                self.started.push((*id, progress::started_by_queue(&self.queues, *id)));
-            }
-            Event::Quota { used, limit, paused, resumes_at } => {
-                let amount =
-                    trf!("{used} of {limit}", used = crate::human_bytes(*used), limit = crate::human_bytes(*limit));
-                let was_paused = std::mem::replace(&mut self.quota_paused, *paused);
-                self.quota = if *paused {
-                    Some(match *resumes_at {
-                        Some(t) => trf!(
-                            "Download quota reached ({amount}); downloads are paused. They resume around {time}.",
-                            amount = amount,
-                            time = columns::local_date(t)
-                        ),
-                        None => trf!("Download quota reached ({amount}); downloads are paused.", amount = amount),
-                    })
-                } else if was_paused {
-                    self.notice = Some(tr("The download quota allows downloads again; paused ones resumed.").into());
-                    None
-                } else if udm_domain::quota::nearly_reached(*used, *limit) {
-                    Some(trf!(
-                        "Download quota nearly used: {amount}. Downloads pause when it runs out.",
-                        amount = amount
-                    ))
-                } else {
-                    None
-                };
-            }
-            Event::UpdateFailed { error } => {
-                self.installing = Some(Some(errors::daemon(error)));
-            }
-            Event::Update { newer, error } => {
-                self.update = Some(match error {
-                    Some(e) => Err(UiError::from(e.clone())),
-                    None => Ok(newer.clone()),
-                });
-                if newer.is_some() {
-                    self.newer_release = newer.clone();
-                }
-            }
-            Event::ZipPreview { id, entries, error } => {
-                let result = match error {
-                    Some(e) => Err(e.clone()),
-                    None => Ok(entries.clone()),
-                };
-                self.zip_listed = Some((*id, result.map_err(UiError::from)));
-            }
-            Event::PickLinks { page, links, user_agent } => {
-                self.picked_links = Some(links::LinksDialog::new(page.clone(), links.clone(), user_agent.clone()));
-            }
-            Event::PickVideos { page, playlist, user_agent } => {
-                self.picked_videos =
-                    Some(videos::VideosDialog::new(page.clone(), playlist.clone(), user_agent.clone()));
-            }
-            Event::PickGallery { page, user_agent } => {
-                self.picked_gallery = Some(gallery::GalleryDialog::new(page.clone(), user_agent.clone()));
-            }
-            Event::Gallery { request, gallery, error, .. } => {
-                let found = match (gallery, error) {
-                    (Some(g), None) => Ok(g.clone()),
-                    (_, Some(e)) => Err(gallery::Unread {
-                        why: errors::daemon(e),
-                        missing: matches!(e, Failure::Service(ServiceError::Gallery(GalleryError::Missing))),
-                    }),
-                    (None, None) => {
-                        Err(gallery::Unread { why: errors::gallery(&GalleryError::NothingFound), missing: false })
-                    }
-                };
-                self.gallery_read.push((*request, found));
-            }
-            Event::Tools { tools, done, error } => {
-                self.tools = tools.clone();
-                if let Some(tool) = done {
-                    self.tools_busy.remove(tool);
-                    self.tools_note = Some(match error {
-                        Some(e) => Err(errors::daemon(e)),
-                        None => Ok(trf!("{tool} is installed.", tool = tool.name())),
-                    });
-                }
-            }
-            Event::LinkInfo { request, index, total, content_type, error } => {
-                let probed = match error {
-                    Some(e) => links::Probed::Failed(errors::daemon(e)),
-                    None => links::Probed::Found { total: *total, content_type: content_type.clone() },
-                };
-                self.link_info.push((*request, *index, probed));
-            }
-            Event::AddedMany { count, skipped } => {
-                let mut notice = match count {
-                    1 => tr("Added 1 download, waiting in its queue.").to_string(),
-                    n => trf!("Added {count} downloads, waiting in their queue.", count = n),
-                };
-                match skipped {
-                    0 => {}
-                    1 => {
-                        notice.push(' ');
-                        notice.push_str(tr("Skipped 1 already in the list."));
-                    }
-                    n => {
-                        notice.push(' ');
-                        notice.push_str(&trf!("Skipped {count} already in the list.", count = n));
-                    }
-                }
-                self.notice = Some(notice);
-            }
-            Event::GrabProgress { pages, bytes, found, explored, added } => {
-                self.grab_events.push_back(GrabEvent::Progress(*pages, *bytes, *found, *explored, added.clone()));
-            }
-            Event::GrabDone { files, pages, explored, stopped, login_cookies } => {
-                self.grab_events.push_back(GrabEvent::Done(
-                    files.clone(),
-                    *pages,
-                    *explored,
-                    stopped.clone(),
-                    login_cookies.clone(),
-                ));
-            }
-            Event::Done { id, .. } | Event::Failed { id, .. } | Event::Canceled { id, .. } | Event::Removed { id } => {
-                self.speeds.remove(id);
-                if matches!(msg, Event::Removed { .. }) {
-                    self.segments.remove(id);
-                }
-            }
-            Event::Error { error } | Event::Rejected { error, .. } => self.last_error = Some(errors::daemon(error)),
-            _ => {}
-        }
-    }
-
-    fn sample_speed(&mut self, id: DownloadId, done: ByteCount) {
-        let now = Instant::now();
+    fn sample_speed(&mut self, id: DownloadId, done: ByteCount, now: Instant) {
         let s = self.speeds.entry(id).or_insert(Speed { at: now, done, bytes_per_sec: 0.0 });
-        let dt = now.duration_since(s.at);
+        let dt = now.saturating_duration_since(s.at);
         if dt < SPEED_MIN_INTERVAL || done < s.done {
             return;
         }
@@ -465,874 +353,361 @@ impl AppState {
         s.at = now;
         s.done = done;
     }
-}
 
-impl Default for AppState {
-    fn default() -> Self {
-        AppState {
-            link: Link::Connecting,
-            table: DownloadTable::new(),
-            speeds: HashMap::new(),
-            last_error: None,
-            stale_daemon: false,
-            settings: None,
-            saving: false,
-            save_result: None,
-            completed: VecDeque::new(),
-            queues: Vec::new(),
-            packages: Vec::new(),
-            password_wanted: Vec::new(),
-            countdown: None,
-            refresh_waiting: None,
-            refresh_mismatch: None,
-            notice: None,
-            grab_events: VecDeque::new(),
-            clipboard: None,
-            clipboard_batch: false,
-            login_wanted: VecDeque::new(),
-            segments: HashMap::new(),
-            started: Vec::new(),
-            picked_links: None,
-            picked_videos: None,
-            picked_gallery: None,
-            gallery_read: Vec::new(),
-            tools: Vec::new(),
-            tools_busy: HashSet::new(),
-            tools_note: None,
-            link_info: Vec::new(),
-            quota: None,
-            zip_listed: None,
-            update: None,
-            newer_release: None,
-            installing: None,
-            quota_paused: false,
-            limit_lifted: false,
-            browser_link: None,
-            remote: None,
-            grab_projects: Vec::new(),
-            grab_templates: udm_domain::grab::built_in_templates(),
-            grab_template: GrabRequest::default(),
-            grab_filters: udm_domain::grab::default_filters(),
-            grab_opened: None,
-            browsers_read: None,
-            this_copy: None,
-            reports: VecDeque::new(),
-            themes: ThemesRead::default(),
-        }
+    /// A running download's speed, when it has one.
+    pub fn speed(&self, id: DownloadId) -> Option<f64> {
+        self.speeds.get(&id).map(|s| s.bytes_per_sec).filter(|s| *s > 0.0)
     }
 }
 
-/// What changes the window's state: the daemon's events and the news of
-/// the threads that act outside the frame. The frame drains them from its
-/// channel and hands each to [`apply`].
-#[derive(Debug)]
-// Each message lives only while it is applied, so boxing the daemon's events would add churn for no gain.
-#[allow(clippy::large_enum_variant)]
-pub enum UiMessage {
-    /// The connection is being made again.
-    Connecting,
-    /// The window asked the daemon to install this tool.
-    ToolInstalling(Tool),
-    /// An event from the daemon, the connection's state among them.
-    Daemon(Event),
-    /// The clipboard watcher found a link to offer.
-    ClipboardOffer(String),
-    /// The tray asked for a batch from the clipboard's links.
-    ClipboardBatch,
-    /// A problem to show under the toolbar.
-    Error(String),
-    /// Download `id` failed a moment ago and is still failed: its dialog
-    /// can show now.
-    FailedSettled(DownloadId),
-    /// Update now was chosen; its answer is awaited.
-    InstallStarted,
-    /// A new update check was asked for; its answer is awaited.
-    UpdateCheckStarted,
-    /// The daemon is being restarted to run the new one.
-    DaemonRestarting,
-    /// The user asked to give download `id` a login: it goes first.
-    LoginAsked(DownloadId),
-    /// Downloads whose login prompt waits for another site's, to ask about
-    /// next.
-    LoginsWaiting(Vec<DownloadId>),
-    /// Options' settings went to the daemon; its answer is awaited.
-    SavingSettings,
-    /// A worker read the grabber's saved projects, templates, default
-    /// template and filters.
-    GrabLibraryRead(GrabLibrary),
-    /// A worker read the project the category tree asked to open.
-    GrabProjectRead(Result<Project, UiError>),
-    /// A worker read the browsers for Options.
-    BrowsersRead(BrowsersRead),
-    /// A worker found the theme files or the system's contrast setting
-    /// changed.
-    ThemesRead(ThemesRead),
-    /// They could not be sent, and why.
-    SaveFailed(String),
-    /// A worker read this copy's version, system and install.
-    ThisCopyRead(ThisCopy),
-    /// A worker found new problem reports, the newest first.
-    ReportsFound(Vec<SavedReport>),
-    /// The window's frame finished after `lasted_ms`; the watchdog wrote
-    /// `draft` while it was stuck.
-    FrameStalled { lasted_ms: u64, draft: Option<SavedReport> },
-    /// The daemon has not answered a ping for `secs`.
-    DaemonSilent { secs: u64 },
-    /// It answers again.
-    DaemonAnswering,
-    /// The report the first offer asks for is being written.
-    ReportSaving,
-    /// It was written, or why not.
-    ReportSaved(Result<SavedReport, UiError>),
-    /// The user keeps the report the watchdog wrote during a freeze.
-    ReportKept,
-    /// The window is done with something: the state forgets it.
-    Forget(Forget),
-    /// The window takes something to show: [`apply`] hands it over as a
-    /// [`Taken`] and the state forgets it.
-    Take(What),
-}
-
-/// What the window is done with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Forget {
-    /// The message under the toolbar.
-    Error,
-    /// The passing notice in the status bar.
-    Notice,
-    /// The answer that a new link is for another file.
-    RefreshMismatch,
-    /// The offer to download a copied link.
-    ClipboardOffer,
-    /// A countdown that ran out.
-    Countdown,
-    /// The grabber's news, for a new crawl.
-    GrabEvents,
-    /// The completion dialog shown first.
-    Completed,
-    /// Every completion dialog waiting.
-    AllCompleted,
-    /// The problem report offered first.
-    Report,
-}
-
-/// What the window takes from the state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum What {
-    GrabEvents,
-    ClipboardBatch,
-    LoginWanted,
-    SaveResult,
-    Started,
-    ZipListed,
-    PickedLinks,
-    PickedVideos,
-    PickedGallery,
-    GalleryRead,
-    LinkInfo,
-    BrowsersRead,
-    GrabOpened,
-    PasswordWanted,
-}
-
-/// What [`apply`] hands over for a [`UiMessage::Take`].
-pub enum Taken {
-    GrabEvents(Vec<GrabEvent>),
-    ClipboardBatch(bool),
-    LoginWanted(Vec<DownloadId>),
-    SaveResult(Option<Result<(), UiError>>),
-    Started(Vec<(DownloadId, bool)>),
-    ZipListed(Option<ZipListed>),
-    PickedLinks(Option<Box<links::LinksDialog>>),
-    PickedVideos(Option<Box<videos::VideosDialog>>),
-    PickedGallery(Option<Box<gallery::GalleryDialog>>),
-    GalleryRead(Vec<(u64, Result<Gallery, gallery::Unread>)>),
-    LinkInfo(Vec<(u64, usize, links::Probed)>),
-    BrowsersRead(Option<BrowsersRead>),
-    GrabOpened(Option<Result<Box<Project>, UiError>>),
-    PasswordWanted(Vec<PackageId>),
-}
-
-/// A zip preview's download and its files, or why they could not be
-/// listed.
-pub type ZipListed = (DownloadId, Result<Vec<udm_domain::download::ZipEntry>, UiError>);
-
-/// Change `state` as `msg` says. The only place the window's state
-/// changes. A [`UiMessage::Take`] returns what was taken.
-pub fn apply(state: &mut AppState, msg: UiMessage) -> Option<Taken> {
+/// Apply `msg` to `state`. The one function that changes the state.
+pub fn apply(state: &mut AppState, msg: UiMessage) {
     match msg {
-        UiMessage::Connecting => state.link = Link::Connecting,
-        UiMessage::ToolInstalling(tool) => {
-            state.tools_busy.insert(tool);
-            state.tools_note = None;
+        UiMessage::Daemon { event, at, unix } => apply_event(state, *event, at, unix),
+        UiMessage::Select(ids) => {
+            state.selected = ids.into_iter().filter(|id| state.table.get(*id).is_some()).collect();
         }
-        UiMessage::Daemon(Event::Connected) => {
-            state.link = Link::Connected;
-            // The daemon says so again when the limit is lifted.
-            state.limit_lifted = false;
+        UiMessage::SelectAll => {
+            state.selected = crate::projection::main::shown(state).iter().map(|e| e.id).collect();
         }
-        UiMessage::Daemon(Event::Lost(lost)) => {
-            state.link = Link::Lost(match lost {
-                Lost::Closed => tr("the daemon closed the connection").to_string(),
-                Lost::Failed(e) => e,
-            });
+        UiMessage::SelectNode(node) => {
+            if state.node != node {
+                state.node = node;
+                state.selected.clear();
+            }
         }
-        UiMessage::Daemon(event) => {
-            state.apply_event(&event);
-            match &event {
-                // A duplicate of a finished download shows its dialog again.
-                Event::ShowDone { id } => state.completed.push_back((*id, false)),
-                // A site that wants a login gets the login prompt.
-                Event::Failed { id, error, .. } if login_wanted(error).is_some() => {
-                    if !state.login_wanted.contains(id) {
-                        state.login_wanted.push_back(*id);
-                    }
+        UiMessage::ToggleNode(key) => {
+            if !state.open_nodes.remove(&key) {
+                state.open_nodes.insert(key);
+            }
+        }
+        UiMessage::Sort(column) => {
+            if column == ColumnKey::Queue {
+                return;
+            }
+            state.sort = match state.sort {
+                Some(s) if s.column == column && s.dir == SortDir::Ascending => {
+                    Some(Sort { column, dir: SortDir::Descending })
                 }
-                // Options, or the download itself, can ask for the dialog.
-                Event::Done { id, .. }
-                    if state.dialog_mode()
-                        || state.table.get(*id).and_then(|e| e.on_done).is_some_and(|o| o.dialog) =>
-                {
-                    state.completed.push_back((*id, false));
-                }
-                _ => {}
+                Some(s) if s.column == column => None,
+                _ => Some(Sort { column, dir: SortDir::Ascending }),
+            };
+        }
+        UiMessage::Resize(column, width) => {
+            if let Some(c) = state.columns.iter_mut().find(|(k, _)| *k == column) {
+                c.1 = width.clamp(WIDTH_RANGE.0, WIDTH_RANGE.1);
             }
         }
-        UiMessage::ClipboardOffer(url) => state.clipboard = Some(url),
-        UiMessage::ClipboardBatch => state.clipboard_batch = true,
-        UiMessage::Error(message) => state.last_error = Some(message),
-        UiMessage::FailedSettled(id) => {
-            if state.dialog_mode() && state.table.get(id).is_some_and(|e| e.status == Status::Failed) {
-                state.completed.push_back((id, true));
+        UiMessage::ToggleCategories => state.categories_panel = !state.categories_panel,
+        UiMessage::AskRemove => {
+            if !state.selected.is_empty() {
+                state.to_remove = state.selected.clone();
             }
         }
-        UiMessage::InstallStarted => state.installing = Some(None),
-        UiMessage::UpdateCheckStarted => state.update = None,
-        UiMessage::DaemonRestarting => {
-            state.stale_daemon = false;
-            state.last_error = None;
-        }
-        UiMessage::LoginAsked(id) => {
-            if !state.login_wanted.contains(&id) {
-                state.login_wanted.push_front(id);
+        UiMessage::RemoveClosed => state.to_remove.clear(),
+        UiMessage::ShowProgress(id) => {
+            if state.table.get(id).is_some_and(|e| e.status != Status::Done) {
+                state.progress.insert(id);
             }
         }
-        UiMessage::LoginsWaiting(ids) => state.login_wanted.extend(ids),
-        UiMessage::GrabLibraryRead(read) => {
-            state.grab_projects = read.projects;
-            state.grab_templates = read.templates;
-            state.grab_template = read.template;
-            state.grab_filters = read.filters;
-        }
-        UiMessage::GrabProjectRead(read) => state.grab_opened = Some(read),
-        UiMessage::BrowsersRead(read) => state.browsers_read = Some(read),
-        UiMessage::ThemesRead(read) => state.themes = read,
-        UiMessage::SavingSettings => {
-            state.saving = true;
-            state.save_result = None;
-        }
-        UiMessage::SaveFailed(why) => {
-            state.saving = false;
-            state.save_result = Some(Err(UiError::new(why)));
-        }
-        UiMessage::ThisCopyRead(copy) => state.this_copy = Some(copy),
-        UiMessage::ReportsFound(found) => {
-            // One the window offers already (a freeze's) is not offered
-            // twice.
-            let new: Vec<SavedReport> = found
-                .into_iter()
-                .filter(|r| !state.reports.iter().any(|o| o.report().is_some_and(|s| s.path == r.path)))
-                .collect();
-            if let Some(newest) = new.first() {
-                state.reports.push_back(ReportOffer::Saved {
-                    report: newest.clone(),
-                    earlier: true,
-                    more: new.len() - 1,
-                });
+        UiMessage::WindowClosed(label) => match crate::windows::Label::parse(&label) {
+            Some(crate::windows::Label::Download(id)) => {
+                state.progress.remove(&id);
             }
-        }
-        UiMessage::FrameStalled { lasted_ms, draft } => {
-            state.reports.push_back(ReportOffer::Froze { secs: lasted_ms.div_ceil(1000), draft });
-        }
-        UiMessage::DaemonSilent { secs } => {
-            if !state.reports.iter().any(|o| matches!(o, ReportOffer::Silent { .. })) {
-                state.reports.push_back(ReportOffer::Silent { secs });
+            Some(crate::windows::Label::Done(id)) => {
+                state.done.remove(&id);
             }
-        }
-        UiMessage::DaemonAnswering => state.reports.retain(|o| !matches!(o, ReportOffer::Silent { .. })),
-        UiMessage::ReportSaving => {
-            if let Some(o @ (ReportOffer::Froze { .. } | ReportOffer::Silent { .. })) = state.reports.front_mut() {
-                *o = ReportOffer::Saving;
-            }
-        }
-        UiMessage::ReportSaved(saved) => {
-            if let Some(o @ ReportOffer::Saving) = state.reports.front_mut() {
-                match saved {
-                    Ok(report) => *o = ReportOffer::Saved { report, earlier: false, more: 0 },
-                    Err(e) => {
-                        state.reports.pop_front();
-                        state.last_error = Some(e.to_string());
-                    }
+            Some(crate::windows::Label::Remove) => state.to_remove.clear(),
+            Some(crate::windows::Label::AddUrl) => state.clipboard_offer = None,
+            Some(crate::windows::Label::ZipPreview) => state.files.zip = None,
+            Some(crate::windows::Label::Exception) => state.files.exception = None,
+            Some(crate::windows::Label::Links) => state.links = None,
+            Some(crate::windows::Label::Login) => {
+                // Closing it answers the first site's downloads with nothing.
+                if let Some((ids, _)) = crate::extras::login_group(state) {
+                    state.asks.login_wanted.retain(|id| !ids.contains(id));
                 }
             }
-        }
-        UiMessage::ReportKept => {
-            if let Some(o @ ReportOffer::Froze { draft: Some(_), .. }) = state.reports.front_mut() {
-                if let ReportOffer::Froze { draft: Some(report), .. } = std::mem::replace(o, ReportOffer::Saving) {
-                    *o = ReportOffer::Saved { report, earlier: false, more: 0 };
-                }
+            Some(crate::windows::Label::Refresh) => {
+                state.asks.refresh = None;
+                state.asks.refresh_mismatch = None;
             }
-        }
-        UiMessage::Forget(what) => match what {
-            Forget::Error => state.last_error = None,
-            Forget::Notice => state.notice = None,
-            Forget::RefreshMismatch => state.refresh_mismatch = None,
-            Forget::ClipboardOffer => state.clipboard = None,
-            Forget::Countdown => state.countdown = None,
-            Forget::GrabEvents => state.grab_events.clear(),
-            Forget::Completed => {
-                state.completed.pop_front();
-            }
-            Forget::AllCompleted => state.completed.clear(),
-            Forget::Report => {
-                state.reports.pop_front();
-            }
-        },
-        UiMessage::Take(what) => {
-            return Some(match what {
-                What::GrabEvents => Taken::GrabEvents(state.grab_events.drain(..).collect()),
-                What::ClipboardBatch => Taken::ClipboardBatch(std::mem::take(&mut state.clipboard_batch)),
-                What::LoginWanted => Taken::LoginWanted(state.login_wanted.drain(..).collect()),
-                What::SaveResult => Taken::SaveResult(state.save_result.take()),
-                What::Started => Taken::Started(std::mem::take(&mut state.started)),
-                What::ZipListed => Taken::ZipListed(state.zip_listed.take()),
-                What::PickedLinks => Taken::PickedLinks(state.picked_links.take().map(Box::new)),
-                What::PickedVideos => Taken::PickedVideos(state.picked_videos.take().map(Box::new)),
-                What::PickedGallery => Taken::PickedGallery(state.picked_gallery.take().map(Box::new)),
-                What::GalleryRead => Taken::GalleryRead(std::mem::take(&mut state.gallery_read)),
-                What::LinkInfo => Taken::LinkInfo(std::mem::take(&mut state.link_info)),
-                What::BrowsersRead => Taken::BrowsersRead(state.browsers_read.take()),
-                What::GrabOpened => Taken::GrabOpened(state.grab_opened.take().map(|r| r.map(Box::new))),
-                What::PasswordWanted => Taken::PasswordWanted(std::mem::take(&mut state.password_wanted)),
-            });
-        }
-    }
-    None
-}
-
-/// The packages to ask a password for, the first first.
-pub fn take_password_wanted(state: &mut AppState) -> Vec<PackageId> {
-    match apply(state, UiMessage::Take(What::PasswordWanted)) {
-        Some(Taken::PasswordWanted(ids)) => ids,
-        _ => Vec::new(),
-    }
-}
-
-/// The crawl's news since the last frame.
-pub fn take_grab_events(state: &mut AppState) -> Vec<GrabEvent> {
-    match apply(state, UiMessage::Take(What::GrabEvents)) {
-        Some(Taken::GrabEvents(events)) => events,
-        _ => Vec::new(),
-    }
-}
-
-/// Whether the tray asked for a batch from the clipboard.
-pub fn take_clipboard_batch(state: &mut AppState) -> bool {
-    matches!(apply(state, UiMessage::Take(What::ClipboardBatch)), Some(Taken::ClipboardBatch(true)))
-}
-
-/// The downloads waiting for a login prompt, the next first.
-pub fn take_login_wanted(state: &mut AppState) -> Vec<DownloadId> {
-    match apply(state, UiMessage::Take(What::LoginWanted)) {
-        Some(Taken::LoginWanted(ids)) => ids,
-        _ => Vec::new(),
-    }
-}
-
-/// The daemon's answer to Options' save, once it came.
-pub fn take_save_result(state: &mut AppState) -> Option<Result<(), UiError>> {
-    match apply(state, UiMessage::Take(What::SaveResult)) {
-        Some(Taken::SaveResult(result)) => result,
-        _ => None,
-    }
-}
-
-/// The downloads that started since the last frame, and whether a queue
-/// started each.
-pub fn take_started(state: &mut AppState) -> Vec<(DownloadId, bool)> {
-    match apply(state, UiMessage::Take(What::Started)) {
-        Some(Taken::Started(started)) => started,
-        _ => Vec::new(),
-    }
-}
-
-/// The zip preview the daemon sent, if one came.
-pub fn take_zip_listed(state: &mut AppState) -> Option<ZipListed> {
-    match apply(state, UiMessage::Take(What::ZipListed)) {
-        Some(Taken::ZipListed(listed)) => listed,
-        _ => None,
-    }
-}
-
-/// Links from a page for the link picker, if some came.
-pub fn take_picked_links(state: &mut AppState) -> Option<links::LinksDialog> {
-    match apply(state, UiMessage::Take(What::PickedLinks)) {
-        Some(Taken::PickedLinks(dialog)) => dialog.map(|d| *d),
-        _ => None,
-    }
-}
-
-/// A playlist's videos to pick from, if some came.
-pub fn take_picked_videos(state: &mut AppState) -> Option<videos::VideosDialog> {
-    match apply(state, UiMessage::Take(What::PickedVideos)) {
-        Some(Taken::PickedVideos(dialog)) => dialog.map(|d| *d),
-        _ => None,
-    }
-}
-
-/// A gallery page the browser asked for, if one came.
-pub fn take_picked_gallery(state: &mut AppState) -> Option<gallery::GalleryDialog> {
-    match apply(state, UiMessage::Take(What::PickedGallery)) {
-        Some(Taken::PickedGallery(dialog)) => dialog.map(|d| *d),
-        _ => None,
-    }
-}
-
-/// The daemon's answers to the gallery dialog's reads.
-pub fn take_gallery_read(state: &mut AppState) -> Vec<(u64, Result<Gallery, gallery::Unread>)> {
-    match apply(state, UiMessage::Take(What::GalleryRead)) {
-        Some(Taken::GalleryRead(read)) => read,
-        _ => Vec::new(),
-    }
-}
-
-/// The project the category tree asked to open, once a worker read it.
-pub fn take_grab_opened(state: &mut AppState) -> Option<Result<Project, UiError>> {
-    match apply(state, UiMessage::Take(What::GrabOpened)) {
-        Some(Taken::GrabOpened(read)) => read.map(|r| r.map(|p| *p)),
-        _ => None,
-    }
-}
-
-/// The browsers a worker read for Options, once it has.
-pub fn take_browsers_read(state: &mut AppState) -> Option<BrowsersRead> {
-    match apply(state, UiMessage::Take(What::BrowsersRead)) {
-        Some(Taken::BrowsersRead(read)) => read,
-        _ => None,
-    }
-}
-
-/// The daemon's answers about the link picker's links.
-pub fn take_link_info(state: &mut AppState) -> Vec<(u64, usize, links::Probed)> {
-    match apply(state, UiMessage::Take(What::LinkInfo)) {
-        Some(Taken::LinkInfo(info)) => info,
-        _ => Vec::new(),
-    }
-}
-
-/// What the window must do at once, outside its frame, for a daemon event:
-/// a hidden window may get no frames until it comes up (see `win::wake`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Need {
-    Nothing,
-    /// Bring the window up (a click on a notification).
-    Show,
-    /// A dialog opens on its own: let it.
-    Wake,
-    /// Wait a moment, then wake for download `id`'s failure if it is still
-    /// failed.
-    WakeIfStillFailed(DownloadId),
-    /// UDM exits.
-    Quit,
-}
-
-/// What the threads outside the frame keep from the daemon's events: the
-/// settings, and which downloads asked for a completion dialog or failed.
-/// The connection thread updates it from each event before the frame sees
-/// that event, so the clipboard watcher, the tray menu and the window's
-/// wake-ups work while the frame is not running.
-#[derive(Debug, Default)]
-pub struct Watch {
-    pub settings: Option<Settings>,
-    /// Downloads that asked for their completion dialog.
-    done_dialog: HashSet<DownloadId>,
-    failed: HashSet<DownloadId>,
-}
-
-impl Watch {
-    /// Note download `e` as it is now.
-    fn note(&mut self, e: &DownloadEntry) {
-        if e.on_done.is_some_and(|o| o.dialog) {
-            self.done_dialog.insert(e.id);
-        } else {
-            self.done_dialog.remove(&e.id);
-        }
-        if e.status == Status::Failed {
-            self.failed.insert(e.id);
-        } else {
-            self.failed.remove(&e.id);
-        }
-    }
-
-    /// Note what `event` changes.
-    pub fn observe(&mut self, event: &Event) {
-        match event {
-            Event::Settings { settings } => self.settings = Some(settings.clone()),
-            Event::Downloads { items } => {
-                self.done_dialog.clear();
-                self.failed.clear();
-                for e in items {
-                    self.note(e);
-                }
-            }
-            Event::Updated { item } => self.note(item),
-            Event::Failed { id, .. } => {
-                self.failed.insert(*id);
-            }
-            Event::Added { id, .. }
-            | Event::Started { id, .. }
-            | Event::Done { id, .. }
-            | Event::Canceled { id, .. }
-            | Event::Removed { id } => {
-                self.failed.remove(id);
+            Some(crate::windows::Label::Password) => state.asks.password = None,
+            Some(crate::windows::Label::PickLinks) => state.asks.links = None,
+            Some(crate::windows::Label::PickVideos) => state.asks.videos = None,
+            Some(crate::windows::Label::Gallery) => state.asks.gallery = None,
+            Some(crate::windows::Label::Properties(id)) => {
+                state.properties.remove(&id);
             }
             _ => {}
+        },
+        UiMessage::Answered(id) => {
+            state.answered.insert(id);
         }
-        if let Event::Removed { id } = event {
-            self.done_dialog.remove(id);
+        UiMessage::SystemLanguages(tags) => state.system_languages = tags,
+        UiMessage::GrabStarted(request) => state.grab.started(*request),
+        UiMessage::GrabLibraryRead(library) => {
+            state.grab.library = library.map(|l| *l);
+            state.grab.library_read = true;
+        }
+        UiMessage::GrabOpened(project) => state.grab.opened(*project),
+        UiMessage::GrabSaved(project) => state.grab.project = Some(*project),
+        UiMessage::GrabReset => state.grab.reset(),
+        UiMessage::GrabNode(key) => state.grab.node = key,
+        UiMessage::Links(list) => state.links = list.map(|l| *l),
+        UiMessage::ShowProperties(id) => {
+            if state.table.get(id).is_some() {
+                state.properties.insert(id);
+            }
+        }
+        UiMessage::LayoutRead(file) => crate::layout::apply(state, &file),
+        UiMessage::PanelWidth(w) => state.panel_width = w.clamp(100.0, 400.0),
+        UiMessage::ListFont(font) => state.list_font = font.map(|f| ListFont { size: f.size.clamp(8.0, 24.0), ..f }),
+        UiMessage::Toolbar { small, buttons } => {
+            state.toolbar_small = small;
+            let known = |id: &String| id == crate::layout::SEPARATOR || crate::layout::TOOLBAR.contains(&id.as_str());
+            state.toolbar = buttons.into_iter().filter(known).take(64).collect();
+        }
+        UiMessage::TipSeen => state.tip_seen = true,
+        UiMessage::ShowRefresh(id) => {
+            if crate::extras::can_refresh(state, id) {
+                state.asks.refresh = Some(id);
+                state.asks.refresh_mismatch = None;
+            }
+        }
+        UiMessage::LoginAnswered(ids) => state.asks.login_wanted.retain(|id| !ids.contains(id)),
+        UiMessage::AskPassword(id) => state.asks.password = Some(id),
+        UiMessage::UpdateChecking => {
+            state.asks.checking = true;
+            state.asks.update = None;
+        }
+        UiMessage::Installing => state.asks.installing = Some(None),
+        UiMessage::ToolInstalling(tool) => {
+            if !state.services.tool_busy.contains(&tool) {
+                state.services.tool_busy.push(tool);
+            }
+            state.services.tool_done = None;
+        }
+        UiMessage::BrowsersRead(read) => state.services.browsers = read.map(|r| *r),
+        UiMessage::BrowserNote(note) => state.services.browser_note = note,
+        UiMessage::ThemesRead(read) => state.services.themes = *read,
+        UiMessage::ReportsFound(found) => state.reports.found(found),
+        UiMessage::Froze { lasted_ms, draft } => state.reports.froze(lasted_ms, draft),
+        UiMessage::DaemonSilent(secs) => state.reports.silent(secs),
+        UiMessage::DaemonAnswering => state.reports.answering(),
+        UiMessage::ReportSaving => state.reports.saving(),
+        UiMessage::ReportSaved(report) => state.reports.saved(report),
+        UiMessage::ReportDismissed => state.reports.dismiss(),
+        UiMessage::ClipboardOffer(url) => state.clipboard_offer = Some(url),
+        UiMessage::PreviewZip(id) => state.files.zip = Some(crate::filework::ZipPreview { id, result: None }),
+        UiMessage::SaveAsCanceled(id) => crate::filework::canceled(state, id),
+        UiMessage::ExceptionAnswered => state.files.exception = None,
+        UiMessage::ClipboardEmpty => {
+            state.notice =
+                Some(Notice { text: "The clipboard holds no http, https or ftp link.".into(), error: false });
+        }
+        UiMessage::StartupError(text) => state.notice = Some(Notice { text, error: false }),
+        UiMessage::SystemRead(facts) => state.system = facts,
+        UiMessage::LinkFilter(filter) => {
+            if let Some(l) = state.asks.links.as_mut() {
+                l.filter = filter;
+            }
+        }
+        UiMessage::WakeTimersRead(read) => state.wake_timers = read,
+        UiMessage::TypeNameRead { ext, name } => {
+            state.type_names.insert(ext, name);
+        }
+        UiMessage::Columns(columns) => {
+            if !columns.is_empty() {
+                state.columns = columns;
+            }
         }
     }
+}
 
-    fn dialog_mode(&self) -> bool {
-        self.settings.as_ref().is_some_and(|s| s.notify == Notify::Dialog)
-    }
-
-    /// Whether download `id` is still failed.
-    pub fn still_failed(&self, id: DownloadId) -> bool {
-        self.failed.contains(&id)
-    }
-
-    /// What the window must do at once for `event`, which `observe` has
-    /// seen.
-    pub fn need(&self, event: &Event) -> Need {
-        match event {
-            Event::Show => Need::Show,
-            Event::ShowDone { .. } | Event::Countdown { .. } | Event::NameTaken { .. } => Need::Wake,
-            // The download's own window opens when it starts.
-            Event::Started { .. } if self.settings.as_ref().is_some_and(|s| s.progress_on_start) => Need::Wake,
-            Event::Quit => Need::Quit,
-            Event::Updated { item } if item.status == Status::Confirming => Need::Wake,
-            // A window that connects late, or started in the tray, still
-            // asks about a download already waiting for its save-as dialog.
-            Event::Downloads { items } if items.iter().any(|e| e.status == Status::Confirming) => Need::Wake,
-            Event::Failed { error, .. } if login_wanted(error).is_some() => Need::Wake,
-            Event::Done { id, .. } if self.dialog_mode() || self.done_dialog.contains(id) => Need::Wake,
-            Event::Failed { id, .. } if self.dialog_mode() => Need::WakeIfStillFailed(*id),
-            _ => Need::Nothing,
+fn apply_event(state: &mut AppState, event: Event, at: Instant, unix: u64) {
+    daemon::apply(&mut state.table, &event, unix);
+    crate::extras::take(state, &event, at);
+    crate::services::take(state, &event);
+    crate::filework::take(state, &event);
+    match event {
+        Event::Connected => {
+            state.link = Link::Connected;
+            if state.notice.as_ref().is_some_and(|n| n.error) {
+                state.notice = None;
+            }
         }
+        Event::Lost(lost) => {
+            state.link = Link::Lost(match lost {
+                Lost::Closed => String::new(),
+                Lost::Failed(why) => why,
+            });
+            state.speeds.clear();
+        }
+        Event::Hello { version, .. } => state.daemon_version = Some(version),
+        Event::Settings { settings } => {
+            state.categories_panel = settings.categories_panel;
+            state.settings = Some(settings);
+        }
+        Event::Queues { items } => state.queues = items,
+        Event::Started { id, .. } => {
+            state.speeds.remove(&id);
+            state.done.remove(&id);
+            if state.settings.as_ref().is_some_and(|s| s.progress_on_start) {
+                state.progress.insert(id);
+            }
+        }
+        Event::Progress { id, done, segments, .. } => {
+            state.sample_speed(id, done, at);
+            if let Some(segments) = segments {
+                state.segments.insert(id, segments);
+            }
+        }
+        Event::Done { id, .. } => {
+            state.speeds.remove(&id);
+            let opened = state.progress.remove(&id);
+            let asked = state.table.get(id).and_then(|e| e.on_done).is_some_and(|o| o.dialog);
+            if state.dialog_mode() || asked || opened && asked {
+                state.done.insert(id);
+            }
+        }
+        Event::ShowDone { id } => {
+            state.done.insert(id);
+        }
+        Event::Failed { id, .. } | Event::Canceled { id, .. } => {
+            state.speeds.remove(&id);
+        }
+        Event::Removed { id } => {
+            state.speeds.remove(&id);
+            state.segments.remove(&id);
+            state.selected.retain(|s| *s != id);
+            state.to_remove.retain(|s| *s != id);
+            state.progress.remove(&id);
+            state.done.remove(&id);
+            state.answered.remove(&id);
+            state.properties.remove(&id);
+        }
+        Event::Downloads { .. } => {
+            let table = &state.table;
+            state.selected.retain(|id| table.get(*id).is_some());
+            state.progress.retain(|id| table.get(*id).is_some());
+            state.done.retain(|id| table.get(*id).is_some());
+        }
+        Event::GrabProgress { pages, found, explored, added, .. } => state.grab.progress(pages, found, explored, added),
+        Event::GrabDone { files, pages, explored, stopped, login_cookies } => {
+            state.grab.done(files, pages, explored, stopped, login_cookies)
+        }
+        Event::Error { error } | Event::Rejected { error, .. } => {
+            state.notice =
+                Some(Notice { text: crate::errors::failure(crate::projection::language(state), &error), error: true });
+        }
+        _ => {}
     }
+    // An answered download leaves `answered` once it stops waiting for the
+    // dialog, so a later dialog for it can open again.
+    let table = &state.table;
+    state.answered.retain(|id| table.get(*id).is_some_and(|e| e.status == Status::Confirming));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use udm_domain::download::OnDone;
 
-    fn entry(id: u64, status: Status) -> DownloadEntry {
-        let mut e: DownloadEntry = serde_json::from_value(serde_json::json!({
-            "id": id, "url": format!("https://x/{id}.bin"), "path": null, "total": null, "done": 0,
-            "status": "queued", "error": null, "resumable": false, "connections": 0,
-        }))
-        .unwrap();
-        e.status = status;
-        e
+    fn added(state: &mut AppState, id: u64) {
+        let event = Event::Added { id: DownloadId::new(id), url: format!("https://e.com/{id}.zip").as_str().into() };
+        apply(state, UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: 0 });
     }
 
-    fn settings(notify: Notify) -> Settings {
-        Settings { notify, ..Settings::default() }
-    }
-
-    fn daemon(state: &mut AppState, event: Event) {
-        apply(state, UiMessage::Daemon(event));
+    fn event(state: &mut AppState, event: Event) {
+        apply(state, UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: 0 });
     }
 
     #[test]
-    fn what_the_window_takes_is_handed_over_once() {
+    fn selection_keeps_only_downloads_in_the_list() {
         let mut s = AppState::default();
-        daemon(
-            &mut s,
-            Event::GrabProgress { pages: 1, bytes: ByteCount::new(2), found: 3, explored: 4, added: vec![] },
-        );
-        apply(&mut s, UiMessage::ClipboardBatch);
-        assert_eq!(take_grab_events(&mut s).len(), 1);
-        assert!(take_grab_events(&mut s).is_empty(), "taken already");
-        assert!(take_clipboard_batch(&mut s));
-        assert!(!take_clipboard_batch(&mut s));
-        apply(&mut s, UiMessage::LoginAsked(DownloadId::new(7)));
-        apply(&mut s, UiMessage::LoginAsked(DownloadId::new(7)));
-        apply(&mut s, UiMessage::LoginsWaiting(vec![DownloadId::new(8)]));
-        assert_eq!(take_login_wanted(&mut s), [DownloadId::new(7), DownloadId::new(8)]);
-        assert!(take_login_wanted(&mut s).is_empty());
+        added(&mut s, 1);
+        apply(&mut s, UiMessage::Select(vec![DownloadId::new(1), DownloadId::new(9)]));
+        assert_eq!(s.selected, [DownloadId::new(1)]);
+        event(&mut s, Event::Removed { id: DownloadId::new(1) });
+        assert!(s.selected.is_empty());
     }
 
     #[test]
-    fn saving_settings_waits_for_the_daemons_answer() {
+    fn sorting_a_column_goes_up_down_and_off() {
         let mut s = AppState::default();
-        apply(&mut s, UiMessage::SavingSettings);
-        assert!(s.saving);
-        assert_eq!(take_save_result(&mut s), None, "no answer yet");
-        daemon(&mut s, Event::Settings { settings: Settings::default() });
-        assert!(!s.saving);
-        assert_eq!(take_save_result(&mut s), Some(Ok(())));
-        apply(&mut s, UiMessage::SaveFailed("not connected".into()));
-        assert_eq!(take_save_result(&mut s), Some(Err("not connected".into())));
-        // The daemon's refusal comes typed, and reads as the window says it.
-        apply(&mut s, UiMessage::SavingSettings);
-        let refused = udm_domain::ports::SettingsError::Invalid(udm_domain::settings::InvalidSettings::QuotaZero);
-        daemon(&mut s, Event::Error { error: refused.into() });
-        assert_eq!(take_save_result(&mut s), Some(Err("The quota must be at least 1 MB.".into())));
+        apply(&mut s, UiMessage::Sort(ColumnKey::Size));
+        assert_eq!(s.sort, Some(Sort { column: ColumnKey::Size, dir: SortDir::Ascending }));
+        apply(&mut s, UiMessage::Sort(ColumnKey::Size));
+        assert_eq!(s.sort, Some(Sort { column: ColumnKey::Size, dir: SortDir::Descending }));
+        apply(&mut s, UiMessage::Sort(ColumnKey::Size));
+        assert_eq!(s.sort, None);
+        apply(&mut s, UiMessage::Sort(ColumnKey::Queue));
+        assert_eq!(s.sort, None);
     }
 
     #[test]
-    fn the_daemons_errors_are_shown_as_the_window_says_them() {
+    fn columns_resize_within_bounds() {
         let mut s = AppState::default();
-        let error = Failure::from(udm_domain::queue::QueueError::MainQueue);
-        daemon(&mut s, Event::Error { error });
-        assert_eq!(s.last_error.as_deref(), Some("The main queue cannot be deleted."));
-        daemon(&mut s, Event::Rejected { url: "x".into(), error: Failure::Other("as the daemon said".into()) });
-        assert_eq!(s.last_error.as_deref(), Some("as the daemon said"));
-        // A daemon older than the window did not know a request.
-        assert!(!s.stale_daemon);
-        daemon(&mut s, Event::Error { error: Failure::InvalidMessage("unknown variant `x`".into()) });
-        assert!(s.stale_daemon);
+        apply(&mut s, UiMessage::Resize(ColumnKey::Name, 5000.0));
+        assert_eq!(s.columns[0], (ColumnKey::Name, WIDTH_RANGE.1));
     }
 
     #[test]
-    fn what_the_workers_read_lands_in_the_state() {
+    fn removing_asks_about_the_selection_only() {
         let mut s = AppState::default();
-        assert!(!s.grab_templates.is_empty(), "the built-in templates until the first read");
-        let templates = udm_domain::grab::built_in_templates();
-        let read = GrabLibrary {
-            projects: vec!["nightly".into()],
-            templates: templates.clone(),
-            template: GrabRequest::default(),
-            filters: Vec::new(),
+        apply(&mut s, UiMessage::AskRemove);
+        assert!(s.to_remove.is_empty());
+        added(&mut s, 1);
+        apply(&mut s, UiMessage::Select(vec![DownloadId::new(1)]));
+        apply(&mut s, UiMessage::AskRemove);
+        assert_eq!(s.to_remove, [DownloadId::new(1)]);
+        apply(&mut s, UiMessage::WindowClosed("remove".into()));
+        assert!(s.to_remove.is_empty());
+    }
+
+    #[test]
+    fn a_finished_download_gets_its_dialog_in_dialog_mode() {
+        let mut s = AppState::default();
+        let settings = Settings { notify: Notify::Dialog, ..Settings::default() };
+        event(&mut s, Event::Settings { settings });
+        added(&mut s, 1);
+        let id = DownloadId::new(1);
+        apply(&mut s, UiMessage::ShowProgress(id));
+        assert!(s.progress.contains(&id));
+        event(&mut s, Event::Done { id, url: "https://e.com/1.zip".into(), path: "/tmp/1.zip".into(), note: None });
+        assert!(!s.progress.contains(&id));
+        assert!(s.done.contains(&id));
+        apply(&mut s, UiMessage::WindowClosed(format!("done-{}", id.get())));
+        assert!(s.done.is_empty());
+    }
+
+    #[test]
+    fn progress_makes_a_speed() {
+        let mut s = AppState::default();
+        added(&mut s, 1);
+        let id = DownloadId::new(1);
+        let url = "https://e.com/1.zip";
+        let start = Instant::now();
+        let progress = |done: u64| Event::Progress {
+            id,
+            url: url.into(),
+            done: ByteCount::new(done),
+            total: Some(ByteCount::new(10_000_000)),
+            parts: None,
+            segments: None,
         };
-        apply(&mut s, UiMessage::GrabLibraryRead(read));
-        assert!(s.grab_filters.is_empty());
-        assert_eq!(s.grab_projects, ["nightly"]);
-        assert_eq!(s.grab_templates.len(), templates.len());
-        assert_eq!(take_browsers_read(&mut s), None, "not read yet");
-        let read = BrowsersRead { rows: Vec::new(), chrome_readers: vec!["Brave".into()] };
-        apply(&mut s, UiMessage::BrowsersRead(read.clone()));
-        assert_eq!(take_browsers_read(&mut s), Some(read));
-        assert_eq!(take_browsers_read(&mut s), None, "taken once");
+        apply(&mut s, UiMessage::Daemon { event: Box::new(progress(0)), at: start, unix: 0 });
+        let later = start + Duration::from_secs(1);
+        apply(&mut s, UiMessage::Daemon { event: Box::new(progress(1_000_000)), at: later, unix: 0 });
+        assert_eq!(s.speed(id).map(|b| b.round()), Some(1_000_000.0));
     }
 
     #[test]
-    fn the_themes_read_replace_the_last() {
-        use udm_domain::theme::{CustomTheme, ThemeName, DARK};
+    fn losing_the_daemon_is_remembered() {
         let mut s = AppState::default();
-        assert_eq!(s.themes, ThemesRead::default(), "none until the first read");
-        let ocean = CustomTheme { name: ThemeName::parse("Ocean").unwrap(), look: DARK };
-        apply(&mut s, UiMessage::ThemesRead(ThemesRead { themes: vec![ocean.clone()], ..ThemesRead::default() }));
-        assert_eq!(s.themes.themes, [ocean]);
-        apply(&mut s, UiMessage::ThemesRead(ThemesRead::default()));
-        assert!(s.themes.themes.is_empty(), "a deleted file's theme goes");
-    }
-
-    #[test]
-    fn forgetting_clears_only_what_it_names() {
-        let mut s = AppState::default();
-        apply(&mut s, UiMessage::Error("e".into()));
-        daemon(&mut s, Event::AddedMany { count: 2, skipped: 0 });
-        apply(&mut s, UiMessage::Forget(Forget::Error));
-        assert_eq!(s.last_error, None);
-        assert!(s.notice.is_some());
-        s.completed.extend([(DownloadId::new(1), false), (DownloadId::new(2), true)]);
-        apply(&mut s, UiMessage::Forget(Forget::Completed));
-        assert_eq!(s.completed, [(DownloadId::new(2), true)]);
-        apply(&mut s, UiMessage::Forget(Forget::AllCompleted));
-        assert!(s.completed.is_empty());
-        apply(&mut s, UiMessage::Error("stale".into()));
-        apply(&mut s, UiMessage::DaemonRestarting);
-        assert_eq!(s.last_error, None);
-    }
-
-    #[test]
-    fn the_connection_state_follows_its_messages() {
-        let mut s = AppState::default();
-        daemon(&mut s, Event::Connected);
-        assert!(matches!(s.link, Link::Connected));
-        daemon(&mut s, Event::Lost(Lost::Failed("refused".into())));
-        assert!(matches!(&s.link, Link::Lost(why) if why == "refused"));
-        apply(&mut s, UiMessage::Connecting);
-        assert!(matches!(s.link, Link::Connecting));
-    }
-
-    #[test]
-    fn a_finished_download_gets_its_dialog_when_asked() {
-        let mut s = AppState::default();
-        daemon(&mut s, Event::Downloads { items: vec![entry(1, Status::Downloading), entry(2, Status::Downloading)] });
-        let asked = DownloadEntry {
-            on_done: Some(OnDone { dialog: true, ..OnDone::default() }),
-            ..entry(2, Status::Downloading)
-        };
-        daemon(&mut s, Event::Updated { item: asked });
-        daemon(
-            &mut s,
-            Event::Done { id: DownloadId::new(1), url: "https://x/1.bin".into(), path: "/d/1.bin".into(), note: None },
-        );
-        daemon(
-            &mut s,
-            Event::Done { id: DownloadId::new(2), url: "https://x/2.bin".into(), path: "/d/2.bin".into(), note: None },
-        );
-        assert_eq!(s.completed, [(DownloadId::new(2), false)], "only the one that asked");
-        daemon(&mut s, Event::Settings { settings: settings(Notify::Dialog) });
-        daemon(&mut s, Event::ShowDone { id: DownloadId::new(1) });
-        assert_eq!(s.completed.back(), Some(&(DownloadId::new(1), false)));
-    }
-
-    #[test]
-    fn a_failure_gets_its_dialog_only_if_still_failed() {
-        let mut s = AppState::default();
-        daemon(&mut s, Event::Settings { settings: settings(Notify::Dialog) });
-        daemon(&mut s, Event::Downloads { items: vec![entry(1, Status::Downloading), entry(2, Status::Downloading)] });
-        for id in [1, 2] {
-            daemon(
-                &mut s,
-                Event::Failed {
-                    id: DownloadId::new(id),
-                    url: format!("https://x/{id}.bin").into(),
-                    error: "gone".into(),
-                },
-            );
-        }
-        assert!(s.completed.is_empty(), "not at once");
-        daemon(&mut s, Event::Removed { id: DownloadId::new(2) });
-        apply(&mut s, UiMessage::FailedSettled(DownloadId::new(1)));
-        apply(&mut s, UiMessage::FailedSettled(DownloadId::new(2)));
-        assert_eq!(s.completed, [(DownloadId::new(1), true)]);
-    }
-
-    #[test]
-    fn a_login_failure_asks_for_the_login_once() {
-        let mut s = AppState::default();
-        let error = udm_domain::download::needs_login_error("files.example.com", None);
-        for _ in 0..2 {
-            daemon(
-                &mut s,
-                Event::Failed {
-                    id: DownloadId::new(4),
-                    url: "https://files.example.com/f".into(),
-                    error: error.clone(),
-                },
-            );
-        }
-        assert_eq!(s.login_wanted, [DownloadId::new(4)]);
-    }
-
-    #[test]
-    fn the_threads_messages_land_in_the_state() {
-        let mut s = AppState::default();
-        apply(&mut s, UiMessage::ClipboardOffer("https://x/a.zip".into()));
-        apply(&mut s, UiMessage::ClipboardBatch);
-        apply(&mut s, UiMessage::Error("no tray".into()));
-        assert_eq!(s.clipboard.as_deref(), Some("https://x/a.zip"));
-        assert!(s.clipboard_batch);
-        assert_eq!(s.last_error.as_deref(), Some("no tray"));
-    }
-
-    #[test]
-    fn the_watch_wakes_the_window_for_what_needs_it() {
-        let mut w = Watch::default();
-        let see = |w: &mut Watch, e: Event| {
-            w.observe(&e);
-            w.need(&e)
-        };
-        assert_eq!(see(&mut w, Event::Show), Need::Show);
-        assert_eq!(see(&mut w, Event::Quit), Need::Quit);
-        let done = |id| Event::Done { id, url: udm_domain::address::Link::default(), path: String::new(), note: None };
-        assert_eq!(see(&mut w, done(DownloadId::new(1))), Need::Nothing, "no dialog asked for");
-        let asked = DownloadEntry {
-            on_done: Some(OnDone { dialog: true, ..OnDone::default() }),
-            ..entry(2, Status::Downloading)
-        };
-        see(&mut w, Event::Updated { item: asked });
-        assert_eq!(see(&mut w, done(DownloadId::new(2))), Need::Wake);
-        let failed = |id| Event::Failed { id, url: udm_domain::address::Link::default(), error: "gone".into() };
-        assert_eq!(see(&mut w, failed(DownloadId::new(3))), Need::Nothing, "notifications, not dialogs");
-        see(&mut w, Event::Settings { settings: Settings { progress_on_start: true, ..settings(Notify::Dialog) } });
-        assert_eq!(see(&mut w, failed(DownloadId::new(3))), Need::WakeIfStillFailed(DownloadId::new(3)));
-        assert!(w.still_failed(DownloadId::new(3)));
-        see(&mut w, Event::Removed { id: DownloadId::new(3) });
-        assert!(!w.still_failed(DownloadId::new(3)));
-        let confirming = Event::Updated { item: entry(5, Status::Confirming) };
-        assert_eq!(see(&mut w, confirming), Need::Wake);
-        let started = Event::Started {
-            id: DownloadId::new(6),
-            url: udm_domain::address::Link::default(),
-            path: String::new(),
-            total: None,
-            resumable: false,
-            connections: 1,
-            partial: None,
-            validator: None,
-        };
-        assert_eq!(see(&mut w, started), Need::Wake, "its window opens");
-    }
-
-    fn saved(name: &str, at_ms: u64) -> SavedReport {
-        use udm_domain::report::{Kind, Program, Summary};
-        SavedReport {
-            path: std::path::PathBuf::from(format!("/reports/{name}")),
-            summary: Summary {
-                program: Program::Window,
-                kind: Kind::Freeze,
-                at_ms,
-                version: None,
-                what: String::new(),
-            },
-        }
-    }
-
-    #[test]
-    fn a_freeze_offers_its_report_once() {
-        let mut s = AppState::default();
-        let draft = saved("freeze", 1);
-        apply(&mut s, UiMessage::FrameStalled { lasted_ms: 12_400, draft: Some(draft.clone()) });
-        assert_eq!(s.reports.front(), Some(&ReportOffer::Froze { secs: 13, draft: Some(draft.clone()) }));
-        // A reconnection finds the same file, and one more.
-        apply(&mut s, UiMessage::ReportsFound(vec![saved("crash", 9), draft.clone(), saved("older", 0)]));
-        assert_eq!(s.reports.len(), 2);
-        assert_eq!(s.reports[1], ReportOffer::Saved { report: saved("crash", 9), earlier: true, more: 1 });
-        apply(&mut s, UiMessage::ReportsFound(vec![draft.clone()]));
-        assert_eq!(s.reports.len(), 2, "nothing new");
-        apply(&mut s, UiMessage::ReportKept);
-        assert_eq!(s.reports[0], ReportOffer::Saved { report: draft, earlier: false, more: 0 });
-        apply(&mut s, UiMessage::Forget(Forget::Report));
-        assert_eq!(s.reports.len(), 1);
-    }
-
-    #[test]
-    fn a_silent_daemon_is_offered_until_it_answers_or_is_saved() {
-        let mut s = AppState::default();
-        apply(&mut s, UiMessage::DaemonSilent { secs: 30 });
-        apply(&mut s, UiMessage::DaemonSilent { secs: 31 });
-        assert_eq!(s.reports, [ReportOffer::Silent { secs: 30 }]);
-        apply(&mut s, UiMessage::DaemonAnswering);
-        assert!(s.reports.is_empty());
-        apply(&mut s, UiMessage::DaemonSilent { secs: 30 });
-        apply(&mut s, UiMessage::ReportSaving);
-        apply(&mut s, UiMessage::DaemonAnswering);
-        assert_eq!(s.reports, [ReportOffer::Saving], "the report asked for is still coming");
-        apply(&mut s, UiMessage::ReportSaved(Ok(saved("silent", 2))));
-        assert_eq!(s.reports, [ReportOffer::Saved { report: saved("silent", 2), earlier: false, more: 0 }]);
-        apply(&mut s, UiMessage::Forget(Forget::Report));
-        apply(&mut s, UiMessage::FrameStalled { lasted_ms: 10_000, draft: None });
-        apply(&mut s, UiMessage::ReportSaving);
-        apply(&mut s, UiMessage::ReportSaved(Err(UiError::new("disk full"))));
-        assert!(s.reports.is_empty());
-        assert_eq!(s.last_error.as_deref(), Some("disk full"));
+        event(&mut s, Event::Connected);
+        assert!(s.connected());
+        event(&mut s, Event::Lost(Lost::Failed("refused".into())));
+        assert_eq!(s.link, Link::Lost("refused".into()));
     }
 }

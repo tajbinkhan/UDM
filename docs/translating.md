@@ -14,8 +14,7 @@ you can give; a new language is welcome too.
   expects. `extension/_locales/en/messages.json` has a `description` for each
   message that says where it shows.
 - **The language list**: `LANGUAGES` in `crates/ui/src/i18n.rs` names each
-  language, its system font (for Chinese, Japanese, Korean and Vietnamese),
-  and how it writes decimals and dates.
+  language and how it writes decimals and dates.
 
 ## The languages
 
@@ -73,20 +72,17 @@ resume, scheduler, site grabber.
 5. Run `cargo test -p udm-ui i18n` and `node --test extension/test/*.test.js`.
 
 The tests check that every key is still a string in the window, keeps its
-placeholders, and that every language has every string; that every extension
-locale has the English messages with the same placeholders; and that every
-character of a language without a system font of its own can be drawn with the
-window's built-in fonts.
+placeholders, and that every language has every string but those
+`crates/ui/src/lang/untranslated.json` lists; and that every extension locale
+has the English messages with the same placeholders.
 
-### Languages the window cannot show yet
+### Right-to-left languages
 
-egui, which draws the window, lays text out one character after another, left
-to right. It does not shape text or reorder right-to-left text. So Arabic,
-Persian, Urdu and Hebrew, and scripts that need shaping such as Hindi, Bengali,
-Tamil, Telugu and Thai, would show disconnected, reversed or wrongly placed
-letters. Until that changes ([Known gaps](known-gaps.md)), a table for them
-cannot be added to the window. The extension could take one, since the browser
-draws its text.
+The window draws its text in the system's webview, which shapes it and lays it
+out right to left. A right-to-left language (Arabic, Persian, Urdu, Hebrew)
+also needs `Language::right_to_left` in `crates/ui/src/i18n.rs` to say so,
+which sets the windows' direction; no language does yet, so check every window
+when the first one comes.
 
 ---
 

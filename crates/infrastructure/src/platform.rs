@@ -233,6 +233,54 @@ impl udm_domain::ports::FileOpener for Desktop {
             tracing::warn!(path, error = %e, "could not show the file");
         }
     }
+
+    fn can_open_with(&self) -> bool {
+        cfg!(windows)
+    }
+
+    fn open_with(&self, file: &str) {
+        open_with::show(file);
+    }
+}
+
+/// Windows' Open with picker; other systems have no such picker.
+#[cfg(windows)]
+mod open_with {
+    #[repr(C)]
+    struct OpenAsInfo {
+        file: *const u16,
+        class: *const u16,
+        flags: u32,
+    }
+
+    const OAIF_ALLOW_REGISTRATION: u32 = 0x1;
+    const OAIF_REGISTER_EXT: u32 = 0x2;
+    const OAIF_EXEC: u32 = 0x4;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SHOpenWithDialog(parent: isize, info: *const OpenAsInfo) -> i32;
+    }
+
+    pub fn show(path: &str) {
+        let file: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+        let info = OpenAsInfo {
+            file: file.as_ptr(),
+            class: std::ptr::null(),
+            flags: OAIF_ALLOW_REGISTRATION | OAIF_REGISTER_EXT | OAIF_EXEC,
+        };
+        // SAFETY: `info` and the path it points to live until the call
+        // returns.
+        let result = unsafe { SHOpenWithDialog(0, &info) };
+        if result < 0 {
+            tracing::warn!(file = path, result, "the Open with picker did not open");
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod open_with {
+    pub fn show(_path: &str) {}
 }
 
 #[cfg(test)]

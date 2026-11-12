@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import Scheduler from '../src/windows/scheduler/Scheduler.svelte';
-import { sent, shell } from './helpers';
+import { receive } from '../src/stores/projection.svelte';
+import type { Update } from '../src/ipc/types';
+import { fixtures, sent, shell } from './helpers';
 
 HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
   this.open = true;
@@ -19,6 +21,16 @@ describe('the Scheduler', () => {
     await fireEvent.click(apply);
     const draft = sent(calls, 'save_queue').at(-1)?.args.draft as Record<string, unknown>;
     expect(draft).toMatchObject({ id: 1, startOn: true, start: '23:00', then: 'shutDown' });
+  });
+
+  it('warns when the power plan lets nothing wake the computer', async () => {
+    shell('scheduler', 'scheduler');
+    const wakeWarning = { text: 'Windows has wake timers turned off on battery.', hint: 'Turn them on.' };
+    receive({ kind: 'snapshot', seq: 1, look: fixtures.look.dark, view: { ...fixtures.views.scheduler, view: { ...fixtures.views.scheduler.view, wakeWarning } } } as Update);
+    render(Scheduler);
+    expect(screen.queryByText(wakeWarning.text)).toBeNull();
+    await fireEvent.click(screen.getByLabelText('Start download at', { selector: 'input[type=checkbox]' }));
+    expect(screen.getByText(wakeWarning.text).getAttribute('title')).toBe('Turn them on.');
   });
 
   it('starts, stops and names queues', async () => {

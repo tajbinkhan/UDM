@@ -18,11 +18,23 @@ $version = $match.Matches[0].Groups[1].Value
 if (-not $SkipBuild) {
     Push-Location $root
     try {
+        # The window embeds the built frontend (AGENTS.md section 13).
+        & pnpm --dir frontend install --frozen-lockfile
+        if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
+        & pnpm --dir frontend build
+        if ($LASTEXITCODE -ne 0) { throw "the frontend did not build" }
         & cargo build --release --locked
         if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
     } finally {
         Pop-Location
     }
+}
+
+# Microsoft's WebView2 bootstrapper, which Setup runs where the runtime is
+# missing. It is small and fetches the runtime itself.
+$webview = Join-Path $PSScriptRoot "MicrosoftEdgeWebview2Setup.exe"
+if (-not (Test-Path $webview)) {
+    Invoke-WebRequest -UseBasicParsing -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $webview
 }
 
 # Setup installs this beside the extension folder, for Firefox.

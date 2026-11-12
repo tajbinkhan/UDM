@@ -1,5 +1,5 @@
 // Draw a window from the fixtures the shell's projections made
-// (crates/ui-tauri/src/fixtures.rs), with the shell mocked.
+// (crates/ui/src/fixtures.rs), with the shell mocked.
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import fixtures from './fixtures/views.json';
 import { receive } from '../src/stores/projection.svelte';

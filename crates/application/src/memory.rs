@@ -1231,14 +1231,6 @@ impl crate::window::ThemeFiles for Shelf {
 pub struct Contrast(pub Option<udm_domain::theme::SystemContrast>);
 
 impl crate::window::SystemServices for Contrast {
-    fn fonts(&self) -> crate::window::SystemFonts {
-        crate::window::SystemFonts::default()
-    }
-
-    fn script_font(&self, _: crate::window::ScriptFont) -> Option<crate::window::FontFile> {
-        None
-    }
-
     fn fixed_proxy(&self) -> Option<crate::window::SystemProxy> {
         None
     }
@@ -1259,13 +1251,13 @@ impl crate::window::SystemServices for Contrast {
         false
     }
 
+    fn file_type_name(&self, _ext: &str) -> Option<String> {
+        None
+    }
+
     fn play(&self, _sound: udm_domain::settings::Sound, _file: Option<&Path>) {}
 
     fn save_credential(&self, _target: &str, _username: &str, _password: &str) -> Result<(), FilesError> {
-        Ok(())
-    }
-
-    fn start_window_in_tray(&self) -> Result<(), FilesError> {
         Ok(())
     }
 

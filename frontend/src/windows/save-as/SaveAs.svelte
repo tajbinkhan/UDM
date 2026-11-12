@@ -2,7 +2,7 @@
      before it starts now or waits in a queue. Closing it cancels the
      download, as Cancel does. -->
 <script lang="ts">
-  import { answerDownload, closeWindow, messageOf } from '../../ipc';
+  import { answerDownload, checkSaveFolder, closeWindow, fitHeight, messageOf, pickSaveFolder, previewZip } from '../../ipc';
   import type { DuplicateChoice, SaveAsView } from '../../ipc/types';
   import { projection } from '../../stores/projection.svelte';
   import { t } from '../../i18n';
@@ -22,6 +22,42 @@
   let asking = $state(false);
   let duplicate = $state<DuplicateChoice | null>(null);
   let rememberDuplicate = $state(false);
+  /** UDM may not write to the folder Save As names, as the shell last
+   * checked it, and whether to save there with administrator rights. */
+  let denied = $state(false);
+  let elevate = $state(false);
+  const blocked = $derived(denied && !elevate);
+  /** The window's size (the shell's `windows.rs`), and how much the
+   * warning for such a folder adds. */
+  const WIDTH = 576;
+  const HEIGHT = 206;
+  const WARNING = 40;
+
+  // Check the folder a moment after the Save As box stops changing.
+  $effect(() => {
+    if (!loaded) return;
+    const saveAs = draft.saveAs;
+    const timer = setTimeout(() => {
+      checkSaveFolder(saveAs)
+        .then((access) => {
+          if (draft.saveAs !== saveAs || access.denied === denied) return;
+          denied = access.denied;
+          void fitHeight(WIDTH, HEIGHT + (denied ? WARNING : 0)).catch(() => undefined);
+        })
+        .catch(() => undefined);
+    }, 300);
+    return () => clearTimeout(timer);
+  });
+
+  async function browse() {
+    error = '';
+    try {
+      const picked = await pickSaveFolder(draft.saveAs);
+      if (picked) draft.saveAs = picked;
+    } catch (e) {
+      error = messageOf(e);
+    }
+  }
 
   $effect(() => {
     if (view && !loaded) {
@@ -35,7 +71,7 @@
   });
 
   async function answer(start: boolean) {
-    if (busy) return;
+    if (busy || blocked) return;
     busy = true;
     error = '';
     try {
@@ -47,6 +83,7 @@
         start,
         duplicate,
         rememberDuplicate,
+        elevate: denied && elevate,
       });
     } catch (e) {
       error = messageOf(e);
@@ -79,6 +116,14 @@
         <div class="side big">
           <FileGlyph kind={view.icon} size={40} />
           <span>{view.size}</span>
+          {#if view.canPreview}
+            <button
+              class="btn small"
+              type="button"
+              title={t('List the files inside, reading only the end of the archive')}
+              onclick={() => view && void previewZip(view.id)}>{t('Preview')}</button
+            >
+          {/if}
         </div>
 
         <label for="save-as">{t('Save As')}</label>
@@ -87,7 +132,7 @@
           <datalist id="folders">
             {#each view.folders as f (f)}<option value={f}></option>{/each}
           </datalist>
-          <button class="btn small" type="button" disabled aria-label={t('Browse...')} title={t('Browse...')}>...</button>
+          <button class="btn small" type="button" aria-label={t('Browse...')} title={t('Browse...')} onclick={() => void browse()}>...</button>
         </div>
 
         <fieldset class="group">
@@ -103,10 +148,20 @@
         <label for="description">{t('Description')}</label>
         <input id="description" class="text" bind:value={draft.description} />
       </div>
+      {#if denied}
+        <div class="denied">
+          <p class="error-text" role="status">{t('UDM may not save files in this folder. Saving there needs administrator rights.')}</p>
+          {#if view.canElevate}
+            <label class="check" title={t('The download runs as you; Windows asks once it is done, before the file is moved there')}
+              ><input type="checkbox" bind:checked={elevate} />{t('Save there with administrator rights')}</label
+            >
+          {/if}
+        </div>
+      {/if}
       {#if error}<p class="error-text" role="alert">{error}</p>{/if}
       <div class="buttons">
-        <button class="btn" type="button" disabled={busy} onclick={() => void answer(false)}>{t('Download Later')}</button>
-        <button class="btn default" type="submit" disabled={busy}>{t('Start Download')}</button>
+        <button class="btn" type="button" disabled={busy || blocked} onclick={() => void answer(false)}>{t('Download Later')}</button>
+        <button class="btn default" type="submit" disabled={busy || blocked}>{t('Start Download')}</button>
         <button class="btn" type="button" onclick={() => void closeWindow()}>{t('Cancel')}</button>
       </div>
     </form>
@@ -182,6 +237,13 @@
 
   .wide {
     width: 100%;
+  }
+
+  .denied {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 86px;
   }
 
   .buttons {

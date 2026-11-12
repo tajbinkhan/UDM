@@ -1,6 +1,6 @@
 <!-- Download complete: where the file went, and opening it. -->
 <script lang="ts">
-  import { closeWindow, hideDoneDialogs, openDownload } from '../../ipc';
+  import { closeWindow, dragFile, hideDoneDialogs, openDownload, openWith } from '../../ipc';
   import type { DoneView } from '../../ipc/types';
   import { projection } from '../../stores/projection.svelte';
   import { t } from '../../i18n';
@@ -14,6 +14,24 @@
     await closeWindow();
   }
 
+  /** On Windows the folder icon drags the file out, as the list's rows do. */
+  function drag(e: MouseEvent) {
+    if (!view?.dragOut || e.button !== 0) return;
+    const id = view.id;
+    const start = { x: e.clientX, y: e.clientY };
+    const move = (ev: MouseEvent) => {
+      if (Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) < 5) return;
+      stop();
+      if (ev.buttons & 1) void dragFile(id);
+    };
+    const stop = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+  }
+
   async function open(how: 'file' | 'folder') {
     if (!view) return;
     await openDownload(view.id, how);
@@ -25,7 +43,7 @@
   {#if view}
     <div class="dialog">
       <div class="row head">
-        <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
+        <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true" class:grab={view.dragOut} onmousedown={drag}>
           <path d="M2.5 8.5h11l3 3h15v19h-29z" fill="var(--tint-folder)" stroke="var(--fg-muted)" stroke-linejoin="round" />
           <path d="M9 4.5h12l4 4v14H9z" fill="var(--field)" stroke="var(--fg-muted)" stroke-linejoin="round" />
           <path d="M2.5 30.5l3-15h28l-3 15z" fill="var(--tint-folder)" stroke="var(--fg-muted)" stroke-linejoin="round" />
@@ -42,7 +60,7 @@
       <div class="row buttons">
         <!-- svelte-ignore a11y_autofocus -->
         <button class="btn default" disabled={!view.canOpen} autofocus onclick={() => void open('file')}>{t('Open')}</button>
-        <button class="btn" disabled>{t('Open with...')}</button>
+        <button class="btn" disabled={!view.canOpenWith} onclick={() => void openWith(view.id)}>{t('Open with...')}</button>
         <button class="btn" disabled={!view.savedAs} onclick={() => void open('folder')}>{t('Open folder')}</button>
         <button class="btn" onclick={() => void close()}>{t('Close')}</button>
       </div>
@@ -55,6 +73,10 @@
   .dialog {
     gap: 3px;
     padding: 8px 12px 8px 14px;
+  }
+
+  .grab {
+    cursor: grab;
   }
 
   .head {

@@ -78,7 +78,7 @@ Version: $version
 Architecture: $debarch
 Maintainer: Tajbin Khan <tajbinofficial@gmail.com>
 Installed-Size: $size
-Depends: libc6 (>= 2.35), libgtk-3-0, libssl3 | libssl3t64, libxkbcommon-x11-0, libgl1, libegl1
+Depends: libc6 (>= 2.35), libgtk-3-0, libwebkit2gtk-4.1-0, libssl3 | libssl3t64
 Recommends: libayatana-appindicator3-1, libnotify-bin, ffmpeg, yt-dlp
 Suggests: clamav
 Conflicts: pullbay, uidm
@@ -105,7 +105,7 @@ Release: 1
 Summary: Download manager with a browser extension
 License: MIT
 URL: https://github.com/tajbinkhan/UDM
-Requires: gtk3, openssl-libs >= 3, libxkbcommon-x11, libglvnd-glx, libglvnd-egl
+Requires: gtk3, webkit2gtk4.1, openssl-libs >= 3
 Recommends: libayatana-appindicator-gtk3, libnotify, ffmpeg, yt-dlp
 AutoReqProv: no
 # UDM was called Pullbay in 0.4 and UIDM up to 0.3.3; this replaces
@@ -133,6 +133,9 @@ SPEC
   cp "$top"/RPMS/*/udm-*.rpm "$dist/udm-${version}-1.${arch}.rpm"
 }
 
+# The AppImage carries UDM's programs but not WebKitGTK, which the window
+# draws with: the system needs WebKitGTK 4.1 (libwebkit2gtk-4.1), as the deb
+# and rpm declare.
 make_appimage() {
   local app="$work/UDM.AppDir"
   mkdir -p "$app/usr/bin" "$app/usr/share/udm"

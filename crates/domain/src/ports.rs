@@ -712,6 +712,15 @@ pub trait FileOpener: Send + Sync {
     /// Show `path` selected in its folder, in the file manager. Failures
     /// are logged.
     fn reveal(&self, path: &str);
+
+    /// Whether this system has an Open with picker for [`FileOpener::open_with`].
+    fn can_open_with(&self) -> bool {
+        false
+    }
+
+    /// Show the system's Open with picker for `file`, where it has one.
+    /// It returns once the picker closes.
+    fn open_with(&self, _file: &str) {}
 }
 
 /// The problem reports UDM keeps in its data folder (see `report`),

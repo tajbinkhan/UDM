@@ -2,7 +2,7 @@
   "name": "udm-frontend",
   "private": true,
   "version": "0.4.0",
-  "description": "UDM's Tauri window: the web frontend the shell in crates/ui-tauri serves (AGENTS.md section 7.4)",
+  "description": "UDM's Tauri window: the web frontend the shell in crates/ui serves (AGENTS.md section 7.4)",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@12.18.0",

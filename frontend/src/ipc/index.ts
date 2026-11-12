@@ -31,7 +31,11 @@ import type {
   PropertiesInput,
   OpenWindow,
   PickInput,
+  LinkFilter,
   ToolKey,
+  ReportAction,
+  ConvertTarget,
+  ExceptionChoice,
   Update,
 } from './types';
 import { receive } from '../stores/projection.svelte';
@@ -89,6 +93,8 @@ export const showDownload = (id: Id) => commands.showDownload(id);
 export const addDownload = (address: string, login: { user: string; password: string } | null) =>
   commands.addDownload(address, login);
 export const answerDownload = (answer: AnswerInput) => commands.answerDownload(answer);
+export const checkSaveFolder = (saveAs: string) => commands.checkSaveFolder(saveAs);
+export const pickSaveFolder = (saveAs: string) => commands.pickSaveFolder(saveAs);
 export const removeDownloads = (deleteFiles: boolean, dontAsk: boolean) => commands.removeDownloads(deleteFiles, dontAsk);
 export const hideDoneDialogs = () => commands.hideDoneDialogs();
 export const controlDownload = (action: DownloadControl) => commands.controlDownload(action);
@@ -172,6 +178,8 @@ export const askPackagePassword = (id: Id) => commands.askPackagePassword(id);
 export const ungroupPackage = (id: Id) => commands.ungroupPackage(id);
 export const openPackage = (id: Id) => commands.openPackage(id);
 export const addPicks = (input: PickInput) => commands.addPicks(input);
+export const setLinkFilter = (filter: LinkFilter) => commands.setLinkFilter(filter);
+export const linkNames = (indices: number[], rename: string) => commands.linkNames(indices, rename);
 export const checkUpdate = () => commands.checkUpdate();
 export const installUpdate = () => commands.installUpdate();
 export const dismissRelease = () => commands.dismissRelease();
@@ -186,3 +194,11 @@ export const restartBrowser = (index: number) => commands.restartBrowser(index);
 export const openThemesFolder = () => commands.openThemesFolder();
 export const playSound = (index: number, file: string) => commands.playSound(index, file);
 export const systemProxy = () => commands.systemProxy();
+export const heartbeat = (visible: boolean) => commands.heartbeat(visible);
+export const reportAction = (action: ReportAction) => commands.reportAction(action);
+export const previewZip = (id: Id) => commands.previewZip(id);
+export const convertDownload = (id: Id, target: ConvertTarget, deleteOriginal: boolean) => commands.convertDownload(id, target, deleteOriginal);
+export const verifyChecksum = (id: Id, checksum: string) => commands.verifyChecksum(id, checksum);
+export const openWith = (id: Id) => commands.openWith(id);
+export const dragFile = (id: Id) => commands.dragFile(id);
+export const answerException = (choice: ExceptionChoice, dontShow: boolean) => commands.answerException(choice, dontShow);

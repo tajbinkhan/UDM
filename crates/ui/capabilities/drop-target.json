@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "drop-target",
+  "description": "The drop target: links dropped on it are added.",
+  "windows": ["drop-target"],
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-add-download", "allow-open-window", "allow-show-drop-target", "core:window:allow-start-dragging"]
+}

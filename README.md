@@ -257,7 +257,8 @@ lists every module.
 | [`udm-domain`](crates/domain) | Pure rules, no I/O: downloads, queues and schedules, file names, batches, settings, streams, the site grabber's model, the ports |
 | [`udm-application`](crates/application) | Use cases, one per file, and the daemon's service, with in-memory adapters for tests |
 | [`udm-infrastructure`](crates/infrastructure) | The adapters: the download engine, HLS, DASH and HDS, files, settings, IPC, proxies, the operating system |
-| [`udm-ui`](crates/ui) | The egui window, its dialogs, the tray icon and the translations |
+| [`udm-ui`](crates/ui) | The window's Tauri shell: its state, windows, tray icon and translations |
+| [`frontend/`](frontend) | The window's web frontend (Svelte 5 and TypeScript), drawn in the system's webview |
 | [`udm-app`](crates/app) | The three programs, each wiring the adapters into the use cases |
 | [`extension/`](extension) | The browser extension (Manifest V3), with its Node tests |
 
@@ -310,7 +311,7 @@ find a free download manager. [Star it on GitHub](https://github.com/tajbinkhan/
 
 UDM is free software under the [MIT License](LICENSE).
 
-Built on [egui](https://github.com/emilk/egui) and [eframe](https://github.com/emilk/egui/tree/master/crates/eframe),
+Built on [Tauri](https://tauri.app/) and [Svelte](https://svelte.dev/),
 [reqwest](https://github.com/seanmonstar/reqwest), [tokio](https://tokio.rs/),
 [tray-icon](https://github.com/tauri-apps/tray-icon) and [rfd](https://github.com/PolyMeilex/rfd).
 Videos are joined with [ffmpeg](https://ffmpeg.org/), and video sites read with

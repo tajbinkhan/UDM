@@ -66,7 +66,8 @@ The Rust code is a Cargo workspace with one crate per layer of a hexagonal desig
 | `crates/domain` | Pure rules and the port traits. No I/O, threads, clock or logging. |
 | `crates/application` | Use cases, one per file, that work through the ports. |
 | `crates/infrastructure` | The adapters: the engine, files, settings, IPC, the operating system. |
-| `crates/ui` | The egui window, its dialogs, the tray and the translations. |
+| `crates/ui` | The window's Tauri shell: its state, windows, tray and translations. |
+| `frontend/` | The window's web frontend: Svelte 5 and TypeScript, one page per window kind. |
 | `crates/app` | The three programs, which wire the adapters into the use cases. |
 
 Dependencies point inward only: `ui` never uses `infrastructure`, and `domain` uses no other
@@ -86,7 +87,8 @@ does. Don't decompile or unpack its files, and don't copy its text, icons or ima
 ## Adding a language
 
 The window's strings are written in English in the code, and that English is each string's ID:
-`tr("Save")`, or `trf!("{count} files", count = n)` for text with values.
+`t('Save')` in the frontend, `lang.tr("Save")` in the shell, with `{placeholders}` filled in
+afterwards.
 
 - A language is one JSON file in `crates/ui/src/lang/`, mapping each English string to its
   translation, plus a line in `LANGUAGES` in `crates/ui/src/i18n.rs`. A missing string shows in
@@ -96,15 +98,18 @@ The window's strings are written in English in the code, and that English is eac
   extension locale has the same messages as `en`.
 
 A new string in the window needs its translation in every table, or a test fails. If you
-cannot translate it yourself, say so in the pull request.
+cannot translate it yourself, say so in the pull request. `crates/ui/src/lang/untranslated.json`
+lists the strings some table still lacks; an entry leaves the list once every table has it.
 
 Most tables (all but German, Spanish and French) were made with a language model and wait for a
 native speaker's review. If you speak one of them, reading it in the running window and fixing
 what reads wrong is very welcome; [Help translate](docs/translating.md) says how, and which
 tables are reviewed.
 
-egui draws text without shaping it or laying it out right to left, so Arabic, Hebrew, Persian,
-Urdu and scripts that need shaping, such as Bengali or Hindi, don't display correctly yet. More in
+The window draws its text in the system's webview, which shapes it and lays it out right to
+left where a language needs it. A right-to-left language also needs `Language::right_to_left`
+in `crates/ui/src/i18n.rs` to say so, which sets the windows' direction; each window then needs
+checking in it. More in
 [Building UDM](docs/building.md#adding-a-language).
 
 ## Pull requests

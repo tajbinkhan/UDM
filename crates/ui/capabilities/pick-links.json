@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "pick-links",
+  "description": "The browser's links to pick from, with their filters.",
+  "windows": ["pick-links"],
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-add-picks", "allow-set-link-filter", "allow-link-names"]
+}

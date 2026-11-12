@@ -12,7 +12,7 @@
   const r = $derived(view.remote);
 
   // How it stands changes as phones pair and connect: ask while the page
-  // is open, as the egui window does.
+  // is open.
   $effect(() => {
     const timer = setInterval(() => void remoteStatus().catch(() => undefined), 2000);
     return () => clearInterval(timer);

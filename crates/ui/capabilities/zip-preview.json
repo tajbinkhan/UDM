@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "zip-preview",
+  "description": "The files inside a zip download.",
+  "windows": ["zip-preview"],
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window"]
+}

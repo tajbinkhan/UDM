@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "properties",
+  "description": "A download's properties.",
+  "windows": ["properties-*"],
+  "permissions": ["allow-subscribe", "allow-report-frontend-error", "allow-heartbeat", "allow-close-window", "allow-save-properties", "allow-move-download", "allow-open-download"]
+}

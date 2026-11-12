@@ -1,6 +1,6 @@
 # Draw the window with Tauri
 
-Status: proposed. Supersedes the window rule of [ADR 0001](0001-cloak-the-main-window-in-the-tray.md) once the Tauri window replaces the egui one.
+Status: accepted, and done: the Tauri window replaced the egui one, which is gone. Supersedes [ADR 0001](0001-cloak-the-main-window-in-the-tray.md).
 
 The egui window works, but it has hit limits egui cannot get past:
 
@@ -22,7 +22,7 @@ We move the window to Tauri 2: a Rust shell owns the state, the windows and the 
 - **Brownfield, not isolation.** Tauri recommends its isolation pattern where it can be used. UDM's windows load only bundled code, every command is already limited per window and parses its input into domain types, and the isolation iframe cannot load ES modules on Windows. We revisit this if a window ever shows remote content.
 - **Svelte 5, TypeScript, Vite, pnpm.** A small runtime suits a download manager that sits in the tray all day. The same stack runs in GitButler, a large Tauri app.
 - **UDM's installers, not Tauri's bundler.** `installer/` already builds the Windows, macOS and Linux packages; the Windows installer gains the WebView2 bootstrapper.
-- **Side by side, then replace.** The Tauri shell is built as `crates/ui-tauri` (`udm-gui-next`) until it does everything the egui window does (AGENTS.md section 16).
+- **Side by side, then replace.** The Tauri shell was built as `crates/ui-tauri` (`udm-gui-next`) beside the egui window until it did what that window did; it then took `crates/ui` and `udm-gui` (AGENTS.md section 16 lists what did not come over).
 
 ## Considered options
 

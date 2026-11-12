@@ -72,6 +72,9 @@ Source: "{#Root}\extension\*"; DestDir: "{app}\extension"; Excludes: "test\*,fir
 Source: "{#Root}\firefox\*"; DestDir: "{app}\firefox"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "udm.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+; Microsoft's WebView2 bootstrapper, which build.ps1 downloads: the window
+; draws with the WebView2 runtime, installed here only when it is missing.
+Source: "MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: NeedsWebView2
 
 [Registry]
 ; The browsers find udm-host.exe through the manifest these keys name. The
@@ -89,6 +92,7 @@ Name: "{autoprograms}\UDM"; Filename: "{app}\udm-gui.exe"; WorkingDir: "{app}"; 
 Name: "{autodesktop}\UDM"; Filename: "{app}\udm-gui.exe"; WorkingDir: "{app}"; IconFilename: "{app}\udm.ico"; Comment: "UDM download manager"; Tasks: desktopicon
 
 [Run]
+Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing the Microsoft Edge WebView2 runtime..."; Flags: waituntilterminated; Check: NeedsWebView2
 Filename: "{app}\udm-gui.exe"; Description: "{cm:LaunchProgram,UDM}"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\extension"; Description: "Open the extension folder, to load it in the browser"; Flags: shellexec nowait postinstall skipifsilent unchecked
 
@@ -240,6 +244,26 @@ function ExpandEnvironmentStrings(Src: String; Dst: String; Size: DWORD): DWORD;
   external 'ExpandEnvironmentStringsW@kernel32.dll stdcall';
 
 { winget, through the alias Windows 10 1809 and later put in WindowsApps. }
+const
+  WebView2Key = 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+
+{ Whether WebView2 is installed under Root: its version, pv, is set and not
+  0.0.0.0, as Microsoft's distribution guide checks it. }
+function WebView2In(Root: Integer): Boolean;
+var
+  Version: String;
+begin
+  Result := RegQueryStringValue(Root, WebView2Key, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0');
+end;
+
+{ The window draws with the WebView2 runtime. Windows 11 has it, and
+  Windows 10 gets it with Edge; Setup installs it for this user when neither
+  the computer nor the user has it. }
+function NeedsWebView2(): Boolean;
+begin
+  Result := not (WebView2In(HKLM32) or WebView2In(HKCU));
+end;
+
 function WingetPath(): String;
 begin
   Result := ExpandConstant('{localappdata}\Microsoft\WindowsApps\winget.exe');

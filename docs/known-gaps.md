@@ -29,22 +29,14 @@
   French; the daemon's own refusals are English. The page was not tried on
   a real iPhone or Android phone, and the certificate was served by OpenSSL
   only (SChannel and Security.framework were built, not run).
-- Languages (#251, `docs/translating.md`): the window has no right-to-left
-  layout and does not shape text, so Arabic, Hebrew, Persian and Urdu, and
-  scripts that need shaping (Hindi, Bengali, Marathi, Tamil, Telugu, Thai),
-  are not offered. That leaves out about half of the 20 most-spoken
-  languages. egui 0.31 maps each character to one glyph and lays a line out
-  left to right; it has no shaping (no joining of Arabic letters, no Indic
-  conjuncts or mark placement) and no bidirectional reordering, so Hebrew
-  would read backwards. Reordering or shaping the text before egui sees it
-  (with `unicode-bidi` or `rustybuzz`) does not hold up: egui wraps lines
-  after that, which puts a wrapped right-to-left sentence's lines in the wrong
-  order, values filled into `{placeholders}` come later, text fields edit the
-  reordered text, and a shaped Indic run has no characters to hand egui.
-  Mirroring the layout means rebuilding every panel, table and dialog from
-  the right, since egui has no switch for it. Both wait for an egui that
-  shapes text, or a text engine such as `cosmic-text` or `parley` drawn into
-  egui. Also missing: a language picker on first start (UDM follows the
+- Languages (#251, `docs/translating.md`): no right-to-left language (Arabic,
+  Hebrew, Persian, Urdu) and no script that needs shaping (Hindi, Bengali,
+  Marathi, Tamil, Telugu, Thai) is offered yet. The window's webview shapes
+  text and lays it out right to left, so they can be added now; each needs a
+  translated table, `Language::right_to_left` where it applies, and every
+  window checked in that direction. Some strings still show in English in
+  every language (`crates/ui/src/lang/untranslated.json`), most of them the
+  IDM wording the window took on. Also missing: a language picker on first start (UDM follows the
   system's display language, and **View > Language** changes it), Setup's own
   languages (the installer is English), the phone page's languages beyond the
   first four, and plural forms (where a language needs them, its table words

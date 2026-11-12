@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import Options from '../src/windows/options/Options.svelte';
 import { editing } from '../src/windows/options/draft.svelte';
-import { sent, shell } from './helpers';
+import { receive } from '../src/stores/projection.svelte';
+import type { Update } from '../src/ipc/types';
+import { fixtures, sent, shell } from './helpers';
 
 // jsdom has no modal dialogs.
 HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
@@ -42,6 +44,18 @@ describe('the Options window', () => {
 });
 
 describe("Options' own pages", () => {
+  it('leaves off what this system cannot do', async () => {
+    shell('options', 'options');
+    const view = { ...fixtures.views.options.view, creationTime: false, portable: true };
+    receive({ kind: 'snapshot', seq: 1, look: fixtures.look.dark, view: { ...fixtures.views.options, view } } as Update);
+    render(Options);
+    expect((screen.getByLabelText('Launch UDM on startup') as HTMLInputElement).disabled).toBe(true);
+    await fireEvent.click(screen.getByRole('tab', { name: 'Behavior' }));
+    const created = screen.getByLabelText("Use the server's date for the file's creation time too") as HTMLInputElement;
+    expect(created.disabled).toBe(true);
+    expect(created.closest('label')?.getAttribute('title')).toBe('This system keeps no creation time that can be set; Windows and macOS do.');
+  });
+
   it('the speed and behavior pages reach the draft', async () => {
     const calls = shell('options', 'options');
     render(Options);

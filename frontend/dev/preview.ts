@@ -32,6 +32,8 @@ const labels: Record<Kind, string> = {
   'pick-links': 'pick-links',
   'pick-videos': 'pick-videos',
   gallery: 'gallery',
+  'zip-preview': 'zip-preview',
+  exception: 'exception',
 };
 
 mockWindows(labels[kind]);
@@ -40,6 +42,8 @@ mockIPC((cmd, args) => {
     const channel = (args as { channel: { onmessage: (u: unknown) => void } }).channel;
     setTimeout(() => channel.onmessage({ kind: 'snapshot', seq: 0, look, view: fixtures.views[kind] }));
   }
+  // `&denied=1` shows Download File Info for a folder UDM may not write to.
+  if (cmd === 'check_save_folder') return { denied: params.get('denied') === '1' };
   return null;
 });
 
@@ -66,5 +70,7 @@ const entries: Record<Kind, () => Promise<unknown>> = {
   'pick-links': () => import('../src/windows/pick-links/entry'),
   'pick-videos': () => import('../src/windows/pick-videos/entry'),
   gallery: () => import('../src/windows/gallery/entry'),
+  'zip-preview': () => import('../src/windows/zip-preview/entry'),
+  exception: () => import('../src/windows/exception/entry'),
 };
 void entries[kind]();

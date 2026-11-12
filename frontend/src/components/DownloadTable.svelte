@@ -17,6 +17,7 @@
     ondelete,
     onselectall,
     onmenu,
+    ondrag,
     mono = false,
     size = 12,
   }: {
@@ -30,6 +31,8 @@
     ondelete: () => void;
     onselectall: () => void;
     onmenu: (x: number, y: number) => void;
+    /** A finished row's file dragged out of the window, when the system can. */
+    ondrag?: (row: Row) => void;
     /** The list's font: fixed-width or the window's, and its size. */
     mono?: boolean;
     size?: number;
@@ -100,6 +103,24 @@
     const top = i * ROW;
     if (top < body.scrollTop) body.scrollTop = top;
     else if (top + ROW > body.scrollTop + body.clientHeight) body.scrollTop = top + ROW - body.clientHeight;
+  }
+
+  /** Hand a finished row's file to the shell to drag, once the pointer
+   * moves a few pixels with the left button down. */
+  function watchDrag(e: MouseEvent, row: Row) {
+    if (!ondrag || !row.finished) return;
+    const start = { x: e.clientX, y: e.clientY };
+    const move = (ev: MouseEvent) => {
+      if (Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) < 5) return;
+      stop();
+      if (ev.buttons & 1) ondrag(row);
+    };
+    const stop = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
   }
 
   function click(e: MouseEvent, i: number) {
@@ -247,7 +268,10 @@
           aria-selected={picked.has(r.id)}
           style:top="{i * ROW}px"
           onmousedown={(e) => {
-            if (e.button === 0) click(e, i);
+            if (e.button === 0) {
+              click(e, i);
+              watchDrag(e, r);
+            }
             else if (e.button === 2 && !picked.has(r.id)) {
               onselect([r.id]);
               anchor = i;
