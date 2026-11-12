@@ -34,6 +34,9 @@ pub async fn control_download(
     action: DownloadControl,
 ) -> Result<(), InvokeError> {
     let id = download_of(&window, &current)?;
+    // The daemon's Cancel stops a download and keeps its partial file, which
+    // Retry goes on from: IDM's Pause and Resume, as the egui window sends
+    // them. Cancel also closes this window; the download stays in the list.
     let command = match action {
         DownloadControl::Pause | DownloadControl::Cancel => Command::Cancel { id },
         DownloadControl::Resume => Command::Retry { id },
