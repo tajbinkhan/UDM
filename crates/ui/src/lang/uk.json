@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} не є адресою http, https або ftp.",
   "{count} files": "Файлів: {count}",
   "{count} lines held no download address.": "Рядків без адреси завантаження: {count}.",
-  "{type} file": "Файл {type}"
+  "{type} file": "Файл {type}",
+  "The clipboard holds no http, https or ftp link.": "У буфері обміну немає посилання http, https або ftp."
 }

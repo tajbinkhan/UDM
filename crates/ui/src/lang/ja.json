@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} は http、https、ftp のアドレスではありません。",
   "{count} files": "{count} 個のファイル",
   "{count} lines held no download address.": "{count} 行にダウンロード アドレスがありませんでした。",
-  "{type} file": "{type} ファイル"
+  "{type} file": "{type} ファイル",
+  "The clipboard holds no http, https or ftp link.": "クリップボードに http、https、ftp のリンクがありません。"
 }

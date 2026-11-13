@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} không phải là địa chỉ http, https hay ftp.",
   "{count} files": "{count} tệp",
   "{count} lines held no download address.": "{count} dòng không chứa địa chỉ tải xuống.",
-  "{type} file": "Tệp {type}"
+  "{type} file": "Tệp {type}",
+  "The clipboard holds no http, https or ftp link.": "Bảng tạm không chứa liên kết http, https hoặc ftp nào."
 }

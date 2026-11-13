@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} nie jest adresem http, https ani ftp.",
   "{count} files": "Pliki: {count}",
   "{count} lines held no download address.": "Wiersze bez adresu pobierania: {count}.",
-  "{type} file": "Plik {type}"
+  "{type} file": "Plik {type}",
+  "The clipboard holds no http, https or ftp link.": "Schowek nie zawiera łącza http, https ani ftp."
 }

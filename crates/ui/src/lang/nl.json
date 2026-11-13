@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} is geen HTTP-, HTTPS- of FTP-adres.",
   "{count} files": "{count} bestanden",
   "{count} lines held no download address.": "{count} regels bevatten geen downloadadres.",
-  "{type} file": "{type}-bestand"
+  "{type} file": "{type}-bestand",
+  "The clipboard holds no http, https or ftp link.": "Het klembord bevat geen http-, https- of ftp-koppeling."
 }

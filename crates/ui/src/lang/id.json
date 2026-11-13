@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} bukan alamat http, https, atau ftp.",
   "{count} files": "{count} file",
   "{count} lines held no download address.": "{count} baris tidak berisi alamat unduhan.",
-  "{type} file": "File {type}"
+  "{type} file": "File {type}",
+  "The clipboard holds no http, https or ftp link.": "Papan klip tidak berisi tautan http, https, atau ftp."
 }

@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address}: http, https 또는 ftp 주소가 아닙니다.",
   "{count} files": "파일 {count}개",
   "{count} lines held no download address.": "{count}개 줄에 다운로드 주소가 없습니다.",
-  "{type} file": "{type} 파일"
+  "{type} file": "{type} 파일",
+  "The clipboard holds no http, https or ftp link.": "클립보드에 http, https 또는 ftp 링크가 없습니다."
 }

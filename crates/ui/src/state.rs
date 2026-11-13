@@ -503,8 +503,9 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
         UiMessage::SaveAsCanceled(id) => crate::filework::canceled(state, id),
         UiMessage::ExceptionAnswered => state.files.exception = None,
         UiMessage::ClipboardEmpty => {
-            state.notice =
-                Some(Notice { text: "The clipboard holds no http, https or ftp link.".into(), error: false });
+            let text =
+                crate::projection::language(state).tr("The clipboard holds no http, https or ftp link.").to_string();
+            state.notice = Some(Notice { text, error: false });
         }
         UiMessage::StartupError(text) => state.notice = Some(Notice { text, error: false }),
         UiMessage::SystemRead(facts) => state.system = facts,

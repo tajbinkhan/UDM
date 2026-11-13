@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} 不是 http、https 或 ftp 地址。",
   "{count} files": "{count} 个文件",
   "{count} lines held no download address.": "{count} 行不含下载地址。",
-  "{type} file": "{type} 文件"
+  "{type} file": "{type} 文件",
+  "The clipboard holds no http, https or ftp link.": "剪贴板中没有 http、https 或 ftp 链接。"
 }

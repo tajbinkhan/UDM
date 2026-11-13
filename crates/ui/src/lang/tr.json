@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} bir http, https veya ftp adresi değil.",
   "{count} files": "{count} dosya",
   "{count} lines held no download address.": "{count} satırda indirme adresi yoktu.",
-  "{type} file": "{type} dosyası"
+  "{type} file": "{type} dosyası",
+  "The clipboard holds no http, https or ftp link.": "Panoda http, https veya ftp bağlantısı yok."
 }

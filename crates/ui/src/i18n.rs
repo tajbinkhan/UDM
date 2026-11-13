@@ -258,8 +258,9 @@ mod tests {
         text
     }
 
-    /// The English text of every lookup in `source`: `tr("…")` in the
-    /// shell, `t('…')` or `t("…")` in the frontend.
+    /// The English text of every lookup in `source`: `tr("…")` and
+    /// `trf!(lang, "…", …)` in the shell, `t('…')` or `t("…")` in the
+    /// frontend.
     fn looked_up(source: &str, opener: &str, quotes: &[char]) -> Vec<String> {
         let mut found = Vec::new();
         for (at, _) in source.match_indices(opener) {
@@ -269,8 +270,16 @@ mod tests {
             if before.is_some_and(|c| c.is_alphanumeric() || c == '_' || (opener == "t(" && (c == '$' || c == '.'))) {
                 continue;
             }
+            let mut rest = &source[at + opener.len()..];
+            // `trf!`'s text comes after the language.
+            if opener == "trf!(" {
+                let Some(comma) = first_argument_end(rest) else {
+                    continue;
+                };
+                rest = &rest[comma + 1..];
+            }
             // A formatter may put a long string on the line after the call.
-            let rest = source[at + opener.len()..].trim_start();
+            let rest = rest.trim_start();
             let Some(quote) = rest.chars().next().filter(|c| quotes.contains(c)) else {
                 continue;
             };
@@ -279,10 +288,35 @@ mod tests {
         found
     }
 
+    /// Where the first argument of a call ends: the first comma outside
+    /// brackets, as in `trf!(self.lang(), "…")`.
+    fn first_argument_end(arguments: &str) -> Option<usize> {
+        let mut depth = 0usize;
+        for (i, c) in arguments.char_indices() {
+            match c {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' if depth == 0 => return None,
+                ')' | ']' | '}' => depth -= 1,
+                ',' if depth == 0 => return Some(i),
+                _ => {}
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn lookups_are_found_in_every_form() {
+        let rust = "lang.tr(\"Pause\"); trf!(self.lang(), \"{n} files\", n = 2); trf!(\n    lang,\n    \"Stop\",\n)";
+        assert_eq!(looked_up(rust, "tr(", &['"']), ["Pause"]);
+        assert_eq!(looked_up(rust, "trf!(", &['"']), ["{n} files", "Stop"]);
+        assert_eq!(looked_up("t('Open') x.t('No') $t('No')", "t(", &['\'', '"']), ["Open"]);
+    }
+
     /// Every string the window looks up.
     fn used() -> Vec<String> {
         let (rust, web) = sources();
         let mut used: Vec<String> = rust.iter().flat_map(|s| looked_up(s, "tr(", &['"'])).collect();
+        used.extend(rust.iter().flat_map(|s| looked_up(s, "trf!(", &['"'])));
         used.extend(web.iter().flat_map(|s| looked_up(s, "t(", &['\'', '"'])));
         used.sort();
         used.dedup();

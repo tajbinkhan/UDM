@@ -999,5 +999,6 @@
   "{address} is not an http, https or ftp address.": "{address} não é um endereço http, https ou ftp.",
   "{count} files": "{count} arquivos",
   "{count} lines held no download address.": "{count} linhas não continham endereço de download.",
-  "{type} file": "Arquivo {type}"
+  "{type} file": "Arquivo {type}",
+  "The clipboard holds no http, https or ftp link.": "A área de transferência não contém nenhum link http, https ou ftp."
 }
