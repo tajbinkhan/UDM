@@ -43,7 +43,6 @@ differs.
 | `extension/content.js` | The video button over playing videos |
 | `extension/test/` | Node tests for the rules and the service worker |
 | `assets/icon-1024.png` | The app icon's source, 1024 pixels square with a transparent background; `installer/render-icons.js` renders every other icon file from it, and the macOS disk image uses it as is |
-| `assets/icon-64.rgba` | Window and tray icon, raw RGBA rendered from `assets/icon-1024.png` |
 | `host/com.udm.host.json` | Template of the native-messaging manifest |
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
 | `installer/udm.iss` | Inno Setup script for `UDM-Setup-<version>.exe` |
@@ -52,7 +51,7 @@ differs.
 | `installer/macos/package.sh` | Builds the universal `.dmg` |
 | `installer/make-firefox.ps1` | Makes the Firefox copy of the extension, or with `-Check` tells whether one is out of date |
 | `installer/make-firefox.js` | The same for macOS and Linux, with `--check` |
-| `installer/render-icons.js` | Renders `assets/icon-1024.png` to the extension's PNGs, `assets/icon-256.png` and `assets/icon-64.rgba` with headless Chrome |
+| `installer/render-icons.js` | Renders `assets/icon-1024.png` to the extension's PNGs and `assets/icon-256.png` with headless Chrome |
 | `installer/udm.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
 | `docs/adr/` | Architecture decisions |
 | `GLOSSARY.md` | The names of the windows and dialogs |

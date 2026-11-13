@@ -1,7 +1,7 @@
 // Renders assets/icon-1024.png, the icon's source, into every other icon
-// file UDM ships: extension/icons/{16,32,48,128}.png, assets/icon-256.png
-// and assets/icon-64.rgba (the window and tray icon, raw RGBA). Run
-// make-icon.js afterwards to pack installer/udm.ico.
+// file UDM ships: extension/icons/{16,32,48,128}.png and assets/icon-256.png
+// (the tray and window icon). Run make-icon.js afterwards to pack
+// installer/udm.ico.
 //
 // It scales the picture on a canvas in headless Chrome, halving it step by
 // step so the small sizes stay sharp. Set CHROME to the browser
@@ -18,7 +18,7 @@ const root = path.join(__dirname, "..");
 const chrome =
   process.env.CHROME || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const source = fs.readFileSync(path.join(root, "assets", "icon-1024.png"));
-const sizes = [16, 32, 48, 64, 128, 256];
+const sizes = [16, 32, 48, 128, 256];
 
 const page = `<!doctype html><body><script>
 const img = new Image();
@@ -42,7 +42,6 @@ img.onload = () => {
     g.imageSmoothingQuality = "high";
     g.drawImage(from, 0, 0, s, s);
     out[s] = { png: c.toDataURL("image/png").split(",")[1] };
-    if (s === 64) out[s].rgba = btoa(String.fromCharCode(...g.getImageData(0, 0, s, s).data));
   }
   const pre = document.createElement("pre");
   pre.id = "out";
@@ -72,4 +71,3 @@ const write = (file, data) => {
 };
 for (const s of [16, 32, 48, 128]) write(`extension/icons/${s}.png`, Buffer.from(out[s].png, "base64"));
 write("assets/icon-256.png", Buffer.from(out[256].png, "base64"));
-write("assets/icon-64.rgba", Buffer.from(out[64].rgba, "base64"));
