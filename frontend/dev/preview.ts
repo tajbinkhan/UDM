@@ -42,6 +42,8 @@ mockIPC((cmd, args) => {
     const channel = (args as { channel: { onmessage: (u: unknown) => void } }).channel;
     setTimeout(() => channel.onmessage({ kind: 'snapshot', seq: 0, look, view: fixtures.views[kind] }));
   }
+  // `&denied=1` shows Download File Info for a folder UDM may not write to.
+  if (cmd === 'check_save_folder') return { denied: params.get('denied') === '1' };
   return null;
 });
 

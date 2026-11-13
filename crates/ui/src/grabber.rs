@@ -523,6 +523,7 @@ pub fn view(ctx: &Ctx, state: &AppState) -> GrabberView {
         unsaved: s.unsaved(),
         add_on_close: settings.grab_add_on_close,
         schedule: schedule_draft(s.project.as_ref(), &ctx.today),
+        wake_warning: crate::scheduler::wake_warning(lang, state.wake_timers),
         connected: state.connected(),
     }
 }

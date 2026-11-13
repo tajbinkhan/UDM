@@ -47,7 +47,9 @@
 
 <PageHead icon="general" title={t('General settings')} />
 <div class="opt-col">
-  <label class="check"><input type="checkbox" bind:checked={d.startWithSystem} />{t('Launch UDM on startup')}</label>
+  <label class="check" title={view.portable ? t('A portable copy does not start when you sign in, so it leaves the computer as it found it.') : undefined}
+    ><input type="checkbox" bind:checked={d.startWithSystem} disabled={view.portable} />{t('Launch UDM on startup')}</label
+  >
   <label class="check"><input type="checkbox" bind:checked={d.trayIcon} />{t('Show the UDM icon in the tray')}</label>
   <label class="check opt-indent"><input type="checkbox" bind:checked={d.closeToTray} disabled={!d.trayIcon} />{t('Closing the window puts it in the tray')}</label>
   <label class="check opt-indent"><input type="checkbox" bind:checked={d.minimizeToTray} disabled={!d.trayIcon} />{t('Minimizing the window puts it in the tray')}</label>

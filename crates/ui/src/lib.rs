@@ -42,7 +42,7 @@ use udm_application::daemon::DaemonClient;
 use udm_application::window::{
     BrowserRegistry, Clipboard, FilePicker, GrabLibrary, ListFiles, SystemServices, ThemeFiles, WindowFiles,
 };
-use udm_domain::ports::{Clock, FileOpener, GrabDownloads, ProblemReports, SaveFolders, Timestamps};
+use udm_domain::ports::{Clock, DownloadFiles, FileOpener, GrabDownloads, ProblemReports, SaveFolders, Timestamps};
 
 pub use errors::UiError;
 
@@ -74,6 +74,8 @@ pub struct Start {
     pub lists: Arc<dyn ListFiles>,
     /// The system's Downloads folder.
     pub folders: Arc<dyn SaveFolders>,
+    /// The write check of the folder Download File Info names.
+    pub files: Arc<dyn DownloadFiles>,
     /// The window's own files: its layout and the drop target's place.
     pub window_files: Arc<dyn WindowFiles>,
     /// Registering UDM with the browsers, for Options.
@@ -113,6 +115,7 @@ pub fn run(start: Start) -> Result<(), UiError> {
         system,
         lists,
         folders,
+        files,
         window_files,
         browsers,
         themes,
@@ -191,6 +194,7 @@ pub fn run(start: Start) -> Result<(), UiError> {
             app.manage(language);
             app.manage::<commands::Pickers>(pickers);
             app.manage::<commands::Lists>(lists);
+            app.manage::<commands::Files>(files);
             let lang = &i18n::LANGUAGES[0];
             if let Err(e) = tray::install(app.handle(), outbox, lang) {
                 // Linux desktops without a tray still get the window.

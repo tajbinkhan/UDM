@@ -167,6 +167,8 @@ pub struct GrabberView {
     pub add_on_close: bool,
     /// The project's schedule.
     pub schedule: GrabScheduleDraft,
+    /// The power plan lets nothing wake the computer.
+    pub wake_warning: Option<super::WakeWarning>,
     pub connected: bool,
 }
 

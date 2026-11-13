@@ -177,6 +177,11 @@ pub trait SystemServices: Send + Sync {
     /// folder and does not start when the user signs in.
     fn is_portable(&self) -> bool;
 
+    /// What the system calls files with extension `ext` (no dot), such as
+    /// "PDF Document", from the file types registered on this computer.
+    /// `None` where the system names no file types (only Windows does).
+    fn file_type_name(&self, ext: &str) -> Option<String>;
+
     /// Play `file` (a WAV file) for `sound`, or the system's sound for it,
     /// without waiting.
     fn play(&self, sound: Sound, file: Option<&Path>);

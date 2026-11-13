@@ -5,6 +5,7 @@ import SaveAs from '../src/windows/save-as/SaveAs.svelte';
 import Download from '../src/windows/download/Download.svelte';
 import Done from '../src/windows/done/Done.svelte';
 import Remove from '../src/windows/remove/Remove.svelte';
+import { mockIPC } from '@tauri-apps/api/mocks';
 import { sent, shell } from './helpers';
 
 describe('the dialogs', () => {
@@ -36,8 +37,26 @@ describe('the dialogs', () => {
         start: false,
         duplicate: null,
         rememberDuplicate: false,
+        elevate: false,
       },
     });
+  });
+
+  it('Download File Info offers administrator rights for a folder UDM may not write to', async () => {
+    const calls = shell('save-as-17', 'save-as');
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      return cmd === 'check_save_folder' ? { denied: true } : null;
+    });
+    render(SaveAs);
+    expect(await screen.findByText('UDM may not save files in this folder. Saving there needs administrator rights.')).toBeTruthy();
+    expect(sent(calls, 'check_save_folder').at(-1)?.args).toEqual({ saveAs: '/home/u/Downloads/udm-idm-test-40MB.bin' });
+    const start = screen.getByRole('button', { name: 'Start Download' }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    await fireEvent.click(screen.getByLabelText('Save there with administrator rights'));
+    expect(start.disabled).toBe(false);
+    await fireEvent.click(start);
+    expect(sent(calls, 'answer_download').at(-1)?.args).toMatchObject({ answer: { start: true, elevate: true } });
   });
 
   it('the progress window shows the download and pauses it', async () => {

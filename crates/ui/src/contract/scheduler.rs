@@ -39,6 +39,9 @@ pub struct QueueDraft {
     pub then: Then,
     pub force_close: bool,
     pub max_concurrent: u32,
+    /// The schedule wakes the computer to start. The Scheduler shows no box
+    /// for it, as IDM's does not; saving keeps the queue's own setting.
+    pub wake: bool,
 }
 
 /// A download waiting in a queue, in its order.
@@ -81,5 +84,17 @@ pub struct SchedulerView {
     pub new_name: String,
     pub max_at_once: u32,
     pub max_retries: u32,
+    /// The power plan lets nothing wake the computer, so a schedule that
+    /// would does not.
+    pub wake_warning: Option<WakeWarning>,
     pub connected: bool,
+}
+
+/// The warning that the power plan turns wake timers off, and how to turn
+/// them on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WakeWarning {
+    pub text: String,
+    pub hint: String,
 }

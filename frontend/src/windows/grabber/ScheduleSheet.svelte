@@ -2,13 +2,14 @@
      and what happens when it is done. -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { GrabScheduleDraft, QueueItem, Then } from '../../ipc/types';
+  import type { GrabScheduleDraft, QueueItem, Then, WakeWarning } from '../../ipc/types';
   import { t } from '../../i18n';
   import Sheet from '../../components/Sheet.svelte';
 
   let {
     start,
     queues,
+    wakeWarning,
     busy,
     error,
     onok,
@@ -16,6 +17,7 @@
   }: {
     start: GrabScheduleDraft;
     queues: QueueItem[];
+    wakeWarning: WakeWarning | null;
     busy: boolean;
     error: string;
     onok: (s: GrabScheduleDraft) => void;
@@ -50,6 +52,9 @@
       <input class="text time" type="time" bind:value={s.start} disabled={!s.on} aria-label={t('Start at')} />
       <label class="check"><input type="checkbox" bind:checked={s.wake} disabled={!s.on} />{t('Wake the computer to start it')}</label>
     </div>
+    {#if wakeWarning && s.on && s.wake}
+      <p class="error-text" role="status" title={wakeWarning.hint}>{wakeWarning.text}</p>
+    {/if}
     <div class="row">
       <label class="check lead"><input type="radio" checked={s.once} disabled={!s.on} onchange={() => (s.once = true)} />{t('Once at')}</label>
       <input class="text" type="date" bind:value={s.date} disabled={!s.on || !s.once} aria-label={t('Once at')} />

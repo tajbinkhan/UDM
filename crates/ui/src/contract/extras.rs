@@ -84,13 +84,31 @@ pub struct PickRow {
     pub text: String,
 }
 
+/// The link picker's filters: what to hide, and which types alone to show.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkFilter {
+    /// Links to other web pages rather than files.
+    pub hide_pages: bool,
+    /// The page's own images.
+    pub hide_images: bool,
+    /// A link the page has already given, without its `#` part.
+    pub hide_repeated: bool,
+    /// Only these types, as typed (`zip, pdf`); empty shows every type.
+    pub types: String,
+}
+
 /// The browser's "Download all links": a page's links, probed for their
 /// sizes as the window shows them.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PickLinksView {
     pub page: String,
+    /// The links the filters leave in view.
     pub rows: Vec<PickRow>,
+    pub filter: LinkFilter,
+    /// How many links the page gave, shown or not.
+    pub total: u32,
     /// The file types among the links, for ticking all of one type.
     pub types: Vec<String>,
     pub suggested_package: String,
@@ -157,6 +175,9 @@ pub struct PickInput {
     pub start: bool,
     /// Keep the links together as a package of this name.
     pub package: Option<String>,
+    /// Name the links' files by this pattern, `*` standing for their number
+    /// in order; empty keeps their own names.
+    pub rename: String,
     /// The videos' quality, by its place in `qualities`.
     pub quality: u32,
     /// The gallery's folder.

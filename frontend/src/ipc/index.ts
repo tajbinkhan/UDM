@@ -31,6 +31,7 @@ import type {
   PropertiesInput,
   OpenWindow,
   PickInput,
+  LinkFilter,
   ToolKey,
   ReportAction,
   ConvertTarget,
@@ -92,6 +93,8 @@ export const showDownload = (id: Id) => commands.showDownload(id);
 export const addDownload = (address: string, login: { user: string; password: string } | null) =>
   commands.addDownload(address, login);
 export const answerDownload = (answer: AnswerInput) => commands.answerDownload(answer);
+export const checkSaveFolder = (saveAs: string) => commands.checkSaveFolder(saveAs);
+export const pickSaveFolder = (saveAs: string) => commands.pickSaveFolder(saveAs);
 export const removeDownloads = (deleteFiles: boolean, dontAsk: boolean) => commands.removeDownloads(deleteFiles, dontAsk);
 export const hideDoneDialogs = () => commands.hideDoneDialogs();
 export const controlDownload = (action: DownloadControl) => commands.controlDownload(action);
@@ -175,6 +178,8 @@ export const askPackagePassword = (id: Id) => commands.askPackagePassword(id);
 export const ungroupPackage = (id: Id) => commands.ungroupPackage(id);
 export const openPackage = (id: Id) => commands.openPackage(id);
 export const addPicks = (input: PickInput) => commands.addPicks(input);
+export const setLinkFilter = (filter: LinkFilter) => commands.setLinkFilter(filter);
+export const linkNames = (indices: number[], rename: string) => commands.linkNames(indices, rename);
 export const checkUpdate = () => commands.checkUpdate();
 export const installUpdate = () => commands.installUpdate();
 export const dismissRelease = () => commands.dismissRelease();

@@ -446,6 +446,8 @@ pub fn view(lang: &'static Language, s: &Settings) -> OptionsView {
         chrome_note: String::new(),
         browser_note: None,
         theme_notes: Vec::new(),
+        creation_time: false,
+        portable: false,
     }
 }
 

@@ -21,8 +21,8 @@ use udm_domain::settings::{Settings, GENERAL};
 use udm_domain::update::Release;
 
 use crate::contract::{
-    CountdownView, GalleryView, Id, LoginView, PackageMenu, PasswordView, PickLinksView, PickRow, PickVideosView,
-    PictureRow, QueueItem, RefreshMismatchView, RefreshView, VideoRow,
+    CountdownView, GalleryView, Id, LinkFilter, LoginView, PackageMenu, PasswordView, PickLinksView, PickRow,
+    PickVideosView, PictureRow, QueueItem, RefreshMismatchView, RefreshView, VideoRow,
 };
 use crate::i18n::{fill, Language};
 use crate::projection::{format, Ctx};
@@ -38,6 +38,25 @@ pub struct PickedLinks {
     pub request: u64,
     /// Each probed link's size and type, by its place.
     pub info: HashMap<usize, (Option<ByteCount>, Option<String>)>,
+    pub filter: LinkFilter,
+}
+
+/// The filters a link picker opens with: web pages, images and repeated
+/// links hidden, every type shown.
+pub fn default_link_filter() -> LinkFilter {
+    LinkFilter { hide_pages: true, hide_images: true, hide_repeated: true, types: String::new() }
+}
+
+/// Extensions of links that lead to another web page rather than a file.
+const PAGE_TYPES: [&str; 9] = ["", "htm", "html", "php", "asp", "aspx", "jsp", "shtml", "cgi"];
+
+/// Why the ticked links cannot be added.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PickError {
+    #[error(transparent)]
+    Package(#[from] udm_domain::package::PackageError),
+    #[error("A file name cannot contain \\ / : \" < > | or ?")]
+    BadRename,
 }
 
 #[derive(Debug, Clone)]
@@ -143,6 +162,7 @@ pub fn take(state: &mut AppState, event: &Event, at: Instant) {
                 user_agent: user_agent.clone(),
                 request,
                 info: HashMap::new(),
+                filter: default_link_filter(),
             });
         }
         Event::LinkInfo { request, index, total, content_type, .. } => {
@@ -361,6 +381,75 @@ fn percent_decode(s: &str) -> String {
     percent_encoding::percent_decode_str(s).decode_utf8_lossy().into_owned()
 }
 
+/// A link's file type: its name's extension in lower case, or "" for none.
+fn link_type(l: &PageLink) -> String {
+    extension(&link_name(l))
+}
+
+/// The places of the links `filter` leaves in view, in order.
+pub fn visible_links(links: &[PageLink], filter: &LinkFilter) -> Vec<usize> {
+    let types = udm_domain::settings::parse_extensions(&filter.types);
+    let mut seen = std::collections::HashSet::new();
+    (0..links.len())
+        .filter(|&i| {
+            let l = &links[i];
+            let ext = link_type(l);
+            if filter.hide_repeated && !seen.insert(l.url.split('#').next().unwrap_or(&l.url).to_string()) {
+                return false;
+            }
+            if filter.hide_images && l.image {
+                return false;
+            }
+            if filter.hide_pages && !l.image && PAGE_TYPES.contains(&ext.as_str()) {
+                return false;
+            }
+            types.is_empty() || types.contains(&ext)
+        })
+        .collect()
+}
+
+/// The name of file `n` (from 1) of `count` renamed by `pattern`: `*` (or
+/// the end of the name, without one) becomes `n`, padded with zeros to the
+/// width of `count`. A pattern without its own extension keeps `ext`.
+pub fn pattern_name(pattern: &str, n: usize, count: usize, ext: &str) -> String {
+    let width = count.max(1).to_string().len();
+    let number = format!("{n:0width$}");
+    let pattern = pattern.trim();
+    let mut name = if pattern.contains('*') {
+        pattern.replacen('*', &number, 1).replace('*', "")
+    } else {
+        format!("{pattern}{number}")
+    };
+    // `photo_*.jpg` names its extension; `photo_*` keeps each file's.
+    let after_star = pattern.rsplit('*').next().unwrap_or("");
+    if !ext.is_empty() && !after_star.contains('.') {
+        name = format!("{name}.{ext}");
+    }
+    name
+}
+
+/// The ticked links (`indices`) the filters leave in view, in order.
+fn ticked_links(l: &PickedLinks, indices: &[u32]) -> Vec<usize> {
+    visible_links(&l.links, &l.filter).into_iter().filter(|i| indices.contains(&(*i as u32))).collect()
+}
+
+/// The names the ticked links get from the rename pattern `rename`: all of
+/// them, or none when it is empty.
+pub fn renamed_links(l: &PickedLinks, indices: &[u32], rename: &str) -> Result<Vec<String>, PickError> {
+    if rename.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    if rename.trim().chars().any(|c| matches!(c, '\\' | '/' | ':' | '"' | '<' | '>' | '|' | '?')) {
+        return Err(PickError::BadRename);
+    }
+    let ticked = ticked_links(l, indices);
+    Ok(ticked
+        .iter()
+        .enumerate()
+        .map(|(n, &i)| pattern_name(rename, n + 1, ticked.len(), &link_type(&l.links[i])))
+        .collect())
+}
+
 fn extension(name: &str) -> String {
     match name.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() && !ext.contains('/') => ext.to_ascii_lowercase(),
@@ -372,11 +461,10 @@ pub fn links_view(ctx: &Ctx, state: &AppState) -> Option<PickLinksView> {
     let lang = ctx.lang;
     let l = state.asks.links.as_ref()?;
     let mut types: Vec<String> = Vec::new();
-    let rows = l
-        .links
-        .iter()
-        .enumerate()
-        .map(|(i, link)| {
+    let rows = visible_links(&l.links, &l.filter)
+        .into_iter()
+        .map(|i| {
+            let link = &l.links[i];
             let name = link_name(link);
             let ext = extension(&name);
             if !ext.is_empty() && !types.contains(&ext) {
@@ -404,6 +492,8 @@ pub fn links_view(ctx: &Ctx, state: &AppState) -> Option<PickLinksView> {
     Some(PickLinksView {
         page: l.page.clone(),
         rows,
+        filter: l.filter.clone(),
+        total: l.links.len() as u32,
         types,
         suggested_package: suggested,
         queues: queue_items(lang, state),
@@ -411,14 +501,17 @@ pub fn links_view(ctx: &Ctx, state: &AppState) -> Option<PickLinksView> {
     })
 }
 
-/// The downloads for the ticked links, and how they are kept.
+/// The downloads for the ticked links the filters leave in view, named by
+/// the rename pattern when there is one, and how they are kept.
 pub fn link_downloads(
     l: &PickedLinks,
     indices: &[u32],
     package: Option<&str>,
+    rename: &str,
     settings: &Settings,
     downloads_dir: &Path,
-) -> Result<(Vec<Download>, Packaging), udm_domain::package::PackageError> {
+) -> Result<(Vec<Download>, Packaging), PickError> {
+    let names = renamed_links(l, indices, rename)?;
     let (folder, packaging) = match package.map(str::trim).filter(|p| !p.is_empty()) {
         Some(name) => {
             let name = PackageName::parse(name)?;
@@ -431,11 +524,13 @@ pub fn link_downloads(
         }
         None => (None, Packaging::Archives),
     };
-    let items = indices
-        .iter()
-        .filter_map(|i| l.links.get(*i as usize))
-        .map(|link| Download {
+    let items = ticked_links(l, indices)
+        .into_iter()
+        .enumerate()
+        .map(|(n, i)| (&l.links[i], names.get(n).cloned()))
+        .map(|(link, filename)| Download {
             url: link.url.as_str().into(),
+            filename,
             referrer: Some(l.page.clone()),
             page: Some(l.page.clone()),
             cookies: link.cookies.clone(),
@@ -684,11 +779,74 @@ mod tests {
         assert_eq!(v.rows[0].size, "2.00 KB");
         assert_eq!(v.types, ["pdf", "zip"]);
         let (items, packaging) =
-            link_downloads(s.asks.links.as_ref().unwrap(), &[1], None, &Settings::default(), Path::new("/tmp/d"))
+            link_downloads(s.asks.links.as_ref().unwrap(), &[1], None, "", &Settings::default(), Path::new("/tmp/d"))
                 .unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].referrer.as_deref(), Some("https://e.com/p"));
         assert!(matches!(packaging, Packaging::Archives));
+    }
+
+    fn picked(links: Vec<PageLink>) -> PickedLinks {
+        PickedLinks {
+            page: "https://x.net/".into(),
+            links,
+            user_agent: None,
+            request: 1,
+            info: HashMap::new(),
+            filter: default_link_filter(),
+        }
+    }
+
+    fn link(url: &str, image: bool) -> PageLink {
+        PageLink { url: url.into(), text: "Get it".into(), image, cookies: Some("s=1".into()) }
+    }
+
+    #[test]
+    fn filters_hide_pages_images_and_repeats() {
+        let mut s = AppState::default();
+        let links = vec![
+            link("https://x.net/a.zip", false),
+            link("https://x.net/about.html", false),
+            link("https://x.net/logo.png", true),
+            link("https://x.net/a.zip#again", false),
+            link("https://x.net/docs/", false),
+            link("https://x.net/b.pdf", false),
+        ];
+        event(&mut s, Event::PickLinks { page: "https://x.net/".into(), links: links.clone(), user_agent: None });
+        let v = links_view(&ctx(), &s).unwrap();
+        assert_eq!(v.rows.iter().map(|r| r.index).collect::<Vec<_>>(), [0, 5]);
+        assert_eq!(v.total, 6);
+        let only_pdf = LinkFilter { types: "PDF".into(), ..default_link_filter() };
+        apply(&mut s, UiMessage::LinkFilter(only_pdf));
+        assert_eq!(links_view(&ctx(), &s).unwrap().rows.iter().map(|r| r.index).collect::<Vec<_>>(), [5]);
+        let all = LinkFilter { hide_pages: false, hide_images: false, hide_repeated: false, types: String::new() };
+        apply(&mut s, UiMessage::LinkFilter(all.clone()));
+        let v = links_view(&ctx(), &s).unwrap();
+        assert_eq!((v.rows.len(), v.filter), (6, all));
+        // Ticked links the filters hide are not added.
+        let l = picked(links);
+        let (items, _) = link_downloads(&l, &[0, 1, 5], None, "", &Settings::default(), Path::new("/d")).unwrap();
+        let urls: Vec<_> = items.iter().map(|i| i.url.to_string()).collect();
+        assert_eq!(urls, ["https://x.net/a.zip", "https://x.net/b.pdf"]);
+        assert_eq!(items[0].cookies.as_deref(), Some("s=1"));
+    }
+
+    #[test]
+    fn a_pattern_names_the_files_in_order() {
+        assert_eq!(pattern_name("photo_*", 3, 12, "jpg"), "photo_03.jpg");
+        assert_eq!(pattern_name("photo_*.png", 3, 9, "jpg"), "photo_3.png");
+        assert_eq!(pattern_name("part", 2, 2, ""), "part2");
+        let l = picked(vec![
+            link("https://x.net/a.jpg", false),
+            link("https://x.net/b.jpg", false),
+            link("https://x.net/c.gif", false),
+        ]);
+        assert_eq!(renamed_links(&l, &[2, 0], "photo_*").unwrap(), ["photo_1.jpg", "photo_2.gif"]);
+        assert!(renamed_links(&l, &[0], " ").unwrap().is_empty());
+        assert_eq!(renamed_links(&l, &[0], "a/b*"), Err(PickError::BadRename));
+        let (items, _) = link_downloads(&l, &[0, 2], None, "photo_*", &Settings::default(), Path::new("/d")).unwrap();
+        let names: Vec<_> = items.into_iter().map(|i| i.filename.unwrap()).collect();
+        assert_eq!(names, ["photo_1.jpg", "photo_2.gif"]);
     }
 
     #[test]

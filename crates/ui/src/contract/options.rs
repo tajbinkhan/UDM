@@ -45,6 +45,10 @@ pub struct OptionsView {
     pub browser_note: Option<super::Banner>,
     /// The theme files that give no theme, and why.
     pub theme_notes: Vec<String>,
+    /// A finished file's creation time can be set on this system.
+    pub creation_time: bool,
+    /// A portable copy, which does not start when the user signs in.
+    pub portable: bool,
 }
 
 /// Keys held while clicking a link.
