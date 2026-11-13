@@ -7,8 +7,8 @@
 <h3 align="center">The download manager you know from IDM. On Windows, macOS and Linux. Free.</h3>
 
 <p align="center">
-  UDM (Unified Download Manager) is a fast download manager and video downloader, written in Rust:
-  up to 16 connections per file, resume after interruptions, and downloads caught from your browser.
+  UDM (Unified Download Manager) is a fast download manager and video downloader, written in Rust.
+  It uses up to 16 connections per file, resumes after interruptions, and catches downloads from your browser.
   <br><a href="https://tajbinkhan.github.io/UDM/">tajbinkhan.github.io/UDM</a>
 </p>
 
@@ -65,15 +65,16 @@
 | Sign-up or serial number | **None** | Registration needed |
 | Open source | **Yes** (MIT) | No |
 
-Nothing new to learn: the browser hands its downloads over, a save-as dialog asks where they go,
-and the categories, queues, scheduler and download windows are where you expect them. UDM's
-downloads run in a background program of their own, so they keep going after the browser and
-the window are closed.
+Nothing new to learn. The browser hands its downloads over, and a save-as dialog asks where they
+go. The categories, queues, scheduler and download windows are where you expect them. UDM's
+downloads run in a background program of their own, so they keep going after you close the
+browser and the window.
 
-On a local test server that misbehaves on purpose (dropped connections, slow starts, wrong ranges,
-speed limits), UDM finished a 64 MiB file sooner than IDM 6.43 in all eight scenarios on one
-Windows machine: 3.3 s against 16.1 s when the server sends wrong ranges, and 4.0 s against 6.3 s
-when it is slow to answer. [How it was measured](docs/bench/README.md).
+**Faster than IDM in our tests.** Both ran on one Windows machine against a test server that
+misbehaves on purpose: it drops connections, starts slowly, sends wrong ranges and limits speed.
+UDM finished a 64 MiB file sooner than IDM 6.43 in all eight scenarios. When the server sent wrong
+ranges, UDM took 3.3 s and IDM 16.1 s. When the server was slow to answer, UDM took 4.0 s and IDM
+6.3 s. [How it was measured](docs/bench/README.md).
 
 <p align="center">
   <img src="docs/bench/results/2026-11-12-windows-idm/chart.svg" alt="Median seconds to download a 64 MiB file in eight server scenarios, for UDM, IDM, curl and wget" width="600">
@@ -119,12 +120,14 @@ On macOS and Linux, UDM connects itself to every browser it finds the first time
 
 ### Videos from YouTube and other sites
 
-For streamed videos to end up as one `.mp4`, install [ffmpeg](https://ffmpeg.org/). For YouTube,
-Facebook, Instagram, Vimeo, playlists and the other sites it reads, install
-[yt-dlp](https://github.com/yt-dlp/yt-dlp) too. **Install yt-dlp** and **Install ffmpeg** in
-**Options > General** download their official builds and check them against their published
-checksums (ffmpeg on Windows and Linux). On Windows, `winget install yt-dlp.yt-dlp` installs both,
-and Setup offers to run it for you ([more](docs/install.md#windows)).
+To save streamed videos as one `.mp4`, install [ffmpeg](https://ffmpeg.org/). For YouTube,
+Facebook, Instagram, Vimeo, playlists and the other sites it reads, also install
+[yt-dlp](https://github.com/yt-dlp/yt-dlp).
+
+The easy way is **Options > General**. Its **Install yt-dlp** and **Install ffmpeg** buttons
+download the official builds. They also check each build against its published checksum (for
+ffmpeg, on Windows and Linux). On Windows, `winget install yt-dlp.yt-dlp` installs both, and Setup
+offers to run it for you ([more](docs/install.md#windows)).
 
 ### Coming from Pullbay or UIDM?
 
@@ -134,36 +137,36 @@ settings, download list and half-finished downloads move over on the first start
 
 ## What it does
 
-- **Speeds up every download** by fetching parts of the file over up to 16 connections at once,
-  as separate streams of one connection when the server speaks HTTP/2.
+- **Speeds up every download** by fetching parts of the file over up to 16 connections at once.
+  When the server speaks HTTP/2, the parts share one connection as separate streams.
 - **Resumes** after a crash, a restart or a dropped connection, without starting over. **New
   link** gives an expired download a fresh address and carries on.
 - **Catches downloads from Chrome, Edge, Brave, Vivaldi, Opera and Firefox**, with their cookies
   and referrer, so files behind a sign-in work. Downloads started by a form are sent the same way.
   While UDM isn't running, the browser keeps its own downloads.
-- **Keeps going after the browser closes**: a background program owns the downloads, and the
-  window and the browser are only its windows onto them.
-- **Downloads videos** from a button over the video: HLS, DASH and HDS streams in the quality you
-  pick, with their audio tracks and subtitles, joined into one file with ffmpeg; and YouTube,
-  Facebook, Instagram and Vimeo pages with yt-dlp.
-- **Many files at once**: a numbered pattern such as `photo[001-120].jpg`, a pasted list, every
-  link on a page or in a selection, an imported list, or a **site grabber** that crawls a site for
-  the files you want. It can watch the clipboard for links, too.
+- **Keeps going after the browser closes**. A background program owns the downloads. The window
+  and the browser only show what it is doing.
+- **Downloads videos** from a button over the video. HLS, DASH and HDS streams come in the quality
+  you pick, with their audio tracks and subtitles, joined into one file with ffmpeg. YouTube,
+  Facebook, Instagram and Vimeo pages work through yt-dlp.
+- **Many files at once**: a numbered pattern such as `photo[001-120].jpg`, a pasted list, or every
+  link on a page or in a selection. You can also import a list, or let the **site grabber** crawl
+  a site for the files you want. UDM can watch the clipboard for links, too.
 - **Downloads overnight** with queues and a scheduler that can wake the computer, then puts it to
   sleep or shuts it down when they're done. A queue can also keep files in sync: each run
   downloads again those that changed on the server.
 - **Leaves you some speed**: a limit for all downloads, one for a single download, and a quota of
   so many MB every so many hours.
-- **Works through your proxy**: the system proxy, PAC and WPAD scripts, HTTP, HTTPS, FTP and SOCKS
-  proxies, and logins for the sites that ask for one.
-- **Looks after the finished file**: a notification with **Open** and **Show in folder**, a virus
-  scan with Microsoft Defender or the scanner you choose, and saving into protected folders with
-  administrator rights.
-- **Works from scripts too**: `udm-gui` takes IDM's command-line switches, `udm-cli`
-  downloads, lists and controls downloads from a terminal with exit codes scripts can test, and
-  programs talk to UDM through a documented, versioned API ([how](docs/command-line.md)).
-- **Works with AI assistants**: `udm-mcp` is an MCP server, so Claude, Cursor or VS Code can
-  list, add, pause, resume and remove downloads and start queues for you
+- **Works through your proxy**: the system proxy, PAC and WPAD scripts, and HTTP, HTTPS, FTP and
+  SOCKS proxies. It also handles logins for the sites that ask for one.
+- **Looks after the finished file**. A notification offers **Open** and **Show in folder**. UDM can
+  scan the file with Microsoft Defender or the scanner you choose. It can also save into protected
+  folders with administrator rights.
+- **Works from scripts too**. `udm-gui` takes IDM's command-line switches. `udm-cli` downloads,
+  lists and controls downloads from a terminal, with exit codes that scripts can test. Other
+  programs can talk to UDM through a documented, versioned API ([how](docs/command-line.md)).
+- **Works with AI assistants**. `udm-mcp` is an MCP server, so Claude, Cursor or VS Code can list,
+  add, pause, resume and remove downloads for you. They can start queues, too
   ([setup](docs/ai-assistants.md)).
 - **Day and dark mode**, text from 80 % to 150 %, a tray icon for light or dark taskbars, and
   17 languages.
@@ -184,10 +187,14 @@ browser extension --stdio--> udm-host --+
 desktop window (udm-gui) ---------------+   (authenticated)   (owns downloads)
 ```
 
-UDM is three programs. **`udm-daemon`** owns the download engine and keeps going on its
-own; **`udm-host`** is what the browser starts, and relays the extension's messages to the
-daemon; **`udm-gui`** is the desktop window, one more client of the daemon. Every client proves
-itself to the daemon with a secret only your user can read
+UDM runs as three main programs:
+
+- **`udm-daemon`** owns the download engine and keeps running on its own.
+- **`udm-host`** is what the browser starts. It passes the extension's messages to the daemon.
+- **`udm-gui`** is the desktop window, another client of the daemon.
+
+`udm-cli` (for terminals) and `udm-mcp` (for AI assistants) are clients too. Every client proves
+who it is to the daemon with a secret that only your user account can read
 ([how](docs/architecture.md#host-daemon-authentication)).
 
 <!-- The Help menu and the video button of UDM 0.4.0 and earlier link to these anchors. -->
@@ -230,7 +237,7 @@ of anyone's software.
 <details>
 <summary><b>Build from source</b></summary>
 
-On macOS and Linux a stable Rust toolchain is enough, plus on Linux the GTK 3 and OpenSSL
+On macOS, a stable Rust toolchain is enough. On Linux, you also need the GTK 3 and OpenSSL
 development packages (`sudo apt install libgtk-3-dev libssl-dev` on Ubuntu):
 
 ```bash
@@ -238,10 +245,11 @@ cargo test --workspace
 cargo build --release
 ```
 
-This makes `udm-gui` (the window), `udm-daemon` (the engine) and `udm-host` (the
-browser's relay) in `target/release/`. On Windows, `.\install-host.ps1` builds them, connects them
-to Chrome, Edge and Firefox and adds UDM to the Start menu. Packaging each system's files, the
-toolchain on Windows, and the quality gates are in [Building UDM](docs/building.md).
+This puts the programs in `target/release/`: `udm-gui` (the window), `udm-daemon` (the engine),
+`udm-host` (the browser's relay), `udm-cli` and `udm-mcp`. On Windows, `.\install-host.ps1` builds
+them, connects them to Chrome, Edge and Firefox, and adds UDM to the Start menu.
+[Building UDM](docs/building.md) covers packaging for each system, the Windows toolchain and the
+quality gates.
 
 </details>
 
@@ -259,7 +267,7 @@ lists every module.
 | [`udm-infrastructure`](crates/infrastructure) | The adapters: the download engine, HLS, DASH and HDS, files, settings, IPC, proxies, the operating system |
 | [`udm-ui`](crates/ui) | The window's Tauri shell: its state, windows, tray icon and translations |
 | [`frontend/`](frontend) | The window's web frontend (Svelte 5 and TypeScript), drawn in the system's webview |
-| [`udm-app`](crates/app) | The three programs, each wiring the adapters into the use cases |
+| [`udm-app`](crates/app) | The five programs, each wiring the adapters into the use cases |
 | [`extension/`](extension) | The browser extension (Manifest V3), with its Node tests |
 
 </details>
@@ -281,24 +289,24 @@ lists every module.
 UDM is young. The engine, the window and the browser integration are solid on Windows and
 Linux; the macOS build is checked by the compiler and CI only.
 
-- **Not yet**: code signing, and the extension in the Chrome Web Store and on Firefox Add-ons (it
-  is loaded by hand, and in Firefox only until Firefox closes).
+- **Not yet**: code signing, and the extension in the Chrome Web Store and on Firefox Add-ons.
+  For now you load the extension by hand. In Firefox, it stays loaded only until Firefox closes.
 - **Translations**: 16 besides English; most were made by machine and wait for native speakers'
   review ([help translate](docs/translating.md)). Right-to-left and shaped scripts are not
   supported yet.
 - **What's missing or different** on each system: [Known gaps](docs/known-gaps.md).
 
-Bug reports and ideas are welcome in [Issues](https://github.com/tajbinkhan/UDM/issues);
-**Help → Contact support** in the window opens it. Pull requests are welcome too:
-[CONTRIBUTING.md](CONTRIBUTING.md) says how to build and check a change, and
-[AGENTS.md](AGENTS.md) sets the rules every change follows. Report security holes privately, as
+Bug reports and ideas are welcome in [Issues](https://github.com/tajbinkhan/UDM/issues).
+**Help → Contact support** in the window opens it. Pull requests are welcome too.
+[CONTRIBUTING.md](CONTRIBUTING.md) says how to build and check a change. [AGENTS.md](AGENTS.md)
+sets the rules every change follows. Report security holes privately, as
 [SECURITY.md](SECURITY.md) describes. What changed in each release is in the
 [changelog](CHANGELOG.md).
 
 ## ⭐ Star history
 
-If UDM saves you time, a star is the quickest way to say so, and it helps the next person
-find a free download manager. [Star it on GitHub](https://github.com/tajbinkhan/UDM/stargazers).
+If UDM saves you time, a star is the quickest way to say so. It also helps the next person find
+a free download manager. [Star it on GitHub](https://github.com/tajbinkhan/UDM/stargazers).
 
 <a href="https://star-history.com/#tajbinkhan/UDM&Date">
   <picture>
@@ -314,5 +322,5 @@ UDM is free software under the [MIT License](LICENSE).
 Built on [Tauri](https://tauri.app/) and [Svelte](https://svelte.dev/),
 [reqwest](https://github.com/seanmonstar/reqwest), [tokio](https://tokio.rs/),
 [tray-icon](https://github.com/tauri-apps/tray-icon) and [rfd](https://github.com/PolyMeilex/rfd).
-Videos are joined with [ffmpeg](https://ffmpeg.org/), and video sites read with
-[yt-dlp](https://github.com/yt-dlp/yt-dlp), both run as separate programs that you install.
+Videos are joined with [ffmpeg](https://ffmpeg.org/), and video sites are read with
+[yt-dlp](https://github.com/yt-dlp/yt-dlp). Both are separate programs that you install.
