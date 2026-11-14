@@ -28,7 +28,7 @@ impl<'a, Q: QueueStore, D: DownloadList, X: DownloadControl, F: DownloadFiles> R
         }
         if delete_files && entry.wrote_files() {
             self.files
-                .recycle(entry.path.as_deref(), entry.partial.as_deref())
+                .recycle(Some(id), entry.path.as_deref(), entry.partial.as_deref())
                 .map_err(|e| DownloadError::FilesStay { url: entry.url.to_string(), reason: e.to_string() })?;
         }
         Ok(())

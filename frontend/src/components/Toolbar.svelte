@@ -62,8 +62,9 @@
   .toolbar {
     display: flex;
     align-items: stretch;
+    gap: 2px;
     height: 62px;
-    padding: 2px 6px 0;
+    padding: 4px 8px 2px;
     background: var(--face);
     flex: none;
     overflow: hidden;
@@ -75,10 +76,16 @@
 
   .small .slot {
     width: 34px;
+    min-width: 0;
   }
 
   .small .slot.wide {
     width: 46px;
+    min-width: 0;
+  }
+
+  .small .slot.wide .tool {
+    padding-right: 2px;
   }
 
   .small .more {
@@ -87,20 +94,26 @@
 
   .sep {
     width: 1px;
-    margin: 6px 6px;
+    margin: 10px 6px;
     background: var(--border);
     flex: none;
   }
 
+  /* A button is as wide as its name needs, so a long one ("Delete
+     Completed", or a translation) is not cut off. */
   .slot {
     position: relative;
     display: flex;
-    width: 68px;
+    min-width: 64px;
     flex: none;
   }
 
   .slot.wide {
-    width: 80px;
+    min-width: 80px;
+  }
+
+  .slot.wide .tool {
+    padding-right: 12px;
   }
 
   .tool {
@@ -114,17 +127,22 @@
     padding: 2px 2px 3px;
     background: none;
     border: 1px solid transparent;
+    border-radius: var(--radius);
     color: var(--fg);
+    transition: background-color 0.08s ease-out;
   }
 
   .tool:hover:not(:disabled),
   .more:hover:not(:disabled) {
     background: var(--hover);
-    border-color: var(--border);
   }
 
   .tool:active:not(:disabled) {
-    background: var(--button-pressed);
+    background: var(--active);
+  }
+
+  .tool:active:not(:disabled) :global(svg) {
+    transform: scale(0.94);
   }
 
   .tool:disabled {
@@ -136,7 +154,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-weight: 600;
+    font-weight: 500;
   }
 
   .tool:disabled .name {
@@ -152,7 +170,9 @@
     padding: 0;
     background: none;
     border: 1px solid transparent;
+    border-radius: var(--radius);
     color: var(--fg-muted);
+
     display: grid;
     place-items: center;
   }

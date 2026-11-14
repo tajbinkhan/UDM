@@ -144,7 +144,6 @@
   "Types": "類型",
   "Check all": "全部勾選",
   "Uncheck all": "全部取消勾選",
-  "image": "圖片",
   "page": "頁面",
   "Start the queue now": "立即啟動佇列",
   "Save the files to": "將檔案儲存至",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} 個檔案",
   "{count} lines held no download address.": "{count} 行不含下載位址。",
   "{type} file": "{type} 檔案",
-  "The clipboard holds no http, https or ftp link.": "剪貼簿中沒有 http、https 或 ftp 連結。"
+  "The clipboard holds no http, https or ftp link.": "剪貼簿中沒有 http、https 或 ftp 連結。",
+  "No downloads here": "這裡沒有下載",
+  "Downloads started here or in the browser appear in this list.": "在這裡或瀏覽器中開始的下載會顯示在此清單中。"
 }

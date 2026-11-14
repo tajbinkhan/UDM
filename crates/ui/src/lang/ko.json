@@ -144,7 +144,6 @@
   "Types": "형식",
   "Check all": "모두 선택",
   "Uncheck all": "모두 선택 취소",
-  "image": "이미지",
   "page": "페이지",
   "Start the queue now": "지금 대기열 시작",
   "Save the files to": "파일 저장 위치",
@@ -1000,5 +999,7 @@
   "{count} files": "파일 {count}개",
   "{count} lines held no download address.": "{count}개 줄에 다운로드 주소가 없습니다.",
   "{type} file": "{type} 파일",
-  "The clipboard holds no http, https or ftp link.": "클립보드에 http, https 또는 ftp 링크가 없습니다."
+  "The clipboard holds no http, https or ftp link.": "클립보드에 http, https 또는 ftp 링크가 없습니다.",
+  "No downloads here": "여기에 다운로드가 없습니다",
+  "Downloads started here or in the browser appear in this list.": "여기나 브라우저에서 시작한 다운로드가 이 목록에 표시됩니다."
 }

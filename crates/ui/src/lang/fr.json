@@ -144,7 +144,6 @@
   "Types": "Types",
   "Check all": "Tout cocher",
   "Uncheck all": "Tout décocher",
-  "image": "image",
   "page": "page",
   "Start the queue now": "Démarrer la file maintenant",
   "Save the files to": "Enregistrer les fichiers dans",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} fichiers",
   "{count} lines held no download address.": "{count} lignes ne contenaient aucune adresse de téléchargement.",
   "{type} file": "Fichier {type}",
-  "The clipboard holds no http, https or ftp link.": "Le Presse-papiers ne contient aucun lien http, https ou ftp."
+  "The clipboard holds no http, https or ftp link.": "Le Presse-papiers ne contient aucun lien http, https ou ftp.",
+  "No downloads here": "Aucun téléchargement ici",
+  "Downloads started here or in the browser appear in this list.": "Les téléchargements lancés ici ou dans le navigateur apparaissent dans cette liste."
 }

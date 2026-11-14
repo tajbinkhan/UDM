@@ -144,7 +144,6 @@
   "Types": "Tipos",
   "Check all": "Marcar todos",
   "Uncheck all": "Desmarcar todos",
-  "image": "imagen",
   "page": "página",
   "Start the queue now": "Iniciar la cola ahora",
   "Save the files to": "Guardar los archivos en",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} archivos",
   "{count} lines held no download address.": "{count} líneas no contenían ninguna dirección de descarga.",
   "{type} file": "Archivo {type}",
-  "The clipboard holds no http, https or ftp link.": "El portapapeles no contiene ningún vínculo http, https ni ftp."
+  "The clipboard holds no http, https or ftp link.": "El portapapeles no contiene ningún vínculo http, https ni ftp.",
+  "No downloads here": "No hay descargas aquí",
+  "Downloads started here or in the browser appear in this list.": "Las descargas iniciadas aquí o en el navegador aparecen en esta lista."
 }

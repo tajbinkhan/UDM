@@ -144,7 +144,6 @@
   "Types": "Tipos",
   "Check all": "Marcar todos",
   "Uncheck all": "Desmarcar todos",
-  "image": "imagem",
   "page": "página",
   "Start the queue now": "Iniciar a fila agora",
   "Save the files to": "Salvar os arquivos em",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} arquivos",
   "{count} lines held no download address.": "{count} linhas não continham endereço de download.",
   "{type} file": "Arquivo {type}",
-  "The clipboard holds no http, https or ftp link.": "A área de transferência não contém nenhum link http, https ou ftp."
+  "The clipboard holds no http, https or ftp link.": "A área de transferência não contém nenhum link http, https ou ftp.",
+  "No downloads here": "Nenhum download aqui",
+  "Downloads started here or in the browser appear in this list.": "Os downloads iniciados aqui ou no navegador aparecem nesta lista."
 }

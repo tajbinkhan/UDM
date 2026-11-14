@@ -144,7 +144,6 @@
   "Types": "类型",
   "Check all": "全部勾选",
   "Uncheck all": "全部取消勾选",
-  "image": "图像",
   "page": "页面",
   "Start the queue now": "立即启动队列",
   "Save the files to": "将文件保存到",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} 个文件",
   "{count} lines held no download address.": "{count} 行不含下载地址。",
   "{type} file": "{type} 文件",
-  "The clipboard holds no http, https or ftp link.": "剪贴板中没有 http、https 或 ftp 链接。"
+  "The clipboard holds no http, https or ftp link.": "剪贴板中没有 http、https 或 ftp 链接。",
+  "No downloads here": "这里没有下载",
+  "Downloads started here or in the browser appear in this list.": "在这里或浏览器中开始的下载会显示在此列表中。"
 }

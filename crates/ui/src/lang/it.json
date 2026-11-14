@@ -144,7 +144,6 @@
   "Types": "Tipi",
   "Check all": "Seleziona tutto",
   "Uncheck all": "Deseleziona tutto",
-  "image": "immagine",
   "page": "pagina",
   "Start the queue now": "Avvia ora la coda",
   "Save the files to": "Salva i file in",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} file",
   "{count} lines held no download address.": "{count} righe non contenevano alcun indirizzo di download.",
   "{type} file": "File {type}",
-  "The clipboard holds no http, https or ftp link.": "Gli Appunti non contengono collegamenti http, https o ftp."
+  "The clipboard holds no http, https or ftp link.": "Gli Appunti non contengono collegamenti http, https o ftp.",
+  "No downloads here": "Nessun download qui",
+  "Downloads started here or in the browser appear in this list.": "I download avviati qui o nel browser compaiono in questo elenco."
 }

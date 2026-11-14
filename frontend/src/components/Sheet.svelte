@@ -26,7 +26,16 @@
   let el: HTMLDialogElement | undefined = $state();
 
   $effect(() => {
-    el?.showModal();
+    if (!el) return;
+    el.showModal();
+    // Focus what the dialog is for: its first text box or list, else the
+    // button that closes it, as a Windows dialog focuses its default button.
+    const field = el.querySelector<HTMLElement>(
+      '.body input:not([type=checkbox]):not([type=radio]):not(:disabled), .body select:not(:disabled), .body textarea:not(:disabled)',
+    );
+    const button = el.querySelector<HTMLElement>('.buttons:not([hidden]) .btn.default:not(:disabled)');
+    const first = el.querySelector<HTMLElement>('.body :is(button, input, select, textarea):not(:disabled)');
+    (field ?? button ?? first)?.focus();
   });
 </script>
 
@@ -41,7 +50,9 @@
 >
   <div class="bar">
     <span>{title}</span>
-    <button class="x" aria-label={t('Close')} onclick={oncancel}>✕</button>
+    <!-- Out of the Tab order, as a title bar's close button is; Escape
+         does the same from the keyboard. -->
+    <button class="x" type="button" tabindex="-1" aria-label={t('Close')} onclick={oncancel}>✕</button>
   </div>
   <form
     class="body"
@@ -53,7 +64,7 @@
     {@render children()}
     <div class="buttons" hidden={!buttons}>
       {#if onok}<button class="btn default" type="submit" disabled={okDisabled}>{t('OK')}</button>{/if}
-      <button class="btn" type="button" onclick={oncancel}>{onok ? t('Cancel') : t('Close')}</button>
+      <button class="btn" class:default={!onok} type="button" onclick={oncancel}>{onok ? t('Cancel') : t('Close')}</button>
     </div>
   </form>
 </dialog>
@@ -62,9 +73,10 @@
   dialog {
     padding: 0;
     border: 1px solid var(--frame);
+    border-radius: var(--radius-large);
     background: var(--face);
     color: var(--fg);
-    box-shadow: 0 4px 16px var(--shadow);
+    box-shadow: 0 16px 32px var(--shadow);
     max-height: calc(100vh - 16px);
     max-width: calc(100vw - 16px);
     overflow: auto;
@@ -78,31 +90,35 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 26px;
-    padding: 0 0 0 10px;
+    height: 32px;
+    padding: 0 0 0 12px;
     background: var(--bar);
     border-bottom: 1px solid var(--border);
+    font-weight: 600;
   }
 
   .x {
-    width: 34px;
-    height: 26px;
+    width: 40px;
+    height: 32px;
     background: none;
     border: 0;
+    border-radius: 0 var(--radius-large) 0 0;
     color: var(--fg);
+    font-weight: 400;
   }
 
   .x:hover {
     background: var(--error);
-    color: var(--field);
+    color: var(--on-error);
   }
 
   .body {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 10px 12px 12px;
+    padding: 12px 14px 14px;
   }
+
 
   .buttons {
     display: flex;

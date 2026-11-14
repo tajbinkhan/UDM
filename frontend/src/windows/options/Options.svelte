@@ -172,40 +172,53 @@
   .tabs {
     display: flex;
     flex-direction: column;
+    gap: 2px;
+    margin-bottom: 6px;
     flex: none;
   }
 
   .tabrow {
     display: flex;
+    gap: 2px;
   }
 
+  /* IDM's rows of tabs, drawn as Windows 11 draws a pivot: plain text,
+     the current page's tab raised with the accent's short bar under it. */
   .tab {
+    position: relative;
     flex: 1 1 auto;
-    height: 18px;
+    height: 20px;
     padding: 0 6px;
-    margin-right: -1px;
-    background: var(--face);
-    border: 1px solid var(--frame);
-    border-bottom: 0;
-    color: var(--fg);
+    background: none;
+    border: 0;
+    border-radius: var(--radius);
+    color: var(--fg-muted);
     white-space: nowrap;
+    transition: background-color 0.08s ease-out;
   }
 
-  .tabrow:not(.front) .tab {
-    margin-left: 0;
+  .tab:hover {
+    background: var(--hover);
+    color: var(--fg);
   }
 
   .tab.on {
-    position: relative;
-    z-index: 1;
     background: var(--list);
-    height: 20px;
-    margin-top: -2px;
-    margin-bottom: -1px;
+    box-shadow: 0 0 0 1px var(--frame);
+    color: var(--fg);
+    font-weight: 600;
   }
 
-  .tabrow.front .tab:not(.on) {
-    background: var(--face);
+  .tab.on::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: 16px;
+    height: 3px;
+    margin-left: -8px;
+    border-radius: 2px;
+    background: var(--accent);
   }
 
   .page {
@@ -215,6 +228,7 @@
     padding: 8px 10px;
     background: var(--list);
     border: 1px solid var(--frame);
+    border-radius: var(--radius-large);
   }
 
   .foot {
@@ -256,10 +270,18 @@
     resize: none;
     background: var(--input-bg);
     border: 1px solid var(--input-border);
+    border-bottom-color: var(--input-underline);
+    border-radius: var(--radius);
     color: var(--fg);
     font: inherit;
     user-select: text;
   }
+
+  :global(.opt-area:focus) {
+    border-bottom-color: var(--focus);
+    box-shadow: inset 0 -1px 0 var(--focus);
+  }
+
 
   :global(.opt-right) {
     align-self: flex-end;

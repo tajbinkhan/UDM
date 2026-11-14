@@ -144,7 +144,6 @@
   "Types": "Türler",
   "Check all": "Tümünü işaretle",
   "Uncheck all": "Tüm işaretleri kaldır",
-  "image": "resim",
   "page": "sayfa",
   "Start the queue now": "Kuyruğu şimdi başlat",
   "Save the files to": "Dosyaların kaydedileceği yer",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} dosya",
   "{count} lines held no download address.": "{count} satırda indirme adresi yoktu.",
   "{type} file": "{type} dosyası",
-  "The clipboard holds no http, https or ftp link.": "Panoda http, https veya ftp bağlantısı yok."
+  "The clipboard holds no http, https or ftp link.": "Panoda http, https veya ftp bağlantısı yok.",
+  "No downloads here": "Burada indirme yok",
+  "Downloads started here or in the browser appear in this list.": "Burada veya tarayıcıda başlatılan indirmeler bu listede görünür."
 }

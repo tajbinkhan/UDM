@@ -9,10 +9,10 @@
 //! connection goes.
 
 use std::io::{self, ErrorKind};
-use std::net::TcpStream;
+use std::net::{Shutdown, TcpStream};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use udm_domain::sync::LockExt;
 
 use udm_application::daemon::{Command, DaemonClient, DaemonError, Event, Lost};
@@ -61,7 +61,7 @@ impl IpcDaemonClient {
     /// event, the replies a window leaves out (`ack`, `hello`)
     /// among them, starting the daemon when none runs.
     pub fn program(client: &str) -> Self {
-        IpcDaemonClient { hears: |_| true, ..Self::new(client) }
+        Self::new(client).hearing(|_| true)
     }
 
     /// A program's connection that stays open between its requests, as
@@ -69,7 +69,13 @@ impl IpcDaemonClient {
     /// progress, which nobody follows there and which would pile up unread
     /// between requests.
     pub fn assistant(client: &str) -> Self {
-        IpcDaemonClient { hears: |e| !matches!(e, Event::Progress { .. }), ..Self::new(client) }
+        Self::new(client).hearing(|e| !matches!(e, Event::Progress { .. }))
+    }
+
+    /// This connection, hearing the events `hears` lets through.
+    fn hearing(mut self, hears: fn(&Event) -> bool) -> Self {
+        self.hears = hears;
+        self
     }
 
     /// A window's connection made by `connector` instead of `ipc`.
@@ -79,6 +85,28 @@ impl IpcDaemonClient {
 
     fn hello(client: &str) -> Incoming {
         Incoming::Hello { version: Some(env!("CARGO_PKG_VERSION").to_string()), client: Some(client.to_string()) }
+    }
+}
+
+/// How long a closing client waits for the daemon to close its end.
+const CLOSE_WAIT: Duration = Duration::from_secs(1);
+
+impl Drop for IpcDaemonClient {
+    /// Close the connection the polite way: stop sending, then let the
+    /// reader take what the daemon still sends until the daemon closes its
+    /// end. Dropping a socket with unread events resets it, which the daemon
+    /// logs as a read error (`udm-cli` exits right after its answer).
+    fn drop(&mut self) {
+        match lock(&self.writer).as_ref() {
+            Some(stream) => {
+                let _ = stream.shutdown(Shutdown::Write);
+            }
+            None => return,
+        }
+        let until = Instant::now() + CLOSE_WAIT;
+        while lock(&self.writer).is_some() && Instant::now() < until {
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -259,11 +287,35 @@ mod tests {
             send(&mut stream, &Outgoing::Hello { name: "udm".into(), version: "1".into(), api: None });
             send(&mut stream, &Outgoing::Ack { id: DownloadId::new(2), url: "http://x/f".into(), status: "s".into() });
         });
-        let client = IpcDaemonClient { hears: |_| true, ..IpcDaemonClient::with_connector("udm-cli", connector) };
+        let client = IpcDaemonClient::with_connector("udm-cli", connector).hearing(|_| true);
         let rx = events(&client);
         assert_eq!(next(&rx), Event::Connected);
         assert!(matches!(next(&rx), Event::Hello { .. }));
         assert!(matches!(next(&rx), Event::Ack { id, .. } if id == DownloadId::new(2)));
+    }
+
+    #[test]
+    fn dropping_a_client_closes_the_connection_cleanly() {
+        let (ended_tx, ended) = channel();
+        let ended_tx = Mutex::new(ended_tx);
+        let connector = fake_daemon(move |mut stream| {
+            for _ in 0..3 {
+                let _ = read(&mut stream);
+            }
+            // Events the client never reads, as a busy daemon sends them.
+            for _ in 0..50 {
+                send(&mut stream, &Outgoing::Pong);
+            }
+            // The daemon reads until the client stops sending: a clean end
+            // of stream, not a reset.
+            let end = read_message(&mut stream, MAX_MESSAGE_BYTES);
+            let _ = lock(&ended_tx).send(matches!(end, Ok(None)));
+        });
+        let client = IpcDaemonClient::with_connector("udm-cli", connector).hearing(|_| true);
+        let rx = events(&client);
+        assert_eq!(next(&rx), Event::Connected);
+        drop(client);
+        assert!(ended.recv_timeout(Duration::from_secs(5)).unwrap());
     }
 
     #[test]

@@ -144,7 +144,6 @@
   "Types": "Loại",
   "Check all": "Chọn tất cả",
   "Uncheck all": "Bỏ chọn tất cả",
-  "image": "hình ảnh",
   "page": "trang",
   "Start the queue now": "Bắt đầu hàng đợi ngay",
   "Save the files to": "Lưu các tệp vào",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} tệp",
   "{count} lines held no download address.": "{count} dòng không chứa địa chỉ tải xuống.",
   "{type} file": "Tệp {type}",
-  "The clipboard holds no http, https or ftp link.": "Bảng tạm không chứa liên kết http, https hoặc ftp nào."
+  "The clipboard holds no http, https or ftp link.": "Bảng tạm không chứa liên kết http, https hoặc ftp nào.",
+  "No downloads here": "Không có mục tải xuống nào ở đây",
+  "Downloads started here or in the browser appear in this list.": "Các mục tải xuống bắt đầu tại đây hoặc trong trình duyệt sẽ hiện trong danh sách này."
 }

@@ -5410,7 +5410,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "udm-app"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -5424,7 +5424,7 @@ dependencies = [
 
 [[package]]
 name = "udm-application"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde_json",
  "thiserror 2.0.21",
@@ -5434,7 +5434,7 @@ dependencies = [
 
 [[package]]
 name = "udm-domain"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "percent-encoding",
  "serde",
@@ -5445,7 +5445,7 @@ dependencies = [
 
 [[package]]
 name = "udm-infrastructure"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "aes 0.8.4",
  "arboard",
@@ -5492,7 +5492,7 @@ dependencies = [
 
 [[package]]
 name = "udm-ui"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "percent-encoding",
  "qrcode",

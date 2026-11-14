@@ -38,8 +38,9 @@
     size?: number;
   } = $props();
 
-  // Rows grow with the list's font.
-  const ROW = $derived(Math.max(16, Math.round(size * 1.34)));
+  // Rows grow with the list's font: 24 pixels for the normal 12, room for
+  // the 16-pixel icons with air above and below.
+  const ROW = $derived(Math.max(20, Math.round(size * 2)));
 
   let body: HTMLDivElement | undefined = $state();
   let scrollTop = $state(0);
@@ -53,6 +54,9 @@
   const picked = $derived(new Set(selected));
   const widths = $derived(columns.map((c) => (dragging?.key === c.key ? dragging.width : (c.width ?? 80))));
   const total = $derived(widths.reduce((a, b) => a + b, 0));
+  // Where each column ends, for the lines that part them down to the foot
+  // of the list, past the last row.
+  const edges = $derived(widths.map((_, i) => widths.slice(0, i + 1).reduce((a, b) => a + b, 0)));
   const first = $derived(Math.max(0, Math.floor(scrollTop / ROW) - 4));
   const last = $derived(Math.min(rows.length, Math.ceil((scrollTop + height) / ROW) + 4));
   const page = $derived(Math.max(1, Math.floor(height / ROW) - 1));
@@ -299,33 +303,57 @@
           {/each}
         </div>
       {/each}
+      {#each edges as x, j (j)}
+        <span class="guide" style:left="{x - 1}px"></span>
+      {/each}
     </div>
   </div>
+  {#if rows.length === 0}
+    <div class="empty">
+      <div class="note">
+        <p class="empty-title">{t('No downloads here')}</p>
+        <p>{t('Downloads started here or in the browser appear in this list.')}</p>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
   .table {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
     min-width: 0;
     background: var(--list);
     border: 1px solid var(--frame);
+    border-radius: var(--radius-large);
     overflow: hidden;
   }
 
   .headers {
     display: flex;
-    height: 20px;
+    height: 26px;
     flex: none;
     background: var(--header);
+    border-bottom: 1px solid var(--grid);
   }
 
+  /* Columns part with a line that runs on down through the rows. */
   .th {
     position: relative;
     flex: none;
-    border-right: 1px solid var(--grid);
-    border-bottom: 1px solid var(--grid);
+  }
+
+  .th:not(.filler)::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--grid);
+    pointer-events: none;
   }
 
   .th.filler {
@@ -339,11 +367,11 @@
     align-items: center;
     width: 100%;
     height: 100%;
-    padding: 0 5px;
+    padding: 0 6px;
     background: none;
     border: 0;
     text-align: left;
-    color: var(--fg);
+    color: var(--fg-muted);
   }
 
   .title:hover:not(:disabled) {
@@ -351,7 +379,7 @@
   }
 
   .title:disabled {
-    color: var(--fg);
+    color: var(--fg-muted);
   }
 
   .title .ell {
@@ -382,9 +410,54 @@
     overflow: auto;
   }
 
+  /* What an empty list says, in its middle; clicks pass through to the
+     list, so its menu still opens. */
+  .empty {
+    position: absolute;
+    inset: 26px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 24px;
+    pointer-events: none;
+  }
+
+  /* On the list's own color, so the column lines stop at its edges. */
+  .note {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 340px;
+    padding: 10px 16px;
+    background: var(--list);
+    color: var(--fg-muted);
+    text-align: center;
+  }
+
+  .empty p {
+    margin: 0;
+  }
+
+  .empty .empty-title {
+    color: var(--fg);
+    font-size: calc(var(--text) + 2px);
+    font-weight: 600;
+  }
+
   .sizer {
     position: relative;
     min-width: 100%;
+    min-height: 100%;
+  }
+
+  /* The lines between columns, over the rows and down to the list's foot. */
+  .guide {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--grid);
+    pointer-events: none;
   }
 
   .tr {
@@ -396,17 +469,24 @@
     min-width: 100%;
   }
 
+  .tr:hover:not(.selected) {
+    background: var(--hover);
+  }
+
+  /* A selected row carries the accent's bar on its leading edge. */
   .tr.selected {
     background: var(--selected);
     color: var(--selected-fg);
+    box-shadow: inset 3px 0 0 var(--accent);
   }
 
   .body:not(:focus) .tr.selected {
     background: var(--selected-blur);
+    box-shadow: none;
   }
 
   .body:focus-visible .tr.focused {
-    outline: 1px dotted var(--fg);
+    outline: 1px solid var(--focus-ring);
     outline-offset: -1px;
   }
 
@@ -417,11 +497,11 @@
   .td {
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 6px;
     flex: none;
-    padding: 0 4px;
-    border-right: 1px solid var(--grid);
+    padding: 0 6px;
     overflow: hidden;
+
     white-space: nowrap;
     line-height: var(--row);
   }

@@ -64,14 +64,19 @@
   {/each}
 </div>
 {#if open >= 0}
-  <PopupMenu items={menus[open].items} x={at.x} y={at.y} label={plain(menus[open].label)} onclose={() => (open = -1)} />
+  <!-- A new menu for each name, so it places itself under the name it
+       belongs to when the mouse slides from one name to the next. -->
+  {#key open}
+    <PopupMenu items={menus[open].items} x={at.x} y={at.y} label={plain(menus[open].label)} onclose={() => (open = -1)} />
+  {/key}
 {/if}
 
 <style>
   .bar {
     display: flex;
-    height: 22px;
-    padding: 0 8px;
+    gap: 2px;
+    height: 28px;
+    padding: 3px 6px;
     background: var(--bar);
     flex: none;
   }
@@ -82,8 +87,10 @@
     padding: 0 9px;
     background: none;
     border: 0;
+    border-radius: var(--radius);
     color: var(--fg);
   }
+
 
   .top:hover,
   .top.open {

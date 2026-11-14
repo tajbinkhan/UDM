@@ -12,7 +12,7 @@
           },
           {
             "name": "--fg-muted",
-            "value": "#a6a6a6"
+            "value": "#b2b2b2"
           },
           {
             "name": "--fg-disabled",
@@ -20,7 +20,7 @@
           },
           {
             "name": "--face",
-            "value": "#39393b"
+            "value": "#202022"
           },
           {
             "name": "--bar",
@@ -28,71 +28,103 @@
           },
           {
             "name": "--field",
-            "value": "#19191b"
+            "value": "#2b2b2c"
           },
           {
             "name": "--input-bg",
-            "value": "#222a36"
+            "value": "#303031"
           },
           {
             "name": "--input-border",
-            "value": "#eeeeee"
-          },
-          {
-            "name": "--header",
-            "value": "#19191b"
-          },
-          {
-            "name": "--list",
             "value": "#39393b"
           },
           {
+            "name": "--input-underline",
+            "value": "#9a9a9a"
+          },
+          {
+            "name": "--header",
+            "value": "#2b2b2c"
+          },
+          {
+            "name": "--list",
+            "value": "#2b2b2c"
+          },
+          {
             "name": "--tree",
-            "value": "#202022"
+            "value": "#2b2b2c"
           },
           {
             "name": "--frame",
-            "value": "#828283"
+            "value": "#39393b"
           },
           {
             "name": "--scroll-track",
-            "value": "#161618"
+            "value": "#2b2b2c"
+          },
+          {
+            "name": "--scroll-thumb",
+            "value": "#757577"
           },
           {
             "name": "--grid",
-            "value": "#545455"
+            "value": "#39393b"
           },
           {
             "name": "--border",
-            "value": "#545455"
+            "value": "#39393b"
           },
           {
             "name": "--button",
-            "value": "#343436"
+            "value": "#303031"
           },
           {
             "name": "--button-border",
-            "value": "#8e8e8e"
+            "value": "#3c3c3d"
+          },
+          {
+            "name": "--button-border-foot",
+            "value": "#323234"
           },
           {
             "name": "--button-hover",
-            "value": "#484849"
+            "value": "#373738"
           },
           {
             "name": "--button-pressed",
-            "value": "#565657"
+            "value": "#28282a"
           },
           {
             "name": "--default-border",
-            "value": "#fafafa"
+            "value": "#60cdff"
+          },
+          {
+            "name": "--accent",
+            "value": "#60cdff"
+          },
+          {
+            "name": "--accent-hover",
+            "value": "#57b9e7"
+          },
+          {
+            "name": "--accent-pressed",
+            "value": "#4fa6ce"
+          },
+          {
+            "name": "--on-accent",
+            "value": "#000000"
           },
           {
             "name": "--hover",
-            "value": "#484849"
+            "value": "#fafafa0f"
+          },
+          {
+            "name": "--active",
+            "value": "#fafafa0a"
           },
           {
             "name": "--selected",
-            "value": "#4b7bb7"
+            "value": "#38525f"
           },
           {
             "name": "--selected-fg",
@@ -100,19 +132,23 @@
           },
           {
             "name": "--selected-blur",
-            "value": "#4c4c4e"
+            "value": "#3c3c3d"
           },
           {
             "name": "--menu",
-            "value": "#28282a"
+            "value": "#2d2d2f"
           },
           {
             "name": "--menu-hover",
-            "value": "#484849"
+            "value": "#fafafa0f"
           },
           {
             "name": "--focus",
-            "value": "#60a5fa"
+            "value": "#60cdff"
+          },
+          {
+            "name": "--focus-ring",
+            "value": "#fafafa"
           },
           {
             "name": "--progress",
@@ -120,19 +156,23 @@
           },
           {
             "name": "--progress-track",
-            "value": "#e2e2e2"
+            "value": "#454547"
           },
           {
             "name": "--segment",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--link",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--error",
             "value": "#f87171"
+          },
+          {
+            "name": "--on-error",
+            "value": "#000000"
           },
           {
             "name": "--warning",
@@ -148,7 +188,7 @@
           },
           {
             "name": "--tint-blue",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--tint-purple",
@@ -180,7 +220,11 @@
           },
           {
             "name": "--radius",
-            "value": "2px"
+            "value": "4px"
+          },
+          {
+            "name": "--radius-large",
+            "value": "8px"
           },
           {
             "name": "--border-width",
@@ -199,7 +243,7 @@
           },
           {
             "name": "--fg-muted",
-            "value": "#a6a6a6"
+            "value": "#b2b2b2"
           },
           {
             "name": "--fg-disabled",
@@ -207,7 +251,7 @@
           },
           {
             "name": "--face",
-            "value": "#39393b"
+            "value": "#202022"
           },
           {
             "name": "--bar",
@@ -215,71 +259,103 @@
           },
           {
             "name": "--field",
-            "value": "#19191b"
+            "value": "#2b2b2c"
           },
           {
             "name": "--input-bg",
-            "value": "#222a36"
+            "value": "#303031"
           },
           {
             "name": "--input-border",
-            "value": "#eeeeee"
-          },
-          {
-            "name": "--header",
-            "value": "#19191b"
-          },
-          {
-            "name": "--list",
             "value": "#39393b"
           },
           {
+            "name": "--input-underline",
+            "value": "#9a9a9a"
+          },
+          {
+            "name": "--header",
+            "value": "#2b2b2c"
+          },
+          {
+            "name": "--list",
+            "value": "#2b2b2c"
+          },
+          {
             "name": "--tree",
-            "value": "#202022"
+            "value": "#2b2b2c"
           },
           {
             "name": "--frame",
-            "value": "#828283"
+            "value": "#39393b"
           },
           {
             "name": "--scroll-track",
-            "value": "#161618"
+            "value": "#2b2b2c"
+          },
+          {
+            "name": "--scroll-thumb",
+            "value": "#757577"
           },
           {
             "name": "--grid",
-            "value": "#545455"
+            "value": "#39393b"
           },
           {
             "name": "--border",
-            "value": "#545455"
+            "value": "#39393b"
           },
           {
             "name": "--button",
-            "value": "#343436"
+            "value": "#303031"
           },
           {
             "name": "--button-border",
-            "value": "#8e8e8e"
+            "value": "#3c3c3d"
+          },
+          {
+            "name": "--button-border-foot",
+            "value": "#323234"
           },
           {
             "name": "--button-hover",
-            "value": "#484849"
+            "value": "#373738"
           },
           {
             "name": "--button-pressed",
-            "value": "#565657"
+            "value": "#28282a"
           },
           {
             "name": "--default-border",
-            "value": "#fafafa"
+            "value": "#60cdff"
+          },
+          {
+            "name": "--accent",
+            "value": "#60cdff"
+          },
+          {
+            "name": "--accent-hover",
+            "value": "#57b9e7"
+          },
+          {
+            "name": "--accent-pressed",
+            "value": "#4fa6ce"
+          },
+          {
+            "name": "--on-accent",
+            "value": "#000000"
           },
           {
             "name": "--hover",
-            "value": "#484849"
+            "value": "#fafafa0f"
+          },
+          {
+            "name": "--active",
+            "value": "#fafafa0a"
           },
           {
             "name": "--selected",
-            "value": "#4b7bb7"
+            "value": "#38525f"
           },
           {
             "name": "--selected-fg",
@@ -287,19 +363,23 @@
           },
           {
             "name": "--selected-blur",
-            "value": "#4c4c4e"
+            "value": "#3c3c3d"
           },
           {
             "name": "--menu",
-            "value": "#28282a"
+            "value": "#2d2d2f"
           },
           {
             "name": "--menu-hover",
-            "value": "#484849"
+            "value": "#fafafa0f"
           },
           {
             "name": "--focus",
-            "value": "#60a5fa"
+            "value": "#60cdff"
+          },
+          {
+            "name": "--focus-ring",
+            "value": "#fafafa"
           },
           {
             "name": "--progress",
@@ -307,19 +387,23 @@
           },
           {
             "name": "--progress-track",
-            "value": "#e2e2e2"
+            "value": "#454547"
           },
           {
             "name": "--segment",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--link",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--error",
             "value": "#f87171"
+          },
+          {
+            "name": "--on-error",
+            "value": "#000000"
           },
           {
             "name": "--warning",
@@ -335,7 +419,7 @@
           },
           {
             "name": "--tint-blue",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--tint-purple",
@@ -367,7 +451,11 @@
           },
           {
             "name": "--radius",
-            "value": "2px"
+            "value": "4px"
+          },
+          {
+            "name": "--radius-large",
+            "value": "8px"
           },
           {
             "name": "--border-width",
@@ -393,7 +481,7 @@
           },
           {
             "name": "--fg-muted",
-            "value": "#5f5f60"
+            "value": "#6b6b6d"
           },
           {
             "name": "--fg-disabled",
@@ -401,11 +489,11 @@
           },
           {
             "name": "--face",
-            "value": "#f0f0f0"
+            "value": "#f3f3f3"
           },
           {
             "name": "--bar",
-            "value": "#ffffff"
+            "value": "#f3f3f3"
           },
           {
             "name": "--field",
@@ -417,7 +505,11 @@
           },
           {
             "name": "--input-border",
-            "value": "#909091"
+            "value": "#e1e1e2"
+          },
+          {
+            "name": "--input-underline",
+            "value": "#7f7f80"
           },
           {
             "name": "--header",
@@ -433,19 +525,23 @@
           },
           {
             "name": "--frame",
-            "value": "#909091"
-          },
-          {
-            "name": "--scroll-track",
-            "value": "#f0f0f0"
-          },
-          {
-            "name": "--grid",
             "value": "#e6e6e7"
           },
           {
+            "name": "--scroll-track",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--scroll-thumb",
+            "value": "#9d9d9d"
+          },
+          {
+            "name": "--grid",
+            "value": "#ebebeb"
+          },
+          {
             "name": "--border",
-            "value": "#d3d3d3"
+            "value": "#e6e6e7"
           },
           {
             "name": "--button",
@@ -453,27 +549,51 @@
           },
           {
             "name": "--button-border",
-            "value": "#d3d3d3"
+            "value": "#e6e6e7"
+          },
+          {
+            "name": "--button-border-foot",
+            "value": "#cecece"
           },
           {
             "name": "--button-hover",
-            "value": "#e9effd"
+            "value": "#f9f9f9"
           },
           {
             "name": "--button-pressed",
-            "value": "#d3e0fb"
+            "value": "#f5f5f5"
           },
           {
             "name": "--default-border",
-            "value": "#2563eb"
+            "value": "#005fb8"
+          },
+          {
+            "name": "--accent",
+            "value": "#005fb8"
+          },
+          {
+            "name": "--accent-hover",
+            "value": "#1a6fbf"
+          },
+          {
+            "name": "--accent-pressed",
+            "value": "#337fc6"
+          },
+          {
+            "name": "--on-accent",
+            "value": "#ffffff"
           },
           {
             "name": "--hover",
-            "value": "#e9effd"
+            "value": "#09090b0a"
+          },
+          {
+            "name": "--active",
+            "value": "#09090b06"
           },
           {
             "name": "--selected",
-            "value": "#d3e0fb"
+            "value": "#e0ecf6"
           },
           {
             "name": "--selected-fg",
@@ -481,19 +601,23 @@
           },
           {
             "name": "--selected-blur",
-            "value": "#e1e1e2"
+            "value": "#eeeeee"
           },
           {
             "name": "--menu",
-            "value": "#fafafa"
+            "value": "#fdfdfd"
           },
           {
             "name": "--menu-hover",
-            "value": "#e5ecfd"
+            "value": "#09090b0a"
           },
           {
             "name": "--focus",
-            "value": "#2563eb"
+            "value": "#005fb8"
+          },
+          {
+            "name": "--focus-ring",
+            "value": "#09090b"
           },
           {
             "name": "--progress",
@@ -505,15 +629,19 @@
           },
           {
             "name": "--segment",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--link",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--error",
             "value": "#dc2626"
+          },
+          {
+            "name": "--on-error",
+            "value": "#ffffff"
           },
           {
             "name": "--warning",
@@ -529,7 +657,7 @@
           },
           {
             "name": "--tint-blue",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--tint-purple",
@@ -561,7 +689,11 @@
           },
           {
             "name": "--radius",
-            "value": "2px"
+            "value": "4px"
+          },
+          {
+            "name": "--radius-large",
+            "value": "8px"
           },
           {
             "name": "--border-width",
@@ -580,7 +712,7 @@
           },
           {
             "name": "--fg-muted",
-            "value": "#5f5f60"
+            "value": "#6b6b6d"
           },
           {
             "name": "--fg-disabled",
@@ -588,11 +720,11 @@
           },
           {
             "name": "--face",
-            "value": "#f0f0f0"
+            "value": "#f3f3f3"
           },
           {
             "name": "--bar",
-            "value": "#ffffff"
+            "value": "#f3f3f3"
           },
           {
             "name": "--field",
@@ -604,7 +736,11 @@
           },
           {
             "name": "--input-border",
-            "value": "#909091"
+            "value": "#e1e1e2"
+          },
+          {
+            "name": "--input-underline",
+            "value": "#7f7f80"
           },
           {
             "name": "--header",
@@ -620,19 +756,23 @@
           },
           {
             "name": "--frame",
-            "value": "#909091"
-          },
-          {
-            "name": "--scroll-track",
-            "value": "#f0f0f0"
-          },
-          {
-            "name": "--grid",
             "value": "#e6e6e7"
           },
           {
+            "name": "--scroll-track",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--scroll-thumb",
+            "value": "#9d9d9d"
+          },
+          {
+            "name": "--grid",
+            "value": "#ebebeb"
+          },
+          {
             "name": "--border",
-            "value": "#d3d3d3"
+            "value": "#e6e6e7"
           },
           {
             "name": "--button",
@@ -640,27 +780,51 @@
           },
           {
             "name": "--button-border",
-            "value": "#d3d3d3"
+            "value": "#e6e6e7"
+          },
+          {
+            "name": "--button-border-foot",
+            "value": "#cecece"
           },
           {
             "name": "--button-hover",
-            "value": "#e9effd"
+            "value": "#f9f9f9"
           },
           {
             "name": "--button-pressed",
-            "value": "#d3e0fb"
+            "value": "#f5f5f5"
           },
           {
             "name": "--default-border",
-            "value": "#2563eb"
+            "value": "#005fb8"
+          },
+          {
+            "name": "--accent",
+            "value": "#005fb8"
+          },
+          {
+            "name": "--accent-hover",
+            "value": "#1a6fbf"
+          },
+          {
+            "name": "--accent-pressed",
+            "value": "#337fc6"
+          },
+          {
+            "name": "--on-accent",
+            "value": "#ffffff"
           },
           {
             "name": "--hover",
-            "value": "#e9effd"
+            "value": "#09090b0a"
+          },
+          {
+            "name": "--active",
+            "value": "#09090b06"
           },
           {
             "name": "--selected",
-            "value": "#d3e0fb"
+            "value": "#e0ecf6"
           },
           {
             "name": "--selected-fg",
@@ -668,19 +832,23 @@
           },
           {
             "name": "--selected-blur",
-            "value": "#e1e1e2"
+            "value": "#eeeeee"
           },
           {
             "name": "--menu",
-            "value": "#fafafa"
+            "value": "#fdfdfd"
           },
           {
             "name": "--menu-hover",
-            "value": "#e5ecfd"
+            "value": "#09090b0a"
           },
           {
             "name": "--focus",
-            "value": "#2563eb"
+            "value": "#005fb8"
+          },
+          {
+            "name": "--focus-ring",
+            "value": "#09090b"
           },
           {
             "name": "--progress",
@@ -692,15 +860,19 @@
           },
           {
             "name": "--segment",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--link",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--error",
             "value": "#dc2626"
+          },
+          {
+            "name": "--on-error",
+            "value": "#ffffff"
           },
           {
             "name": "--warning",
@@ -716,7 +888,7 @@
           },
           {
             "name": "--tint-blue",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--tint-purple",
@@ -748,7 +920,11 @@
           },
           {
             "name": "--radius",
-            "value": "2px"
+            "value": "4px"
+          },
+          {
+            "name": "--radius-large",
+            "value": "8px"
           },
           {
             "name": "--border-width",
@@ -771,7 +947,7 @@
         "connected": true,
         "daemon": "",
         "update": "",
-        "version": "0.4.0"
+        "version": "0.5.0"
       },
       "window": "about"
     },
