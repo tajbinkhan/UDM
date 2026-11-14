@@ -15,7 +15,7 @@ The desktop window is drawn with Tauri (`docs/adr/0002-draw-the-window-with-taur
   - `udm-gui`, the desktop window. It is a client of the daemon, like the host.
   - `udm-cli`, the command-line tool, another client of the daemon for terminals and scripts.
   - `udm-mcp`, the Model Context Protocol server that AI assistants start over stdio, another client of the daemon.
-- The browser extension lives in `extension/` (JavaScript). It is outside the Rust architecture but speaks the protocol defined in Rust. `extension/chromium/` is the source; `extension/firefox/` is its Firefox copy, which `node installer/make-firefox.js` makes from it and `extension/firefox.json`. Git keeps the copy and the extension's tests fail when it is stale, so MUST NOT edit it by hand: change `extension/chromium/`, then remake it.
+- The browser extension lives in `extension/` (JavaScript). It is outside the Rust architecture but speaks the protocol defined in Rust. `extension/chromium/` is the source; `extension/firefox/` is its Firefox copy, which `node installer/make-firefox.js` makes from it and `extension/firefox.json`, and `extension/safari/` its Safari copy, which `node installer/make-safari.js` makes from it and `extension/safari.json`. Git keeps the copies and the extension's tests fail when one is stale, so MUST NOT edit them by hand: change `extension/chromium/`, then remake them.
 - Architecture: Hexagonal (Ports and Adapters) as a Cargo workspace, with a UI layer at the edge.
 - UI framework: **Tauri 2**. A Rust shell (`crates/ui`) owns the window's state, windows and tray, and a web frontend (`frontend/`, Svelte 5 and TypeScript, built with Vite and pnpm) draws it in the system's webview (WebView2 on Windows, WKWebView on macOS, WebKitGTK 4.1 on Linux). The two halves talk through Tauri's IPC with TypeScript bindings generated from Rust by `tauri-specta`. Native file and folder pickers stay behind the `FilePicker` port (`rfd`).
 
@@ -34,6 +34,8 @@ extension/         the browser extension (JavaScript)
   chromium/        the source, for Chrome, Edge and other Chromium browsers
   firefox/         its Firefox copy, made by installer/make-firefox.js
   firefox.json     what the Firefox copy changes in manifest.json
+  safari/          its Safari copy, made by installer/make-safari.js
+  safari.json      what the Safari copy changes in manifest.json
   test/            Node tests for both
 ```
 

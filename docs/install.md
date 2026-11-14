@@ -247,22 +247,24 @@ it from `extension/chromium` and `extension/safari.json`, and
 2. UDM is signed ad hoc, not by a registered developer, so Safari hides the
    extension until you allow unsigned extensions: turn on **Show features
    for web developers** in **Safari > Settings > Advanced**, then choose
-   **Develop > Allow Unsigned Extensions** (Safari asks for your password,
-   and asks again each time Safari starts).
+   **Develop > Allow Unsigned Extensions** (in Safari 17 and later it is also
+   under **Safari > Settings > Developer**). Safari asks for your password,
+   and turns it off again each time it quits.
 3. In **Safari > Settings > Extensions**, tick **UDM**, then allow it on
    every website (**Edit Websites...**, or **Always Allow on Every Website**
    when Safari asks).
 
 Safari has no downloads API, so the extension cannot take a download the
 browser started. Instead it takes a link to a file as it is clicked, when
-the file's type is one UDM captures; the context menu, the video button,
-**Download all links** and the popup work as in Chrome. Safari's native
-messages go to the app extension, not to a program Safari starts, and the
-app extension cannot send the extension anything of its own, so the
-extension asks it for news every second (every five when nothing happens);
-it runs `udm-host` inside Safari's sandbox, where it cannot start the
-daemon: UDM must already be running. [Known gaps](known-gaps.md) lists the
-rest.
+the file's type is in UDM's captured types; other links open as usual. The
+context menu, **Download all links** and the popup work as in Chrome, and
+the video button as far as Safari lets the extension see a page's requests.
+Safari's native messages go to the app extension, not to a program Safari
+starts, and the app extension cannot send the extension anything of its
+own, so the extension keeps a request out that the app extension answers
+when UDM has news. The app extension runs `udm-host` inside Safari's
+sandbox, where it cannot start the daemon: UDM must already be running.
+[Known gaps](known-gaps.md) lists the rest.
 
 ---
 

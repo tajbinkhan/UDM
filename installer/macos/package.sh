@@ -77,8 +77,13 @@ cp -R "$root/extension/firefox/." "$app/Contents/Resources/firefox/"
 cp "$root/README.md" "$app/Contents/Resources/"
 
 # The Safari extension, an app extension in Contents/PlugIns, signed there
-# with its own entitlements.
-"$root/installer/macos/safari/build.sh" "$app" "$version"
+# with its own entitlements. A build that fails leaves it out, so the disk
+# image is still made, unless UDM_SAFARI=require.
+if ! "$root/installer/macos/safari/build.sh" "$app" "$version"; then
+  [ "${UDM_SAFARI:-}" = require ] && exit 1
+  echo "warning: the Safari extension did not build; UDM.app has none" >&2
+  rm -rf "$app/Contents/PlugIns"
+fi
 
 # Signed inside out without --deep, which would sign the Safari extension
 # again without its entitlements: the other programs, then the app.

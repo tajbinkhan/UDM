@@ -281,15 +281,19 @@ function forceLeavesLink(rules, url) {
 // where the browser tells extensions nothing of its downloads (Safari; see
 // shareLinkCapture in background.js). `download` is the link's `download`
 // attribute (or null), `page` the address of the page clicked in, and
-// `rules` the capture rules the worker shares, or null before they arrive.
-// Only a link that names a file goes, by its `download` attribute or its
-// address, and not a page, picture or script: what else a link leads to is
-// not known until the browser follows it. Then the capture rules decide.
+// `rules` the capture rules the worker shares. What a link leads to is not
+// known until the browser follows it, so only a link that names a file goes,
+// by its `download` attribute or its address, and only when that file's
+// type is one of the captured types (never a page, picture or script):
+// without rules, or with no types listed, no click is taken, where a
+// download the browser reports would be. Then the excluded sites and
+// addresses decide.
 function clickTaken(rules, url, download, page) {
-  if (!/^https?:\/\//i.test(String(url || ""))) return false;
+  if (!rules || !/^https?:\/\//i.test(String(url || ""))) return false;
+  const types = rules.capture_types || [];
   const filename = linkFileName(download) || "";
   const type = extensionOf(filename) || extensionOf(urlPath(url));
-  if (!type || PAGE_EXTENSIONS.has(type)) return false;
+  if (!type || PAGE_EXTENSIONS.has(type) || !types.includes(type)) return false;
   return captureDecision(rules, { url, referrer: page || "", filename, mime: "", size: 0 }).capture;
 }
 

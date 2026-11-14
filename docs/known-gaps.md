@@ -17,32 +17,41 @@
 
 - Safari (#268, [install](install.md#safari)): the extension was built for
   Safari but never run in it here; the Swift handler, the entitlements and
-  the Xcode build are checked by CI's macOS runner only, and the extension's
-  side against a stand-in for Safari's API in its tests. What Safari does
-  not offer, the Safari extension does not do:
+  the Xcode build are checked by CI's macOS runner only (and do not fail a
+  run until that build has passed once), and the extension's side against a
+  stand-in for Safari's API in its tests. What Safari does not offer, the
+  Safari extension does not do:
   - No downloads API: a download the browser starts (a form's, a script's,
-    a link that names no file) stays in Safari. UDM takes only a link to a
-    file whose type it captures, as it is clicked; a link whose type shows
-    only in the server's answer, the minimum size and the popup's list of
-    the browser's own downloads do not apply. A link UDM refuses opens in a
-    background tab for Safari to download.
+    a link that names no file) stays in Safari. UDM takes only a link whose
+    address or `download` attribute names a file of a type in the captured
+    types list, as it is clicked, and none while that list is empty; a type
+    that shows only in the server's answer, the minimum size and the popup's
+    list of the browser's own downloads do not apply. A link UDM declines at
+    once is followed by Safari as usual; one UDM refuses later, or that was
+    lost when the connection to UDM dropped, opens in a background tab for
+    Safari to download.
   - No proxy settings: **Use the browser's proxy** gets nothing from
     Safari, and UDM uses its own proxy settings.
   - No notifications: the notices that UDM could not take a download or a
     page has no links do not show; the popup shows why UDM is not reached.
-  - No live port: the extension asks UDM's app extension for news every
-    second while something happens and every five seconds otherwise, so
-    the popup's progress and the window's questions lag that much.
+  - No live port: the extension keeps a request out to UDM's app extension,
+    which answers it as soon as UDM has news (or after 20 seconds without),
+    then asks again. Safari may stop the worker or the app extension when
+    they are idle; the connection then starts again, with a fresh
+    `udm-host`, the next time the worker runs, and the popup may show UDM as
+    not connected for a moment. A crawl that asks the browser for cookies
+    or a rendered page while the worker is stopped gets none.
   - The app extension runs `udm-host` in Safari's sandbox, where it cannot
     start the daemon: open UDM (or let it start at sign-in) before using
     Safari. It reaches the daemon only in the usual data folder, not a
     named copy's (`UDM_INSTANCE`), a portable copy's or a server's.
-  - UDM is signed ad hoc, so Safari shows the extension only with
-    **Develop > Allow Unsigned Extensions**, which Safari turns off each
-    time it quits.
-  - Safari may give a Manifest V3 worker no web requests to watch, so the
-    video button may list fewer streams than in Chrome, and form
-    downloads are not rebuilt.
+  - UDM is signed ad hoc, so Safari shows the extension only once unsigned
+    extensions are allowed (**Develop > Allow Unsigned Extensions**, or in
+    Safari 17 and later also **Settings > Developer > Allow unsigned
+    extensions**), which Safari turns off each time it quits.
+  - Safari may give a Manifest V3 worker no web requests to watch: then
+    the video button lists only what its player's own addresses show, the
+    recent videos menus stay empty, and form downloads are not rebuilt.
 - FTPS data connections do not resume the control connection's TLS
   session (the operating system's TLS, through `native-tls`, offers no way
   to), so a server that requires it, such as vsftpd with

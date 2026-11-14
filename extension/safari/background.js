@@ -589,11 +589,13 @@ chrome.storage.onChanged.addListener((changes) => {
 // capture rules from storage, as it reads the skip and force keys: this
 // keeps them there, as `linkCapture`. Browsers with the downloads API never
 // get it, so their content scripts take no click.
+// Nothing is taken until UDM is connected and its rules are here: before
+// them a link's type cannot be checked.
 let sharedLinkCapture = null;
 function shareLinkCapture() {
   if (chrome.downloads || !chrome.storage || !chrome.storage.local) return;
   const value = {
-    on: connected && !!captureEnabled,
+    on: connected && !!captureEnabled && !!rules,
     rules: rules
       ? {
           capture_types: rules.capture_types || [],
@@ -607,6 +609,24 @@ function shareLinkCapture() {
   sharedLinkCapture = json;
   Promise.resolve(chrome.storage.local.set({ linkCapture: value })).catch(() => {});
 }
+// A worker that starts again (Safari stops an idle one) is not connected
+// yet: what the last one shared goes at once.
+shareLinkCapture();
+
+// How long a click that woke the worker waits for UDM's hello and rules.
+const CLICK_CONNECT_WAIT_MS = 3000;
+
+// Resolves once UDM is connected and its rules are here, or after `ms`.
+function connectedWithRules(ms) {
+  return new Promise((resolve) => {
+    const until = Date.now() + ms;
+    const check = () => {
+      if ((connected && rules) || Date.now() >= until) resolve();
+      else setTimeout(check, 100);
+    };
+    check();
+  });
+}
 
 // Hand the link a page's click asked for (`url`, named by its `download`
 // attribute `filename`) to UDM, when the capture rules and the popup's
@@ -616,13 +636,19 @@ async function captureClickedLink(url, filename, sender) {
   const tabId = sender.tab.id;
   const pageUrl = sender.url || sender.tab.url || "";
   if (!isWeb(url)) return false;
-  await Promise.all([settingsReady, tabsOffReady]);
+  // The click may have woken the worker, which has to connect again.
+  await Promise.all([settingsReady, tabsOffReady, connectedWithRules(CLICK_CONNECT_WAIT_MS)]);
+  if (!rules || !clickTaken(rules, url, filename, pageUrl)) return false;
   // "Skip next download" keeps this one in the browser.
   if (skipNext) {
     skipNext = false;
     return false;
   }
-  const referrer = webReferrer(pageUrl, sender.tab.url) || "";
+  // The clicked link's document (maybe a frame) is the referrer, or the
+  // nearest one with an address when it has none (about:blank), as for a
+  // forced link.
+  const parent = isWeb(pageUrl) ? undefined : await framesReferrer(tabId, sender.frameId);
+  const referrer = webReferrer(pageUrl, parent, sender.tab.url) || "";
   const described = { url, referrer, filename: filename || "", mime: "", size: 0, key: heldKey(tabId) };
   const verdict = takesNow(described, tabId);
   if (!verdict) return false;
@@ -630,7 +656,9 @@ async function captureClickedLink(url, filename, sender) {
     refreshWaiting = null;
     return handOff(url, referrer, filename, false, null, verdict.refreshId, sender.tab.url, null, {}, tabContext(sender.tab));
   }
-  awaitingAck.set(url, { post: null, filename });
+  // `clicked`: should the connection drop before UDM has it, it goes back
+  // to the browser (see onDisconnect).
+  awaitingAck.set(url, { post: null, filename, clicked: true });
   const sent = await handOff(url, referrer, filename, false, null, null, sender.tab.url, null, {}, tabContext(sender.tab));
   if (!sent) awaitingAck.delete(url);
   return sent;
@@ -770,9 +798,11 @@ async function downloadTabId(record) {
 const IS_SAFARI = String(chrome.runtime.getURL("")).startsWith("safari-web-extension:");
 
 // A new port to the host: connectNative's, or in Safari a polling one.
+// Safari's `browser` namespace is the one sure to answer with a promise.
 function openPort() {
-  if (IS_SAFARI) return pollingPort((request) => chrome.runtime.sendNativeMessage(HOST, request));
-  return chrome.runtime.connectNative(HOST);
+  if (!IS_SAFARI) return chrome.runtime.connectNative(HOST);
+  const own = globalThis.browser && globalThis.browser.runtime && globalThis.browser.runtime.sendNativeMessage ? globalThis.browser : chrome;
+  return pollingPort((request) => own.runtime.sendNativeMessage(HOST, request));
 }
 
 function connect() {
@@ -800,6 +830,13 @@ function onDisconnect(reason) {
   lastError = reason;
   updateBadge();
   shareLinkCapture();
+  // Links taken as they were clicked (Safari) that UDM never acknowledged
+  // may never have reached it: the browser gets them back.
+  for (const [url, taken] of awaitingAck) {
+    if (!taken.clicked) continue;
+    awaitingAck.delete(url);
+    giveBack(url, null);
+  }
   if (!reconnectTimer) {
     reconnectTimer = setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);

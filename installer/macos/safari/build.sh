@@ -22,7 +22,7 @@
 #
 # Without Xcode (only the Command Line Tools) there is no converter: this
 # says so and adds nothing, so the disk image is still made, unless
-# UDM_SAFARI=require, which CI sets.
+# UDM_SAFARI=require, which CI's build check sets.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -84,6 +84,7 @@ xcodebuild -quiet -project "$project" -alltargets -configuration Release \
   SYMROOT="$work/build" \
   ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
   MACOSX_DEPLOYMENT_TARGET=11.0 \
+  SWIFT_VERSION=5.0 \
   MARKETING_VERSION="$version" CURRENT_PROJECT_VERSION="$version" \
   CODE_SIGNING_ALLOWED=NO \
   build

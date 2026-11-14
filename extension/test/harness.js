@@ -59,8 +59,9 @@ function setBrowserProxy(value) {
 // proxy settings, no notifications, safari-web-extension:// pages, and
 // native messages through runtime.sendNativeMessage (see native.js). Each
 // request it sends is in `native.requests`; `native.reply(request)` answers
-// it (by default with the frames tests queue in `native.frames`), and
-// `native.settle()` waits for the worker's polls to go out and come back.
+// it (by default a poll with the frames tests queue in `native.frames`, at
+// once), and `native.settle()` waits for the worker's requests to go out and
+// come back.
 // Its timers do not keep Node running.
 function loadWorker({ firefox = false, safari = false, session = {}, globals = {} } = {}) {
   const sent = [];
@@ -74,7 +75,7 @@ function loadWorker({ firefox = false, safari = false, session = {}, globals = {
     requests: [],
     frames: [],
     session: "host-1",
-    reply: () => ({ session: native.session, frames: native.frames.splice(0) }),
+    reply: (request) => ({ session: native.session, frames: request.poll ? native.frames.splice(0) : [] }),
     settle: () => new Promise((resolve) => setTimeout(resolve, 20)),
   };
   const manifest = () => (safari ? safariManifest() : firefox ? firefoxManifest() : chromeManifest());
@@ -87,7 +88,7 @@ function loadWorker({ firefox = false, safari = false, session = {}, globals = {
             sendNativeMessage: async (_host, request) => {
               native.requests.push(request);
               // What the worker sent goes in `sent`, as with a port.
-              for (const m of request.frames) sent.push(m);
+              for (const m of request.frames || []) sent.push(m);
               return native.reply(request);
             },
           }

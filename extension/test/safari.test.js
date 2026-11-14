@@ -12,7 +12,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { makeSafari, checkSafari, safariManifest, COPY } = require("../../installer/make-safari.js");
-const { pollingPort, SAFARI_POLL_BUSY_MS, SAFARI_POLL_IDLE_MS, SAFARI_BUSY_FOR_MS } = require("../chromium/native.js");
+const { pollingPort, SAFARI_POLL_GAP_MS, SAFARI_REQUEST_TIMEOUT_MS } = require("../chromium/native.js");
 const { clickTaken } = require("../chromium/rules.js");
 const { loadWorker } = require("./harness.js");
 
@@ -75,12 +75,15 @@ test("Firefox loads native.js too, before the worker", () => {
 
 // --- The polling port -----------------------------------------------------------
 
-// A clock whose timers run only when the test says: `run()` runs every due
-// timer, `advance(ms)` moves time on and runs those that fell due.
+// A clock whose timers run only when the test says: `advance(ms)` moves time
+// on and runs the timers that fell due, then lets answers settle.
 function fakeClock() {
   let now = 1000;
   let next = 1;
   const timers = new Map();
+  const settle = async () => {
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
   const clock = {
     now: () => now,
     setTimeout: (f, ms) => {
@@ -88,119 +91,153 @@ function fakeClock() {
       return next++;
     },
     clearTimeout: (id) => timers.delete(id),
-    // The delays of the timers waiting, soonest first.
-    pending: () => [...timers.values()].map((t) => t.at - now).sort((a, b) => a - b),
     advance: async (ms) => {
-      now += ms;
-      for (const [id, t] of [...timers]) {
-        if (t.at <= now) {
-          timers.delete(id);
-          t.f();
-        }
+      const until = now + ms;
+      for (let steps = 0; ; steps++) {
+        if (steps > 10000) throw new Error("timers keep firing");
+        await settle();
+        const due = [...timers].filter(([, t]) => t.at <= until).sort((x, y) => x[1].at - y[1].at)[0];
+        if (!due) break;
+        timers.delete(due[0]);
+        now = Math.max(now, due[1].at);
+        due[1].f();
       }
-      // Let the answers' promises settle.
-      for (let i = 0; i < 5; i++) await Promise.resolve();
+      now = until;
+      await settle();
     },
   };
   return clock;
 }
 
 // A port over a fake app extension: `requests` holds what it was sent, and
-// `answers` what it answers next (an object, or a function of the request).
+// `answer(request)` answers it; by default a poll gets `frames` once (then
+// it is held, as a long poll is, until `release()`), and messages get
+// nothing.
 function fakePort() {
   const clock = fakeClock();
   const requests = [];
-  const answers = [];
-  const port = pollingPort((request) => {
+  const pending = [];
+  const p = {
+    clock,
+    requests,
+    frames: [],
+    heard: [],
+    closed: [],
+    answer: (request) => {
+      if (!request.poll) return Promise.resolve({ session: "a", frames: [] });
+      if (p.frames.length) return Promise.resolve({ session: "a", frames: p.frames.splice(0) });
+      return new Promise((resolve) => pending.push(resolve));
+    },
+    // Answer the polls held so far, with `reply`.
+    release: (reply = { session: "a", frames: [] }) => pending.splice(0).forEach((resolve) => resolve(reply)),
+    polls: () => requests.filter((r) => r.poll).length,
+  };
+  p.port = pollingPort((request) => {
     requests.push(request);
-    const answer = answers.length ? answers.shift() : { session: "a", frames: [] };
-    return typeof answer === "function" ? answer(request) : Promise.resolve(answer);
+    return p.answer(request);
   }, clock);
-  const heard = [];
-  const closed = [];
-  port.onMessage.addListener((m) => heard.push(m));
-  port.onDisconnect.addListener((p) => closed.push(p.udmReason));
-  return { port, clock, requests, answers, heard, closed };
+  p.port.onMessage.addListener((m) => p.heard.push(m));
+  p.port.onDisconnect.addListener((port) => p.closed.push(port.udmReason));
+  return p;
 }
 
-test("the port sends what was posted together, and hands on every frame of the answer", async () => {
+test("a port's first request starts udm-host and carries what was posted; polls follow its answer", async () => {
   const p = fakePort();
   p.port.postMessage({ op: "hello" });
   p.port.postMessage({ op: "list" });
   assert.equal(p.requests.length, 0, "nothing goes until the worker's turn is over");
-  p.answers.push({ session: "a", frames: [{ op: "hello" }, { op: "downloads", items: [] }, "not a frame", null] });
+  p.frames.push({ op: "hello" }, { op: "downloads", items: [] }, "not a frame", null);
   await p.clock.advance(0);
-  assert.deepEqual(p.requests, [{ frames: [{ op: "hello" }, { op: "list" }] }]);
+  assert.deepEqual(p.requests.slice(0, 2), [{ frames: [{ op: "hello" }, { op: "list" }], start: true }, { poll: true }]);
   assert.deepEqual(p.heard, [{ op: "hello" }, { op: "downloads", items: [] }]);
+  // The poll that brought frames is followed at once by one that waits.
+  assert.equal(p.polls(), 2);
   assert.deepEqual(p.closed, []);
+
+  // A port that was sent nothing still starts udm-host.
+  const quiet = fakePort();
+  await quiet.clock.advance(0);
+  assert.deepEqual(quiet.requests, [{ frames: [], start: true }, { poll: true }]);
 });
 
-test("the port asks every second while things happen, then every five", async () => {
+test("messages go out at once beside the poll that waits, and never carry start again", async () => {
   const p = fakePort();
   p.port.postMessage({ op: "hello" });
   await p.clock.advance(0);
-  assert.deepEqual(p.clock.pending(), [SAFARI_POLL_BUSY_MS]);
-  await p.clock.advance(SAFARI_POLL_BUSY_MS);
-  assert.deepEqual(p.requests.at(-1), { frames: [] }, "a poll sends nothing");
-  // Quiet for long enough: it slows down.
-  let quiet = SAFARI_POLL_BUSY_MS;
-  while (p.clock.pending()[0] === SAFARI_POLL_BUSY_MS && quiet < 10 * SAFARI_BUSY_FOR_MS) {
-    await p.clock.advance(SAFARI_POLL_BUSY_MS);
-    quiet += SAFARI_POLL_BUSY_MS;
-  }
-  assert.deepEqual(p.clock.pending(), [SAFARI_POLL_IDLE_MS]);
-  assert.equal(quiet, SAFARI_BUSY_FOR_MS, "busy for as long as it says");
-  // News from UDM makes it quick again.
-  p.answers.push({ session: "a", frames: [{ op: "progress", id: 1 }] });
-  await p.clock.advance(SAFARI_POLL_IDLE_MS);
-  assert.deepEqual(p.clock.pending(), [SAFARI_POLL_BUSY_MS]);
-  // An answer with more to come is followed at once.
-  p.answers.push({ session: "a", frames: [{ op: "progress", id: 1 }], more: true });
-  await p.clock.advance(SAFARI_POLL_BUSY_MS);
-  assert.deepEqual(p.clock.pending(), [0]);
-});
-
-test("a message posted while a request is out goes as soon as the answer is back", async () => {
-  const p = fakePort();
-  let answer;
-  p.answers.push(() => new Promise((resolve) => (answer = resolve)));
-  p.port.postMessage({ op: "hello" });
-  await p.clock.advance(0);
+  assert.equal(p.polls(), 1, "the poll is held");
+  p.port.postMessage({ op: "add", url: "https://a/b.zip" });
   p.port.postMessage({ op: "list" });
   await p.clock.advance(0);
-  assert.equal(p.requests.length, 1, "one request at a time");
-  answer({ session: "a", frames: [] });
+  assert.deepEqual(p.requests.at(-1), { frames: [{ op: "add", url: "https://a/b.zip" }, { op: "list" }] });
+  assert.equal(p.polls(), 1, "still one poll out");
+  // News ends the held poll; another goes out at once.
+  p.release({ session: "a", frames: [{ op: "ack", id: 1 }] });
   await p.clock.advance(0);
+  assert.deepEqual(p.heard, [{ op: "ack", id: 1 }]);
+  assert.equal(p.polls(), 2);
+});
+
+test("a poll that comes back empty at once is not repeated within a second", async () => {
+  const p = fakePort();
+  p.answer = () => Promise.resolve({ session: "a", frames: [] });
   await p.clock.advance(0);
-  assert.deepEqual(p.requests.map((r) => r.frames), [[{ op: "hello" }], [{ op: "list" }]]);
+  assert.equal(p.polls(), 1);
+  await p.clock.advance(SAFARI_POLL_GAP_MS - 1);
+  assert.equal(p.polls(), 1);
+  await p.clock.advance(1);
+  assert.equal(p.polls(), 2);
+  // One that says there is more is followed at once.
+  let more = true;
+  p.answer = (request) => {
+    const reply = { session: "a", frames: [], more: !!request.poll && more };
+    more = false;
+    return Promise.resolve(reply);
+  };
+  await p.clock.advance(SAFARI_POLL_GAP_MS);
+  assert.equal(p.polls(), 4, "the one that said more, then another at once");
+});
+
+test("a request with no answer closes the port, so it does not look connected", async () => {
+  const p = fakePort();
+  p.port.postMessage({ op: "hello" });
+  await p.clock.advance(0);
+  // The long poll is held; past the timeout it counts as lost.
+  await p.clock.advance(SAFARI_REQUEST_TIMEOUT_MS - 1);
+  assert.deepEqual(p.closed, []);
+  await p.clock.advance(1);
+  assert.deepEqual(p.closed, ["no answer from UDM"]);
 });
 
 test("the port closes, saying why, when udm-host is gone, starts again, or the browser fails", async () => {
   let p = fakePort();
   p.port.postMessage({ op: "hello" });
-  p.answers.push({ session: "a", frames: [{ op: "hello" }], error: "UDM is not running" });
+  await p.clock.advance(0);
+  p.release({ session: "a", frames: [{ op: "hello" }], error: "UDM is not running" });
   await p.clock.advance(0);
   assert.deepEqual(p.heard, [{ op: "hello" }], "what came before the error still counts");
   assert.deepEqual(p.closed, ["UDM is not running"]);
-  assert.deepEqual(p.clock.pending(), [], "no more polls");
+  const asked = p.requests.length;
+  await p.clock.advance(SAFARI_REQUEST_TIMEOUT_MS * 2);
+  assert.equal(p.requests.length, asked, "no more requests");
+  assert.deepEqual(p.closed, ["UDM is not running"], "and no timeout after closing");
   assert.throws(() => p.port.postMessage({ op: "list" }), /disconnected/);
 
   p = fakePort();
   p.port.postMessage({ op: "hello" });
   await p.clock.advance(0);
-  p.answers.push({ session: "b", frames: [{ op: "progress" }] });
-  await p.clock.advance(SAFARI_POLL_BUSY_MS);
+  p.release({ session: "b", frames: [{ op: "progress" }] });
+  await p.clock.advance(0);
   assert.deepEqual(p.heard, [], "another udm-host's frames are not this port's");
   assert.deepEqual(p.closed, ["UDM's host started again"]);
 
   p = fakePort();
-  p.answers.push(() => Promise.reject(new Error("No native handler")));
+  p.answer = () => Promise.reject(new Error("No native handler"));
   p.port.postMessage({ op: "hello" });
   await p.clock.advance(0);
   assert.deepEqual(p.closed, ["No native handler"]);
 
   p = fakePort();
-  p.answers.push(undefined);
+  p.answer = () => Promise.resolve(undefined);
   p.port.postMessage({ op: "hello" });
   await p.clock.advance(0);
   assert.deepEqual(p.closed, ["no answer from UDM"]);
@@ -211,23 +248,26 @@ test("disconnecting the port stops it without telling its own listeners", async 
   p.port.postMessage({ op: "hello" });
   await p.clock.advance(0);
   p.port.disconnect();
-  assert.deepEqual(p.clock.pending(), []);
+  p.release({ session: "a", frames: [{ op: "progress" }] });
+  await p.clock.advance(SAFARI_REQUEST_TIMEOUT_MS * 2);
   assert.deepEqual(p.closed, []);
+  assert.deepEqual(p.heard, []);
+  assert.equal(p.polls(), 1);
 });
 
 // --- Links taken as they are clicked ---------------------------------------------
 
-test("a click is taken only for a link that names a file the capture rules want", () => {
-  const rules = { capture_types: ["zip", "pdf", "mp4"], capture_excluded_sites: ["skip.net"], capture_excluded_urls: [] };
+test("a click is taken only for a link to a file of a captured type", () => {
+  const rules = { capture_types: ["zip", "pdf", "mp4", "rs"], capture_excluded_sites: ["skip.net"], capture_excluded_urls: [] };
   assert.equal(clickTaken(rules, "https://cdn.net/files/a.zip", null, "https://site.net/"), true);
   assert.equal(clickTaken(rules, "https://cdn.net/files/a.ZIP?x=1", null, "https://site.net/"), true);
   // Named by its download attribute.
   assert.equal(clickTaken(rules, "https://cdn.net/get?id=7", "Report.pdf", "https://site.net/"), true);
   // Not a type to take, a page, a picture, or no file name at all.
   assert.equal(clickTaken(rules, "https://cdn.net/a.exe", null, ""), false);
+  assert.equal(clickTaken(rules, "https://docs.net/guide.md", null, ""), false);
   assert.equal(clickTaken(rules, "https://site.net/news/", null, ""), false);
   assert.equal(clickTaken(rules, "https://site.net/a.html", null, ""), false);
-  assert.equal(clickTaken({ capture_types: [] }, "https://site.net/a.png", null, ""), false);
   assert.equal(clickTaken(rules, "https://cdn.net/get?id=7", null, ""), false);
   // Excluded sites, the link's or the page's.
   assert.equal(clickTaken(rules, "https://skip.net/a.zip", null, ""), false);
@@ -235,9 +275,13 @@ test("a click is taken only for a link that names a file the capture rules want"
   // Not a web address.
   assert.equal(clickTaken(rules, "ftp://cdn.net/a.zip", null, ""), false);
   assert.equal(clickTaken(rules, "javascript:void(0)", null, ""), false);
-  // Before the rules arrive, any file that is not a page.
-  assert.equal(clickTaken(null, "https://cdn.net/a.exe", null, ""), true);
-  assert.equal(clickTaken(null, "https://cdn.net/a.php", null, ""), false);
+  // Without rules, or with no types listed (where a browser download would
+  // be taken whatever it is), no click is: a page such as a .rs, .md or .cfm
+  // file would go to UDM.
+  assert.equal(clickTaken(null, "https://cdn.net/a.zip", null, ""), false);
+  assert.equal(clickTaken({ capture_types: [] }, "https://cdn.net/a.zip", null, ""), false);
+  assert.equal(clickTaken({}, "https://forge.net/src/main.rs", null, ""), false);
+  assert.equal(clickTaken({ capture_types: [] }, "https://site.net/index.cfm", null, ""), false);
 });
 
 // --- The worker in Safari ------------------------------------------------------------
@@ -255,6 +299,16 @@ async function safariWorker() {
 // Values from the worker come from another realm: compare them as JSON.
 const json = (v) => JSON.parse(JSON.stringify(v));
 const lastAdd = (w) => w.sent.filter((m) => m.op === "add").at(-1);
+// The Safari worker's timers do not keep Node running: wait for `promise`
+// with a timer of the test's own.
+async function held(promise) {
+  const keep = setInterval(() => {}, 50);
+  try {
+    return await promise;
+  } finally {
+    clearInterval(keep);
+  }
+}
 const shared = (w) => json(w.chrome.storage.written.filter((o) => "linkCapture" in o).map((o) => o.linkCapture));
 
 test("in Safari the worker starts without the APIs Safari lacks and talks to udm-host by polling", async () => {
@@ -266,6 +320,8 @@ test("in Safari the worker starts without the APIs Safari lacks and talks to udm
   // The port connectNative returns is never used.
   assert.equal(w.port.onMessage.options.length, 0);
   assert.deepEqual(json(w.native.requests[0].frames.map((m) => m.op)), ["hello", "list", "get_settings"]);
+  assert.equal(w.native.requests[0].start, true, "a new port starts a new udm-host");
+  assert.equal(w.native.requests[1].poll, true);
   const status = await w.popup({ type: "state" });
   assert.equal(status.connected, false);
 
@@ -326,6 +382,72 @@ test("in Safari a link UDM refuses opens in a background tab, and a menu click w
   await away.chrome.contextMenus.onClicked.fire({ menuItemId: "udm-link", linkUrl: "https://cdn.net/b.zip", pageUrl: "https://site.net/" }, { id: 1 });
   assert.deepEqual(json(away.chrome.tabs.created), [{ url: "https://cdn.net/b.zip", active: false }]);
   assert.equal(shared(away).at(-1).on, false);
+});
+
+test("in Safari nothing is taken on a click before UDM's rules are here, or with no types listed", async () => {
+  const w = loadWorker({ safari: true });
+  // A worker that starts again clears what the last one shared.
+  assert.deepEqual(shared(w)[0], { on: false, rules: null });
+  w.native.frames.push({ op: "hello", name: "udm-daemon", version: "x" });
+  await w.native.settle();
+  assert.equal((await w.popup({ type: "state" })).connected, true);
+  assert.equal(shared(w).at(-1).on, false, "connected, but no rules yet");
+
+  w.native.frames.push({ op: "settings", settings: { ...SETTINGS, capture_types: [] } });
+  await new Promise((r) => setTimeout(r, 1100));
+  assert.deepEqual(shared(w).at(-1), { on: true, rules: { capture_types: [], capture_excluded_sites: ["skip.net"], capture_excluded_urls: [] } });
+  // The worker checks the link again: with no types listed, none is taken.
+  const before = w.sent.length;
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://forge.net/src/main.rs" }, 4)), { ok: false });
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://cdn.net/a.zip" }, 4)), { ok: false });
+  assert.equal(w.sent.length, before);
+});
+
+test("in Safari a click that wakes the worker waits for UDM to connect", async () => {
+  const w = loadWorker({ safari: true });
+  const answer = w.content({ type: "link:capture", url: "https://cdn.net/a.zip" }, 4, "https://site.net/");
+  await new Promise((r) => setTimeout(r, 200));
+  w.native.frames.push({ op: "hello", name: "udm-daemon", version: "x" }, { op: "settings", settings: SETTINGS });
+  assert.deepEqual(json(await held(answer)), { ok: true });
+  await w.native.settle();
+  assert.equal(lastAdd(w).url, "https://cdn.net/a.zip");
+});
+
+test("in Safari a clicked link UDM never acknowledged goes back to the browser when the connection drops", async () => {
+  const w = await safariWorker();
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://cdn.net/a.zip" }, 4, "https://site.net/")), { ok: true });
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://cdn.net/b.zip" }, 4, "https://site.net/")), { ok: true });
+  w.native.frames.push({ op: "ack", id: 7, url: "https://cdn.net/b.zip" });
+  await new Promise((r) => setTimeout(r, 1100));
+  w.native.reply = () => ({ session: "host-1", frames: [], error: "UDM is not running" });
+  await new Promise((r) => setTimeout(r, 1100));
+  assert.equal((await w.popup({ type: "state" })).connected, false);
+  // Only the one UDM never acknowledged.
+  assert.deepEqual(json(w.chrome.tabs.created), [{ url: "https://cdn.net/a.zip", active: false }]);
+});
+
+test("in Safari a link clicked in a frame made from nothing has the page as its referrer", async () => {
+  const w = await safariWorker();
+  await w.content({ type: "link:capture", url: "https://cdn.net/a.zip" }, 4, "https://site.net/page", "about:blank");
+  await w.native.settle();
+  assert.deepEqual([lastAdd(w).referrer, lastAdd(w).page], ["https://site.net/page", "https://site.net/page"]);
+});
+
+test("in Safari the worker uses the browser namespace's sendNativeMessage when there is one", async () => {
+  const calls = [];
+  const browser = {
+    runtime: {
+      sendNativeMessage: async (host, request) => {
+        calls.push([host, request]);
+        return { session: "s", frames: [] };
+      },
+    },
+  };
+  const w = loadWorker({ safari: true, globals: { browser } });
+  await w.native.settle();
+  assert.equal(w.native.requests.length, 0);
+  assert.equal(calls[0][0], "com.udm.host");
+  assert.equal(calls[0][1].start, true);
 });
 
 test("in Safari the popup lists no browser downloads", async () => {

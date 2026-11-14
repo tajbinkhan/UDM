@@ -145,15 +145,17 @@ function makeMini(button) {
     if (action === "skip") {
       chrome.runtime.sendMessage({ type: "link:skip" }).catch(() => {});
     } else if (action === "" && linkCapture && linkCapture.on && clickTaken(linkCapture.rules, link.href, link.getAttribute("download"), location.href)) {
-      // Safari: the worker hands it to UDM, or it opens as usual.
+      // Safari: the worker hands it to UDM, or the link is clicked again
+      // for the browser to follow as it would have (its target, its
+      // download attribute); that click is not the user's, so it is not
+      // taken again.
       ev.preventDefault();
       ev.stopImmediatePropagation();
-      const url = link.href;
       chrome.runtime
-        .sendMessage({ type: "link:capture", url, download: link.getAttribute("download") })
+        .sendMessage({ type: "link:capture", url: link.href, download: link.getAttribute("download") })
         .then((r) => r && r.ok)
         .catch(() => false)
-        .then((ok) => ok || location.assign(url));
+        .then((ok) => ok || link.click());
     } else if (action === "force" && !forceLeavesLink(keys, link.href)) {
 
       ev.preventDefault();
