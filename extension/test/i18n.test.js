@@ -33,7 +33,8 @@ const all = (text, re) => [...text.matchAll(re)].map((m) => m[1]);
 
 // Messages named in code (chrome.i18n.getMessage, popup.js's t and media.js's
 // uiText), in the popup's data-i18n attributes, and in the manifest.
-const called = all(code, /\b(?:getMessage|uiText|t)\(\s*"([^"]*)"/g);
+// The browser's own messages (@@bidi_dir, @@ui_locale) are in no locale file.
+const called = all(code, /\b(?:getMessage|uiText|t)\(\s*"([^"]*)"/g).filter((name) => !name.startsWith("@@"));
 const attributes = [...html.matchAll(/\bdata-i18n(-[a-z-]+)?="([^"]*)"/g)];
 const inManifest = all(manifest, /__MSG_(\w+)__/g);
 

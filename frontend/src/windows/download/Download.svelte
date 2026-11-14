@@ -185,8 +185,8 @@
         <p class="caption">{t('Start positions and download progress by connections')}</p>
         <div class="strip" aria-hidden="true">
           {#each view.segments as s, i (i)}
-            <span class="mark" style:left="{s.start * 100}%"></span>
-            <span class="reach" style:left="{s.start * 100}%" style:width="{Math.max(0, s.reached - s.start) * 100}%"></span>
+            <span class="mark" style:inset-inline-start="{s.start * 100}%"></span>
+            <span class="reach" style:inset-inline-start="{s.start * 100}%" style:width="{Math.max(0, s.reached - s.start) * 100}%"></span>
           {/each}
         </div>
         <div class="connections" role="table" aria-label={t('Start positions and download progress by connections')}>
@@ -251,12 +251,12 @@
   }
 
   .resume {
-    padding-left: 78px;
+    padding-inline-start: 78px;
   }
 
   .kb {
     width: 100px;
-    text-align: right;
+    text-align: end;
   }
 
   .foot {
@@ -269,7 +269,7 @@
 
   .hide {
     min-width: 96px;
-    margin-left: auto;
+    margin-inline-start: auto;
   }
 
   hr {
@@ -285,11 +285,11 @@
 
   .then {
     width: 116px;
-    margin-left: auto;
+    margin-inline-start: auto;
   }
 
   .indent {
-    padding-left: 18px;
+    padding-inline-start: 18px;
   }
 
   .controls {
@@ -302,7 +302,7 @@
 
   .btn.mid {
     width: 82px;
-    margin-left: 24px;
+    margin-inline-start: 24px;
   }
 
   .caption {
@@ -356,7 +356,7 @@
 
   .head span {
     padding: 0 5px;
-    border-right: 1px solid var(--grid);
+    border-inline-end: 1px solid var(--grid);
   }
 
   .rows {

@@ -76,7 +76,7 @@
 
   .lead {
     width: 52px;
-    padding-left: 4px;
+    padding-inline-start: 4px;
   }
 
   .top {
@@ -89,8 +89,8 @@
   }
 
   .login {
-    margin-left: auto;
-    text-align: right;
+    margin-inline-start: auto;
+    text-align: end;
   }
 
   .cred {

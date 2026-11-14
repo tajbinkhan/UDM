@@ -80,23 +80,23 @@
   }
 
   .count {
-    padding-left: 12px;
+    padding-inline-start: 12px;
   }
 
   .num {
     width: 46px;
-    text-align: right;
+    text-align: end;
   }
 
   .name {
     overflow: hidden;
     text-overflow: ellipsis;
-    padding-left: 3px;
+    padding-inline-start: 3px;
   }
 
   .tools {
     gap: 6px;
-    padding-left: 10px;
+    padding-inline-start: 10px;
   }
 
   .tool {

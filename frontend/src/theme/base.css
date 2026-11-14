@@ -159,7 +159,7 @@ button {
 .select {
   appearance: none;
   -webkit-appearance: none;
-  padding-right: 20px;
+  padding-inline-end: 20px;
   background-image: linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
     linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
   background-position:
@@ -170,6 +170,13 @@ button {
   background-color: var(--input-bg);
 }
 
+/* The arrow sits at the end of the line, on the left right to left. */
+[dir='rtl'] .select {
+  background-position:
+    8px 8px,
+    12px 8px;
+}
+
 /* Check boxes: a rounded square, filled with the accent and ticked when
    checked. Option buttons: a ring around the accent's dot. */
 input[type='checkbox'],
@@ -178,7 +185,8 @@ input[type='radio'] {
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
-  margin: 0 6px 0 0;
+  margin-block: 0;
+  margin-inline: 0 6px;
   flex: none;
   border: 1px solid var(--input-underline);
   background: var(--input-bg);

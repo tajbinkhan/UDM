@@ -82,11 +82,11 @@
   .tab.on::after {
     content: '';
     position: absolute;
-    left: 50%;
+    inset-inline-start: 50%;
     bottom: 0;
     width: 16px;
     height: 3px;
-    margin-left: -8px;
+    margin-inline-start: -8px;
     border-radius: 2px;
     background: var(--accent);
   }

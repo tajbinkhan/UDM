@@ -51,6 +51,16 @@ pub struct MainChrome {
     pub tips_on_startup: bool,
     /// Show the tip now: the window just opened with tips on startup.
     pub show_tip: bool,
+    /// View > Language: "System default" (an empty code) and each language.
+    pub languages: Vec<super::Choice>,
+    /// The Language setting: a code such as `de`, or empty for the system's.
+    pub language: String,
+    /// The code of the language the window speaks now, which the
+    /// first-start picker starts on.
+    pub language_now: String,
+    /// Ask which language to use: the window's first start, with no
+    /// language chosen yet.
+    pub ask_language: bool,
     /// A newer release's version, for the strip offering it, unless that
     /// strip was closed for it.
     pub newer: Option<String>,

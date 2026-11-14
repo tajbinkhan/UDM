@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "Sleep het om het te verplaatsen, dubbelklik erop om UDM te openen, klik er met de rechtermuisknop op om het te sluiten",
   "Theme": "Thema",
   "Language": "Taal",
+  "System default": "Systeemstandaard",
+  "Which language should UDM use? You can change it later in View > Language.": "Welke taal moet UDM gebruiken? U kunt dit later wijzigen via Beeld > Taal.",
   "Interface size": "Grootte van de interface",
   "Scales everything in the window": "Schaalt alles in het venster",
   "Removing downloads": "Downloads verwijderen",

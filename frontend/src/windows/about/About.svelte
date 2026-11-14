@@ -75,7 +75,8 @@
   }
 
   .version {
-    margin: 2px 0 0 52px;
+    margin-block: 2px 0;
+    margin-inline: 52px 0;
     color: var(--link);
   }
 

@@ -230,6 +230,9 @@ pub enum Inbox {
     OpenPackage(udm_domain::id::PackageId),
     /// Close the strip offering this release.
     DismissRelease,
+    /// View > Language or the first-start picker: a language code from
+    /// `i18n::LANGUAGES`, or empty for the system's.
+    SetLanguage(String),
     /// Options' OK: the draft to check and send, and whether it went.
     SaveOptions {
         draft: Box<contract::OptionsDraft>,
@@ -1562,6 +1565,13 @@ impl Actor {
                     self.state
                         .layout_rest
                         .insert("dismissed_release".into(), serde_json::Value::String(r.version.clone()));
+                }
+            }
+            Inbox::SetLanguage(code) => {
+                self.state.layout_rest.insert(crate::projection::main::LANGUAGE_ASKED.into(), true.into());
+                if let Some(mut settings) = self.state.settings.clone().filter(|s| s.language != code) {
+                    settings.language = code;
+                    self.send(Command::SetSettings { settings });
                 }
             }
             Inbox::TipClosed { next, on_startup } => {

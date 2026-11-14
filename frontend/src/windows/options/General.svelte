@@ -217,7 +217,7 @@
   .keys {
     display: flex;
     gap: 22px;
-    padding-left: 120px;
+    padding-inline-start: 120px;
   }
 
   .mini-tabs {
@@ -228,7 +228,7 @@
   .mini-tabs button {
     height: 20px;
     padding: 0 8px;
-    margin-right: -1px;
+    margin-inline-end: -1px;
     background: var(--face);
     border: 1px solid var(--frame);
     border-bottom: 0;
@@ -270,7 +270,8 @@
   }
 
   input[type='radio'] {
-    margin: 0 4px 0 10px;
+    margin-block: 0;
+    margin-inline: 10px 4px;
     accent-color: var(--focus);
   }
 </style>
