@@ -1,7 +1,7 @@
 # Help translate UDM
 
-UDM's window comes in 17 languages and its browser extension in the same
-17. Most of them were made with a language model and have not been read by a
+UDM's window comes in 21 languages and its browser extension in the same
+21. Most of them were made with a language model and have not been read by a
 native speaker yet. If you speak one of them, a review is the most useful help
 you can give; a new language is welcome too.
 
@@ -32,6 +32,10 @@ you can give; a new language is welcome too.
 | Turkish (`tr`) | `tr.json` | `tr` | machine, needs review |
 | Russian (`ru`) | `ru.json` | `ru` | machine, needs review |
 | Ukrainian (`uk`) | `uk.json` | `uk` | machine, needs review |
+| Hebrew (`he`) | `he.json` | `he` | machine, needs review |
+| Arabic (`ar`) | `ar.json` | `ar` | machine, needs review |
+| Persian (`fa`) | `fa.json` | `fa` | machine, needs review |
+| Hindi (`hi`) | `hi.json` | `hi` | machine, needs review |
 | Japanese (`ja`) | `ja.json` | `ja` | machine, needs review |
 | Korean (`ko`) | `ko.json` | `ko` | machine, needs review |
 | Chinese, Simplified (`zh-CN`) | `zh-CN.json` | `zh_CN` | machine, needs review |
@@ -80,11 +84,17 @@ has the English messages with the same placeholders.
 
 ### Right-to-left languages
 
-The window draws its text in the system's webview, which shapes it and lays it
-out right to left. A right-to-left language (Arabic, Persian, Urdu, Hebrew)
-also needs `Language::right_to_left` in `crates/ui/src/i18n.rs` to say so,
-which sets the windows' direction; no language does yet, so check every window
-when the first one comes.
+The window draws its text in the system's webview, which shapes every script
+(Arabic, Hebrew, Devanagari and the rest) and lays it out right to left.
+`Language::right_to_left` in `crates/ui/src/i18n.rs` names the languages
+written that way (Hebrew, Arabic and Persian today, and Urdu when it comes),
+and each window then sets `dir="rtl"`. The layout uses CSS's logical sides
+(`margin-inline-start`, `inset-inline-end`, `text-align: start`), so panels,
+columns, tree indents and dialogs mirror; use them, not `left` and `right`,
+in new styles. The extension's popup takes its direction from the browser's
+`@@bidi_dir` message.
+
+Persian dates show in the Gregorian calendar, written year first.
 
 ---
 

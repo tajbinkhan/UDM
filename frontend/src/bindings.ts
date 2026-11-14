@@ -184,6 +184,11 @@ export const commands = {
 	setListFont: (font: ListFontInput | null) => __TAURI_INVOKE<null>("set_list_font", { font }),
 	/**  View > Toolbar: large or small buttons, and which ones in what order. */
 	setToolbar: (small: boolean, buttons: string[]) => __TAURI_INVOKE<null>("set_toolbar", { small, buttons }),
+	/**
+	 *  View > Language, or the first-start picker's choice: a language's code,
+	 *  or empty for the system's.
+	 */
+	setLanguage: (code: string) => __TAURI_INVOKE<null>("set_language", { code }),
 	/**  Tip of the Day closed. */
 	closeTip: (next: number, onStartup: boolean) => __TAURI_INVOKE<null>("close_tip", { next, onStartup }),
 	/**  The login prompt's OK. With `save`, the login is kept for the site. */
@@ -1076,6 +1081,20 @@ export type MainChrome_Deserialize = {
 	tipsOnStartup: boolean,
 	/**  Show the tip now: the window just opened with tips on startup. */
 	showTip: boolean,
+	/**  View > Language: "System default" (an empty code) and each language. */
+	languages: Choice[],
+	/**  The Language setting: a code such as `de`, or empty for the system's. */
+	language: string,
+	/**
+	 *  The code of the language the window speaks now, which the
+	 *  first-start picker starts on.
+	 */
+	languageNow: string,
+	/**
+	 *  Ask which language to use: the window's first start, with no
+	 *  language chosen yet.
+	 */
+	askLanguage: boolean,
 	/**
 	 *  A newer release's version, for the strip offering it, unless that
 	 *  strip was closed for it.
@@ -1135,6 +1154,20 @@ export type MainChrome_Serialize = {
 	tipsOnStartup: boolean,
 	/**  Show the tip now: the window just opened with tips on startup. */
 	showTip: boolean,
+	/**  View > Language: "System default" (an empty code) and each language. */
+	languages: Choice[],
+	/**  The Language setting: a code such as `de`, or empty for the system's. */
+	language: string,
+	/**
+	 *  The code of the language the window speaks now, which the
+	 *  first-start picker starts on.
+	 */
+	languageNow: string,
+	/**
+	 *  Ask which language to use: the window's first start, with no
+	 *  language chosen yet.
+	 */
+	askLanguage: boolean,
 	/**
 	 *  A newer release's version, for the strip offering it, unless that
 	 *  strip was closed for it.

@@ -40,16 +40,16 @@
   }
 
   .indent {
-    margin-left: 22px;
+    margin-inline-start: 22px;
   }
 
   .num {
     width: 42px;
-    text-align: right;
+    text-align: end;
   }
 
   .gap {
-    margin-right: 24px;
+    margin-inline-end: 24px;
   }
 
   .rule {
@@ -58,7 +58,8 @@
   }
 
   input[type='radio'] {
-    margin: 0 5px 0 0;
+    margin-block: 0;
+    margin-inline: 0 5px;
     accent-color: var(--focus);
   }
 

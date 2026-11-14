@@ -4,6 +4,14 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## Unreleased
+
+The window and the browser extension now come in Hebrew, Arabic, Persian and Hindi too, 21
+languages in all (#251). Hebrew, Arabic and Persian lay the windows out right to left. The first
+start asks which language to use, starting on the system's, and **View > Language** changes it
+at any time. The new tables were made with a language model and wait for a native speaker's
+review ([Help translate UDM](docs/translating.md)).
+
 ## [0.5.0](release-notes/v0.5.0.md) - 2026-11-14
 
 Minor. Pullbay is now called UDM, with a new icon and a new window drawn with Tauri and styled

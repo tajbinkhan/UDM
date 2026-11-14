@@ -118,7 +118,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding-left: 18px;
+    padding-inline-start: 18px;
   }
 
   .lead {
@@ -141,7 +141,7 @@
 
   .num {
     width: 44px;
-    text-align: right;
+    text-align: end;
   }
 
   .rule {
@@ -150,7 +150,8 @@
   }
 
   input[type='radio'] {
-    margin: 0 5px 0 0;
+    margin-block: 0;
+    margin-inline: 0 5px;
     accent-color: var(--focus);
   }
 

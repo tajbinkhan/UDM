@@ -76,7 +76,8 @@
 <style>
   .buttons {
     gap: 20px;
-    margin: 10px 0 0 10px;
+    margin-block: 10px 0;
+    margin-inline: 10px 0;
   }
 
   .buttons .btn {
@@ -92,6 +93,6 @@
   }
 
   .pairs label {
-    text-align: right;
+    text-align: end;
   }
 </style>

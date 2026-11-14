@@ -1,0 +1,395 @@
+{
+  "extDescription": {
+    "message": "ارسال دانلودهای مرورگر به مدیر دانلود UDM."
+  },
+  "downloadWithUdm": {
+    "message": "دانلود با UDM"
+  },
+  "downloadLaterWithUdm": {
+    "message": "دانلود بعداً با UDM"
+  },
+  "downloadGalleryWithUdm": {
+    "message": "دانلود گالری با UDM"
+  },
+  "downloadAllLinksWithUdm": {
+    "message": "دانلود همه پیوندها با UDM"
+  },
+  "downloadSelectedLinksWithUdm": {
+    "message": "دانلود پیوندهای انتخاب‌شده با UDM"
+  },
+  "udmDisconnected": {
+    "message": "ارتباط UDM قطع شد"
+  },
+  "captureDownloads": {
+    "message": "رهگیری دانلودها"
+  },
+  "captureDownloadsTitle": {
+    "message": "دانلودهایی را که مرورگر شروع می‌کند به UDM بفرست"
+  },
+  "captureInTab": {
+    "message": "رهگیری در این زبانه"
+  },
+  "captureInTabTitle": {
+    "message": "رهگیری را خاموش کنید تا دانلودهای این زبانه در مرورگر بمانند"
+  },
+  "captureOffInTab": {
+    "message": "در این زبانه خاموش"
+  },
+  "statusConnected": {
+    "message": "متصل. دانلودهایی که در مرورگر شروع می‌کنید به UDM می‌روند."
+  },
+  "statusConnectedCaptureOff": {
+    "message": "متصل. رهگیری خاموش است، پس مرورگر دانلودهای خودش را نگه می‌دارد."
+  },
+  "statusNotConnected": {
+    "message": "به UDM متصل نیست. دانلودها در مرورگر می‌مانند."
+  },
+  "statusNotConnectedReason": {
+    "message": "به UDM متصل نیست: $REASON$. دانلودها در مرورگر می‌مانند.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Specified native messaging host not found"
+      }
+    }
+  },
+  "refreshWaiting": {
+    "message": "دانلود بعدی شما برای $NAME$ پیوند جدید می‌دهد.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "setup.exe"
+      }
+    }
+  },
+  "stopWaiting": {
+    "message": "توقف انتظار"
+  },
+  "skipNextDownload": {
+    "message": "رد کردن دانلود بعدی"
+  },
+  "skipNextDownloadTitle": {
+    "message": "بگذار دانلود بعدی در مرورگر بماند"
+  },
+  "dontSkip": {
+    "message": "رد نکن"
+  },
+  "skippingNextDownloadTitle": {
+    "message": "دانلود بعدی در مرورگر می‌ماند"
+  },
+  "allLinks": {
+    "message": "همه پیوندهای این صفحه"
+  },
+  "allLinksTitle": {
+    "message": "پیوندهای این صفحه را در UDM فهرست کن تا موارد دانلود را انتخاب کنید"
+  },
+  "videoButton": {
+    "message": "دکمه ویدیو"
+  },
+  "videoButtonTitle": {
+    "message": "دکمه دانلود روی ویدیوهایی که در مرورگر پخش می‌شوند"
+  },
+  "videoButtonOnSite": {
+    "message": "در $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "www.example.com"
+      }
+    }
+  },
+  "urlPlaceholder": {
+    "message": "نشانی (URL) دانلود را جای‌گذاری کنید"
+  },
+  "download": {
+    "message": "دانلود"
+  },
+  "noDownloads": {
+    "message": "هنوز دانلودی نیست."
+  },
+  "stateQueued": {
+    "message": "در صف"
+  },
+  "stateDownloading": {
+    "message": "در حال دانلود"
+  },
+  "stateDone": {
+    "message": "انجام شد"
+  },
+  "stateFailed": {
+    "message": "ناموفق"
+  },
+  "stateCanceled": {
+    "message": "لغو شد"
+  },
+  "stateInterrupted": {
+    "message": "قطع شد"
+  },
+  "stateConfirming": {
+    "message": "در UDM منتظر شماست"
+  },
+  "stateWaiting": {
+    "message": "در انتظار شروع"
+  },
+  "threatFound": {
+    "message": "تهدید پیدا شد"
+  },
+  "start": {
+    "message": "شروع"
+  },
+  "cancel": {
+    "message": "لغو"
+  },
+  "retry": {
+    "message": "تلاش دوباره"
+  },
+  "remove": {
+    "message": "حذف"
+  },
+  "sizeProgress": {
+    "message": "$DONE$ / $TOTAL$",
+    "placeholders": {
+      "done": {
+        "content": "$1",
+        "example": "1.5 MB"
+      },
+      "total": {
+        "content": "$2",
+        "example": "10.0 MB"
+      }
+    }
+  },
+  "sizeBytes": {
+    "message": "$SIZE$ B",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "512"
+      }
+    }
+  },
+  "sizeKB": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeMB": {
+    "message": "$SIZE$ MB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeGB": {
+    "message": "$SIZE$ GB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeTB": {
+    "message": "$SIZE$ TB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "downloadVideo": {
+    "message": "دانلود این ویدیو"
+  },
+  "videoButtonHelp": {
+    "message": "راهنمای دکمه ویدیو"
+  },
+  "videoButtonClose": {
+    "message": "بستن برای این ویدیو"
+  },
+  "lookingForVideo": {
+    "message": "در حال جست‌وجوی ویدیو..."
+  },
+  "subtitles": {
+    "message": "زیرنویس‌ها:"
+  },
+  "videoProtected": {
+    "message": "این ویدیو با DRM محافظت می‌شود، پس UDM آن را دانلود نمی‌کند."
+  },
+  "streamProtected": {
+    "message": "با DRM محافظت می‌شود؛ UDM آن را دانلود نمی‌کند."
+  },
+  "udmNotConnected": {
+    "message": "UDM اجرا نشده یا متصل نیست."
+  },
+  "noVideoFound": {
+    "message": "هنوز ویدیویی پیدا نشد. بگذارید لحظه‌ای پخش شود، سپس دوباره امتحان کنید."
+  },
+  "sentToUdm": {
+    "message": "به UDM فرستاده شد."
+  },
+  "couldNotReachUdm": {
+    "message": "دسترسی به UDM ممکن نشد."
+  },
+  "hlsStream": {
+    "message": "جریان HLS"
+  },
+  "dashStream": {
+    "message": "جریان DASH"
+  },
+  "hdsStream": {
+    "message": "جریان HDS"
+  },
+  "youtubeVideo": {
+    "message": "ویدیوی YouTube"
+  },
+  "facebookVideo": {
+    "message": "ویدیوی Facebook"
+  },
+  "instagramVideo": {
+    "message": "ویدیوی Instagram"
+  },
+  "vimeoVideo": {
+    "message": "ویدیوی Vimeo"
+  },
+  "pageVideo": {
+    "message": "ویدیوی این صفحه"
+  },
+  "playlistTitled": {
+    "message": "فهرست پخش: $TITLE$ ($COUNT$ ویدیو)",
+    "placeholders": {
+      "title": {
+        "content": "$1",
+        "example": "Lectures"
+      },
+      "count": {
+        "content": "$2",
+        "example": "24"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "فهرست پخش ($COUNT$ ویدیو)",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "24"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "انتخاب ویدیوها در UDM..."
+  },
+  "mediaNoAnswer": {
+    "message": "UDM پاسخ نداد."
+  },
+  "soundOnly": {
+    "message": "فقط صدا ($FORMAT$)",
+    "placeholders": {
+      "format": {
+        "content": "$1",
+        "example": "MP3"
+      }
+    }
+  },
+  "videoFileType": {
+    "message": "ویدیوی $TYPE$",
+    "placeholders": {
+      "type": {
+        "content": "$1",
+        "example": "MP4"
+      }
+    }
+  },
+  "audioFileType": {
+    "message": "صدای $TYPE$",
+    "placeholders": {
+      "type": {
+        "content": "$1",
+        "example": "MP3"
+      }
+    }
+  },
+  "videoFile": {
+    "message": "ویدیو"
+  },
+  "audioFile": {
+    "message": "صدا"
+  },
+  "takeoverFailed": {
+    "message": "UDM نتوانست دانلود را رهگیری کند"
+  },
+  "takeoverNotConnected": {
+    "message": "UDM اجرا نشده یا متصل نیست، پس مرورگر $FILE$ را دانلود می‌کند.",
+    "placeholders": {
+      "file": {
+        "content": "$1",
+        "example": "setup.exe"
+      }
+    }
+  },
+  "takeoverError": {
+    "message": "UDM نتوانست $FILE$ را شروع کند ($REASON$)، پس مرورگر آن را دانلود می‌کند.",
+    "placeholders": {
+      "file": {
+        "content": "$1",
+        "example": "setup.exe"
+      },
+      "reason": {
+        "content": "$2",
+        "example": "server returned HTTP 403"
+      }
+    }
+  },
+  "dontShowAgain": {
+    "message": "دوباره نمایش نده"
+  },
+  "takeoverClickToStop": {
+    "message": "برای توقف نمایش این اعلان روی آن کلیک کنید."
+  },
+  "downloadLastVideo": {
+    "message": "دانلود آخرین ویدیو با UDM"
+  },
+  "recentVideos": {
+    "message": "ویدیوهای اخیر (UDM)"
+  },
+  "downloadPageWithUdm": {
+    "message": "دانلود صفحه با UDM"
+  },
+  "noLinksFound": {
+    "message": "هیچ پیوندی در این صفحه پیدا نشد."
+  },
+  "noSelectedLinksFound": {
+    "message": "هیچ پیوندی در انتخاب پیدا نشد."
+  },
+  "linksUnreadable": {
+    "message": "مرورگر به UDM اجازه نمی‌دهد پیوندهای این صفحه را بخواند."
+  },
+  "cannotReachUdm": {
+    "message": "دسترسی به UDM ممکن نیست. آیا اجرا شده است؟"
+  },
+  "cannotReachUdmReason": {
+    "message": "دسترسی به UDM ممکن نیست ($REASON$).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Native host has exited."
+      }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "مرورگر به‌جای آن دانلود می‌کند."
+  },
+  "browserDownloadsHeading": {
+    "message": "دانلود در مرورگر"
+  },
+  "sendToUdm": {
+    "message": "ارسال به UDM"
+  }
+}

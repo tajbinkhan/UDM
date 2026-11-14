@@ -1,0 +1,335 @@
+{
+  "extDescription": {
+    "message": "إرسال تنزيلات المتصفح إلى مدير التنزيلات UDM."
+  },
+  "downloadWithUdm": {
+    "message": "التنزيل باستخدام UDM"
+  },
+  "downloadLaterWithUdm": {
+    "message": "التنزيل لاحقًا باستخدام UDM"
+  },
+  "downloadGalleryWithUdm": {
+    "message": "تنزيل المعرض باستخدام UDM"
+  },
+  "downloadAllLinksWithUdm": {
+    "message": "تنزيل كل الروابط باستخدام UDM"
+  },
+  "downloadSelectedLinksWithUdm": {
+    "message": "تنزيل الروابط المحددة باستخدام UDM"
+  },
+  "udmDisconnected": {
+    "message": "انقطع اتصال UDM"
+  },
+  "captureDownloads": {
+    "message": "التقاط التنزيلات"
+  },
+  "captureDownloadsTitle": {
+    "message": "إرسال التنزيلات التي يبدؤها المتصفح إلى UDM"
+  },
+  "captureInTab": {
+    "message": "الالتقاط في علامة التبويب هذه"
+  },
+  "captureInTabTitle": {
+    "message": "أوقف الالتقاط لترك تنزيلات علامة التبويب هذه للمتصفح"
+  },
+  "captureOffInTab": {
+    "message": "متوقف في علامة التبويب هذه"
+  },
+  "statusConnected": {
+    "message": "متصل. التنزيلات التي تبدؤها في المتصفح تذهب إلى UDM."
+  },
+  "statusConnectedCaptureOff": {
+    "message": "متصل. الالتقاط متوقف، فيحتفظ المتصفح بتنزيلاته."
+  },
+  "statusNotConnected": {
+    "message": "غير متصل بـ UDM. تبقى التنزيلات في المتصفح."
+  },
+  "statusNotConnectedReason": {
+    "message": "غير متصل بـ UDM: $REASON$. تبقى التنزيلات في المتصفح.",
+    "placeholders": {
+      "reason": { "content": "$1" }
+    }
+  },
+  "refreshWaiting": {
+    "message": "تنزيلك التالي يعطي $NAME$ رابطًا جديدًا.",
+    "placeholders": {
+      "name": { "content": "$1" }
+    }
+  },
+  "stopWaiting": {
+    "message": "إيقاف الانتظار"
+  },
+  "skipNextDownload": {
+    "message": "تخطي التنزيل التالي"
+  },
+  "skipNextDownloadTitle": {
+    "message": "ترك التنزيل التالي في المتصفح"
+  },
+  "dontSkip": {
+    "message": "عدم التخطي"
+  },
+  "skippingNextDownloadTitle": {
+    "message": "التنزيل التالي يبقى في المتصفح"
+  },
+  "allLinks": {
+    "message": "كل الروابط في هذه الصفحة"
+  },
+  "allLinksTitle": {
+    "message": "سرد روابط هذه الصفحة في UDM لاختيار ما تريد تنزيله"
+  },
+  "videoButton": {
+    "message": "زر الفيديو"
+  },
+  "videoButtonTitle": {
+    "message": "زر تنزيل يظهر فوق مقاطع الفيديو التي تُشغَّل في المتصفح"
+  },
+  "videoButtonOnSite": {
+    "message": "على $SITE$",
+    "placeholders": {
+      "site": { "content": "$1" }
+    }
+  },
+  "urlPlaceholder": {
+    "message": "الصق عنوان URL للتنزيل"
+  },
+  "download": {
+    "message": "تنزيل"
+  },
+  "noDownloads": {
+    "message": "لا توجد تنزيلات بعد."
+  },
+  "stateQueued": {
+    "message": "في الانتظار"
+  },
+  "stateDownloading": {
+    "message": "قيد التنزيل"
+  },
+  "stateDone": {
+    "message": "تم"
+  },
+  "stateFailed": {
+    "message": "فشل"
+  },
+  "stateCanceled": {
+    "message": "أُلغي"
+  },
+  "stateInterrupted": {
+    "message": "متوقف"
+  },
+  "stateConfirming": {
+    "message": "في انتظارك في UDM"
+  },
+  "stateWaiting": {
+    "message": "في انتظار البدء"
+  },
+  "threatFound": {
+    "message": "تم العثور على تهديد"
+  },
+  "start": {
+    "message": "بدء"
+  },
+  "cancel": {
+    "message": "إلغاء"
+  },
+  "retry": {
+    "message": "إعادة المحاولة"
+  },
+  "remove": {
+    "message": "إزالة"
+  },
+  "sizeProgress": {
+    "message": "$DONE$ / $TOTAL$",
+    "placeholders": {
+      "done": { "content": "$1" },
+      "total": { "content": "$2" }
+    }
+  },
+  "sizeBytes": {
+    "message": "$SIZE$ بايت",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeKB": {
+    "message": "$SIZE$ ك.ب",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeMB": {
+    "message": "$SIZE$ م.ب",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeGB": {
+    "message": "$SIZE$ ج.ب",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "sizeTB": {
+    "message": "$SIZE$ ت.ب",
+    "placeholders": {
+      "size": { "content": "$1" }
+    }
+  },
+  "downloadVideo": {
+    "message": "تنزيل هذا الفيديو"
+  },
+  "videoButtonHelp": {
+    "message": "مساعدة حول زر الفيديو"
+  },
+  "videoButtonClose": {
+    "message": "إغلاقه لهذا الفيديو"
+  },
+  "lookingForVideo": {
+    "message": "جارٍ البحث عن الفيديو..."
+  },
+  "subtitles": {
+    "message": "الترجمات:"
+  },
+  "videoProtected": {
+    "message": "هذا الفيديو محمي بتقنية DRM، لذا لن ينزّله UDM."
+  },
+  "streamProtected": {
+    "message": "محمي بتقنية DRM، ولن ينزّله UDM."
+  },
+  "udmNotConnected": {
+    "message": "UDM غير قيد التشغيل أو غير متصل."
+  },
+  "noVideoFound": {
+    "message": "لم يتم العثور على فيديو بعد. دعه يُشغَّل لحظة ثم حاول مرة أخرى."
+  },
+  "sentToUdm": {
+    "message": "تم الإرسال إلى UDM."
+  },
+  "couldNotReachUdm": {
+    "message": "تعذر الوصول إلى UDM."
+  },
+  "hlsStream": {
+    "message": "تدفق HLS"
+  },
+  "dashStream": {
+    "message": "تدفق DASH"
+  },
+  "hdsStream": {
+    "message": "تدفق HDS"
+  },
+  "youtubeVideo": {
+    "message": "فيديو YouTube"
+  },
+  "facebookVideo": {
+    "message": "فيديو Facebook"
+  },
+  "instagramVideo": {
+    "message": "فيديو Instagram"
+  },
+  "vimeoVideo": {
+    "message": "فيديو Vimeo"
+  },
+  "pageVideo": {
+    "message": "فيديو في هذه الصفحة"
+  },
+  "playlistTitled": {
+    "message": "قائمة تشغيل: $TITLE$ ($COUNT$ من مقاطع الفيديو)",
+    "placeholders": {
+      "title": { "content": "$1" },
+      "count": { "content": "$2" }
+    }
+  },
+  "playlistVideos": {
+    "message": "قائمة تشغيل ($COUNT$ من مقاطع الفيديو)",
+    "placeholders": {
+      "count": { "content": "$1" }
+    }
+  },
+  "chooseVideos": {
+    "message": "اختيار مقاطع الفيديو في UDM..."
+  },
+  "mediaNoAnswer": {
+    "message": "لم يستجب UDM."
+  },
+  "soundOnly": {
+    "message": "الصوت فقط ($FORMAT$)",
+    "placeholders": {
+      "format": { "content": "$1" }
+    }
+  },
+  "videoFileType": {
+    "message": "فيديو $TYPE$",
+    "placeholders": {
+      "type": { "content": "$1" }
+    }
+  },
+  "audioFileType": {
+    "message": "صوت $TYPE$",
+    "placeholders": {
+      "type": { "content": "$1" }
+    }
+  },
+  "videoFile": {
+    "message": "فيديو"
+  },
+  "audioFile": {
+    "message": "صوت"
+  },
+  "takeoverFailed": {
+    "message": "تعذر على UDM أخذ التنزيل"
+  },
+  "takeoverNotConnected": {
+    "message": "UDM غير قيد التشغيل أو غير متصل، لذا ينزّل المتصفح $FILE$.",
+    "placeholders": {
+      "file": { "content": "$1" }
+    }
+  },
+  "takeoverError": {
+    "message": "تعذر على UDM بدء $FILE$ ($REASON$)، لذا ينزّله المتصفح.",
+    "placeholders": {
+      "file": { "content": "$1" },
+      "reason": { "content": "$2" }
+    }
+  },
+  "dontShowAgain": {
+    "message": "عدم الإظهار مرة أخرى"
+  },
+  "takeoverClickToStop": {
+    "message": "انقر هذا الإشعار لإيقاف عرضه."
+  },
+  "downloadLastVideo": {
+    "message": "تنزيل آخر فيديو باستخدام UDM"
+  },
+  "recentVideos": {
+    "message": "أحدث مقاطع الفيديو (UDM)"
+  },
+  "downloadPageWithUdm": {
+    "message": "تنزيل الصفحة باستخدام UDM"
+  },
+  "noLinksFound": {
+    "message": "لم يتم العثور على روابط في هذه الصفحة."
+  },
+  "noSelectedLinksFound": {
+    "message": "لم يتم العثور على روابط في التحديد."
+  },
+  "linksUnreadable": {
+    "message": "لا يسمح المتصفح لـ UDM بقراءة روابط هذه الصفحة."
+  },
+  "cannotReachUdm": {
+    "message": "لا يمكن الوصول إلى UDM. هل هو قيد التشغيل؟"
+  },
+  "cannotReachUdmReason": {
+    "message": "لا يمكن الوصول إلى UDM ($REASON$).",
+    "placeholders": {
+      "reason": { "content": "$1" }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "ينزّله المتصفح بدلًا من ذلك."
+  },
+  "browserDownloadsHeading": {
+    "message": "التنزيل في المتصفح"
+  },
+  "sendToUdm": {
+    "message": "إرسال إلى UDM"
+  }
+}

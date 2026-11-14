@@ -97,7 +97,7 @@
   .name {
     overflow: hidden;
     text-overflow: ellipsis;
-    padding-left: 2px;
+    padding-inline-start: 2px;
   }
 
   .queue {

@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "Kéo để di chuyển, bấm đúp để mở UDM, bấm chuột phải để đóng",
   "Theme": "Chủ đề",
   "Language": "Ngôn ngữ",
+  "System default": "Mặc định của hệ thống",
+  "Which language should UDM use? You can change it later in View > Language.": "UDM nên dùng ngôn ngữ nào? Bạn có thể đổi sau trong Xem > Ngôn ngữ.",
   "Interface size": "Kích thước giao diện",
   "Scales everything in the window": "Thay đổi tỷ lệ mọi thứ trong cửa sổ",
   "Removing downloads": "Loại bỏ mục tải xuống",

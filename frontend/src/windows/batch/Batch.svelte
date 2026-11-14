@@ -136,11 +136,11 @@
   }
 
   .to {
-    margin-left: 30px;
+    margin-inline-start: 30px;
   }
 
   .right {
-    margin-left: 6px;
+    margin-inline-start: 6px;
   }
 
   fieldset .row .grow {
@@ -155,7 +155,8 @@
   }
 
   input[type='radio'] {
-    margin: 0 5px 0 0;
+    margin-block: 0;
+    margin-inline: 0 5px;
     accent-color: var(--focus);
   }
 

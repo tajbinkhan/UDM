@@ -168,6 +168,7 @@ export const setPanelWidth = (width: number) => commands.setPanelWidth(Math.roun
 export const setListFont = (font: { mono: boolean; size: number } | null) => commands.setListFont(font);
 export const setToolbar = (small: boolean, buttons: string[]) => commands.setToolbar(small, buttons);
 export const closeTip = (next: number, onStartup: boolean) => commands.closeTip(next, onStartup);
+export const setLanguage = (code: string) => commands.setLanguage(code);
 export const answerLogin = (user: string, password: string, save: boolean) => commands.answerLogin(user, password, save);
 export const answerCountdown = (now: boolean) => commands.answerCountdown(now);
 export const showRefresh = (id: Id) => commands.showRefresh(id);

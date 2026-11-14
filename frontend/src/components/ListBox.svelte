@@ -93,7 +93,7 @@
 
   .head span {
     padding: 0 6px;
-    border-right: 1px solid var(--grid);
+    border-inline-end: 1px solid var(--grid);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

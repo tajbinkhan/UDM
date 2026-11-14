@@ -108,7 +108,7 @@
 
   .num {
     width: 60px;
-    text-align: right;
+    text-align: end;
   }
 
   .unit {

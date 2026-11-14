@@ -89,7 +89,7 @@
     padding-bottom: 3px;
     font-size: 13px;
     font-weight: 700;
-    text-align: right;
+    text-align: end;
     border-bottom: 1px solid var(--border);
   }
 </style>

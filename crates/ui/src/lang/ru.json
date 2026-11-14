@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "Перетащите его, чтобы переместить; дважды щёлкните, чтобы открыть UDM; щёлкните правой кнопкой, чтобы закрыть",
   "Theme": "Тема",
   "Language": "Язык",
+  "System default": "Как в системе",
+  "Which language should UDM use? You can change it later in View > Language.": "Какой язык использовать в UDM? Его можно изменить позже в меню Вид > Язык.",
   "Interface size": "Размер интерфейса",
   "Scales everything in the window": "Масштабирует всё содержимое окна",
   "Removing downloads": "Удаление загрузок",
