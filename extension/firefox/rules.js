@@ -277,6 +277,22 @@ function forceLeavesLink(rules, url) {
   return ext ? PAGE_EXTENSIONS.has(ext) : path === "" || path.endsWith("/");
 }
 
+// Whether a click on a link to `url` is a download to take as it is clicked,
+// where the browser tells extensions nothing of its downloads (Safari; see
+// shareLinkCapture in background.js). `download` is the link's `download`
+// attribute (or null), `page` the address of the page clicked in, and
+// `rules` the capture rules the worker shares, or null before they arrive.
+// Only a link that names a file goes, by its `download` attribute or its
+// address, and not a page, picture or script: what else a link leads to is
+// not known until the browser follows it. Then the capture rules decide.
+function clickTaken(rules, url, download, page) {
+  if (!/^https?:\/\//i.test(String(url || ""))) return false;
+  const filename = linkFileName(download) || "";
+  const type = extensionOf(filename) || extensionOf(urlPath(url));
+  if (!type || PAGE_EXTENSIONS.has(type)) return false;
+  return captureDecision(rules, { url, referrer: page || "", filename, mime: "", size: 0 }).capture;
+}
+
 // A click with the skip key held keeps the next download in the browser if
 // it starts this soon after (its link may redirect elsewhere first).
 var CLICK_WINDOW_MS = 5000;
@@ -401,6 +417,6 @@ function playerCovered(el, container, points, hitAt, ignore) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { mediaPlugin, playerContainer, samplePoints, playerCovered, mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed, formFileFields, heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS };
+  module.exports = { mediaPlugin, playerContainer, samplePoints, playerCovered, mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickTaken, clickApplies, urlMatches, selectionButtonAllowed, formFileFields, heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS };
 
 }

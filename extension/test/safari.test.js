@@ -1,0 +1,346 @@
+// The Safari version of the extension (#268): extension/safari, the copy
+// installer/make-safari.js makes from extension/chromium and
+// extension/safari.json; the polling port that stands in for a native port
+// there (native.js); and the worker in Safari, which has no downloads API,
+// proxy settings or notifications and takes download links as they are
+// clicked instead.
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+const { makeSafari, checkSafari, safariManifest, COPY } = require("../../installer/make-safari.js");
+const { pollingPort, SAFARI_POLL_BUSY_MS, SAFARI_POLL_IDLE_MS, SAFARI_BUSY_FOR_MS } = require("../chromium/native.js");
+const { clickTaken } = require("../chromium/rules.js");
+const { loadWorker } = require("./harness.js");
+
+const CHROMIUM = path.join(__dirname, "..", "chromium");
+
+// --- The Safari copy -----------------------------------------------------------
+
+test("extension/safari is the Safari copy of extension/chromium", () => {
+  assert.equal(COPY, path.join(__dirname, "..", "safari"));
+  assert.deepEqual(checkSafari(), [], "remake it with: node installer/make-safari.js");
+});
+
+test("a fresh Safari copy passes the check, and a changed file fails it", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "udm-safari-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const out = path.join(dir, "safari");
+  makeSafari(out);
+  assert.deepEqual(checkSafari(out), []);
+  for (const file of ["background.js", "native.js", "rules.js", "content.js", "popup.html"]) {
+    assert.ok(fs.readFileSync(path.join(CHROMIUM, file)).equals(fs.readFileSync(path.join(out, file))), file);
+  }
+  fs.writeFileSync(path.join(out, "native.js"), "// old\n");
+  assert.deepEqual(checkSafari(out), ["changed: native.js"]);
+  const manifest = JSON.parse(fs.readFileSync(path.join(out, "manifest.json"), "utf8"));
+  manifest.permissions.push("downloads");
+  fs.writeFileSync(path.join(out, "manifest.json"), JSON.stringify(manifest));
+  assert.deepEqual(checkSafari(out), ["changed: native.js", "changed: manifest.json key \"permissions\""]);
+});
+
+test("Safari's manifest asks only for what Safari has, and names its oldest Safari", () => {
+  const safari = safariManifest();
+  const chromium = JSON.parse(fs.readFileSync(path.join(CHROMIUM, "manifest.json"), "utf8"));
+  // Safari has no downloads API, proxy settings or notifications, and
+  // cannot block requests.
+  for (const missing of ["downloads", "downloads.ui", "proxy", "notifications", "webRequestBlocking"]) {
+    assert.equal(safari.permissions.includes(missing), false, missing);
+  }
+  for (const kept of ["nativeMessaging", "cookies", "contextMenus", "storage", "scripting", "webNavigation"]) {
+    assert.ok(safari.permissions.includes(kept), kept);
+  }
+  assert.ok(safari.permissions.every((p) => chromium.permissions.includes(p)), "nothing Chrome does not ask for");
+  assert.equal("key" in safari, false, "Chrome's key means nothing to Safari");
+  assert.deepEqual(safari.browser_specific_settings, { safari: { strict_min_version: "16.4" } });
+  // The same worker and content scripts as Chrome's, all of them there.
+  assert.deepEqual(safari.background, chromium.background);
+  assert.deepEqual(safari.content_scripts, chromium.content_scripts);
+  assert.equal(safari.version, chromium.version);
+  const worker = fs.readFileSync(path.join(COPY, "background.js"), "utf8");
+  const imported = /importScripts\(([^)]*)\)/.exec(worker)[1].match(/"[^"]+"/g).map((s) => JSON.parse(s));
+  assert.ok(imported.includes("native.js"));
+  for (const file of [...imported, ...safari.content_scripts[0].js, safari.background.service_worker]) {
+    assert.ok(fs.existsSync(path.join(COPY, file)), file);
+  }
+});
+
+test("Firefox loads native.js too, before the worker", () => {
+  const scripts = require("./harness.js").firefoxManifest().background.scripts;
+  assert.ok(scripts.indexOf("native.js") >= 0 && scripts.indexOf("native.js") < scripts.indexOf("background.js"));
+});
+
+// --- The polling port -----------------------------------------------------------
+
+// A clock whose timers run only when the test says: `run()` runs every due
+// timer, `advance(ms)` moves time on and runs those that fell due.
+function fakeClock() {
+  let now = 1000;
+  let next = 1;
+  const timers = new Map();
+  const clock = {
+    now: () => now,
+    setTimeout: (f, ms) => {
+      timers.set(next, { f, at: now + ms });
+      return next++;
+    },
+    clearTimeout: (id) => timers.delete(id),
+    // The delays of the timers waiting, soonest first.
+    pending: () => [...timers.values()].map((t) => t.at - now).sort((a, b) => a - b),
+    advance: async (ms) => {
+      now += ms;
+      for (const [id, t] of [...timers]) {
+        if (t.at <= now) {
+          timers.delete(id);
+          t.f();
+        }
+      }
+      // Let the answers' promises settle.
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    },
+  };
+  return clock;
+}
+
+// A port over a fake app extension: `requests` holds what it was sent, and
+// `answers` what it answers next (an object, or a function of the request).
+function fakePort() {
+  const clock = fakeClock();
+  const requests = [];
+  const answers = [];
+  const port = pollingPort((request) => {
+    requests.push(request);
+    const answer = answers.length ? answers.shift() : { session: "a", frames: [] };
+    return typeof answer === "function" ? answer(request) : Promise.resolve(answer);
+  }, clock);
+  const heard = [];
+  const closed = [];
+  port.onMessage.addListener((m) => heard.push(m));
+  port.onDisconnect.addListener((p) => closed.push(p.udmReason));
+  return { port, clock, requests, answers, heard, closed };
+}
+
+test("the port sends what was posted together, and hands on every frame of the answer", async () => {
+  const p = fakePort();
+  p.port.postMessage({ op: "hello" });
+  p.port.postMessage({ op: "list" });
+  assert.equal(p.requests.length, 0, "nothing goes until the worker's turn is over");
+  p.answers.push({ session: "a", frames: [{ op: "hello" }, { op: "downloads", items: [] }, "not a frame", null] });
+  await p.clock.advance(0);
+  assert.deepEqual(p.requests, [{ frames: [{ op: "hello" }, { op: "list" }] }]);
+  assert.deepEqual(p.heard, [{ op: "hello" }, { op: "downloads", items: [] }]);
+  assert.deepEqual(p.closed, []);
+});
+
+test("the port asks every second while things happen, then every five", async () => {
+  const p = fakePort();
+  p.port.postMessage({ op: "hello" });
+  await p.clock.advance(0);
+  assert.deepEqual(p.clock.pending(), [SAFARI_POLL_BUSY_MS]);
+  await p.clock.advance(SAFARI_POLL_BUSY_MS);
+  assert.deepEqual(p.requests.at(-1), { frames: [] }, "a poll sends nothing");
+  // Quiet for long enough: it slows down.
+  let quiet = SAFARI_POLL_BUSY_MS;
+  while (p.clock.pending()[0] === SAFARI_POLL_BUSY_MS && quiet < 10 * SAFARI_BUSY_FOR_MS) {
+    await p.clock.advance(SAFARI_POLL_BUSY_MS);
+    quiet += SAFARI_POLL_BUSY_MS;
+  }
+  assert.deepEqual(p.clock.pending(), [SAFARI_POLL_IDLE_MS]);
+  assert.equal(quiet, SAFARI_BUSY_FOR_MS, "busy for as long as it says");
+  // News from UDM makes it quick again.
+  p.answers.push({ session: "a", frames: [{ op: "progress", id: 1 }] });
+  await p.clock.advance(SAFARI_POLL_IDLE_MS);
+  assert.deepEqual(p.clock.pending(), [SAFARI_POLL_BUSY_MS]);
+  // An answer with more to come is followed at once.
+  p.answers.push({ session: "a", frames: [{ op: "progress", id: 1 }], more: true });
+  await p.clock.advance(SAFARI_POLL_BUSY_MS);
+  assert.deepEqual(p.clock.pending(), [0]);
+});
+
+test("a message posted while a request is out goes as soon as the answer is back", async () => {
+  const p = fakePort();
+  let answer;
+  p.answers.push(() => new Promise((resolve) => (answer = resolve)));
+  p.port.postMessage({ op: "hello" });
+  await p.clock.advance(0);
+  p.port.postMessage({ op: "list" });
+  await p.clock.advance(0);
+  assert.equal(p.requests.length, 1, "one request at a time");
+  answer({ session: "a", frames: [] });
+  await p.clock.advance(0);
+  await p.clock.advance(0);
+  assert.deepEqual(p.requests.map((r) => r.frames), [[{ op: "hello" }], [{ op: "list" }]]);
+});
+
+test("the port closes, saying why, when udm-host is gone, starts again, or the browser fails", async () => {
+  let p = fakePort();
+  p.port.postMessage({ op: "hello" });
+  p.answers.push({ session: "a", frames: [{ op: "hello" }], error: "UDM is not running" });
+  await p.clock.advance(0);
+  assert.deepEqual(p.heard, [{ op: "hello" }], "what came before the error still counts");
+  assert.deepEqual(p.closed, ["UDM is not running"]);
+  assert.deepEqual(p.clock.pending(), [], "no more polls");
+  assert.throws(() => p.port.postMessage({ op: "list" }), /disconnected/);
+
+  p = fakePort();
+  p.port.postMessage({ op: "hello" });
+  await p.clock.advance(0);
+  p.answers.push({ session: "b", frames: [{ op: "progress" }] });
+  await p.clock.advance(SAFARI_POLL_BUSY_MS);
+  assert.deepEqual(p.heard, [], "another udm-host's frames are not this port's");
+  assert.deepEqual(p.closed, ["UDM's host started again"]);
+
+  p = fakePort();
+  p.answers.push(() => Promise.reject(new Error("No native handler")));
+  p.port.postMessage({ op: "hello" });
+  await p.clock.advance(0);
+  assert.deepEqual(p.closed, ["No native handler"]);
+
+  p = fakePort();
+  p.answers.push(undefined);
+  p.port.postMessage({ op: "hello" });
+  await p.clock.advance(0);
+  assert.deepEqual(p.closed, ["no answer from UDM"]);
+});
+
+test("disconnecting the port stops it without telling its own listeners", async () => {
+  const p = fakePort();
+  p.port.postMessage({ op: "hello" });
+  await p.clock.advance(0);
+  p.port.disconnect();
+  assert.deepEqual(p.clock.pending(), []);
+  assert.deepEqual(p.closed, []);
+});
+
+// --- Links taken as they are clicked ---------------------------------------------
+
+test("a click is taken only for a link that names a file the capture rules want", () => {
+  const rules = { capture_types: ["zip", "pdf", "mp4"], capture_excluded_sites: ["skip.net"], capture_excluded_urls: [] };
+  assert.equal(clickTaken(rules, "https://cdn.net/files/a.zip", null, "https://site.net/"), true);
+  assert.equal(clickTaken(rules, "https://cdn.net/files/a.ZIP?x=1", null, "https://site.net/"), true);
+  // Named by its download attribute.
+  assert.equal(clickTaken(rules, "https://cdn.net/get?id=7", "Report.pdf", "https://site.net/"), true);
+  // Not a type to take, a page, a picture, or no file name at all.
+  assert.equal(clickTaken(rules, "https://cdn.net/a.exe", null, ""), false);
+  assert.equal(clickTaken(rules, "https://site.net/news/", null, ""), false);
+  assert.equal(clickTaken(rules, "https://site.net/a.html", null, ""), false);
+  assert.equal(clickTaken({ capture_types: [] }, "https://site.net/a.png", null, ""), false);
+  assert.equal(clickTaken(rules, "https://cdn.net/get?id=7", null, ""), false);
+  // Excluded sites, the link's or the page's.
+  assert.equal(clickTaken(rules, "https://skip.net/a.zip", null, ""), false);
+  assert.equal(clickTaken(rules, "https://cdn.net/a.zip", null, "https://www.skip.net/page"), false);
+  // Not a web address.
+  assert.equal(clickTaken(rules, "ftp://cdn.net/a.zip", null, ""), false);
+  assert.equal(clickTaken(rules, "javascript:void(0)", null, ""), false);
+  // Before the rules arrive, any file that is not a page.
+  assert.equal(clickTaken(null, "https://cdn.net/a.exe", null, ""), true);
+  assert.equal(clickTaken(null, "https://cdn.net/a.php", null, ""), false);
+});
+
+// --- The worker in Safari ------------------------------------------------------------
+
+const SETTINGS = { capture_types: ["zip"], capture_min_size_kb: 0, capture_excluded_sites: ["skip.net"], capture_excluded_urls: [] };
+
+// A Safari worker that has heard UDM's hello and settings.
+async function safariWorker() {
+  const w = loadWorker({ safari: true });
+  w.native.frames.push({ op: "hello", name: "udm-daemon", version: "x" }, { op: "settings", settings: SETTINGS });
+  await w.native.settle();
+  return w;
+}
+
+// Values from the worker come from another realm: compare them as JSON.
+const json = (v) => JSON.parse(JSON.stringify(v));
+const lastAdd = (w) => w.sent.filter((m) => m.op === "add").at(-1);
+const shared = (w) => json(w.chrome.storage.written.filter((o) => "linkCapture" in o).map((o) => o.linkCapture));
+
+test("in Safari the worker starts without the APIs Safari lacks and talks to udm-host by polling", async () => {
+  const w = loadWorker({ safari: true });
+  assert.equal(w.chrome.downloads, undefined);
+  assert.equal(w.chrome.notifications, undefined);
+  assert.equal(w.chrome.proxy, undefined);
+  await w.native.settle();
+  // The port connectNative returns is never used.
+  assert.equal(w.port.onMessage.options.length, 0);
+  assert.deepEqual(json(w.native.requests[0].frames.map((m) => m.op)), ["hello", "list", "get_settings"]);
+  const status = await w.popup({ type: "state" });
+  assert.equal(status.connected, false);
+
+  w.native.frames.push({ op: "hello", name: "udm-daemon", version: "x" });
+  await new Promise((r) => setTimeout(r, 1100));
+  assert.equal((await w.popup({ type: "state" })).connected, true);
+});
+
+test("in Safari udm-host gone shows as disconnected, with its reason", async () => {
+  const w = loadWorker({ safari: true });
+  w.native.reply = () => ({ session: "host-1", frames: [], error: "UDM is not running" });
+  await w.native.settle();
+  const status = await w.popup({ type: "state" });
+  assert.equal(status.connected, false);
+  assert.equal(status.lastError, "UDM is not running");
+});
+
+test("in Safari the worker shares whether and which links to take, and takes a clicked one", async () => {
+  const w = await safariWorker();
+  assert.deepEqual(shared(w).at(-1), {
+    on: true,
+    rules: { capture_types: ["zip"], capture_excluded_sites: ["skip.net"], capture_excluded_urls: [] },
+  });
+
+  const reply = await w.content({ type: "link:capture", url: "https://cdn.net/a.zip", download: "../Big file.zip" }, 4, "https://site.net/list");
+  assert.deepEqual(json(reply), { ok: true });
+  await w.native.settle();
+  const add = lastAdd(w);
+  assert.deepEqual([add.url, add.referrer, add.page, add.filename], ["https://cdn.net/a.zip", "https://site.net/list", "https://site.net/list", "Big file.zip"]);
+  assert.equal("proxy" in add || "browser_proxy" in add, false, "Safari tells no proxy");
+
+  // Capture off in the popup: shared, and a click that came anyway stays.
+  await w.popup({ type: "setCapture", value: false });
+  assert.equal(shared(w).at(-1).on, false);
+  const before = w.sent.length;
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://cdn.net/b.zip" }, 4)), { ok: false });
+  assert.equal(w.sent.length, before);
+  await w.popup({ type: "setCapture", value: true });
+
+  // The rules say no, or "Skip next download" keeps one.
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://skip.net/b.zip" }, 4)), { ok: false });
+  await w.popup({ type: "setSkipNext", value: true });
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://cdn.net/c.zip" }, 4)), { ok: false });
+  assert.equal((await w.popup({ type: "state" })).skipNext, false);
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://cdn.net/c.zip" }, 4)), { ok: true });
+});
+
+test("in Safari a link UDM refuses opens in a background tab, and a menu click without UDM too", async () => {
+  const w = await safariWorker();
+  await w.content({ type: "link:capture", url: "https://cdn.net/a.zip" }, 4, "https://site.net/");
+  w.native.frames.push({ op: "rejected", url: "https://cdn.net/a.zip", message: "no" });
+  await new Promise((r) => setTimeout(r, 1100));
+  assert.deepEqual(json(w.chrome.tabs.created), [{ url: "https://cdn.net/a.zip", active: false }]);
+
+  const away = loadWorker({ safari: true });
+  away.native.reply = () => ({ session: "host-1", frames: [], error: "UDM is not running" });
+  await away.native.settle();
+  await away.chrome.contextMenus.onClicked.fire({ menuItemId: "udm-link", linkUrl: "https://cdn.net/b.zip", pageUrl: "https://site.net/" }, { id: 1 });
+  assert.deepEqual(json(away.chrome.tabs.created), [{ url: "https://cdn.net/b.zip", active: false }]);
+  assert.equal(shared(away).at(-1).on, false);
+});
+
+test("in Safari the popup lists no browser downloads", async () => {
+  const w = await safariWorker();
+  assert.deepEqual(json(await w.popup({ type: "browserDownloads" })), { items: [] });
+  assert.deepEqual(json(await w.popup({ type: "sendBrowserDownload", id: 3 })), { ok: false });
+});
+
+test("Chrome's worker never shares link capture or takes a clicked link", async () => {
+  const w = loadWorker();
+  w.port.onMessage.fire({ op: "hello", name: "udm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "settings", settings: SETTINGS });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(shared(w), []);
+  const before = w.sent.length;
+  assert.deepEqual(json(await w.content({ type: "link:capture", url: "https://cdn.net/a.zip" }, 4)), { ok: false });
+  assert.equal(w.sent.length, before);
+});

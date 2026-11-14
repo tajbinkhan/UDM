@@ -39,10 +39,13 @@ differs.
 | `extension/chromium/post.js` | Matching downloads to the form POSTs that started them |
 | `extension/chromium/request.js` | The request behind a download: headers, redirects, response, proxy setting |
 | `extension/chromium/media.js` | Which responses are videos and streams, per tab, and the video menu |
-| `extension/chromium/content.js` | The video button over playing videos |
+| `extension/chromium/content.js` | The video button over playing videos, and in Safari the download links taken as they are clicked |
+| `extension/chromium/native.js` | Safari's polling stand-in for a native port ([Safari](install.md#safari)) |
 | `extension/firefox/` | The Firefox copy of `extension/chromium`, made by `node installer/make-firefox.js` and kept in git; do not edit it by hand |
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
-| `extension/test/` | Node tests for the rules, the service worker and the Firefox copy |
+| `extension/safari/` | The Safari copy of `extension/chromium`, made by `node installer/make-safari.js` and kept in git; do not edit it by hand |
+| `extension/safari.json` | What the Safari copy changes in `manifest.json` |
+| `extension/test/` | Node tests for the rules, the service worker and the Firefox and Safari copies |
 | `assets/icon-1024.png` | The app icon's source, 1024 pixels square with a transparent background; `installer/render-icons.js` renders every other icon file from it, and the macOS disk image uses it as is |
 | `host/com.udm.host.json` | Template of the native-messaging manifest |
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
@@ -50,7 +53,9 @@ differs.
 | `installer/windows/build.ps1` | Builds the programs and the installer into `dist\` |
 | `installer/linux/` | `package.sh` (the `.deb`, `.rpm`, AppImage and `.tar.gz`), the tarball's `install.sh`, the AppImage's `AppRun` and the desktop entry |
 | `installer/macos/package.sh` | Builds the universal `.dmg` |
+| `installer/macos/safari/` | `build.sh`, which builds the Safari extension into `UDM.app` with Xcode, its native-messaging handler (`SafariWebExtensionHandler.swift`) and the sandbox entitlements |
 | `installer/make-firefox.js` | Makes `extension/firefox`, or with `--check` tells whether it is out of date |
+| `installer/make-safari.js` | The same for `extension/safari` (both use `installer/browser-copy.js`) |
 | `installer/make-store-zips.js` | Makes the zips the Chrome Web Store and Firefox Add-ons take ([Publishing the extension](extension-stores.md)) |
 | `installer/windows/make-firefox.ps1` | The same in PowerShell, which Setup's build uses to check the copy |
 | `installer/render-icons.js` | Renders `assets/icon-1024.png` to the extension's PNGs and `assets/icon-256.png` with headless Chrome |
@@ -104,6 +109,10 @@ The server image (`Dockerfile`) builds `udm-app` with
 downloads `appimagetool` unless `$APPIMAGETOOL` names one);
 `installer/macos/package.sh` makes the universal `.dmg` on a Mac. Name
 formats to make only those: `installer/linux/package.sh --skip-build deb`.
+With Xcode installed (not only its Command Line Tools), `package.sh` also
+builds the Safari extension into `UDM.app` (`installer/macos/safari/build.sh`,
+through Xcode's `safari-web-extension-converter`); without Xcode it warns and
+leaves it out, unless `UDM_SAFARI=require`, which CI sets.
 
 Rust on Windows needs a linker. This project builds with the
 `stable-x86_64-pc-windows-gnu` toolchain plus MinGW-w64 (WinLibs) on `PATH`.
@@ -151,8 +160,8 @@ shows up on that runner. With the target added through `rustup`,
 `--target x86_64-apple-darwin` lints that code from Linux too.
 
 The installers come from `.github/workflows/release.yml`. Set the version in
-`Cargo.toml` and `extension/chromium/manifest.json`, remake the Firefox copy
-(`node installer/make-firefox.js`), commit, and push a tag that matches it:
+`Cargo.toml` and `extension/chromium/manifest.json`, remake the Firefox and
+Safari copies (`node installer/make-firefox.js`, `node installer/make-safari.js`), commit, and push a tag that matches it:
 
 ```bash
 git tag v0.4.0

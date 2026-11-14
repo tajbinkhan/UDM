@@ -14,6 +14,13 @@ native host can let in several Chromium extension IDs, so the store's copy and t
 by hand both work once the store's ID is added ([Publishing the extension](docs/extension-stores.md)).
 Until the listings are up, the extension is still loaded by hand.
 
+Safari on macOS gets the extension too (#268): UDM.app carries it as a Safari Web Extension,
+built from `extension/safari` (`node installer/make-safari.js`) when the disk image is made on a
+Mac with Xcode. It reaches UDM through the app extension's native messaging, which runs
+`udm-host safari`, and takes links to files as they are clicked, since Safari has no downloads
+API. It was built for Safari but not yet run in it; [Known gaps](docs/known-gaps.md) lists what
+Safari leaves out, and [Install](docs/install.md#safari) how to turn it on.
+
 ## [0.5.0](release-notes/v0.5.0.md) - 2026-11-14
 
 Minor. Pullbay is now called UDM, with a new icon and a new window drawn with Tauri and styled

@@ -166,7 +166,8 @@ the app: in Finder, right-click UDM, **Show Package Contents**, then
 `Contents/Resources/extension` (Chrome, Edge, Brave) or
 `Contents/Resources/firefox`. In Chrome's **Load unpacked** dialog,
 Cmd+Shift+G and `/Applications/UDM.app/Contents/Resources/extension` gets
-there directly.
+there directly. Safari's extension comes inside the app; [Safari](#safari)
+says how to turn it on.
 
 ## Linux
 
@@ -232,6 +233,36 @@ Known gaps in Firefox:
 
 These were checked against a stand-in for the browser API in the extension's
 tests, not in a running Firefox.
+
+## Safari
+
+Safari 16.4 or later on macOS gets the extension from UDM.app itself: the
+disk image's app holds it as an app extension (`Contents/PlugIns/UDM
+Extension.appex`), made by Xcode's converter from `extension/safari`, a copy
+of the extension with its own manifest (`node installer/make-safari.js` makes
+it from `extension/chromium` and `extension/safari.json`, and
+`--check` tells whether it is current, as for Firefox). To turn it on:
+
+1. Open UDM once from **Applications**, so macOS finds the extension in it.
+2. UDM is signed ad hoc, not by a registered developer, so Safari hides the
+   extension until you allow unsigned extensions: turn on **Show features
+   for web developers** in **Safari > Settings > Advanced**, then choose
+   **Develop > Allow Unsigned Extensions** (Safari asks for your password,
+   and asks again each time Safari starts).
+3. In **Safari > Settings > Extensions**, tick **UDM**, then allow it on
+   every website (**Edit Websites...**, or **Always Allow on Every Website**
+   when Safari asks).
+
+Safari has no downloads API, so the extension cannot take a download the
+browser started. Instead it takes a link to a file as it is clicked, when
+the file's type is one UDM captures; the context menu, the video button,
+**Download all links** and the popup work as in Chrome. Safari's native
+messages go to the app extension, not to a program Safari starts, and the
+app extension cannot send the extension anything of its own, so the
+extension asks it for news every second (every five when nothing happens);
+it runs `udm-host` inside Safari's sandbox, where it cannot start the
+daemon: UDM must already be running. [Known gaps](known-gaps.md) lists the
+rest.
 
 ---
 

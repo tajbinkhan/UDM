@@ -3,8 +3,8 @@
 # UDM's own update check reads the latest release.
 #
 # To release: set the version in Cargo.toml and in
-# extension/chromium/manifest.json (then run node installer/make-firefox.js),
-# write the notes in release-notes/v<version>.md (start from
+# extension/chromium/manifest.json (then run node installer/make-firefox.js
+# and node installer/make-safari.js), write the notes in release-notes/v<version>.md (start from
 # release-notes/TEMPLATE.md), commit, then push a tag that matches it:
 #
 #   git tag v0.2.0 && git push origin v0.2.0
@@ -151,7 +151,10 @@ jobs:
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir frontend build
 
+      # The runner has Xcode, so UDM.app must get its Safari extension.
       - name: Build the disk image
+        env:
+          UDM_SAFARI: require
         run: installer/macos/package.sh
 
       - uses: actions/upload-artifact@v5

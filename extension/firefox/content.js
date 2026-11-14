@@ -69,9 +69,20 @@ function makeMini(button) {
   if (udmContentAgain) return;
   // The capture_* key settings; none until they arrive.
   let keys = {};
-  chrome.storage.local.get("captureKeys").then((s) => s.captureKeys && (keys = s.captureKeys)).catch(() => {});
+  // Where the browser has no downloads API (Safari), whether links to files
+  // are taken as they are clicked, and the capture rules: { on, rules }, as
+  // the worker shares them (shareLinkCapture); none elsewhere.
+  let linkCapture = null;
+  chrome.storage.local
+    .get(["captureKeys", "linkCapture"])
+    .then((s) => {
+      if (s.captureKeys) keys = s.captureKeys;
+      if (s.linkCapture) linkCapture = s.linkCapture;
+    })
+    .catch(() => {});
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.captureKeys && changes.captureKeys.newValue) keys = changes.captureKeys.newValue;
+    if (changes.linkCapture) linkCapture = changes.linkCapture.newValue || null;
   });
   // Insert and Del are no modifiers, so whether they are down is followed
   // by hand (trackKey, in rules.js).
@@ -133,6 +144,16 @@ function makeMini(button) {
     });
     if (action === "skip") {
       chrome.runtime.sendMessage({ type: "link:skip" }).catch(() => {});
+    } else if (action === "" && linkCapture && linkCapture.on && clickTaken(linkCapture.rules, link.href, link.getAttribute("download"), location.href)) {
+      // Safari: the worker hands it to UDM, or it opens as usual.
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      const url = link.href;
+      chrome.runtime
+        .sendMessage({ type: "link:capture", url, download: link.getAttribute("download") })
+        .then((r) => r && r.ok)
+        .catch(() => false)
+        .then((ok) => ok || location.assign(url));
     } else if (action === "force" && !forceLeavesLink(keys, link.href)) {
 
       ev.preventDefault();

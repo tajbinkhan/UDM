@@ -19,6 +19,12 @@
 //! which reads one link, or a list of links for the link picker, as JSON
 //! (see `udm_infrastructure::cli::parse_sent`) and hands it to the daemon, starting it if
 //! needed. It goes through the same authenticated connection as the relay.
+//!
+//! Safari's app extension (`installer/macos/safari`) runs
+//!   udm-host safari
+//! a relay that does not start the daemon: it runs inside Safari's sandbox,
+//! and a daemon it started would be sandboxed too. Without a running daemon
+//! it exits with the reason on stderr, which the app extension passes on.
 
 // Tests may use todo!, unimplemented! and unreachable!, which clippy.toml's
 // test exemptions do not cover (AGENTS.md section 9).
@@ -94,21 +100,47 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     // The test and `send` modes print to stdout and stderr on purpose: that
     // is their output, for the person or program that ran them.
-    match args.get(1).map(String::as_str) {
-        Some("download") => std::process::exit(run_cli(&args)),
-        Some("send") => std::process::exit(run_send(&args)),
-        _ => {}
-    }
-    if let Err(e) = run_relay() {
+    let spawn = match mode(&args) {
+        Mode::Download => std::process::exit(run_cli(&args)),
+        Mode::Send => std::process::exit(run_send(&args)),
+        Mode::Relay { spawn } => spawn,
+    };
+    if let Err(e) = run_relay(spawn) {
         tracing::error!(error = format!("{e:#}"), "fatal");
         std::process::exit(1);
     }
 }
 
-/// Relay frames between the browser (stdio) and the daemon (loopback TCP).
-fn run_relay() -> anyhow::Result<()> {
+/// What the host was started to do.
+#[derive(Debug, PartialEq, Eq)]
+enum Mode {
+    /// Relay a browser's frames, starting the daemon when `spawn` and it is
+    /// not running.
+    Relay { spawn: bool },
+    /// `udm-host download <url> [output_dir]`.
+    Download,
+    /// `udm-host send <file | ->`.
+    Send,
+}
+
+/// The mode the command line `args` (the program first) asks for. Chrome
+/// and Edge pass the extension's origin and Firefox the host manifest's
+/// path: anything but a mode's name is a browser's relay.
+fn mode(args: &[String]) -> Mode {
+    match args.get(1).map(String::as_str) {
+        Some("download") => Mode::Download,
+        Some("send") => Mode::Send,
+        Some("safari") => Mode::Relay { spawn: false },
+        _ => Mode::Relay { spawn: true },
+    }
+}
+
+/// Relay frames between the browser (stdio) and the daemon (loopback TCP),
+/// starting the daemon first when `spawn` and it is not running.
+fn run_relay(spawn: bool) -> anyhow::Result<()> {
     use anyhow::Context as _;
-    let daemon = ipc::connect_or_spawn().context("could not reach the daemon")?;
+    let daemon =
+        if spawn { ipc::connect_or_spawn() } else { ipc::connect_running() }.context("could not reach the daemon")?;
     tracing::info!(addr = %ipc::daemon_addr(), "connected to the daemon");
     let mut to_daemon = daemon.try_clone().context("could not share the daemon connection")?;
     let mut from_daemon = daemon;
@@ -331,7 +363,25 @@ fn print_progress(p: Progress, ok: &AtomicBool) {
 
 #[cfg(test)]
 mod tests {
-    use super::from_browser;
+    use super::{from_browser, mode, Mode};
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn each_browser_gets_a_relay_and_only_safari_one_that_starts_no_daemon() {
+        // Chrome and Edge pass the extension's origin (and on Windows a
+        // parent window), Firefox the manifest's path and the extension's ID.
+        let chrome = args(&["udm-host", "chrome-extension://abc/", "--parent-window=0"]);
+        assert_eq!(mode(&chrome), Mode::Relay { spawn: true });
+        let firefox = args(&["udm-host", "/x/com.udm.host.json", "udm@udm.local"]);
+        assert_eq!(mode(&firefox), Mode::Relay { spawn: true });
+        assert_eq!(mode(&args(&["udm-host"])), Mode::Relay { spawn: true });
+        assert_eq!(mode(&args(&["udm-host", "safari"])), Mode::Relay { spawn: false });
+        assert_eq!(mode(&args(&["udm-host", "download", "https://a/b"])), Mode::Download);
+        assert_eq!(mode(&args(&["udm-host", "send", "-"])), Mode::Send);
+    }
 
     fn op(frame: &[u8]) -> Option<serde_json::Value> {
         from_browser(frame).map(|f| serde_json::from_slice(&f).unwrap())
