@@ -4,33 +4,11 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
-## Unreleased
+## [0.5.0](release-notes/v0.5.0.md) - 2026-11-14
 
-UDM's window is now drawn with Tauri (ADR 0002), in each system's webview, and the egui window
-is gone. It has every window IDM's has but Registration, in a light and a dark look that follow
-the Theme setting, plus UDM's own: the browser's link, video and gallery pickers, packages, the
-update check, Options' pages beyond IDM's, problem reports, the clipboard monitor, the zip
-preview, Convert, Verify checksum and Open with. On Windows a finished file drags out of the list
-or Download complete, and Setup installs the WebView2 runtime when Windows lacks it; on Linux the
-packages now need WebKitGTK 4.1. The domain's and the background service's errors show in your
-language again. Some of the new window's text is still English in other languages. What the
-egui window had beyond that is back too: Download File Info warns about a folder UDM may not
-save in and offers to save there with administrator rights (its Browse button now works), the
-Scheduler and the grabber's schedule warn when the power plan lets nothing wake the computer,
-Options leaves off the creation time where the system has none and starting at sign-in in a
-portable copy, the link picker hides web pages, images and repeated links, keeps only the types
-you name and renames the files by a pattern, and File Properties names a file's type as Windows
-does.
-
-Pullbay is now called UDM (Unified Download Manager), with a new icon. Installing it over Pullbay or UIDM keeps
-your settings, list, saved site passwords and half-finished downloads, and Pullbay's Update now
-can install it.
-
-On Windows, the first download after the background service has stopped starts about two seconds
-sooner: the browser, the window and `udm-cli` no longer wait for Windows to report that the
-service isn't running before they start it. The service also no longer quits while short
-commands keep using it. A command or download that came and went within five seconds did not
-count, so the service could quit less than a minute after it.
+Minor. Pullbay is now called UDM, with a new icon and a new window drawn with Tauri and styled
+like Windows 11. Adds a command-line tool, an MCP server for AI assistants, control from a phone,
+a server mode, video sites through yt-dlp, image galleries, packages, FTPS and 13 more languages.
 
 ## [0.4.0](release-notes/v0.4.0.md) - 2026-11-09
 
