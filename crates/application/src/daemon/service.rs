@@ -1738,6 +1738,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::Add(mut download) => {
             download.limit_browser_request();
             if let Err(message) = daemon.check_download(&download) {
+                warn!(url = %download.url, error = %message, "refused a download");
                 send(Event::Rejected { url: download.url, error: message.into() });
                 return;
             }

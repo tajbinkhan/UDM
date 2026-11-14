@@ -1092,9 +1092,12 @@ pub fn inspect(
 }
 
 /// The files a download writing to `output` may leave: the file itself, its
-/// resume sidecar, and a stream's folder of segments.
+/// resume sidecar, a stream's folder of segments, and the working files of
+/// a video page's download (yt-dlp's parts).
 pub fn files_of(output: &Path) -> Vec<PathBuf> {
-    vec![output.to_path_buf(), Manifest::sidecar_path(output), stream::parts_dir(output)]
+    let mut files = vec![output.to_path_buf(), Manifest::sidecar_path(output), stream::parts_dir(output)];
+    files.extend(page::working_files(output));
+    files
 }
 
 /// Leave beside `file` the resume sidecar of a download whose `total`

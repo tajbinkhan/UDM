@@ -177,9 +177,9 @@ pub const BORDER_WIDTH_RANGE: (u8, u8) = (1, 4);
 
 impl Sizes {
     /// Sized like the 9 pt Segoe UI of the window UDM's layout follows,
-    /// with its tight padding: 12 pt text, 20 pt controls, nearly square
-    /// corners and hairline edges.
-    pub const NORMAL: Sizes = Sizes { text: 12, control_height: 20, corner_radius: 2, border_width: 1 };
+    /// with its tight padding: 12 pt text, 20 pt controls and hairline
+    /// edges, with Windows 11's 4 pt corners.
+    pub const NORMAL: Sizes = Sizes { text: 12, control_height: 20, corner_radius: 4, border_width: 1 };
     /// The normal sizes with edges twice as wide, which high contrast
     /// needs to show where each control ends.
     pub const HIGH_CONTRAST: Sizes = Sizes { border_width: 2, ..Sizes::NORMAL };
@@ -228,7 +228,8 @@ pub const LIGHT: Look = Look {
         // Light enough for the text on top.
         progress: zinc::Z300,
         stripe: zinc::Z50,
-        link: Color::rgb(0x25, 0x63, 0xeb),
+        // Windows 11's default accent, which the window's accent follows.
+        link: Color::rgb(0x00, 0x5f, 0xb8),
         error: Color::rgb(0xdc, 0x26, 0x26),
         warning: Color::rgb(0xb4, 0x53, 0x09),
         shadow: Color::rgba(0, 0, 0, 20),
@@ -251,7 +252,7 @@ pub const DARK: Look = Look {
         selected_text: zinc::Z50,
         progress: zinc::Z600,
         stripe: zinc::Z900,
-        link: Color::rgb(0x60, 0xa5, 0xfa),
+        link: Color::rgb(0x60, 0xcd, 0xff),
         error: Color::rgb(0xf8, 0x71, 0x71),
         warning: Color::rgb(0xfb, 0xbf, 0x24),
         shadow: Color::rgba(0, 0, 0, 96),

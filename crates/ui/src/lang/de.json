@@ -144,7 +144,6 @@
   "Types": "Typen",
   "Check all": "Alle auswählen",
   "Uncheck all": "Alle abwählen",
-  "image": "Bild",
   "page": "Seite",
   "Start the queue now": "Warteschlange jetzt starten",
   "Save the files to": "Dateien speichern in",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} Dateien",
   "{count} lines held no download address.": "{count} Zeilen enthielten keine Downloadadresse.",
   "{type} file": "{type}-Datei",
-  "The clipboard holds no http, https or ftp link.": "Die Zwischenablage enthält keinen HTTP-, HTTPS- oder FTP-Link."
+  "The clipboard holds no http, https or ftp link.": "Die Zwischenablage enthält keinen HTTP-, HTTPS- oder FTP-Link.",
+  "No downloads here": "Keine Downloads hier",
+  "Downloads started here or in the browser appear in this list.": "Downloads, die hier oder im Browser gestartet werden, erscheinen in dieser Liste."
 }

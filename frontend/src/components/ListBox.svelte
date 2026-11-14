@@ -67,7 +67,8 @@
     flex-direction: column;
     min-width: 0;
     background: var(--field);
-    border: 1px solid var(--input-border);
+    border: 1px solid var(--frame);
+    border-radius: var(--radius-large);
     overflow: hidden;
   }
 
@@ -82,15 +83,16 @@
   }
 
   .head {
-    height: 20px;
+    height: 22px;
     align-items: center;
     background: var(--header);
     border-bottom: 1px solid var(--grid);
+    color: var(--fg-muted);
     flex: none;
   }
 
   .head span {
-    padding: 0 5px;
+    padding: 0 6px;
     border-right: 1px solid var(--grid);
     white-space: nowrap;
     overflow: hidden;
@@ -109,22 +111,24 @@
 
   .row.on {
     background: var(--selected);
+    box-shadow: inset 3px 0 0 var(--accent);
   }
 
   .box:not(:focus-within) .row.on {
     background: var(--selected-blur);
+    box-shadow: none;
   }
 
   .row span {
     display: flex;
     align-items: center;
-    padding: 0 5px;
+    padding: 0 6px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    border-right: 1px solid var(--grid);
     height: 100%;
   }
+
 
   .fill {
     flex: 1;

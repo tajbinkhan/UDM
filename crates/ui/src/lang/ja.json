@@ -144,7 +144,6 @@
   "Types": "種類",
   "Check all": "すべてオン",
   "Uncheck all": "すべてオフ",
-  "image": "画像",
   "page": "ページ",
   "Start the queue now": "今すぐキューを開始する",
   "Save the files to": "ファイルの保存先",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} 個のファイル",
   "{count} lines held no download address.": "{count} 行にダウンロード アドレスがありませんでした。",
   "{type} file": "{type} ファイル",
-  "The clipboard holds no http, https or ftp link.": "クリップボードに http、https、ftp のリンクがありません。"
+  "The clipboard holds no http, https or ftp link.": "クリップボードに http、https、ftp のリンクがありません。",
+  "No downloads here": "ここにダウンロードはありません",
+  "Downloads started here or in the browser appear in this list.": "ここまたはブラウザーで開始したダウンロードがこの一覧に表示されます。"
 }

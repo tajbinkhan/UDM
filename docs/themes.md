@@ -98,7 +98,7 @@ one of the built-in themes: `light` (when the file names none), `dark` or
 | `shadow` | color | The shadow under windows and menus. Give it a transparency (`#00000000` for none). |
 | `text_size` | 9 to 24 | Normal text, in points; small text, headings and code follow. 12 by default. |
 | `control_height` | 16 to 40 | The height of buttons, text boxes and other controls. 20 by default. |
-| `corner_radius` | 0 to 12 | How round the corners of controls are; windows get 2 more. 2 by default. |
+| `corner_radius` | 0 to 12 | How round the corners of controls are; menus, dialogs, lists and panels get twice as much. 4 by default. |
 | `border_width` | 1 to 4 | The width of edges. 1 by default, 2 in High contrast. |
 
 A color is `#rrggbb`, `#rgb`, or `#rrggbbaa` with a transparency (`ff`

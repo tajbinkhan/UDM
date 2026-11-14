@@ -144,7 +144,6 @@
   "Types": "Typen",
   "Check all": "Alles selecteren",
   "Uncheck all": "Alles deselecteren",
-  "image": "afbeelding",
   "page": "pagina",
   "Start the queue now": "De wachtrij nu starten",
   "Save the files to": "De bestanden opslaan in",
@@ -1000,5 +999,7 @@
   "{count} files": "{count} bestanden",
   "{count} lines held no download address.": "{count} regels bevatten geen downloadadres.",
   "{type} file": "{type}-bestand",
-  "The clipboard holds no http, https or ftp link.": "Het klembord bevat geen http-, https- of ftp-koppeling."
+  "The clipboard holds no http, https or ftp link.": "Het klembord bevat geen http-, https- of ftp-koppeling.",
+  "No downloads here": "Hier staan geen downloads",
+  "Downloads started here or in the browser appear in this list.": "Downloads die hier of in de browser worden gestart, verschijnen in deze lijst."
 }

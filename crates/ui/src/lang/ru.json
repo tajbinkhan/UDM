@@ -144,7 +144,6 @@
   "Types": "Типы",
   "Check all": "Отметить все",
   "Uncheck all": "Снять все отметки",
-  "image": "изображение",
   "page": "страница",
   "Start the queue now": "Запустить очередь сейчас",
   "Save the files to": "Сохранить файлы в",
@@ -1000,5 +999,7 @@
   "{count} files": "Файлов: {count}",
   "{count} lines held no download address.": "Строк без адреса загрузки: {count}.",
   "{type} file": "Файл {type}",
-  "The clipboard holds no http, https or ftp link.": "В буфере обмена нет ссылки http, https или ftp."
+  "The clipboard holds no http, https or ftp link.": "В буфере обмена нет ссылки http, https или ftp.",
+  "No downloads here": "Здесь нет загрузок",
+  "Downloads started here or in the browser appear in this list.": "Загрузки, начатые здесь или в браузере, появляются в этом списке."
 }

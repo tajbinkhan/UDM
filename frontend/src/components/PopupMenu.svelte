@@ -173,18 +173,34 @@
     position: fixed;
     z-index: 51;
     min-width: 180px;
-    padding: 3px 2px;
+    padding: 4px;
     background: var(--menu);
     border: 1px solid var(--border);
-    box-shadow: 2px 3px 6px var(--shadow);
+    border-radius: var(--radius-large);
+    box-shadow: 0 8px 16px var(--shadow);
     color: var(--fg);
+    animation: menu-in 0.12s ease-out;
+  }
+
+  @keyframes menu-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .menu {
+      animation: none;
+    }
   }
 
   .entry {
     display: flex;
     align-items: center;
-    height: 22px;
+    height: 26px;
     padding: 0 10px 0 0;
+    border-radius: var(--radius);
     white-space: nowrap;
   }
 
@@ -218,7 +234,8 @@
 
   .sep {
     height: 1px;
-    margin: 4px 1px 4px 30px;
+    margin: 4px -4px;
     background: var(--border);
   }
+
 </style>

@@ -47,6 +47,32 @@ describe('the main window', () => {
     await fireEvent.click(screen.getByRole('menuitem', { name: 'About UDM' }));
     expect(sent(calls, 'open_window').at(-1)?.args).toEqual({ window: 'about' });
   });
+
+  it('says so when the list is empty, and only then', async () => {
+    shell('main', 'main');
+    render(Main);
+    expect(screen.queryByText('No downloads here')).toBeNull();
+    const view = structuredClone(fixtures.views.main) as { view: { rows: unknown[] } };
+    view.view.rows = [];
+    receive({ kind: 'snapshot', seq: 0, look: fixtures.look.light, view } as Update);
+    await Promise.resolve();
+    expect(screen.getByText('No downloads here')).toBeTruthy();
+    expect(screen.getByText('Downloads started here or in the browser appear in this list.')).toBeTruthy();
+  });
+
+  it('opens a menu under its own name when the mouse slides to it', async () => {
+    shell('main', 'main');
+    render(Main);
+    const tasks = screen.getByRole('menuitem', { name: 'Tasks' });
+    const help = screen.getByRole('menuitem', { name: 'Help' });
+    tasks.getBoundingClientRect = () => new DOMRect(6, 3, 40, 22);
+    help.getBoundingClientRect = () => new DOMRect(215, 3, 43, 22);
+    await fireEvent.click(tasks);
+    await fireEvent.mouseEnter(help);
+    await new Promise((r) => setTimeout(r));
+    const menu = screen.getByRole('menuitem', { name: 'About UDM' }).closest<HTMLElement>('[role="menu"]');
+    expect(menu?.style.left).toBe('215px');
+  });
 });
 
 describe('the main window beyond IDM', () => {

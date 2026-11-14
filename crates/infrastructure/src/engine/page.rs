@@ -215,6 +215,32 @@ fn working_stem(output: &Path, id: DownloadId) -> PathBuf {
     stem.into()
 }
 
+/// yt-dlp's working files for the download saved at `output`: the parts,
+/// streams and subtitles it keeps under `working_stem`'s name
+/// (`<stem>.udm-<id>.*`) until the download is done. A stopped download
+/// keeps them to go on from, so they go only with the download itself.
+pub(super) fn working_files(output: &Path) -> Vec<PathBuf> {
+    let (Some(dir), Some(stem)) = (output.parent(), output.file_stem()) else {
+        return Vec::new();
+    };
+    let prefix = format!("{}.udm-", stem.to_string_lossy());
+    let Ok(entries) = fs::read_dir(if dir.as_os_str().is_empty() { Path::new(".") } else { dir }) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // The id, then the end of the name or an extension.
+            name.strip_prefix(&prefix).is_some_and(|rest| {
+                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                digits > 0 && (rest.len() == digits || rest.as_bytes()[digits] == b'.')
+            })
+        })
+        .map(|entry| entry.path())
+        .collect()
+}
+
 /// Move yt-dlp's finished file to the chosen name, keeping the extension
 /// yt-dlp gave it. If that name is taken now, the file stays where it is.
 fn settle(saved: &Path, output: &Path) -> PathBuf {
@@ -268,6 +294,31 @@ mod tests {
         settle_subtitles(&working, &dir.join("Clip.mp4"));
         assert!(dir.join("Clip.en.vtt").is_file() && dir.join("Clip.de-AT.srt").is_file());
         assert!(dir.join("Clip.udm-5.part").is_file(), "only subtitles move");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn working_files_are_this_downloads_alone() {
+        let dir = std::env::temp_dir().join(format!("udm-working-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for name in [
+            "Clip.mp4",
+            "Clip.udm-15.f137.mp4.part",
+            "Clip.udm-15.f140.m4a",
+            "Clip.udm-15.en.vtt",
+            "Clip (2).udm-16.part",
+            "Clip.udm-x.part",
+            "Clip.udm-15x.part",
+            "Clip.mp4.part",
+        ] {
+            fs::write(dir.join(name), b"x").unwrap();
+        }
+        let mut found: Vec<String> = working_files(&dir.join("Clip.mp4"))
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        found.sort();
+        assert_eq!(found, ["Clip.udm-15.en.vtt", "Clip.udm-15.f137.mp4.part", "Clip.udm-15.f140.m4a"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 

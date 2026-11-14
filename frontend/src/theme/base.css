@@ -1,9 +1,11 @@
-/* The window's controls, drawn as a desktop window draws them. Every color
-   and size comes from the theme's custom properties, which the shell sends
+/* The window's controls, drawn as Windows 11 draws them: soft corners, a
+   button's foot a shade darker than its sides, a text box's underline, and
+   the accent filling the default button and checked boxes. Every color and
+   size comes from the theme's custom properties, which the shell sends
    (AGENTS.md section 7.4); nothing here names a color of its own. */
 
 :root {
-  font-family: 'Segoe UI', system-ui, 'Noto Sans', 'Ubuntu', 'Cantarell', sans-serif;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, 'Noto Sans', 'Ubuntu', 'Cantarell', sans-serif;
   font-size: var(--text, 12px);
   line-height: 1.25;
   color: var(--fg);
@@ -39,14 +41,16 @@ button {
   color: inherit;
 }
 
-/* The focus ring shows for the keyboard only. */
+/* The focus ring shows for the keyboard only, a solid ring in the text's
+   color as Windows 11 draws it. */
 :focus {
   outline: none;
 }
 
 :focus-visible {
-  outline: 1px dotted var(--fg);
-  outline-offset: -4px;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-radius: var(--radius);
 }
 
 .u {
@@ -60,18 +64,23 @@ button {
   padding: 0 12px;
   background: var(--button);
   border: 1px solid var(--button-border);
+  border-bottom-color: var(--button-border-foot);
   border-radius: var(--radius);
   color: var(--fg);
   white-space: nowrap;
+  transition:
+    background-color 0.08s ease-out,
+    border-color 0.08s ease-out;
 }
 
 .btn:hover:not(:disabled) {
   background: var(--button-hover);
-  border-color: var(--focus);
 }
 
 .btn:active:not(:disabled) {
   background: var(--button-pressed);
+  border-bottom-color: var(--button-border);
+  color: var(--fg-muted);
 }
 
 .btn:disabled {
@@ -79,9 +88,28 @@ button {
   border-color: var(--border);
 }
 
+/* The default button is filled with the accent. */
 .btn.default {
-  border-color: var(--default-border);
-  box-shadow: inset 0 0 0 1px var(--default-border);
+  background: var(--accent);
+  border-color: var(--accent);
+  border-bottom-color: var(--accent-pressed);
+  color: var(--on-accent);
+}
+
+.btn.default:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn.default:active:not(:disabled) {
+  background: var(--accent-pressed);
+  border-color: var(--accent-pressed);
+  color: var(--on-accent);
+}
+
+.btn.default:disabled {
+  background: var(--button);
+  border-color: var(--border);
+  color: var(--fg-disabled);
 }
 
 .btn.small {
@@ -93,19 +121,32 @@ button {
 .text,
 .select {
   height: 21px;
-  padding: 0 4px;
+  padding: 0 6px;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
-  border-radius: 0;
+  border-bottom-color: var(--input-underline);
+  border-radius: var(--radius);
   color: var(--fg);
   min-width: 0;
   user-select: text;
   -webkit-user-select: text;
 }
 
+.text:hover:not(:disabled):not(:focus),
+.select:hover:not(:disabled):not(:focus) {
+  background-color: var(--button-hover);
+}
+
+/* A focused text box gets the accent's thicker underline. */
 .text:focus,
 .select:focus {
-  border-color: var(--focus);
+  border-bottom-color: var(--focus);
+  box-shadow: inset 0 -1px 0 var(--focus);
+}
+
+.text:focus-visible,
+.select:focus-visible {
+  outline: none;
 }
 
 .text:disabled,
@@ -118,57 +159,100 @@ button {
 .select {
   appearance: none;
   -webkit-appearance: none;
-  padding-right: 18px;
-  background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%),
-    linear-gradient(135deg, var(--fg) 50%, transparent 50%);
+  padding-right: 20px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
+    linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
   background-position:
-    calc(100% - 10px) 8px,
-    calc(100% - 6px) 8px;
+    calc(100% - 12px) 8px,
+    calc(100% - 8px) 8px;
   background-size: 4px 4px;
   background-repeat: no-repeat;
   background-color: var(--input-bg);
 }
 
-/* Check boxes: a square with a tick. */
-input[type='checkbox'] {
+/* Check boxes: a rounded square, filled with the accent and ticked when
+   checked. Option buttons: a ring around the accent's dot. */
+input[type='checkbox'],
+input[type='radio'] {
   appearance: none;
   -webkit-appearance: none;
-  width: 13px;
-  height: 13px;
-  margin: 0 5px 0 0;
+  width: 14px;
+  height: 14px;
+  margin: 0 6px 0 0;
   flex: none;
-  border: 1px solid var(--input-border);
+  border: 1px solid var(--input-underline);
   background: var(--input-bg);
   display: inline-grid;
   place-content: center;
   vertical-align: -2px;
+  transition:
+    background-color 0.08s ease-out,
+    border-color 0.08s ease-out;
+}
+
+input[type='checkbox'] {
+  border-radius: var(--radius);
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+  background: var(--button-hover);
 }
 
 input[type='checkbox']::before {
   content: '';
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   transform: scale(0);
-  background: var(--fg);
+  background: var(--on-accent);
   clip-path: polygon(12% 50%, 0 62%, 38% 100%, 100% 22%, 88% 10%, 38% 76%);
 }
 
-input[type='checkbox']:checked::before {
+input[type='radio']::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transform: scale(0);
+  background: var(--on-accent);
+  transition: transform 0.1s ease-out;
+}
+
+input[type='checkbox']:checked,
+input[type='radio']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+input[type='checkbox']:checked:hover:not(:disabled),
+input[type='radio']:checked:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+input[type='checkbox']:checked::before,
+input[type='radio']:checked::before {
   transform: scale(1);
 }
 
-input[type='checkbox']:disabled {
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
   border-color: var(--border);
   background: var(--face);
 }
 
-input[type='checkbox']:disabled::before {
+input[type='checkbox']:checked:disabled,
+input[type='radio']:checked:disabled {
   background: var(--fg-disabled);
+  border-color: var(--fg-disabled);
 }
 
-input[type='checkbox']:focus-visible {
-  outline: 1px dotted var(--fg);
-  outline-offset: 1px;
+input[type='checkbox']:disabled::before,
+input[type='radio']:disabled::before {
+  background: var(--face);
 }
 
 label.check {
@@ -185,11 +269,11 @@ fieldset.group {
   margin: 0;
   padding: 6px 8px 8px;
   border: 1px solid var(--border);
-  border-radius: 0;
+  border-radius: var(--radius-large);
 }
 
 fieldset.group > legend {
-  padding: 0 3px;
+  padding: 0 4px;
 }
 
 .muted {
@@ -204,27 +288,30 @@ fieldset.group > legend {
   color: var(--error);
 }
 
-/* Scroll bars, thin and in the theme's grays. */
+/* Scroll bars: a thin rounded thumb on no track, which thickens under the
+   mouse, as Windows 11's do. */
 ::-webkit-scrollbar {
-  width: 17px;
-  height: 17px;
-  background: var(--scroll-track);
+  width: 12px;
+  height: 12px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--button-border);
-  border: 6px solid var(--scroll-track);
-  border-radius: 9px;
+  background: var(--scroll-thumb);
+  background-clip: padding-box;
+  border: 4px solid transparent;
+  border-radius: 6px;
   min-height: 30px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--fg-muted);
-  border-width: 5px;
+  background-clip: padding-box;
+  border-width: 3px;
 }
 
 ::-webkit-scrollbar-corner {
-  background: var(--scroll-track);
+  background: transparent;
 }
 
 /* A dialog's body: the face with a margin, its buttons at the foot. */
@@ -251,6 +338,13 @@ fieldset.group > legend {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before {
+    transition: none !important;
+  }
 }
 
 .sr-only {

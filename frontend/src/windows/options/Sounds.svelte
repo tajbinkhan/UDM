@@ -31,7 +31,7 @@
 <fieldset class="group">
   <legend>{t('Select sounds for UDM events')}</legend>
   <ListBox
-    columns={[{ title: t('Event'), width: 190 }, { title: t('Sound file') }]}
+    columns={[{ title: t('Event'), width: 235 }, { title: t('Sound file') }]}
     count={events.length}
     bind:selected={picked}
     height={240}
