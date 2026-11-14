@@ -18,8 +18,9 @@
 // release.
 //
 // Each zip holds the files at its root (manifest.json at the top), in sorted
-// order, with one fixed time, so the same extension always makes the same
-// bytes. The extension has no build step: the zip is its source too.
+// order, with one fixed time, so the same extension makes the same bytes
+// with the same Node and zlib version. The extension has no build step: the
+// zip is its source too.
 
 const fs = require("node:fs");
 const path = require("node:path");

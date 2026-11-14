@@ -17,19 +17,20 @@ changes in the repository once it is. Until then users load it by hand
   `extension/firefox` as `installer/make-firefox.js` makes it, with the ID
   `udm@udm.local`, which AMO keeps; the script refuses to make it from a
   copy older than the Chromium extension. Both hold the files at their root
-  in a fixed order and time, so the same extension always makes the same
-  zips (`extension/test/store.test.js`).
+  in a fixed order and time, so the same extension makes the same bytes
+  with the same Node and zlib version (`extension/test/store.test.js`).
 - **The release.** The Release workflow's `extension` job checks that the
   tag matches the version in `extension/chromium/manifest.json` (a store
   takes each version once), runs the extension's tests, makes both zips and
   attaches them to the release with the installers, in its signed
   `SHA256SUMS`.
 - **Publishing on a tag**, when the repository has the stores' keys (below):
-  the `stores` job submits the Firefox zip to AMO with
+  the `firefox-store` job submits the Firefox zip to AMO with
   [web-ext](https://github.com/mozilla/web-ext) (`web-ext sign --channel
-  listed`) and uploads and publishes the Chromium zip through the Chrome Web
-  Store API. A store whose keys are missing is skipped; upload its zip from
-  the release page by hand instead.
+  listed`), and the `chrome-store` job uploads the Chromium zip through the
+  Chrome Web Store API v2 and submits it for review. The two jobs are
+  separate, so one failing does not stop the other. A store whose keys are
+  missing is skipped; upload its zip from the release page by hand instead.
 - **The privacy policy**, which both stores ask for: [privacy.md](privacy.md),
   at <https://github.com/tajbinkhan/UDM/blob/main/docs/privacy.md>.
 - **The host lets in a list of IDs.** `CHROMIUM_EXTENSION_IDS` in
@@ -39,8 +40,11 @@ changes in the repository once it is. Until then users load it by hand
   `installer/windows/udm.iss` (`ChromiumIds`) and `install-host.ps1`
   (`$ExtensionId`) list the same IDs, and that every file names the same
   Firefox ID. On macOS, Linux and in a portable copy, UDM writes the
-  browsers' host manifests again when they let in other IDs than it does,
-  so an update brings a new ID to copies registered before.
+  browsers' host manifests again when they lack an ID it lets in (one that
+  lets in more is kept), so an update brings a new ID to copies registered
+  before. On Windows, Setup writes its own manifests on every install, and
+  also the ones in UDM's data folder that Options wrote for Brave or
+  Chromium when they name the installed host.
 
 The extension has no build step: no bundler, no minifier, nothing
 transpiled. The zips are its source as it is in git.
@@ -108,19 +112,30 @@ So that each release's tag uploads and publishes the new version:
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), make a
    project and turn on the **Chrome Web Store API**.
-2. Set up the OAuth consent screen (external, with your account as a test
-   user), then make an OAuth client ID of type *Desktop app*.
+2. Set up the OAuth consent screen (external), then set its publishing
+   status to **In production**. While it is in *Testing*, Google lets its
+   refresh tokens expire after seven days, and the release's upload would
+   start failing a week later. An unverified app in production only shows
+   you a warning when you sign in to make the token. Then make an OAuth
+   client ID of type *Desktop app*.
 3. Get a refresh token for the scope
    `https://www.googleapis.com/auth/chromewebstore` with that client, as
    Google's [Chrome Web Store API guide](https://developer.chrome.com/docs/webstore/using-api)
    shows.
 4. Add the repository secrets (**Settings > Secrets and variables >
-   Actions**): `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`
-   and `CWS_EXTENSION_ID` (the item's ID).
+   Actions**): `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN`,
+   `CWS_PUBLISHER_ID` (the publisher ID the developer dashboard shows under
+   the account's settings) and `CWS_EXTENSION_ID` (the item's ID).
 
-The workflow uses the API's `v1.1` upload and publish calls. If Google
-retires them, the `stores` job fails at that step, after the GitHub release
-is out; move it to the API's current version.
+The workflow uses the API v2: `POST
+https://chromewebstore.googleapis.com/upload/v2/publishers/<publisher>/items/<item>:upload`,
+then `:fetchStatus` while the upload is still being processed, then
+`POST https://chromewebstore.googleapis.com/v2/publishers/<publisher>/items/<item>:publish`.
+Google is retiring the older `v1.1` calls. The API v2 also takes a service
+account in place of the OAuth client: add the service account's address in
+the developer dashboard's account settings, and have the job get its token
+from the service account's key instead of the refresh token. That needs a
+change to the `chrome-store` job.
 
 ## Firefox Add-ons
 

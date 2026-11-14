@@ -59,9 +59,11 @@ function readZip(buf) {
   return entries;
 }
 
-// Every file under `dir`, relative, with "/" between folders.
+// Every file under `dir`, relative, with "/" between folders, leaving out
+// hidden files and folders as the zips do.
 function filesUnder(dir, rel = "") {
   return fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((e) => {
+    if (e.name.startsWith(".")) return [];
     const name = rel ? `${rel}/${e.name}` : e.name;
     return e.isDirectory() ? filesUnder(dir, name) : [name];
   });
@@ -142,4 +144,14 @@ test("hidden files stay out of the zips", (t) => {
   for (const file of [made.chromium, made.firefox]) {
     assert.equal(readZip(fs.readFileSync(file)).some((e) => e.name.startsWith(".")), false);
   }
+});
+
+test("the extension's version is the workspace's, so the release tag check cannot be the first to see them apart", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(CHROMIUM, "manifest.json"), "utf8"));
+  const cargo = fs.readFileSync(path.join(__dirname, "..", "..", "Cargo.toml"), "utf8");
+  const workspace = cargo.slice(cargo.indexOf("[workspace.package]"));
+  const version = /^version\s*=\s*"([^"]+)"/m.exec(workspace);
+  assert.ok(version, "no version under [workspace.package] in Cargo.toml");
+  // A browser's version has only numbers: a pre-release's 0.6.0-rc.1 is 0.6.0.
+  assert.equal(manifest.version, version[1].split("-")[0]);
 });

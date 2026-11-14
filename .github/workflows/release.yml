@@ -13,8 +13,9 @@
 # files without publishing them, as artifacts kept for a day. The `docker`
 # job also pushes the server image to GitHub Container Registry for a tag.
 # The `extension` job makes the zips the browser stores take, which the
-# release carries too, and for a tag the `stores` job submits them to the
-# stores the repository has keys for (docs/extension-stores.md).
+# release carries too, and for a tag the `firefox-store` and `chrome-store`
+# jobs submit them to the stores the repository has keys for
+# (docs/extension-stores.md).
 
 name: Release
 
@@ -357,37 +358,35 @@ jobs:
             --title "UDM $TAG" \
             "$@"
 
-  # Submits the store zips once the release is out, to each store the
-  # repository has keys for (docs/extension-stores.md says how to get them).
-  # A store without keys is skipped: its zip waits on the release page to be
-  # uploaded by hand. The first listing in each store is always made by hand.
-  # A pre-release tag goes to no store.
-  stores:
-    name: Browser stores
+  # The store zips go to each store once the release is out, when the
+  # repository has that store's keys (docs/extension-stores.md says how to
+  # get them). A store without keys is skipped: its zip waits on the release
+  # page to be uploaded by hand. The first listing in each store is always
+  # made by hand. A pre-release tag goes to no store. The two stores are
+  # separate jobs, so one failing does not stop the other.
+  firefox-store:
+    name: Firefox Add-ons
     if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
     needs: [extension, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      # Secrets cannot be read in `if:`, so this tells the steps below which
-      # ones are there, without showing them.
-      - name: See which stores have keys
+      # Secrets cannot be read in `if:`, so this tells the steps below
+      # whether they are there, without showing them.
+      - name: See whether the keys are there
         id: keys
         env:
-          AMO: ${{ secrets.AMO_JWT_ISSUER != '' && secrets.AMO_JWT_SECRET != '' }}
-          CWS: ${{ secrets.CWS_CLIENT_ID != '' && secrets.CWS_CLIENT_SECRET != '' && secrets.CWS_REFRESH_TOKEN != '' && secrets.CWS_EXTENSION_ID != '' }}
-        run: |
-          echo "amo=$AMO" >> "$GITHUB_OUTPUT"
-          echo "cws=$CWS" >> "$GITHUB_OUTPUT"
+          KEYS: ${{ secrets.AMO_JWT_ISSUER != '' && secrets.AMO_JWT_SECRET != '' }}
+        run: echo "present=$KEYS" >> "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@v5
-        if: steps.keys.outputs.amo == 'true' || steps.keys.outputs.cws == 'true'
+        if: steps.keys.outputs.present == 'true'
         with:
           name: extension
           path: dist
 
       - name: Install Node
-        if: steps.keys.outputs.amo == 'true'
+        if: steps.keys.outputs.present == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -397,7 +396,7 @@ jobs:
       # its WEB_EXT_ variables. The zip is the source too: the extension has
       # no build step.
       - name: Submit the Firefox copy to addons.mozilla.org
-        if: steps.keys.outputs.amo == 'true'
+        if: steps.keys.outputs.present == 'true'
         env:
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
@@ -410,17 +409,39 @@ jobs:
             --channel listed \
             --approval-timeout 0
 
-      # The Chrome Web Store API: an access token from the refresh token,
-      # then upload the zip to the listing and publish it for review.
+  chrome-store:
+    name: Chrome Web Store
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+    needs: [extension, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: See whether the keys are there
+        id: keys
+        env:
+          KEYS: ${{ secrets.CWS_CLIENT_ID != '' && secrets.CWS_CLIENT_SECRET != '' && secrets.CWS_REFRESH_TOKEN != '' && secrets.CWS_PUBLISHER_ID != '' && secrets.CWS_EXTENSION_ID != '' }}
+        run: echo "present=$KEYS" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v5
+        if: steps.keys.outputs.present == 'true'
+        with:
+          name: extension
+          path: dist
+
+      # The Chrome Web Store API v2: an access token from the refresh token,
+      # then upload the zip to the item (waiting while the store still
+      # processes it) and submit it for review, to be published once it
+      # passes. --fail-with-body shows Google's reason when a call fails.
       - name: Upload the Chromium copy to the Chrome Web Store
-        if: steps.keys.outputs.cws == 'true'
+        if: steps.keys.outputs.present == 'true'
         env:
           CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
           CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
           CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
         run: |
-          token=$(curl -fsS https://oauth2.googleapis.com/token \
+          token=$(curl -sS --fail-with-body https://oauth2.googleapis.com/token \
             --data-urlencode "client_id=$CWS_CLIENT_ID" \
             --data-urlencode "client_secret=$CWS_CLIENT_SECRET" \
             --data-urlencode "refresh_token=$CWS_REFRESH_TOKEN" \
@@ -430,20 +451,26 @@ jobs:
             exit 1
           fi
           echo "::add-mask::$token"
+          api=https://chromewebstore.googleapis.com
+          item="publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID"
           zip=$(ls dist/UDM-*-chromium-store.zip)
-          upload=$(curl -fsS -X PUT \
-            -H "Authorization: Bearer $token" -H "x-goog-api-version: 2" \
-            -T "$zip" "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$CWS_EXTENSION_ID")
+          upload=$(curl -sS --fail-with-body -X POST \
+            -H "Authorization: Bearer $token" -H "Content-Type: application/zip" \
+            --data-binary "@$zip" "$api/upload/v2/$item:upload")
           echo "$upload"
-          if [ "$(echo "$upload" | jq -r '.uploadState')" != SUCCESS ]; then
-            echo "::error::The Chrome Web Store did not take $zip"
+          state=$(echo "$upload" | jq -r '.uploadState // empty')
+          tries=0
+          while [ "$state" = IN_PROGRESS ] && [ "$tries" -lt 30 ]; do
+            sleep 10
+            tries=$((tries + 1))
+            state=$(curl -sS --fail-with-body -H "Authorization: Bearer $token" \
+              "$api/v2/$item:fetchStatus" | jq -r '.lastAsyncUploadState // empty')
+          done
+          if [ "$state" != SUCCEEDED ]; then
+            echo "::error::The Chrome Web Store did not take $zip (upload state: ${state:-none})"
             exit 1
           fi
-          published=$(curl -fsS -X POST \
-            -H "Authorization: Bearer $token" -H "x-goog-api-version: 2" -H "Content-Length: 0" \
-            "https://www.googleapis.com/chromewebstore/v1.1/items/$CWS_EXTENSION_ID/publish")
+          published=$(curl -sS --fail-with-body -X POST \
+            -H "Authorization: Bearer $token" -H "Content-Length: 0" \
+            "$api/v2/$item:publish")
           echo "$published"
-          if ! echo "$published" | jq -e '.status | index("OK")' > /dev/null; then
-            echo "::error::The Chrome Web Store did not publish the upload"
-            exit 1
-          fi

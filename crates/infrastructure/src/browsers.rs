@@ -46,6 +46,16 @@ fn allowed_extensions(firefox: bool) -> (&'static str, serde_json::Value) {
     }
 }
 
+/// Whether the host manifest `manifest` lets in every extension UDM allows
+/// now. One that lets in more stays as it is: an ID passed to
+/// `install-host.ps1`, a manifest edited by hand, or another copy of UDM
+/// that knows a newer list.
+fn lets_in_all(manifest: &serde_json::Value, firefox: bool) -> bool {
+    let (key, allowed) = allowed_extensions(firefox);
+    let listed = manifest[key].as_array();
+    allowed.as_array().is_some_and(|wanted| wanted.iter().all(|w| listed.is_some_and(|l| l.contains(w))))
+}
+
 /// A browser UDM can register with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Browser {
@@ -575,7 +585,7 @@ impl Registrar {
     }
 
     /// Whether `b`'s registration names this registrar's host and lets in
-    /// the extensions UDM allows now, so that a registration made before a
+    /// every extension UDM allows now, so that a registration made before a
     /// store's ID was added is written again.
     #[cfg_attr(windows, allow(dead_code))]
     fn points_here(&self, b: &Browser) -> bool {
@@ -585,8 +595,7 @@ impl Registrar {
         let path = Some(self.manifest_path(b));
         let manifest =
             path.and_then(|p| std::fs::read(p).ok()).and_then(|m| serde_json::from_slice::<serde_json::Value>(&m).ok());
-        let (key, allowed) = allowed_extensions(b.firefox);
-        manifest.is_some_and(|m| m["path"] == self.host.display().to_string() && m[key] == allowed)
+        manifest.is_some_and(|m| m["path"] == self.host.display().to_string() && lets_in_all(&m, b.firefox))
     }
 
     /// Whether `b` has a registration: its manifest is there.
@@ -918,13 +927,42 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    /// The words in `text` that look like Chromium extension IDs: 32 of the
-    /// letters a to p.
-    fn chromium_ids_in(text: &str) -> std::collections::BTreeSet<String> {
-        text.split(|c: char| !c.is_ascii_alphanumeric())
-            .filter(|w| w.len() == 32 && w.bytes().all(|b| (b'a'..=b'p').contains(&b)))
-            .map(str::to_string)
+    /// The strings in double quotes in `text`.
+    fn quoted(text: &str) -> Vec<String> {
+        text.split('"').skip(1).step_by(2).map(str::to_string).collect()
+    }
+
+    /// The value of `#define <name> ...` in Setup's script `setup`, worked
+    /// out as Inno Setup's preprocessor does for what it holds: strings in
+    /// double quotes and the names of other defines, joined with `+`.
+    fn setup_define(setup: &str, name: &str) -> String {
+        let prefix = format!("#define {name} ");
+        let line = setup.lines().find(|l| l.starts_with(&prefix)).unwrap_or_else(|| panic!("no #define {name}"));
+        line[prefix.len()..]
+            .split('+')
+            .map(|part| {
+                let part = part.trim();
+                match part.strip_prefix('"').and_then(|p| p.strip_suffix('"')) {
+                    Some(text) => text.to_string(),
+                    None => setup_define(setup, part),
+                }
+            })
             .collect()
+    }
+
+    #[test]
+    fn a_manifest_that_lets_in_more_is_kept_and_one_that_lacks_an_id_is_not() {
+        let (_, allowed) = allowed_extensions(false);
+        let mut origins = allowed.as_array().unwrap().clone();
+        assert!(lets_in_all(&serde_json::json!({ "allowed_origins": origins }), false));
+        origins.push(serde_json::json!("chrome-extension://another/"));
+        assert!(lets_in_all(&serde_json::json!({ "allowed_origins": origins }), false));
+        origins.remove(0);
+        assert!(!lets_in_all(&serde_json::json!({ "allowed_origins": origins }), false));
+        assert!(!lets_in_all(&serde_json::json!({}), false));
+        assert!(!lets_in_all(&serde_json::json!({ "allowed_origins": "x" }), false));
+        assert!(lets_in_all(&serde_json::json!({ "allowed_extensions": [FIREFOX_EXTENSION_ID, "other@x"] }), true));
+        assert!(!lets_in_all(&serde_json::json!({ "allowed_extensions": ["other@x"] }), true));
     }
 
     /// A file of the repository, by its path from the root.
@@ -938,7 +976,7 @@ mod tests {
     // another (docs/extension-stores.md).
     #[test]
     fn every_file_lets_in_the_same_extensions() {
-        let ids: std::collections::BTreeSet<String> = CHROMIUM_EXTENSION_IDS.iter().map(|id| id.to_string()).collect();
+        let ids: std::collections::BTreeSet<&str> = CHROMIUM_EXTENSION_IDS.iter().copied().collect();
         assert_eq!(ids.len(), CHROMIUM_EXTENSION_IDS.len(), "an ID is listed twice");
 
         let host: serde_json::Value = serde_json::from_str(&repo_file("host/com.udm.host.json")).unwrap();
@@ -947,14 +985,25 @@ mod tests {
             serde_json::from_str(&repo_file("host/com.udm.host.firefox.json")).unwrap();
         assert_eq!(firefox_host["allowed_extensions"], allowed_extensions(true).1, "host/com.udm.host.firefox.json");
 
-        for path in ["installer/windows/udm.iss", "install-host.ps1"] {
-            assert_eq!(chromium_ids_in(&repo_file(path)), ids, "{path}");
-        }
+        let listed: Vec<String> = CHROMIUM_EXTENSION_IDS.iter().map(|id| id.to_string()).collect();
         let setup = repo_file("installer/windows/udm.iss");
-        assert!(setup.contains(&format!("#define FirefoxId \"{FIREFOX_EXTENSION_ID}\"")), "udm.iss");
-        assert!(setup.contains(&format!("#define ExtensionId \"{}\"", CHROMIUM_EXTENSION_IDS[0])), "udm.iss");
+        let setup_ids: Vec<String> =
+            setup_define(&setup, "ChromiumIds").split_whitespace().map(str::to_string).collect();
+        assert_eq!(setup_ids, listed, "ChromiumIds in udm.iss");
+        assert_eq!(setup_define(&setup, "ExtensionId"), CHROMIUM_EXTENSION_IDS[0], "ExtensionId in udm.iss");
+        assert_eq!(setup_define(&setup, "FirefoxId"), FIREFOX_EXTENSION_ID, "FirefoxId in udm.iss");
+
         let script = repo_file("install-host.ps1");
-        assert!(script.contains(&format!("[string]$FirefoxId = \"{FIREFOX_EXTENSION_ID}\"")), "install-host.ps1");
+        let param = |name: &str| {
+            let line = script
+                .lines()
+                .map(str::trim)
+                .find(|l| l.contains(&format!("]${name} =")))
+                .unwrap_or_else(|| panic!("no ${name} in install-host.ps1"));
+            quoted(line)
+        };
+        assert_eq!(param("ExtensionId"), listed, "$ExtensionId in install-host.ps1");
+        assert_eq!(param("FirefoxId"), [FIREFOX_EXTENSION_ID], "$FirefoxId in install-host.ps1");
         assert!(
             repo_file("installer/linux/AppRun").contains(&format!("\"$2\" = \"{FIREFOX_EXTENSION_ID}\"")),
             "installer/linux/AppRun"
@@ -1009,6 +1058,13 @@ mod tests {
         assert!(!r.points_here(&chrome));
         r.register(&chrome).unwrap();
         assert!(r.points_here(&chrome));
+        // One that lets in more, such as an ID given to install-host.ps1,
+        // stays as it is.
+        let mut more = manifest.clone();
+        more["allowed_origins"].as_array_mut().unwrap().push(serde_json::json!("chrome-extension://more/"));
+        std::fs::write(&path, serde_json::to_vec(&more).unwrap()).unwrap();
+        assert!(r.points_here(&chrome));
+        r.register(&chrome).unwrap();
         let moved = Registrar::new(&dir.display().to_string(), dir.clone(), dir.join("elsewhere"));
         assert!(!moved.points_here(&chrome));
         r.unregister(&chrome).unwrap();

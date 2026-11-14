@@ -107,7 +107,7 @@ Name: "{autodesktop}\UDM"; Filename: "{app}\udm-gui.exe"; WorkingDir: "{app}"; I
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing the Microsoft Edge WebView2 runtime..."; Flags: waituntilterminated; Check: NeedsWebView2
 Filename: "{app}\udm-gui.exe"; Description: "{cm:LaunchProgram,UDM}"; Flags: nowait postinstall skipifsilent
-Filename: "{app}\extension"; Description: "Open the extension folder, to load it in the browser"; Flags: shellexec nowait postinstall skipifsilent unchecked
+Filename: "{app}\extension"; Description: "Open the extension folder, to load it in the browser"; Flags: shellexec nowait postinstall skipifsilent unchecked; Check: LoadsByHand
 
 [InstallDelete]
 ; The shortcuts of UDM's earlier names, Pullbay (0.4) and UIDM (up to 0.3.3).
@@ -204,10 +204,33 @@ begin
   end;
 end;
 
-{ A native-messaging manifest: where udm-host.exe is, and the extensions
-  allowed to start it. Allowed is the last line, such as
+{ Whether the Chromium extension is still loaded by hand: it has no page in
+  the Chrome Web Store yet. }
+function LoadsByHand(): Boolean;
+begin
+  Result := ChromeStorePage = '';
+end;
+
+{ Whether the manifest at Path names this install's udm-host.exe, as the
+  ones UDM writes in its data folder when Options registers Brave or
+  Chromium do. A folder name outside ASCII, which UDM writes as is, does not
+  match, and such a manifest is left as it is. }
+function NamesThisHost(Path: String): Boolean;
+var
+  Raw: AnsiString;
+  Json: String;
+begin
+  Result := False;
+  if not LoadStringFromFile(Path, Raw) then
+    exit;
+  Json := Raw;
+  Result := Pos(Lowercase(JsonString(ExpandConstant('{app}\udm-host.exe'))), Lowercase(Json)) > 0;
+end;
+
+{ A native-messaging manifest in Dir: where udm-host.exe is, and the
+  extensions allowed to start it. Allowed is the last line, such as
   "allowed_origins": [...]. }
-procedure WriteHostManifest(FileName, Allowed: String);
+procedure WriteHostManifest(Dir, FileName, Allowed: String);
 var
   Json, Path: String;
 begin
@@ -219,7 +242,7 @@ begin
     '  "path": ' + JsonString(ExpandConstant('{app}\udm-host.exe')) + ',' + #13#10 +
     '  ' + Allowed + #13#10 +
     '}' + #13#10;
-  Path := ExpandConstant('{app}\') + FileName;
+  Path := AddBackslash(Dir) + FileName;
   if not SaveStringToFile(Path, Json, False) then
     RaiseException('Could not write ' + Path);
 end;
@@ -391,11 +414,22 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Data: String;
 begin
   if CurStep = ssPostInstall then
   begin
-    WriteHostManifest('{#HostName}.json', '"allowed_origins": [' + ChromiumOrigins() + ']');
-    WriteHostManifest('{#HostName}.firefox.json', '"allowed_extensions": ["{#FirefoxId}"]');
+    WriteHostManifest(ExpandConstant('{app}'), '{#HostName}.json', '"allowed_origins": [' + ChromiumOrigins() + ']');
+    WriteHostManifest(ExpandConstant('{app}'), '{#HostName}.firefox.json', '"allowed_extensions": ["{#FirefoxId}"]');
+    { Browsers registered from Options (Brave, Chromium) read the manifests
+      in UDM's data folder, which UDM itself does not write again on
+      Windows: bring the ones for this install up to date, so they let in
+      the extensions this version does. }
+    Data := ExpandConstant('{localappdata}\UDM');
+    if NamesThisHost(Data + '\{#HostName}.json') then
+      WriteHostManifest(Data, '{#HostName}.json', '"allowed_origins": [' + ChromiumOrigins() + ']');
+    if NamesThisHost(Data + '\{#HostName}.firefox.json') then
+      WriteHostManifest(Data, '{#HostName}.firefox.json', '"allowed_extensions": ["{#FirefoxId}"]');
     { The old name's programs are closed by now. Its settings, list,
       browser registrations and sign-in entry move when UDM first starts. }
     if (OldDir <> '') and DirExists(OldDir) then
@@ -423,7 +457,8 @@ begin
       'it went with ' + OldName + '''s folder, and UDM''s takes its place.' + Video;
   if ChromeStorePage <> '' then
     Chromium :=
-      'UDM is installed. To catch downloads in Chrome or Edge, add its extension from the Chrome Web Store:' + #13#10 +
+      'UDM is installed. To catch downloads in Chrome or Edge, add its extension from the Chrome Web Store ' +
+      '(Edge asks you to allow extensions from other stores first):' + #13#10 +
       '    ' + ChromeStorePage
   else
     Chromium :=

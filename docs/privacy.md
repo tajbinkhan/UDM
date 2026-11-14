@@ -50,8 +50,15 @@ read it. Its download list itself never holds cookies or request headers.
 - In memory only, for a short while: the requests of pages and players for
   about a minute, and the videos a tab played until the tab closes or moves
   to another page, to match a download or a video to the request behind it.
+  These include the bodies of the last 50 requests that sent one (forms,
+  and a page's own `XMLHttpRequest` and `fetch` calls) for about a minute,
+  so a download a form started can be sent again as the same POST. A body
+  can hold what was typed into the form.
+- In memory only, while the browser runs: UDM's download list and settings,
+  as UDM sends them, for the toolbar popup and the capture rules.
 
-Nothing else is stored, and none of it leaves the computer.
+Nothing else is kept, and none of it leaves the computer. A request body is
+sent to UDM only with the download it started.
 
 ## Permissions
 

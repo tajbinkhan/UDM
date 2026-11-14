@@ -32,6 +32,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# "-ExtensionId a,b" reaches the script as one string under powershell -File,
+# so split each on commas.
+$ExtensionId = @($ExtensionId | ForEach-Object { $_ -split "," } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $root = $PSScriptRoot
 $release = Join-Path $root "target\release"
 $hostName = "com.udm.host"

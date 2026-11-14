@@ -11,10 +11,15 @@
   checks that the host manifests, Setup, `install-host.ps1`, `AppRun` and
   `extension/firefox.json` name the same extension IDs as `browsers.rs`, and
   that the unpacked ID is the one the manifest's key gives; it failed with a
-  made-up ID added to one file only. A manifest that lets in an older list
-  is written again. Not tried: Inno Setup and PowerShell (no Windows here),
-  the Release workflow's new jobs, `web-ext sign` and the Chrome Web Store
-  API, which need the stores' accounts, and the listings themselves.
+  made-up ID added to one file only. It reads Setup's `ChromiumIds` define
+  and `install-host.ps1`'s `$ExtensionId` default themselves, not every
+  word that looks like an ID. A manifest that lacks an ID UDM lets in is
+  written again, and one that lets in more is kept. A Node test checks the
+  extension's version is the workspace's. Not tried: Inno Setup and
+  PowerShell (no Windows here), including Setup rewriting the data folder's
+  manifests; the Release workflow's new jobs, `web-ext sign` and the Chrome
+  Web Store API v2, which need the stores' accounts; and the listings
+  themselves.
 
 - More interface languages (#251). Thirteen tables were added to the window and
   the extension: Indonesian, Italian, Dutch, Polish, Brazilian Portuguese,
