@@ -17,7 +17,7 @@
   } from '../../ipc';
   import type { GrabberView } from '../../ipc/types';
   import { projection } from '../../stores/projection.svelte';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import Window from '../../components/Window.svelte';
   import MenuBar from '../../components/MenuBar.svelte';
   import Sheet from '../../components/Sheet.svelte';
@@ -33,7 +33,7 @@
 
   const view: GrabberView | null = $derived(projection.view?.window === 'grabber' ? projection.view.view : null);
 
-  const titles = ['Set start page', 'Save files to', 'Set explorer filters', 'Set file filters'];
+  const titles = [english('Set start page'), english('Save files to'), english('Set explorer filters'), english('Set file filters')];
   let step = $state(1);
   let advanced = $state([false, false, false, false]);
   let name = $state('');
@@ -141,7 +141,7 @@
 
   const menus = $derived([
     {
-      label: '&Project',
+      label: english('&Project'),
       items: [
         item('&New project', newProject),
         item('&Open project...', view?.library ? () => ((entry = view?.recent[0] ?? ''), (sheet = 'open')) : undefined),
@@ -152,13 +152,13 @@
       ],
     },
     {
-      label: '&Options',
+      label: english('&Options'),
       items: [
         item('&Settings...', () => (sheet = 'settings')),
         item('S&chedule...', view?.library ? () => (sheet = view?.project ? 'schedule' : 'mustSave') : undefined),
       ],
     },
-    { label: '&Help', items: [item('&Grabber Help', undefined)] },
+    { label: english('&Help'), items: [item('&Grabber Help', undefined)] },
   ]);
 </script>
 

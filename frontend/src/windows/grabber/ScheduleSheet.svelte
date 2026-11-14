@@ -3,7 +3,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { GrabScheduleDraft, QueueItem, Then, WakeWarning } from '../../ipc/types';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import Sheet from '../../components/Sheet.svelte';
 
   let {
@@ -26,21 +26,21 @@
   // The sheet edits a copy of what it opened with.
   let s = $state(untrack(() => structuredClone($state.snapshot(start))));
   const days: { day: number; label: string }[] = [
-    { day: 6, label: 'Sunday' },
-    { day: 0, label: 'Monday' },
-    { day: 1, label: 'Tuesday' },
-    { day: 2, label: 'Wednesday' },
-    { day: 3, label: 'Thursday' },
-    { day: 4, label: 'Friday' },
-    { day: 5, label: 'Saturday' },
+    { day: 6, label: english('Sunday') },
+    { day: 0, label: english('Monday') },
+    { day: 1, label: english('Tuesday') },
+    { day: 2, label: english('Wednesday') },
+    { day: 3, label: english('Thursday') },
+    { day: 4, label: english('Friday') },
+    { day: 5, label: english('Saturday') },
   ];
   const turnOff = $derived(s.then === 'shutDown' || s.then === 'sleep' || s.then === 'hibernate');
   const thens: { value: Then; label: string }[] = [
-    { value: 'nothing', label: 'Do nothing' },
-    { value: 'exit', label: 'Exit UDM' },
-    { value: 'sleep', label: 'Sleep' },
-    { value: 'hibernate', label: 'Hibernate' },
-    { value: 'shutDown', label: 'Shut down' },
+    { value: 'nothing', label: english('Do nothing') },
+    { value: 'exit', label: english('Exit UDM') },
+    { value: 'sleep', label: english('Sleep') },
+    { value: 'hibernate', label: english('Hibernate') },
+    { value: 'shutDown', label: english('Shut down') },
   ];
 </script>
 

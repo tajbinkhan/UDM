@@ -41,7 +41,7 @@
   } from '../../ipc';
   import type { CategoryInput, ColumnKey, FindInput, ListAction, MainView, Row, TreeNode } from '../../ipc/types';
   import { projection } from '../../stores/projection.svelte';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import Window from '../../components/Window.svelte';
   import MenuBar from '../../components/MenuBar.svelte';
   import Toolbar, { type Tool } from '../../components/Toolbar.svelte';
@@ -135,7 +135,7 @@
 
   const menus = $derived([
     {
-      label: '&Tasks',
+      label: english('&Tasks'),
       items: [
         item('&Add new download', () => void openWindow('addUrl')),
         item('Add &batch download', () => void openWindow('batch')),
@@ -151,7 +151,7 @@
       ],
     },
     {
-      label: '&File',
+      label: english('&File'),
       items: [
         item('&Download Now', when(can?.resume, act({ action: 'resume' }))),
         item('&Stop Download', when(can?.stop, act({ action: 'stop' }))),
@@ -161,7 +161,7 @@
       ],
     },
     {
-      label: '&Downloads',
+      label: english('&Downloads'),
       items: [
         item('&Pause All', when(can?.stopAll, act({ action: 'stopAll' }))),
         item('&Resume All', when(can?.resumeAll, act({ action: 'resumeAll' }))),
@@ -185,20 +185,20 @@
       ],
     },
     {
-      label: '&View',
+      label: english('&View'),
       items: [
         item('Hide &categories', () => void toggleCategories(), { checked: !view?.chrome.categoriesPanel }),
         sub('&Arrange files', [
-          arrange('name', 'By &File Name'),
-          arrange('size', 'By &Size'),
-          arrange('status', 'By St&atus'),
-          arrange('timeLeft', 'By &Time Left'),
-          arrange('speed', 'By Transfer &Rate'),
-          arrange('lastTry', 'By &Last Try Date'),
-          arrange('description', 'By &Description'),
-          arrange('saveTo', 'By Save &Path'),
-          arrange('referrer', 'By R&eferrer'),
-          arrange('page', 'By Parent &Web Page'),
+          arrange('name', english('By &File Name')),
+          arrange('size', english('By &Size')),
+          arrange('status', english('By St&atus')),
+          arrange('timeLeft', english('By &Time Left')),
+          arrange('speed', english('By Transfer &Rate')),
+          arrange('lastTry', english('By &Last Try Date')),
+          arrange('description', english('By &Description')),
+          arrange('saveTo', english('By Save &Path')),
+          arrange('referrer', english('By R&eferrer')),
+          arrange('page', english('By Parent &Web Page')),
         ]),
         sep,
         sub('&Toolbar', [
@@ -214,7 +214,7 @@
       ],
     },
     {
-      label: '&Help',
+      label: english('&Help'),
       items: [
         item('H&elp contents', undefined),
         item('&Keyboard shortcuts', undefined),
@@ -230,52 +230,52 @@
   const mainQueue = $derived(view?.chrome.queues[0]);
 
   const allTools: Tool[] = $derived([
-    { icon: 'add', label: 'Add URL', hint: 'Add a download by its address', enabled: true, run: () => void openWindow('addUrl') },
-    { icon: 'resume', label: 'Resume', hint: 'Start or resume the selected downloads', enabled: !!can?.resume, run: act({ action: 'resume' }) },
-    { icon: 'stop', label: 'Stop', hint: 'Stop the selected downloads', enabled: !!can?.stop, run: act({ action: 'stop' }) },
-    { icon: 'stopAll', label: 'Stop All', hint: 'Stop every download', enabled: !!can?.stopAll, run: act({ action: 'stopAll' }) },
-    { icon: 'delete', label: 'Delete', hint: 'Remove the selected downloads from the list', enabled: !!can?.delete, run: act({ action: 'delete' }) },
+    { icon: 'add', label: english('Add URL'), hint: english('Add a download by its address'), enabled: true, run: () => void openWindow('addUrl') },
+    { icon: 'resume', label: english('Resume'), hint: english('Start or resume the selected downloads'), enabled: !!can?.resume, run: act({ action: 'resume' }) },
+    { icon: 'stop', label: english('Stop'), hint: english('Stop the selected downloads'), enabled: !!can?.stop, run: act({ action: 'stop' }) },
+    { icon: 'stopAll', label: english('Stop All'), hint: english('Stop every download'), enabled: !!can?.stopAll, run: act({ action: 'stopAll' }) },
+    { icon: 'delete', label: english('Delete'), hint: english('Remove the selected downloads from the list'), enabled: !!can?.delete, run: act({ action: 'delete' }) },
     {
       icon: 'deleteCompleted',
-      label: 'Delete Completed',
-      hint: 'Remove every finished download from the list',
+      label: english('Delete Completed'),
+      hint: english('Remove every finished download from the list'),
       enabled: !!can?.deleteCompleted,
       run: act({ action: 'deleteCompleted' }),
     },
     {
       icon: 'options',
-      label: 'Options',
-      hint: 'Browser capture, file types, connection, proxy, logins and more',
+      label: english('Options'),
+      hint: english('Browser capture, file types, connection, proxy, logins and more'),
       enabled: !!can?.connected,
       run: () => void openWindow('options'),
     },
     {
       icon: 'scheduler',
-      label: 'Scheduler',
-      hint: 'Queues and their schedules',
+      label: english('Scheduler'),
+      hint: english('Queues and their schedules'),
       enabled: !!can?.connected,
       run: () => void openWindow('scheduler'),
     },
     {
       icon: 'startQueue',
-      label: 'Start Queue',
-      hint: 'Start the main queue, or pick a queue from the arrow',
+      label: english('Start Queue'),
+      hint: english('Start the main queue, or pick a queue from the arrow'),
       enabled: !!can?.connected && !!mainQueue && !mainQueue.running,
       run: () => mainQueue && void runListAction({ action: 'startQueue', id: mainQueue.id }),
       more: queueMenu(true),
     },
     {
       icon: 'stopQueue',
-      label: 'Stop Queue',
-      hint: 'Stop the main queue, or pick a queue from the arrow',
+      label: english('Stop Queue'),
+      hint: english('Stop the main queue, or pick a queue from the arrow'),
       enabled: !!can?.connected && !!mainQueue?.running,
       run: () => mainQueue && void runListAction({ action: 'stopQueue', id: mainQueue.id }),
       more: queueMenu(false),
     },
     {
       icon: 'grabber',
-      label: 'Grabber',
-      hint: 'Find and download the files a site links to',
+      label: english('Grabber'),
+      hint: english('Find and download the files a site links to'),
       enabled: !!can?.connected,
       run: () => void openWindow('grabber'),
     },

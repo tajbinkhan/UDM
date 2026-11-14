@@ -213,6 +213,12 @@ mod tests {
         include_str!("../../infrastructure/src/grab.rs"),
     ];
 
+    /// The frontend's calls whose first argument is English that reaches
+    /// `t()`: `t` itself, `english`, which marks text kept in a variable
+    /// for a later `t()`, and the menus' `item` and `sub`, whose labels
+    /// `mnemonic` looks up.
+    const WEB_LOOKUPS: &[&str] = &["t(", "english(", "item(", "sub("];
+
     /// The `{name}` placeholders in a string, sorted.
     fn placeholders(text: &str) -> Vec<&str> {
         let mut found: Vec<&str> = text
@@ -259,15 +265,16 @@ mod tests {
     }
 
     /// The English text of every lookup in `source`: `tr("…")` and
-    /// `trf!(lang, "…", …)` in the shell, `t('…')` or `t("…")` in the
-    /// frontend.
+    /// `trf!(lang, "…", …)` in the shell, `t('…')` or `t("…")` and the
+    /// other `WEB_LOOKUPS` in the frontend.
     fn looked_up(source: &str, opener: &str, quotes: &[char]) -> Vec<String> {
         let mut found = Vec::new();
         for (at, _) in source.match_indices(opener) {
             // `attr("` or `str("` is not a lookup, nor is `$t(` or `x.t(`
             // in the frontend.
             let before = source[..at].chars().next_back();
-            if before.is_some_and(|c| c.is_alphanumeric() || c == '_' || (opener == "t(" && (c == '$' || c == '.'))) {
+            let web = WEB_LOOKUPS.contains(&opener);
+            if before.is_some_and(|c| c.is_alphanumeric() || c == '_' || (web && (c == '$' || c == '.'))) {
                 continue;
             }
             let mut rest = &source[at + opener.len()..];
@@ -310,6 +317,10 @@ mod tests {
         assert_eq!(looked_up(rust, "tr(", &['"']), ["Pause"]);
         assert_eq!(looked_up(rust, "trf!(", &['"']), ["{n} files", "Stop"]);
         assert_eq!(looked_up("t('Open') x.t('No') $t('No')", "t(", &['\'', '"']), ["Open"]);
+        let menu =
+            "item('&Open', run), item(q.name, run), x.sub('No'), sub('S&top', []), { label: english('Add URL') }";
+        let found: Vec<String> = WEB_LOOKUPS.iter().flat_map(|o| looked_up(menu, o, &['\'', '"'])).collect();
+        assert_eq!(found, ["Add URL", "&Open", "S&top"]);
     }
 
     /// Every string the window looks up.
@@ -317,7 +328,7 @@ mod tests {
         let (rust, web) = sources();
         let mut used: Vec<String> = rust.iter().flat_map(|s| looked_up(s, "tr(", &['"'])).collect();
         used.extend(rust.iter().flat_map(|s| looked_up(s, "trf!(", &['"'])));
-        used.extend(web.iter().flat_map(|s| looked_up(s, "t(", &['\'', '"'])));
+        used.extend(web.iter().flat_map(|s| WEB_LOOKUPS.iter().flat_map(|o| looked_up(s, o, &['\'', '"']))));
         used.sort();
         used.dedup();
         used

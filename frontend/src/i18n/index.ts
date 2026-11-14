@@ -11,6 +11,15 @@ export function t(english: string, values?: Record<string, string | number>): st
   return text;
 }
 
+/** English kept in a variable and looked up later with `t()`, such as a
+ * toolbar button's label. It returns the text unchanged; it is there so the
+ * shell's tests (`crates/ui/src/i18n.rs`) find the string and require its
+ * translations. Menu labels need no mark: the tests read the labels of
+ * `item` and `sub` calls too. */
+export function english(text: string): string {
+  return text;
+}
+
 /** A menu label's text and its underlined letter: `&Tasks` is Tasks with T
  * underlined. */
 export function mnemonic(english: string): { before: string; key: string; after: string } {

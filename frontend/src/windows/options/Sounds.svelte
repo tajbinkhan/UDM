@@ -1,14 +1,14 @@
 <!-- Options > Sounds: a sound for each of UDM's events. -->
 <script lang="ts">
   import { messageOf, pickPath, playSound } from '../../ipc';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import ListBox from '../../components/ListBox.svelte';
   import { editing } from './draft.svelte';
   import PageHead from './PageHead.svelte';
 
   // The pages are drawn only while the draft exists.
   const d = $derived(editing.draft!);
-  const events = ['Download complete', 'Download failed', 'Queue processing started', 'Queue processing stopped/finished'];
+  const events = [english('Download complete'), english('Download failed'), english('Queue processing started'), english('Queue processing stopped/finished')];
   let picked = $state(-1);
   let error = $state('');
 
