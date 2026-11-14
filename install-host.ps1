@@ -9,9 +9,9 @@
 #
 # The extension's manifest carries a fixed public key, so its ID is always
 # epmjakacaejhdhldkpbjnakhfmjjbhfm and you do not need to pass one. Firefox
-# loads a copy of the extension with its own manifest, which this script makes
-# in the firefox folder (with installer\make-firefox.ps1); its ID is
-# udm@udm.local.
+# loads a copy of the extension with its own manifest; its ID is
+# udm@udm.local. In the repository the two are extension\chromium and
+# extension\firefox; a portable copy has them as extension and firefox.
 # Run .\install-host.ps1 -Uninstall to remove the registration and shortcut,
 # the "Start with Windows" entry and the notification registration.
 #
@@ -42,7 +42,9 @@ $manifestPath = Join-Path $dataDir "com.udm.host.json"
 # own manifest.
 $firefoxManifestPath = Join-Path $dataDir "com.udm.host.firefox.json"
 $firefoxKey = "HKCU:\Software\Mozilla\NativeMessagingHosts\$hostName"
-$firefoxExtension = Join-Path $root "firefox"
+$inRepo = Test-Path -PathType Leaf (Join-Path $root "extension\chromium\manifest.json")
+$chromiumExtension = if ($inRepo) { Join-Path $root "extension\chromium" } else { Join-Path $root "extension" }
+$firefoxExtension = if ($inRepo) { Join-Path $root "extension\firefox" } else { Join-Path $root "firefox" }
 $shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "UDM.lnk"
 $browserKeys = @(
     "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName",
@@ -118,7 +120,10 @@ New-Item -Path $firefoxKey -Force | Out-Null
 Set-ItemProperty -Path $firefoxKey -Name "(default)" -Value $firefoxManifestPath
 Write-Host "Registered $firefoxKey"
 
-& (Join-Path $root "installer\make-firefox.ps1") -Out $firefoxExtension
+if ($inRepo) {
+    & (Join-Path $root "installer\windows\make-firefox.ps1") -Check $firefoxExtension
+    if ($LASTEXITCODE -ne 0) { Write-Warning "Firefox would load an old copy of the extension until you run: node installer/make-firefox.js" }
+}
 
 if (-not $NoShortcut) {
     $shell = New-Object -ComObject WScript.Shell
@@ -133,7 +138,7 @@ if (-not $NoShortcut) {
 Write-Host ""
 Write-Host "Next: load the extension once."
 Write-Host "  1. Open chrome://extensions (or edge://extensions) and turn on Developer mode."
-Write-Host "  2. Click 'Load unpacked' and choose $(Join-Path $root 'extension')."
+Write-Host "  2. Click 'Load unpacked' and choose $chromiumExtension."
 Write-Host "  3. Its ID should read $ExtensionId."
 Write-Host "In Firefox, open about:debugging, choose This Firefox, then Load Temporary Add-on,"
 Write-Host "pick $(Join-Path $firefoxExtension 'manifest.json'), and allow it to access all websites."

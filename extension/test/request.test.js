@@ -23,7 +23,7 @@ const {
   proxySetting,
   bubbleGate,
   REQUEST_MATCH_MS,
-} = require("../request.js");
+} = require("../chromium/request.js");
 const { loadWorker, download, setBrowserProxy } = require("./harness.js");
 
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));

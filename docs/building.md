@@ -32,27 +32,28 @@ differs.
 | `crates/app/src/bin/udm-host.rs` | Native-messaging relay, `send` for other programs, and CLI test mode |
 | `crates/app/src/bin/udm-cli.rs`, `crates/application/src/remote/`, `crates/infrastructure/src/tool.rs` | The command-line tool: its wiring, its commands (use cases over the daemon connection), and its arguments, output and exit codes |
 | `crates/app/src/bin/udm-mcp.rs`, `crates/application/src/remote/assistant.rs`, `crates/infrastructure/src/mcp.rs` | The AI assistants' MCP server: its wiring, the requests it runs on one daemon connection, and the protocol and its tools |
-| `extension/` | MV3 extension: capture, context menu, popup |
-| `extension/_locales/` | The extension's text in each language |
+| `extension/chromium/` | MV3 extension for Chrome, Edge and other Chromium browsers: capture, context menu, popup. Edit the extension here |
+| `extension/chromium/_locales/` | The extension's text in each language |
+| `extension/chromium/rules.js` | Capture rules (file types, minimum size, excluded sites) |
+| `extension/chromium/links.js` | The links of a page for "Download all links" and "selected links" |
+| `extension/chromium/post.js` | Matching downloads to the form POSTs that started them |
+| `extension/chromium/request.js` | The request behind a download: headers, redirects, response, proxy setting |
+| `extension/chromium/media.js` | Which responses are videos and streams, per tab, and the video menu |
+| `extension/chromium/content.js` | The video button over playing videos |
+| `extension/firefox/` | The Firefox copy of `extension/chromium`, made by `node installer/make-firefox.js` and kept in git; do not edit it by hand |
 | `extension/firefox.json` | What the Firefox copy changes in `manifest.json` |
-| `extension/rules.js` | Capture rules (file types, minimum size, excluded sites) |
-| `extension/links.js` | The links of a page for "Download all links" and "selected links" |
-| `extension/post.js` | Matching downloads to the form POSTs that started them |
-| `extension/request.js` | The request behind a download: headers, redirects, response, proxy setting |
-| `extension/media.js` | Which responses are videos and streams, per tab, and the video menu |
-| `extension/content.js` | The video button over playing videos |
-| `extension/test/` | Node tests for the rules and the service worker |
+| `extension/test/` | Node tests for the rules, the service worker and the Firefox copy |
 | `assets/icon-1024.png` | The app icon's source, 1024 pixels square with a transparent background; `installer/render-icons.js` renders every other icon file from it, and the macOS disk image uses it as is |
 | `host/com.udm.host.json` | Template of the native-messaging manifest |
 | `install-host.ps1` | Builds, registers with Chrome, Edge and Firefox, adds the Start menu entry |
-| `installer/udm.iss` | Inno Setup script for `UDM-Setup-<version>.exe` |
-| `installer/build.ps1` | Builds the programs and the installer into `dist\` |
+| `installer/windows/udm.iss` | Inno Setup script for `UDM-Setup-<version>.exe` |
+| `installer/windows/build.ps1` | Builds the programs and the installer into `dist\` |
 | `installer/linux/` | `package.sh` (the `.deb`, `.rpm`, AppImage and `.tar.gz`), the tarball's `install.sh`, the AppImage's `AppRun` and the desktop entry |
 | `installer/macos/package.sh` | Builds the universal `.dmg` |
-| `installer/make-firefox.ps1` | Makes the Firefox copy of the extension, or with `-Check` tells whether one is out of date |
-| `installer/make-firefox.js` | The same for macOS and Linux, with `--check` |
+| `installer/make-firefox.js` | Makes `extension/firefox`, or with `--check` tells whether it is out of date |
+| `installer/windows/make-firefox.ps1` | The same in PowerShell, which Setup's build uses to check the copy |
 | `installer/render-icons.js` | Renders `assets/icon-1024.png` to the extension's PNGs and `assets/icon-256.png` with headless Chrome |
-| `installer/udm.ico` | Setup and shortcut icon, packed from `extension/icons` by `make-icon.js` |
+| `installer/windows/udm.ico` | Setup and shortcut icon, packed from `extension/chromium/icons` by `make-icon.js` |
 | `docs/adr/` | Architecture decisions |
 | `GLOSSARY.md` | The names of the windows and dialogs |
 
@@ -105,6 +106,9 @@ formats to make only those: `installer/linux/package.sh --skip-build deb`.
 
 Rust on Windows needs a linker. This project builds with the
 `stable-x86_64-pc-windows-gnu` toolchain plus MinGW-w64 (WinLibs) on `PATH`.
+Built that way, `udm-gui.exe` needs `WebView2Loader.dll` beside it, which the
+build puts in `target\release` and Setup installs; an MSVC build links the
+loader in.
 
 ```bash
 cargo test --workspace
@@ -166,7 +170,7 @@ To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php
 (`winget install JRSoftware.InnoSetup`), then run:
 
 ```powershell
-.\installer\build.ps1
+.\installer\windows\build.ps1
 ```
 
 It builds the release programs and writes `dist\UDM-Setup-<version>.exe`,
@@ -198,7 +202,7 @@ shell, with `{placeholders}` filled in afterwards. A language is one JSON file i
 English string to its translation, plus a line in `LANGUAGES` in
 `crates/ui/src/i18n.rs`; a missing string shows in English. The tests check that
 every key is still used and keeps its `{placeholders}`. The extension's text is
-in `extension/_locales/<code>/messages.json`, as Chrome expects; its tests
+in `extension/chromium/_locales/<code>/messages.json`, as Chrome expects; its tests
 check that every locale has the same messages as `en`. The webview shapes the
 window's text and lays it out right to left; a right-to-left language also sets
 `Language::right_to_left`, which sets the windows' direction.

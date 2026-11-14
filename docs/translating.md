@@ -10,8 +10,8 @@ you can give; a new language is welcome too.
 - **The window**: `crates/ui/src/lang/<code>.json`. Each file is one JSON
   object from the English text, which is the string's ID in the code, to its
   translation. A string missing from a table shows in English.
-- **The extension**: `extension/_locales/<code>/messages.json`, as Chrome
-  expects. `extension/_locales/en/messages.json` has a `description` for each
+- **The extension**: `extension/chromium/_locales/<code>/messages.json`, as Chrome
+  expects. `extension/chromium/_locales/en/messages.json` has a `description` for each
   message that says where it shows.
 - **The language list**: `LANGUAGES` in `crates/ui/src/i18n.rs` names each
   language and how it writes decimals and dates.
@@ -66,10 +66,12 @@ resume, scheduler, site grabber.
    language differs by it (`pt-BR`, `zh-TW`).
 2. Add a line to `LANGUAGES` in `crates/ui/src/i18n.rs`, ordered by the
    language's own name, with its decimal separator and date pattern.
-3. Add `extension/_locales/<code>/messages.json` with every message in
-   `extension/_locales/en/messages.json`, and the same placeholders.
+3. Add `extension/chromium/_locales/<code>/messages.json` with every message in
+   `extension/chromium/_locales/en/messages.json`, and the same placeholders.
 4. Add a row to the table above.
-5. Run `cargo test -p udm-ui i18n` and `node --test extension/test/*.test.js`.
+5. Run `node installer/make-firefox.js`, which copies the new locale into
+   `extension/firefox`.
+6. Run `cargo test -p udm-ui i18n` and `node --test extension/test/*.test.js`.
 
 The tests check that every key is still a string in the window, keeps its
 placeholders, and that every language has every string but those

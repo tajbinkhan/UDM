@@ -8,8 +8,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, recordMedia, START_GRACE_MS } = require("../media.js");
-const { mediaPlugin, playerContainer, samplePoints, playerCovered } = require("../rules.js");
+const { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, recordMedia, START_GRACE_MS } = require("../chromium/media.js");
+const { mediaPlugin, playerContainer, samplePoints, playerCovered } = require("../chromium/rules.js");
 const { loadWorker } = require("./harness.js");
 
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));

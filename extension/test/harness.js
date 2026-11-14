@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const english = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "_locales", "en", "messages.json"), "utf8"));
+const english = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "chromium", "_locales", "en", "messages.json"), "utf8"));
 
 // chrome.i18n.getMessage as the browser does it, from the English messages:
 // each $NAME$ in a message is its placeholder's content, in which $1..$9 are
@@ -200,7 +200,7 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
     },
     i18n: { getMessage, getUILanguage: () => "en-US" },
   };
-  const dir = path.join(__dirname, "..");
+  const dir = path.join(__dirname, "..", firefox ? "firefox" : "chromium");
   const context = vm.createContext({
     chrome,
     navigator: { userAgent: "test-agent" },
@@ -233,20 +233,14 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
 }
 
 function chromeManifest() {
-  return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"));
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "chromium", "manifest.json"), "utf8"));
 }
 
-// manifest.json as installer\make-firefox.ps1 changes it for Firefox: each
-// key of firefox.json replaces the manifest's, and null removes it.
+// The Firefox copy's manifest.json, which installer/make-firefox.js makes
+// from the Chromium one and firefox.json (firefox.test.js checks it is
+// current).
 function firefoxManifest() {
-  const dir = path.join(__dirname, "..");
-  const read = (file) => JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
-  const manifest = read("manifest.json");
-  for (const [key, value] of Object.entries(read("firefox.json"))) {
-    if (value === null) delete manifest[key];
-    else manifest[key] = value;
-  }
-  return manifest;
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "firefox", "manifest.json"), "utf8"));
 }
 
 let nextDownloadId = 1;

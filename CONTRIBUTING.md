@@ -93,7 +93,7 @@ afterwards.
 - A language is one JSON file in `crates/ui/src/lang/`, mapping each English string to its
   translation, plus a line in `LANGUAGES` in `crates/ui/src/i18n.rs`. A missing string shows in
   English.
-- The extension's text is in `extension/_locales/<code>/messages.json`, as Chrome expects.
+- The extension's text is in `extension/chromium/_locales/<code>/messages.json`, as Chrome expects.
 - The tests check that every key is still used, keeps its `{placeholders}`, and that every
   extension locale has the same messages as `en`.
 

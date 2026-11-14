@@ -4,6 +4,10 @@ description = "UDM's window: the Tauri shell that owns the window's state, windo
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+# Links no native library of its own. The name lets build.rs hand udm-app the
+# folder that keeps MinGW's default manifest out of udm-gui (as
+# DEP_UDM_UI_NO_DEFAULT_MANIFEST).
+links = "udm_ui"
 
 # AGENTS.md section 7.1: the shell embeds the built frontend (`frontend/dist`)
 # unless it is built without `embed`, which loads Vite's dev server at

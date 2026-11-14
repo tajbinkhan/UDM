@@ -4,19 +4,19 @@
 ; native-messaging host registered with Chrome, Edge and Firefox, and a Start
 ; menu shortcut.
 ;
-; Build it with installer\build.ps1, which builds the programs and passes the
+; Build it with installer\windows\build.ps1, which builds the programs and passes the
 ; version from Cargo.toml. To call the compiler yourself:
-;   ISCC.exe /DAppVersion=0.3.0 installer\udm.iss
+;   ISCC.exe /DAppVersion=0.3.0 installer\windows\udm.iss
 
 #ifndef AppVersion
   #define AppVersion "0.3.0"
 #endif
 #define HostName "com.udm.host"
-; Fixed by the public key in extension\manifest.json.
+; Fixed by the public key in extension\chromium\manifest.json.
 #define ExtensionId "epmjakacaejhdhldkpbjnakhfmjjbhfm"
 ; From extension\firefox.json.
 #define FirefoxId "udm@udm.local"
-#define Root ".."
+#define Root "..\.."
 
 [Setup]
 AppId={{8C6F2B1E-5D3A-4E7B-9A41-2F0C7D9E6B13}
@@ -67,9 +67,15 @@ Source: "{#Root}\target\release\udm-daemon.exe"; DestDir: "{app}"; Flags: ignore
 Source: "{#Root}\target\release\udm-gui.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\target\release\udm-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\target\release\udm-mcp.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#Root}\extension\*"; DestDir: "{app}\extension"; Excludes: "test\*,firefox.json"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Made by build.ps1 with make-firefox.ps1.
-Source: "{#Root}\firefox\*"; DestDir: "{app}\firefox"; Flags: ignoreversion recursesubdirs createallsubdirs
+; A windows-gnu build of udm-gui loads the WebView2 loader from this DLL,
+; which tauri-build copies beside it; an MSVC build links the loader in and
+; has no DLL to ship.
+Source: "{#Root}\target\release\WebView2Loader.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; Installed as extension and firefox, as before the repository split them,
+; so a browser that loaded one keeps finding it after an update. build.ps1
+; checks that the Firefox copy is current.
+Source: "{#Root}\extension\chromium\*"; DestDir: "{app}\extension"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#Root}\extension\firefox\*"; DestDir: "{app}\firefox"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "udm.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 ; Microsoft's WebView2 bootstrapper, which build.ps1 downloads: the window

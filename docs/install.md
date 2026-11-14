@@ -57,16 +57,15 @@ under [Build](building.md#build), run this from this folder:
 ```
 
 That builds the programs if needed, registers UDM with Chrome, Edge and
-Firefox, makes the Firefox copy of the extension, and adds **UDM** to the
-Start menu.
+Firefox, and adds **UDM** to the Start menu.
 
 Either way, load the extension once:
 
 1. Open `chrome://extensions` (or `edge://extensions`) and turn on
    **Developer mode**.
-2. Click **Load unpacked** and choose the `extension` folder: the one inside
-   the install folder (Setup's last page shows it and can open it), or the
-   one in this checkout.
+2. Click **Load unpacked** and choose the `extension` folder inside the
+   install folder (Setup's last page shows it and can open it), or
+   `extension/chromium` in this checkout.
 3. Check that its ID reads `epmjakacaejhdhldkpbjnakhfmjjbhfm`. The manifest
    carries a fixed public key, so the ID is the same on every machine.
 
@@ -166,16 +165,13 @@ its own manifest and the ID `udm@udm.local`. Firefox runs background scripts
 where Chrome runs a service worker, and Chrome warns about Firefox's keys, so
 the two cannot share one `manifest.json`. Setup and the macOS and Linux
 packages install the `firefox` folder next to `extension`. In a checkout it
-is made from `extension`, not kept in git, so a `firefox` folder made before
-you updated or changed the extension lacks those changes: `install-host.ps1`
-makes it again each time it runs, and so does
-`.\installer\make-firefox.ps1 -Out firefox` (or
-`node installer/make-firefox.js firefox`). Run one of them after every
-update, then reload the add-on. To tell whether a copy is out of date,
-`node installer/make-firefox.js --check firefox` (or
-`.\installer\make-firefox.ps1 -Check firefox`) lists each file that differs,
-is missing or is extra, and fails if there is any; CI checks that both
-makers produce the same copy. Setup and `install-host.ps1` register UDM with
+is `extension/firefox`, which `node installer/make-firefox.js` makes from
+`extension/chromium` and `extension/firefox.json`. Git keeps it, so after
+changing the Chromium extension run that command and commit both folders.
+`node installer/make-firefox.js --check` (or
+`.\installer\windows\make-firefox.ps1 -Check extension\firefox`) lists each
+file that differs, is missing or is extra, and fails if there is any; the
+extension's tests, CI and the package builds run it. Setup and `install-host.ps1` register UDM with
 Firefox (under
 `HKCU\Software\Mozilla\NativeMessagingHosts`, with a host manifest that names
 that ID). Until the extension is signed by Mozilla, load it for each Firefox

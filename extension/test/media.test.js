@@ -4,9 +4,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { playlistPageUrl, otherVideoPage, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, mediaRequest, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../media.js");
+const { playlistPageUrl, otherVideoPage, autoCaptureMedia, mediaFileExtension, classifyMedia, recordMedia, recordPage, videoPage, videoPageUrl, pageTitle, recentMedia, mediaMenu, mediaRequest, videoButtonAllowed, titleFileName, MEDIA_PER_TAB } = require("../chromium/media.js");
 const { loadWorker } = require("./harness.js");
-const { hiddenMenuItems } = require("../rules.js");
+const { hiddenMenuItems } = require("../chromium/rules.js");
 
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
 const response = (url, type, extra = {}) => ({
@@ -623,7 +623,7 @@ for (const firefox of [false, true]) {
 }
 
 test("a whole file's type comes from what UDM found in it", () => {
-  const { adoptFile } = require("../media.js");
+  const { adoptFile } = require("../chromium/media.js");
   const entry = { id: 1, url: "https://v.net/x.m3u8", kind: "hls", mime: "audio/mpegurl", size: 0, time: 1 };
   assert.equal(adoptFile(entry, { file: { ext: "ts", size: 10 } }), true);
   assert.equal(mediaFileExtension(entry), "ts");

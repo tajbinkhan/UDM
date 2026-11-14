@@ -1,18 +1,22 @@
-// Makes the Firefox copy of the extension, as make-firefox.ps1 does on
-// Windows, for the macOS and Linux packages:
+// Makes extension/firefox, the Firefox copy of extension/chromium, as
+// make-firefox.ps1 does in PowerShell:
 //
-//   node installer/make-firefox.js firefox
+//   node installer/make-firefox.js
 //
-// The copy is the extension folder without its tests, with manifest.json
-// changed by extension/firefox.json: each key there replaces the
-// manifest's, and null removes it.
+// The copy is the Chromium extension with manifest.json changed by
+// extension/firefox.json: each key there replaces the manifest's, and null
+// removes it. Chrome warns about Firefox's keys in Manifest V3, so the two
+// cannot share one manifest.
 //
-// The copy is made, not kept in git, so one made before the extension
-// changed silently lacks the change (#149). This tells whether a copy is
-// still what the extension makes, listing what differs, and exits with 1
-// if it is not:
+// Git keeps the copy, so it can fall behind the Chromium extension, as an
+// uncommitted copy once did (#149). This tells whether a copy is still what
+// the Chromium extension makes, listing what differs, and exits with 1 if it
+// is not:
 //
-//   node installer/make-firefox.js --check firefox
+//   node installer/make-firefox.js --check
+//
+// The extension's tests and CI run the check on extension/firefox. Both
+// commands also take another folder, such as a package's staging folder.
 //
 // Every file must be byte for byte the same and none missing or extra.
 // manifest.json is compared as JSON, since make-firefox.ps1 writes it with
@@ -22,15 +26,17 @@ const fs = require("node:fs");
 const path = require("node:path");
 const util = require("node:util");
 
-const SOURCE = path.join(__dirname, "..", "extension");
-// What the extension folder holds that the copy leaves out or remakes.
-const SKIPPED = ["test", "firefox.json", "manifest.json"];
+const EXTENSION = path.join(__dirname, "..", "extension");
+const SOURCE = path.join(EXTENSION, "chromium");
+const CHANGES = path.join(EXTENSION, "firefox.json");
+const COPY = path.join(EXTENSION, "firefox");
+// What the copy remakes instead of copying.
+const SKIPPED = ["manifest.json"];
 
 // The Firefox manifest made from `source`'s manifest.json and firefox.json.
-function firefoxManifest(source = SOURCE) {
-  const read = (file) => JSON.parse(fs.readFileSync(path.join(source, file), "utf8"));
-  const manifest = read("manifest.json");
-  for (const [key, value] of Object.entries(read("firefox.json"))) {
+function firefoxManifest(source = SOURCE, changes = CHANGES) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(source, "manifest.json"), "utf8"));
+  for (const [key, value] of Object.entries(JSON.parse(fs.readFileSync(changes, "utf8")))) {
     delete manifest[key];
     if (value !== null) manifest[key] = value;
   }
@@ -54,7 +60,7 @@ function listFiles(dir, skip = []) {
 }
 
 // Write the Firefox copy of `source` to `out`, replacing an earlier copy.
-function makeFirefox(out, source = SOURCE) {
+function makeFirefox(out = COPY, source = SOURCE) {
   if (fs.existsSync(out)) {
     // Only ever replace an earlier copy, never some other folder.
     if (fs.readdirSync(out).length && !fs.existsSync(path.join(out, "manifest.json"))) {
@@ -72,7 +78,7 @@ function makeFirefox(out, source = SOURCE) {
 
 // How the Firefox copy in `folder` differs from what `source` makes, one
 // line per difference; none when it is up to date.
-function checkFirefox(folder, source = SOURCE) {
+function checkFirefox(folder = COPY, source = SOURCE) {
   if (!fs.existsSync(folder)) return [`${folder} does not exist`];
   const differences = [];
   const expected = listFiles(source, SKIPPED);
@@ -107,22 +113,23 @@ function checkFirefox(folder, source = SOURCE) {
   return differences;
 }
 
-module.exports = { makeFirefox, checkFirefox, firefoxManifest };
+module.exports = { makeFirefox, checkFirefox, firefoxManifest, COPY };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const checking = args[0] === "--check";
-  const folder = checking ? args[1] : args[0];
-  if (!folder || args.length !== (checking ? 2 : 1)) {
-    console.error("usage: node installer/make-firefox.js [--check] <folder>");
+  const rest = checking ? args.slice(1) : args;
+  if (rest.length > 1 || rest.some((a) => a.startsWith("--"))) {
+    console.error("usage: node installer/make-firefox.js [--check] [folder]");
     process.exit(2);
   }
+  const folder = rest[0] ?? COPY;
   if (checking) {
     const differences = checkFirefox(folder);
     if (differences.length) {
       console.error(`${folder} is not the Firefox copy of the current extension:`);
       for (const d of differences) console.error(`  ${d}`);
-      console.error(`Remake it with: node installer/make-firefox.js ${folder}`);
+      console.error(`Remake it with: node installer/make-firefox.js${rest.length ? ` ${folder}` : ""}`);
       process.exit(1);
     }
     console.log(`${folder} is up to date with the extension`);

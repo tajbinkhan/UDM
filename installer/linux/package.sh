@@ -5,8 +5,8 @@
 #   installer/linux/package.sh --skip-build deb appimage
 #
 # Formats: deb, rpm, appimage, tar (all when none is named). The version
-# comes from Cargo.toml. Needs dpkg-deb for deb, rpmbuild for rpm, node for
-# the Firefox copy of the extension, and for appimage the appimagetool
+# comes from Cargo.toml. Needs dpkg-deb for deb, rpmbuild for rpm, node to
+# check the Firefox copy of the extension, and for appimage the appimagetool
 # named by $APPIMAGETOOL (downloaded when unset).
 set -euo pipefail
 
@@ -45,11 +45,14 @@ mkdir -p "$dist"
 stage="$work/udm"
 mkdir -p "$stage"
 install -m755 "$bin/udm-gui" "$bin/udm-daemon" "$bin/udm-host" "$bin/udm-cli" "$bin/udm-mcp" "$stage/"
-mkdir -p "$stage/extension"
-(cd "$root/extension" && tar cf - --exclude=./test --exclude=./firefox.json .) | (cd "$stage/extension" && tar xf -)
-node "$root/installer/make-firefox.js" "$stage/firefox" >/dev/null
+# Packages keep the folder names extension and firefox, so a browser that
+# loaded one keeps finding it after an update. Refuse a stale Firefox copy.
+node "$root/installer/make-firefox.js" --check >/dev/null
+mkdir -p "$stage/extension" "$stage/firefox"
+cp -R "$root/extension/chromium/." "$stage/extension/"
+cp -R "$root/extension/firefox/." "$stage/firefox/"
 install -m644 "$root/README.md" "$stage/"
-icon="$root/extension/icons/128.png"
+icon="$root/extension/chromium/icons/128.png"
 
 # A system-wide tree: programs in /usr/lib/udm, `udm` (the window) and
 # `udm-cli` (the command-line tool) and `udm-mcp` (the AI assistants'

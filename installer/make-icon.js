@@ -1,5 +1,5 @@
 // Packs the extension's PNG icons and assets/icon-256.png into
-// installer/udm.ico, the icon of the setup program, its shortcuts and its
+// installer/windows/udm.ico, the icon of the setup program, its shortcuts and its
 // entry in Installed apps. Windows reads PNG images inside an .ico directly.
 //
 //   node installer/make-icon.js
@@ -7,7 +7,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const icons = path.join(__dirname, "..", "extension", "icons");
+const icons = path.join(__dirname, "..", "extension", "chromium", "icons");
 const images = [16, 32, 48, 128]
   .map((size) => path.join(icons, `${size}.png`))
   .concat(path.join(__dirname, "..", "assets", "icon-256.png"))
@@ -35,6 +35,6 @@ const entries = images.map((png) => {
   return e;
 });
 
-const out = path.join(__dirname, "udm.ico");
+const out = path.join(__dirname, "windows", "udm.ico");
 fs.writeFileSync(out, Buffer.concat([header, ...entries, ...images]));
 console.log(`wrote ${out} (${offset} bytes)`);

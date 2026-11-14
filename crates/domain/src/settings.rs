@@ -2020,7 +2020,7 @@ mod tests {
     /// be left out (the page item came later, in #150).
     #[test]
     fn the_menu_items_are_the_extensions() {
-        let worker = include_str!("../../../extension/background.js");
+        let worker = include_str!("../../../extension/chromium/background.js");
         let start = worker.find("const MENU_ITEMS = {").unwrap();
         let end = start + worker[start..].find("\n};").unwrap();
         let in_extension: Vec<&str> = worker[start..end]
