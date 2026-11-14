@@ -4,6 +4,16 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## Unreleased
+
+The browser extension is ready for the Chrome Web Store and Firefox Add-ons (#248). Each release
+carries `UDM-<version>-chromium-store.zip` and `UDM-<version>-firefox-store.zip`, made by
+`installer/make-store-zips.js`, and a tag submits them to the stores the repository has keys for.
+The extension has a [privacy policy](docs/privacy.md) that explains each permission. UDM's
+native host can let in several Chromium extension IDs, so the store's copy and the one loaded
+by hand both work once the store's ID is added ([Publishing the extension](docs/extension-stores.md)).
+Until the listings are up, the extension is still loaded by hand.
+
 ## [0.5.0](release-notes/v0.5.0.md) - 2026-11-14
 
 Minor. Pullbay is now called UDM, with a new icon and a new window drawn with Tauri and styled

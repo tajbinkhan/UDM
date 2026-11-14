@@ -12,8 +12,15 @@
   #define AppVersion "0.3.0"
 #endif
 #define HostName "com.udm.host"
-; Fixed by the public key in extension\chromium\manifest.json.
+; The unpacked extension's ID, fixed by the public key in
+; extension\chromium\manifest.json.
 #define ExtensionId "epmjakacaejhdhldkpbjnakhfmjjbhfm"
+; Every Chromium extension ID the host lets in, separated by spaces: the
+; unpacked one, then the ones the stores give their copies. To add the
+; Chrome Web Store's, write: #define ChromiumIds ExtensionId + " <its ID>"
+; It must match CHROMIUM_EXTENSION_IDS in crates\infrastructure\src\browsers.rs,
+; which a test there checks (docs\extension-stores.md).
+#define ChromiumIds ExtensionId
 ; From extension\firefox.json.
 #define FirefoxId "udm@udm.local"
 #define Root "..\.."
@@ -120,6 +127,11 @@ const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   { Written by the daemon so Windows shows UDM's notifications. }
   NotificationKey = 'Software\Classes\AppUserModelId\UDM.DownloadManager';
+  { The extension's pages in the Chrome Web Store and on Firefox Add-ons,
+    once it is listed there (docs\extension-stores.md). While one is empty,
+    the last page says how to load that copy by hand. }
+  ChromeStorePage = '';
+  FirefoxStorePage = '';
 
 var
   { The folder Pullbay or UIDM, as UDM was called in 0.4 and up to 0.3.3,
@@ -171,8 +183,29 @@ begin
   Result := Result + '"';
 end;
 
-{ A native-messaging manifest: where udm-host.exe is, and the only
-  extension allowed to start it. Allowed is the last line, such as
+{ The Chromium host manifest's allowed origins: one chrome-extension://
+  origin for each ID in ChromiumIds. }
+function ChromiumOrigins(): String;
+var
+  Ids: String;
+  Space: Integer;
+begin
+  Result := '';
+  Ids := Trim('{#ChromiumIds}');
+  while Ids <> '' do
+  begin
+    Space := Pos(' ', Ids);
+    if Space = 0 then
+      Space := Length(Ids) + 1;
+    if Result <> '' then
+      Result := Result + ', ';
+    Result := Result + '"chrome-extension://' + Copy(Ids, 1, Space - 1) + '/"';
+    Ids := Trim(Copy(Ids, Space + 1, Length(Ids)));
+  end;
+end;
+
+{ A native-messaging manifest: where udm-host.exe is, and the extensions
+  allowed to start it. Allowed is the last line, such as
   "allowed_origins": [...]. }
 procedure WriteHostManifest(FileName, Allowed: String);
 var
@@ -361,7 +394,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    WriteHostManifest('{#HostName}.json', '"allowed_origins": ["chrome-extension://{#ExtensionId}/"]');
+    WriteHostManifest('{#HostName}.json', '"allowed_origins": [' + ChromiumOrigins() + ']');
     WriteHostManifest('{#HostName}.firefox.json', '"allowed_extensions": ["{#FirefoxId}"]');
     { The old name's programs are closed by now. Its settings, list,
       browser registrations and sign-in entry move when UDM first starts. }
@@ -374,7 +407,7 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 var
-  Video: String;
+  Video, Chromium, Firefox: String;
 begin
   if CurPageID <> wpFinished then
     exit;
@@ -388,14 +421,24 @@ begin
     Video := #13#10#13#10 +
       OldName + ' is now called UDM. Remove the ' + OldName + ' extension from the browser first: ' +
       'it went with ' + OldName + '''s folder, and UDM''s takes its place.' + Video;
-  WizardForm.FinishedLabel.Caption :=
+  if ChromeStorePage <> '' then
+    Chromium :=
+      'UDM is installed. To catch downloads in Chrome or Edge, add its extension from the Chrome Web Store:' + #13#10 +
+      '    ' + ChromeStorePage
+  else
+    Chromium :=
       'UDM is installed. To catch downloads in Chrome or Edge, load its extension once:' + #13#10#13#10 +
       '1. Open chrome://extensions (or edge://extensions) and turn on Developer mode.' + #13#10 +
       '2. Click Load unpacked and choose this folder:' + #13#10 +
       '    ' + ExpandConstant('{app}\extension') + #13#10 +
-      '3. Check that its ID reads {#ExtensionId}.' + #13#10#13#10 +
+      '3. Check that its ID reads {#ExtensionId}.';
+  if FirefoxStorePage <> '' then
+    Firefox := 'In Firefox, add it from Firefox Add-ons: ' + FirefoxStorePage
+  else
+    Firefox :=
       'In Firefox, open about:debugging, choose This Firefox, then Load Temporary Add-on, ' +
-      'and pick manifest.json in ' + ExpandConstant('{app}\firefox') + '.' + Video;
+      'and pick manifest.json in ' + ExpandConstant('{app}\firefox') + '.';
+  WizardForm.FinishedLabel.Caption := Chromium + #13#10#13#10 + Firefox + Video;
 end;
 
 function InitializeUninstall(): Boolean;

@@ -1,5 +1,21 @@
 # Verified
 
+- The extension made ready for the browser stores (#248). The extension's
+  tests build both store zips into a temporary folder and read them back with
+  a zip reader of their own (each entry's local header, size and CRC): every
+  file of `extension/chromium` and `extension/firefox` at the root, sorted,
+  with one fixed time, byte for byte as in git; the Chromium manifest without
+  its `key` and otherwise unchanged; the Firefox one with `udm@udm.local`; the
+  same bytes on a second run; no zip from a stale Firefox copy; no hidden
+  files. Python's `zipfile` and `unzip -l` read the zips too. A Rust test
+  checks that the host manifests, Setup, `install-host.ps1`, `AppRun` and
+  `extension/firefox.json` name the same extension IDs as `browsers.rs`, and
+  that the unpacked ID is the one the manifest's key gives; it failed with a
+  made-up ID added to one file only. A manifest that lets in an older list
+  is written again. Not tried: Inno Setup and PowerShell (no Windows here),
+  the Release workflow's new jobs, `web-ext sign` and the Chrome Web Store
+  API, which need the stores' accounts, and the listings themselves.
+
 - More interface languages (#251). Thirteen tables were added to the window and
   the extension: Indonesian, Italian, Dutch, Polish, Brazilian Portuguese,
   Vietnamese, Turkish, Russian, Ukrainian, Japanese, Korean and Simplified and

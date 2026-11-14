@@ -51,6 +51,7 @@ differs.
 | `installer/linux/` | `package.sh` (the `.deb`, `.rpm`, AppImage and `.tar.gz`), the tarball's `install.sh`, the AppImage's `AppRun` and the desktop entry |
 | `installer/macos/package.sh` | Builds the universal `.dmg` |
 | `installer/make-firefox.js` | Makes `extension/firefox`, or with `--check` tells whether it is out of date |
+| `installer/make-store-zips.js` | Makes the zips the Chrome Web Store and Firefox Add-ons take ([Publishing the extension](extension-stores.md)) |
 | `installer/windows/make-firefox.ps1` | The same in PowerShell, which Setup's build uses to check the copy |
 | `installer/render-icons.js` | Renders `assets/icon-1024.png` to the extension's PNGs and `assets/icon-256.png` with headless Chrome |
 | `installer/windows/udm.ico` | Setup and shortcut icon, packed from `extension/chromium/icons` by `make-icon.js` |
@@ -150,7 +151,8 @@ shows up on that runner. With the target added through `rustup`,
 `--target x86_64-apple-darwin` lints that code from Linux too.
 
 The installers come from `.github/workflows/release.yml`. Set the version in
-`Cargo.toml`, commit, and push a tag that matches it:
+`Cargo.toml` and `extension/chromium/manifest.json`, remake the Firefox copy
+(`node installer/make-firefox.js`), commit, and push a tag that matches it:
 
 ```bash
 git tag v0.4.0
@@ -158,8 +160,9 @@ git push origin v0.4.0
 ```
 
 It builds every file in the table under [Install](install.md) on Windows,
-macOS and Linux runners and attaches them to a new GitHub Release for that
-tag. Release files don't count against the repository's storage (each may be
+macOS and Linux runners, and the extension's store zips
+([Publishing the extension](extension-stores.md)), and attaches them to a new
+GitHub Release for that tag. Release files don't count against the repository's storage (each may be
 up to 2 GB), and UDM's update check reads the latest release. The build
 files are kept as artifacts for one day only, to hand them from the
 builders to the release. Starting the workflow by hand

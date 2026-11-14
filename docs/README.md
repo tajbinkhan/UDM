@@ -33,6 +33,8 @@ These pages were the README's manual. Each covers one part of UDM.
 
 - **[What the browser extension takes](browser-capture.md)**: which downloads the extension hands
   to UDM, which it leaves with the browser, and the keys that change that.
+- **[The extension's privacy policy](privacy.md)**: what it reads, that it goes only to UDM on the
+  same computer, and why it asks for each permission.
 - **[Streams, batches and the site grabber](streams-batches-and-grabber.md)**: HLS, DASH and HDS
   videos, YouTube and other video sites through yt-dlp, subtitles, numbered batches, and crawling
   a site for its files.
@@ -52,6 +54,8 @@ These pages were the README's manual. Each covers one part of UDM.
   [JSON Schema](automation-api.schema.json).
 - **[Building UDM](building.md)**: where the code lives, building and packaging it on each
   system, and adding a language.
+- **[Publishing the extension](extension-stores.md)**: for maintainers, listing the extension in
+  the Chrome Web Store and on Firefox Add-ons, and what changes once it is.
 - **[Help translate](translating.md)**: the languages, which ones wait for review, and how to
   review or add one.
 

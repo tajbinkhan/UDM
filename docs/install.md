@@ -59,7 +59,11 @@ under [Build](building.md#build), run this from this folder:
 That builds the programs if needed, registers UDM with Chrome, Edge and
 Firefox, and adds **UDM** to the Start menu.
 
-Either way, load the extension once:
+Either way, add the extension to the browser once. It is not in the Chrome
+Web Store or on Firefox Add-ons yet. Once it is listed there, this page links
+to it and installing it from the store takes the place of the steps below;
+UDM then lets in both the store's copy and the one loaded by hand. Until then,
+load it by hand:
 
 1. Open `chrome://extensions` (or `edge://extensions`) and turn on
    **Developer mode**.
@@ -69,7 +73,9 @@ Either way, load the extension once:
 3. Check that its ID reads `epmjakacaejhdhldkpbjnakhfmjjbhfm`. The manifest
    carries a fixed public key, so the ID is the same on every machine.
 
-After updating, reload the extension on the extensions page. It asks for
+After updating, reload the extension on the extensions page. What it does
+with each permission, and that nothing it reads leaves your computer, is in
+its [privacy policy](privacy.md). It asks for
 `webRequest` (to send downloads started by a form as the same POST, to send
 UDM the browser's whole request, and to notice the videos a page loads),
 `webNavigation` (to find the frame a link in an `about:blank` frame belongs
@@ -203,8 +209,9 @@ file that differs, is missing or is extra, and fails if there is any; the
 extension's tests, CI and the package builds run it. Setup and `install-host.ps1` register UDM with
 Firefox (under
 `HKCU\Software\Mozilla\NativeMessagingHosts`, with a host manifest that names
-that ID). Until the extension is signed by Mozilla, load it for each Firefox
-session:
+that ID). Once the extension is listed on Firefox Add-ons, install it from
+there: Mozilla signs that copy, so it stays installed when Firefox closes, and
+it keeps the same ID. Until then, load it for each Firefox session:
 
 1. Open `about:debugging`, choose **This Firefox**, then **Load Temporary
    Add-on...**, and pick `manifest.json` in the `firefox` folder.
@@ -215,7 +222,8 @@ session:
 
 Known gaps in Firefox:
 
-- A temporary add-on is removed when Firefox closes.
+- A temporary add-on is removed when Firefox closes, until the signed copy
+  is listed on Firefox Add-ons.
 - Firefox has no way to hide its download panel, as Chrome's `downloads.ui`
   does. It needs it less: it lets the extension cancel a download at its
   headers (`webRequestBlocking`, which only the Firefox copy asks for), so
