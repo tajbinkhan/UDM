@@ -166,7 +166,14 @@ pub struct FilesError(pub String);
 pub trait DownloadFiles: Send + Sync {
     /// Send the file at `path` and the partial copy at `partial` (each with
     /// the files the engine keeps beside it) to the Recycle Bin or Trash.
-    fn recycle(&self, path: Option<&str>, partial: Option<&str>) -> Result<(), FilesError>;
+    /// `download` names the download they belong to, so only its own
+    /// working files go with them; `None` recycles the files alone.
+    fn recycle(
+        &self,
+        download: Option<DownloadId>,
+        path: Option<&str>,
+        partial: Option<&str>,
+    ) -> Result<(), FilesError>;
 
     /// Delete the resume records kept beside `paths`, so a file left there
     /// counts as a taken name rather than something to resume.

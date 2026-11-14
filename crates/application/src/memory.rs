@@ -405,7 +405,12 @@ impl Files {
 }
 
 impl DownloadFiles for Files {
-    fn recycle(&self, path: Option<&str>, partial: Option<&str>) -> Result<(), FilesError> {
+    fn recycle(
+        &self,
+        _download: Option<DownloadId>,
+        path: Option<&str>,
+        partial: Option<&str>,
+    ) -> Result<(), FilesError> {
         if self.fail {
             return Err(FilesError("the file is open".into()));
         }

@@ -148,7 +148,7 @@ where
         }
         if settings.unpack_recycle {
             for part in jobs.iter().flat_map(|j| &j.parts) {
-                if let Err(e) = self.files.recycle(Some(&part.display().to_string()), None) {
+                if let Err(e) = self.files.recycle(None, Some(&part.display().to_string()), None) {
                     not_recycled.push((part.clone(), e));
                 }
             }

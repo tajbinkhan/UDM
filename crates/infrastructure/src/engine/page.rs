@@ -215,15 +215,17 @@ fn working_stem(output: &Path, id: DownloadId) -> PathBuf {
     stem.into()
 }
 
-/// yt-dlp's working files for the download saved at `output`: the parts,
+/// yt-dlp's working files for download `id` saved at `output`: the parts,
 /// streams and subtitles it keeps under `working_stem`'s name
 /// (`<stem>.udm-<id>.*`) until the download is done. A stopped download
 /// keeps them to go on from, so they go only with the download itself.
-pub(super) fn working_files(output: &Path) -> Vec<PathBuf> {
+/// Another download whose file has the same stem (`Clip.webm` beside
+/// `Clip.mp4`) has its own id, so its files stay.
+pub(super) fn working_files(output: &Path, id: DownloadId) -> Vec<PathBuf> {
     let (Some(dir), Some(stem)) = (output.parent(), output.file_stem()) else {
         return Vec::new();
     };
-    let prefix = format!("{}.udm-", stem.to_string_lossy());
+    let prefix = format!("{}.udm-{id}", stem.to_string_lossy());
     let Ok(entries) = fs::read_dir(if dir.as_os_str().is_empty() { Path::new(".") } else { dir }) else {
         return Vec::new();
     };
@@ -231,11 +233,8 @@ pub(super) fn working_files(output: &Path) -> Vec<PathBuf> {
         .flatten()
         .filter(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            // The id, then the end of the name or an extension.
-            name.strip_prefix(&prefix).is_some_and(|rest| {
-                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-                digits > 0 && (rest.len() == digits || rest.as_bytes()[digits] == b'.')
-            })
+            // This id, then the end of the name or an extension.
+            name.strip_prefix(&prefix).is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
         })
         .map(|entry| entry.path())
         .collect()
@@ -307,13 +306,16 @@ mod tests {
             "Clip.udm-15.f140.m4a",
             "Clip.udm-15.en.vtt",
             "Clip (2).udm-16.part",
+            "Clip.udm-20.f137.webm.part",
+            "Clip.udm-150.part",
+            "Clip.udm-1.part",
             "Clip.udm-x.part",
             "Clip.udm-15x.part",
             "Clip.mp4.part",
         ] {
             fs::write(dir.join(name), b"x").unwrap();
         }
-        let mut found: Vec<String> = working_files(&dir.join("Clip.mp4"))
+        let mut found: Vec<String> = working_files(&dir.join("Clip.mp4"), DownloadId::new(15))
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
