@@ -205,6 +205,9 @@ pub struct AboutView {
     pub update: String,
     /// A newer release can be installed.
     pub can_install: bool,
+    /// What Update now does, for its tooltip: run Windows' Setup, or put
+    /// the new copy in place of this one.
+    pub install_title: String,
     pub checking: bool,
     pub connected: bool,
 }

@@ -114,12 +114,41 @@ release has a Setup attached, **Update now** (in About, and next to the
 notice in the status bar) has the daemon download `UDM-Setup-<version>.exe`
 through your proxy settings, only from this repository's release downloads.
 It checks the file's size, that it is a Windows program, and its SHA-256
-when GitHub lists one, saves it to the temp folder and runs it with
+against the release's signed checksums (below), saves it to the `update` folder in UDM's data folder and runs it with
 `/fromudm=yes` (Setup also takes Pullbay's `/frompullbay=yes`). UDM then stops its downloads, saves its list and quits;
 Setup closes whatever is left without asking again and replaces the files.
 Stopped downloads resume from the list as usual. The notice's **×** hides it
 for that version (remembered in `window.json`); a newer release shows it
-again.
+again. **Update now** works the same way on macOS and Linux (see
+[Updates on macOS and Linux](#updates-on-macos-and-linux)).
+
+**Signed releases.** Each release carries `SHA256SUMS`, the SHA-256 of every
+file in it, and `SHA256SUMS.minisig`, a [minisign](https://jedisct1.github.io/minisign/)
+signature of that list by UDM's release key. UDM has the public key built in
+(`crates/infrastructure/src/release-key.pub`) and installs nothing that the
+signed list does not name with the same checksum: a release without the two
+files, with a signature by another key, or with a file changed after signing
+is refused, and About says why. To check a download by hand:
+
+```sh
+minisign -Vm SHA256SUMS -p release-key.pub
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+### Updates on macOS and Linux
+
+**Update now** downloads the file that matches how UDM was installed, checks
+it as above, and puts it in place of the running copy. UDM then stops its
+downloads, saves its list and quits, and the new copy starts a few seconds
+later.
+
+| Installed from | Update now |
+| --- | --- |
+| The macOS disk image (`UDM.app`) | Downloads `UDM-<version>-macos.dmg`, opens it, and puts its `UDM.app` where the old one was. You need permission to write there (in `/Applications`, an administrator's account). |
+| The AppImage | Downloads `UDM-<version>-<arch>.AppImage` and replaces the AppImage file UDM runs from. |
+| The `.tar.gz`, with `install.sh` | Downloads `udm-<version>-linux-<arch>.tar.gz` and runs its `install.sh`, which replaces `~/.local/lib/udm`. |
+| The `.deb` or `.rpm` | Nothing: About says to update through your package manager (`sudo apt install ./udm_<version>_amd64.deb`, `sudo dnf install ./udm-<version>-1.x86_64.rpm`, with the files from the release page). |
+| Anything else, such as a copy built from source | Nothing: the notice links to the release page. |
 
 ## macOS
 

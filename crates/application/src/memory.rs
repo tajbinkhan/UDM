@@ -663,7 +663,7 @@ impl ReleaseSource for Releases {
         Ok(PathBuf::from("/tmp").join(&setup.name))
     }
 
-    fn run_setup(&self, path: &Path) -> Result<(), UpdateError> {
+    fn run_setup(&self, _setup: &SetupAsset, path: &Path) -> Result<(), UpdateError> {
         self.started.lock().unwrap().push(path.to_path_buf());
         Ok(())
     }

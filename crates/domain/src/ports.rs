@@ -306,16 +306,18 @@ pub trait PowerControl: Send + Sync {
 
 /// Where newer UDM releases come from.
 pub trait ReleaseSource: Send + Sync {
-    /// The latest release, with its Setup program only where one can run.
+    /// The latest release, with the file that installs it only where this
+    /// copy can install one (see `udm_domain::update::Install`).
     fn latest(&self) -> Result<Release, UpdateError>;
 
-    /// Download `setup`, check it against what the release says about it,
+    /// Download `setup`, check it against the release's signed checksums,
     /// and save it. Returns where.
     fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError>;
 
-    /// Start the Setup program saved at `path`, telling it to close UDM
-    /// without asking.
-    fn run_setup(&self, path: &Path) -> Result<(), UpdateError>;
+    /// Install `setup`, saved at `path`: start Windows' Setup, telling it to
+    /// close UDM without asking, or put the new copy in place of this one
+    /// and start it once UDM has closed.
+    fn run_setup(&self, setup: &SetupAsset, path: &Path) -> Result<(), UpdateError>;
 }
 
 /// A tool's latest release on its forge (GitHub or Codeberg).

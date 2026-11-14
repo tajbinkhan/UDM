@@ -38,7 +38,7 @@
             <button
               class="btn"
               disabled={!view.connected}
-              title={t('Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.')}
+              title={view.installTitle}
               onclick={() => void run(installUpdate)}>{t('Update now')}</button
             >
           {/if}

@@ -10,6 +10,13 @@ Minor. Pullbay is now called UDM, with a new icon and a new window drawn with Ta
 like Windows 11. Adds a command-line tool, an MCP server for AI assistants, control from a phone,
 a server mode, video sites through yt-dlp, image galleries, packages, FTPS and 13 more languages.
 
+Update now installs only files the release's signed checksum list names (#267). Each release
+carries `SHA256SUMS` and its minisign signature, `SHA256SUMS.minisig`, and UDM refuses an update
+when the signature is missing, is not by UDM's release key, or the file's SHA-256 is not on the
+list. Update now also works on macOS and Linux: it replaces `UDM.app` from the disk image, the
+AppImage, or a `.tar.gz` copy installed with `install.sh`, and starts the new copy. A `.deb` or
+`.rpm` copy says to update through the package manager.
+
 ## [0.4.0](release-notes/v0.4.0.md) - 2026-11-09
 
 Minor. UIDM is now called Pullbay, with a new icon, and keeps your settings, list and

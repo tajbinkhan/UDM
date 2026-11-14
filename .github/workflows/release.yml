@@ -260,7 +260,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Only the notes are read; gh uses GH_TOKEN, so git keeps no token.
+      # Only the notes, the signing script and the pinned public key are
+      # read; gh uses GH_TOKEN, so git keeps no token.
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
@@ -269,6 +270,24 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Update now installs only files this signed list names (#267,
+      # docs/install.md). UDM_RELEASE_KEY is the line that
+      # `node installer/sign-checksums.js keygen` wrote; without it the
+      # release fails here rather than publishing files Update now refuses.
+      # The check uses the public key UDM pins.
+      - name: Sign the checksums
+        env:
+          UDM_RELEASE_KEY: ${{ secrets.UDM_RELEASE_KEY }}
+        run: |
+          node installer/sign-checksums.js sign dist
+          node installer/sign-checksums.js verify dist crates/infrastructure/src/release-key.pub
+          cat dist/SHA256SUMS
 
       # The notes come from release-notes/<tag>.md. Without that file the
       # release gets GitHub's list of merged pull requests instead.

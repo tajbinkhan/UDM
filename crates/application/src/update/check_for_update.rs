@@ -29,7 +29,7 @@ mod tests {
     use crate::memory::{Checked, Releases};
 
     pub fn release(version: &str) -> Release {
-        Release { version: version.into(), url: "https://github.com/x/y".into(), setup: None }
+        Release { version: version.into(), url: "https://github.com/x/y".into(), setup: None, package_manager: false }
     }
 
     #[test]
