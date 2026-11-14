@@ -7,6 +7,7 @@ use udm_domain::download::{DownloadEntry, SegmentState, Status};
 use udm_domain::id::DownloadId;
 use udm_domain::queue::WhenDone;
 use udm_domain::settings::{Settings, GENERAL};
+use udm_domain::update::{Installer, Release};
 
 use super::format;
 use super::main::{display_name, is_startable};
@@ -236,6 +237,10 @@ pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
         (Some(None), _, _) => lang.tr("Downloading the update...").to_string(),
         (Some(Some(why)), _, _) => fill(lang.tr("The update did not install: {error}"), &[("error", why)]),
         (_, _, true) => lang.tr("Checking for updates...").to_string(),
+        (_, Some(Ok(Some(r))), _) if r.package_manager => fill(
+            lang.tr("UDM {version} is available. Update it through your system's package manager."),
+            &[("version", &r.version)],
+        ),
         (_, Some(Ok(Some(r))), _) => fill(lang.tr("UDM {version} is available."), &[("version", &r.version)]),
         (_, Some(Ok(None)), _) => lang.tr("This is the latest version.").to_string(),
         (_, Some(Err(why)), _) => fill(lang.tr("Could not check for updates: {error}"), &[("error", why)]),
@@ -246,6 +251,14 @@ pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
         daemon: state.daemon_version.clone().unwrap_or_default(),
         update,
         can_install: matches!(&a.update, Some(Ok(Some(r))) if r.setup.is_some()) && a.installing.is_none(),
+        install_title: match &a.update {
+            Some(Ok(Some(Release { setup: Some(s), .. }))) if s.installer != Installer::WindowsSetup => lang
+                .tr("Download the new version, check it, and put it in place of this one. UDM closes and starts again; downloads stop and can be resumed.")
+                .to_string(),
+            _ => lang
+                .tr("Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.")
+                .to_string(),
+        },
         checking: a.checking,
         connected: state.connected(),
     }
@@ -279,6 +292,35 @@ mod tests {
 
     fn entry(status: Status) -> DownloadEntry {
         crate::testing::entry(4, "big.bin", status, 41_943_040, 13_183_549)
+    }
+
+    #[test]
+    fn about_says_how_a_newer_release_installs() {
+        let release = |installer: Option<Installer>, package_manager: bool| {
+            let mut s = AppState::default();
+            let setup = installer.map(|installer| udm_domain::update::SetupAsset {
+                name: "x".into(),
+                url: "u".into(),
+                size: udm_domain::bytes::ByteCount::new(1),
+                sha256: None,
+                installer,
+                checksums: None,
+            });
+            let newer = Release { version: "9.0.0".into(), url: "u".into(), setup, package_manager };
+            let event = Event::Update { newer: Some(newer), error: None };
+            apply(&mut s, UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: 0 });
+            about(&ctx(), &s)
+        };
+        let windows = release(Some(Installer::WindowsSetup), false);
+        assert!(windows.can_install);
+        assert_eq!(windows.update, "UDM 9.0.0 is available.");
+        assert!(windows.install_title.starts_with("Download the new Setup"));
+        let appimage = release(Some(Installer::AppImage), false);
+        assert!(appimage.can_install);
+        assert!(appimage.install_title.starts_with("Download the new version"));
+        let package = release(None, true);
+        assert!(!package.can_install);
+        assert_eq!(package.update, "UDM 9.0.0 is available. Update it through your system's package manager.");
     }
 
     #[test]

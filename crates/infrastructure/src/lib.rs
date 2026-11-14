@@ -104,6 +104,7 @@ pub mod tool;
 pub mod transfers;
 pub mod unpack;
 pub mod update;
+pub mod update_in_place;
 pub mod video_tools;
 pub mod web_remote;
 pub mod window_files;

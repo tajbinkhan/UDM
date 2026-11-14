@@ -31,6 +31,9 @@ base64.workspace = true
 # sends the token itself.
 hmac = "0.13.0"
 sha2 = "0.11.1"
+# Checking the minisign signature on a release's SHA256SUMS before Update
+# now installs anything (#267). Pure Rust, no dependencies of its own.
+minisign-verify = "0.3.0"
 # Checking a download against the SHA-1 or CRC32 checksum a site publishes
 # (MD5 and SHA-2 use md-5 and sha2). Both were already in the lock file.
 sha1 = "0.10"

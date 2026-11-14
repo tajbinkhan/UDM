@@ -250,6 +250,11 @@ export type AboutView = {
 	update: string,
 	/**  A newer release can be installed. */
 	canInstall: boolean,
+	/**
+	 *  What Update now does, for its tooltip: run Windows' Setup, or put
+	 *  the new copy in place of this one.
+	 */
+	installTitle: string,
 	checking: boolean,
 	connected: boolean,
 };

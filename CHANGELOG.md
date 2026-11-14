@@ -32,6 +32,13 @@ service isn't running before they start it. The service also no longer quits whi
 commands keep using it. A command or download that came and went within five seconds did not
 count, so the service could quit less than a minute after it.
 
+Update now installs only files the release's signed checksum list names (#267). Each release
+carries `SHA256SUMS` and its minisign signature, `SHA256SUMS.minisig`, and UDM refuses an update
+when the signature is missing, is not by UDM's release key, or the file's SHA-256 is not on the
+list. Update now also works on macOS and Linux: it replaces `UDM.app` from the disk image, the
+AppImage, or a `.tar.gz` copy installed with `install.sh`, and starts the new copy. A `.deb` or
+`.rpm` copy says to update through the package manager.
+
 ## [0.4.0](release-notes/v0.4.0.md) - 2026-11-09
 
 Minor. UIDM is now called Pullbay, with a new icon, and keeps your settings, list and

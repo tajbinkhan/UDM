@@ -770,6 +770,7 @@
         "checking": false,
         "connected": true,
         "daemon": "",
+        "installTitle": "Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.",
         "update": "",
         "version": "0.4.0"
       },

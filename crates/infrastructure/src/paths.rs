@@ -388,6 +388,12 @@ pub fn remote_dir() -> io::Result<PathBuf> {
     Ok(data_dir()?.join("remote"))
 }
 
+/// Where Update now saves and unpacks a checked update, in the data folder:
+/// only this user may write there, unlike a shared temporary folder.
+pub fn update_dir() -> io::Result<PathBuf> {
+    Ok(data_dir()?.join("update"))
+}
+
 /// The site grabber's projects, templates and filters, next to the
 /// settings file.
 pub fn grabber_dir() -> io::Result<PathBuf> {
@@ -493,6 +499,18 @@ pub fn program_dirs() -> Vec<PathBuf> {
     return ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].iter().map(PathBuf::from).collect();
     #[cfg(all(not(windows), not(target_os = "macos")))]
     Vec::new()
+}
+
+/// Where `installer/linux/install.sh` puts the programs: `~/.local/lib/udm`.
+/// A copy running from there updates from the release's `.tar.gz`.
+pub fn user_lib_dir() -> Option<PathBuf> {
+    home_dir().map(|home| home.join(".local").join("lib").join("udm"))
+}
+
+/// The AppImage file this process runs from, which the AppImage runtime
+/// names in `APPIMAGE`. `None` outside an AppImage.
+pub fn appimage() -> Option<PathBuf> {
+    std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|p| p.is_absolute() && p.is_file())
 }
 
 /// The folder a portable copy downloads into when the settings name none:
