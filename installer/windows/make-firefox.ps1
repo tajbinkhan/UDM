@@ -1,22 +1,23 @@
-# Makes the Firefox copy of the extension:
+# Makes a Firefox copy of extension\chromium, as installer/make-firefox.js
+# does in Node:
 #
-#   .\installer\make-firefox.ps1 -Out firefox
+#   .\installer\windows\make-firefox.ps1 -Out <folder>
 #
-# Chrome and Edge load the extension folder as it is. Firefox needs another
+# Chrome and Edge load extension\chromium as it is. Firefox needs another
 # manifest: background scripts instead of a service worker, its own extension
 # ID, and no Chrome key; Chrome warns about the first two in Manifest V3, so
-# they cannot share one file. The copy is the extension folder without its
-# tests, with manifest.json changed by extension\firefox.json: each key there
-# replaces the manifest's, and null removes it. extension\test\harness.js
-# does the same for the tests, and installer/make-firefox.js for macOS and
-# Linux.
+# they cannot share one file. The copy is extension\chromium with
+# manifest.json changed by extension\firefox.json: each key there replaces
+# the manifest's, and null removes it. extension\test\harness.js does the
+# same for the tests.
 #
-# The copy is made, not kept in git, so one made before the extension
-# changed silently lacks the change (#149). This tells whether a copy is
-# still what the extension makes, listing what differs, and exits with 1 if
-# it is not:
+# Git keeps the copy in extension\firefox, made with
+# `node installer/make-firefox.js`, whose manifest.json spacing this script
+# does not match. This tells whether a copy is still what the Chromium
+# extension makes, listing what differs, and exits with 1 if it is not
+# (#149):
 #
-#   .\installer\make-firefox.ps1 -Check firefox
+#   .\installer\windows\make-firefox.ps1 -Check extension\firefox
 #
 # Every file must be byte for byte the same and none missing or extra;
 # manifest.json is compared as JSON, not as text. CI checks that this and
@@ -28,18 +29,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$source = Join-Path (Split-Path $PSScriptRoot) "extension"
-$skipped = "test", "firefox.json", "manifest.json"
+$extension = Join-Path (Split-Path (Split-Path $PSScriptRoot)) "extension"
+$source = Join-Path $extension "chromium"
+$changesFile = Join-Path $extension "firefox.json"
+$skipped = @("manifest.json")
 
 if ([bool]$Out -eq [bool]$Check) {
-    Write-Host "usage: .\installer\make-firefox.ps1 -Out <folder>, or -Check <folder>"
+    Write-Host "usage: .\installer\windows\make-firefox.ps1 -Out <folder>, or -Check <folder>"
     exit 2
 }
 
 # The Firefox manifest, as the object ConvertFrom-Json makes.
 function Get-FirefoxManifest {
     $manifest = Get-Content -Raw (Join-Path $source "manifest.json") | ConvertFrom-Json
-    $changes = Get-Content -Raw (Join-Path $source "firefox.json") | ConvertFrom-Json
+    $changes = Get-Content -Raw $changesFile | ConvertFrom-Json
     foreach ($change in $changes.PSObject.Properties) {
         $manifest.PSObject.Properties.Remove($change.Name)
         if ($null -ne $change.Value) {
@@ -123,7 +126,7 @@ if ($Check) {
     if ($differences.Count) {
         Write-Host "$Check is not the Firefox copy of the current extension:"
         foreach ($d in $differences) { Write-Host "  $d" }
-        Write-Host "Remake it with: .\installer\make-firefox.ps1 -Out $Check"
+        Write-Host "Remake it with: node installer/make-firefox.js $Check"
         exit 1
     }
     Write-Host "$Check is up to date with the extension"

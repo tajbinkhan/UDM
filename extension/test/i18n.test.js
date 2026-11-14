@@ -8,10 +8,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { uiText } = require("../media.js");
+const { uiText } = require("../chromium/media.js");
 const { getMessage } = require("./harness.js");
 
-const dir = path.join(__dirname, "..");
+const dir = path.join(__dirname, "..", "chromium");
 const read = (file) => fs.readFileSync(path.join(dir, file), "utf8");
 const messages = (lang) => JSON.parse(read(path.join("_locales", lang, "messages.json")));
 const en = messages("en");
@@ -24,11 +24,11 @@ const placeholders = (m) =>
     .map(([name, p]) => `${name.toLowerCase()}=${p.content}`)
     .sort();
 
-// The extension's own files, without the tests.
+// The extension's own files.
 const files = fs.readdirSync(dir);
 const code = files.filter((f) => f.endsWith(".js")).map(read).join("\n");
 const html = files.filter((f) => f.endsWith(".html")).map(read).join("\n");
-const manifest = read("manifest.json") + read("firefox.json");
+const manifest = read("manifest.json") + fs.readFileSync(path.join(__dirname, "..", "firefox.json"), "utf8");
 const all = (text, re) => [...text.matchAll(re)].map((m) => m[1]);
 
 // Messages named in code (chrome.i18n.getMessage, popup.js's t and media.js's

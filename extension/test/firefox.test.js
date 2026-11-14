@@ -1,13 +1,19 @@
-// installer/make-firefox.js's --check, which tells whether a Firefox copy of
-// the extension is still what the extension makes (#149: a copy made before
-// a change silently lacked it).
+// extension/firefox, the Firefox copy of extension/chromium that git keeps,
+// and installer/make-firefox.js's --check, which tells whether a copy is
+// still what the Chromium extension makes (#149: a copy made before a change
+// silently lacked it).
 
 const test = require("node:test");
 const assert = require("node:assert");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { makeFirefox, checkFirefox } = require("../../installer/make-firefox.js");
+const { makeFirefox, checkFirefox, COPY } = require("../../installer/make-firefox.js");
+
+test("extension/firefox is the Firefox copy of extension/chromium", () => {
+  assert.equal(COPY, path.join(__dirname, "..", "firefox"));
+  assert.deepEqual(checkFirefox(), [], "remake it with: node installer/make-firefox.js");
+});
 
 // A fresh Firefox copy in a new temporary folder, removed after the test.
 function freshCopy(t) {
@@ -22,7 +28,7 @@ test("a fresh Firefox copy passes the check and holds every extension script", (
   const out = freshCopy(t);
   assert.deepEqual(checkFirefox(out), []);
   for (const file of ["background.js", "media.js", "rules.js", "links.js", "post.js", "request.js", "content.js", "popup.js"]) {
-    assert.ok(fs.readFileSync(path.join(__dirname, "..", file)).equals(fs.readFileSync(path.join(out, file))), file);
+    assert.ok(fs.readFileSync(path.join(__dirname, "..", "chromium", file)).equals(fs.readFileSync(path.join(out, file))), file);
   }
   assert.ok(fs.readFileSync(path.join(out, "media.js"), "utf8").includes("function adoptFile("));
   assert.equal(fs.existsSync(path.join(out, "test")), false);

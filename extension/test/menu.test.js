@@ -7,7 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { loadWorker, download } = require("./harness.js");
-const { linkFileName, linkDescription } = require("../rules.js");
+const { linkFileName, linkDescription } = require("../chromium/rules.js");
 
 function connected(options, settings = {}) {
   const w = loadWorker(options);

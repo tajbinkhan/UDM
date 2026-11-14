@@ -95,36 +95,38 @@ jobs:
       - name: Test the extension
         run: node --test extension/test/*.test.js
 
-      # The Firefox copy is made from extension/, not kept in git, so a copy
-      # made before a change lacks it (#149). This makes it as the macOS and
-      # Linux packages do and checks the copy against the extension, which
-      # proves the maker and the check agree.
+      # Git keeps extension/firefox, the Firefox copy of extension/chromium,
+      # so a change to the Chromium extension must remake it (#149). This
+      # checks the kept copy, then makes a fresh one and checks that too,
+      # which proves the maker and the check agree.
       - name: Check the Firefox copy
         shell: bash
         run: |
+          node installer/make-firefox.js --check
           node installer/make-firefox.js "$RUNNER_TEMP/firefox-node"
           node installer/make-firefox.js --check "$RUNNER_TEMP/firefox-node"
 
-      # Setup, the portable zip and install-host.ps1 make it with
-      # make-firefox.ps1 instead, in PowerShell 7 and Windows PowerShell 5.1:
-      # each must make the same copy as make-firefox.js, and its own check
-      # must agree.
+      # Setup's build checks the copy with make-firefox.ps1 instead, in
+      # PowerShell 7 and Windows PowerShell 5.1: each must make the same copy
+      # as make-firefox.js, and its own check must agree.
       - name: Check the Windows Firefox copy (PowerShell 7)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          .\installer\make-firefox.ps1 -Out "$env:RUNNER_TEMP\firefox-pwsh"
+          .\installer\windows\make-firefox.ps1 -Check extension\firefox
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          .\installer\windows\make-firefox.ps1 -Out "$env:RUNNER_TEMP\firefox-pwsh"
           node installer/make-firefox.js --check "$env:RUNNER_TEMP\firefox-pwsh"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          .\installer\make-firefox.ps1 -Check "$env:RUNNER_TEMP\firefox-pwsh"
+          .\installer\windows\make-firefox.ps1 -Check "$env:RUNNER_TEMP\firefox-pwsh"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          .\installer\make-firefox.ps1 -Check "$env:RUNNER_TEMP\firefox-node"
+          .\installer\windows\make-firefox.ps1 -Check "$env:RUNNER_TEMP\firefox-node"
 
       - name: Check the Windows Firefox copy (Windows PowerShell)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          .\installer\make-firefox.ps1 -Out "$env:RUNNER_TEMP\firefox-powershell"
+          .\installer\windows\make-firefox.ps1 -Out "$env:RUNNER_TEMP\firefox-powershell"
           node installer/make-firefox.js --check "$env:RUNNER_TEMP\firefox-powershell"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          .\installer\make-firefox.ps1 -Check "$env:RUNNER_TEMP\firefox-powershell"
+          .\installer\windows\make-firefox.ps1 -Check "$env:RUNNER_TEMP\firefox-powershell"

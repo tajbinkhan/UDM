@@ -5,7 +5,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { encodeForm, encodeMultipart, rebuildPost, findPost, postById, prunePosts, POST_MATCH_MS } = require("../post.js");
+const { encodeForm, encodeMultipart, rebuildPost, findPost, postById, prunePosts, POST_MATCH_MS } = require("../chromium/post.js");
 const { loadWorker, download, setBrowserProxy } = require("./harness.js");
 
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64");

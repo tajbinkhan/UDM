@@ -268,7 +268,7 @@ lists every module.
 | [`udm-ui`](crates/ui) | The window's Tauri shell: its state, windows, tray icon and translations |
 | [`frontend/`](frontend) | The window's web frontend (Svelte 5 and TypeScript), drawn in the system's webview |
 | [`udm-app`](crates/app) | The five programs, each wiring the adapters into the use cases |
-| [`extension/`](extension) | The browser extension (Manifest V3), with its Node tests |
+| [`extension/`](extension) | The browser extension (Manifest V3): `chromium/` for Chrome, Edge and other Chromium browsers, `firefox/` its generated Firefox copy, and its Node tests |
 
 </details>
 

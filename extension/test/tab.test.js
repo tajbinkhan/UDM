@@ -7,7 +7,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS } = require("../rules.js");
+const { heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS } = require("../chromium/rules.js");
 const { loadWorker, download } = require("./harness.js");
 
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));

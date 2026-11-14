@@ -7,7 +7,7 @@
 #
 # Runs on a Mac (lipo, sips, iconutil, codesign and hdiutil come with it)
 # with the aarch64-apple-darwin and x86_64-apple-darwin targets installed,
-# and node for the Firefox copy of the extension. The app is signed ad hoc,
+# and node to check the Firefox copy of the extension. The app is signed ad hoc,
 # not with a Developer ID, so the first start needs right-click > Open.
 set -euo pipefail
 
@@ -65,9 +65,12 @@ rm "$iconset/icon_64x64.png" "$iconset/icon_1024x1024.png"
 iconutil -c icns -o "$app/Contents/Resources/udm.icns" "$iconset"
 
 # The extension to load in the browser, its Firefox copy, and the README.
-mkdir -p "$app/Contents/Resources/extension"
-(cd "$root/extension" && tar cf - --exclude=./test --exclude=./firefox.json .) | (cd "$app/Contents/Resources/extension" && tar xf -)
-node "$root/installer/make-firefox.js" "$app/Contents/Resources/firefox" >/dev/null
+# They keep the folder names extension and firefox, so a browser that loaded
+# one keeps finding it after an update. Refuse a stale Firefox copy.
+node "$root/installer/make-firefox.js" --check >/dev/null
+mkdir -p "$app/Contents/Resources/extension" "$app/Contents/Resources/firefox"
+cp -R "$root/extension/chromium/." "$app/Contents/Resources/extension/"
+cp -R "$root/extension/firefox/." "$app/Contents/Resources/firefox/"
 cp "$root/README.md" "$app/Contents/Resources/"
 
 codesign --force --deep --sign - "$app"

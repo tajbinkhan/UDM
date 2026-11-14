@@ -18,6 +18,6 @@
   },
   "bundle": {
     "active": false,
-    "icon": ["../../assets/icon-256.png", "../../installer/udm.ico"]
+    "icon": ["../../assets/icon-256.png", "../../installer/windows/udm.ico"]
   }
 }

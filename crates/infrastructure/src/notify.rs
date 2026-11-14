@@ -207,7 +207,7 @@ pub fn show(t: &Toast, on_click: impl Fn(String) + Send + Sync + 'static) -> Res
 
 /// UDM's icon, shown on its notifications.
 #[cfg(windows)]
-const ICON_PNG: &[u8] = include_bytes!("../../../extension/icons/128.png");
+const ICON_PNG: &[u8] = include_bytes!("../../../extension/chromium/icons/128.png");
 
 /// Give UDM's notifications a name and icon. Unpackaged apps need this
 /// registration before Windows shows their notifications. The icon is

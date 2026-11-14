@@ -18,7 +18,7 @@ const {
   collectPageLinks,
   selectionHasPageLinks,
   LINKS_SCRIPT_BYTES,
-} = require("../links.js");
+} = require("../chromium/links.js");
 
 // An element: its tag, attributes, text and (for a frame) its document.
 function el(tag, attrs = {}, extra = {}) {

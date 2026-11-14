@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { extensionOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed } = require("../rules.js");
+const { extensionOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed } = require("../chromium/rules.js");
 
 const RULES = {
   capture_types: ["zip", "pdf", "exe", "mp4"],
@@ -340,7 +340,7 @@ test("each browser's manifest has only the keys it understands", () => {
   const fs = require("node:fs");
   const path = require("node:path");
   const { firefoxManifest } = require("./harness.js");
-  const chrome = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf8"));
+  const chrome = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "chromium", "manifest.json"), "utf8"));
   // Chrome warns about background scripts in Manifest V3, and about keys it
   // does not know.
   assert.deepEqual(Object.keys(chrome.background), ["service_worker"]);
@@ -447,7 +447,7 @@ test("a crawl's page is rendered in a background tab and the tab is closed", asy
   assert.equal(JSON.stringify(removed), "[12,11]", "the popup is closed, and the tab; another tab's window is left alone");
 });
 test("a form's file fields are named, and whether one sends a file", () => {
-  const { formFileFields } = require("../rules.js");
+  const { formFileFields } = require("../chromium/rules.js");
   const input = (type, name, files = [], disabled = false) => ({ type, name, files, disabled });
   assert.equal(formFileFields([input("text", "q"), input("submit", "go")]), null);
   assert.equal(JSON.stringify(formFileFields([input("text", "q"), input("file", "doc"), input("FILE", "doc")])), '{"names":["doc"],"chosen":false}');
@@ -462,7 +462,7 @@ test("the content scripts can run twice in one frame", () => {
   const fs = require("node:fs");
   const path = require("node:path");
   const vm = require("node:vm");
-  const dir = path.join(__dirname, "..");
+  const dir = path.join(__dirname, "..", "chromium");
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
   const files = manifest.content_scripts.flatMap((c) => c.js);
   assert.ok(files.includes("rules.js"));

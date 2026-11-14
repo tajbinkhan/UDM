@@ -76,10 +76,10 @@ jobs:
 
       - name: Build the installer
         shell: pwsh
-        run: .\installer\build.ps1 -SkipBuild
+        run: .\installer\windows\build.ps1 -SkipBuild
 
       # Pullbay 0.4's Update now only takes a Setup named Pullbay-Setup-*.exe.
-      # The same Setup under that name lets it update to UDM (installer\udm.iss
+      # The same Setup under that name lets it update to UDM (installer\windows\udm.iss
       # takes its /frompullbay=yes).
       - name: Name a copy of the installer for Pullbay
         shell: pwsh
@@ -94,14 +94,16 @@ jobs:
           $out = "dist\portable\UDM"
           New-Item -ItemType Directory -Force "$out\target\release" | Out-Null
           Copy-Item target\release\udm-host.exe, target\release\udm-daemon.exe, target\release\udm-gui.exe, target\release\udm-cli.exe, target\release\udm-mcp.exe "$out\target\release"
-          Copy-Item -Recurse extension, host "$out"
+          # Only a windows-gnu build has it, and needs it (installer\windows\udm.iss).
+          if (Test-Path target\release\WebView2Loader.dll) { Copy-Item target\release\WebView2Loader.dll "$out\target\release" }
+          # The copy keeps the folder names extension and firefox, as Setup
+          # does; build.ps1 checked the Firefox copy above.
+          Copy-Item -Recurse extension\chromium "$out\extension"
+          Copy-Item -Recurse extension\firefox "$out\firefox"
+          Copy-Item -Recurse host "$out"
           Copy-Item install-host.ps1, README.md "$out"
           # The marker makes the zip a portable copy (docs/portable.md).
-          Copy-Item installer\portable.txt "$out"
-          New-Item -ItemType Directory -Force "$out\installer" | Out-Null
-          Copy-Item installer\make-firefox.ps1 "$out\installer"
-          Remove-Item -Recurse -Force "$out\extension\test"
-          .\installer\make-firefox.ps1 -Out "$out\firefox"
+          Copy-Item installer\windows\portable.txt "$out"
           Compress-Archive -Path $out -DestinationPath "dist\UDM-$version-windows-portable.zip"
           Remove-Item -Recurse -Force dist\portable
 
