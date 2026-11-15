@@ -253,6 +253,12 @@ fn a_magnet_link_downloads_its_files_and_then_seeds() {
     // It seeds now, outside the engine.
     let seeding = client.seeding();
     assert_eq!(seeding.iter().map(|s| s.info_hash).collect::<Vec<_>>(), [info.info_hash]);
+    // The engine's thread leaves its registry just after it reports
+    // Finished, so give it a moment rather than racing it.
+    let waited = Instant::now();
+    while engine.active_count() != 0 && waited.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
     assert_eq!(engine.active_count(), 0, "seeding takes no download slot");
     client.stop_seeding(info.info_hash);
     assert!(client.seeding().is_empty());
