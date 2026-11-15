@@ -4,6 +4,12 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## [0.7.0](release-notes/v0.7.0.md) - 2026-11-15
+
+Minor. Offers to install the missing tools at the first start and from the main window,
+downloads a new version ahead so it installs in one click, and stops offering the version you
+already have after an upgrade.
+
 ## [0.6.0](release-notes/v0.6.0.md) - 2026-11-15
 
 Minor. Adds torrents and magnet links, one network adapter for every download with DNS over
