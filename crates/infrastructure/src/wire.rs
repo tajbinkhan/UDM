@@ -254,6 +254,7 @@ pub fn event(msg: Outgoing) -> Event {
         Outgoing::Tools { tools, done, error, error_kind } => {
             Event::Tools { tools, done, error: error.map(|e| failure(e, error_kind)) }
         }
+        Outgoing::ToolProgress { tool, done, total } => Event::ToolProgress { tool, done, total },
         Outgoing::Quota { used, limit, paused, resumes_at } => Event::Quota { used, limit, paused, resumes_at },
         Outgoing::LimitLifted { lifted } => Event::LimitLifted { lifted },
         Outgoing::BrowserLink { connected, last_seen } => Event::BrowserLink { connected, last_seen },
@@ -335,6 +336,7 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
             let (error, error_kind) = optional(error);
             Outgoing::Tools { tools, done, error, error_kind }
         }
+        Event::ToolProgress { tool, done, total } => Outgoing::ToolProgress { tool, done, total },
         Event::Quota { used, limit, paused, resumes_at } => Outgoing::Quota { used, limit, paused, resumes_at },
         Event::LimitLifted { lifted } => Outgoing::LimitLifted { lifted },
         Event::BrowserLink { connected, last_seen } => Outgoing::BrowserLink { connected, last_seen },

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use udm_domain::bytes::ByteCount;
 use udm_domain::checksum::Algorithm;
-use udm_domain::ports::{FileHashes, ToolFolder, ToolReleases};
+use udm_domain::ports::{FileHashes, ToolFolder, ToolProgress, ToolReleases};
 use udm_domain::tools::{self, Platform, Tool, ToolError, MAX_TOOL_BYTES};
 
 /// Install button: download `tool`'s official build for this platform from
@@ -16,6 +16,7 @@ pub struct InstallTool<'a, R: ?Sized, F: ?Sized, H: ?Sized> {
     folder: &'a F,
     hashes: &'a H,
     platform: Platform,
+    progress: &'a ToolProgress<'a>,
 }
 
 impl<'a, R, F, H> InstallTool<'a, R, F, H>
@@ -25,7 +26,13 @@ where
     H: FileHashes + ?Sized,
 {
     pub fn new(releases: &'a R, folder: &'a F, hashes: &'a H, platform: Platform) -> Self {
-        InstallTool { releases, folder, hashes, platform }
+        InstallTool { releases, folder, hashes, platform, progress: &|_, _| {} }
+    }
+
+    /// Tell `progress` how far the download is while it runs.
+    pub fn with_progress(mut self, progress: &'a ToolProgress<'a>) -> Self {
+        self.progress = progress;
+        self
     }
 
     /// Install the latest release of `tool` at `now` (seconds since 1970).
@@ -49,7 +56,7 @@ where
         if asset.sha256.as_ref().is_some_and(|g| !g.eq_ignore_ascii_case(&listed)) {
             return Err(ToolError::WrongChecksum(source.asset.to_string()));
         }
-        let downloaded = self.releases.download(asset, ByteCount::new(MAX_TOOL_BYTES))?;
+        let downloaded = self.releases.download(asset, ByteCount::new(MAX_TOOL_BYTES), self.progress)?;
         let got = match self.hashes.digest(&downloaded, Algorithm::Sha256) {
             Ok(d) => tools::hex(&d),
             Err(e) => {
@@ -98,6 +105,18 @@ mod tests {
         assert_eq!(path, PathBuf::from("/tools/yt-dlp"));
         assert_eq!(site.asked(), ["GitHub yt-dlp/yt-dlp"]);
         assert_eq!(shelf.installs(), [(Tool::YtDlp, "2026.10.26".to_string(), 50)]);
+    }
+
+    #[test]
+    fn the_download_tells_how_far_it_is() {
+        let (site, shelf) = (site(&"ab".repeat(32)), ToolShelf::default());
+        let hashes = Hashes::with("/dl/yt-dlp_linux", digest());
+        let seen = std::sync::Mutex::new(Vec::new());
+        let progress = |done: ByteCount, total: Option<ByteCount>| {
+            seen.lock().unwrap().push((done.get(), total.map(ByteCount::get)))
+        };
+        InstallTool::new(&site, &shelf, &hashes, LINUX).with_progress(&progress).run(Tool::YtDlp, false, 50).unwrap();
+        assert_eq!(*seen.lock().unwrap(), [(5, Some(10)), (10, Some(10))]);
     }
 
     #[test]

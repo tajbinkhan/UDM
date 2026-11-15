@@ -338,6 +338,10 @@ pub struct ReleaseFile {
     pub sha256: Option<String>,
 }
 
+/// Told how far a tool's download is: the bytes that have come, and the
+/// bytes the server said it would send, when it said.
+pub type ToolProgress<'a> = dyn Fn(ByteCount, Option<ByteCount>) + Sync + 'a;
+
 /// Where yt-dlp's, ffmpeg's and gallery-dl's official releases come from.
 pub trait ToolReleases: Send + Sync {
     /// The latest release of `repository` (`owner/name`) on `forge`.
@@ -347,8 +351,10 @@ pub trait ToolReleases: Send + Sync {
     fn text(&self, file: &ReleaseFile) -> Result<String, ToolError>;
 
     /// Download `file`, up to `limit` bytes, to a file of its own that
-    /// nothing runs. Returns where.
-    fn download(&self, file: &ReleaseFile, limit: ByteCount) -> Result<PathBuf, ToolError>;
+    /// nothing runs, telling `progress` now and then how many bytes have
+    /// come and how many the server said it would send. Returns where.
+    fn download(&self, file: &ReleaseFile, limit: ByteCount, progress: &ToolProgress<'_>)
+        -> Result<PathBuf, ToolError>;
 }
 
 /// The folder UDM installs tools into.

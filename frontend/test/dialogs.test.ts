@@ -62,7 +62,7 @@ describe('the dialogs', () => {
   it('the progress window shows the download and pauses it', async () => {
     const calls = shell('download-12', 'download');
     render(Download);
-    expect(screen.getByText('633.453 MB ( 16.28 % )')).toBeTruthy();
+    expect(screen.getByText('633.45 MB (16.28%)')).toBeTruthy();
     // The server's country, its flag made by the shell.
     expect(screen.getByTitle('Server country').textContent).toBe('\u{1F1FA}\u{1F1F8} US');
     await fireEvent.click(screen.getByRole('button', { name: 'Pause' }));

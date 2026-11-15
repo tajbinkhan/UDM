@@ -996,7 +996,7 @@
         "country": "🇺🇸 US",
         "details": false,
         "doneTab": true,
-        "downloaded": "633.453 MB ( 16.28 % )",
+        "downloaded": "633.45 MB (16.28%)",
         "fraction": 0.16279999911785126,
         "id": 12,
         "limit": {
@@ -1014,56 +1014,56 @@
         "saveTo": "/home/u/Downloads/office-suite-24.8-x64.iso",
         "segments": [
           {
-            "downloaded": "63.229 MB",
+            "downloaded": "63.23 MB",
             "info": "Receiving data...",
             "reached": 0.016249999403953552,
             "start": 0.0
           },
           {
-            "downloaded": "66.633 MB",
+            "downloaded": "66.63 MB",
             "info": "Receiving data...",
             "reached": 0.1421249955892563,
             "start": 0.125
           },
           {
-            "downloaded": "70.038 MB",
+            "downloaded": "70.04 MB",
             "info": "Receiving data...",
             "reached": 0.2680000066757202,
             "start": 0.25
           },
           {
-            "downloaded": "73.442 MB",
+            "downloaded": "73.44 MB",
             "info": "Receiving data...",
             "reached": 0.39387500286102295,
             "start": 0.375
           },
           {
-            "downloaded": "76.847 MB",
+            "downloaded": "76.85 MB",
             "info": "Receiving data...",
             "reached": 0.5197499990463257,
             "start": 0.5
           },
           {
-            "downloaded": "80.252 MB",
+            "downloaded": "80.25 MB",
             "info": "Receiving data...",
             "reached": 0.6456249952316284,
             "start": 0.625
           },
           {
-            "downloaded": "83.656 MB",
+            "downloaded": "83.66 MB",
             "info": "Receiving data...",
             "reached": 0.7714999914169312,
             "start": 0.75
           },
           {
-            "downloaded": "87.061 MB",
+            "downloaded": "87.06 MB",
             "info": "Receiving data...",
             "reached": 0.8973749876022339,
             "start": 0.875
           }
         ],
-        "size": "3.800 GB",
-        "speed": "2.724 MB/s",
+        "size": "3.80 GB",
+        "speed": "2.72 MB/s",
         "speedTab": true,
         "status": "Receiving data...",
         "timeLeft": "19m 56s",
@@ -1079,7 +1079,7 @@
         "country": "",
         "details": false,
         "doneTab": true,
-        "downloaded": "1.402 GB ( 41.00 % )",
+        "downloaded": "1.40 GB (41.00%)",
         "fraction": 0.4099999964237213,
         "id": 18,
         "limit": {
@@ -1096,7 +1096,7 @@
         "running": true,
         "saveTo": "/home/u/Downloads/Open Movies Collection",
         "segments": [],
-        "size": "3.420 GB",
+        "size": "3.42 GB",
         "speed": "",
         "speedTab": true,
         "status": "Downloading",
@@ -2578,6 +2578,7 @@
           "missingTools": {
             "ask": false,
             "busy": false,
+            "busyText": "Installing...",
             "strip": true,
             "text": "Some downloads need tools UDM did not find: gallery-dl.",
             "tools": [
@@ -2585,6 +2586,7 @@
                 "hint": "",
                 "installable": true,
                 "name": "gallery-dl",
+                "progress": null,
                 "purpose": "Downloads the pictures of image galleries.",
                 "tool": "galleryDl"
               }
@@ -4594,6 +4596,7 @@
             "busy": false,
             "hint": "Downloads the official build from GitHub and checks it against its published checksum",
             "installable": true,
+            "progress": null,
             "status": "Installed by UDM (2026.11.01): /home/u/.local/share/UDM/tools/yt-dlp",
             "tool": "ytDlp"
           },
@@ -4602,6 +4605,7 @@
             "busy": false,
             "hint": "Downloads the official build from GitHub and checks it against its published checksum",
             "installable": true,
+            "progress": null,
             "status": "Using /usr/bin/ffmpeg",
             "tool": "ffmpeg"
           },
@@ -4610,6 +4614,7 @@
             "busy": false,
             "hint": "Downloads the official build from Codeberg and checks it against its published checksum",
             "installable": true,
+            "progress": null,
             "status": "gallery-dl was not found.",
             "tool": "galleryDl"
           }

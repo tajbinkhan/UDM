@@ -1152,5 +1152,9 @@
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Chrome, Edge, Brave 및 기타 Chromium 브라우저에서 '압축해제된 확장 프로그램을 로드합니다'로 선택할 폴더",
   "The folder to load in Firefox, on its about:debugging page": "Firefox의 about:debugging 페이지에서 불러올 폴더",
   "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM이 확장 프로그램 폴더를 찾지 못했습니다. 되찾으려면 UDM을 다시 설치하세요.",
-  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "새 패키지를 다운로드하고 확인한 뒤 시스템의 패키지 관리자로 설치합니다. 패키지 관리자가 암호를 묻습니다. UDM이 닫혔다가 다시 시작되며, 다운로드는 멈추고 나중에 다시 이어 받을 수 있습니다."
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "새 패키지를 다운로드하고 확인한 뒤 시스템의 패키지 관리자로 설치합니다. 패키지 관리자가 암호를 묻습니다. UDM이 닫혔다가 다시 시작되며, 다운로드는 멈추고 나중에 다시 이어 받을 수 있습니다.",
+  "{done} of {total} ({percent}%)": "{done} / {total} ({percent}%)",
+  "{done} downloaded": "{done} 다운로드됨",
+  "Checking and installing...": "확인하고 설치하는 중...",
+  "Installing... {percent}%": "설치하는 중... {percent}%"
 }

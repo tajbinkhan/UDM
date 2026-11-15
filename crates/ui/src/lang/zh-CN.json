@@ -1152,5 +1152,9 @@
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "在 Chrome、Edge、Brave 及其他 Chromium 浏览器中用“加载已解压的扩展程序”选择的文件夹",
   "The folder to load in Firefox, on its about:debugging page": "在 Firefox 的 about:debugging 页面中加载的文件夹",
   "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM 找不到它的扩展程序文件夹。请重新安装 UDM 以恢复它。",
-  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "下载新的软件包，检查后用系统的软件包管理器安装，安装时会要求输入密码。UDM 会关闭并重新启动；下载会停止，之后可以继续。"
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "下载新的软件包，检查后用系统的软件包管理器安装，安装时会要求输入密码。UDM 会关闭并重新启动；下载会停止，之后可以继续。",
+  "{done} of {total} ({percent}%)": "{done} / {total} ({percent}%)",
+  "{done} downloaded": "已下载 {done}",
+  "Checking and installing...": "正在检查并安装...",
+  "Installing... {percent}%": "正在安装... {percent}%"
 }

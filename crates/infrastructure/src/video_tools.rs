@@ -41,7 +41,7 @@ use std::sync::{Arc, Mutex};
 
 use udm_domain::bytes::ByteCount;
 use udm_domain::download::Download;
-use udm_domain::ports::{ReleaseFile, ToolFolder, ToolRelease, ToolReleases};
+use udm_domain::ports::{ReleaseFile, ToolFolder, ToolProgress, ToolRelease, ToolReleases};
 use udm_domain::sync::LockExt;
 use udm_domain::tools::{Cpu, Forge, InstalledTool, Packing, Platform, System, Tool, ToolError};
 
@@ -187,13 +187,18 @@ impl ToolReleases for ForgeTools {
         String::from_utf8(body).map_err(|_| ToolError::NoChecksum(file.name.clone()))
     }
 
-    fn download(&self, file: &ReleaseFile, limit: ByteCount) -> Result<PathBuf, ToolError> {
+    fn download(
+        &self,
+        file: &ReleaseFile,
+        limit: ByteCount,
+        progress: &ToolProgress<'_>,
+    ) -> Result<PathBuf, ToolError> {
         let folder = self.folder.clone().ok_or_else(|| no_folder(Path::new("tools")))?;
         fs::create_dir_all(&folder).map_err(|e| save_error(&folder, &e))?;
         // A name of its own, never the program's: nothing runs it here.
         let path = folder.join(format!("{}.download", file.name));
         tracing::info!(url = %file.url, "downloading a tool");
-        engine::fetch_to_file(&file.url, &Self::headers(false), &self.net(&file.url), limit, &path)
+        engine::fetch_to_file(&file.url, &Self::headers(false), &self.net(&file.url), limit, &path, progress)
             .map_err(|e| ToolError::Download(e.to_string()))?;
         Ok(path)
     }

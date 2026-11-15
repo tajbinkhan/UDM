@@ -1152,5 +1152,9 @@
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "La carpeta que se elige con «Cargar descomprimida» en Chrome, Edge, Brave y otros navegadores Chromium",
   "The folder to load in Firefox, on its about:debugging page": "La carpeta que se carga en Firefox, en su página about:debugging",
   "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM no encontró su carpeta de la extensión. Reinstale UDM para recuperarla.",
-  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Descargar el nuevo paquete, comprobarlo e instalarlo con el gestor de paquetes del sistema, que pide su contraseña. UDM se cierra y vuelve a iniciarse; las descargas se detienen y se pueden reanudar."
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Descargar el nuevo paquete, comprobarlo e instalarlo con el gestor de paquetes del sistema, que pide su contraseña. UDM se cierra y vuelve a iniciarse; las descargas se detienen y se pueden reanudar.",
+  "{done} of {total} ({percent}%)": "{done} de {total} ({percent}%)",
+  "{done} downloaded": "{done} descargados",
+  "Checking and installing...": "Comprobando e instalando...",
+  "Installing... {percent}%": "Instalando... {percent}%"
 }

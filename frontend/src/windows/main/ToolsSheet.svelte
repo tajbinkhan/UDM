@@ -6,6 +6,7 @@
   import { answerToolsOffer } from '../../ipc';
   import { t } from '../../i18n';
   import Sheet from '../../components/Sheet.svelte';
+  import ToolProgress from '../../components/ToolProgress.svelte';
   import type { MissingTools, ToolKey } from '../../ipc/types';
 
   let { missing, onclose }: { missing: MissingTools; onclose: () => void } = $props();
@@ -44,10 +45,11 @@
         {/if}
         <div class="purpose">{m.purpose}</div>
         {#if m.hint}<div class="hint">{m.hint}</div>{/if}
+        {#if m.progress}<div class="progress"><ToolProgress progress={m.progress} /></div>{/if}
       </li>
     {/each}
   </ul>
-  {#if missing.busy}<p class="lead">{t('Installing...')}</p>{/if}
+  {#if missing.busy}<p class="lead">{missing.busyText}</p>{/if}
 </Sheet>
 
 <style>
@@ -68,7 +70,8 @@
   }
 
   .purpose,
-  .hint {
+  .hint,
+  .progress {
     margin-inline-start: 22px;
     color: var(--fg-muted);
     line-height: 1.4;

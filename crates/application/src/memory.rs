@@ -1336,8 +1336,11 @@ impl udm_domain::ports::ToolReleases for ToolSite {
         &self,
         file: &udm_domain::ports::ReleaseFile,
         _: ByteCount,
+        progress: &udm_domain::ports::ToolProgress<'_>,
     ) -> Result<PathBuf, udm_domain::tools::ToolError> {
         self.downloaded.lock().unwrap().push(file.name.clone());
+        progress(ByteCount::new(5), Some(ByteCount::new(10)));
+        progress(ByteCount::new(10), Some(ByteCount::new(10)));
         Ok(PathBuf::from("/dl").join(&file.name))
     }
 }

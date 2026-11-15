@@ -126,7 +126,11 @@ missing, the dialog offers **Install gallery-dl** and **Retry**.
 
 **yt-dlp, ffmpeg and gallery-dl.** Options > Tools has **Install yt-dlp**,
 **Install ffmpeg** and **Install gallery-dl** (or **Update**) buttons, which the daemon carries out
-(`install_tool`, answered with `tools`). Nothing is downloaded without a
+(`install_tool`, answered with `tools`). While a tool downloads, the daemon
+sends `tool_progress` a few times a second, and Options, the main window's
+strip and the first start's sheet show a bar with how much has come (such as
+**12.3 MB of 40.0 MB (30%)**), then **Checking and installing...** once all
+of it is there. Nothing is downloaded without a
 click, except that **Keep yt-dlp up to date** (off unless turned on) looks
 once a day for a newer release of a yt-dlp UDM installed. What is
 downloaded, from where:
