@@ -35,5 +35,10 @@ gh release download --repo sapics/ip-location-db --dir ipdb --pattern 'geo-whois
 ```
 
 then replace the source above with the release's tag and date.
+
+As of 15 November 2026 (UDM 0.7.1), the project's latest GitHub release
+(`latest`, 13 June 2026) no longer has the `geo-whois-asn-country` files, only
+its other databases, which come under other licenses. Until a source is chosen,
+releases keep this copy.
 [Building UDM](../../../docs/building.md#making-a-release) has the rest of the
 release steps. A wrong row only shows a wrong country beside a download.
