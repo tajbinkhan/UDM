@@ -247,6 +247,24 @@ pub enum StartTabChoice {
     WhenDone,
 }
 
+/// Which copy of the extension Options' Browser page opens the folder of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ExtensionKind {
+    /// Chrome, Edge, Brave and the other Chromium browsers.
+    Chromium,
+    Firefox,
+}
+
+impl From<ExtensionKind> for udm_application::window::ExtensionCopy {
+    fn from(kind: ExtensionKind) -> Self {
+        match kind {
+            ExtensionKind::Chromium => Self::Chromium,
+            ExtensionKind::Firefox => Self::Firefox,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum SelectionChoice {

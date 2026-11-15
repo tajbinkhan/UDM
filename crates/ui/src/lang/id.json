@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "Mengunduh video dari YouTube dan banyak situs video lainnya.",
   "Downloads the pictures of image galleries.": "Mengunduh gambar dari galeri gambar.",
   "Download a new version when one is found, and ask before installing it": "Unduh versi baru saat ditemukan, dan tanyakan sebelum memasangnya",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} sudah diunduh dan siap dipasang."
+  "UDM {version} is downloaded and ready to install.": "UDM {version} sudah diunduh dan siap dipasang.",
+  "Open extension folder": "Buka folder ekstensi",
+  "Open Firefox extension folder": "Buka folder ekstensi Firefox",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Folder yang dipilih dengan \"Muat yang belum dibuka\" di Chrome, Edge, Brave, dan browser Chromium lainnya",
+  "The folder to load in Firefox, on its about:debugging page": "Folder yang dimuat di Firefox, pada halaman about:debugging",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM tidak menemukan folder ekstensinya. Instal ulang UDM untuk mendapatkannya kembali."
 }

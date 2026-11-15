@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "YouTube और कई अन्य वीडियो साइटों से वीडियो डाउनलोड करता है।",
   "Downloads the pictures of image galleries.": "चित्र गैलरियों के चित्र डाउनलोड करता है।",
   "Download a new version when one is found, and ask before installing it": "नया संस्करण मिलने पर उसे डाउनलोड करें, और इंस्टॉल करने से पहले पूछें",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} डाउनलोड हो गया है और इंस्टॉल के लिए तैयार है।"
+  "UDM {version} is downloaded and ready to install.": "UDM {version} डाउनलोड हो गया है और इंस्टॉल के लिए तैयार है।",
+  "Open extension folder": "एक्सटेंशन फ़ोल्डर खोलें",
+  "Open Firefox extension folder": "Firefox एक्सटेंशन फ़ोल्डर खोलें",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Chrome, Edge, Brave और अन्य Chromium ब्राउज़र में \"Load unpacked\" से चुना जाने वाला फ़ोल्डर",
+  "The folder to load in Firefox, on its about:debugging page": "Firefox में उसके about:debugging पेज पर लोड किया जाने वाला फ़ोल्डर",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM को अपना एक्सटेंशन फ़ोल्डर नहीं मिला। उसे वापस पाने के लिए UDM फिर से इंस्टॉल करें।"
 }

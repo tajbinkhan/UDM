@@ -79,6 +79,10 @@ describe("Options' own pages", () => {
     await fireEvent.click(screen.getByRole('tab', { name: 'Browser' }));
     await fireEvent.click(screen.getByLabelText('Firefox'));
     expect(sent(calls, 'set_browser').at(-1)?.args).toEqual({ index: 1, on: true });
+    await fireEvent.click(screen.getByRole('button', { name: 'Open extension folder' }));
+    expect(sent(calls, 'open_extension_folder').at(-1)?.args).toEqual({ kind: 'chromium' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Firefox extension folder' }));
+    expect(sent(calls, 'open_extension_folder').at(-1)?.args).toEqual({ kind: 'firefox' });
     await fireEvent.click(screen.getByRole('tab', { name: 'Remote' }));
     expect(screen.getByRole('img', { name: 'QR code for pairing a phone' })).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));

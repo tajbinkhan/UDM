@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "Завантажує відео з YouTube та багатьох інших відеосайтів.",
   "Downloads the pictures of image galleries.": "Завантажує зображення з галерей.",
   "Download a new version when one is found, and ask before installing it": "Завантажувати нову версію, коли її знайдено, і питати перед встановленням",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} завантажено й готово до встановлення."
+  "UDM {version} is downloaded and ready to install.": "UDM {version} завантажено й готово до встановлення.",
+  "Open extension folder": "Відкрити теку розширення",
+  "Open Firefox extension folder": "Відкрити теку розширення для Firefox",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Тека, яку слід вибрати кнопкою «Завантажити розпаковане» в Chrome, Edge, Brave та інших браузерах на Chromium",
+  "The folder to load in Firefox, on its about:debugging page": "Тека, яку слід завантажити у Firefox на сторінці about:debugging",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM не знайшов теку свого розширення. Перевстановіть UDM, щоб повернути її."
 }

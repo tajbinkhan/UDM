@@ -109,6 +109,8 @@ export const commands = {
 	restartBrowser: (index: number) => __TAURI_INVOKE<null>("restart_browser", { index }),
 	/**  Open the folder theme files go in. */
 	openThemesFolder: () => __TAURI_INVOKE<null>("open_themes_folder"),
+	/**  Open the folder of the extension's `kind` copy, to load in a browser. */
+	openExtensionFolder: (kind: ExtensionKind) => __TAURI_INVOKE<null>("open_extension_folder", { kind }),
 	/**
 	 *  Play the sound of event `index` (download complete, failed, queue
 	 *  started, queue done), from `file` or the system's own.
@@ -781,6 +783,11 @@ export type ExportFormat =
 "ef2" | "text" | "json";
 
 export type ExportScope = "queue" | "selected" | "all";
+
+/**  Which copy of the extension Options' Browser page opens the folder of. */
+export type ExtensionKind = 
+/**  Chrome, Edge, Brave and the other Chromium browsers. */
+"chromium" | "firefox";
 
 /**
  *  The settings UDM has beyond IDM's pages: speed limits, how downloads

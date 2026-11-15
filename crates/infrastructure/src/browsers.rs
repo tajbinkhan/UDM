@@ -776,6 +776,10 @@ fn plan_for(slot: &udm_application::window::BrowserSlot, program: Option<&Path>)
 }
 
 impl udm_application::window::BrowserRegistry for Registry {
+    fn extension_folder(&self, copy: udm_application::window::ExtensionCopy) -> Option<PathBuf> {
+        crate::paths::extension_dir(copy)
+    }
+
     fn known(&self) -> Vec<(udm_application::window::BrowserSlot, bool)> {
         let Ok(r) = Registrar::for_this_user() else {
             return Vec::new();

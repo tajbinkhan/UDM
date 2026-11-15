@@ -520,6 +520,49 @@ pub fn appimage() -> Option<PathBuf> {
     std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|p| p.is_absolute() && p.is_file())
 }
 
+/// The folder holding `copy` of the browser extension, for the user to load
+/// into a browser by hand, found from the running program's folder.
+pub fn extension_dir(copy: udm_application::window::ExtensionCopy) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    extension_dir_from(exe.parent()?, copy)
+}
+
+/// Where the installers put `copy` of the extension, for programs in
+/// `programs`: beside them (Setup, the Linux packages and archive),
+/// `Contents/Resources` in UDM.app, `usr/share/udm` in the AppImage, and the
+/// repository's own folders above `target/<profile>` (a checkout and the
+/// portable zip). The first that holds a `manifest.json` is it.
+fn extension_dir_from(programs: &Path, copy: udm_application::window::ExtensionCopy) -> Option<PathBuf> {
+    use udm_application::window::ExtensionCopy;
+    let (installed, checkout) = match copy {
+        ExtensionCopy::Chromium => ("extension", "chromium"),
+        ExtensionCopy::Firefox => ("firefox", "firefox"),
+    };
+    let mut candidates = vec![
+        programs.join(installed),
+        programs.join("..").join("Resources").join(installed),
+        programs.join("..").join("share").join("udm").join(installed),
+    ];
+    if let Some(root) = programs.parent().and_then(Path::parent) {
+        candidates.push(root.join("extension").join(checkout));
+    }
+    candidates.into_iter().find(|dir| dir.join("manifest.json").is_file()).map(|dir| tidy(&dir))
+}
+
+/// `dir` without its `..` parts, for the file manager to show.
+fn tidy(dir: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in dir.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// The folder a portable copy downloads into when the settings name none:
 /// `Downloads` in the copy's folder, on the same drive. `None` for a copy
 /// that uses the system's Downloads folder.
@@ -646,6 +689,49 @@ mod tests {
         // A marker beside the programs wins.
         std::fs::write(release.join(PORTABLE_MARKER), "").unwrap();
         assert_eq!(portable_root_from(&release), Some(release.clone()));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_extension_is_found_where_each_install_puts_it() {
+        use udm_application::window::ExtensionCopy::{Chromium, Firefox};
+        let dir = scratch("extension");
+        let with_manifest = |folder: &Path| {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join("manifest.json"), "{}").unwrap();
+        };
+        // Setup and the Linux packages: beside the programs.
+        let setup = dir.join("setup");
+        with_manifest(&setup.join("extension"));
+        with_manifest(&setup.join("firefox"));
+        assert_eq!(extension_dir_from(&setup, Chromium), Some(setup.join("extension")));
+        assert_eq!(extension_dir_from(&setup, Firefox), Some(setup.join("firefox")));
+        // UDM.app: Contents/MacOS's programs, Contents/Resources' extension.
+        let contents = dir.join("UDM.app").join("Contents");
+        with_manifest(&contents.join("Resources").join("extension"));
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        assert_eq!(
+            extension_dir_from(&contents.join("MacOS"), Chromium),
+            Some(contents.join("Resources").join("extension"))
+        );
+        assert_eq!(extension_dir_from(&contents.join("MacOS"), Firefox), None, "no Firefox copy there");
+        // The AppImage: usr/bin's programs, usr/share/udm's extension.
+        let usr = dir.join("AppDir").join("usr");
+        with_manifest(&usr.join("share").join("udm").join("firefox"));
+        std::fs::create_dir_all(usr.join("bin")).unwrap();
+        assert_eq!(extension_dir_from(&usr.join("bin"), Firefox), Some(usr.join("share").join("udm").join("firefox")));
+        // A checkout or the portable zip: target/release's programs.
+        let repo = dir.join("repo");
+        with_manifest(&repo.join("extension").join("chromium"));
+        with_manifest(&repo.join("extension").join("firefox"));
+        let release = repo.join("target").join("release");
+        std::fs::create_dir_all(&release).unwrap();
+        assert_eq!(extension_dir_from(&release, Chromium), Some(repo.join("extension").join("chromium")));
+        assert_eq!(extension_dir_from(&release, Firefox), Some(repo.join("extension").join("firefox")));
+        // A folder without the manifest is not the extension.
+        let empty = dir.join("empty");
+        std::fs::create_dir_all(empty.join("extension")).unwrap();
+        assert_eq!(extension_dir_from(&empty, Chromium), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

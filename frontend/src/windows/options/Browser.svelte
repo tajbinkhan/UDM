@@ -1,7 +1,7 @@
 <!-- Options > Browser: which browser downloads are big enough to take, and
      the buttons UDM shows on pages. -->
 <script lang="ts">
-  import { addBrowser, messageOf, pickPath, removeBrowser, restartBrowser, setBrowser } from '../../ipc';
+  import { addBrowser, messageOf, openExtensionFolder, pickPath, removeBrowser, restartBrowser, setBrowser } from '../../ipc';
   import type { OptionsView, SelectionChoice } from '../../ipc/types';
   import { t } from '../../i18n';
   import { editing } from './draft.svelte';
@@ -57,7 +57,16 @@
     {#if view.chromeNote}<p class="opt-note">{view.chromeNote}</p>{/if}
     {#if view.browserNote}<p class:error-text={view.browserNote.error} class:opt-note={!view.browserNote.error} role="status">{view.browserNote.text}</p>{/if}
     {#if error}<p class="error-text" role="alert">{error}</p>{/if}
-    <button class="btn opt-right" title={t('Choose the program of a browser that is not in the list')} onclick={() => void add()}>{t('Add browser...')}</button>
+    <div class="row">
+      <button class="btn" title={t('The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers')} onclick={() => void openExtensionFolder('chromium')}
+        >{t('Open extension folder')}</button
+      >
+      <button class="btn" title={t('The folder to load in Firefox, on its about:debugging page')} onclick={() => void openExtensionFolder('firefox')}
+        >{t('Open Firefox extension folder')}</button
+      >
+      <span class="grow"></span>
+      <button class="btn" title={t('Choose the program of a browser that is not in the list')} onclick={() => void add()}>{t('Add browser...')}</button>
+    </div>
   </fieldset>
   <div class="row">
     <label for="min-size">{t('Minimum size')}</label>

@@ -270,6 +270,16 @@ pub struct IdentifiedBrowser {
     pub known: bool,
 }
 
+/// A copy of the browser extension, as the user loads it into a browser by
+/// hand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionCopy {
+    /// The copy for Chrome, Edge, Brave and the other Chromium browsers.
+    Chromium,
+    /// The copy for Firefox.
+    Firefox,
+}
+
 /// The system clipboard's text, for the clipboard monitor that offers the
 /// links the user copies.
 pub trait Clipboard: Send + Sync {
@@ -309,4 +319,8 @@ pub trait BrowserRegistry: Send + Sync {
     /// Close `browser` (or the added one at `program`) and start it again,
     /// waiting for it.
     fn restart(&self, browser: &BrowserSlot, program: Option<&Path>) -> Result<(), FilesError>;
+
+    /// The folder holding `copy` of the extension, which the user loads
+    /// into a browser by hand, or `None` when this copy of UDM has none.
+    fn extension_folder(&self, copy: ExtensionCopy) -> Option<PathBuf>;
 }

@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "מוריד סרטונים מ-YouTube ומאתרי וידאו רבים אחרים.",
   "Downloads the pictures of image galleries.": "מוריד את התמונות של גלריות תמונות.",
   "Download a new version when one is found, and ask before installing it": "הורד גרסה חדשה כשהיא נמצאת, ושאל לפני התקנתה",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} הורד ומוכן להתקנה."
+  "UDM {version} is downloaded and ready to install.": "UDM {version} הורד ומוכן להתקנה.",
+  "Open extension folder": "פתיחת תיקיית התוסף",
+  "Open Firefox extension folder": "פתיחת תיקיית התוסף ל-Firefox",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "התיקייה שיש לבחור ב\"טעינת פריט לא ארוז\" ב-Chrome, Edge, Brave ובדפדפני Chromium אחרים",
+  "The folder to load in Firefox, on its about:debugging page": "התיקייה שיש לטעון ב-Firefox, בדף about:debugging שלו",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM לא מצא את תיקיית התוסף שלו. יש להתקין את UDM מחדש כדי לשחזר אותה."
 }

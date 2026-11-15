@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "YouTube'dan ve diğer birçok video sitesinden video indirir.",
   "Downloads the pictures of image galleries.": "Resim galerilerindeki resimleri indirir.",
   "Download a new version when one is found, and ask before installing it": "Yeni bir sürüm bulunduğunda indir ve kurmadan önce sor",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} indirildi ve kurulmaya hazır."
+  "UDM {version} is downloaded and ready to install.": "UDM {version} indirildi ve kurulmaya hazır.",
+  "Open extension folder": "Uzantı klasörünü aç",
+  "Open Firefox extension folder": "Firefox uzantı klasörünü aç",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Chrome, Edge, Brave ve diğer Chromium tarayıcılarında \"Paketlenmemiş öğe yükle\" ile seçilecek klasör",
+  "The folder to load in Firefox, on its about:debugging page": "Firefox'ta about:debugging sayfasında yüklenecek klasör",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM uzantı klasörünü bulamadı. Geri almak için UDM'yi yeniden yükleyin."
 }

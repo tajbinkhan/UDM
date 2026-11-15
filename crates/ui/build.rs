@@ -50,6 +50,7 @@ const COMMANDS: &[&str] = &[
     "remove_browser",
     "restart_browser",
     "open_themes_folder",
+    "open_extension_folder",
     "play_sound",
     "system_proxy",
     "save_queue",

@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "Descarga vídeos de YouTube y de muchos otros sitios de vídeo.",
   "Downloads the pictures of image galleries.": "Descarga las imágenes de galerías de imágenes.",
   "Download a new version when one is found, and ask before installing it": "Descargar una versión nueva cuando se encuentre y preguntar antes de instalarla",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} se ha descargado y está listo para instalarse."
+  "UDM {version} is downloaded and ready to install.": "UDM {version} se ha descargado y está listo para instalarse.",
+  "Open extension folder": "Abrir carpeta de la extensión",
+  "Open Firefox extension folder": "Abrir carpeta de la extensión para Firefox",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "La carpeta que se elige con «Cargar descomprimida» en Chrome, Edge, Brave y otros navegadores Chromium",
+  "The folder to load in Firefox, on its about:debugging page": "La carpeta que se carga en Firefox, en su página about:debugging",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM no encontró su carpeta de la extensión. Reinstale UDM para recuperarla."
 }

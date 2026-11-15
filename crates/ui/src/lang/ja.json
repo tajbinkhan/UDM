@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "YouTube やその他多くの動画サイトから動画をダウンロードします。",
   "Downloads the pictures of image galleries.": "画像ギャラリーの画像をダウンロードします。",
   "Download a new version when one is found, and ask before installing it": "新しいバージョンが見つかったらダウンロードし、インストールする前に確認する",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} はダウンロード済みで、インストールの準備ができています。"
+  "UDM {version} is downloaded and ready to install.": "UDM {version} はダウンロード済みで、インストールの準備ができています。",
+  "Open extension folder": "拡張機能フォルダーを開く",
+  "Open Firefox extension folder": "Firefox 用拡張機能フォルダーを開く",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Chrome、Edge、Brave などの Chromium ブラウザーで「パッケージ化されていない拡張機能を読み込む」で選ぶフォルダー",
+  "The folder to load in Firefox, on its about:debugging page": "Firefox の about:debugging ページで読み込むフォルダー",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM の拡張機能フォルダーが見つかりませんでした。UDM を再インストールすると元に戻ります。"
 }
