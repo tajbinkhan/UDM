@@ -3229,6 +3229,12 @@ mod tests {
                 }
             };
             assert!(matches!(ended, Progress::Canceled { .. }), "the user's cancel wins");
+            // The download's thread drops its limiter as it returns, just after
+            // it reports the cancel, so give it a moment.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !engine.inner.shared.own_limits.lock().unwrap().is_empty() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
             assert!(engine.inner.shared.own_limits.lock().unwrap().is_empty(), "its limiter is gone");
             fs::remove_dir_all(&dir).ok();
         }
