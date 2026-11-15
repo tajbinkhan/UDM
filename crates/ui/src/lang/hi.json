@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "UDM की बैकग्राउंड सेवा इस टोरेंट की फ़ाइल सूची नहीं पढ़ सकी।",
   "{pieces} pieces, {size} each": "{pieces} टुकड़े, हर एक {size}",
   "Type a share ratio from 0 to 100.": "0 से 100 तक शेयर अनुपात लिखें।",
-  "Type a number of minutes from 1 up.": "1 या उससे अधिक मिनट की संख्या लिखें।"
+  "Type a number of minutes from 1 up.": "1 या उससे अधिक मिनट की संख्या लिखें।",
+  "Some downloads need tools UDM did not find: {tools}.": "कुछ डाउनलोड को ऐसे उपकरण चाहिए जो UDM को नहीं मिले: {tools}.",
+  "Install them": "इन्हें इंस्टॉल करें",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "वीडियो और चित्र साइटों को इन उपकरणों की ज़रूरत होती है। UDM इनके आधिकारिक बिल्ड डाउनलोड करता है और इन्हें प्रकाशित चेकसम से जाँचता है। ये विकल्प > उपकरण में भी हैं।",
+  "Downloads videos from YouTube and many other video sites.": "YouTube और कई अन्य वीडियो साइटों से वीडियो डाउनलोड करता है।",
+  "Downloads the pictures of image galleries.": "चित्र गैलरियों के चित्र डाउनलोड करता है।",
+  "Download a new version when one is found, and ask before installing it": "नया संस्करण मिलने पर उसे डाउनलोड करें, और इंस्टॉल करने से पहले पूछें",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} डाउनलोड हो गया है और इंस्टॉल के लिए तैयार है।"
 }

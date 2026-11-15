@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "UDM'nin arka plan hizmeti bu torrentin dosya listesini okuyamadı.",
   "{pieces} pieces, {size} each": "{pieces} parça, her biri {size}",
   "Type a share ratio from 0 to 100.": "0 ile 100 arasında bir paylaşım oranı yazın.",
-  "Type a number of minutes from 1 up.": "1 veya daha fazla dakika yazın."
+  "Type a number of minutes from 1 up.": "1 veya daha fazla dakika yazın.",
+  "Some downloads need tools UDM did not find: {tools}.": "Bazı indirmeler, UDM'nin bulamadığı araçlara ihtiyaç duyuyor: {tools}.",
+  "Install them": "Kur",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "Video ve resim siteleri bu araçlara ihtiyaç duyar. UDM resmi sürümlerini indirir ve yayımlanan sağlama toplamlarıyla denetler. Seçenekler > Araçlar'da da bulunurlar.",
+  "Downloads videos from YouTube and many other video sites.": "YouTube'dan ve diğer birçok video sitesinden video indirir.",
+  "Downloads the pictures of image galleries.": "Resim galerilerindeki resimleri indirir.",
+  "Download a new version when one is found, and ask before installing it": "Yeni bir sürüm bulunduğunda indir ve kurmadan önce sor",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} indirildi ve kurulmaya hazır."
 }

@@ -12,7 +12,8 @@ use udm_domain::settings::{AddedBrowser, Theme};
 use udm_domain::tools::{Tool, ToolState};
 
 use crate::contract::{
-    AdapterRow, Banner, BrowserRowView, Choice, DeviceRow, Id, OptionsView, PairingView, RemoteView, ToolKey, ToolRow,
+    AdapterRow, Banner, BrowserRowView, Choice, DeviceRow, Id, MissingTool, MissingTools, OptionsView, PairingView,
+    RemoteView, ToolKey, ToolRow,
 };
 use crate::i18n::{fill, Language};
 use crate::projection::{format, Ctx};
@@ -102,7 +103,7 @@ pub fn take(state: &mut AppState, event: &Event) {
     }
 }
 
-fn tool_key(t: Tool) -> ToolKey {
+pub fn tool_key(t: Tool) -> ToolKey {
     match t {
         Tool::YtDlp => ToolKey::YtDlp,
         Tool::Ffmpeg => ToolKey::Ffmpeg,
@@ -151,6 +152,63 @@ fn tool_rows(lang: &'static Language, s: &Services) -> Vec<ToolRow> {
             }
         })
         .collect()
+}
+
+/// The key in `window.json` that remembers the first start's tools offer
+/// was answered.
+pub const TOOLS_ASKED: &str = "tools_asked";
+/// The key in `window.json` naming the missing tools the strip was closed
+/// for; it shows again when another goes missing.
+pub const TOOLS_DISMISSED: &str = "dismissed_tools";
+
+/// The names of the tools UDM did not find, as the strip's closing keeps
+/// them.
+pub fn missing_names(s: &Services) -> String {
+    s.tools.iter().filter(|t| t.path.is_none()).map(|t| t.tool.name()).collect::<Vec<_>>().join(", ")
+}
+
+/// What each tool is for, in the offer.
+fn purpose(t: Tool) -> &'static str {
+    match t {
+        Tool::YtDlp => "Downloads videos from YouTube and many other video sites.",
+        Tool::Ffmpeg => {
+            "Joins streamed videos into one .mp4. Without it they are saved as .ts, or as separate video and audio."
+        }
+        Tool::GalleryDl => "Downloads the pictures of image galleries.",
+    }
+}
+
+/// The strip and the first start's sheet offering the tools UDM did not
+/// find, while connected to a daemon that said where they are.
+pub fn missing_tools(lang: &'static Language, state: &AppState) -> Option<MissingTools> {
+    let rest = &state.layout_rest;
+    let s = &state.services;
+    let missing: Vec<&ToolState> = s.tools.iter().filter(|t| t.path.is_none()).collect();
+    if missing.is_empty() || !state.connected() {
+        return None;
+    }
+    let names = missing_names(s);
+    let tools = missing
+        .iter()
+        .map(|t| MissingTool {
+            tool: tool_key(t.tool),
+            name: t.tool.name().to_string(),
+            purpose: lang.tr(purpose(t.tool)).to_string(),
+            installable: t.installable,
+            hint: if t.installable {
+                String::new()
+            } else {
+                fill(lang.tr("UDM cannot install it here. Install it with: {command}"), &[("command", &t.command)])
+            },
+        })
+        .collect();
+    Some(MissingTools {
+        text: fill(lang.tr("Some downloads need tools UDM did not find: {tools}."), &[("tools", &names)]),
+        strip: rest.get(TOOLS_DISMISSED).and_then(|v| v.as_str()) != Some(names.as_str()),
+        ask: !rest.contains_key(TOOLS_ASKED),
+        busy: missing.iter().any(|t| s.tool_busy.contains(&t.tool)),
+        tools,
+    })
 }
 
 /// What the last check of the debrid account said.
@@ -560,5 +618,48 @@ mod tests {
         };
         let choices = theme_choices(ctx().lang, &s);
         assert_eq!(choices.last().map(|c| c.value.as_str()), Some("custom:Gone"));
+    }
+
+    #[test]
+    fn the_missing_tools_are_offered_until_answered_and_closed() {
+        let lang = crate::i18n::resolve("en", &[]);
+        let tool = |tool, path: Option<&str>, installable| ToolState {
+            tool,
+            path: path.map(str::to_string),
+            installed: None,
+            installable,
+            command: "sudo apt install ffmpeg".into(),
+        };
+        let daemon =
+            |s: &mut AppState, e| apply(s, UiMessage::Daemon { event: Box::new(e), at: Instant::now(), unix: 0 });
+        let mut s = AppState::default();
+        daemon(&mut s, Event::Connected);
+        assert_eq!(missing_tools(lang, &s), None, "the daemon has not said yet");
+        let tools = vec![
+            tool(Tool::YtDlp, None, true),
+            tool(Tool::Ffmpeg, None, false),
+            tool(Tool::GalleryDl, Some("/usr/bin/gallery-dl"), true),
+        ];
+        daemon(&mut s, Event::Tools { tools, done: None, error: None });
+        let offer = missing_tools(lang, &s).unwrap();
+        assert_eq!(offer.text, "Some downloads need tools UDM did not find: yt-dlp, ffmpeg.");
+        assert!(offer.ask && offer.strip && !offer.busy);
+        assert_eq!(offer.tools.iter().map(|t| t.tool).collect::<Vec<_>>(), [ToolKey::YtDlp, ToolKey::Ffmpeg]);
+        assert!(offer.tools[1].hint.contains("sudo apt install ffmpeg"));
+
+        s.layout_rest.insert(TOOLS_ASKED.into(), true.into());
+        s.layout_rest.insert(TOOLS_DISMISSED.into(), missing_names(&s.services).into());
+        let offer = missing_tools(lang, &s).unwrap();
+        assert!(!offer.ask && !offer.strip);
+        // Another tool going missing brings the strip back.
+        let tools =
+            vec![tool(Tool::YtDlp, None, true), tool(Tool::Ffmpeg, None, false), tool(Tool::GalleryDl, None, true)];
+        daemon(&mut s, Event::Tools { tools, done: None, error: None });
+        assert!(missing_tools(lang, &s).unwrap().strip);
+
+        apply(&mut s, UiMessage::ToolInstalling(Tool::YtDlp));
+        assert!(missing_tools(lang, &s).unwrap().busy);
+        daemon(&mut s, Event::Lost(udm_application::daemon::Lost::Closed));
+        assert_eq!(missing_tools(lang, &s), None);
     }
 }

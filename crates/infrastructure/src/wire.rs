@@ -257,8 +257,8 @@ pub fn event(msg: Outgoing) -> Event {
         Outgoing::Quota { used, limit, paused, resumes_at } => Event::Quota { used, limit, paused, resumes_at },
         Outgoing::LimitLifted { lifted } => Event::LimitLifted { lifted },
         Outgoing::BrowserLink { connected, last_seen } => Event::BrowserLink { connected, last_seen },
-        Outgoing::Update { newer, error, error_kind } => {
-            Event::Update { newer, error: error.map(|e| failure(e, error_kind)) }
+        Outgoing::Update { newer, error, error_kind, ready } => {
+            Event::Update { newer, error: error.map(|e| failure(e, error_kind)), ready }
         }
         Outgoing::UpdateFailed { error, error_kind } => Event::UpdateFailed { error: failure(error, error_kind) },
         Outgoing::ZipPreview { id, entries, error, error_kind } => {
@@ -338,9 +338,9 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
         Event::Quota { used, limit, paused, resumes_at } => Outgoing::Quota { used, limit, paused, resumes_at },
         Event::LimitLifted { lifted } => Outgoing::LimitLifted { lifted },
         Event::BrowserLink { connected, last_seen } => Outgoing::BrowserLink { connected, last_seen },
-        Event::Update { newer, error } => {
+        Event::Update { newer, error, ready } => {
             let (error, error_kind) = optional(error);
-            Outgoing::Update { newer, error, error_kind }
+            Outgoing::Update { newer, error, error_kind, ready }
         }
         Event::UpdateFailed { error } => {
             let (error, error_kind) = text_and_kind(error);
@@ -870,9 +870,9 @@ mod tests {
             assert_eq!(value["error"], text.as_str());
             assert_eq!(back, Event::UpdateFailed { error: f.clone() });
 
-            let (value, back) = round_trip(Event::Update { newer: None, error: Some(f.clone()) });
+            let (value, back) = round_trip(Event::Update { newer: None, error: Some(f.clone()), ready: false });
             assert_eq!(value["error"], text.as_str());
-            assert_eq!(back, Event::Update { newer: None, error: Some(f.clone()) });
+            assert_eq!(back, Event::Update { newer: None, error: Some(f.clone()), ready: false });
 
             let zip = Event::ZipPreview { id: DownloadId::new(1), entries: Vec::new(), error: Some(f.clone()) };
             let (value, back) = round_trip(zip.clone());
@@ -958,7 +958,7 @@ mod tests {
         let (value, back) = round_trip(Event::Error { error: Failure::Other("as said".into()) });
         assert_eq!(value, serde_json::json!({"op": "error", "message": "as said"}));
         assert_eq!(back, Event::Error { error: Failure::Other("as said".into()) });
-        let (value, _) = round_trip(Event::Update { newer: None, error: None });
+        let (value, _) = round_trip(Event::Update { newer: None, error: None, ready: false });
         assert_eq!(value, serde_json::json!({"op": "update"}), "no error, no kind");
     }
 

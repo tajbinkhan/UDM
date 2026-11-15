@@ -673,6 +673,8 @@ impl ReleaseSource for Releases {
 #[derive(Default)]
 pub struct Checked {
     on: bool,
+    /// Download newer releases ahead.
+    pub ahead: bool,
     last: Mutex<u64>,
     noted: Mutex<Vec<(u64, bool)>>,
 }
@@ -680,6 +682,11 @@ pub struct Checked {
 impl Checked {
     pub fn weekly(on: bool, last: u64) -> Self {
         Checked { on, last: Mutex::new(last), ..Checked::default() }
+    }
+
+    /// Downloading newer releases ahead is on.
+    pub fn ahead() -> Self {
+        Checked { ahead: true, ..Checked::default() }
     }
 
     pub fn noted(&self) -> Vec<(u64, bool)> {
@@ -695,6 +702,10 @@ impl UpdateChecks for Checked {
     fn note_checked(&self, at: u64, save: bool) {
         *self.last.lock().unwrap() = at;
         self.noted.lock().unwrap().push((at, save));
+    }
+
+    fn download_ahead(&self) -> bool {
+        self.ahead
     }
 }
 

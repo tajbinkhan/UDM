@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "سرویس پس‌زمینه UDM نتوانست فهرست فایل‌های این تورنت را بخواند.",
   "{pieces} pieces, {size} each": "{pieces} قطعه، هر کدام {size}",
   "Type a share ratio from 0 to 100.": "نسبت اشتراک را از 0 تا 100 بنویسید.",
-  "Type a number of minutes from 1 up.": "تعداد دقیقه‌ها را از 1 به بالا بنویسید."
+  "Type a number of minutes from 1 up.": "تعداد دقیقه‌ها را از 1 به بالا بنویسید.",
+  "Some downloads need tools UDM did not find: {tools}.": "برخی دانلودها به ابزارهایی نیاز دارند که UDM پیدا نکرد: {tools}.",
+  "Install them": "نصبشان کن",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "سایت‌های ویدیو و تصویر به این ابزارها نیاز دارند. UDM نسخه‌های رسمی آن‌ها را دانلود می‌کند و با چک‌سام‌های منتشرشده‌شان بررسی می‌کند. در گزینه‌ها > ابزارها هم هستند.",
+  "Downloads videos from YouTube and many other video sites.": "ویدیوها را از YouTube و بسیاری از سایت‌های ویدیویی دیگر دانلود می‌کند.",
+  "Downloads the pictures of image galleries.": "تصاویر گالری‌های تصویر را دانلود می‌کند.",
+  "Download a new version when one is found, and ask before installing it": "نسخه جدید را هنگام پیدا شدن دانلود کن و پیش از نصب بپرس",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} دانلود شده و آماده نصب است."
 }

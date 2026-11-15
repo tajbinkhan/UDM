@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "UDM 后台服务无法读取此种子的文件列表。",
   "{pieces} pieces, {size} each": "{pieces} 个分块，每块 {size}",
   "Type a share ratio from 0 to 100.": "请输入 0 到 100 之间的分享率。",
-  "Type a number of minutes from 1 up.": "请输入不少于 1 的分钟数。"
+  "Type a number of minutes from 1 up.": "请输入不少于 1 的分钟数。",
+  "Some downloads need tools UDM did not find: {tools}.": "部分下载需要 UDM 未找到的工具：{tools}。",
+  "Install them": "安装",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "视频和图片网站需要这些工具。UDM 会下载它们的官方版本，并用公布的校验和进行核对。也可以在 选项 > 工具 中找到它们。",
+  "Downloads videos from YouTube and many other video sites.": "从 YouTube 和许多其他视频网站下载视频。",
+  "Downloads the pictures of image galleries.": "下载图库中的图片。",
+  "Download a new version when one is found, and ask before installing it": "发现新版本时自动下载，并在安装前询问",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} 已下载，可以安装。"
 }

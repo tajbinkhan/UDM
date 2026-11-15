@@ -40,6 +40,7 @@ use udm_domain::queue::{
 };
 use udm_domain::quota::QuotaLimit;
 use udm_domain::settings::{Duplicate, Settings};
+use udm_domain::update::Release;
 
 use super::{ClientId, ClientList, Command, Countdowns, DownloadFeed, Event, Failure, Reply, Requests};
 use crate::debrid::{CheckAccount, ResolveLink, SetKey};
@@ -60,7 +61,7 @@ use crate::queues::{
 use crate::quota::{CheckQuota, QuotaEvent, QuotaStatus};
 use crate::tools::{InstallTool, ListTools, UpdateYtDlp};
 use crate::torrents::{AddTorrent, ApplySeedLimits, ForgetTorrent, PickFiles, Picked, ResumeSeeding, TorrentSource};
-use crate::update::{CheckForUpdate, ClaimWeeklyCheck, InstallUpdate};
+use crate::update::{CheckForUpdate, ClaimWeeklyCheck, DownloadUpdate, InstallUpdate, ReadyUpdate};
 use udm_domain::media::Playlist;
 use udm_domain::pairing::{PairingError, PairingOffer, RemoteState};
 use udm_domain::tools::{Platform, Tool, ToolError, ToolState};
@@ -327,6 +328,8 @@ pub struct DaemonService<W: Wiring> {
     pub link_probes: Mutex<HashMap<ClientId, Arc<AtomicBool>>>,
     /// Links from a page, held for the window that is being opened.
     pub picked_links: Mutex<Option<Event>>,
+    /// A newer release's installer the weekly check downloaded ahead.
+    ready_update: Mutex<Option<ReadyUpdate>>,
     /// A command line held for the window its `udm-gui` is opening, and
     /// when it came.
     pub command_line: Mutex<Option<(CommandLine, Instant)>>,
@@ -395,6 +398,7 @@ impl<W: Wiring> DaemonService<W> {
             grabs: Mutex::default(),
             link_probes: Mutex::default(),
             picked_links: Mutex::new(None),
+            ready_update: Mutex::new(None),
             command_line: Mutex::new(None),
             grab_runs: Arc::default(),
             grab_checked: Mutex::new(None),
@@ -1442,8 +1446,43 @@ impl<W: Wiring> DaemonService<W> {
     pub fn check_update(&self, url: &str) -> Event {
         let github = (self.releases)(url);
         match CheckForUpdate::new(&github, &*self.settings, self.version).run(self.clock.unix_now()) {
-            Ok(newer) => Event::Update { newer, error: None },
-            Err(e) => Event::Update { newer: None, error: Some(e.into()) },
+            Ok(newer) => {
+                let ready = newer.as_ref().is_some_and(|r| self.is_ready(r));
+                Event::Update { newer, error: None, ready }
+            }
+            Err(e) => Event::Update { newer: None, error: Some(e.into()), ready: false },
+        }
+    }
+
+    /// Whether `release`'s installer is downloaded ahead already.
+    fn is_ready(&self, release: &Release) -> bool {
+        lock(&self.ready_update).as_ref().is_some_and(|r| r.release == *release)
+    }
+
+    /// The installer downloaded ahead, for a window that connects later.
+    pub fn ready_message(&self) -> Option<Event> {
+        let ready = lock(&self.ready_update);
+        ready.as_ref().map(|r| Event::Update { newer: Some(r.release.clone()), error: None, ready: true })
+    }
+
+    /// Download `release`'s installer ahead, when the settings ask for it,
+    /// and keep it for Install now. Returns whether it is ready.
+    fn download_ahead(&self, release: &Release) -> bool {
+        if self.is_ready(release) {
+            return true;
+        }
+        let github = (self.releases)(&self.release_url);
+        match DownloadUpdate::new(&github, &*self.settings).run(release) {
+            Ok(Some(ready)) => {
+                info!(version = %release.version, path = %ready.path.display(), "downloaded the update ahead");
+                *lock(&self.ready_update) = Some(ready);
+                true
+            }
+            Ok(None) => false,
+            Err(e) => {
+                warn!(error = %e, "could not download the update ahead");
+                false
+            }
         }
     }
 
@@ -1452,7 +1491,10 @@ impl<W: Wiring> DaemonService<W> {
     /// Setup closes whatever is left.
     pub fn install_update(&self) -> Result<(), ServiceError> {
         let github = (self.releases)(&self.release_url);
-        let path = InstallUpdate::new(&github, &*self.settings, self.version).run(self.clock.unix_now())?;
+        let ready = lock(&self.ready_update).take();
+        let path = InstallUpdate::new(&github, &*self.settings, self.version)
+            .with_ready(ready.as_ref())
+            .run(self.clock.unix_now())?;
         info!(path = %path.display(), "started the update; quitting for it");
         self.pause_all();
         self.transfers.save_history();
@@ -1468,8 +1510,10 @@ impl<W: Wiring> DaemonService<W> {
         }
         let daemon = Arc::clone(self);
         thread::spawn(move || {
-            if let msg @ Event::Update { newer: Some(_), .. } = daemon.check_update(&daemon.release_url) {
-                daemon.clients.broadcast(msg);
+            if let Event::Update { newer: Some(release), error, .. } = daemon.check_update(&daemon.release_url) {
+                // Downloaded first, so the windows hear of it once, ready.
+                let ready = daemon.download_ahead(&release);
+                daemon.clients.broadcast(Event::Update { newer: Some(release), error, ready });
             }
         });
     }
@@ -1928,6 +1972,9 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
                 }
                 if let Some(lift) = daemon.limit_lift_message() {
                     send(lift);
+                }
+                if let Some(ready) = daemon.ready_message() {
+                    send(ready);
                 }
                 daemon.weekly_update_check();
                 // Links picked from a page while no window was open.

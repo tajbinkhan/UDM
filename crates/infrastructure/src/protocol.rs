@@ -680,6 +680,10 @@ pub enum Outgoing {
         /// translate it; `error` is its English text.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error_kind: Option<serde_json::Value>,
+        /// The newer release's installer is downloaded and checked already,
+        /// waiting for Update now.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        ready: bool,
     },
     /// Update now could not get or start the new Setup, and why.
     UpdateFailed {

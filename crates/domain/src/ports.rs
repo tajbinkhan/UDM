@@ -381,6 +381,9 @@ pub trait UpdateChecks: Send + Sync {
     /// A check happened at `at`; with `save`, keep that in the settings
     /// file too.
     fn note_checked(&self, at: u64, save: bool);
+
+    /// Whether a newer release found is downloaded ahead of installing it.
+    fn download_ahead(&self) -> bool;
 }
 
 /// Converting finished downloads with ffmpeg.

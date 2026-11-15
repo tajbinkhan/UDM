@@ -55,6 +55,9 @@
   <label class="check opt-indent"><input type="checkbox" bind:checked={d.minimizeToTray} disabled={!d.trayIcon} />{t('Minimizing the window puts it in the tray')}</label>
   <label class="check"><input type="checkbox" bind:checked={d.keepAwake} />{t('Keep the computer awake while downloading')}</label>
   <label class="check"><input type="checkbox" bind:checked={d.checkUpdates} />{t('Check for updates once a week')}</label>
+  <label class="check opt-indent"
+    ><input type="checkbox" bind:checked={d.downloadUpdates} disabled={!d.checkUpdates} />{t('Download a new version when one is found, and ask before installing it')}</label
+  >
   <div class="opt-rule"></div>
   <label class="check"><input type="checkbox" bind:checked={d.clipboardMonitor} />{t('Offer to download links copied to the clipboard')}</label>
   <label class="check opt-indent"><input type="checkbox" bind:checked={d.clipboardStart} disabled={!d.clipboardMonitor} />{t('Start them without asking')}</label>

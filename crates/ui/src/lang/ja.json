@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "UDM のバックグラウンドサービスはこのトレントのファイル一覧を読み取れませんでした。",
   "{pieces} pieces, {size} each": "{pieces} 個のピース (各 {size})",
   "Type a share ratio from 0 to 100.": "共有比率を 0 から 100 の間で入力してください。",
-  "Type a number of minutes from 1 up.": "分数を 1 以上で入力してください。"
+  "Type a number of minutes from 1 up.": "分数を 1 以上で入力してください。",
+  "Some downloads need tools UDM did not find: {tools}.": "一部のダウンロードには、UDM が見つけられなかったツールが必要です: {tools}。",
+  "Install them": "インストール",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "動画サイトや画像サイトにはこれらのツールが必要です。UDM は公式ビルドをダウンロードし、公開されているチェックサムと照合します。オプション > ツール にもあります。",
+  "Downloads videos from YouTube and many other video sites.": "YouTube やその他多くの動画サイトから動画をダウンロードします。",
+  "Downloads the pictures of image galleries.": "画像ギャラリーの画像をダウンロードします。",
+  "Download a new version when one is found, and ask before installing it": "新しいバージョンが見つかったらダウンロードし、インストールする前に確認する",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} はダウンロード済みで、インストールの準備ができています。"
 }

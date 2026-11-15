@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "تعذّر على الخدمة الخلفية لـ UDM قراءة قائمة ملفات هذا التورنت.",
   "{pieces} pieces, {size} each": "{pieces} قطعة، {size} لكل منها",
   "Type a share ratio from 0 to 100.": "اكتب نسبة مشاركة من 0 إلى 100.",
-  "Type a number of minutes from 1 up.": "اكتب عدد دقائق من 1 فأكثر."
+  "Type a number of minutes from 1 up.": "اكتب عدد دقائق من 1 فأكثر.",
+  "Some downloads need tools UDM did not find: {tools}.": "بعض التنزيلات تحتاج إلى أدوات لم يجدها UDM: {tools}.",
+  "Install them": "ثبّتها",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "تحتاج مواقع الفيديو والصور إلى هذه الأدوات. ينزّل UDM إصداراتها الرسمية ويتحقق منها مقابل المجاميع الاختبارية المنشورة. تجدها أيضًا في خيارات > أدوات.",
+  "Downloads videos from YouTube and many other video sites.": "ينزّل مقاطع الفيديو من YouTube ومواقع فيديو كثيرة أخرى.",
+  "Downloads the pictures of image galleries.": "ينزّل صور معارض الصور.",
+  "Download a new version when one is found, and ask before installing it": "نزّل الإصدار الجديد عند العثور عليه، واسأل قبل تثبيته",
+  "UDM {version} is downloaded and ready to install.": "تم تنزيل UDM {version} وهو جاهز للتثبيت."
 }

@@ -224,6 +224,7 @@ pub fn draft(s: &Settings) -> OptionsDraft {
         minimize_to_tray: s.minimize_to_tray,
         keep_awake: s.keep_awake,
         check_updates: s.check_updates,
+        download_updates: s.download_updates,
         clipboard_monitor: s.clipboard_monitor,
         clipboard_start: s.clipboard_start,
         capture_private: s.capture_private,
@@ -652,6 +653,7 @@ pub fn settings(d: &OptionsDraft, current: &Settings) -> Result<Settings, Option
     s.minimize_to_tray = d.minimize_to_tray;
     s.keep_awake = d.keep_awake;
     s.check_updates = d.check_updates;
+    s.download_updates = d.download_updates;
     s.clipboard_monitor = d.clipboard_monitor;
     s.clipboard_start = d.clipboard_start;
     s.capture_private = d.capture_private;

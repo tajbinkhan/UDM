@@ -572,9 +572,12 @@ pub enum Event {
         last_seen: Option<u64>,
     },
     /// What the update check found: a newer release, none, or why not.
+    /// `ready`: the newer release's installer is downloaded and checked
+    /// already, waiting for Install now.
     Update {
         newer: Option<Release>,
         error: Option<Failure>,
+        ready: bool,
     },
     UpdateFailed {
         error: Failure,

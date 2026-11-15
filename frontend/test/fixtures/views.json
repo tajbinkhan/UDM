@@ -948,7 +948,7 @@
         "daemon": "",
         "installTitle": "Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.",
         "update": "",
-        "version": "0.6.0"
+        "version": "0.7.0"
       },
       "window": "about"
     },
@@ -2575,8 +2575,24 @@
           },
           "listMono": false,
           "listSize": 12,
+          "missingTools": {
+            "ask": false,
+            "busy": false,
+            "strip": true,
+            "text": "Some downloads need tools UDM did not find: gallery-dl.",
+            "tools": [
+              {
+                "hint": "",
+                "installable": true,
+                "name": "gallery-dl",
+                "purpose": "Downloads the pictures of image galleries.",
+                "tool": "galleryDl"
+              }
+            ]
+          },
           "newer": null,
           "newerInstallable": false,
+          "newerReady": false,
           "nextTip": 0,
           "packages": [],
           "panelWidth": 160,
@@ -3238,6 +3254,7 @@
           "connections": 8,
           "doneDialog": true,
           "downloadDir": "",
+          "downloadUpdates": true,
           "extras": {
             "adapter": {
               "id": "wg0",

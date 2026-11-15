@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "שירות הרקע של UDM לא הצליח לקרוא את רשימת הקבצים של טורנט זה.",
   "{pieces} pieces, {size} each": "{pieces} חלקים, {size} כל אחד",
   "Type a share ratio from 0 to 100.": "הקלידו יחס שיתוף מ-0 עד 100.",
-  "Type a number of minutes from 1 up.": "הקלידו מספר דקות מ-1 ומעלה."
+  "Type a number of minutes from 1 up.": "הקלידו מספר דקות מ-1 ומעלה.",
+  "Some downloads need tools UDM did not find: {tools}.": "חלק מההורדות צריכות כלים ש-UDM לא מצא: {tools}.",
+  "Install them": "התקן אותם",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "אתרי וידאו ותמונות צריכים את הכלים האלה. UDM מוריד את הגרסאות הרשמיות שלהם ובודק אותן מול סכומי הביקורת שפורסמו. הם נמצאים גם באפשרויות > כלים.",
+  "Downloads videos from YouTube and many other video sites.": "מוריד סרטונים מ-YouTube ומאתרי וידאו רבים אחרים.",
+  "Downloads the pictures of image galleries.": "מוריד את התמונות של גלריות תמונות.",
+  "Download a new version when one is found, and ask before installing it": "הורד גרסה חדשה כשהיא נמצאת, ושאל לפני התקנתה",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} הורד ומוכן להתקנה."
 }

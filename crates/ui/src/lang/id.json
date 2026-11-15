@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "Layanan latar UDM tidak dapat membaca daftar berkas torrent ini.",
   "{pieces} pieces, {size} each": "{pieces} potongan, masing-masing {size}",
   "Type a share ratio from 0 to 100.": "Ketik rasio berbagi dari 0 sampai 100.",
-  "Type a number of minutes from 1 up.": "Ketik jumlah menit mulai 1."
+  "Type a number of minutes from 1 up.": "Ketik jumlah menit mulai 1.",
+  "Some downloads need tools UDM did not find: {tools}.": "Beberapa unduhan memerlukan alat yang tidak ditemukan UDM: {tools}.",
+  "Install them": "Pasang",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "Situs video dan gambar memerlukan alat ini. UDM mengunduh build resminya dan memeriksanya dengan checksum yang diterbitkan. Alat ini juga ada di Opsi > Alat.",
+  "Downloads videos from YouTube and many other video sites.": "Mengunduh video dari YouTube dan banyak situs video lainnya.",
+  "Downloads the pictures of image galleries.": "Mengunduh gambar dari galeri gambar.",
+  "Download a new version when one is found, and ask before installing it": "Unduh versi baru saat ditemukan, dan tanyakan sebelum memasangnya",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} sudah diunduh dan siap dipasang."
 }

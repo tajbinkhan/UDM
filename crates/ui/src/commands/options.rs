@@ -85,6 +85,29 @@ pub async fn install_tool(
     post(&outbox, &current, Inbox::Ui(UiMessage::ToolInstalling(tool)))
 }
 
+/// The main window's offer of the tools UDM did not find: install `tools`
+/// (none for Not now), and stop asking at start.
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_tools_offer(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    tools: Vec<ToolKey>,
+) -> Result<(), InvokeError> {
+    for tool in tools.into_iter().map(crate::services::tool_of) {
+        post(&outbox, &current, Inbox::Send { command: Box::new(Command::InstallTool { tool }), reply: None })?;
+        post(&outbox, &current, Inbox::Ui(UiMessage::ToolInstalling(tool)))?;
+    }
+    post(&outbox, &current, Inbox::ToolsAsked)
+}
+
+/// Close the strip offering the missing tools, until another goes missing.
+#[tauri::command]
+#[specta::specta]
+pub async fn dismiss_tools(outbox: State<'_, Outbox>, current: State<'_, CurrentLanguage>) -> Result<(), InvokeError> {
+    post(&outbox, &current, Inbox::DismissTools)
+}
+
 /// Check account: ask the debrid service about the account, with the key
 /// typed in the field, or else the stored one. The answer shows on the page.
 #[tauri::command]
