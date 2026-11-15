@@ -261,6 +261,8 @@ pub enum Inbox {
     Browser(BrowserAction),
     /// Open the folder theme files go in.
     OpenThemesFolder,
+    /// Open the folder of a copy of the browser extension.
+    OpenExtensionFolder(udm_application::window::ExtensionCopy),
     /// Play an event's sound, from `file` or the system's own.
     PlaySound {
         sound: udm_domain::settings::Sound,
@@ -1418,6 +1420,20 @@ impl Actor {
                 thread::spawn(move || match themes.open_folder() {
                     Ok(folder) => opener.open(&folder.display().to_string()),
                     Err(e) => tracing::warn!(error = %e, "the themes folder did not open"),
+                });
+            }
+            Inbox::OpenExtensionFolder(copy) => {
+                let lang = self.lang();
+                let (outbox, registry, opener) =
+                    (self.outbox.clone(), Arc::clone(&self.ports.browsers), Arc::clone(&self.ports.opener));
+                apply(&mut self.state, UiMessage::BrowserNote(None));
+                thread::spawn(move || match registry.extension_folder(copy) {
+                    Some(folder) => opener.open(&folder.display().to_string()),
+                    None => {
+                        let text = lang.tr("UDM could not find its extension folder. Reinstall UDM to get it back.");
+                        let note = contract::Banner { text: text.to_string(), error: true };
+                        let _ = outbox.send(Inbox::Ui(UiMessage::BrowserNote(Some(note))));
+                    }
                 });
             }
             Inbox::PlaySound { sound, file } => {

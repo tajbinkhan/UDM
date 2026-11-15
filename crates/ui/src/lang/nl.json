@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "Downloadt video's van YouTube en vele andere videosites.",
   "Downloads the pictures of image galleries.": "Downloadt de afbeeldingen van fotogalerijen.",
   "Download a new version when one is found, and ask before installing it": "Een nieuwe versie downloaden zodra die gevonden is, en vragen voordat die geïnstalleerd wordt",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} is gedownload en klaar om te installeren."
+  "UDM {version} is downloaded and ready to install.": "UDM {version} is gedownload en klaar om te installeren.",
+  "Open extension folder": "Extensiemap openen",
+  "Open Firefox extension folder": "Firefox-extensiemap openen",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "De map die u kiest met 'Uitgepakte extensie laden' in Chrome, Edge, Brave en andere Chromium-browsers",
+  "The folder to load in Firefox, on its about:debugging page": "De map die u in Firefox laadt, op de pagina about:debugging",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM kan zijn extensiemap niet vinden. Installeer UDM opnieuw om hem terug te krijgen."
 }

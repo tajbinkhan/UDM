@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "ویدیوها را از YouTube و بسیاری از سایت‌های ویدیویی دیگر دانلود می‌کند.",
   "Downloads the pictures of image galleries.": "تصاویر گالری‌های تصویر را دانلود می‌کند.",
   "Download a new version when one is found, and ask before installing it": "نسخه جدید را هنگام پیدا شدن دانلود کن و پیش از نصب بپرس",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} دانلود شده و آماده نصب است."
+  "UDM {version} is downloaded and ready to install.": "UDM {version} دانلود شده و آماده نصب است.",
+  "Open extension folder": "باز کردن پوشهٔ افزونه",
+  "Open Firefox extension folder": "باز کردن پوشهٔ افزونهٔ Firefox",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "پوشه‌ای که با «Load unpacked» در Chrome، Edge، Brave و دیگر مرورگرهای Chromium انتخاب می‌شود",
+  "The folder to load in Firefox, on its about:debugging page": "پوشه‌ای که در Firefox، در صفحهٔ about:debugging آن، بارگذاری می‌شود",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM پوشهٔ افزونهٔ خود را پیدا نکرد. برای بازگرداندن آن، UDM را دوباره نصب کنید."
 }

@@ -26,6 +26,7 @@ export type {
   FileExistsChoice,
   StartTabChoice,
   SelectionChoice,
+  ExtensionKind,
   UnpackChoice,
   LoginView,
   CountdownView,

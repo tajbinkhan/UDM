@@ -12,7 +12,7 @@ use udm_application::daemon::Command;
 
 use super::{lang, post};
 use crate::actor::{BrowserAction, CurrentLanguage, Inbox, Outbox};
-use crate::contract::{DebridChoice, Id, InvokeError, OptionsDraft, PickKind, SystemProxyView, ToolKey};
+use crate::contract::{DebridChoice, ExtensionKind, Id, InvokeError, OptionsDraft, PickKind, SystemProxyView, ToolKey};
 use crate::errors;
 use crate::state::UiMessage;
 
@@ -213,6 +213,17 @@ pub async fn open_themes_folder(
     current: State<'_, CurrentLanguage>,
 ) -> Result<(), InvokeError> {
     post(&outbox, &current, Inbox::OpenThemesFolder)
+}
+
+/// Open the folder of the extension's `kind` copy, to load in a browser.
+#[tauri::command]
+#[specta::specta]
+pub async fn open_extension_folder(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    kind: ExtensionKind,
+) -> Result<(), InvokeError> {
+    post(&outbox, &current, Inbox::OpenExtensionFolder(kind.into()))
 }
 
 /// Play the sound of event `index` (download complete, failed, queue

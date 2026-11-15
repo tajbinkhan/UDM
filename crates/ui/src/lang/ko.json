@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "YouTube 및 기타 여러 동영상 사이트에서 동영상을 다운로드합니다.",
   "Downloads the pictures of image galleries.": "이미지 갤러리의 사진을 다운로드합니다.",
   "Download a new version when one is found, and ask before installing it": "새 버전을 찾으면 다운로드하고, 설치하기 전에 묻기",
-  "UDM {version} is downloaded and ready to install.": "UDM {version}이(가) 다운로드되어 설치할 준비가 되었습니다."
+  "UDM {version} is downloaded and ready to install.": "UDM {version}이(가) 다운로드되어 설치할 준비가 되었습니다.",
+  "Open extension folder": "확장 프로그램 폴더 열기",
+  "Open Firefox extension folder": "Firefox 확장 프로그램 폴더 열기",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Chrome, Edge, Brave 및 기타 Chromium 브라우저에서 '압축해제된 확장 프로그램을 로드합니다'로 선택할 폴더",
+  "The folder to load in Firefox, on its about:debugging page": "Firefox의 about:debugging 페이지에서 불러올 폴더",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM이 확장 프로그램 폴더를 찾지 못했습니다. 되찾으려면 UDM을 다시 설치하세요."
 }

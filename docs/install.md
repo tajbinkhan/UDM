@@ -71,7 +71,9 @@ load it by hand:
    **Developer mode**.
 2. Click **Load unpacked** and choose the `extension` folder inside the
    install folder (Setup's last page shows it and can open it), or
-   `extension/chromium` in this checkout.
+   `extension/chromium` in this checkout. In UDM, **Options > Browser
+   capture > Open extension folder** opens it on every system, and **Open
+   Firefox extension folder** opens the `firefox` one.
 3. Check that its ID reads `epmjakacaejhdhldkpbjnakhfmjjbhfm`. The manifest
    carries a fixed public key, so the ID is the same on every machine.
 

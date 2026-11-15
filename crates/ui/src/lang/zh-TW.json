@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "從 YouTube 和許多其他影片網站下載影片。",
   "Downloads the pictures of image galleries.": "下載圖庫中的圖片。",
   "Download a new version when one is found, and ask before installing it": "發現新版本時自動下載，並在安裝前詢問",
-  "UDM {version} is downloaded and ready to install.": "UDM {version} 已下載，可以安裝。"
+  "UDM {version} is downloaded and ready to install.": "UDM {version} 已下載，可以安裝。",
+  "Open extension folder": "開啟擴充功能資料夾",
+  "Open Firefox extension folder": "開啟 Firefox 擴充功能資料夾",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "在 Chrome、Edge、Brave 及其他 Chromium 瀏覽器中以「載入未封裝項目」選擇的資料夾",
+  "The folder to load in Firefox, on its about:debugging page": "在 Firefox 的 about:debugging 頁面中載入的資料夾",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM 找不到它的擴充功能資料夾。請重新安裝 UDM 以取回。"
 }

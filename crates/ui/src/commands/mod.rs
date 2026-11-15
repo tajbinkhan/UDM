@@ -78,6 +78,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         options::remove_browser,
         options::restart_browser,
         options::open_themes_folder,
+        options::open_extension_folder,
         options::play_sound,
         options::system_proxy,
         scheduler::save_queue,

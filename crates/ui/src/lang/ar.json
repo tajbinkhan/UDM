@@ -1146,5 +1146,10 @@
   "Downloads videos from YouTube and many other video sites.": "ينزّل مقاطع الفيديو من YouTube ومواقع فيديو كثيرة أخرى.",
   "Downloads the pictures of image galleries.": "ينزّل صور معارض الصور.",
   "Download a new version when one is found, and ask before installing it": "نزّل الإصدار الجديد عند العثور عليه، واسأل قبل تثبيته",
-  "UDM {version} is downloaded and ready to install.": "تم تنزيل UDM {version} وهو جاهز للتثبيت."
+  "UDM {version} is downloaded and ready to install.": "تم تنزيل UDM {version} وهو جاهز للتثبيت.",
+  "Open extension folder": "فتح مجلد الإضافة",
+  "Open Firefox extension folder": "فتح مجلد إضافة Firefox",
+  "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "المجلد الذي يُختار بزر «تحميل غير المضغوطة» في Chrome وEdge وBrave ومتصفحات Chromium الأخرى",
+  "The folder to load in Firefox, on its about:debugging page": "المجلد الذي يُحمَّل في Firefox، في صفحة about:debugging",
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "لم يجد UDM مجلد إضافته. أعد تثبيت UDM لاستعادته."
 }

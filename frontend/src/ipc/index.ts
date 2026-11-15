@@ -8,6 +8,7 @@ import type {
   AnswerInput,
   ColumnKey,
   DownloadControl,
+  ExtensionKind,
   Id,
   InvokeError,
   LimitInput,
@@ -198,6 +199,7 @@ export const addBrowser = (program: string) => commands.addBrowser(program);
 export const removeBrowser = (index: number) => commands.removeBrowser(index);
 export const restartBrowser = (index: number) => commands.restartBrowser(index);
 export const openThemesFolder = () => commands.openThemesFolder();
+export const openExtensionFolder = (kind: ExtensionKind) => commands.openExtensionFolder(kind);
 export const playSound = (index: number, file: string) => commands.playSound(index, file);
 export const systemProxy = () => commands.systemProxy();
 export const heartbeat = (visible: boolean) => commands.heartbeat(visible);
