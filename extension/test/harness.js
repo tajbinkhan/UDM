@@ -54,7 +54,16 @@ function setBrowserProxy(value) {
 // what chrome.storage.session holds when the worker starts, or false for a
 // browser without it (older Firefox). `globals` adds to the worker's globals
 // (OffscreenCanvas and the like, which Node does not have).
-function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
+//
+// With `safari`, load the Safari copy as Safari does: no downloads API, no
+// proxy settings, no notifications, safari-web-extension:// pages, and
+// native messages through runtime.sendNativeMessage (see native.js). Each
+// request it sends is in `native.requests`; `native.reply(request)` answers
+// it (by default a poll with the frames tests queue in `native.frames`, at
+// once), and `native.settle()` waits for the worker's requests to go out and
+// come back.
+// Its timers do not keep Node running.
+function loadWorker({ firefox = false, safari = false, session = {}, globals = {} } = {}) {
   const sent = [];
   const browserCalls = [];
   const port = {
@@ -62,12 +71,42 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
     onDisconnect: event(),
     postMessage: (m) => sent.push(m),
   };
+  const native = {
+    requests: [],
+    frames: [],
+    session: "host-1",
+    reply: (request) => ({ session: native.session, frames: request.poll ? native.frames.splice(0) : [] }),
+    // At least 20 ms, then until no new request has gone out for 30 ms (at
+    // most 2 s), so a slow machine still sees the requests that follow.
+    settle: async () => {
+      const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const until = Date.now() + 2000;
+      await pause(20);
+      let seen = -1;
+      while (native.requests.length !== seen && Date.now() < until) {
+        seen = native.requests.length;
+        await pause(30);
+      }
+    },
+  };
+  const manifest = () => (safari ? safariManifest() : firefox ? firefoxManifest() : chromeManifest());
   const chrome = {
     runtime: {
       id: "udm",
       connectNative: () => port,
-      getManifest: () => ({ ...(firefox ? firefoxManifest() : chromeManifest()), version: "test" }),
-      getURL: (path) => (firefox ? `moz-extension://0b1c/${path}` : `chrome-extension://udm/${path}`),
+      ...(safari
+        ? {
+            sendNativeMessage: async (_host, request) => {
+              native.requests.push(request);
+              // What the worker sent goes in `sent`, as with a port.
+              for (const m of request.frames || []) sent.push(m);
+              return native.reply(request);
+            },
+          }
+        : {}),
+      getManifest: () => ({ ...manifest(), version: "test" }),
+      getURL: (path) =>
+        safari ? `safari-web-extension://0d1e/${path}` : firefox ? `moz-extension://0b1c/${path}` : `chrome-extension://udm/${path}`,
       onMessage: event(),
       onInstalled: event(),
       lastError: null,
@@ -87,7 +126,7 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
           }),
       onChanged: event(),
     },
-    proxy: { settings: { get: async () => ({ value: proxyValue }) } },
+    ...(safari ? {} : { proxy: { settings: { get: async () => ({ value: proxyValue }) } } }),
     webRequest: {
       onBeforeRequest: event(),
       onBeforeSendHeaders: event(),
@@ -115,9 +154,20 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
       onUpdated: event(),
       onCreated: event(),
       query: async () => [],
-      // The tabs get() finds, by id, and the ids remove() closed.
+      // The tabs get() finds, by id, the ids remove() closed, and what
+      // create() opened.
       known: new Map(),
       removed: [],
+      created: [],
+      // Only Safari's: the others' tests never open a tab.
+      ...(safari
+        ? {
+            create: async (o) => {
+              chrome.tabs.created.push(o);
+              return { id: 900 + chrome.tabs.created.length, ...o };
+            },
+          }
+        : {}),
       get: async (id) => {
         if (!chrome.tabs.known.has(id)) throw new Error("no such tab");
         return chrome.tabs.known.get(id);
@@ -134,7 +184,7 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
         return chrome.tabs.reply ? chrome.tabs.reply(msg, options) : undefined;
       },
     },
-    downloads: {
+    downloads: safari ? undefined : {
       onCreated: event(),
       // The browser's download list, which search() looks in.
       items: [],
@@ -187,7 +237,7 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
       setBadgeBackgroundColor: () => {},
       setIcon: (o) => void chrome.action.calls.push(["icon", o]),
     },
-    notifications: {
+    notifications: safari ? undefined : {
       shown: [],
       // Firefox's notices take no buttons.
       create: async (id, options) => {
@@ -200,12 +250,20 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
     },
     i18n: { getMessage, getUILanguage: () => "en-US" },
   };
-  const dir = path.join(__dirname, "..", firefox ? "firefox" : "chromium");
+  const dir = path.join(__dirname, "..", safari ? "safari" : firefox ? "firefox" : "chromium");
+  // Safari's port polls for as long as the worker runs.
+  const timeout = safari
+    ? (f, ms, ...args) => {
+        const t = setTimeout(f, ms, ...args);
+        t.unref();
+        return t;
+      }
+    : setTimeout;
   const context = vm.createContext({
     chrome,
     navigator: { userAgent: "test-agent" },
     console,
-    setTimeout,
+    setTimeout: timeout,
     clearTimeout,
     URL,
     TextEncoder,
@@ -229,7 +287,7 @@ function loadWorker({ firefox = false, session = {}, globals = {} } = {}) {
     new Promise((resolve) =>
       chrome.runtime.onMessage.fire(msg, { id: "udm", tab: { id: tabId, url, incognito }, url: frameUrl }, resolve),
     );
-  return { port, sent, browserCalls, chrome, popup, content };
+  return { port, sent, browserCalls, chrome, popup, content, native };
 }
 
 function chromeManifest() {
@@ -243,9 +301,15 @@ function firefoxManifest() {
   return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "firefox", "manifest.json"), "utf8"));
 }
 
+// The Safari copy's manifest.json, which installer/make-safari.js makes from
+// the Chromium one and safari.json (safari.test.js checks it is current).
+function safariManifest() {
+  return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "safari", "manifest.json"), "utf8"));
+}
+
 let nextDownloadId = 1;
 function download(fields) {
   return { id: nextDownloadId++, url: "", referrer: "", filename: "", mime: "", totalBytes: 0, fileSize: 0, incognito: false, ...fields };
 }
 
-module.exports = { loadWorker, download, event, setBrowserProxy, firefoxManifest, getMessage };
+module.exports = { loadWorker, download, event, setBrowserProxy, firefoxManifest, safariManifest, getMessage };

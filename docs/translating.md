@@ -73,8 +73,8 @@ resume, scheduler, site grabber.
 3. Add `extension/chromium/_locales/<code>/messages.json` with every message in
    `extension/chromium/_locales/en/messages.json`, and the same placeholders.
 4. Add a row to the table above.
-5. Run `node installer/make-firefox.js`, which copies the new locale into
-   `extension/firefox`.
+5. Run `node installer/make-firefox.js` and `node installer/make-safari.js`,
+   which copy the new locale into `extension/firefox` and `extension/safari`.
 6. Run `cargo test -p udm-ui i18n` and `node --test extension/test/*.test.js`.
 
 The tests check that every key is still a string in the window, keeps its
