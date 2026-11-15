@@ -41,11 +41,20 @@ const labels: Record<Kind, string> = {
   exception: 'exception',
 };
 
+// `&ask=language` opens the main window with the first start's language picker.
+const view =
+  kind === 'main' && params.get('ask') === 'language'
+    ? {
+        ...fixtures.views.main,
+        view: { ...fixtures.views.main.view, chrome: { ...fixtures.views.main.view.chrome, askLanguage: true } },
+      }
+    : fixtures.views[kind];
+
 mockWindows(labels[kind]);
 mockIPC((cmd, args) => {
   if (cmd === 'subscribe') {
     const channel = (args as { channel: { onmessage: (u: unknown) => void } }).channel;
-    setTimeout(() => channel.onmessage({ kind: 'snapshot', seq: 0, look, view: fixtures.views[kind] }));
+    setTimeout(() => channel.onmessage({ kind: 'snapshot', seq: 0, look, view }));
   }
   // `&denied=1` shows Download File Info for a folder UDM may not write to.
   if (cmd === 'check_save_folder') return { denied: params.get('denied') === '1' };

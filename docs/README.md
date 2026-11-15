@@ -87,7 +87,8 @@ Short guides for the first things people do, most with a screenshot:
 - **[Known gaps](known-gaps.md)**: what doesn't work yet, or works differently on macOS and Linux.
 - **[Verified](verified.md)**: what each change was checked against.
 - **[Benchmark](bench/README.md)**: the harness that times UDM against IDM and other download
-  managers on servers that misbehave, and its results (none against IDM yet).
+  managers on servers that misbehave, and its results, including a run against IDM 6.43 on
+  Windows.
 - **[Releases](https://github.com/tajbinkhan/UDM/releases)**: download the latest version.
 - **[Problem reports](problem-reports.md)**: what UDM writes down when a program crashes or
   freezes, where it keeps it, and Help > Report a problem.
