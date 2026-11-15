@@ -8,6 +8,11 @@ const MAX_ROWS = 20;
 const $ = (id) => document.getElementById(id);
 const t = (name, subs) => chrome.i18n.getMessage(name, subs);
 
+// Right to left in Arabic, Hebrew and Persian: the browser names the
+// direction of its language as the predefined message @@bidi_dir.
+document.documentElement.dir = t("@@bidi_dir") || "ltr";
+document.documentElement.lang = t("@@ui_locale").replace("_", "-") || "en";
+
 // The page's own text in the browser's language: data-i18n names the message
 // for an element's text, data-i18n-title, -placeholder and -aria-label those
 // for its attributes. The HTML keeps the English for reading it as it is.

@@ -114,14 +114,14 @@
     align-items: center;
     justify-content: start;
     gap: 4px 6px;
-    padding-left: 18px;
+    padding-inline-start: 18px;
   }
 
   .quota label {
-    text-align: right;
+    text-align: end;
   }
 
   .num {
-    text-align: right;
+    text-align: end;
   }
 </style>

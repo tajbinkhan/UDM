@@ -198,7 +198,8 @@
 <style>
   .dialog {
     gap: 6px;
-    padding: 8px 10px 8px 12px;
+    padding-block: 8px;
+    padding-inline: 12px 10px;
   }
 
   .grid {
@@ -210,7 +211,7 @@
 
   .grid > label {
     grid-column: 1;
-    text-align: right;
+    text-align: end;
   }
 
   .grid > :not(label):not(.big) {
@@ -243,12 +244,12 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding-left: 86px;
+    padding-inline-start: 86px;
   }
 
   .buttons {
     justify-content: flex-start;
-    padding-left: 86px;
+    padding-inline-start: 86px;
     gap: 22px;
   }
 
@@ -261,7 +262,8 @@
   }
 
   input[type='radio'] {
-    margin: 0 5px 0 0;
+    margin-block: 0;
+    margin-inline: 0 5px;
     accent-color: var(--focus);
   }
 </style>

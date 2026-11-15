@@ -86,6 +86,7 @@ const COMMANDS: &[&str] = &[
     "set_panel_width",
     "set_list_font",
     "set_toolbar",
+    "set_language",
     "close_tip",
     "answer_login",
     "answer_countdown",

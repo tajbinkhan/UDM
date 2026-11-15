@@ -108,6 +108,8 @@ fn sample() -> AppState {
     // What Windows can do: ask for administrator rights, set a creation time.
     let windows = crate::state::SystemFacts { can_elevate: true, creation_time: true, portable: false };
     apply(&mut s, UiMessage::SystemRead(windows));
+    // A window started before: the first-start language picker was answered.
+    s.layout_rest.insert(crate::projection::main::LANGUAGE_ASKED.into(), true.into());
     s
 }
 

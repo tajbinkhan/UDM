@@ -91,7 +91,8 @@
     align-items: center;
     justify-content: space-between;
     height: 32px;
-    padding: 0 0 0 12px;
+    padding-block: 0;
+    padding-inline: 12px 0;
     background: var(--bar);
     border-bottom: 1px solid var(--border);
     font-weight: 600;
@@ -102,7 +103,8 @@
     height: 32px;
     background: none;
     border: 0;
-    border-radius: 0 var(--radius-large) 0 0;
+    border-radius: 0;
+    border-start-end-radius: var(--radius-large);
     color: var(--fg);
     font-weight: 400;
   }

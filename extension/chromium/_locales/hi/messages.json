@@ -1,0 +1,395 @@
+{
+  "extDescription": {
+    "message": "ब्राउज़र के डाउनलोड को डाउनलोड मैनेजर UDM को भेजें।"
+  },
+  "downloadWithUdm": {
+    "message": "UDM से डाउनलोड करें"
+  },
+  "downloadLaterWithUdm": {
+    "message": "UDM से बाद में डाउनलोड करें"
+  },
+  "downloadGalleryWithUdm": {
+    "message": "UDM से गैलरी डाउनलोड करें"
+  },
+  "downloadAllLinksWithUdm": {
+    "message": "UDM से सभी लिंक डाउनलोड करें"
+  },
+  "downloadSelectedLinksWithUdm": {
+    "message": "UDM से चयनित लिंक डाउनलोड करें"
+  },
+  "udmDisconnected": {
+    "message": "UDM का कनेक्शन टूट गया"
+  },
+  "captureDownloads": {
+    "message": "डाउनलोड कैप्चर करें"
+  },
+  "captureDownloadsTitle": {
+    "message": "ब्राउज़र जो डाउनलोड शुरू करता है उन्हें UDM को भेजें"
+  },
+  "captureInTab": {
+    "message": "इस टैब में कैप्चर करें"
+  },
+  "captureInTabTitle": {
+    "message": "इस टैब के डाउनलोड ब्राउज़र पर छोड़ने के लिए कैप्चर बंद करें"
+  },
+  "captureOffInTab": {
+    "message": "इस टैब में बंद"
+  },
+  "statusConnected": {
+    "message": "कनेक्ट है। ब्राउज़र में आप जो डाउनलोड शुरू करते हैं वे UDM को जाते हैं।"
+  },
+  "statusConnectedCaptureOff": {
+    "message": "कनेक्ट है। कैप्चर बंद है, इसलिए ब्राउज़र अपने डाउनलोड खुद रखता है।"
+  },
+  "statusNotConnected": {
+    "message": "UDM से कनेक्ट नहीं है। डाउनलोड ब्राउज़र में ही रहते हैं।"
+  },
+  "statusNotConnectedReason": {
+    "message": "UDM से कनेक्ट नहीं है: $REASON$। डाउनलोड ब्राउज़र में ही रहते हैं।",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Specified native messaging host not found"
+      }
+    }
+  },
+  "refreshWaiting": {
+    "message": "आपका अगला डाउनलोड $NAME$ को नया लिंक देगा।",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "setup.exe"
+      }
+    }
+  },
+  "stopWaiting": {
+    "message": "प्रतीक्षा बंद करें"
+  },
+  "skipNextDownload": {
+    "message": "अगला डाउनलोड छोड़ें"
+  },
+  "skipNextDownloadTitle": {
+    "message": "अगला डाउनलोड ब्राउज़र में ही रहने दें"
+  },
+  "dontSkip": {
+    "message": "न छोड़ें"
+  },
+  "skippingNextDownloadTitle": {
+    "message": "अगला डाउनलोड ब्राउज़र में ही रहता है"
+  },
+  "allLinks": {
+    "message": "इस पेज के सभी लिंक"
+  },
+  "allLinksTitle": {
+    "message": "इस पेज के लिंक UDM में सूचीबद्ध करें, ताकि डाउनलोड करने वाले चुने जा सकें"
+  },
+  "videoButton": {
+    "message": "वीडियो बटन"
+  },
+  "videoButtonTitle": {
+    "message": "ब्राउज़र में चल रहे वीडियो के ऊपर एक डाउनलोड बटन"
+  },
+  "videoButtonOnSite": {
+    "message": "$SITE$ पर",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "www.example.com"
+      }
+    }
+  },
+  "urlPlaceholder": {
+    "message": "डाउनलोड URL चिपकाएँ"
+  },
+  "download": {
+    "message": "डाउनलोड"
+  },
+  "noDownloads": {
+    "message": "अभी कोई डाउनलोड नहीं।"
+  },
+  "stateQueued": {
+    "message": "कतार में"
+  },
+  "stateDownloading": {
+    "message": "डाउनलोड हो रहा है"
+  },
+  "stateDone": {
+    "message": "पूर्ण"
+  },
+  "stateFailed": {
+    "message": "विफल"
+  },
+  "stateCanceled": {
+    "message": "रद्द किया गया"
+  },
+  "stateInterrupted": {
+    "message": "बाधित"
+  },
+  "stateConfirming": {
+    "message": "UDM में आपकी प्रतीक्षा है"
+  },
+  "stateWaiting": {
+    "message": "शुरू होने की प्रतीक्षा में"
+  },
+  "threatFound": {
+    "message": "खतरा मिला"
+  },
+  "start": {
+    "message": "शुरू करें"
+  },
+  "cancel": {
+    "message": "रद्द करें"
+  },
+  "retry": {
+    "message": "फिर कोशिश करें"
+  },
+  "remove": {
+    "message": "हटाएँ"
+  },
+  "sizeProgress": {
+    "message": "$DONE$ / $TOTAL$",
+    "placeholders": {
+      "done": {
+        "content": "$1",
+        "example": "1.5 MB"
+      },
+      "total": {
+        "content": "$2",
+        "example": "10.0 MB"
+      }
+    }
+  },
+  "sizeBytes": {
+    "message": "$SIZE$ B",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "512"
+      }
+    }
+  },
+  "sizeKB": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeMB": {
+    "message": "$SIZE$ MB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeGB": {
+    "message": "$SIZE$ GB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeTB": {
+    "message": "$SIZE$ TB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "downloadVideo": {
+    "message": "यह वीडियो डाउनलोड करें"
+  },
+  "videoButtonHelp": {
+    "message": "वीडियो बटन के बारे में सहायता"
+  },
+  "videoButtonClose": {
+    "message": "इस वीडियो के लिए इसे बंद करें"
+  },
+  "lookingForVideo": {
+    "message": "वीडियो खोजा जा रहा है..."
+  },
+  "subtitles": {
+    "message": "उपशीर्षक:"
+  },
+  "videoProtected": {
+    "message": "यह वीडियो DRM से सुरक्षित है, इसलिए UDM इसे डाउनलोड नहीं करेगा।"
+  },
+  "streamProtected": {
+    "message": "DRM से सुरक्षित; UDM इसे डाउनलोड नहीं करेगा।"
+  },
+  "udmNotConnected": {
+    "message": "UDM चल नहीं रहा है या कनेक्ट नहीं है।"
+  },
+  "noVideoFound": {
+    "message": "अभी कोई वीडियो नहीं मिला। उसे थोड़ी देर चलने दें, फिर कोशिश करें।"
+  },
+  "sentToUdm": {
+    "message": "UDM को भेज दिया गया।"
+  },
+  "couldNotReachUdm": {
+    "message": "UDM तक नहीं पहुँचा जा सका।"
+  },
+  "hlsStream": {
+    "message": "HLS स्ट्रीम"
+  },
+  "dashStream": {
+    "message": "DASH स्ट्रीम"
+  },
+  "hdsStream": {
+    "message": "HDS स्ट्रीम"
+  },
+  "youtubeVideo": {
+    "message": "YouTube वीडियो"
+  },
+  "facebookVideo": {
+    "message": "Facebook वीडियो"
+  },
+  "instagramVideo": {
+    "message": "Instagram वीडियो"
+  },
+  "vimeoVideo": {
+    "message": "Vimeo वीडियो"
+  },
+  "pageVideo": {
+    "message": "इस पेज का वीडियो"
+  },
+  "playlistTitled": {
+    "message": "प्लेलिस्ट: $TITLE$ ($COUNT$ वीडियो)",
+    "placeholders": {
+      "title": {
+        "content": "$1",
+        "example": "Lectures"
+      },
+      "count": {
+        "content": "$2",
+        "example": "24"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "प्लेलिस्ट ($COUNT$ वीडियो)",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "24"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "UDM में वीडियो चुनें..."
+  },
+  "mediaNoAnswer": {
+    "message": "UDM ने जवाब नहीं दिया।"
+  },
+  "soundOnly": {
+    "message": "केवल ध्वनि ($FORMAT$)",
+    "placeholders": {
+      "format": {
+        "content": "$1",
+        "example": "MP3"
+      }
+    }
+  },
+  "videoFileType": {
+    "message": "$TYPE$ वीडियो",
+    "placeholders": {
+      "type": {
+        "content": "$1",
+        "example": "MP4"
+      }
+    }
+  },
+  "audioFileType": {
+    "message": "$TYPE$ ऑडियो",
+    "placeholders": {
+      "type": {
+        "content": "$1",
+        "example": "MP3"
+      }
+    }
+  },
+  "videoFile": {
+    "message": "वीडियो"
+  },
+  "audioFile": {
+    "message": "ऑडियो"
+  },
+  "takeoverFailed": {
+    "message": "UDM डाउनलोड को अपने हाथ में नहीं ले सका"
+  },
+  "takeoverNotConnected": {
+    "message": "UDM चल नहीं रहा है या कनेक्ट नहीं है, इसलिए ब्राउज़र $FILE$ डाउनलोड करता है।",
+    "placeholders": {
+      "file": {
+        "content": "$1",
+        "example": "setup.exe"
+      }
+    }
+  },
+  "takeoverError": {
+    "message": "UDM $FILE$ शुरू नहीं कर सका ($REASON$), इसलिए ब्राउज़र उसे डाउनलोड करता है।",
+    "placeholders": {
+      "file": {
+        "content": "$1",
+        "example": "setup.exe"
+      },
+      "reason": {
+        "content": "$2",
+        "example": "server returned HTTP 403"
+      }
+    }
+  },
+  "dontShowAgain": {
+    "message": "दोबारा न दिखाएँ"
+  },
+  "takeoverClickToStop": {
+    "message": "इसे दिखाना बंद करने के लिए इस सूचना पर क्लिक करें।"
+  },
+  "downloadLastVideo": {
+    "message": "UDM से अंतिम वीडियो डाउनलोड करें"
+  },
+  "recentVideos": {
+    "message": "हाल के वीडियो (UDM)"
+  },
+  "downloadPageWithUdm": {
+    "message": "UDM से पेज डाउनलोड करें"
+  },
+  "noLinksFound": {
+    "message": "इस पेज पर कोई लिंक नहीं मिला।"
+  },
+  "noSelectedLinksFound": {
+    "message": "चयन में कोई लिंक नहीं मिला।"
+  },
+  "linksUnreadable": {
+    "message": "ब्राउज़र UDM को इस पेज के लिंक पढ़ने नहीं देता।"
+  },
+  "cannotReachUdm": {
+    "message": "UDM तक नहीं पहुँचा जा सकता। क्या वह चल रहा है?"
+  },
+  "cannotReachUdmReason": {
+    "message": "UDM तक नहीं पहुँचा जा सकता ($REASON$)।",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Native host has exited."
+      }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "इसके बजाय ब्राउज़र इसे डाउनलोड करता है।"
+  },
+  "browserDownloadsHeading": {
+    "message": "ब्राउज़र में डाउनलोड हो रहा है"
+  },
+  "sendToUdm": {
+    "message": "UDM को भेजें"
+  }
+}

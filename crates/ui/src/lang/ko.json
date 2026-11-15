@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "끌어서 이동하고, 두 번 클릭하면 UDM가 열리며, 마우스 오른쪽 단추로 클릭하면 닫힙니다.",
   "Theme": "테마",
   "Language": "언어",
+  "System default": "시스템 기본값",
+  "Which language should UDM use? You can change it later in View > Language.": "UDM에서 사용할 언어를 선택하세요. 나중에 보기 > 언어에서 바꿀 수 있습니다.",
   "Interface size": "인터페이스 크기",
   "Scales everything in the window": "창의 모든 요소 크기 조정",
   "Removing downloads": "다운로드 제거",

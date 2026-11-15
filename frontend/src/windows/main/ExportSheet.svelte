@@ -37,7 +37,8 @@
 
 <style>
   input[type='radio'] {
-    margin: 0 5px 0 0;
+    margin-block: 0;
+    margin-inline: 0 5px;
     accent-color: var(--focus);
   }
 

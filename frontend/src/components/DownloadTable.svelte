@@ -200,7 +200,10 @@
     const base = widths[i];
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => (dragging = { key, width: Math.max(24, Math.min(800, base + ev.clientX - start)) });
+    // Right to left, a column's edge is on its left, so dragging left widens it.
+    const way = getComputedStyle(target).direction === 'rtl' ? -1 : 1;
+    const move = (ev: PointerEvent) =>
+      (dragging = { key, width: Math.max(24, Math.min(800, base + way * (ev.clientX - start))) });
     const up = () => {
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', up);
@@ -288,7 +291,7 @@
             <div class="td" class:right={c.key === 'size'} role="gridcell" style:width="{widths[j]}px">
               {#if c.key === 'name'}
                 <FileGlyph kind={r.icon} />
-                <span class="ell">{r.name}</span>
+                <span class="ell" dir="auto">{r.name}</span>
               {:else if c.key === 'queue'}
                 {#if r.queued}
                   <svg width="14" height="14" viewBox="0 0 16 16" aria-label={t('Queued')} role="img">
@@ -297,14 +300,14 @@
                   </svg>
                 {/if}
               {:else}
-                <span class="ell">{cell(r, c.key)}</span>
+                <span class="ell" dir="auto">{cell(r, c.key)}</span>
               {/if}
             </div>
           {/each}
         </div>
       {/each}
       {#each edges as x, j (j)}
-        <span class="guide" style:left="{x - 1}px"></span>
+        <span class="guide" style:inset-inline-start="{x - 1}px"></span>
       {/each}
     </div>
   </div>
@@ -348,7 +351,7 @@
   .th:not(.filler)::after {
     content: '';
     position: absolute;
-    right: 0;
+    inset-inline-end: 0;
     top: 0;
     bottom: 0;
     width: 1px;
@@ -359,7 +362,7 @@
   .th.filler {
     flex: 1;
     min-width: 400px;
-    border-right: 0;
+    border-inline-end: 0;
   }
 
   .title {
@@ -370,7 +373,7 @@
     padding: 0 6px;
     background: none;
     border: 0;
-    text-align: left;
+    text-align: start;
     color: var(--fg-muted);
   }
 
@@ -397,7 +400,7 @@
   .grip {
     position: absolute;
     top: 0;
-    right: -4px;
+    inset-inline-end: -4px;
     width: 8px;
     height: 100%;
     cursor: col-resize;
@@ -462,7 +465,7 @@
 
   .tr {
     position: absolute;
-    left: 0;
+    inset-inline-start: 0;
     display: flex;
     height: var(--row);
     font-size: var(--list-size);

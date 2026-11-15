@@ -348,6 +348,22 @@ pub async fn set_toolbar(
     post(&outbox, &current, Inbox::Ui(UiMessage::Toolbar { small, buttons }))
 }
 
+/// View > Language, or the first-start picker's choice: a language's code,
+/// or empty for the system's.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_language(
+    outbox: State<'_, Outbox>,
+    current: State<'_, CurrentLanguage>,
+    code: String,
+) -> Result<(), InvokeError> {
+    let known = code.is_empty() || crate::i18n::LANGUAGES.iter().any(|l| l.code == code);
+    if !known {
+        return Err(errors::invalid(lang(&current), "That is not a language."));
+    }
+    post(&outbox, &current, Inbox::SetLanguage(code))
+}
+
 /// Tip of the Day closed.
 #[tauri::command]
 #[specta::specta]

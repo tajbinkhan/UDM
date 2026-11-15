@@ -85,7 +85,7 @@
   }
 
   .small .slot.wide .tool {
-    padding-right: 2px;
+    padding-inline-end: 2px;
   }
 
   .small .more {
@@ -113,7 +113,7 @@
   }
 
   .slot.wide .tool {
-    padding-right: 12px;
+    padding-inline-end: 12px;
   }
 
   .tool {
@@ -163,7 +163,7 @@
 
   .more {
     position: absolute;
-    right: 1px;
+    inset-inline-end: 1px;
     top: 14px;
     width: 12px;
     height: 18px;

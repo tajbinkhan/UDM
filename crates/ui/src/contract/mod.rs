@@ -90,6 +90,9 @@ pub enum Update {
 /// A window's whole view, by its kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(tag = "window", content = "view", rename_all = "camelCase")]
+// A view lives only while it is projected and sent, one per window, so
+// boxing the main window's (the largest) would add churn for no gain.
+#[allow(clippy::large_enum_variant)]
 pub enum View {
     Main(MainView),
     AddUrl(AddUrlView),

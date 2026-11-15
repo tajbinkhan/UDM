@@ -113,6 +113,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         tools::set_panel_width,
         tools::set_list_font,
         tools::set_toolbar,
+        tools::set_language,
         tools::close_tip,
         extras::answer_login,
         extras::answer_countdown,

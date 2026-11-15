@@ -175,6 +175,7 @@ frontend/
 - A key a window starts answering MUST be in `src/keys.ts` and in `docs/keyboard-shortcuts.md`; a test compares the two.
 - File names, addresses, page titles and server messages come from the internet. MUST NOT render them as HTML (`{@html}`, `innerHTML` or similar).
 - Components take colors and sizes from the theme's CSS custom properties, which the shell makes from `theme::appearance`. MUST NOT hardcode colors.
+- Styles use CSS's logical sides (`margin-inline-start`, `inset-inline-end`, `text-align: start`), not `left` and `right`, so Hebrew, Arabic and Persian mirror the layout (`Language::right_to_left` sets each window's `dir`). Code that places things by screen coordinates (menus, drags) checks `rightToLeft()` in `src/i18n`. Text from the internet in a cell takes `dir="auto"`.
 - The frontend loads nothing from the network: no CDN, no web fonts, everything bundled. Links open through a command that uses the `FileOpener` port.
 
 ### 7.5 Security

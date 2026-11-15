@@ -80,6 +80,6 @@
 
   .num {
     width: 50px;
-    text-align: right;
+    text-align: end;
   }
 </style>

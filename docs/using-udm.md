@@ -540,10 +540,11 @@
   [Command line and automation](command-line.md) covers all four.
 - **Languages**: the window comes in English, Bahasa Indonesia, German,
   Spanish, French, Italian, Dutch, Polish, Brazilian Portuguese, Vietnamese,
-  Turkish, Russian, Ukrainian, Japanese, Korean and Chinese (Simplified and
-  Traditional). It starts in the first system display language it has, else
-  English; **View > Language** or **Options > General > Language** picks
-  another. Numbers and dates follow the language (`2,5 MB` and `07.03.2026` in
+  Turkish, Russian, Ukrainian, Hebrew, Arabic, Persian, Hindi, Japanese, Korean
+  and Chinese (Simplified and Traditional). Hebrew, Arabic and Persian lay the
+  windows out right to left. The first start asks which language to use,
+  starting on the first system display language UDM has, else English;
+  **View > Language** or **Options > General > Language** picks another. Numbers and dates follow the language (`2,5 MB` and `07.03.2026` in
   German). Chinese, Japanese, Korean and Vietnamese draw with a font of the
   system's (Microsoft YaHei, JhengHei, Yu Gothic, Malgun Gothic or Segoe UI on
   Windows, fontconfig's choice on Linux), read when the language is chosen;

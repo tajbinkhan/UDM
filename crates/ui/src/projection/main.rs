@@ -398,6 +398,28 @@ fn banner(ctx: &Ctx, state: &AppState) -> Option<Banner> {
     }
 }
 
+/// The key in `window.json` that remembers the first-start language
+/// picker was answered.
+pub const LANGUAGE_ASKED: &str = "language_asked";
+
+/// "System default" and each language, by its own name.
+pub fn language_choices(lang: &'static crate::i18n::Language) -> Vec<crate::contract::Choice> {
+    let mut choices =
+        vec![crate::contract::Choice { value: String::new(), label: lang.tr("System default").to_string() }];
+    choices.extend(
+        crate::i18n::LANGUAGES
+            .iter()
+            .map(|l| crate::contract::Choice { value: l.code.to_string(), label: l.name.to_string() }),
+    );
+    choices
+}
+
+/// Whether the window should ask for a language: the settings have
+/// arrived with none chosen, and the picker was never answered.
+fn ask_language(state: &AppState) -> bool {
+    state.settings.as_ref().is_some_and(|s| s.language.is_empty()) && !state.layout_rest.contains_key(LANGUAGE_ASKED)
+}
+
 pub fn chrome(ctx: &Ctx, state: &AppState) -> MainChrome {
     let lang = ctx.lang;
     let columns = state
@@ -438,6 +460,10 @@ pub fn chrome(ctx: &Ctx, state: &AppState) -> MainChrome {
         next_tip: state.settings.as_ref().map_or(0, |s| (s.next_tip % crate::tips::TIPS.len()) as u32),
         tips_on_startup: state.settings.as_ref().is_some_and(|s| s.tips_on_startup),
         show_tip: !state.tip_seen && state.settings.as_ref().is_some_and(|s| s.tips_on_startup),
+        languages: language_choices(lang),
+        language: state.settings.as_ref().map(|s| s.language.clone()).unwrap_or_default(),
+        language_now: lang.code.to_string(),
+        ask_language: ask_language(state),
         newer: match &state.asks.update {
             Some(Ok(Some(r)))
                 if state.layout_rest.get("dismissed_release").and_then(|v| v.as_str()) != Some(r.version.as_str()) =>
@@ -501,6 +527,24 @@ mod tests {
 
     fn entry(id: u64, name: &str, status: Status, total: u64) -> DownloadEntry {
         crate::testing::entry(id, name, status, total, 0)
+    }
+
+    #[test]
+    fn the_first_start_asks_for_a_language_once() {
+        let mut s = AppState::default();
+        assert!(!ask_language(&s), "not before the settings arrive");
+        s.settings = Some(Settings::default());
+        assert!(ask_language(&s));
+        let chrome = chrome(&ctx(), &s);
+        assert_eq!(chrome.languages[0].value, "");
+        assert_eq!(chrome.languages[0].label, "System default");
+        assert_eq!(chrome.languages.len(), crate::i18n::LANGUAGES.len() + 1);
+        assert_eq!(chrome.language_now, "en");
+        s.layout_rest.insert(LANGUAGE_ASKED.into(), true.into());
+        assert!(!ask_language(&s), "answered once");
+        s.layout_rest.clear();
+        s.settings = Some(Settings { language: "de".into(), ..Settings::default() });
+        assert!(!ask_language(&s), "chosen in Options already");
     }
 
     fn state_with(entries: Vec<DownloadEntry>) -> AppState {

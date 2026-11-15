@@ -46,6 +46,10 @@ pub static LANGUAGES: &[Language] = &[
     Language { code: "tr", name: "Türkçe", json: table!("tr"), decimal: ',', date: "{d}.{m}.{y}" },
     Language { code: "ru", name: "Русский", json: table!("ru"), decimal: ',', date: "{d}.{m}.{y}" },
     Language { code: "uk", name: "Українська", json: table!("uk"), decimal: ',', date: "{d}.{m}.{y}" },
+    Language { code: "he", name: "עברית", json: table!("he"), decimal: '.', date: "{d}/{m}/{y}" },
+    Language { code: "ar", name: "العربية", json: table!("ar"), decimal: '.', date: "{d}/{m}/{y}" },
+    Language { code: "fa", name: "فارسی", json: table!("fa"), decimal: '.', date: "{y}/{m}/{d}" },
+    Language { code: "hi", name: "हिन्दी", json: table!("hi"), decimal: '.', date: "{d}-{m}-{y}" },
     Language { code: "ja", name: "日本語", json: table!("ja"), decimal: '.', date: "{y}/{m}/{d}" },
     Language { code: "ko", name: "한국어", json: table!("ko"), decimal: '.', date: "{y}. {m}. {d}." },
     Language { code: "zh-CN", name: "简体中文", json: table!("zh-CN"), decimal: '.', date: "{y}/{m}/{d}" },
@@ -106,10 +110,11 @@ impl Language {
         format!("{date} {:02}:{:02}", minute / 60, minute % 60)
     }
 
-    /// Whether the language is written right to left. None of the
-    /// languages yet; the frontend sets `dir` from it.
+    /// Whether the language is written right to left: Hebrew, Arabic and
+    /// Persian. The frontend sets each window's `dir` from it, and the
+    /// layout mirrors.
     pub fn right_to_left(&self) -> bool {
-        false
+        matches!(self.code, "he" | "ar" | "fa" | "ur")
     }
 }
 
@@ -416,7 +421,18 @@ mod tests {
         assert_eq!(resolve("zh-HK", &[]).code, "zh-TW");
         assert_eq!(resolve("", &["zh-Hant-TW".into()]).code, "zh-TW");
         assert_eq!(resolve("ja-JP", &[]).code, "ja");
+        assert_eq!(resolve("", &["ar-EG".into()]).code, "ar");
+        assert_eq!(resolve("fa-IR", &[]).code, "fa");
+        assert_eq!(resolve("he-IL", &[]).code, "he");
+        assert_eq!(resolve("hi-IN", &[]).code, "hi");
         assert_eq!(resolve("xx", &[]).code, "en");
+    }
+
+    #[test]
+    fn hebrew_arabic_and_persian_read_right_to_left() {
+        let rtl: Vec<&str> = LANGUAGES.iter().filter(|l| l.right_to_left()).map(|l| l.code).collect();
+        assert_eq!(rtl, ["he", "ar", "fa"]);
+        assert!(LANGUAGES.len() >= 20, "the issue asks for at least 20 languages");
     }
 
     #[test]

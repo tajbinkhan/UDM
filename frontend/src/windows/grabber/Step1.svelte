@@ -79,7 +79,7 @@
   }
 
   .login {
-    padding-left: 30px;
+    padding-inline-start: 30px;
   }
 
   p {

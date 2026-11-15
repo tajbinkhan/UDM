@@ -26,6 +26,7 @@
     setListFont,
     setPanelWidth,
     setToolbar,
+    setLanguage,
     showDropTarget,
     showProperties,
     quitApp,
@@ -57,12 +58,13 @@
   import FontSheet from './FontSheet.svelte';
   import ToolbarSheet from './ToolbarSheet.svelte';
   import TipSheet from './TipSheet.svelte';
+  import LanguageSheet from './LanguageSheet.svelte';
   import ConvertSheet from './ConvertSheet.svelte';
   import VerifySheet from './VerifySheet.svelte';
   import Sheet from '../../components/Sheet.svelte';
 
   type SheetOpen =
-    | { kind: 'find' | 'export' | 'limiter' | 'columns' | 'font' | 'toolbar' | 'tip' }
+    | { kind: 'find' | 'export' | 'limiter' | 'columns' | 'font' | 'toolbar' | 'tip' | 'language' }
     | { kind: 'convert' | 'verify'; row: Row }
     | { kind: 'category'; original: string | null; start: CategoryInput }
     | { kind: 'note'; text: string };
@@ -107,9 +109,17 @@
   let dragWidth = $state<number | null>(null);
   const panelWidth = $derived(dragWidth ?? view?.chrome.panelWidth ?? 143);
   // The tip of the day opens by itself once, when the window starts.
+  // On the first start the language picker comes first, and the tip after.
+  let languageOffered = false;
+  $effect(() => {
+    if (view?.chrome.askLanguage && !languageOffered) {
+      languageOffered = true;
+      sheet = { kind: 'language' };
+    }
+  });
   let tipOffered = false;
   $effect(() => {
-    if (view?.chrome.showTip && !tipOffered) {
+    if (view?.chrome.showTip && !view.chrome.askLanguage && sheet === null && !tipOffered) {
       tipOffered = true;
       sheet = { kind: 'tip' };
     }
@@ -210,7 +220,10 @@
         sub('&Font', [item('&Choose Font...', () => (sheet = { kind: 'font' })), item('&Reset to default', () => void setListFont(null))]),
         sub('Tray &icon', [], true),
         item('C&ustomize URL List...', () => (sheet = { kind: 'columns' })),
-        sub('&Language', [], true),
+        sub(
+          '&Language',
+          (view?.chrome.languages ?? []).map((c) => item(c.label, () => void setLanguage(c.value), { checked: view?.chrome.language === c.value })),
+        ),
       ],
     },
     {
@@ -487,6 +500,8 @@
       <ToolbarSheet current={view.chrome.toolbar} small={view.chrome.toolbarSmall} labels={toolLabels} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'tip'}
       <TipSheet tips={view.chrome.tips} next={view.chrome.nextTip} onStartup={view.chrome.tipsOnStartup} onclose={() => (sheet = null)} />
+    {:else if sheet?.kind === 'language'}
+      <LanguageSheet languages={view.chrome.languages} now={view.chrome.languageNow} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'convert'}
       <ConvertSheet row={sheet.row} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'verify'}
@@ -539,7 +554,8 @@
     flex: 1;
     display: flex;
     min-height: 0;
-    padding: 4px 8px 8px 14px;
+    padding-block: 4px 8px;
+    padding-inline: 14px 8px;
   }
 
   .panel {
