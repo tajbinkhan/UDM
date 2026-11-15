@@ -261,23 +261,6 @@ with a device secret of its own.
 
 The full list is in [the help pages](docs/README.md).
 
-## Not a reverse-engineering project
-
-UDM is an independent program: a new implementation of a familiar way of working, not a copy
-of anyone's software.
-
-- **No one else's code.** UDM contains no code or text from Internet Download Manager, and
-  nothing taken from its files. Its logo (`assets/icon-1024.png`) is UDM's own image; like IDM's,
-  it shows a globe, a ring and a green download arrow.
-- **Learned as a user learns.** How IDM behaves is learned only by running it as a user does and
-  watching its windows. The project's rules ([AGENTS.md](AGENTS.md)) forbid decompiling,
-  disassembling or unpacking IDM's files, and copying its text or images.
-- **Built on public standards.** The engine follows the HTTP, FTP and BitTorrent specifications,
-  and the stream formats' own (HLS, DASH, HDS).
-- **Not affiliated.** UDM isn't affiliated with, endorsed by or connected to Tonec Inc.
-  "Internet Download Manager" and "IDM" are names of their owner, used here only to describe the
-  program UDM works like.
-
 ## For developers
 
 <details>
