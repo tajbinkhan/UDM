@@ -3418,7 +3418,7 @@
               "on": false
             }
           ],
-          "startWhileAsking": false,
+          "startWhileAsking": true,
           "startWithSystem": false,
           "tempDir": "",
           "theme": "system",

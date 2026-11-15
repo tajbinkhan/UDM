@@ -35,6 +35,10 @@ link or a `.torrent` file alone on its command line (and a magnet link after `/d
 clipboard monitor offers copied magnet links, and `.torrent` addresses while UDM takes `.torrent`
 files as torrents ([Torrents and magnet links](docs/torrents.md)).
 
+**Start downloading while the save-as dialog is open** is on by default, as in IDM, so a file the
+server sends in ranges comes in while you choose where to save it. Settings saved with it off keep
+it off. A torrent never starts early, since its dialog picks which of its files to download.
+
 Downloads can go through one network adapter only, such as a VPN's (#261). **Options > Network**
 lists the adapters with their addresses; with one chosen, every connection is bound to it
 (downloads, probes, stream segments, FTP's control and data connections, proxies, the update

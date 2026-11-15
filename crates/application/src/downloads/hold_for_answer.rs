@@ -202,7 +202,11 @@ mod tests {
             pieces: 1,
             private: false,
         };
-        let download = Download { torrent_files: FileSelection::parse(&[0, 2], 3).ok(), ..Download::default() };
+        let download = Download {
+            url: udm_domain::address::Link::new("magnet:?xt=urn:btih:0303030303030303030303030303030303030303"),
+            torrent_files: FileSelection::parse(&[0, 2], 3).ok(),
+            ..Download::default()
+        };
         let probed = Probed { torrent: Some(info), ..probed("t") };
         let held = HoldForAnswer::new(&w.downloads, &w.control, &w.files, &w.prefs, &w.early, &w.waiting).run(
             DownloadId::new(1),

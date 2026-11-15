@@ -1145,7 +1145,8 @@ impl Download {
     /// starts without asking skips the dialog after all, unless it asks
     /// about a `duplicate`, was asked for explicitly, or its folder is not
     /// `writable`. Only a plain file the server sends in ranges, of a known
-    /// size, can start early and be carried on elsewhere once answered.
+    /// size, can start early and be carried on elsewhere once answered; a
+    /// torrent waits for the dialog to pick its files.
     pub fn after_probe(
         &self,
         settings: &Settings,
@@ -1158,7 +1159,8 @@ impl Download {
         if !duplicate && self.ask != Some(true) && writable && settings.starts_without_asking(filename.as_str()) {
             return AfterProbe::StartNow;
         }
-        let plain = !self.is_post() && self.media.is_none();
+        let torrent = self.url.address().is_some_and(Address::is_torrent);
+        let plain = !self.is_post() && self.media.is_none() && !torrent;
         AfterProbe::Ask {
             start_early: settings.start_while_asking && writable && !duplicate && plain && resumable && size_known,
         }
@@ -1638,6 +1640,24 @@ mod tests {
         assert_eq!(
             post.after_probe(&settings, &FileName::parse("a.iso").unwrap(), true, true, true, false),
             AfterProbe::Ask { start_early: false }
+        );
+        let torrent = Download {
+            url: Link::new("magnet:?xt=urn:btih:0303030303030303030303030303030303030303"),
+            ..Download::default()
+        };
+        assert_eq!(
+            torrent.after_probe(&settings, &FileName::parse("a.iso").unwrap(), true, true, true, false),
+            AfterProbe::Ask { start_early: false },
+            "a torrent waits for its files to be picked"
+        );
+    }
+
+    #[test]
+    fn files_start_early_by_default() {
+        let plain = Download::default();
+        assert_eq!(
+            plain.after_probe(&Settings::default(), &FileName::parse("a.iso").unwrap(), true, true, true, false),
+            AfterProbe::Ask { start_early: true }
         );
     }
 
