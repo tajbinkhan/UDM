@@ -6,6 +6,7 @@
   import { t } from '../../i18n';
   import { editing } from './draft.svelte';
   import PageHead from './PageHead.svelte';
+  import ToolProgress from '../../components/ToolProgress.svelte';
 
   let { view }: { view: OptionsView } = $props();
   // The pages are drawn only while the draft exists.
@@ -43,6 +44,7 @@
           >{tool.busy ? t('Installing...') : tool.action}</button
         >
       </div>
+      {#if tool.progress}<ToolProgress progress={tool.progress} />{/if}
       {#if !tool.installable}<p class="opt-note">{tool.hint}</p>{/if}
     </div>
   {/each}

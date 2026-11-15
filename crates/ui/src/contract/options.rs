@@ -489,6 +489,18 @@ pub struct ToolRow {
     pub hint: String,
     pub installable: bool,
     pub busy: bool,
+    /// How far its download is, while it installs and the daemon has said.
+    pub progress: Option<ToolProgressView>,
+}
+
+/// How far a tool's download is, as the shell words it.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolProgressView {
+    /// Such as "12.3 MB of 40.0 MB (30%)", or "Checking and installing...".
+    pub text: String,
+    /// From 0 to 100, when the size is known.
+    pub percent: Option<u8>,
 }
 
 /// A paired phone.

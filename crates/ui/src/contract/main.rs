@@ -287,6 +287,9 @@ pub struct MissingTools {
     pub ask: bool,
     /// One of them is being installed.
     pub busy: bool,
+    /// The strip's word while they install, with how far, such as
+    /// "Installing... 30%".
+    pub busy_text: String,
     pub tools: Vec<MissingTool>,
 }
 
@@ -302,6 +305,8 @@ pub struct MissingTool {
     pub installable: bool,
     /// Where the install comes from, or the package manager's command.
     pub hint: String,
+    /// How far its download is, while it installs and the daemon has said.
+    pub progress: Option<super::options::ToolProgressView>,
 }
 
 /// The strip offering a problem report, and what its buttons can do.

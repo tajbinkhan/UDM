@@ -554,6 +554,14 @@ pub enum Event {
         done: Option<Tool>,
         error: Option<Failure>,
     },
+    /// How far `InstallTool`'s download of `tool` is: the bytes that have
+    /// come, and the size the server gave, when it gave one. Sent a few
+    /// times a second while it downloads; `Tools` with `done` ends it.
+    ToolProgress {
+        tool: Tool,
+        done: ByteCount,
+        total: Option<ByteCount>,
+    },
     /// Where the download quota stands.
     Quota {
         used: ByteCount,

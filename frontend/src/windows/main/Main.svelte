@@ -448,7 +448,7 @@
         <div class="banner strip warn" role="status">
           <span class="grow">{missing.text}</span>
           {#if missing.busy}
-            <span>{t('Installing...')}</span>
+            <span>{missing.busyText}</span>
           {:else if missing.tools.some((m) => m.installable)}
             <button
               class="btn small"

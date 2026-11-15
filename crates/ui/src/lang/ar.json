@@ -1152,5 +1152,9 @@
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "المجلد الذي يُختار بزر «تحميل غير المضغوطة» في Chrome وEdge وBrave ومتصفحات Chromium الأخرى",
   "The folder to load in Firefox, on its about:debugging page": "المجلد الذي يُحمَّل في Firefox، في صفحة about:debugging",
   "UDM could not find its extension folder. Reinstall UDM to get it back.": "لم يجد UDM مجلد إضافته. أعد تثبيت UDM لاستعادته.",
-  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "نزّل الحزمة الجديدة وافحصها ثم ثبّتها بمدير حزم النظام، الذي يطلب كلمة مرورك. يُغلق UDM ويبدأ من جديد، وتتوقف التنزيلات ويمكن استئنافها."
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "نزّل الحزمة الجديدة وافحصها ثم ثبّتها بمدير حزم النظام، الذي يطلب كلمة مرورك. يُغلق UDM ويبدأ من جديد، وتتوقف التنزيلات ويمكن استئنافها.",
+  "{done} of {total} ({percent}%)": "{done} من {total} ({percent}%)",
+  "{done} downloaded": "تم تنزيل {done}",
+  "Checking and installing...": "جارٍ الفحص والتثبيت...",
+  "Installing... {percent}%": "جارٍ التثبيت... {percent}%"
 }

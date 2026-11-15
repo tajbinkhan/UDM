@@ -128,7 +128,7 @@
               <dt>{t('Time left')}</dt>
               <dd>{view.timeLeft}</dd>
               <dt>{t('Resume capability')}</dt>
-              <dd class="resume">{view.resume}</dd>
+              <dd>{view.resume}</dd>
             </dl>
           {:else if tab === 'speed'}
             <dl class="pairs">
@@ -303,9 +303,9 @@
   .pairs {
     display: grid;
     grid-template-columns: minmax(102px, max-content) 1fr;
-    column-gap: 8px;
+    column-gap: 12px;
     margin: 0;
-    row-gap: 1px;
+    row-gap: 3px;
   }
 
   dt,
@@ -319,10 +319,6 @@
 
   .gap {
     margin-top: 8px;
-  }
-
-  .resume {
-    padding-inline-start: 78px;
   }
 
   .country {

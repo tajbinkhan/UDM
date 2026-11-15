@@ -100,6 +100,7 @@ fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
         | Outgoing::PickGallery { .. }
         | Outgoing::Gallery { .. }
         | Outgoing::Tools { .. }
+        | Outgoing::ToolProgress { .. }
         | Outgoing::Quota { .. }
         | Outgoing::LimitLifted { .. }
         | Outgoing::BrowserLink { .. }

@@ -1152,5 +1152,9 @@
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Thư mục cần chọn bằng \"Tải tiện ích đã giải nén\" trong Chrome, Edge, Brave và các trình duyệt Chromium khác",
   "The folder to load in Firefox, on its about:debugging page": "Thư mục cần tải trong Firefox, trên trang about:debugging",
   "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM không tìm thấy thư mục tiện ích của nó. Hãy cài đặt lại UDM để lấy lại.",
-  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Tải gói mới, kiểm tra và cài đặt bằng trình quản lý gói của hệ thống, trình này sẽ hỏi mật khẩu của bạn. UDM sẽ đóng và khởi động lại; các tải xuống dừng lại và có thể tiếp tục."
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Tải gói mới, kiểm tra và cài đặt bằng trình quản lý gói của hệ thống, trình này sẽ hỏi mật khẩu của bạn. UDM sẽ đóng và khởi động lại; các tải xuống dừng lại và có thể tiếp tục.",
+  "{done} of {total} ({percent}%)": "{done} / {total} ({percent}%)",
+  "{done} downloaded": "Đã tải {done}",
+  "Checking and installing...": "Đang kiểm tra và cài đặt...",
+  "Installing... {percent}%": "Đang cài đặt... {percent}%"
 }

@@ -1453,7 +1453,7 @@ export type MainChrome_Deserialize = {
 	 *  first start's sheet that offer them; none while every one is there
 	 *  or the daemon has not said.
 	 */
-	missingTools?: MissingTools | null,
+	missingTools?: MissingTools_Deserialize | null,
 	/**  What each package's menu offers, by the package's tree node. */
 	packages: PackageMenu[],
 	/**  The strip offering a problem report. */
@@ -1537,7 +1537,7 @@ export type MainChrome_Serialize = {
 	 *  first start's sheet that offer them; none while every one is there
 	 *  or the daemon has not said.
 	 */
-	missingTools: MissingTools | null,
+	missingTools: MissingTools_Serialize | null,
 	/**  What each package's menu offers, by the package's tree node. */
 	packages: PackageMenu[],
 	/**  The strip offering a problem report. */
@@ -1598,7 +1598,10 @@ export type MainView_Serialize = {
 };
 
 /**  One tool UDM did not find. */
-export type MissingTool = {
+export type MissingTool = MissingTool_Serialize | MissingTool_Deserialize;
+
+/**  One tool UDM did not find. */
+export type MissingTool_Deserialize = {
 	tool: ToolKey,
 	name: string,
 	/**  What downloads need it for. */
@@ -1607,10 +1610,29 @@ export type MissingTool = {
 	installable: boolean,
 	/**  Where the install comes from, or the package manager's command. */
 	hint: string,
+	/**  How far its download is, while it installs and the daemon has said. */
+	progress?: ToolProgressView_Deserialize | null,
+};
+
+/**  One tool UDM did not find. */
+export type MissingTool_Serialize = {
+	tool: ToolKey,
+	name: string,
+	/**  What downloads need it for. */
+	purpose: string,
+	/**  UDM can install it here. */
+	installable: boolean,
+	/**  Where the install comes from, or the package manager's command. */
+	hint: string,
+	/**  How far its download is, while it installs and the daemon has said. */
+	progress: ToolProgressView_Serialize | null,
 };
 
 /**  The tools UDM did not find, and how to offer them. */
-export type MissingTools = {
+export type MissingTools = MissingTools_Serialize | MissingTools_Deserialize;
+
+/**  The tools UDM did not find, and how to offer them. */
+export type MissingTools_Deserialize = {
 	/**  The strip's text, naming them. */
 	text: string,
 	/**  The strip shows: it was not closed for these same tools. */
@@ -1619,7 +1641,30 @@ export type MissingTools = {
 	ask: boolean,
 	/**  One of them is being installed. */
 	busy: boolean,
-	tools: MissingTool[],
+	/**
+	 *  The strip's word while they install, with how far, such as
+	 *  "Installing... 30%".
+	 */
+	busyText: string,
+	tools: MissingTool_Deserialize[],
+};
+
+/**  The tools UDM did not find, and how to offer them. */
+export type MissingTools_Serialize = {
+	/**  The strip's text, naming them. */
+	text: string,
+	/**  The strip shows: it was not closed for these same tools. */
+	strip: boolean,
+	/**  Ask about them in a sheet: the offer was never answered. */
+	ask: boolean,
+	/**  One of them is being installed. */
+	busy: boolean,
+	/**
+	 *  The strip's word while they install, with how far, such as
+	 *  "Installing... 30%".
+	 */
+	busyText: string,
+	tools: MissingTool_Serialize[],
 };
 
 /**  Options' Network page beyond the settings. */
@@ -1835,7 +1880,7 @@ export type OptionsView_Deserialize = {
 	defaultExcludedSites: string,
 	connections: number[],
 	serverConnections: number[],
-	tools: ToolRow[],
+	tools: ToolRow_Deserialize[],
 	/**  What the last install said. */
 	toolNote?: Banner | null,
 	/**  `None` until the daemon said how it stands. */
@@ -1868,7 +1913,7 @@ export type OptionsView_Serialize = {
 	defaultExcludedSites: string,
 	connections: number[],
 	serverConnections: number[],
-	tools: ToolRow[],
+	tools: ToolRow_Serialize[],
 	/**  What the last install said. */
 	toolNote: Banner | null,
 	/**  `None` until the daemon said how it stands. */
@@ -2597,8 +2642,30 @@ export type Tone = "normal" | "running" | "failed";
 /**  A tool UDM can install. */
 export type ToolKey = "ytDlp" | "ffmpeg" | "galleryDl";
 
+/**  How far a tool's download is, as the shell words it. */
+export type ToolProgressView = ToolProgressView_Serialize | ToolProgressView_Deserialize;
+
+/**  How far a tool's download is, as the shell words it. */
+export type ToolProgressView_Deserialize = {
+	/**  Such as "12.3 MB of 40.0 MB (30%)", or "Checking and installing...". */
+	text: string,
+	/**  From 0 to 100, when the size is known. */
+	percent?: number | null,
+};
+
+/**  How far a tool's download is, as the shell words it. */
+export type ToolProgressView_Serialize = {
+	/**  Such as "12.3 MB of 40.0 MB (30%)", or "Checking and installing...". */
+	text: string,
+	/**  From 0 to 100, when the size is known. */
+	percent: number | null,
+};
+
 /**  A tool's row in Options > Tools: where it is, and installing it. */
-export type ToolRow = {
+export type ToolRow = ToolRow_Serialize | ToolRow_Deserialize;
+
+/**  A tool's row in Options > Tools: where it is, and installing it. */
+export type ToolRow_Deserialize = {
 	tool: ToolKey,
 	status: string,
 	/**  Install or Update, with its name. */
@@ -2607,6 +2674,22 @@ export type ToolRow = {
 	hint: string,
 	installable: boolean,
 	busy: boolean,
+	/**  How far its download is, while it installs and the daemon has said. */
+	progress?: ToolProgressView_Deserialize | null,
+};
+
+/**  A tool's row in Options > Tools: where it is, and installing it. */
+export type ToolRow_Serialize = {
+	tool: ToolKey,
+	status: string,
+	/**  Install or Update, with its name. */
+	action: string,
+	/**  Where the install comes from, or the package manager's command. */
+	hint: string,
+	installable: boolean,
+	busy: boolean,
+	/**  How far its download is, while it installs and the daemon has said. */
+	progress: ToolProgressView_Serialize | null,
 };
 
 /**  One of a torrent's files, as its lists show it. */

@@ -13,6 +13,7 @@ export type {
   ZipView,
   ToolKey,
   ToolRow,
+  ToolProgressView,
   MissingTools,
   MissingTool,
   DebridChoice,

@@ -1254,16 +1254,37 @@ pub fn fetch_to_file(
     net: &NetConfig,
     limit: ByteCount,
     path: &Path,
+    progress: &dyn Fn(ByteCount, Option<ByteCount>),
 ) -> Result<u64, EngineError> {
     let agent = http::Client::new(net, url)?;
-    let (_, _, reader) = http::get(&agent, url, headers)?;
+    let (_, length, reader) = http::get_sized(&agent, url, headers)?;
+    let total = length.map(ByteCount::new);
     let written = (|| {
         let mut file = std::fs::File::create(path)?;
-        let n = std::io::copy(&mut reader.take(limit.get() + 1), &mut file)?;
+        let mut reader = reader.take(limit.get() + 1);
+        let mut buf = vec![0u8; 64 * 1024];
+        let (mut n, mut told) = (0u64, Instant::now());
+        progress(ByteCount::new(0), total);
+        loop {
+            let got = match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(got) => got,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.into()),
+            };
+            file.write_all(&buf[..got])?;
+            n += got as u64;
+            // A few times a second is enough for a progress bar.
+            if told.elapsed() >= PROGRESS_EVERY {
+                progress(ByteCount::new(n), total);
+                told = Instant::now();
+            }
+        }
         if n > limit.get() {
             return Err(EngineError::Refused(format!("the file is larger than {limit}")));
         }
         file.sync_all()?;
+        progress(ByteCount::new(n), total);
         Ok(n)
     })();
     if written.is_err() {
@@ -1271,6 +1292,9 @@ pub fn fetch_to_file(
     }
     written
 }
+
+/// How often `fetch_to_file` tells how far it is.
+const PROGRESS_EVERY: Duration = Duration::from_millis(200);
 
 /// Send one request to a web service's API at `url` through `net`'s proxy
 /// and read the status and at most `limit` bytes of the answer, an error's
@@ -2685,6 +2709,32 @@ mod tests {
             assert!(again < LEN as u64, "only the rest was fetched: {again} bytes");
             assert!(!partial.unwrap().exists());
             fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn a_file_fetched_whole_tells_how_far_it_is() {
+            let data = body(LEN);
+            let server = TestServer::start(data.clone());
+            let path = std::env::temp_dir().join(format!("udm_fetch_to_file_{}", std::process::id()));
+            let seen = Mutex::new(Vec::new());
+            let progress = |done: ByteCount, total: Option<ByteCount>| seen.lock().unwrap().push((done.get(), total));
+            let n =
+                fetch_to_file(&server.url, &[], &NetConfig::default(), ByteCount::mib(64), &path, &progress).unwrap();
+            assert_eq!(n, LEN as u64);
+            assert_eq!(fs::read(&path).unwrap(), data);
+            let seen = seen.into_inner().unwrap();
+            assert_eq!(
+                seen.first(),
+                Some(&(0, Some(ByteCount::new(LEN as u64)))),
+                "it starts at nothing, with the size"
+            );
+            assert_eq!(seen.last(), Some(&(LEN as u64, Some(ByteCount::new(LEN as u64)))), "and ends with all of it");
+            assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "it only grows");
+            // Too large a file is refused, and nothing is left behind.
+            assert!(
+                fetch_to_file(&server.url, &[], &NetConfig::default(), ByteCount::new(10), &path, &|_, _| {}).is_err()
+            );
+            assert!(!path.exists());
         }
 
         #[test]

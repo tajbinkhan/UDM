@@ -636,6 +636,15 @@ pub enum Outgoing {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error_kind: Option<serde_json::Value>,
     },
+    /// How far `install_tool`'s download of `tool` is: `done` bytes of
+    /// `total`, when the server gave a size. Sent a few times a second;
+    /// `tools` with `done` ends it.
+    ToolProgress {
+        tool: udm_domain::tools::Tool,
+        done: ByteCount,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<ByteCount>,
+    },
     /// Where the download quota stands: bytes used in the window and the
     /// limit. Sent when it is nearly reached, when downloads pause for it
     /// (`paused`, with when they resume, in seconds since 1970), when they

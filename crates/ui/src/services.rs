@@ -6,6 +6,7 @@
 use udm_application::daemon::{Event, Failure};
 use udm_application::themes::ThemesRead;
 use udm_application::window::BrowserSlot;
+use udm_domain::bytes::ByteCount;
 use udm_domain::debrid::{DebridCheck, DebridService};
 use udm_domain::pairing::RemoteState;
 use udm_domain::settings::{AddedBrowser, Theme};
@@ -13,7 +14,7 @@ use udm_domain::tools::{Tool, ToolState};
 
 use crate::contract::{
     AdapterRow, Banner, BrowserRowView, Choice, DeviceRow, Id, MissingTool, MissingTools, OptionsView, PairingView,
-    RemoteView, ToolKey, ToolRow,
+    RemoteView, ToolKey, ToolProgressView, ToolRow,
 };
 use crate::i18n::{fill, Language};
 use crate::projection::{format, Ctx};
@@ -49,6 +50,9 @@ pub struct Services {
     pub tool_busy: Vec<Tool>,
     /// The last install's tool and why it failed, if it did.
     pub tool_done: Option<(Tool, Option<Failure>)>,
+    /// How far each install's download is: bytes come, and the size the
+    /// server gave.
+    pub tool_progress: Vec<(Tool, ByteCount, Option<ByteCount>)>,
     pub remote: Option<RemoteState>,
     /// `None` until a worker read them.
     pub browsers: Option<BrowsersRead>,
@@ -79,13 +83,24 @@ pub enum DebridState {
 /// Take what the daemon said of the tools and of remote control.
 pub fn take(state: &mut AppState, event: &Event) {
     let s = &mut state.services;
+    // A daemon that went took its installs with it.
+    if let Event::Lost(_) = event {
+        s.tool_busy.clear();
+        s.tool_progress.clear();
+    }
     match event {
         Event::Tools { tools, done, error } => {
             s.tools = tools.clone();
             if let Some(tool) = done {
                 s.tool_busy.retain(|t| t != tool);
+                s.tool_progress.retain(|(t, _, _)| t != tool);
                 s.tool_done = Some((*tool, error.clone()));
             }
+        }
+        // Only an install the window started; a late one after `Tools` is dropped.
+        Event::ToolProgress { tool, done, total } if s.tool_busy.contains(tool) => {
+            s.tool_progress.retain(|(t, _, _)| t != tool);
+            s.tool_progress.push((*tool, *done, *total));
         }
         Event::Remote { state } => s.remote = Some(state.clone()),
         Event::Debrid { check } => s.debrid = DebridState::Checked(check.clone()),
@@ -149,9 +164,50 @@ fn tool_rows(lang: &'static Language, s: &Services) -> Vec<ToolRow> {
                 hint,
                 installable: t.installable,
                 busy: s.tool_busy.contains(&t.tool),
+                progress: tool_progress(lang, s, t.tool),
             }
         })
         .collect()
+}
+
+/// How far `tool`'s download is, while it installs and the daemon has said.
+fn tool_progress(lang: &'static Language, s: &Services, tool: Tool) -> Option<ToolProgressView> {
+    let (_, done, total) = s.tool_progress.iter().find(|(t, _, _)| *t == tool)?;
+    let size = |n: ByteCount| format::bytes(lang, n, 1);
+    Some(match total.filter(|t| t.get() > 0) {
+        Some(total) if *done >= total => {
+            ToolProgressView { text: lang.tr("Checking and installing...").to_string(), percent: Some(100) }
+        }
+        Some(total) => {
+            let percent = percent_of(*done, total);
+            ToolProgressView {
+                text: fill(
+                    lang.tr("{done} of {total} ({percent}%)"),
+                    &[("done", &size(*done)), ("total", &size(total)), ("percent", &percent.to_string())],
+                ),
+                percent: Some(percent),
+            }
+        }
+        None => ToolProgressView { text: fill(lang.tr("{done} downloaded"), &[("done", &size(*done))]), percent: None },
+    })
+}
+
+/// `done` of `total` in whole percent, at most 100.
+fn percent_of(done: ByteCount, total: ByteCount) -> u8 {
+    (done.get().saturating_mul(100) / total.get().max(1)).min(100) as u8
+}
+
+/// The strip's word while tools install: with how far, over every install
+/// whose size is known.
+fn busy_text(lang: &'static Language, s: &Services) -> String {
+    let sized: Vec<_> = s.tool_progress.iter().filter_map(|(_, done, total)| total.map(|t| (*done, t))).collect();
+    let all = sized.iter().fold(0u64, |sum, (_, t)| sum.saturating_add(t.get()));
+    if sized.is_empty() || all == 0 {
+        return lang.tr("Installing...").to_string();
+    }
+    let done = sized.iter().fold(0u64, |sum, (d, t)| sum.saturating_add(d.get().min(t.get())));
+    let percent = percent_of(ByteCount::new(done), ByteCount::new(all));
+    fill(lang.tr("Installing... {percent}%"), &[("percent", &percent.to_string())])
 }
 
 /// The key in `window.json` that remembers the first start's tools offer
@@ -200,6 +256,7 @@ pub fn missing_tools(lang: &'static Language, state: &AppState) -> Option<Missin
             } else {
                 fill(lang.tr("UDM cannot install it here. Install it with: {command}"), &[("command", &t.command)])
             },
+            progress: tool_progress(lang, s, t.tool),
         })
         .collect();
     Some(MissingTools {
@@ -207,6 +264,7 @@ pub fn missing_tools(lang: &'static Language, state: &AppState) -> Option<Missin
         strip: rest.get(TOOLS_DISMISSED).and_then(|v| v.as_str()) != Some(names.as_str()),
         ask: !rest.contains_key(TOOLS_ASKED),
         busy: missing.iter().any(|t| s.tool_busy.contains(&t.tool)),
+        busy_text: busy_text(lang, s),
         tools,
     })
 }
@@ -658,8 +716,65 @@ mod tests {
         assert!(missing_tools(lang, &s).unwrap().strip);
 
         apply(&mut s, UiMessage::ToolInstalling(Tool::YtDlp));
-        assert!(missing_tools(lang, &s).unwrap().busy);
+        let offer = missing_tools(lang, &s).unwrap();
+        assert!(offer.busy);
+        assert_eq!(offer.busy_text, "Installing...", "nothing heard yet");
+        assert_eq!(offer.tools[0].progress, None);
         daemon(&mut s, Event::Lost(udm_application::daemon::Lost::Closed));
         assert_eq!(missing_tools(lang, &s), None);
+        assert!(s.services.tool_busy.is_empty() && s.services.tool_progress.is_empty(), "the installs went too");
+    }
+
+    #[test]
+    fn an_install_shows_how_far_its_download_is() {
+        let lang = ctx().lang;
+        let tool = |tool, path: Option<&str>, installable| ToolState {
+            tool,
+            path: path.map(str::to_string),
+            installed: None,
+            installable,
+            command: String::new(),
+        };
+        let daemon =
+            |s: &mut AppState, e| apply(s, UiMessage::Daemon { event: Box::new(e), at: Instant::now(), unix: 0 });
+        let mut s = AppState::default();
+        daemon(&mut s, Event::Connected);
+        let tools = vec![tool(Tool::YtDlp, None, true), tool(Tool::GalleryDl, None, true)];
+        daemon(&mut s, Event::Tools { tools, done: None, error: None });
+        let mib = |n: u64| ByteCount::new(n * 1024 * 1024);
+        // Progress for an install the window did not start is not shown.
+        daemon(&mut s, Event::ToolProgress { tool: Tool::YtDlp, done: mib(1), total: Some(mib(4)) });
+        assert!(s.services.tool_progress.is_empty());
+
+        apply(&mut s, UiMessage::ToolInstalling(Tool::YtDlp));
+        apply(&mut s, UiMessage::ToolInstalling(Tool::GalleryDl));
+        daemon(&mut s, Event::ToolProgress { tool: Tool::YtDlp, done: mib(1), total: Some(mib(4)) });
+        let offer = missing_tools(lang, &s).unwrap();
+        let progress = offer.tools[0].progress.clone().unwrap();
+        assert_eq!(progress.text, "1.0 MB of 4.0 MB (25%)");
+        assert_eq!(progress.percent, Some(25));
+        assert_eq!(offer.busy_text, "Installing... 25%");
+        let mut view = crate::options::view(lang, &udm_domain::settings::Settings::default());
+        fill_view(&ctx(), &s, &mut view);
+        assert_eq!(view.tools.iter().find(|t| t.tool == ToolKey::YtDlp).unwrap().progress, Some(progress));
+
+        // A server that gave no size: bytes only, and the strip counts what it can.
+        daemon(&mut s, Event::ToolProgress { tool: Tool::GalleryDl, done: mib(2), total: None });
+        let offer = missing_tools(lang, &s).unwrap();
+        let gallery = offer.tools[1].progress.clone().unwrap();
+        assert_eq!((gallery.text.as_str(), gallery.percent), ("2.0 MB downloaded", None));
+        assert_eq!(offer.busy_text, "Installing... 25%");
+
+        // All of it came: it is being checked and put in place.
+        daemon(&mut s, Event::ToolProgress { tool: Tool::YtDlp, done: mib(4), total: Some(mib(4)) });
+        let done = missing_tools(lang, &s).unwrap().tools[0].progress.clone().unwrap();
+        assert_eq!((done.text.as_str(), done.percent), ("Checking and installing...", Some(100)));
+
+        // The install's answer ends it.
+        let tools = vec![tool(Tool::YtDlp, Some("/t/yt-dlp"), true), tool(Tool::GalleryDl, None, true)];
+        daemon(&mut s, Event::Tools { tools, done: Some(Tool::YtDlp), error: None });
+        assert!(s.services.tool_progress.iter().all(|(t, _, _)| *t != Tool::YtDlp));
+        daemon(&mut s, Event::ToolProgress { tool: Tool::YtDlp, done: mib(4), total: Some(mib(4)) });
+        assert!(s.services.tool_progress.iter().all(|(t, _, _)| *t != Tool::YtDlp), "a late one is dropped");
     }
 }

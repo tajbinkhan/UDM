@@ -1152,5 +1152,9 @@
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Chrome, Edge, Brave ve diğer Chromium tarayıcılarında \"Paketlenmemiş öğe yükle\" ile seçilecek klasör",
   "The folder to load in Firefox, on its about:debugging page": "Firefox'ta about:debugging sayfasında yüklenecek klasör",
   "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM uzantı klasörünü bulamadı. Geri almak için UDM'yi yeniden yükleyin.",
-  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Yeni paketi indirir, denetler ve sistemin paket yöneticisiyle kurar; paket yöneticisi parolanızı sorar. UDM kapanır ve yeniden başlar; indirmeler durur ve sürdürülebilir."
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Yeni paketi indirir, denetler ve sistemin paket yöneticisiyle kurar; paket yöneticisi parolanızı sorar. UDM kapanır ve yeniden başlar; indirmeler durur ve sürdürülebilir.",
+  "{done} of {total} ({percent}%)": "{done} / {total} ({percent}%)",
+  "{done} downloaded": "{done} indirildi",
+  "Checking and installing...": "Denetleniyor ve kuruluyor...",
+  "Installing... {percent}%": "Yükleniyor... {percent}%"
 }

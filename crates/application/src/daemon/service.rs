@@ -1227,12 +1227,13 @@ impl<W: Wiring> DaemonService<W> {
         }
         let daemon = Arc::clone(self);
         thread::spawn(move || {
+            let progress = |done, total| {
+                reply.send(Event::ToolProgress { tool, done, total });
+            };
             let installed =
-                InstallTool::new(&*daemon.tool_releases, &*daemon.tool_folder, &*daemon.hashes, daemon.platform).run(
-                    tool,
-                    false,
-                    daemon.clock.unix_now(),
-                );
+                InstallTool::new(&*daemon.tool_releases, &*daemon.tool_folder, &*daemon.hashes, daemon.platform)
+                    .with_progress(&progress)
+                    .run(tool, false, daemon.clock.unix_now());
             lock(&daemon.tool_installs).remove(&tool);
             let error = installed.err().map(|e| {
                 warn!(tool = tool.name(), error = %e, "could not install");

@@ -140,8 +140,8 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
     let percent = lang.number(f64::from(fraction) * 100.0, 2);
     let unknown = lang.tr("(unknown)").to_string();
     let downloaded = match format::fraction(e) {
-        Some(_) => format!("{} ( {} % )", format::bytes(lang, e.done, 3), percent),
-        None => format::bytes(lang, e.done, 3),
+        Some(_) => format!("{} ({}%)", format::bytes(lang, e.done, 2), percent),
+        None => format::bytes(lang, e.done, 2),
     };
     let total = e.total.map(|t| t.as_f64()).filter(|t| *t > 0.0);
     let segments = state
@@ -154,7 +154,7 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
                     SegmentView {
                         start: share(s.start.as_f64()),
                         reached: share(s.start.as_f64() + s.done.as_f64()),
-                        downloaded: format::bytes(lang, s.done, 3),
+                        downloaded: format::bytes(lang, s.done, 2),
                         info: lang
                             .tr(match s.state {
                                 SegmentState::Waiting => "Waiting",
@@ -174,9 +174,10 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
         title: format!("{}% {}", lang.number(f64::from(fraction) * 100.0, 0), name),
         address: e.url.to_string(),
         status: super::torrent::status_line(lang, e).unwrap_or_else(|| format::status_line(lang, e)).to_string(),
-        size: e.total.map(|t| format::bytes(lang, t, 3)).unwrap_or_else(|| unknown.clone()),
+        // Two decimals, as the list and Download File Info write sizes.
+        size: e.total.map(|t| format::bytes(lang, t, 2)).unwrap_or_else(|| unknown.clone()),
         downloaded,
-        speed: speed.map(|s| format::rate(lang, s, 3)).unwrap_or_default(),
+        speed: speed.map(|s| format::rate(lang, s, 2)).unwrap_or_default(),
         time_left: format::time_left(e, speed).map(|s| format::duration(lang, s)).unwrap_or_default(),
         resume: lang
             .tr(match (e.last_try, e.resumable) {
@@ -380,8 +381,8 @@ mod tests {
     fn the_progress_window_reads_like_the_list() {
         let s = with(entry(Status::Downloading));
         let v = download(&ctx(), &s, DownloadId::new(4)).unwrap();
-        assert_eq!(v.size, "40.000 MB");
-        assert_eq!(v.downloaded, "12.573 MB ( 31.43 % )");
+        assert_eq!(v.size, "40.00 MB");
+        assert_eq!(v.downloaded, "12.57 MB (31.43%)");
         assert_eq!(v.title, "31% big.bin");
         assert!(v.running && !v.can_resume);
     }
