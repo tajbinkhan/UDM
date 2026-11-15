@@ -76,7 +76,18 @@ function loadWorker({ firefox = false, safari = false, session = {}, globals = {
     frames: [],
     session: "host-1",
     reply: (request) => ({ session: native.session, frames: request.poll ? native.frames.splice(0) : [] }),
-    settle: () => new Promise((resolve) => setTimeout(resolve, 20)),
+    // At least 20 ms, then until no new request has gone out for 30 ms (at
+    // most 2 s), so a slow machine still sees the requests that follow.
+    settle: async () => {
+      const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const until = Date.now() + 2000;
+      await pause(20);
+      let seen = -1;
+      while (native.requests.length !== seen && Date.now() < until) {
+        seen = native.requests.length;
+        await pause(30);
+      }
+    },
   };
   const manifest = () => (safari ? safariManifest() : firefox ? firefoxManifest() : chromeManifest());
   const chrome = {
