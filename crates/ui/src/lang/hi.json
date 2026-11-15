@@ -1151,5 +1151,6 @@
   "Open Firefox extension folder": "Firefox एक्सटेंशन फ़ोल्डर खोलें",
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Chrome, Edge, Brave और अन्य Chromium ब्राउज़र में \"Load unpacked\" से चुना जाने वाला फ़ोल्डर",
   "The folder to load in Firefox, on its about:debugging page": "Firefox में उसके about:debugging पेज पर लोड किया जाने वाला फ़ोल्डर",
-  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM को अपना एक्सटेंशन फ़ोल्डर नहीं मिला। उसे वापस पाने के लिए UDM फिर से इंस्टॉल करें।"
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM को अपना एक्सटेंशन फ़ोल्डर नहीं मिला। उसे वापस पाने के लिए UDM फिर से इंस्टॉल करें।",
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "नया पैकेज डाउनलोड करें, उसे जाँचें और सिस्टम के पैकेज मैनेजर से इंस्टॉल करें, जो आपका पासवर्ड माँगता है। UDM बंद होकर फिर शुरू होता है; डाउनलोड रुक जाते हैं और फिर से शुरू किए जा सकते हैं।"
 }

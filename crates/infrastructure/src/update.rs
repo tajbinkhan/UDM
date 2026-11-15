@@ -121,6 +121,10 @@ fn looks_like(installer: Installer, bytes: &[u8]) -> Result<(), ReleaseError> {
             (bytes.starts_with(b"\x7fELF") && bytes.get(8..11) == Some(b"AI\x02".as_slice()), "an AppImage")
         }
         Installer::LinuxTar => (bytes.starts_with(&[0x1f, 0x8b]), "a gzip archive"),
+        // An ar archive whose first member is debian-binary.
+        Installer::Deb => (bytes.starts_with(b"!<arch>\ndebian-binary"), "a Debian package"),
+        // The RPM lead's magic number.
+        Installer::Rpm => (bytes.starts_with(&[0xed, 0xab, 0xee, 0xdb]), "an RPM package"),
     };
     if ok {
         Ok(())
@@ -182,11 +186,13 @@ pub fn parse_release(json: &[u8], install: Install, arch: &str) -> Result<Releas
     let url = v["html_url"].as_str().unwrap_or("https://github.com/tajbinkhan/UDM/releases");
     // Only a link to GitHub is ever shown.
     let url = if url.starts_with("https://github.com/") { url } else { "https://github.com/tajbinkhan/UDM/releases" };
+    let setup = install.installer().and_then(|kind| setup_asset(&v["assets"], kind, arch));
     Ok(Release {
         version: tag.trim().trim_start_matches(['v', 'V']).to_string(),
         url: url.to_string(),
-        setup: install.installer().and_then(|kind| setup_asset(&v["assets"], kind, arch)),
-        package_manager: install == Install::LinuxPackage,
+        // A package UDM can install itself is updated like any other copy.
+        package_manager: install.is_package() && setup.is_none(),
+        setup,
     })
 }
 
@@ -406,6 +412,13 @@ mod tests {
         assert!(looks_like(Installer::AppImage, b"\x7fELF\x02\x01\x01\x00\x00\x00\x00....").is_err(), "a plain ELF");
         assert_eq!(looks_like(Installer::LinuxTar, &[0x1f, 0x8b, 8]), Ok(()));
         assert!(looks_like(Installer::LinuxTar, b"PK\x03\x04").is_err());
+        assert_eq!(
+            looks_like(Installer::Deb, b"!<arch>\ndebian-binary   1342977118  0     0     100644  4  `\n"),
+            Ok(())
+        );
+        assert!(looks_like(Installer::Deb, b"!<arch>\ncontrol.tar.gz").is_err(), "some other ar archive");
+        assert_eq!(looks_like(Installer::Rpm, &[0xed, 0xab, 0xee, 0xdb, 3, 0]), Ok(()));
+        assert!(looks_like(Installer::Rpm, &[0x1f, 0x8b]).is_err());
     }
 
     fn release_json(assets: &str) -> String {
@@ -448,6 +461,7 @@ mod tests {
                 asset("UDM-0.6.0-x86_64.AppImage", 10),
                 asset("udm-0.6.0-linux-x86_64.tar.gz", 11),
                 asset("udm_0.6.0_amd64.deb", 12),
+                asset("udm-0.6.0-1.x86_64.rpm", 13),
                 asset("SHA256SUMS", 200),
                 asset("SHA256SUMS.minisig", 300),
             ]
@@ -461,8 +475,22 @@ mod tests {
         assert_eq!(read(Install::MacApp).setup.unwrap().name, "UDM-0.6.0-macos.dmg");
         assert_eq!(read(Install::AppImage).setup.unwrap().name, "UDM-0.6.0-x86_64.AppImage");
         assert_eq!(read(Install::LinuxTar).setup.unwrap().installer, Installer::LinuxTar);
+        let deb = read(Install::Deb);
+        assert_eq!(
+            deb.setup.as_ref().map(|s| (s.name.as_str(), s.installer)),
+            Some(("udm_0.6.0_amd64.deb", Installer::Deb))
+        );
+        assert!(!deb.package_manager, "UDM installs it");
+        let rpm = read(Install::Rpm);
+        assert_eq!(
+            rpm.setup.as_ref().map(|s| (s.name.as_str(), s.installer)),
+            Some(("udm-0.6.0-1.x86_64.rpm", Installer::Rpm))
+        );
         let package = read(Install::LinuxPackage);
         assert!(package.setup.is_none() && package.package_manager);
+        // No package for this processor: the package manager it is.
+        let arm = parse_release(json.as_bytes(), Install::Deb, "aarch64").unwrap();
+        assert!(arm.setup.is_none() && arm.package_manager);
         assert!(read(Install::Other).setup.is_none());
         assert!(parse_release(json.as_bytes(), Install::AppImage, "aarch64").unwrap().setup.is_none());
 

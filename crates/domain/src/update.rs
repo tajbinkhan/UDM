@@ -19,11 +19,13 @@ pub struct Release {
     pub url: String,
     /// The file Update now installs for this copy, when the release has
     /// one: its Setup program on Windows, its disk image on macOS, its
-    /// AppImage or `.tar.gz` on Linux.
+    /// AppImage, `.tar.gz`, `.deb` or `.rpm` on Linux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup: Option<SetupAsset>,
-    /// This copy came from a `.deb` or `.rpm` package, so the system's
-    /// package manager updates it, not UDM.
+    /// This copy came from a package UDM cannot update itself (one of a
+    /// package manager it does not know, or a release without a package for
+    /// this processor), so the user updates it through their package
+    /// manager.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub package_manager: bool,
 }
@@ -74,6 +76,12 @@ pub enum Installer {
     /// `udm-<version>-linux-<arch>.tar.gz`, whose `install.sh` installs it
     /// over the copy in `~/.local/lib/udm`.
     LinuxTar,
+    /// `udm_<version>_<debian arch>.deb`, which apt (or dpkg) installs
+    /// over the installed package, with the user's password.
+    Deb,
+    /// `udm-<version>-<release>.<arch>.rpm`, which dnf, zypper or rpm
+    /// installs over the installed package, with the user's password.
+    Rpm,
 }
 
 impl Installer {
@@ -92,7 +100,24 @@ impl Installer {
             Installer::MacDiskImage => lower.starts_with("udm-") && lower.ends_with("-macos.dmg"),
             Installer::AppImage => lower.starts_with("udm-") && lower.ends_with(&format!("-{arch}.appimage")),
             Installer::LinuxTar => lower.starts_with("udm-") && lower.ends_with(&format!("-linux-{arch}.tar.gz")),
+            Installer::Deb => lower.starts_with("udm_") && lower.ends_with(&format!("_{}.deb", debian_arch(&arch))),
+            Installer::Rpm => lower.starts_with("udm-") && lower.ends_with(&format!(".{arch}.rpm")),
         }
+    }
+
+    /// Whether the system's package manager installs this kind of file.
+    pub fn is_package(self) -> bool {
+        matches!(self, Installer::Deb | Installer::Rpm)
+    }
+}
+
+/// Debian's name for processor `arch` as Rust names it.
+fn debian_arch(arch: &str) -> &str {
+    match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        "x86" => "i386",
+        other => other,
     }
 }
 
@@ -107,7 +132,12 @@ pub enum Install {
     AppImage,
     /// From the `.tar.gz` by its `install.sh`, into `~/.local/lib/udm`.
     LinuxTar,
-    /// From a `.deb` or `.rpm`, which the package manager updates.
+    /// From a `.deb`, which apt or dpkg installed.
+    Deb,
+    /// From an `.rpm`, which dnf, zypper or rpm installed.
+    Rpm,
+    /// From some other package in `/usr`, which only its own package
+    /// manager updates.
     LinuxPackage,
     /// Some other way, such as a copy built from source: the release's page
     /// is shown.
@@ -122,8 +152,15 @@ impl Install {
             Install::MacApp => Some(Installer::MacDiskImage),
             Install::AppImage => Some(Installer::AppImage),
             Install::LinuxTar => Some(Installer::LinuxTar),
+            Install::Deb => Some(Installer::Deb),
+            Install::Rpm => Some(Installer::Rpm),
             Install::LinuxPackage | Install::Other => None,
         }
+    }
+
+    /// Whether this copy belongs to the system's package manager.
+    pub fn is_package(self) -> bool {
+        matches!(self, Install::Deb | Install::Rpm | Install::LinuxPackage)
     }
 }
 
@@ -218,7 +255,16 @@ mod tests {
         assert_eq!(pick(Install::AppImage, "aarch64"), ["UDM-0.6.0-aarch64.AppImage"]);
         assert_eq!(pick(Install::LinuxTar, "x86_64"), ["udm-0.6.0-linux-x86_64.tar.gz"]);
         assert!(pick(Install::LinuxTar, "aarch64").is_empty(), "no build for that processor");
-        assert!(pick(Install::LinuxPackage, "x86_64").is_empty(), "the package manager updates it");
+        assert_eq!(pick(Install::Deb, "x86_64"), ["udm_0.6.0_amd64.deb"]);
+        assert_eq!(pick(Install::Rpm, "x86_64"), ["udm-0.6.0-1.x86_64.rpm"]);
+        assert!(pick(Install::Deb, "aarch64").is_empty(), "no arm64 package");
+        assert!(pick(Install::Rpm, "aarch64").is_empty(), "no aarch64 package");
+        assert!(pick(Install::LinuxPackage, "x86_64").is_empty(), "its own package manager updates it");
+        assert!(Installer::Deb.matches("udm_1.0.0_arm64.deb", "aarch64"));
+        assert!(Installer::Rpm.matches("udm-1.0.0-1.aarch64.rpm", "aarch64"));
+        assert!(!Installer::Deb.matches("other_1.0.0_amd64.deb", "x86_64"));
+        assert!(Installer::Deb.is_package() && Installer::Rpm.is_package() && !Installer::LinuxTar.is_package());
+        assert!(Install::Deb.is_package() && Install::LinuxPackage.is_package() && !Install::AppImage.is_package());
         assert!(pick(Install::Other, "x86_64").is_empty());
         assert!(!Installer::WindowsSetup.matches("../UDM-Setup-1.exe", "x86_64"));
     }

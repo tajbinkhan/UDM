@@ -10,8 +10,9 @@
   macOS notifications have no buttons. Passwords and saved requests are
   sealed with a key in UDM's data folder that only your user can read,
   rather than the Keychain or the Secret Service. **Update now** installs
-  the disk image, the AppImage or the `.tar.gz`, but not a `.deb` or `.rpm`,
-  which the package manager updates. Microsoft Defender is Windows' own:
+  a `.deb` or `.rpm` through `pkexec`, so it needs a desktop that can ask for
+  a password; without one, About says why and the package manager updates
+  it. Microsoft Defender is Windows' own:
   choose a scanner program such as `clamscan`. These builds were tested on
   Linux; the macOS build is checked by the compiler and CI only.
 

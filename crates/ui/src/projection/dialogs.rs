@@ -259,6 +259,9 @@ pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
         update,
         can_install: matches!(&a.update, Some(Ok(Some(r))) if r.setup.is_some()) && a.installing.is_none(),
         install_title: match &a.update {
+            Some(Ok(Some(Release { setup: Some(s), .. }))) if s.installer.is_package() => lang
+                .tr("Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.")
+                .to_string(),
             Some(Ok(Some(Release { setup: Some(s), .. }))) if s.installer != Installer::WindowsSetup => lang
                 .tr("Download the new version, check it, and put it in place of this one. UDM closes and starts again; downloads stop and can be resumed.")
                 .to_string(),
@@ -330,6 +333,11 @@ mod tests {
         let package = release(None, true);
         assert!(!package.can_install);
         assert_eq!(package.update, "UDM 9.0.0 is available. Update it through your system's package manager.");
+        let deb = release(Some(Installer::Deb), false);
+        assert!(deb.can_install);
+        assert_eq!(deb.update, "UDM 9.0.0 is available.");
+        assert!(deb.install_title.starts_with("Download the new package"));
+        assert!(release(Some(Installer::Rpm), false).install_title.contains("asks for your password"));
         let downloaded = ready(Some(Installer::LinuxTar), false, true);
         assert!(downloaded.can_install);
         assert_eq!(downloaded.update, "UDM 9.0.0 is downloaded and ready to install.");

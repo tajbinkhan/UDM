@@ -1151,5 +1151,6 @@
   "Open Firefox extension folder": "Otwórz folder rozszerzenia dla Firefoksa",
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Folder do wybrania przyciskiem „Załaduj rozpakowane” w Chrome, Edge, Brave i innych przeglądarkach Chromium",
   "The folder to load in Firefox, on its about:debugging page": "Folder do załadowania w Firefoksie, na jego stronie about:debugging",
-  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM nie znalazł folderu swojego rozszerzenia. Zainstaluj UDM ponownie, aby go odzyskać."
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM nie znalazł folderu swojego rozszerzenia. Zainstaluj UDM ponownie, aby go odzyskać.",
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Pobierz nowy pakiet, sprawdź go i zainstaluj menedżerem pakietów systemu, który poprosi o hasło. UDM zamknie się i uruchomi ponownie; pobieranie zatrzyma się i będzie można je wznowić."
 }
