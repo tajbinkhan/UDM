@@ -320,8 +320,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # Only the four jobs' files: the Docker job's build record
+      # (*.dockerbuild) is an artifact too, which this action cannot unpack,
+      # and it is there whenever Publish runs after that job.
       - uses: actions/download-artifact@v5
         with:
+          pattern: "{windows,macos,linux,extension}"
           path: dist
           merge-multiple: true
 
