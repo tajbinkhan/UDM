@@ -116,11 +116,21 @@ pub struct Tuning {
     pub dht_bootstrap: Option<Vec<String>>,
     /// How long the session stays up with nothing to do.
     pub idle_session: Duration,
+    /// Where the torrents' data is read and written, when not librqbit's
+    /// files: a test's stand-in that is slow to read.
+    #[cfg(test)]
+    pub storage: Option<fn() -> librqbit::storage::BoxStorageFactory>,
 }
 
 impl Default for Tuning {
     fn default() -> Self {
-        Tuning { listen_ip: IpAddr::V6(Ipv6Addr::UNSPECIFIED), dht_bootstrap: None, idle_session: IDLE_SESSION }
+        Tuning {
+            listen_ip: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+            dht_bootstrap: None,
+            idle_session: IDLE_SESSION,
+            #[cfg(test)]
+            storage: None,
+        }
     }
 }
 
@@ -549,6 +559,8 @@ impl TorrentClient {
             initial_peers: Some(peers),
             peer_limit: settings.peers().map(|p| p as usize),
             ratelimits: LimitsConfig { download_bps: limit(own_limit), upload_bps: None },
+            #[cfg(test)]
+            storage_factory: self.tuning.storage.map(|storage| storage()),
             ..AddTorrentOptions::default()
         }
     }
@@ -690,9 +702,18 @@ impl TorrentClient {
             let options = self.options(&folder, files.clone(), peers.clone(), req.speed_limit, &self.settings(), false);
             let handle = runtime.block_on(add(&session, bytes.clone(), options))?;
             // Already in the session (stopped before): it takes the files
-            // chosen now, and goes on.
+            // chosen now, with every piece of them it does not have queued
+            // again (`requeue`), and goes on.
             let wanted: HashSet<usize> = files.iter().copied().collect();
-            if handle.only_files().is_some_and(|had| had.iter().copied().collect::<HashSet<_>>() != wanted) {
+            let requeued = handle.is_paused() && {
+                let done = runtime.block_on(requeue(&session, &handle, &wanted));
+                if let Err(e) = &done {
+                    tracing::debug!(error = %e, "the torrent's pieces stay as they were");
+                }
+                done.is_ok()
+            };
+            if !requeued && handle.only_files().is_some_and(|had| had.iter().copied().collect::<HashSet<_>>() != wanted)
+            {
                 if let Err(e) = runtime.block_on(session.update_only_files(&handle, &wanted)) {
                     tracing::debug!(error = %format!("{e:#}"), "the torrent keeps its files until it is checked");
                 }
@@ -1244,6 +1265,25 @@ async fn add(
 ) -> Result<Arc<ManagedTorrent>, EngineError> {
     let response = session.add_torrent(AddTorrent::from_bytes(bytes), Some(options)).await.map_err(failed)?;
     response.into_handle().ok_or_else(|| EngineError::Torrent("the torrent was only read".into()))
+}
+
+/// Work out again which pieces of the paused torrent `handle` are still to
+/// download: every one of the `wanted` files' pieces it does not have.
+///
+/// librqbit takes a piece out of the ones in flight while it checks the
+/// piece's hash, and marks it had once the check passes. A pause that comes
+/// in between takes the torrent's piece tracker, so the piece is marked
+/// neither had nor queued: unpaused, the torrent never asks for it again and
+/// never finishes, one piece short (the slower the check, as with large
+/// pieces or a slow disk, the likelier). Choosing no file and then `wanted`
+/// queues every chosen piece that is not had, that one among them.
+async fn requeue(
+    session: &Arc<Session>,
+    handle: &Arc<ManagedTorrent>,
+    wanted: &HashSet<usize>,
+) -> Result<(), EngineError> {
+    session.update_only_files(handle, &HashSet::new()).await.map_err(failed)?;
+    session.update_only_files(handle, wanted).await.map_err(failed)
 }
 
 /// Where a new download `req` of the torrent `info` would go: a torrent of

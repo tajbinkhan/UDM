@@ -189,13 +189,14 @@ fn request(magnet: &str, into: &Path) -> DownloadRequest {
     req
 }
 
-/// Events until `id` ends; the last is how it ended.
-fn until_end(rx: &Receiver<Progress>, id: DownloadId) -> Vec<Progress> {
+/// Events until `id` ends; the last is how it ended. `what` names the wait,
+/// for the message when it does not end within a minute.
+fn until_end(rx: &Receiver<Progress>, id: DownloadId, what: &str) -> Vec<Progress> {
     let mut seen = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
-        let p = rx.recv_timeout(left).expect("the torrent ends within a minute");
+        let p = rx.recv_timeout(left).unwrap_or_else(|_| panic!("{what}: it does not end within a minute"));
         let ends = match &p {
             Progress::Finished { id: i, .. } | Progress::Failed { id: i, .. } | Progress::Canceled { id: i, .. } => {
                 *i == id
@@ -229,7 +230,7 @@ fn a_magnet_link_downloads_its_files_and_then_seeds() {
     let (client, rx, sink) = client(&dir.join("state"));
     let engine = engine(&client, sink);
     let id = engine.enqueue(request(&magnet, &dir.join("dl")));
-    let events = until_end(&rx, id);
+    let events = until_end(&rx, id, "the download");
     let root = match events.last() {
         Some(Progress::Finished { path, .. }) => path.clone(),
         other => panic!("{:?}", other.map(std::mem::discriminant)),
@@ -270,7 +271,7 @@ fn only_the_chosen_files_are_downloaded() {
     let mut req = request(&magnet, &dir.join("dl"));
     req.torrent_files = Some(FileSelection::parse(&[0, 2], 3).unwrap());
     let id = engine.enqueue(req);
-    let events = until_end(&rx, id);
+    let events = until_end(&rx, id, "the download of the chosen files");
     assert!(matches!(events.last(), Some(Progress::Finished { .. })));
     same_files(&dir.join("dl").join("Album"), Some(&[0, 2]));
     let total = events.iter().find_map(|p| match p {
@@ -294,7 +295,7 @@ fn checked_data_never_counts_as_downloaded() {
     req.torrent_files = Some(FileSelection::parse(&[1], 3).unwrap());
     req.file_exists = FileExists::Overwrite;
     let id = engine.enqueue(req);
-    let events = until_end(&rx, id);
+    let events = until_end(&rx, id, "the download over checked data");
     assert!(matches!(events.last(), Some(Progress::Finished { .. })));
     let chosen = (3 * PIECE) as u64;
     for p in &events {
@@ -315,7 +316,7 @@ fn a_taken_name_follows_the_file_exists_setting() {
     let engine = engine(&client, sink);
     // Rename (the default): a numbered folder; the other file stays.
     let id = engine.enqueue(request(&magnet, &dir.join("dl")));
-    match until_end(&rx, id).last() {
+    match until_end(&rx, id, "the download into a numbered folder").last() {
         Some(Progress::Finished { path, .. }) => assert_eq!(path, &dir.join("dl").join("Album (1)")),
         _ => panic!("finished"),
     }
@@ -357,14 +358,14 @@ fn a_paused_torrent_resumes_and_survives_a_restart() {
         }
     }
     engine.cancel(id);
-    assert!(matches!(until_end(&rx, id).last(), Some(Progress::Canceled { .. })));
+    assert!(matches!(until_end(&rx, id, "the canceled download").last(), Some(Progress::Canceled { .. })));
     // Started again, by the same client.
     client.set_limits(None, None);
     // Started again, as a resume does: into its own folder.
     let mut again = request(&magnet, &dir.join("dl"));
     again.reuse_path = Some(dir.join("dl").join("Album"));
     engine.enqueue_as(id, again);
-    assert!(matches!(until_end(&rx, id).last(), Some(Progress::Finished { .. })));
+    assert!(matches!(until_end(&rx, id, "the resumed download").last(), Some(Progress::Finished { .. })));
     same_files(&dir.join("dl").join("Album"), None);
     drop(engine);
     drop(client);
@@ -377,8 +378,122 @@ fn a_paused_torrent_resumes_and_survives_a_restart() {
     let mut req = request(&magnet.replace("&x.pe=", "&x.pe.none="), &dir.join("dl"));
     req.reuse_path = Some(dir.join("dl").join("Album"));
     let id = engine.enqueue(req);
-    let events = until_end(&rx, id);
+    let events = until_end(&rx, id, "the download after the restart");
     assert!(matches!(events.last(), Some(Progress::Finished { .. })), "complete from its files, with no peer");
+}
+
+/// librqbit's error type, named through a type of its own so that this
+/// crate takes no dependency on the error library behind it.
+type LibError = <Id20 as std::str::FromStr>::Err;
+
+/// Reads of [`SlowReads`] under way. A piece's hash check reads it, so while
+/// the torrent downloads, one under way is a piece being checked.
+static SLOW_READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// librqbit's files, read slowly: a piece's hash check takes long enough to
+/// stop the torrent in the middle of one.
+#[derive(Clone, Copy)]
+struct SlowReads;
+
+struct SlowStorage(Box<dyn librqbit::storage::TorrentStorage>);
+
+fn slow_reads() -> librqbit::storage::BoxStorageFactory {
+    librqbit::storage::StorageFactoryExt::boxed(SlowReads)
+}
+
+impl librqbit::storage::StorageFactory for SlowReads {
+    type Storage = SlowStorage;
+
+    fn create(
+        &self,
+        shared: &librqbit::ManagedTorrentShared,
+        metadata: &librqbit::TorrentMetadata,
+    ) -> Result<SlowStorage, LibError> {
+        let files = librqbit::storage::filesystem::FilesystemStorageFactory::default().create(shared, metadata)?;
+        Ok(SlowStorage(Box::new(files)))
+    }
+
+    fn is_type_id(&self, type_id: std::any::TypeId) -> bool {
+        librqbit::storage::filesystem::FilesystemStorageFactory::default().is_type_id(type_id)
+    }
+
+    fn clone_box(&self) -> librqbit::storage::BoxStorageFactory {
+        slow_reads()
+    }
+}
+
+impl librqbit::storage::TorrentStorage for SlowStorage {
+    fn init(
+        &mut self,
+        shared: &librqbit::ManagedTorrentShared,
+        metadata: &librqbit::TorrentMetadata,
+    ) -> Result<(), LibError> {
+        self.0.init(shared, metadata)
+    }
+
+    fn pread_exact(&self, file_id: usize, offset: u64, buf: &mut [u8]) -> Result<(), LibError> {
+        SLOW_READS.fetch_add(1, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(400));
+        let read = self.0.pread_exact(file_id, offset, buf);
+        SLOW_READS.fetch_sub(1, Ordering::SeqCst);
+        read
+    }
+
+    fn pwrite_all(&self, file_id: usize, offset: u64, buf: &[u8]) -> Result<(), LibError> {
+        self.0.pwrite_all(file_id, offset, buf)
+    }
+
+    fn remove_file(&self, file_id: usize, filename: &Path) -> Result<(), LibError> {
+        self.0.remove_file(file_id, filename)
+    }
+
+    fn remove_directory_if_empty(&self, path: &Path) -> Result<(), LibError> {
+        self.0.remove_directory_if_empty(path)
+    }
+
+    fn ensure_file_length(&self, file_id: usize, length: u64) -> Result<(), LibError> {
+        self.0.ensure_file_length(file_id, length)
+    }
+
+    fn take(&self) -> Result<Box<dyn librqbit::storage::TorrentStorage>, LibError> {
+        Ok(Box::new(SlowStorage(self.0.take()?)))
+    }
+}
+
+#[test]
+fn a_torrent_stopped_while_a_piece_is_checked_finishes_when_resumed() {
+    // librqbit takes a piece out of the ones in flight while it checks its
+    // hash. Stopped then, the piece was neither had nor queued again, and the
+    // resumed torrent stayed one piece short for ever: what made
+    // `a_paused_torrent_resumes_and_survives_a_restart` time out at times on
+    // Windows, where a check takes longer. Here every check is slow.
+    let (_seeder, magnet, _, _) = seeder("seed_checking");
+    let dir = scratch("leech_checking");
+    let tuning = Tuning { storage: Some(slow_reads), ..local() };
+    let (client, rx, sink) = client_with(&dir.join("state"), tuning, Arc::new(Route::default), Arc::new(quiet));
+    let engine = engine(&client, sink);
+    let id = engine.enqueue(request(&magnet, &dir.join("dl")));
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).expect("progress") {
+            Progress::Advanced { done, .. } if done.get() > 0 => break,
+            Progress::Failed { error, .. } => panic!("{error}"),
+            _ => {}
+        }
+    }
+    // It has pieces, so it downloads: a read now is the check of the next.
+    let waited = Instant::now();
+    while SLOW_READS.load(Ordering::SeqCst) == 0 {
+        assert!(waited.elapsed() < Duration::from_secs(30), "a piece is checked");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    engine.cancel(id);
+    assert!(matches!(until_end(&rx, id, "the canceled download").last(), Some(Progress::Canceled { .. })));
+    let mut again = request(&magnet, &dir.join("dl"));
+    again.reuse_path = Some(dir.join("dl").join("Album"));
+    engine.enqueue_as(id, again);
+    assert!(matches!(until_end(&rx, id, "the resumed download").last(), Some(Progress::Finished { .. })));
+    same_files(&dir.join("dl").join("Album"), None);
 }
 
 #[test]

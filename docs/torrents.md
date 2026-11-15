@@ -109,7 +109,8 @@ its files, its peers, its trackers and a map of its pieces.
   quota never takes checked data for downloaded data.
 - **Pausing** stops a torrent where it is. Starting it again, or starting UDM again, goes on from
   there: UDM keeps which pieces it has (its *resume data*) beside its copy of the `.torrent` file,
-  in UDM's data folder, so it does not read all the data again.
+  in UDM's data folder, so it does not read all the data again. A piece whose check was under
+  way when the torrent paused is downloaded again, so a resumed torrent never stops one piece short.
 - Files you did not choose may still get a few bytes: a piece at the edge of a chosen file can
   overlap the next file, and the torrent writes the whole piece.
 
