@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "Taşımak için sürükleyin, UDM'ı açmak için çift tıklayın, kapatmak için sağ tıklayın",
   "Theme": "Tema",
   "Language": "Dil",
+  "System default": "Sistem varsayılanı",
+  "Which language should UDM use? You can change it later in View > Language.": "UDM hangi dili kullansın? Daha sonra Görünüm > Dil'den değiştirebilirsiniz.",
   "Interface size": "Arabirim boyutu",
   "Scales everything in the window": "Penceredeki her şeyi ölçeklendirir",
   "Removing downloads": "İndirmeleri kaldırma",

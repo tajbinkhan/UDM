@@ -88,7 +88,7 @@
 
   .head {
     gap: 22px;
-    padding-left: 10px;
+    padding-inline-start: 10px;
   }
 
   .rule {
@@ -123,7 +123,7 @@
   }
 
   .login label {
-    text-align: right;
+    text-align: end;
   }
 
   .buttons .btn {

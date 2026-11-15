@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "Seret untuk memindahkannya, klik ganda untuk membuka UDM, klik kanan untuk menutupnya",
   "Theme": "Tema",
   "Language": "Bahasa",
+  "System default": "Bawaan sistem",
+  "Which language should UDM use? You can change it later in View > Language.": "Bahasa apa yang digunakan UDM? Anda dapat mengubahnya nanti di Tampilan > Bahasa.",
   "Interface size": "Ukuran antarmuka",
   "Scales everything in the window": "Mengubah skala semua isi jendela",
   "Removing downloads": "Menghapus unduhan",

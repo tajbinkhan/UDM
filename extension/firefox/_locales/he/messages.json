@@ -1,0 +1,395 @@
+{
+  "extDescription": {
+    "message": "שליחת הורדות הדפדפן אל מנהל ההורדות UDM."
+  },
+  "downloadWithUdm": {
+    "message": "הורדה עם UDM"
+  },
+  "downloadLaterWithUdm": {
+    "message": "הורדה מאוחר יותר עם UDM"
+  },
+  "downloadGalleryWithUdm": {
+    "message": "הורדת גלריה עם UDM"
+  },
+  "downloadAllLinksWithUdm": {
+    "message": "הורדת כל הקישורים עם UDM"
+  },
+  "downloadSelectedLinksWithUdm": {
+    "message": "הורדת הקישורים שנבחרו עם UDM"
+  },
+  "udmDisconnected": {
+    "message": "UDM התנתק"
+  },
+  "captureDownloads": {
+    "message": "לכוד הורדות"
+  },
+  "captureDownloadsTitle": {
+    "message": "שלח אל UDM הורדות שהדפדפן מתחיל"
+  },
+  "captureInTab": {
+    "message": "לכוד בלשונית זו"
+  },
+  "captureInTabTitle": {
+    "message": "כבו את הלכידה כדי להשאיר את ההורדות של לשונית זו לדפדפן"
+  },
+  "captureOffInTab": {
+    "message": "כבוי בלשונית זו"
+  },
+  "statusConnected": {
+    "message": "מחובר. הורדות שתתחילו בדפדפן עוברות אל UDM."
+  },
+  "statusConnectedCaptureOff": {
+    "message": "מחובר. הלכידה כבויה, ולכן הדפדפן שומר על ההורדות שלו."
+  },
+  "statusNotConnected": {
+    "message": "אין חיבור אל UDM. ההורדות נשארות בדפדפן."
+  },
+  "statusNotConnectedReason": {
+    "message": "אין חיבור אל UDM: $REASON$. ההורדות נשארות בדפדפן.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Specified native messaging host not found"
+      }
+    }
+  },
+  "refreshWaiting": {
+    "message": "ההורדה הבאה שלכם תהפוך לקישור החדש של $NAME$.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "setup.exe"
+      }
+    }
+  },
+  "stopWaiting": {
+    "message": "הפסק להמתין"
+  },
+  "skipNextDownload": {
+    "message": "דלג על ההורדה הבאה"
+  },
+  "skipNextDownloadTitle": {
+    "message": "אפשרו להורדה הבאה להישאר בדפדפן"
+  },
+  "dontSkip": {
+    "message": "אל תדלג"
+  },
+  "skippingNextDownloadTitle": {
+    "message": "ההורדה הבאה נשארת בדפדפן"
+  },
+  "allLinks": {
+    "message": "כל הקישורים בדף זה"
+  },
+  "allLinksTitle": {
+    "message": "הצג את קישורי הדף הזה ב-UDM כדי לבחור את אלה שיורדו"
+  },
+  "videoButton": {
+    "message": "כפתור וידאו"
+  },
+  "videoButtonTitle": {
+    "message": "כפתור הורדה מעל סרטונים שמתנגנים בדפדפן"
+  },
+  "videoButtonOnSite": {
+    "message": "ב-$SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "www.example.com"
+      }
+    }
+  },
+  "urlPlaceholder": {
+    "message": "הדביקו כתובת URL להורדה"
+  },
+  "download": {
+    "message": "הורדה"
+  },
+  "noDownloads": {
+    "message": "עדיין אין הורדות."
+  },
+  "stateQueued": {
+    "message": "בתור"
+  },
+  "stateDownloading": {
+    "message": "בהורדה"
+  },
+  "stateDone": {
+    "message": "הסתיים"
+  },
+  "stateFailed": {
+    "message": "נכשל"
+  },
+  "stateCanceled": {
+    "message": "בוטל"
+  },
+  "stateInterrupted": {
+    "message": "הופסק"
+  },
+  "stateConfirming": {
+    "message": "ממתין לכם ב-UDM"
+  },
+  "stateWaiting": {
+    "message": "ממתין להתחלה"
+  },
+  "threatFound": {
+    "message": "נמצא איום"
+  },
+  "start": {
+    "message": "התחל"
+  },
+  "cancel": {
+    "message": "ביטול"
+  },
+  "retry": {
+    "message": "נסה שוב"
+  },
+  "remove": {
+    "message": "הסר"
+  },
+  "sizeProgress": {
+    "message": "$DONE$ / $TOTAL$",
+    "placeholders": {
+      "done": {
+        "content": "$1",
+        "example": "1.5 MB"
+      },
+      "total": {
+        "content": "$2",
+        "example": "10.0 MB"
+      }
+    }
+  },
+  "sizeBytes": {
+    "message": "$SIZE$ B",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "512"
+      }
+    }
+  },
+  "sizeKB": {
+    "message": "$SIZE$ KB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeMB": {
+    "message": "$SIZE$ MB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeGB": {
+    "message": "$SIZE$ GB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "sizeTB": {
+    "message": "$SIZE$ TB",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "1.5"
+      }
+    }
+  },
+  "downloadVideo": {
+    "message": "הורד סרטון זה"
+  },
+  "videoButtonHelp": {
+    "message": "עזרה על כפתור הווידאו"
+  },
+  "videoButtonClose": {
+    "message": "סגור אותו עבור סרטון זה"
+  },
+  "lookingForVideo": {
+    "message": "מחפש את הסרטון..."
+  },
+  "subtitles": {
+    "message": "כתוביות:"
+  },
+  "videoProtected": {
+    "message": "סרטון זה מוגן ב-DRM, ולכן UDM לא יורד אותו."
+  },
+  "streamProtected": {
+    "message": "מוגן ב-DRM. UDM לא יורד אותו."
+  },
+  "udmNotConnected": {
+    "message": "UDM אינו פועל או שאינו מחובר."
+  },
+  "noVideoFound": {
+    "message": "עדיין לא נמצא סרטון. תנו לו להתנגן רגע ונסו שוב."
+  },
+  "sentToUdm": {
+    "message": "נשלח אל UDM."
+  },
+  "couldNotReachUdm": {
+    "message": "לא ניתן להגיע אל UDM."
+  },
+  "hlsStream": {
+    "message": "זרם HLS"
+  },
+  "dashStream": {
+    "message": "זרם DASH"
+  },
+  "hdsStream": {
+    "message": "זרם HDS"
+  },
+  "youtubeVideo": {
+    "message": "סרטון YouTube"
+  },
+  "facebookVideo": {
+    "message": "סרטון Facebook"
+  },
+  "instagramVideo": {
+    "message": "סרטון Instagram"
+  },
+  "vimeoVideo": {
+    "message": "סרטון Vimeo"
+  },
+  "pageVideo": {
+    "message": "סרטון בדף זה"
+  },
+  "playlistTitled": {
+    "message": "רשימת השמעה: $TITLE$ ($COUNT$ סרטונים)",
+    "placeholders": {
+      "title": {
+        "content": "$1",
+        "example": "Lectures"
+      },
+      "count": {
+        "content": "$2",
+        "example": "24"
+      }
+    }
+  },
+  "playlistVideos": {
+    "message": "רשימת השמעה ($COUNT$ סרטונים)",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "24"
+      }
+    }
+  },
+  "chooseVideos": {
+    "message": "בחרו סרטונים ב-UDM..."
+  },
+  "mediaNoAnswer": {
+    "message": "UDM לא ענה."
+  },
+  "soundOnly": {
+    "message": "שמע בלבד ($FORMAT$)",
+    "placeholders": {
+      "format": {
+        "content": "$1",
+        "example": "MP3"
+      }
+    }
+  },
+  "videoFileType": {
+    "message": "סרטון $TYPE$",
+    "placeholders": {
+      "type": {
+        "content": "$1",
+        "example": "MP4"
+      }
+    }
+  },
+  "audioFileType": {
+    "message": "שמע $TYPE$",
+    "placeholders": {
+      "type": {
+        "content": "$1",
+        "example": "MP3"
+      }
+    }
+  },
+  "videoFile": {
+    "message": "וידאו"
+  },
+  "audioFile": {
+    "message": "שמע"
+  },
+  "takeoverFailed": {
+    "message": "UDM לא הצליח לקחת את ההורדה"
+  },
+  "takeoverNotConnected": {
+    "message": "UDM אינו פועל או שאינו מחובר, ולכן הדפדפן מוריד את $FILE$.",
+    "placeholders": {
+      "file": {
+        "content": "$1",
+        "example": "setup.exe"
+      }
+    }
+  },
+  "takeoverError": {
+    "message": "UDM לא הצליח להתחיל את $FILE$ ($REASON$), ולכן הדפדפן מוריד אותו.",
+    "placeholders": {
+      "file": {
+        "content": "$1",
+        "example": "setup.exe"
+      },
+      "reason": {
+        "content": "$2",
+        "example": "server returned HTTP 403"
+      }
+    }
+  },
+  "dontShowAgain": {
+    "message": "אל תציג שוב"
+  },
+  "takeoverClickToStop": {
+    "message": "לחצו על הודעה זו כדי להפסיק להציג אותה."
+  },
+  "downloadLastVideo": {
+    "message": "הורדת הסרטון האחרון עם UDM"
+  },
+  "recentVideos": {
+    "message": "סרטונים אחרונים (UDM)"
+  },
+  "downloadPageWithUdm": {
+    "message": "הורדת הדף עם UDM"
+  },
+  "noLinksFound": {
+    "message": "לא נמצאו קישורים בדף זה."
+  },
+  "noSelectedLinksFound": {
+    "message": "לא נמצאו קישורים בבחירה."
+  },
+  "linksUnreadable": {
+    "message": "הדפדפן אינו מאפשר ל-UDM לקרוא את הקישורים של דף זה."
+  },
+  "cannotReachUdm": {
+    "message": "לא ניתן להגיע אל UDM. האם הוא פועל?"
+  },
+  "cannotReachUdmReason": {
+    "message": "לא ניתן להגיע אל UDM ($REASON$).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "Native host has exited."
+      }
+    }
+  },
+  "browserDownloadsInstead": {
+    "message": "במקום זאת הדפדפן מוריד אותו."
+  },
+  "browserDownloadsHeading": {
+    "message": "הורדה בדפדפן"
+  },
+  "sendToUdm": {
+    "message": "שלח אל UDM"
+  }
+}

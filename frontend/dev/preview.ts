@@ -1,6 +1,7 @@
 // A window drawn from the test fixtures in a plain browser, with Tauri's IPC
 // mocked, for checking its looks while working on it (`pnpm dev`, then
-// /dev/index.html?window=main&look=dark). Not part of the build.
+// /dev/index.html?window=main&look=dark, with &dir=rtl for right to left). Not part
+// of the build.
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import fixtures from '../test/fixtures/views.json';
 
@@ -8,7 +9,9 @@ type Kind = keyof typeof fixtures.views;
 
 const params = new URLSearchParams(location.search);
 const kind = (params.get('window') ?? 'main') as Kind;
-const look = params.get('look') === 'light' ? fixtures.look.light : fixtures.look.dark;
+const chosen = params.get('look') === 'light' ? fixtures.look.light : fixtures.look.dark;
+// `&dir=rtl` lays the window out right to left, as Hebrew, Arabic and Persian do.
+const look = params.get('dir') === 'rtl' ? { ...chosen, rightToLeft: true, language: 'ar' } : chosen;
 const labels: Record<Kind, string> = {
   main: 'main',
   'add-url': 'add-url',

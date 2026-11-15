@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "拖动可移动它，双击可打开 UDM，右键单击可关闭它",
   "Theme": "主题",
   "Language": "语言",
+  "System default": "系统默认",
+  "Which language should UDM use? You can change it later in View > Language.": "UDM 使用哪种语言？以后可以在“查看 > 语言”中更改。",
   "Interface size": "界面大小",
   "Scales everything in the window": "缩放窗口中的所有内容",
   "Removing downloads": "删除下载",

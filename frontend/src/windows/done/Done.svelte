@@ -72,7 +72,8 @@
 <style>
   .dialog {
     gap: 3px;
-    padding: 8px 12px 8px 14px;
+    padding-block: 8px;
+    padding-inline: 14px 12px;
   }
 
   .grab {

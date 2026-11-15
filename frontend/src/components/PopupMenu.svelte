@@ -1,9 +1,11 @@
 <!-- A popup menu at a point: the menu bar's menus, the list's and the
      categories' right-click menus. Keyboard: Up and Down move, Right opens a
-     submenu, Left or Escape closes, Enter or Space picks. -->
+     submenu, Left or Escape closes, Enter or Space picks. Right to left, the
+     menu hangs left of `x`, submenus open to the left, and Left and Right
+     swap. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { mnemonic, plain } from '../i18n';
+  import { mnemonic, plain, rightToLeft } from '../i18n';
   import type { MenuEntry } from './menu';
   import PopupMenu from './PopupMenu.svelte';
 
@@ -41,7 +43,14 @@
     await tick();
     if (!el) return;
     const r = el.getBoundingClientRect();
-    if (left + r.width > window.innerWidth) left = nested ? Math.max(0, x - r.width - 200) : Math.max(0, window.innerWidth - r.width - 2);
+    if (rightToLeft()) {
+      // `x` is the menu's right edge; a submenu with no room on the left
+      // opens on the right of its parent instead.
+      left = x - r.width;
+      if (left < 0) left = nested ? Math.min(window.innerWidth - r.width, x + 200) : 2;
+    } else if (left + r.width > window.innerWidth) {
+      left = nested ? Math.max(0, x - r.width - 200) : Math.max(0, window.innerWidth - r.width - 2);
+    }
     if (top + r.height > window.innerHeight) top = Math.max(0, window.innerHeight - r.height - 2);
     el.focus();
   });
@@ -51,7 +60,7 @@
     if (!e || e.kind === 'sep' || e.disabled) return;
     if (e.kind === 'sub') {
       const r = (row ?? el?.querySelectorAll<HTMLElement>('[data-row]')[i])?.getBoundingClientRect();
-      if (r) subAt = { x: r.right - 2, y: r.top - 3 };
+      if (r) subAt = { x: rightToLeft() ? r.left + 2 : r.right - 2, y: r.top - 3 };
       open = i;
       return;
     }
@@ -74,10 +83,10 @@
     const keys: Record<string, () => void> = {
       ArrowDown: () => move(1),
       ArrowUp: () => move(-1),
-      ArrowRight: () => {
+      [rightToLeft() ? 'ArrowLeft' : 'ArrowRight']: () => {
         if (items[active]?.kind === 'sub') pick(active);
       },
-      ArrowLeft: () => nested && onclose(false),
+      [rightToLeft() ? 'ArrowRight' : 'ArrowLeft']: () => nested && onclose(false),
       Escape: () => onclose(false),
       Enter: () => pick(active),
       ' ': () => pick(active),
@@ -199,7 +208,8 @@
     display: flex;
     align-items: center;
     height: 26px;
-    padding: 0 10px 0 0;
+    padding-block: 0;
+    padding-inline: 0 10px;
     border-radius: var(--radius);
     white-space: nowrap;
   }
@@ -220,11 +230,11 @@
 
   .label {
     flex: 1;
-    padding-right: 24px;
+    padding-inline-end: 24px;
   }
 
   .shortcut {
-    padding-left: 12px;
+    padding-inline-start: 12px;
   }
 
   .arrow {

@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "ドラッグで移動、ダブルクリックで UDM を開く、右クリックで閉じる",
   "Theme": "テーマ",
   "Language": "言語",
+  "System default": "システムの既定",
+  "Which language should UDM use? You can change it later in View > Language.": "UDM で使う言語を選んでください。後から [表示] > [言語] で変更できます。",
   "Interface size": "インターフェイスのサイズ",
   "Scales everything in the window": "ウィンドウ内のすべてを拡大縮小します",
   "Removing downloads": "ダウンロードの削除",

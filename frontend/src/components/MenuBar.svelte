@@ -2,7 +2,7 @@
      moving over another opens it. F10 or Alt with an underlined letter
      opens a menu from the keyboard. -->
 <script lang="ts">
-  import { mnemonic, plain, t } from '../i18n';
+  import { mnemonic, plain, rightToLeft, t } from '../i18n';
   import type { MenuEntry } from './menu';
   import PopupMenu from './PopupMenu.svelte';
 
@@ -15,7 +15,7 @@
   function show(i: number) {
     const r = buttons[i]?.getBoundingClientRect();
     if (!r) return;
-    at = { x: r.left, y: r.bottom };
+    at = { x: rightToLeft() ? r.right : r.left, y: r.bottom };
     open = i;
   }
 
@@ -35,8 +35,11 @@
   }
 
   function onbarkeydown(e: KeyboardEvent, i: number) {
-    if (e.key === 'ArrowRight') buttons[(i + 1) % menus.length]?.focus();
-    else if (e.key === 'ArrowLeft') buttons[(i - 1 + menus.length) % menus.length]?.focus();
+    // The next menu is on the right, or on the left right to left.
+    const next = rightToLeft() ? 'ArrowLeft' : 'ArrowRight';
+    const back = rightToLeft() ? 'ArrowRight' : 'ArrowLeft';
+    if (e.key === next) buttons[(i + 1) % menus.length]?.focus();
+    else if (e.key === back) buttons[(i - 1 + menus.length) % menus.length]?.focus();
     else if (e.key === 'ArrowDown') show(i);
     else return;
     e.preventDefault();

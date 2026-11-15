@@ -37,6 +37,8 @@
   "Drag it to move it, double-click it to open UDM, right-click it to close it": "Trascinala per spostarla, fai doppio clic per aprire UDM, fai clic con il pulsante destro per chiuderla",
   "Theme": "Tema",
   "Language": "Lingua",
+  "System default": "Predefinita di sistema",
+  "Which language should UDM use? You can change it later in View > Language.": "Quale lingua deve usare UDM? Puoi cambiarla in seguito da Visualizza > Lingua.",
   "Interface size": "Dimensioni interfaccia",
   "Scales everything in the window": "Ridimensiona tutto il contenuto della finestra",
   "Removing downloads": "Rimozione dei download",

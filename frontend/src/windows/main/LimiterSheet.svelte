@@ -40,7 +40,7 @@
 
   .num {
     width: 70px;
-    text-align: right;
+    text-align: end;
   }
 
   p {

@@ -2,7 +2,7 @@
      Left open and close a branch, Space or Enter shows its downloads. -->
 <script lang="ts">
   import type { TreeNode } from '../ipc/types';
-  import { t } from '../i18n';
+  import { rightToLeft, t } from '../i18n';
   import TreeGlyph from './TreeGlyph.svelte';
 
   let {
@@ -28,7 +28,9 @@
       focus = Math.max(0, Math.min(nodes.length - 1, j));
       items[focus]?.focus();
     };
-    switch (e.key) {
+    // Right to left, Left opens a branch and Right closes it.
+    const key = rightToLeft() && e.key === 'ArrowLeft' ? 'ArrowRight' : rightToLeft() && e.key === 'ArrowRight' ? 'ArrowLeft' : e.key;
+    switch (key) {
       case 'ArrowDown':
         go(i + 1);
         break;
@@ -68,7 +70,7 @@
         aria-expanded={n.open ?? undefined}
         aria-level={n.depth + 1}
         tabindex={i === focus ? 0 : -1}
-        style:padding-left="{4 + n.depth * 18}px"
+        style:padding-inline-start="{4 + n.depth * 18}px"
         onclick={() => {
           focus = i;
           onselect(n.key);
@@ -121,7 +123,8 @@
     align-items: center;
     justify-content: space-between;
     height: 26px;
-    padding: 0 3px 0 8px;
+    padding-block: 0;
+    padding-inline: 8px 3px;
     border-bottom: 1px solid var(--grid);
     color: var(--fg-muted);
     font-weight: 600;
@@ -181,7 +184,7 @@
   .node.selected::before {
     content: '';
     position: absolute;
-    left: 0;
+    inset-inline-start: 0;
     top: 6px;
     bottom: 6px;
     width: 3px;
@@ -200,5 +203,10 @@
     background: none;
     border: 0;
     color: var(--fg-muted);
+  }
+
+  /* A closed node's arrow points along the reading direction. */
+  :global([dir='rtl']) .twist svg {
+    transform: scaleX(-1);
   }
 </style>

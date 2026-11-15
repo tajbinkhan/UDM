@@ -70,7 +70,7 @@
           role="treeitem"
           tabindex="0"
           aria-selected={n.selected}
-          style:padding-left="{4 + n.depth * 16}px"
+          style:padding-inline-start="{4 + n.depth * 16}px"
           onclick={() => n.open === null && void grabSelect(n.key)}
           onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && n.open === null && void grabSelect(n.key)}
         >
@@ -185,7 +185,7 @@
   .name {
     overflow: hidden;
     text-overflow: ellipsis;
-    padding-left: 2px;
+    padding-inline-start: 2px;
   }
 
   p {

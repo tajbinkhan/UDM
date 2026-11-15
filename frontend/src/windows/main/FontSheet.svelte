@@ -63,7 +63,7 @@
   .select[size] {
     height: auto;
     background-image: none;
-    padding-right: 4px;
+    padding-inline-end: 4px;
   }
 
   .sample {

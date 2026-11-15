@@ -165,7 +165,7 @@
   }
 
   .indent {
-    padding-left: 6px;
+    padding-inline-start: 6px;
   }
 
   .time {
@@ -178,7 +178,7 @@
 
   .num {
     width: 46px;
-    text-align: right;
+    text-align: end;
   }
 
   .days {
@@ -198,7 +198,8 @@
   }
 
   input[type='radio'] {
-    margin: 0 5px 0 0;
+    margin-block: 0;
+    margin-inline: 0 5px;
     accent-color: var(--focus);
   }
 

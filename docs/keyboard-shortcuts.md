@@ -8,6 +8,10 @@ moves the focus again.
 On macOS, `Ctrl` in this page is the Command key (⌘) for `Ctrl+A`, `Ctrl+F`
 and the zoom keys.
 
+In Hebrew, Arabic and Persian the windows are laid out right to left, and
+`Left` and `Right` swap wherever they mean a direction: in the menu bar, to
+open or close a submenu, and to open or close a branch of the categories.
+
 ## Anywhere
 
 | Keys | What they do |
