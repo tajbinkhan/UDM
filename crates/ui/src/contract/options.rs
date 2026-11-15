@@ -152,6 +152,7 @@ pub struct OptionsDraft {
     pub minimize_to_tray: bool,
     pub keep_awake: bool,
     pub check_updates: bool,
+    pub download_updates: bool,
     pub clipboard_monitor: bool,
     pub clipboard_start: bool,
     pub capture_private: bool,

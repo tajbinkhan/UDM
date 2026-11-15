@@ -378,6 +378,7 @@ mod tests {
             quota_hours: 6,
             quota_warn: false,
             check_updates: false,
+            download_updates: false,
             last_update_check: 1_700_000_000,
             drop_target: true,
             progress_on_start: true,

@@ -514,8 +514,9 @@ fn run(seat: Seat) -> anyhow::Result<()> {
             move || transfers.save_history(),
         );
     }
-    if !seat.exits_when_idle() {
-        // Nothing else stops a server's daemon; `docker stop` asks.
+    {
+        // Nothing else stops a server's daemon; `docker stop` asks. A
+        // desktop's is asked by a newer window replacing it after an upgrade.
         let transfers = Arc::clone(&daemon.transfers);
         background::spawn_stop_on_signal(move || transfers.save_history());
     }
@@ -1860,10 +1861,13 @@ mod tests {
             format!("http://{addr}/releases/latest")
         };
         match t.daemon.check_update(&serve_tag("v99.0.0")) {
-            Event::Update { newer: Some(r), error: None } => assert_eq!(r.version, "99.0.0"),
+            Event::Update { newer: Some(r), error: None, ready: false } => assert_eq!(r.version, "99.0.0"),
             other => panic!("expected a newer release: {other:?}"),
         }
-        assert!(matches!(t.daemon.check_update(&serve_tag("v0.0.1")), Event::Update { newer: None, error: None }));
+        assert!(matches!(
+            t.daemon.check_update(&serve_tag("v0.0.1")),
+            Event::Update { newer: None, error: None, ready: false }
+        ));
         // Why not comes typed, for the window to translate.
         let failed = t.daemon.check_update("http://127.0.0.1:1/none");
         assert!(

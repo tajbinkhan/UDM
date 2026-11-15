@@ -152,6 +152,10 @@ fn sample() -> AppState {
     apply(&mut s, UiMessage::SystemRead(windows));
     // A window started before: the first-start language picker was answered.
     s.layout_rest.insert(crate::projection::main::LANGUAGE_ASKED.into(), true.into());
+    // The tools offer was answered and its strip closed, so the window
+    // draws as it does on most days.
+    s.layout_rest.insert(crate::services::TOOLS_ASKED.into(), true.into());
+    s.layout_rest.insert(crate::services::TOOLS_DISMISSED.into(), crate::services::missing_names(&s.services).into());
     s
 }
 

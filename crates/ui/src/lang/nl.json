@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "De achtergronddienst van UDM kon de bestandslijst van deze torrent niet lezen.",
   "{pieces} pieces, {size} each": "{pieces} stukken, elk {size}",
   "Type a share ratio from 0 to 100.": "Typ een deelverhouding van 0 tot 100.",
-  "Type a number of minutes from 1 up.": "Typ een aantal minuten vanaf 1."
+  "Type a number of minutes from 1 up.": "Typ een aantal minuten vanaf 1.",
+  "Some downloads need tools UDM did not find: {tools}.": "Sommige downloads hebben hulpprogramma's nodig die UDM niet vond: {tools}.",
+  "Install them": "Installeren",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "Video- en fotosites hebben deze hulpprogramma's nodig. UDM downloadt hun officiële builds en controleert ze met hun gepubliceerde controlesommen. Ze staan ook onder Opties > Hulpprogramma's.",
+  "Downloads videos from YouTube and many other video sites.": "Downloadt video's van YouTube en vele andere videosites.",
+  "Downloads the pictures of image galleries.": "Downloadt de afbeeldingen van fotogalerijen.",
+  "Download a new version when one is found, and ask before installing it": "Een nieuwe versie downloaden zodra die gevonden is, en vragen voordat die geïnstalleerd wordt",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} is gedownload en klaar om te installeren."
 }

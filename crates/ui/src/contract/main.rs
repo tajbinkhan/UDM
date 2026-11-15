@@ -66,6 +66,13 @@ pub struct MainChrome {
     pub newer: Option<String>,
     /// That release has a setup Update now can run.
     pub newer_installable: bool,
+    /// Its setup is downloaded and checked already: Update now installs it
+    /// at once.
+    pub newer_ready: bool,
+    /// The tools UDM uses that it did not find, for the strip and the
+    /// first start's sheet that offer them; none while every one is there
+    /// or the daemon has not said.
+    pub missing_tools: Option<MissingTools>,
     /// What each package's menu offers, by the package's tree node.
     pub packages: Vec<PackageMenu>,
     /// The strip offering a problem report.
@@ -266,6 +273,35 @@ pub struct QueueItem {
 pub enum StripTone {
     Info,
     Warn,
+}
+
+/// The tools UDM did not find, and how to offer them.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingTools {
+    /// The strip's text, naming them.
+    pub text: String,
+    /// The strip shows: it was not closed for these same tools.
+    pub strip: bool,
+    /// Ask about them in a sheet: the offer was never answered.
+    pub ask: bool,
+    /// One of them is being installed.
+    pub busy: bool,
+    pub tools: Vec<MissingTool>,
+}
+
+/// One tool UDM did not find.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingTool {
+    pub tool: super::options::ToolKey,
+    pub name: String,
+    /// What downloads need it for.
+    pub purpose: String,
+    /// UDM can install it here.
+    pub installable: bool,
+    /// Where the install comes from, or the package manager's command.
+    pub hint: String,
 }
 
 /// The strip offering a problem report, and what its buttons can do.

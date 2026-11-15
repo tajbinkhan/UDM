@@ -184,12 +184,12 @@ impl DaemonClient for IpcDaemonClient {
 
 /// Whether `event` is for a window. Replies only the host or the browser
 /// extension uses, and the command line's answer, are not. `Pong` is: the
-/// window pings to see that the daemon still answers.
+/// window pings to see that the daemon still answers. `Hello` is: the
+/// window restarts a daemon older than itself.
 fn for_window(event: &Event) -> bool {
     !matches!(
         event,
-        Event::Hello { .. }
-            | Event::Ack { .. }
+        Event::Ack { .. }
             | Event::MediaInfo { .. }
             | Event::CookiesWanted { .. }
             | Event::RenderPage { .. }

@@ -187,6 +187,8 @@ export const checkUpdate = () => commands.checkUpdate();
 export const installUpdate = () => commands.installUpdate();
 export const dismissRelease = () => commands.dismissRelease();
 export const installTool = (tool: ToolKey) => commands.installTool(tool);
+export const answerToolsOffer = (tools: ToolKey[]) => commands.answerToolsOffer(tools);
+export const dismissTools = () => commands.dismissTools();
 export const checkDebrid = (service: DebridChoice, key: string) => commands.checkDebrid(service, key);
 export const remoteStatus = () => commands.remoteStatus();
 export const pairPhone = (on: boolean) => commands.pairPhone(on);

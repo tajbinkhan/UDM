@@ -70,6 +70,10 @@ impl UpdateChecks for LiveSettings {
             }
         }
     }
+
+    fn download_ahead(&self) -> bool {
+        self.lock().download_updates
+    }
 }
 
 /// The queue sounds, as the settings choose them.

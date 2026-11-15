@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "UDM 背景服務無法讀取此種子的檔案清單。",
   "{pieces} pieces, {size} each": "{pieces} 個區塊，每塊 {size}",
   "Type a share ratio from 0 to 100.": "請輸入 0 到 100 之間的分享率。",
-  "Type a number of minutes from 1 up.": "請輸入不少於 1 的分鐘數。"
+  "Type a number of minutes from 1 up.": "請輸入不少於 1 的分鐘數。",
+  "Some downloads need tools UDM did not find: {tools}.": "部分下載需要 UDM 找不到的工具：{tools}。",
+  "Install them": "安裝",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "影片和圖片網站需要這些工具。UDM 會下載它們的官方版本，並以公布的檢查碼核對。也可以在 選項 > 工具 中找到它們。",
+  "Downloads videos from YouTube and many other video sites.": "從 YouTube 和許多其他影片網站下載影片。",
+  "Downloads the pictures of image galleries.": "下載圖庫中的圖片。",
+  "Download a new version when one is found, and ask before installing it": "發現新版本時自動下載，並在安裝前詢問",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} 已下載，可以安裝。"
 }

@@ -79,6 +79,13 @@ export const commands = {
 	/**  Install or update a tool: yt-dlp, ffmpeg or gallery-dl. */
 	installTool: (tool: ToolKey) => __TAURI_INVOKE<null>("install_tool", { tool }),
 	/**
+	 *  The main window's offer of the tools UDM did not find: install `tools`
+	 *  (none for Not now), and stop asking at start.
+	 */
+	answerToolsOffer: (tools: ToolKey[]) => __TAURI_INVOKE<null>("answer_tools_offer", { tools }),
+	/**  Close the strip offering the missing tools, until another goes missing. */
+	dismissTools: () => __TAURI_INVOKE<null>("dismiss_tools"),
+	/**
 	 *  Check account: ask the debrid service about the account, with the key
 	 *  typed in the field, or else the stored one. The answer shows on the page.
 	 */
@@ -1429,6 +1436,17 @@ export type MainChrome_Deserialize = {
 	newer?: string | null,
 	/**  That release has a setup Update now can run. */
 	newerInstallable: boolean,
+	/**
+	 *  Its setup is downloaded and checked already: Update now installs it
+	 *  at once.
+	 */
+	newerReady: boolean,
+	/**
+	 *  The tools UDM uses that it did not find, for the strip and the
+	 *  first start's sheet that offer them; none while every one is there
+	 *  or the daemon has not said.
+	 */
+	missingTools?: MissingTools | null,
 	/**  What each package's menu offers, by the package's tree node. */
 	packages: PackageMenu[],
 	/**  The strip offering a problem report. */
@@ -1502,6 +1520,17 @@ export type MainChrome_Serialize = {
 	newer: string | null,
 	/**  That release has a setup Update now can run. */
 	newerInstallable: boolean,
+	/**
+	 *  Its setup is downloaded and checked already: Update now installs it
+	 *  at once.
+	 */
+	newerReady: boolean,
+	/**
+	 *  The tools UDM uses that it did not find, for the strip and the
+	 *  first start's sheet that offer them; none while every one is there
+	 *  or the daemon has not said.
+	 */
+	missingTools: MissingTools | null,
 	/**  What each package's menu offers, by the package's tree node. */
 	packages: PackageMenu[],
 	/**  The strip offering a problem report. */
@@ -1559,6 +1588,31 @@ export type MainView_Serialize = {
 	/**  The rows, already filtered by the tree's node and sorted. */
 	rows: Row_Serialize[],
 	chrome: MainChrome_Serialize,
+};
+
+/**  One tool UDM did not find. */
+export type MissingTool = {
+	tool: ToolKey,
+	name: string,
+	/**  What downloads need it for. */
+	purpose: string,
+	/**  UDM can install it here. */
+	installable: boolean,
+	/**  Where the install comes from, or the package manager's command. */
+	hint: string,
+};
+
+/**  The tools UDM did not find, and how to offer them. */
+export type MissingTools = {
+	/**  The strip's text, naming them. */
+	text: string,
+	/**  The strip shows: it was not closed for these same tools. */
+	strip: boolean,
+	/**  Ask about them in a sheet: the offer was never answered. */
+	ask: boolean,
+	/**  One of them is being installed. */
+	busy: boolean,
+	tools: MissingTool[],
 };
 
 /**  Options' Network page beyond the settings. */
@@ -1623,6 +1677,7 @@ export type OptionsDraft_Deserialize = {
 	minimizeToTray: boolean,
 	keepAwake: boolean,
 	checkUpdates: boolean,
+	downloadUpdates: boolean,
 	clipboardMonitor: boolean,
 	clipboardStart: boolean,
 	capturePrivate: boolean,
@@ -1694,6 +1749,7 @@ export type OptionsDraft_Serialize = {
 	minimizeToTray: boolean,
 	keepAwake: boolean,
 	checkUpdates: boolean,
+	downloadUpdates: boolean,
 	clipboardMonitor: boolean,
 	clipboardStart: boolean,
 	capturePrivate: boolean,

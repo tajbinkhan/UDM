@@ -245,6 +245,9 @@ pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
             lang.tr("UDM {version} is available. Update it through your system's package manager."),
             &[("version", &r.version)],
         ),
+        (_, Some(Ok(Some(r))), _) if a.update_ready => {
+            fill(lang.tr("UDM {version} is downloaded and ready to install."), &[("version", &r.version)])
+        }
         (_, Some(Ok(Some(r))), _) => fill(lang.tr("UDM {version} is available."), &[("version", &r.version)]),
         (_, Some(Ok(None)), _) => lang.tr("This is the latest version.").to_string(),
         (_, Some(Err(why)), _) => fill(lang.tr("Could not check for updates: {error}"), &[("error", why)]),
@@ -301,7 +304,7 @@ mod tests {
 
     #[test]
     fn about_says_how_a_newer_release_installs() {
-        let release = |installer: Option<Installer>, package_manager: bool| {
+        let ready = |installer: Option<Installer>, package_manager: bool, ready: bool| {
             let mut s = AppState::default();
             let setup = installer.map(|installer| udm_domain::update::SetupAsset {
                 name: "x".into(),
@@ -312,10 +315,11 @@ mod tests {
                 checksums: None,
             });
             let newer = Release { version: "9.0.0".into(), url: "u".into(), setup, package_manager };
-            let event = Event::Update { newer: Some(newer), error: None };
+            let event = Event::Update { newer: Some(newer), error: None, ready };
             apply(&mut s, UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: 0 });
             about(&ctx(), &s)
         };
+        let release = |installer: Option<Installer>, package_manager: bool| ready(installer, package_manager, false);
         let windows = release(Some(Installer::WindowsSetup), false);
         assert!(windows.can_install);
         assert_eq!(windows.update, "UDM 9.0.0 is available.");
@@ -326,6 +330,9 @@ mod tests {
         let package = release(None, true);
         assert!(!package.can_install);
         assert_eq!(package.update, "UDM 9.0.0 is available. Update it through your system's package manager.");
+        let downloaded = ready(Some(Installer::LinuxTar), false, true);
+        assert!(downloaded.can_install);
+        assert_eq!(downloaded.update, "UDM 9.0.0 is downloaded and ready to install.");
     }
 
     #[test]

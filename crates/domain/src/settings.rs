@@ -823,6 +823,10 @@ pub struct Settings {
     pub quota_warn: bool,
     /// Look for a newer UDM on GitHub once a week.
     pub check_updates: bool,
+    /// When that check finds one this copy can install, download and check
+    /// it at once, so installing it takes one click. It is never installed
+    /// without asking.
+    pub download_updates: bool,
     /// When that last happened, in seconds since 1970.
     pub last_update_check: u64,
     /// Show the drop target, a small window that takes dragged links.
@@ -1080,6 +1084,7 @@ impl Default for Settings {
             quota_hours: 24,
             quota_warn: true,
             check_updates: true,
+            download_updates: true,
             last_update_check: 0,
             drop_target: false,
             // On, as IDM's "Show download progress dialog" is.

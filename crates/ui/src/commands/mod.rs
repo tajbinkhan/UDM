@@ -67,6 +67,8 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         options::save_options,
         options::pick_path,
         options::install_tool,
+        options::answer_tools_offer,
+        options::dismiss_tools,
         options::check_debrid,
         options::remote_status,
         options::pair_phone,

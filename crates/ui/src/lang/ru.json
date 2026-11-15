@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "Фоновая служба UDM не смогла прочитать список файлов этого торрента.",
   "{pieces} pieces, {size} each": "{pieces} частей по {size}",
   "Type a share ratio from 0 to 100.": "Введите рейтинг от 0 до 100.",
-  "Type a number of minutes from 1 up.": "Введите число минут от 1."
+  "Type a number of minutes from 1 up.": "Введите число минут от 1.",
+  "Some downloads need tools UDM did not find: {tools}.": "Некоторым загрузкам нужны инструменты, которые UDM не нашёл: {tools}.",
+  "Install them": "Установить",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "Сайтам с видео и изображениями нужны эти инструменты. UDM скачивает их официальные сборки и сверяет их с опубликованными контрольными суммами. Они есть и в Параметры > Инструменты.",
+  "Downloads videos from YouTube and many other video sites.": "Скачивает видео с YouTube и многих других видеосайтов.",
+  "Downloads the pictures of image galleries.": "Скачивает изображения из галерей.",
+  "Download a new version when one is found, and ask before installing it": "Скачивать новую версию, когда она найдена, и спрашивать перед установкой",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} скачан и готов к установке."
 }

@@ -243,6 +243,10 @@ pub enum Inbox {
     OpenPackage(udm_domain::id::PackageId),
     /// Close the strip offering this release.
     DismissRelease,
+    /// The first start's tools offer was answered.
+    ToolsAsked,
+    /// Close the strip offering the tools missing now.
+    DismissTools,
     /// View > Language or the first-start picker: a language code from
     /// `i18n::LANGUAGES`, or empty for the system's.
     SetLanguage(String),
@@ -381,6 +385,10 @@ struct Actor {
     clipboard_last: Option<String>,
     /// The system's Downloads folder, read once.
     downloads: std::path::PathBuf,
+    /// Whether this window already restarted a daemon older than itself, so
+    /// a daemon that stays older (a named copy's, which a restart only
+    /// reconnects) is not restarted again and again.
+    replaced_daemon: bool,
 }
 
 /// Why the link picker's ticked links cannot be added, for the user.
@@ -412,6 +420,7 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
             watching_wake: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             clipboard_last: None,
             downloads: std::path::PathBuf::new(),
+            replaced_daemon: false,
         };
         actor.downloads = actor.ports.folders.downloads_dir();
         // The layout file is small; reading it on this thread delays only
@@ -444,6 +453,21 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
 impl Actor {
     fn connect(&self) {
         self.connect_with(false);
+    }
+
+    /// The daemon said hello with its `version`. A daemon older than this
+    /// window is one an upgrade replaced on disk while it ran: it would
+    /// offer this very version as an update and miss what the window asks
+    /// of it, so it is restarted, once (true). Otherwise the window asks
+    /// where the tools are, for the strip that offers the missing ones.
+    fn on_hello(&mut self, version: &str) -> bool {
+        if !self.replaced_daemon && udm_domain::update::is_newer(env!("CARGO_PKG_VERSION"), version) {
+            tracing::info!(daemon = version, "the daemon is older than this window; restarting it");
+            self.replaced_daemon = true;
+            return true;
+        }
+        self.send(Command::ListTools);
+        false
     }
 
     /// Connect, first restarting the daemon if `restart`.
@@ -1132,8 +1156,19 @@ impl Actor {
                         self.app.exit(0);
                     }
                 }
+                let restart = match &msg {
+                    UiMessage::Daemon { event, .. } => match &**event {
+                        Event::Hello { version, .. } => self.on_hello(version),
+                        _ => false,
+                    },
+                    _ => false,
+                };
                 let picked = matches!(&msg, UiMessage::Daemon { event, .. } if matches!(**event, Event::PickLinks { .. } | Event::PickGallery { .. }));
                 apply(&mut self.state, msg);
+                if restart {
+                    apply(&mut self.state, UiMessage::DaemonAnswering);
+                    self.connect_with(true);
+                }
                 // A page's links are probed for their sizes, and a gallery
                 // page read, as their windows open.
                 if picked {
@@ -1649,6 +1684,13 @@ impl Actor {
                         .layout_rest
                         .insert("dismissed_release".into(), serde_json::Value::String(r.version.clone()));
                 }
+            }
+            Inbox::ToolsAsked => {
+                self.state.layout_rest.insert(crate::services::TOOLS_ASKED.into(), true.into());
+            }
+            Inbox::DismissTools => {
+                let names = crate::services::missing_names(&self.state.services);
+                self.state.layout_rest.insert(crate::services::TOOLS_DISMISSED.into(), names.into());
             }
             Inbox::SetLanguage(code) => {
                 self.state.layout_rest.insert(crate::projection::main::LANGUAGE_ASKED.into(), true.into());

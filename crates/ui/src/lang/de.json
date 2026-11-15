@@ -1139,5 +1139,12 @@
   "UDM's background service could not read this torrent's file list.": "Der Hintergrunddienst von UDM konnte die Dateiliste dieses Torrents nicht lesen.",
   "{pieces} pieces, {size} each": "{pieces} Teile, je {size}",
   "Type a share ratio from 0 to 100.": "Geben Sie ein Verhältnis von 0 bis 100 ein.",
-  "Type a number of minutes from 1 up.": "Geben Sie eine Minutenzahl ab 1 ein."
+  "Type a number of minutes from 1 up.": "Geben Sie eine Minutenzahl ab 1 ein.",
+  "Some downloads need tools UDM did not find: {tools}.": "Einige Downloads brauchen Tools, die UDM nicht gefunden hat: {tools}.",
+  "Install them": "Installieren",
+  "Video and picture sites need these tools. UDM downloads their official builds and checks them against their published checksums. Options > Tools has them too.": "Video- und Bilderseiten brauchen diese Tools. UDM lädt ihre offiziellen Builds herunter und prüft sie anhand ihrer veröffentlichten Prüfsummen. Sie sind auch unter Optionen > Tools zu finden.",
+  "Downloads videos from YouTube and many other video sites.": "Lädt Videos von YouTube und vielen anderen Videoseiten herunter.",
+  "Downloads the pictures of image galleries.": "Lädt die Bilder von Bildergalerien herunter.",
+  "Download a new version when one is found, and ask before installing it": "Eine neue Version herunterladen, sobald sie gefunden wird, und vor dem Installieren fragen",
+  "UDM {version} is downloaded and ready to install.": "UDM {version} ist heruntergeladen und bereit zur Installation."
 }

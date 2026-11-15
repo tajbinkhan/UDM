@@ -9,6 +9,9 @@
     browseCategory,
     checkUpdate,
     dismissRelease,
+    installUpdate,
+    answerToolsOffer,
+    dismissTools,
     openPackage,
     showRefresh,
     ungroupPackage,
@@ -60,12 +63,13 @@
   import ToolbarSheet from './ToolbarSheet.svelte';
   import TipSheet from './TipSheet.svelte';
   import LanguageSheet from './LanguageSheet.svelte';
+  import ToolsSheet from './ToolsSheet.svelte';
   import ConvertSheet from './ConvertSheet.svelte';
   import VerifySheet from './VerifySheet.svelte';
   import Sheet from '../../components/Sheet.svelte';
 
   type SheetOpen =
-    | { kind: 'find' | 'export' | 'limiter' | 'columns' | 'font' | 'toolbar' | 'tip' | 'language' }
+    | { kind: 'find' | 'export' | 'limiter' | 'columns' | 'font' | 'toolbar' | 'tip' | 'language' | 'tools' }
     | { kind: 'convert' | 'verify'; row: Row }
     | { kind: 'category'; original: string | null; start: CategoryInput }
     | { kind: 'note'; text: string };
@@ -118,9 +122,17 @@
       sheet = { kind: 'language' };
     }
   });
+  // At the first start, after the language, offer the tools UDM did not find.
+  let toolsOffered = false;
+  $effect(() => {
+    if (view?.chrome.missingTools?.ask && !view.chrome.askLanguage && sheet === null && !toolsOffered) {
+      toolsOffered = true;
+      sheet = { kind: 'tools' };
+    }
+  });
   let tipOffered = false;
   $effect(() => {
-    if (view?.chrome.showTip && !view.chrome.askLanguage && sheet === null && !tipOffered) {
+    if (view?.chrome.showTip && !view.chrome.askLanguage && !view.chrome.missingTools?.ask && sheet === null && !tipOffered) {
       tipOffered = true;
       sheet = { kind: 'tip' };
     }
@@ -404,8 +416,21 @@
       <Toolbar {tools} small={view.chrome.toolbarSmall} />
       {#if view.chrome.newer}
         <div class="banner strip" role="status">
-          <span class="grow">{t('UDM {version} is available', { version: view.chrome.newer })}</span>
-          {#if view.chrome.newerInstallable}
+          <span class="grow"
+            >{view.chrome.newerReady
+              ? t('UDM {version} is downloaded and ready to install.', { version: view.chrome.newer })
+              : t('UDM {version} is available', { version: view.chrome.newer })}</span
+          >
+          {#if view.chrome.newerReady}
+            <button
+              class="btn small"
+              disabled={!can?.connected}
+              onclick={() => {
+                void openWindow('about');
+                void tell(installUpdate());
+              }}>{t('Update now')}</button
+            >
+          {:else if view.chrome.newerInstallable}
             <button
               class="btn small"
               disabled={!can?.connected}
@@ -416,6 +441,23 @@
             >
           {/if}
           <button class="btn small close" aria-label={t('Close')} onclick={() => void dismissRelease()}>×</button>
+        </div>
+      {/if}
+      {#if view.chrome.missingTools?.strip}
+        {@const missing = view.chrome.missingTools}
+        <div class="banner strip warn" role="status">
+          <span class="grow">{missing.text}</span>
+          {#if missing.busy}
+            <span>{t('Installing...')}</span>
+          {:else if missing.tools.some((m) => m.installable)}
+            <button
+              class="btn small"
+              onclick={() => void tell(answerToolsOffer(missing.tools.filter((m) => m.installable).map((m) => m.tool)))}
+              >{t('Install them')}</button
+            >
+          {/if}
+          <button class="btn small" onclick={() => (sheet = { kind: 'tools' })}>{t('Show')}</button>
+          <button class="btn small close" aria-label={t('Close')} onclick={() => void dismissTools()}>×</button>
         </div>
       {/if}
       {#if view.chrome.banner}
@@ -510,6 +552,10 @@
       <TipSheet tips={view.chrome.tips} next={view.chrome.nextTip} onStartup={view.chrome.tipsOnStartup} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'language'}
       <LanguageSheet languages={view.chrome.languages} now={view.chrome.languageNow} onclose={() => (sheet = null)} />
+    {:else if sheet?.kind === 'tools'}
+      {#if view.chrome.missingTools}
+        <ToolsSheet missing={view.chrome.missingTools} onclose={() => (sheet = null)} />
+      {/if}
     {:else if sheet?.kind === 'convert'}
       <ConvertSheet row={sheet.row} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'verify'}
