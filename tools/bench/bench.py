@@ -733,6 +733,8 @@ def summary_markdown(info: dict, summary: list[dict]) -> str:
 
 
 PALETTE = ["#2f6db5", "#d9822b", "#3a9a5b", "#8e5bb5", "#c2464f", "#5a6b7d"]
+# What screen readers and image tooltips say for the chart.
+CHART_TITLE = "Median seconds to download the file in each scenario, by tool"
 
 
 def chart_svg(summary: list[dict]) -> str:
@@ -748,6 +750,7 @@ def chart_svg(summary: list[dict]) -> str:
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" font-family="system-ui, sans-serif" font-size="12">',
+        f"<title>{CHART_TITLE}</title>",
         f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
         '<text x="16" y="24" font-size="14" font-weight="600" fill="#1d2430">'
         "Median seconds to download the file (shorter is better; each scenario has its own scale)</text>",

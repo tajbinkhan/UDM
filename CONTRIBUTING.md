@@ -15,17 +15,21 @@ rules for the code are.
 
 ## Build
 
-On macOS and Linux a stable Rust toolchain is enough, plus on Linux the GTK 3 and OpenSSL
-development packages (`sudo apt install libgtk-3-dev libssl-dev` on Ubuntu). On Windows, UDM
-builds with the `stable-x86_64-pc-windows-gnu` toolchain and MinGW-w64 (WinLibs) on `PATH`.
+You need a stable Rust toolchain, Node 22 or newer and pnpm. On Linux, also install WebKitGTK
+4.1 and its friends (`sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+librsvg2-dev libssl-dev build-essential` on Ubuntu). On Windows, UDM builds with the
+`stable-x86_64-pc-windows-gnu` toolchain and MinGW-w64 (WinLibs) on `PATH`. The window embeds
+the built frontend, so build it before Cargo:
 
 ```bash
+pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend build
 cargo build --release
 ```
 
-This makes `udm-gui` (the window), `udm-daemon` (the engine) and `udm-host` (the
-browser's relay) in `target/release/`. Keep the three together: the host and the window start the
-daemon from their own folder.
+This makes `udm-gui` (the window), `udm-daemon` (the engine), `udm-host` (the browser's relay),
+`udm-cli` and `udm-mcp` in `target/release/`. Keep them together: the host, the window and the
+other clients start the daemon from their own folder.
 
 To try your build beside an installed UDM, give it a name in `UDM_INSTANCE`. That copy
 keeps its settings and list in folders of its own and runs its daemon on a port of its own:

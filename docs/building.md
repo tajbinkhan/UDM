@@ -66,25 +66,22 @@ differs.
 
 ## Build
 
-On macOS and Linux, a stable Rust toolchain is enough, plus on Linux the GTK 3
-and OpenSSL development packages (`sudo apt install libgtk-3-dev libssl-dev`
-on Ubuntu):
-
-```bash
-cargo test --workspace
-cargo build --release
-```
-
-The window (`udm-gui`, ADR 0002) also needs Node 22 or newer and
-pnpm, and on Linux WebKitGTK 4.1 and its friends (`sudo apt install
-libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
-build-essential`). The shell embeds the built frontend, so build it before
-Cargo:
+You need a stable Rust toolchain, and for the window (`udm-gui`, ADR 0002)
+Node 22 or newer and pnpm. On Linux, also install WebKitGTK 4.1 and its
+friends (`sudo apt install libwebkit2gtk-4.1-dev
+libayatana-appindicator3-dev librsvg2-dev libssl-dev build-essential` on
+Ubuntu). The shell embeds the built frontend, so build it before Cargo:
 
 ```bash
 pnpm --dir frontend install --frozen-lockfile
 pnpm --dir frontend build
+cargo test --workspace
+cargo build --release
 ```
+
+The server image's programs build without the window, and so need neither
+Node nor WebKitGTK: `cargo build --release -p udm-app --no-default-features
+--bin udm-daemon --bin udm-cli --bin udm-mcp`, as the `Dockerfile` does.
 
 To work on the frontend with hot reload, run `pnpm --dir frontend dev`, then
 `cargo run -p udm-app --bin udm-gui --no-default-features --features

@@ -14,8 +14,10 @@ each system:
 | Any Linux | `UDM-<version>-x86_64.AppImage` | make it executable and run it |
 | | `udm-<version>-linux-x86_64.tar.gz` | unpack and run `./install.sh` |
 
-The Linux files need glibc 2.35 and OpenSSL 3 (Ubuntu 22.04, Debian 12,
-Fedora 36 or newer) and GTK 3. The tray icon needs
+The Linux files need glibc 2.35, OpenSSL 3 and WebKitGTK 4.1 (Ubuntu 22.04,
+Debian 12, Fedora 36 or newer), which the window is drawn with. The `.deb`
+and `.rpm` pull it in; the AppImage and the `.tar.gz` need it installed
+(`libwebkit2gtk-4.1-0` on Ubuntu and Debian). The tray icon needs
 `libayatana-appindicator3` (and on GNOME the AppIndicator extension);
 notifications use `notify-send`. [Build](building.md#build) says how the files are made.
 
