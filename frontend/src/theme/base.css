@@ -177,6 +177,54 @@ button {
     12px 8px;
 }
 
+/* A list box, a select that shows rows, is a framed list as ListBox draws
+   one: no arrow, as tall as its rows, the chosen row in the selection's
+   color. Chromium paints a chosen option in its own color unless the
+   background is an image, hence the gradients. */
+.select:is([size]:not([size='1']), [multiple]) {
+  height: auto;
+  padding: 2px;
+  background: var(--field);
+  border-color: var(--frame);
+  border-radius: var(--radius-large);
+  overflow-y: auto;
+}
+
+.select:is([size]:not([size='1']), [multiple]):hover:not(:disabled):not(:focus) {
+  background: var(--field);
+}
+
+/* No block padding: Chromium sizes the box for `size` rows from the font and
+   the options' padding, and would leave a part row showing. min-height and
+   centering give the rows their room instead. */
+.select:is([size]:not([size='1']), [multiple]) option {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  color: var(--fg);
+  /* Chromium paints a chosen row's text white whatever `color` says. */
+  -webkit-text-fill-color: var(--fg);
+}
+
+.select:is([size]:not([size='1']), [multiple]):disabled option {
+  -webkit-text-fill-color: var(--fg-disabled);
+}
+
+.select:is([size]:not([size='1']), [multiple]) option:hover {
+  background: linear-gradient(var(--button-hover), var(--button-hover));
+}
+
+.select:is([size]:not([size='1']), [multiple]) option:checked {
+  background: linear-gradient(var(--selected-blur), var(--selected-blur));
+  color: var(--fg);
+}
+
+.select:is([size]:not([size='1']), [multiple]):focus option:checked {
+  background: linear-gradient(var(--selected), var(--selected));
+}
+
 /* Check boxes: a rounded square, filled with the accent and ticked when
    checked. Option buttons: a ring around the accent's dot. */
 input[type='checkbox'],

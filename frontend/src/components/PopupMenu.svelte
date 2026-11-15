@@ -31,6 +31,9 @@
   let active = $state(-1);
   let open = $state(-1);
   let subAt = $state({ x: 0, y: 0 });
+  // A menu taller than the window, such as View > Language in a small
+  // window, stops at the window's edges and scrolls.
+  const room = Math.max(0, window.innerHeight - 4);
 
   const usable = (i: number) => {
     const e = items[i];
@@ -51,7 +54,7 @@
     } else if (left + r.width > window.innerWidth) {
       left = nested ? Math.max(0, x - r.width - 200) : Math.max(0, window.innerWidth - r.width - 2);
     }
-    if (top + r.height > window.innerHeight) top = Math.max(0, window.innerHeight - r.height - 2);
+    if (top + r.height > window.innerHeight) top = Math.max(2, window.innerHeight - r.height - 2);
     el.focus();
   });
 
@@ -59,7 +62,7 @@
     const e = items[i];
     if (!e || e.kind === 'sep' || e.disabled) return;
     if (e.kind === 'sub') {
-      const r = (row ?? el?.querySelectorAll<HTMLElement>('[data-row]')[i])?.getBoundingClientRect();
+      const r = (row ?? el?.querySelector<HTMLElement>(`[data-row="${i}"]`))?.getBoundingClientRect();
       if (r) subAt = { x: rightToLeft() ? r.left + 2 : r.right - 2, y: r.top - 3 };
       open = i;
       return;
@@ -73,6 +76,7 @@
       const i = (active + step * n + items.length * 2) % items.length;
       if (usable(i)) {
         active = i;
+        el?.querySelector(`[data-row="${i}"]`)?.scrollIntoView({ block: 'nearest' });
         return;
       }
     }
@@ -119,7 +123,9 @@
   bind:this={el}
   style:left="{left}px"
   style:top="{top}px"
+  style:max-height="{room}px"
   {onkeydown}
+  onscroll={() => (open = -1)}
 >
   {#each items as e, i (i)}
     {#if e.kind === 'sep'}
@@ -127,7 +133,7 @@
     {:else}
       {@const m = mnemonic(e.label)}
       <div
-        data-row
+        data-row={i}
         class="entry"
         class:active={active === i}
         class:disabled={e.disabled}
@@ -188,6 +194,8 @@
     border-radius: var(--radius-large);
     box-shadow: 0 8px 16px var(--shadow);
     color: var(--fg);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     animation: menu-in 0.12s ease-out;
   }
 
