@@ -948,7 +948,7 @@
         "daemon": "",
         "installTitle": "Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.",
         "update": "",
-        "version": "0.5.0"
+        "version": "0.6.0"
       },
       "window": "about"
     },
@@ -3418,7 +3418,7 @@
               "on": false
             }
           ],
-          "startWhileAsking": false,
+          "startWhileAsking": true,
           "startWithSystem": false,
           "tempDir": "",
           "theme": "system",

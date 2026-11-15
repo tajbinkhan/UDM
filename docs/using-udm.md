@@ -40,7 +40,7 @@
   Options can turn the dialog off, or skip it for some file types
   (**Start these types without asking**, such as `exe, msi`; the type is
   checked again once the server names the file). **Start downloading while
-  the save-as dialog is open** fetches the file while you decide, into a
+  the save-as dialog is open** (on by default) fetches the file while you decide, into a
   folder of its own (`UDM early` in the Windows temporary folder), and the
   dialog shows how much has come. Answering keeps those bytes: a finished
   file moves to the name and folder chosen, and an unfinished one carries on

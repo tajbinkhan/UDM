@@ -983,7 +983,7 @@ impl Default for Settings {
             if_duplicate: Duplicate::Ask,
             ask_where_to_save: true,
             auto_start_types: Vec::new(),
-            start_while_asking: false,
+            start_while_asking: true,
             add_only: false,
             general_remember_folder: false,
             general_last_folder: None,
