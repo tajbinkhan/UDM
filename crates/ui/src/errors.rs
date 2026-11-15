@@ -605,6 +605,7 @@ pub mod text {
                 .tr("The service does not allow this computer's IP address. A VPN or a proxy is often the reason.")
                 .to_string(),
             E::HostUnavailable => lang.tr("The file host is unavailable for now. Try again later.").to_string(),
+            E::Delayed => lang.tr("The service is still preparing the file. Try again later.").to_string(),
             E::KeyForOther(other) => {
                 trf!(lang, "The stored key is for {service}. Type a key for this service.", service = other.name())
             }
@@ -868,6 +869,20 @@ pub mod text {
             for e in [InvalidGrab::Depth, InvalidGrab::Delay, InvalidGrab::Size, InvalidGrab::FolderNotFull("x".into())]
             {
                 assert_eq!(grab(lang, &e), e.to_string());
+            }
+        }
+
+        /// A debrid service still preparing the file says so in the window's
+        /// language, not in the adapter's English.
+        #[test]
+        fn a_delayed_debrid_link_is_translated() {
+            use udm_domain::debrid::DebridError;
+            let en = crate::i18n::resolve("en", &[]);
+            assert_eq!(debrid(en, &DebridError::Delayed), "The service is still preparing the file. Try again later.");
+            for code in ["de", "ar", "hi"] {
+                let lang = crate::i18n::resolve(code, &[]);
+                let text = debrid(lang, &DebridError::Delayed);
+                assert!(!text.is_empty() && text != debrid(en, &DebridError::Delayed), "{code}: {text}");
             }
         }
 

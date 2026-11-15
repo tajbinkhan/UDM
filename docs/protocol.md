@@ -201,9 +201,9 @@ page (see [Debrid accounts](debrid.md)). `check_debrid` asks the service about
 the account with the key given, or the key stored for that service without
 one, and is answered with `debrid`: the account, or `{"Err": {"kind":
 "bad_key"}}` and the other kinds (`not_premium`, `host_not_supported`,
-`link_dead`, `limit`, `ip_not_allowed`, `host_unavailable`, `key_for_other`
-with the service the stored key is for, and `service` and `network` with the
-`message`). `set_debrid_key` stores the key for `service` in place of any
+`link_dead`, `limit`, `ip_not_allowed`, `host_unavailable`, `delayed`,
+`key_for_other` with the service the stored key is for, and `service` and
+`network` with the `message`). `set_debrid_key` stores the key for `service` in place of any
 other (a blank key is not a message the daemon reads), `remove_debrid_key`
 removes it, and the daemon then sends every client `settings`, whose
 `debrid.key_service` names the service a key is stored for. The key goes no

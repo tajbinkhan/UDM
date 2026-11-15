@@ -168,7 +168,7 @@
 
         {#if folderOnly && torrent?.fixedName}
           <span class="label">{t('File name')}</span>
-          <span class="fixed" title={t("A torrent of one file keeps its file's name; choose only its folder.")}>{torrent.fixedName}</span>
+          <span class="fixed" title={t("A torrent of one file keeps its file's name; choose only its folder.")} dir="auto">{torrent.fixedName}</span>
         {/if}
 
         <label for="description">{t('Description')}</label>
@@ -194,7 +194,7 @@
                     <tr>
                       <td class="path">
                         <label class="check" title={f.path}
-                          ><input type="checkbox" checked={f.chosen} onchange={(e) => void pick([f.index], e.currentTarget.checked)} />{f.path}</label
+                          ><input type="checkbox" checked={f.chosen} onchange={(e) => void pick([f.index], e.currentTarget.checked)} /><span class="ell" dir="auto">{f.path}</span></label
                         >
                       </td>
                       <td class="size">{f.size}</td>
@@ -323,7 +323,7 @@
 
   .grid > .label {
     grid-column: 1;
-    text-align: right;
+    text-align: end;
   }
 
   .fixed {
@@ -338,7 +338,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding-left: 86px;
+    padding-inline-start: 86px;
   }
 
   .files {
@@ -360,9 +360,9 @@
     top: 0;
     background: var(--header);
     font-weight: normal;
-    text-align: left;
+    text-align: start;
     padding: 0 5px;
-    border-right: 1px solid var(--grid);
+    border-inline-end: 1px solid var(--grid);
   }
 
   td {
@@ -370,19 +370,27 @@
     line-height: 18px;
   }
 
+  /* A file name keeps its own direction (dir="auto") and is cut at its
+     own end, as the download list's cells are. */
   .path {
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .path label {
-    display: inline;
+    display: flex;
+    min-width: 0;
+  }
+
+  .ell {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .size {
     width: 84px;
-    text-align: right;
+    text-align: end;
     white-space: nowrap;
   }
 

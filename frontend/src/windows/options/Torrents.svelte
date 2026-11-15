@@ -56,7 +56,7 @@
 
   .num {
     width: 80px;
-    text-align: right;
+    text-align: end;
   }
 
   p {

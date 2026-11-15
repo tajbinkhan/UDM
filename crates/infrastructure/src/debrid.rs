@@ -336,9 +336,7 @@ impl Debrid for DebridApi {
                 let data = self.ad("link/unlock", key, &[("link", link.as_str())])?;
                 let link = data.get("link").and_then(Value::as_str).filter(|l| !l.is_empty());
                 if link.is_none() && data.get("delayed").is_some() {
-                    return Err(DebridError::Service(
-                        "the service is still preparing the file; try again later".into(),
-                    ));
+                    return Err(DebridError::Delayed);
                 }
                 Ok(Unrestricted {
                     address: direct(link)?,
@@ -673,7 +671,7 @@ mod tests {
         let dead = api.unrestrict(DebridService::AllDebrid, &key(), &link("https://rapidgator.net/dead"));
         assert_eq!(dead, Err(DebridError::LinkDead));
         let slow = api.unrestrict(DebridService::AllDebrid, &key(), &link("https://rapidgator.net/slow"));
-        assert!(matches!(slow, Err(DebridError::Service(_))));
+        assert_eq!(slow, Err(DebridError::Delayed));
         let account = api.account(DebridService::AllDebrid, &key()).unwrap();
         assert_eq!(
             account,

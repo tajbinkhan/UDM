@@ -87,7 +87,7 @@
       <Tabs {tabs} bind:current={tab} wrap={!!torrent}>
         <div class="page">
           {#if tab === 'status' && torrent}
-            <p class="address" title={view.address}>{view.address}</p>
+            <p class="address" title={view.address}><span dir="auto">{view.address}</span></p>
             <dl class="pairs torrent-pairs">
               <dt>{t('Status')}</dt>
               <dd>{view.status}</dd>
@@ -114,7 +114,7 @@
             <!-- The server's country goes before the address: the page has
                  no room for another row. -->
             <p class="address" title={view.address}>
-              {#if view.country}<span class="country" title={t('Server country')}>{view.country}</span>{/if}{view.address}
+              {#if view.country}<span class="country" title={t('Server country')} dir="auto">{view.country}</span>{/if}<span dir="auto">{view.address}</span>
             </p>
             <dl class="pairs">
               <dt>{t('Status')}</dt>
@@ -326,7 +326,7 @@
   }
 
   .country {
-    margin-right: 6px;
+    margin-inline-end: 6px;
   }
 
   .kb {

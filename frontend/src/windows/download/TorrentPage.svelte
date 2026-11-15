@@ -66,7 +66,7 @@
                   checked={f.chosen}
                   disabled={!torrent.canChoose}
                   onchange={(e) => void run(pickTorrentFiles([f.index], e.currentTarget.checked))}
-                />{f.path}</label
+                /><span class="ell" dir="auto">{f.path}</span></label
               >
             </td>
             <td class="num">{f.size}</td>
@@ -98,8 +98,8 @@
       <tbody>
         {#each torrent.peers as p (p.address)}
           <tr>
-            <td class="cut" title={p.address}>{p.address}</td>
-            <td class="cut" title={p.client}>{p.client}</td>
+            <td class="cut" title={p.address}><span class="ell" dir="auto">{p.address}</span></td>
+            <td class="cut" title={p.client}><span class="ell" dir="auto">{p.client}</span></td>
             <td class="num">{p.downSpeed}</td>
             <td class="num">{p.upSpeed}</td>
             <td class="num">{p.downloaded}</td>
@@ -122,7 +122,7 @@
       <tbody>
         {#each torrent.trackers as tr, i (i)}
           <tr>
-            <td class="cut" title={tr.url}>{tr.url}</td>
+            <td class="cut" title={tr.url}><span class="ell" dir="auto">{tr.url}</span></td>
             <td class="state" class:muted={tr.skipped}>{tr.state}</td>
           </tr>
         {/each}
@@ -206,9 +206,9 @@
     z-index: 1;
     background: var(--header);
     font-weight: normal;
-    text-align: left;
+    text-align: start;
     padding: 0 5px;
-    border-right: 1px solid var(--grid);
+    border-inline-end: 1px solid var(--grid);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -220,19 +220,31 @@
     white-space: nowrap;
   }
 
+  /* A file name, an address or a peer's client keeps its own direction
+     (dir="auto"), sits at the cell's start and is cut at its own end, as
+     the download list's cells are. */
   .path,
   .cut {
+    overflow: hidden;
+  }
+
+  .path label {
+    display: flex;
+    min-width: 0;
+  }
+
+  .ell {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    width: fit-content;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .path label {
-    display: inline;
-  }
-
   .num {
     width: 86px;
-    text-align: right;
+    text-align: end;
   }
 
   .short {
@@ -255,7 +267,7 @@
     display: inline-block;
     width: 74px;
     vertical-align: middle;
-    margin-right: 6px;
+    margin-inline-end: 6px;
   }
 
   .pct {
@@ -281,12 +293,12 @@
     grid-template-columns: max-content 90px;
     align-items: center;
     gap: 4px 8px;
-    padding-left: 22px;
+    padding-inline-start: 22px;
   }
 
   .small-num {
     width: 90px;
-    text-align: right;
+    text-align: end;
   }
 
   .foot {

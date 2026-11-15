@@ -233,6 +233,10 @@ pub enum DebridError {
     /// The file host is in maintenance or out of order for now.
     #[error("the file host is unavailable for now")]
     HostUnavailable,
+    /// The service is still fetching the file from the host and has no
+    /// link for it yet.
+    #[error("the service is still preparing the file")]
+    Delayed,
     /// The stored key is for another service; a key for this one has to be
     /// typed.
     #[error("the stored API key is for {0}")]
@@ -342,6 +346,7 @@ mod tests {
         let json = serde_json::to_value(DebridError::Service("Hoster in maintenance".into())).unwrap();
         assert_eq!(json, serde_json::json!({"kind": "service", "message": "Hoster in maintenance"}));
         assert_eq!(serde_json::to_value(DebridError::BadKey).unwrap(), serde_json::json!({"kind": "bad_key"}));
+        assert_eq!(serde_json::to_value(DebridError::Delayed).unwrap(), serde_json::json!({"kind": "delayed"}));
         assert_eq!(
             failure_text(DebridService::RealDebrid, &DebridError::NotPremium),
             "Real-Debrid could not unlock this link: the account is not premium."
