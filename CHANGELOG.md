@@ -4,6 +4,11 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## [0.8.0](release-notes/v0.8.0.md) - 2026-11-15
+
+Minor. Update now installs a new `.deb` or `.rpm` through the system's package manager, asking
+for your password, instead of telling you to update it yourself.
+
 ## [0.7.1](release-notes/v0.7.1.md) - 2026-11-15
 
 Patch. Adds Open extension folder and Open Firefox extension folder to Options' Browser
