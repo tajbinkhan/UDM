@@ -1151,5 +1151,6 @@
   "Open Firefox extension folder": "Firefox 用拡張機能フォルダーを開く",
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Chrome、Edge、Brave などの Chromium ブラウザーで「パッケージ化されていない拡張機能を読み込む」で選ぶフォルダー",
   "The folder to load in Firefox, on its about:debugging page": "Firefox の about:debugging ページで読み込むフォルダー",
-  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM の拡張機能フォルダーが見つかりませんでした。UDM を再インストールすると元に戻ります。"
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM の拡張機能フォルダーが見つかりませんでした。UDM を再インストールすると元に戻ります。",
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "新しいパッケージをダウンロードして検証し、システムのパッケージ マネージャーでインストールします (パスワードを求められます)。UDM は終了して再起動し、ダウンロードは停止しますが、後で再開できます。"
 }

@@ -6,8 +6,11 @@
 //!
 //! How this copy was installed (`this_install`) decides which release file
 //! is used: the disk image for `UDM.app`, the AppImage for an AppImage, the
-//! `.tar.gz` for a copy `install.sh` put in `~/.local/lib/udm`. A `.deb` or
-//! `.rpm` copy in `/usr` is the package manager's to update.
+//! `.tar.gz` for a copy `install.sh` put in `~/.local/lib/udm`, and the
+//! `.deb` or `.rpm` for a copy one of them put in `/usr`. A package goes
+//! through the system's package manager (apt, dpkg, dnf, zypper or rpm),
+//! run as root by `pkexec`, which asks for the user's password, so the
+//! package manager keeps owning the files.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -30,6 +33,18 @@ pub enum InPlaceError {
     /// This copy is not installed the way the update file installs.
     #[error("This copy of UDM was not installed from {0}.")]
     NotInstalledSo(&'static str),
+    /// The user closed the password prompt, or was not allowed.
+    #[error("The password prompt was closed, so nothing was installed.")]
+    Declined,
+    /// No polkit agent runs to ask for the password.
+    #[error("The system could not ask for your password: no polkit authentication agent is running.")]
+    NoAgent,
+    /// `pkexec` is not installed.
+    #[error("pkexec, which asks for your password, was not found.")]
+    NoPkexec,
+    /// No package manager for this kind of package was found.
+    #[error("No package manager that installs {0} was found.")]
+    NoPackageManager(&'static str),
 }
 
 fn io_err(what: impl Into<String>) -> impl FnOnce(io::Error) -> InPlaceError {
@@ -50,16 +65,107 @@ pub fn this_install() -> Install {
         return Install::AppImage;
     }
     let dir = exe.as_deref().and_then(Path::parent).map(Path::to_path_buf);
-    linux_install(dir.as_deref(), crate::paths::user_lib_dir().as_deref())
+    linux_install(dir.as_deref(), crate::paths::user_lib_dir().as_deref(), package_kind)
 }
 
 /// A Linux copy's install, from its programs' folder `dir` and
-/// `install.sh`'s folder `lib`.
-fn linux_install(dir: Option<&Path>, lib: Option<&Path>) -> Install {
+/// `install.sh`'s folder `lib`; `package` tells which package manager
+/// installed a copy in `/usr`.
+fn linux_install(dir: Option<&Path>, lib: Option<&Path>, package: impl FnOnce() -> Install) -> Install {
     match dir {
         Some(d) if lib.is_some_and(|l| l == d) => Install::LinuxTar,
-        Some(d) if d.starts_with("/usr") => Install::LinuxPackage,
+        Some(d) if d.starts_with("/usr") => package(),
         _ => Install::Other,
+    }
+}
+
+/// The folders the package tools are looked for in.
+const SYSTEM_BIN: [&str; 4] = ["/usr/bin", "/usr/sbin", "/bin", "/sbin"];
+
+/// The system's program `name`, from [`SYSTEM_BIN`].
+fn system_program(name: &str, exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    SYSTEM_BIN.iter().map(|dir| Path::new(dir).join(name)).find(|p| exists(p))
+}
+
+/// Which package manager installed the copy in `/usr`: dpkg when its list
+/// of the `udm` package's files names UDM's folder, rpm when its database
+/// knows the `udm` package, or neither. Asked once, since it does not
+/// change while UDM runs.
+fn package_kind() -> Install {
+    static KIND: std::sync::OnceLock<Install> = std::sync::OnceLock::new();
+    *KIND.get_or_init(|| {
+        let dpkg_list = std::fs::read_to_string("/var/lib/dpkg/info/udm.list").unwrap_or_default();
+        if dpkg_list.lines().any(|line| line.trim() == "/usr/lib/udm") {
+            return Install::Deb;
+        }
+        let rpm = system_program("rpm", Path::is_file).is_some_and(|rpm| {
+            Command::new(rpm)
+                .args(["-q", "--quiet", "udm"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        });
+        if rpm {
+            Install::Rpm
+        } else {
+            Install::LinuxPackage
+        }
+    })
+}
+
+/// The package manager that installs `installer`'s file, as a program and
+/// the arguments before the file's path: apt-get, or dpkg without it, for a
+/// `.deb`; dnf, zypper, or rpm without either, for an `.rpm`.
+fn package_command(installer: Installer, exists: impl Fn(&Path) -> bool) -> Option<(PathBuf, &'static [&'static str])> {
+    let choices: &[(&str, &'static [&'static str])] = match installer {
+        Installer::Deb => &[("apt-get", &["install", "-y"]), ("dpkg", &["-i"])],
+        // The release's package is not signed with a key the system knows;
+        // the signed checksums vouch for it instead.
+        Installer::Rpm => &[
+            ("dnf", &["install", "-y"]),
+            ("zypper", &["--non-interactive", "install", "--allow-unsigned-rpm"]),
+            ("rpm", &["-U"]),
+        ],
+        _ => &[],
+    };
+    choices.iter().find_map(|(name, args)| system_program(name, &exists).map(|p| (p, *args)))
+}
+
+/// Install the package at `path` with the system's package manager, as
+/// root through `pkexec`, which asks for the user's password.
+fn install_package(installer: Installer, path: &Path) -> Result<(), InPlaceError> {
+    let what = if installer == Installer::Deb { ".deb packages" } else { ".rpm packages" };
+    let (tool, args) = package_command(installer, Path::is_file).ok_or(InPlaceError::NoPackageManager(what))?;
+    let pkexec = system_program("pkexec", Path::is_file).ok_or(InPlaceError::NoPkexec)?;
+    let out = Command::new(pkexec)
+        .arg(&tool)
+        .args(args)
+        .arg(path)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(io_err("starting pkexec"))?;
+    package_result(out.status.code(), &tool, &out.stderr)
+}
+
+/// What `pkexec` running `tool` ending with exit code `code` and standard
+/// error `stderr` means: 126 when the prompt was closed or the user is not
+/// allowed, 127 when no agent could ask.
+fn package_result(code: Option<i32>, tool: &Path, stderr: &[u8]) -> Result<(), InPlaceError> {
+    match code {
+        Some(0) => Ok(()),
+        Some(126) => Err(InPlaceError::Declined),
+        Some(127) => Err(InPlaceError::NoAgent),
+        other => {
+            let text = String::from_utf8_lossy(stderr);
+            // The package manager's last lines say what went wrong.
+            let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+            let why = lines[lines.len().saturating_sub(3)..].join(" ");
+            let name = tool.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let code = other.map_or_else(|| "a signal".to_string(), |c| format!("exit code {c}"));
+            Err(InPlaceError::Tool(name, if why.is_empty() { code } else { why }))
+        }
     }
 }
 
@@ -88,6 +194,13 @@ pub fn install(installer: Installer, path: &Path) -> Result<(), InPlaceError> {
             let lib = crate::paths::user_lib_dir().ok_or(InPlaceError::NotInstalledSo("the .tar.gz"))?;
             install_tar(path)?;
             restart_after_exit(&[lib.join("udm-gui").as_os_str()])
+        }
+        Installer::Deb | Installer::Rpm => {
+            // The daemon runs beside the window, in /usr/lib/udm.
+            let exe = std::env::current_exe().map_err(io_err("finding this program"))?;
+            let gui = exe.with_file_name("udm-gui");
+            install_package(installer, path)?;
+            restart_after_exit(&[gui.as_os_str()])
         }
         Installer::MacDiskImage => {
             let exe = std::env::current_exe().map_err(io_err("finding this program"))?;
@@ -307,11 +420,53 @@ mod tests {
     #[test]
     fn linux_copies_are_told_apart_by_their_folder() {
         let lib = Path::new("/home/u/.local/lib/udm");
-        assert_eq!(linux_install(Some(lib), Some(lib)), Install::LinuxTar);
-        assert_eq!(linux_install(Some(Path::new("/usr/bin")), Some(lib)), Install::LinuxPackage);
-        assert_eq!(linux_install(Some(Path::new("/usr/lib/udm")), Some(lib)), Install::LinuxPackage);
-        assert_eq!(linux_install(Some(Path::new("/home/u/src/udm/target/release")), Some(lib)), Install::Other);
-        assert_eq!(linux_install(None, Some(lib)), Install::Other);
+        let deb = || Install::Deb;
+        assert_eq!(linux_install(Some(lib), Some(lib), deb), Install::LinuxTar);
+        assert_eq!(
+            linux_install(Some(Path::new("/usr/bin")), Some(lib), || Install::LinuxPackage),
+            Install::LinuxPackage
+        );
+        assert_eq!(linux_install(Some(Path::new("/usr/lib/udm")), Some(lib), deb), Install::Deb);
+        assert_eq!(linux_install(Some(Path::new("/usr/lib/udm")), Some(lib), || Install::Rpm), Install::Rpm);
+        assert_eq!(linux_install(Some(Path::new("/home/u/src/udm/target/release")), Some(lib), deb), Install::Other);
+        assert_eq!(linux_install(None, Some(lib), deb), Install::Other);
+    }
+
+    #[test]
+    fn each_package_goes_to_the_package_manager_the_system_has() {
+        let has = |names: &'static [&'static str]| move |p: &Path| names.iter().any(|n| p == Path::new(n));
+        let pick = |installer, names| package_command(installer, has(names)).map(|(p, args)| (p, args.to_vec()));
+        assert_eq!(
+            pick(Installer::Deb, &["/usr/bin/apt-get", "/usr/bin/dpkg"]),
+            Some((PathBuf::from("/usr/bin/apt-get"), vec!["install", "-y"]))
+        );
+        assert_eq!(pick(Installer::Deb, &["/usr/bin/dpkg"]), Some((PathBuf::from("/usr/bin/dpkg"), vec!["-i"])));
+        assert_eq!(
+            pick(Installer::Rpm, &["/usr/bin/dnf", "/usr/bin/rpm"]),
+            Some((PathBuf::from("/usr/bin/dnf"), vec!["install", "-y"]))
+        );
+        assert_eq!(
+            pick(Installer::Rpm, &["/usr/bin/zypper", "/bin/rpm"]),
+            Some((PathBuf::from("/usr/bin/zypper"), vec!["--non-interactive", "install", "--allow-unsigned-rpm"]))
+        );
+        assert_eq!(pick(Installer::Rpm, &["/bin/rpm"]), Some((PathBuf::from("/bin/rpm"), vec!["-U"])));
+        assert_eq!(pick(Installer::Rpm, &["/usr/bin/apt-get"]), None, "no rpm tool");
+        assert_eq!(pick(Installer::LinuxTar, &["/usr/bin/apt-get"]), None, "not a package");
+    }
+
+    #[test]
+    fn pkexec_says_whether_the_password_was_given() {
+        let apt = Path::new("/usr/bin/apt-get");
+        assert!(package_result(Some(0), apt, b"").is_ok());
+        assert!(matches!(package_result(Some(126), apt, b""), Err(InPlaceError::Declined)));
+        assert!(matches!(package_result(Some(127), apt, b""), Err(InPlaceError::NoAgent)));
+        let failed = package_result(Some(100), apt, b"Reading package lists...\nE: Unable to locate package\n");
+        assert_eq!(
+            failed.unwrap_err().to_string(),
+            "apt-get failed (Reading package lists... E: Unable to locate package)"
+        );
+        assert_eq!(package_result(Some(1), apt, b"").unwrap_err().to_string(), "apt-get failed (exit code 1)");
+        assert_eq!(package_result(None, apt, b"").unwrap_err().to_string(), "apt-get failed (a signal)");
     }
 
     #[test]

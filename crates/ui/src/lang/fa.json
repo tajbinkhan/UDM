@@ -1151,5 +1151,6 @@
   "Open Firefox extension folder": "باز کردن پوشهٔ افزونهٔ Firefox",
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "پوشه‌ای که با «Load unpacked» در Chrome، Edge، Brave و دیگر مرورگرهای Chromium انتخاب می‌شود",
   "The folder to load in Firefox, on its about:debugging page": "پوشه‌ای که در Firefox، در صفحهٔ about:debugging آن، بارگذاری می‌شود",
-  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM پوشهٔ افزونهٔ خود را پیدا نکرد. برای بازگرداندن آن، UDM را دوباره نصب کنید."
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM پوشهٔ افزونهٔ خود را پیدا نکرد. برای بازگرداندن آن، UDM را دوباره نصب کنید.",
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "بستهٔ تازه را بارگیری و بررسی کنید و با مدیر بستهٔ سیستم نصب کنید، که گذرواژهٔ شما را می‌پرسد. UDM بسته می‌شود و دوباره آغاز می‌شود؛ بارگیری‌ها می‌ایستند و می‌توان آن‌ها را ادامه داد."
 }

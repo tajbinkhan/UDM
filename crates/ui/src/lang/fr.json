@@ -1151,5 +1151,6 @@
   "Open Firefox extension folder": "Ouvrir le dossier de l'extension pour Firefox",
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Le dossier à choisir avec « Charger l'extension non empaquetée » dans Chrome, Edge, Brave et les autres navigateurs Chromium",
   "The folder to load in Firefox, on its about:debugging page": "Le dossier à charger dans Firefox, sur sa page about:debugging",
-  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM n'a pas trouvé le dossier de son extension. Réinstallez UDM pour le récupérer."
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM n'a pas trouvé le dossier de son extension. Réinstallez UDM pour le récupérer.",
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Télécharger le nouveau paquet, le vérifier et l'installer avec le gestionnaire de paquets du système, qui demande votre mot de passe. UDM se ferme puis redémarre ; les téléchargements s'arrêtent et peuvent reprendre."
 }

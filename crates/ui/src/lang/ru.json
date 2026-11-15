@@ -1151,5 +1151,6 @@
   "Open Firefox extension folder": "Открыть папку расширения для Firefox",
   "The folder to choose with Load unpacked in Chrome, Edge, Brave and other Chromium browsers": "Папка, которую нужно выбрать кнопкой «Загрузить распакованное расширение» в Chrome, Edge, Brave и других браузерах на Chromium",
   "The folder to load in Firefox, on its about:debugging page": "Папка, которую нужно загрузить в Firefox на странице about:debugging",
-  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM не нашёл папку своего расширения. Переустановите UDM, чтобы вернуть её."
+  "UDM could not find its extension folder. Reinstall UDM to get it back.": "UDM не нашёл папку своего расширения. Переустановите UDM, чтобы вернуть её.",
+  "Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.": "Загрузить новый пакет, проверить его и установить менеджером пакетов системы, который спросит ваш пароль. UDM закроется и запустится снова; загрузки остановятся, и их можно будет возобновить."
 }

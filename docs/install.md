@@ -148,16 +148,24 @@ sha256sum --check --ignore-missing SHA256SUMS
 ### Updates on macOS and Linux
 
 **Update now** downloads the file that matches how UDM was installed, checks
-it as above, and puts it in place of the running copy. UDM then stops its
+it as above, and puts it in place of the running copy (or, for a `.deb` or
+`.rpm`, has the package manager install it). UDM then stops its
 downloads, saves its list and quits, and the new copy starts a few seconds
 later.
+
+UDM tells a `.deb` copy by dpkg's list of the `udm` package's files, and an
+`.rpm` copy by asking `rpm -q udm`. Installing a package needs `pkexec` and a
+desktop that can ask for a password (GNOME, KDE and most others run a polkit
+agent). Closing the password prompt installs nothing, and About says so.
 
 | Installed from | Update now |
 | --- | --- |
 | The macOS disk image (`UDM.app`) | Downloads `UDM-<version>-macos.dmg`, opens it, and puts its `UDM.app` where the old one was. You need permission to write there (in `/Applications`, an administrator's account). |
 | The AppImage | Downloads `UDM-<version>-<arch>.AppImage` and replaces the AppImage file UDM runs from. |
 | The `.tar.gz`, with `install.sh` | Downloads `udm-<version>-linux-<arch>.tar.gz` and runs its `install.sh`, which replaces `~/.local/lib/udm`. |
-| The `.deb` or `.rpm` | Nothing: About says to update through your package manager (`sudo apt install ./udm_<version>_amd64.deb`, `sudo dnf install ./udm-<version>-1.x86_64.rpm`, with the files from the release page). |
+| The `.deb` | Downloads `udm_<version>_<arch>.deb` and installs it with `apt-get install` (or `dpkg -i` without apt) through `pkexec`, which asks for your password. The package manager keeps owning the files, so `apt remove udm` still removes it. |
+| The `.rpm` | Downloads `udm-<version>-1.<arch>.rpm` and installs it with `dnf install` (or `zypper install`, or `rpm -U` without either) through `pkexec`, which asks for your password. The package isn't signed with a key your system knows; the signed `SHA256SUMS` vouches for it instead. |
+| Some other package in `/usr` | Nothing: About says to update through your package manager. |
 | Anything else, such as a copy built from source | Nothing: the notice links to the release page. |
 
 ## macOS
