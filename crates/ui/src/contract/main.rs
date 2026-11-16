@@ -69,6 +69,11 @@ pub struct MainChrome {
     /// Its setup is downloaded and checked already: Update now installs it
     /// at once.
     pub newer_ready: bool,
+    /// Update now is downloading that release's installer: the strip says
+    /// so in place of its button.
+    pub updating: bool,
+    /// How far that download is, once the daemon has said.
+    pub update_progress: Option<super::options::ToolProgressView>,
     /// The tools UDM uses that it did not find, for the strip and the
     /// first start's sheet that offer them; none while every one is there
     /// or the daemon has not said.

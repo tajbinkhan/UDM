@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use udm_domain::ports::{ReleaseSource, UpdateChecks};
+use udm_domain::ports::{ReleaseSource, UpdateChecks, UpdateProgress};
 use udm_domain::update::UpdateError;
 
 use super::{CheckForUpdate, ReadyUpdate};
@@ -15,18 +15,26 @@ pub struct InstallUpdate<'a, S, N> {
     checks: &'a N,
     current: &'a str,
     ready: Option<&'a ReadyUpdate>,
+    progress: &'a UpdateProgress<'a>,
 }
 
 impl<'a, S: ReleaseSource, N: UpdateChecks> InstallUpdate<'a, S, N> {
     /// `current` is this copy's version.
     pub fn new(source: &'a S, checks: &'a N, current: &'a str) -> Self {
-        InstallUpdate { source, checks, current, ready: None }
+        InstallUpdate { source, checks, current, ready: None, progress: &|_, _| {} }
     }
 
     /// Use the installer `DownloadUpdate` saved, when it is the latest
     /// release's, instead of downloading it again.
     pub fn with_ready(mut self, ready: Option<&'a ReadyUpdate>) -> Self {
         self.ready = ready;
+        self
+    }
+
+    /// Tell `progress` how far the installer's download is, for the
+    /// window's bar. Not told when a ready installer is used.
+    pub fn with_progress(mut self, progress: &'a UpdateProgress<'a>) -> Self {
+        self.progress = progress;
         self
     }
 
@@ -40,7 +48,7 @@ impl<'a, S: ReleaseSource, N: UpdateChecks> InstallUpdate<'a, S, N> {
             .filter(|r| r.release.version == release.version && r.release.setup.as_ref() == Some(&setup))
         {
             Some(ready) => ready.path.clone(),
-            None => self.source.fetch_setup(&setup)?,
+            None => self.source.fetch_setup(&setup, self.progress)?,
         };
         self.source.run_setup(&setup, &path)?;
         Ok(path)
@@ -70,10 +78,13 @@ mod tests {
         let release =
             Release { version: "1.0.0".into(), url: String::new(), setup: Some(setup()), package_manager: false };
         let (source, checks) = (Releases::offering(Ok(release)), Checked::default());
-        let path = InstallUpdate::new(&source, &checks, "0.3.0").run(1).unwrap();
+        let told = std::sync::Mutex::new(Vec::new());
+        let progress = |done, total| told.lock().unwrap().push((done, total));
+        let path = InstallUpdate::new(&source, &checks, "0.3.0").with_progress(&progress).run(1).unwrap();
         assert_eq!(path, PathBuf::from("/tmp/UDM-Setup-1.0.0.exe"));
         assert_eq!(source.fetched(), [setup()]);
         assert_eq!(source.started(), [path]);
+        assert_eq!(*told.lock().unwrap(), [(ByteCount::new(10), Some(ByteCount::new(10)))], "its progress was told");
     }
 
     #[test]

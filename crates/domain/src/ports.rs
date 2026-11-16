@@ -304,15 +304,20 @@ pub trait PowerControl: Send + Sync {
     fn power_off(&self, action: WhenDone, force_close: bool);
 }
 
+/// Told how far an update's installer has downloaded: the bytes that have
+/// come, and the bytes the server said it would send, when it said.
+pub type UpdateProgress<'a> = dyn Fn(ByteCount, Option<ByteCount>) + Sync + 'a;
+
 /// Where newer UDM releases come from.
 pub trait ReleaseSource: Send + Sync {
     /// The latest release, with the file that installs it only where this
     /// copy can install one (see `udm_domain::update::Install`).
     fn latest(&self) -> Result<Release, UpdateError>;
 
-    /// Download `setup`, check it against the release's signed checksums,
-    /// and save it. Returns where.
-    fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError>;
+    /// Download `setup`, telling `progress` how far it is a few times a
+    /// second, check it against the release's signed checksums, and save
+    /// it. Returns where.
+    fn fetch_setup(&self, setup: &SetupAsset, progress: &UpdateProgress<'_>) -> Result<PathBuf, UpdateError>;
 
     /// Install `setup`, saved at `path`: start Windows' Setup, telling it to
     /// close UDM without asking, or put the new copy in place of this one

@@ -173,23 +173,29 @@ fn tool_rows(lang: &'static Language, s: &Services) -> Vec<ToolRow> {
 /// How far `tool`'s download is, while it installs and the daemon has said.
 fn tool_progress(lang: &'static Language, s: &Services, tool: Tool) -> Option<ToolProgressView> {
     let (_, done, total) = s.tool_progress.iter().find(|(t, _, _)| *t == tool)?;
+    Some(progress_view(lang, *done, *total))
+}
+
+/// How far a download of `done` bytes of `total` is, as the shell words it,
+/// for a tool's install and for Install now's.
+pub(crate) fn progress_view(lang: &'static Language, done: ByteCount, total: Option<ByteCount>) -> ToolProgressView {
     let size = |n: ByteCount| format::bytes(lang, n, 1);
-    Some(match total.filter(|t| t.get() > 0) {
-        Some(total) if *done >= total => {
+    match total.filter(|t| t.get() > 0) {
+        Some(total) if done >= total => {
             ToolProgressView { text: lang.tr("Checking and installing...").to_string(), percent: Some(100) }
         }
         Some(total) => {
-            let percent = percent_of(*done, total);
+            let percent = percent_of(done, total);
             ToolProgressView {
                 text: fill(
                     lang.tr("{done} of {total} ({percent}%)"),
-                    &[("done", &size(*done)), ("total", &size(total)), ("percent", &percent.to_string())],
+                    &[("done", &size(done)), ("total", &size(total)), ("percent", &percent.to_string())],
                 ),
                 percent: Some(percent),
             }
         }
-        None => ToolProgressView { text: fill(lang.tr("{done} downloaded"), &[("done", &size(*done))]), percent: None },
-    })
+        None => ToolProgressView { text: fill(lang.tr("{done} downloaded"), &[("done", &size(done))]), percent: None },
+    }
 }
 
 /// `done` of `total` in whole percent, at most 100.

@@ -5,6 +5,7 @@
   import { projection } from '../../stores/projection.svelte';
   import { t } from '../../i18n';
   import Window from '../../components/Window.svelte';
+  import ToolProgress from '../../components/ToolProgress.svelte';
   import logo from '../../../../assets/icon-256.png';
 
   const view: AboutView | null = $derived(projection.view?.window === 'about' ? projection.view.view : null);
@@ -44,6 +45,7 @@
           {/if}
         </div>
       {/if}
+      {#if view.progress}<ToolProgress progress={view.progress} />{/if}
       <div class="box">
         <p>{t('UDM is free software under the MIT license.')}</p>
         {#if view.daemon}<p>{t('Background service: version {version}', { version: view.daemon })}</p>{/if}

@@ -694,6 +694,14 @@ pub enum Outgoing {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         ready: bool,
     },
+    /// How far `install_update`'s download of the installer is: `done`
+    /// bytes of `total`, when the server gave a size. Sent a few times a
+    /// second; `quit` or `update_failed` ends it.
+    UpdateProgress {
+        done: ByteCount,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<ByteCount>,
+    },
     /// Update now could not get or start the new Setup, and why.
     UpdateFailed {
         error: String,

@@ -283,7 +283,10 @@ export const commands = {
 
 /* Types */
 /**  About UDM. */
-export type AboutView = {
+export type AboutView = AboutView_Serialize | AboutView_Deserialize;
+
+/**  About UDM. */
+export type AboutView_Deserialize = {
 	version: string,
 	daemon: string,
 	/**  What the update check said, or is doing. */
@@ -295,6 +298,33 @@ export type AboutView = {
 	 *  the new copy in place of this one.
 	 */
 	installTitle: string,
+	/**
+	 *  How far Update now's download is, while it downloads and the daemon
+	 *  has said.
+	 */
+	progress?: ToolProgressView_Deserialize | null,
+	checking: boolean,
+	connected: boolean,
+};
+
+/**  About UDM. */
+export type AboutView_Serialize = {
+	version: string,
+	daemon: string,
+	/**  What the update check said, or is doing. */
+	update: string,
+	/**  A newer release can be installed. */
+	canInstall: boolean,
+	/**
+	 *  What Update now does, for its tooltip: run Windows' Setup, or put
+	 *  the new copy in place of this one.
+	 */
+	installTitle: string,
+	/**
+	 *  How far Update now's download is, while it downloads and the daemon
+	 *  has said.
+	 */
+	progress: ToolProgressView_Serialize | null,
 	checking: boolean,
 	connected: boolean,
 };
@@ -1449,6 +1479,13 @@ export type MainChrome_Deserialize = {
 	 */
 	newerReady: boolean,
 	/**
+	 *  Update now is downloading that release's installer: the strip says
+	 *  so in place of its button.
+	 */
+	updating: boolean,
+	/**  How far that download is, once the daemon has said. */
+	updateProgress?: ToolProgressView_Deserialize | null,
+	/**
 	 *  The tools UDM uses that it did not find, for the strip and the
 	 *  first start's sheet that offer them; none while every one is there
 	 *  or the daemon has not said.
@@ -1532,6 +1569,13 @@ export type MainChrome_Serialize = {
 	 *  at once.
 	 */
 	newerReady: boolean,
+	/**
+	 *  Update now is downloading that release's installer: the strip says
+	 *  so in place of its button.
+	 */
+	updating: boolean,
+	/**  How far that download is, once the daemon has said. */
+	updateProgress: ToolProgressView_Serialize | null,
 	/**
 	 *  The tools UDM uses that it did not find, for the strip and the
 	 *  first start's sheet that offer them; none while every one is there
@@ -2942,10 +2986,10 @@ export type VideoTypeDraft = {
 export type View = View_Serialize | View_Deserialize;
 
 /**  A window's whole view, by its kind. */
-export type View_Deserialize = { window: "main"; view: MainView_Deserialize } | { window: "addUrl"; view: AddUrlView_Deserialize } | { window: "saveAs"; view: SaveAsView_Deserialize } | { window: "download"; view: DownloadView_Deserialize } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Deserialize } | { window: "scheduler"; view: SchedulerView_Deserialize } | { window: "grabber"; view: GrabberView_Deserialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Deserialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Deserialize } | { window: "zipPreview"; view: ZipView_Deserialize } | { window: "exception"; view: ExceptionView };
+export type View_Deserialize = { window: "main"; view: MainView_Deserialize } | { window: "addUrl"; view: AddUrlView_Deserialize } | { window: "saveAs"; view: SaveAsView_Deserialize } | { window: "download"; view: DownloadView_Deserialize } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView_Deserialize } | { window: "options"; view: OptionsView_Deserialize } | { window: "scheduler"; view: SchedulerView_Deserialize } | { window: "grabber"; view: GrabberView_Deserialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Deserialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Deserialize } | { window: "zipPreview"; view: ZipView_Deserialize } | { window: "exception"; view: ExceptionView };
 
 /**  A window's whole view, by its kind. */
-export type View_Serialize = { window: "main"; view: MainView_Serialize } | { window: "addUrl"; view: AddUrlView_Serialize } | { window: "saveAs"; view: SaveAsView_Serialize } | { window: "download"; view: DownloadView_Serialize } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView } | { window: "options"; view: OptionsView_Serialize } | { window: "scheduler"; view: SchedulerView_Serialize } | { window: "grabber"; view: GrabberView_Serialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Serialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Serialize } | { window: "zipPreview"; view: ZipView_Serialize } | { window: "exception"; view: ExceptionView };
+export type View_Serialize = { window: "main"; view: MainView_Serialize } | { window: "addUrl"; view: AddUrlView_Serialize } | { window: "saveAs"; view: SaveAsView_Serialize } | { window: "download"; view: DownloadView_Serialize } | { window: "done"; view: DoneView } | { window: "remove"; view: RemoveView } | { window: "about"; view: AboutView_Serialize } | { window: "options"; view: OptionsView_Serialize } | { window: "scheduler"; view: SchedulerView_Serialize } | { window: "grabber"; view: GrabberView_Serialize } | { window: "batch"; view: BatchView } | { window: "links"; view: LinksView } | { window: "properties"; view: PropertiesView } | { window: "dropTarget"; view: DropView } | { window: "login"; view: LoginView } | { window: "countdown"; view: CountdownView } | { window: "refresh"; view: RefreshView_Serialize } | { window: "password"; view: PasswordView } | { window: "pickLinks"; view: PickLinksView } | { window: "pickVideos"; view: PickVideosView } | { window: "gallery"; view: GalleryView_Serialize } | { window: "zipPreview"; view: ZipView_Serialize } | { window: "exception"; view: ExceptionView };
 
 /**
  *  The warning that the power plan turns wake timers off, and how to turn

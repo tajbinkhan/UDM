@@ -3,7 +3,6 @@
 import type * as B from '../bindings';
 
 export type {
-  AboutView,
   ReportAction,
   ReportStrip,
   ConvertTarget,
@@ -114,6 +113,7 @@ export type {
 
 export type Update = B.Update_Deserialize;
 export type View = B.View_Deserialize;
+export type AboutView = B.AboutView_Deserialize;
 export type Patch = B.Patch_Deserialize;
 export type MainView = B.MainView_Deserialize;
 export type MainPatch = B.MainPatch_Deserialize;

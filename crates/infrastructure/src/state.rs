@@ -108,6 +108,7 @@ fn change_of(msg: &Outgoing) -> Option<Change<'_>> {
         | Outgoing::RenderPage { .. }
         | Outgoing::ZipPreview { .. }
         | Outgoing::Update { .. }
+        | Outgoing::UpdateProgress { .. }
         | Outgoing::UpdateFailed { .. }
         | Outgoing::GrabProgress { .. }
         | Outgoing::GrabDone { .. }

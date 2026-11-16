@@ -1490,11 +1490,16 @@ impl<W: Wiring> DaemonService<W> {
     /// Update now (see `InstallUpdate`), then stop the downloads, save the
     /// list and quit with the windows, so Setup can replace the files.
     /// Setup closes whatever is left.
-    pub fn install_update(&self) -> Result<(), ServiceError> {
+    /// `reply` hears how far the installer's download is.
+    pub fn install_update(&self, reply: &Reply) -> Result<(), ServiceError> {
         let github = (self.releases)(&self.release_url);
         let ready = lock(&self.ready_update).take();
+        let progress = |done, total| {
+            reply.send(Event::UpdateProgress { done, total });
+        };
         let path = InstallUpdate::new(&github, &*self.settings, self.version)
             .with_ready(ready.as_ref())
+            .with_progress(&progress)
             .run(self.clock.unix_now())?;
         info!(path = %path.display(), "started the update; quitting for it");
         self.pause_all();
@@ -2218,7 +2223,7 @@ pub fn dispatch<W: Wiring>(incoming: Command, daemon: &Arc<DaemonService<W>>, cl
         Command::InstallUpdate => {
             let (daemon, reply) = (Arc::clone(daemon), reply.clone());
             thread::spawn(move || {
-                if let Err(error) = daemon.install_update() {
+                if let Err(error) = daemon.install_update(&reply) {
                     reply.send(Event::UpdateFailed { error: error.into() });
                 }
             });

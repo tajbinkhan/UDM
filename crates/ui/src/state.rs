@@ -527,7 +527,10 @@ pub fn apply(state: &mut AppState, msg: UiMessage) {
             state.asks.checking = true;
             state.asks.update = None;
         }
-        UiMessage::Installing => state.asks.installing = Some(None),
+        UiMessage::Installing => {
+            state.asks.installing = Some(None);
+            state.asks.update_progress = None;
+        }
         UiMessage::ToolInstalling(tool) => {
             if !state.services.tool_busy.contains(&tool) {
                 state.services.tool_busy.push(tool);

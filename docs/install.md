@@ -126,7 +126,10 @@ the copyright, and a support link to the issue tracker) checks on demand. When a
 release has a Setup attached, **Update now** (in About, and next to the
 notice in the status bar) has the daemon download `UDM-Setup-<version>.exe`
 through your proxy settings, only from this repository's release downloads.
-It checks the file's size, that it is a Windows program, and its SHA-256
+While it downloads, the daemon sends `update_progress` a few times a second
+and About shows a bar with how much has come (such as **12.3 MB of 40.0 MB
+(30%)**), then **Checking and installing...** once all of it is there; an
+installer downloaded ahead starts at once. It checks the file's size, that it is a Windows program, and its SHA-256
 against the release's signed checksums (below), saves it to the `update` folder in UDM's data folder and runs it with
 `/fromudm=yes` (Setup also takes Pullbay's `/frompullbay=yes`). UDM then stops its downloads, saves its list and quits;
 Setup closes whatever is left without asking again and replaces the files.

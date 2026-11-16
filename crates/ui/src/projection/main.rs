@@ -482,6 +482,8 @@ pub fn chrome(ctx: &Ctx, state: &AppState) -> MainChrome {
         },
         newer_installable: matches!(&state.asks.update, Some(Ok(Some(r))) if r.setup.is_some()),
         newer_ready: state.asks.update_ready && matches!(&state.asks.update, Some(Ok(Some(r))) if r.setup.is_some()),
+        updating: state.asks.installing == Some(None),
+        update_progress: super::dialogs::update_progress(lang, &state.asks),
         missing_tools: crate::services::missing_tools(lang, state),
         packages: state.asks.packages.iter().map(|p| crate::extras::package_menu(state, p)).collect(),
         report: crate::reports::strip(lang, &state.reports),

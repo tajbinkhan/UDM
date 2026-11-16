@@ -16,7 +16,7 @@ use udm_domain::bytes::ByteCount;
 
 use tracing::info;
 use udm_domain::download::Download;
-use udm_domain::ports::ReleaseSource;
+use udm_domain::ports::{ReleaseSource, UpdateProgress};
 use udm_domain::update::UpdateError;
 
 use crate::connect::{config_for, NetState};
@@ -225,9 +225,13 @@ impl GitHub {
 
     /// Fetch `url` through the proxy the settings choose, up to `limit` bytes.
     fn fetch(&self, url: &str, headers: &[(String, String)], limit: ByteCount) -> Result<Vec<u8>, engine::EngineError> {
+        engine::fetch(url, headers, &self.net(url), limit).map(|page| page.body)
+    }
+
+    /// The proxy and logins the settings give `url`.
+    fn net(&self, url: &str) -> crate::net::NetConfig {
         let settings = self.settings.get();
-        let net = config_for(&Download { url: url.into(), ..Download::default() }, &settings, &self.retries);
-        engine::fetch(url, headers, &net, limit).map(|page| page.body)
+        config_for(&Download { url: url.into(), ..Download::default() }, &settings, &self.retries)
     }
 }
 
@@ -242,7 +246,7 @@ impl ReleaseSource for GitHub {
         parse_release(&body, self.install, std::env::consts::ARCH).map_err(|e| UpdateError::Answer(e.to_string()))
     }
 
-    fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError> {
+    fn fetch_setup(&self, setup: &SetupAsset, progress: &UpdateProgress<'_>) -> Result<PathBuf, UpdateError> {
         let headers = [("User-Agent".to_string(), format!("UDM/{VERSION}"))];
         let get = |url: &str, limit| self.fetch(url, &headers, limit).map_err(|e| UpdateError::Download(e.to_string()));
         // The signed list first: a release without one is refused before
@@ -253,7 +257,9 @@ impl ReleaseSource for GitHub {
         let signature = get(&checksums.signature, MAX_CHECKSUMS_BYTES)?;
         let signed = Signed { list: &list, signature: &String::from_utf8_lossy(&signature) };
         info!(url = %setup.url, "downloading the update");
-        let body = get(&setup.url, MAX_SETUP_BYTES)?;
+        let net = self.net(&setup.url);
+        let body = engine::fetch_watched(&setup.url, &headers, &net, MAX_SETUP_BYTES, progress)
+            .map_err(|e| UpdateError::Download(e.to_string()))?;
         check_setup(setup, &body, Some(signed), self.key).map_err(|e| UpdateError::BadSetup(e.to_string()))?;
         // A fresh folder only this user can write to, so nothing can swap
         // the checked file before it is installed.
@@ -342,8 +348,16 @@ mod tests {
             signature: format!("{}/SHA256SUMS.minisig", server.url),
         };
         let asset = setup(&format!("{}/UDM-Setup-0.6.0.exe", server.url), Some(sums.clone()));
-        let path = github(&server.url).fetch_setup(&asset).unwrap();
+        let told = std::sync::Mutex::new(Vec::new());
+        let progress = |done: ByteCount, total: Option<ByteCount>| {
+            told.lock().unwrap().push((done.get(), total.map(ByteCount::get)))
+        };
+        let path = github(&server.url).fetch_setup(&asset, &progress).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), SETUP);
+        let size = SETUP.len() as u64;
+        // Told of the installer alone, from nothing to all of it.
+        let told = told.into_inner().unwrap();
+        assert_eq!((told.first(), told.last()), (Some(&(0, Some(size))), Some(&(size, Some(size)))));
         let _ = std::fs::remove_file(&path);
 
         // The same files, checked against another key, are refused.
@@ -352,14 +366,14 @@ mod tests {
                 Install::WindowsSetup,
                 "untrusted comment: minisign public key\nRWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3\n",
             );
-        assert!(matches!(other.fetch_setup(&asset), Err(UpdateError::BadSetup(_))));
+        assert!(matches!(other.fetch_setup(&asset, &|_, _| {}), Err(UpdateError::BadSetup(_))));
     }
 
     #[test]
     fn a_release_without_signed_checksums_is_refused_before_downloading() {
         let server = TestServer::start(SETUP.to_vec());
         let asset = setup(&server.url, None);
-        match github(&server.url).fetch_setup(&asset) {
+        match github(&server.url).fetch_setup(&asset, &|_, _| {}) {
             Err(UpdateError::BadSetup(why)) => assert_eq!(why, ReleaseError::Unsigned.to_string()),
             other => panic!("{other:?}"),
         }
