@@ -31,7 +31,10 @@ start-at-sign-in entry with UDM's. Half-finished downloads resume, and
 site passwords saved in Pullbay still work.
 
 - **Windows**: Setup closes Pullbay or UIDM, installs into a `UDM` folder
-  beside the old one, and removes the old folder and shortcuts.
+  beside the old one, and removes the old folder and shortcuts. Download
+  `UDM-Setup-<version>.exe` and run it yourself. Releases after 0.9.0 no
+  longer carry the `Pullbay-Setup` copy that Pullbay's **Update now**
+  looked for, so Pullbay finds no new version.
 - **Debian, Ubuntu, Fedora**: the `udm` package replaces the `pullbay`
   and `uidm` ones. `install.sh` removes their copies in `~/.local`.
 - **macOS and AppImage**: delete `Pullbay.app`, `UIDM.app` or the old

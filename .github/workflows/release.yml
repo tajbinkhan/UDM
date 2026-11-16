@@ -83,15 +83,6 @@ jobs:
         shell: pwsh
         run: .\installer\windows\build.ps1 -SkipBuild
 
-      # Pullbay 0.4's Update now only takes a Setup named Pullbay-Setup-*.exe.
-      # The same Setup under that name lets it update to UDM (installer\windows\udm.iss
-      # takes its /frompullbay=yes).
-      - name: Name a copy of the installer for Pullbay
-        shell: pwsh
-        run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
-          Copy-Item "dist\UDM-Setup-$version.exe" "dist\Pullbay-Setup-$version.exe"
-
       - name: Make the portable zip
         shell: pwsh
         run: |
