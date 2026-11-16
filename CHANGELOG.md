@@ -4,6 +4,11 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## [0.9.0](release-notes/v0.9.0.md) - 2026-11-16
+
+Minor. Installing yt-dlp, ffmpeg or gallery-dl shows a bar and how much has arrived, and the
+download window shows its values in one column with two decimals.
+
 ## [0.8.0](release-notes/v0.8.0.md) - 2026-11-15
 
 Minor. Update now installs a new `.deb` or `.rpm` through the system's package manager, asking
