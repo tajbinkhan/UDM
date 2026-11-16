@@ -192,10 +192,11 @@ pub fn default_video_auto_types() -> Vec<String> {
 pub enum Notify {
     Off,
     /// A Windows notification.
-    #[default]
     Toast,
     /// A dialog in the UDM window, as IDM does; a notification when no
-    /// window is open.
+    /// window is open. The default, as IDM's "Show download complete
+    /// dialog" is on when it is installed.
+    #[default]
     Dialog,
 }
 
@@ -1003,7 +1004,7 @@ impl Default for Settings {
             categories_panel: true,
             start_with_windows: false,
             keep_awake: true,
-            notify: Notify::Toast,
+            notify: Notify::Dialog,
             sound_on_done: false,
             sound_on_failed: false,
             sound_on_queue_started: false,
@@ -1811,6 +1812,14 @@ mod tests {
         assert_eq!(s.max_concurrent, DEFAULT_MAX_CONCURRENT);
         assert_eq!(s.file_exists, FileExists::Rename);
         assert_eq!(s.if_duplicate, Duplicate::Ask);
+        assert_eq!(s.notify, Notify::Dialog);
+    }
+
+    #[test]
+    fn the_download_complete_dialog_is_on_by_default() {
+        assert_eq!(Settings::default().notify, Notify::Dialog);
+        let s: Settings = serde_json::from_str(r#"{"notify":"toast"}"#).unwrap();
+        assert_eq!(s.notify, Notify::Toast);
     }
 
     #[test]
