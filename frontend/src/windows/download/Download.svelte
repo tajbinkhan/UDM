@@ -13,8 +13,8 @@
   import TorrentPage from './TorrentPage.svelte';
 
   const WIDTH = 552;
-  const SHORT = 244;
-  const TALL = 413;
+  const SHORT = 248;
+  const TALL = 417;
 
   const view: DownloadView | null = $derived(projection.view?.window === 'download' ? projection.view.view : null);
   const torrent = $derived(view?.torrent ?? null);
@@ -257,7 +257,7 @@
   }
 
   .page {
-    height: 128px;
+    height: 132px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -290,8 +290,11 @@
     margin: 0;
   }
 
+  /* `flex: none`: with its overflow hidden, the line would otherwise shrink
+     below its height when the page runs short and cut the address's top. */
   .address,
   .save-to {
+    flex: none;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
