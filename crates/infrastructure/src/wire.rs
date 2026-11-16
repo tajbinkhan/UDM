@@ -261,6 +261,7 @@ pub fn event(msg: Outgoing) -> Event {
         Outgoing::Update { newer, error, error_kind, ready } => {
             Event::Update { newer, error: error.map(|e| failure(e, error_kind)), ready }
         }
+        Outgoing::UpdateProgress { done, total } => Event::UpdateProgress { done, total },
         Outgoing::UpdateFailed { error, error_kind } => Event::UpdateFailed { error: failure(error, error_kind) },
         Outgoing::ZipPreview { id, entries, error, error_kind } => {
             Event::ZipPreview { id, entries, error: error.map(|e| failure(e, error_kind)) }
@@ -344,6 +345,7 @@ pub fn outgoing(event: Event) -> Option<Outgoing> {
             let (error, error_kind) = optional(error);
             Outgoing::Update { newer, error, error_kind, ready }
         }
+        Event::UpdateProgress { done, total } => Outgoing::UpdateProgress { done, total },
         Event::UpdateFailed { error } => {
             let (error, error_kind) = text_and_kind(error);
             Outgoing::UpdateFailed { error, error_kind }

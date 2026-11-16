@@ -1261,36 +1261,66 @@ pub fn fetch_to_file(
     let total = length.map(ByteCount::new);
     let written = (|| {
         let mut file = std::fs::File::create(path)?;
-        let mut reader = reader.take(limit.get() + 1);
-        let mut buf = vec![0u8; 64 * 1024];
-        let (mut n, mut told) = (0u64, Instant::now());
-        progress(ByteCount::new(0), total);
-        loop {
-            let got = match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(got) => got,
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e.into()),
-            };
-            file.write_all(&buf[..got])?;
-            n += got as u64;
-            // A few times a second is enough for a progress bar.
-            if told.elapsed() >= PROGRESS_EVERY {
-                progress(ByteCount::new(n), total);
-                told = Instant::now();
-            }
-        }
-        if n > limit.get() {
-            return Err(EngineError::Refused(format!("the file is larger than {limit}")));
-        }
+        let n = copy_watched(reader, &mut file, limit, total, progress)?;
         file.sync_all()?;
-        progress(ByteCount::new(n), total);
         Ok(n)
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(path);
     }
     written
+}
+
+/// GET `url` into memory, refusing a body longer than `limit`, and tell
+/// `progress` how far it is as `fetch_to_file` does.
+pub fn fetch_watched(
+    url: &str,
+    headers: &[(String, String)],
+    net: &NetConfig,
+    limit: ByteCount,
+    progress: &dyn Fn(ByteCount, Option<ByteCount>),
+) -> Result<Vec<u8>, EngineError> {
+    let agent = http::Client::new(net, url)?;
+    let (_, length, reader) = http::get_sized(&agent, url, headers)?;
+    let mut body = Vec::new();
+    copy_watched(reader, &mut body, limit, length.map(ByteCount::new), progress)?;
+    Ok(body)
+}
+
+/// Copy `reader` into `out`, refusing more than `limit` bytes, and tell
+/// `progress` how far it is: at the start, a few times a second, and at
+/// the end. Returns the bytes copied.
+fn copy_watched(
+    reader: impl Read,
+    out: &mut impl Write,
+    limit: ByteCount,
+    total: Option<ByteCount>,
+    progress: &dyn Fn(ByteCount, Option<ByteCount>),
+) -> Result<u64, EngineError> {
+    let mut reader = reader.take(limit.get() + 1);
+    let mut buf = vec![0u8; 64 * 1024];
+    let (mut n, mut told) = (0u64, Instant::now());
+    progress(ByteCount::new(0), total);
+    loop {
+        let got = match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(got) => got,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e.into()),
+        };
+        out.write_all(&buf[..got])?;
+        n += got as u64;
+        // A few times a second is enough for a progress bar.
+        if told.elapsed() >= PROGRESS_EVERY {
+            progress(ByteCount::new(n), total);
+            told = Instant::now();
+        }
+    }
+    if n > limit.get() {
+        return Err(EngineError::Refused(format!("the file is larger than {limit}")));
+    }
+    progress(ByteCount::new(n), total);
+    Ok(n)
 }
 
 /// How often `fetch_to_file` tells how far it is.

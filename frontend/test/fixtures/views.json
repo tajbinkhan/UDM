@@ -947,6 +947,7 @@
         "connected": true,
         "daemon": "",
         "installTitle": "Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.",
+        "progress": null,
         "update": "",
         "version": "0.9.2"
       },
@@ -2745,7 +2746,9 @@
               "selected": false,
               "tip": null
             }
-          ]
+          ],
+          "updateProgress": null,
+          "updating": false
         },
         "rows": [
           {

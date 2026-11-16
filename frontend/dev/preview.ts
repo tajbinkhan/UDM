@@ -41,12 +41,23 @@ const labels: Record<Kind, string> = {
   exception: 'exception',
 };
 
-// `&ask=language` opens the main window with the first start's language picker.
+// `&ask=language` opens the main window with the first start's language picker,
+// and `&update=downloading` with the strip of an update that downloads.
+const updating = {
+  newer: '9.0.0',
+  newerInstallable: true,
+  updating: true,
+  updateProgress: { text: '12.3 MB of 40.0 MB (30%)', percent: 30 },
+};
+const chrome = {
+  ...(params.get('ask') === 'language' ? { askLanguage: true } : {}),
+  ...(params.get('update') === 'downloading' ? updating : {}),
+};
 const view =
-  kind === 'main' && params.get('ask') === 'language'
+  kind === 'main' && Object.keys(chrome).length > 0
     ? {
         ...fixtures.views.main,
-        view: { ...fixtures.views.main.view, chrome: { ...fixtures.views.main.view.chrome, askLanguage: true } },
+        view: { ...fixtures.views.main.view, chrome: { ...fixtures.views.main.view.chrome, ...chrome } },
       }
     : fixtures.views[kind];
 

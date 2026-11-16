@@ -215,6 +215,9 @@ pub struct AboutView {
     /// What Update now does, for its tooltip: run Windows' Setup, or put
     /// the new copy in place of this one.
     pub install_title: String,
+    /// How far Update now's download is, while it downloads and the daemon
+    /// has said.
+    pub progress: Option<super::options::ToolProgressView>,
     pub checking: bool,
     pub connected: bool,
 }

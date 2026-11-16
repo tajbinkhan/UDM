@@ -12,11 +12,12 @@ use udm_domain::update::{Installer, Release};
 use super::format;
 use super::main::{display_name, is_startable};
 use super::Ctx;
+use crate::contract::ToolProgressView;
 use crate::contract::{
     AboutView, AddUrlView, DoneView, DownloadView, DuplicateView, Id, LimitView, OnDoneView, QueueItem, RemoveView,
     SaveAsView, SegmentView, Then,
 };
-use crate::i18n::fill;
+use crate::i18n::{fill, Language};
 use crate::state::AppState;
 
 fn settings(state: &AppState) -> Settings {
@@ -235,6 +236,15 @@ pub fn remove(state: &AppState) -> Option<RemoveView> {
     Some(RemoveView { count: state.to_remove.len() as u32, has_files })
 }
 
+/// How far Update now's download is, for About and the main window's
+/// strip: only while it downloads and once the daemon has said.
+pub fn update_progress(lang: &'static Language, a: &crate::extras::Asks) -> Option<ToolProgressView> {
+    match (&a.installing, a.update_progress) {
+        (Some(None), Some((done, total))) => Some(crate::services::progress_view(lang, done, total)),
+        _ => None,
+    }
+}
+
 pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
     let lang = ctx.lang;
     let a = &state.asks;
@@ -270,6 +280,7 @@ pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
                 .tr("Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.")
                 .to_string(),
         },
+        progress: update_progress(lang, a),
         checking: a.checking,
         connected: state.connected(),
     }
@@ -342,6 +353,38 @@ mod tests {
         let downloaded = ready(Some(Installer::LinuxTar), false, true);
         assert!(downloaded.can_install);
         assert_eq!(downloaded.update, "UDM 9.0.0 is downloaded and ready to install.");
+    }
+
+    #[test]
+    fn about_shows_how_far_update_now_has_downloaded() {
+        use udm_domain::bytes::ByteCount;
+        let mut s = AppState::default();
+        let daemon = |s: &mut AppState, event: Event| {
+            apply(s, UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: 0 });
+        };
+        let progress = |done, total: Option<u64>| Event::UpdateProgress {
+            done: ByteCount::mib(done),
+            total: total.map(ByteCount::mib),
+        };
+        // Heard while nothing installs, it is dropped.
+        daemon(&mut s, progress(1, Some(4)));
+        assert_eq!(about(&ctx(), &s).progress, None);
+        apply(&mut s, UiMessage::Installing);
+        let v = about(&ctx(), &s);
+        assert_eq!((v.update.as_str(), v.progress), ("Downloading the update...", None), "nothing heard yet");
+        daemon(&mut s, progress(1, Some(4)));
+        let bar = about(&ctx(), &s).progress.unwrap();
+        assert_eq!((bar.text.as_str(), bar.percent), ("1.0 MB of 4.0 MB (25%)", Some(25)));
+        // The main window's strip shows the same.
+        let strip = super::super::main::chrome(&ctx(), &s);
+        assert!(strip.updating);
+        assert_eq!(strip.update_progress, Some(bar));
+        daemon(&mut s, progress(4, Some(4)));
+        assert_eq!(about(&ctx(), &s).progress.unwrap().text, "Checking and installing...");
+        daemon(&mut s, Event::UpdateFailed { error: udm_application::daemon::Failure::Other("bad".into()) });
+        assert_eq!(about(&ctx(), &s).progress, None, "a failure ends it");
+        let strip = super::super::main::chrome(&ctx(), &s);
+        assert!(!strip.updating && strip.update_progress.is_none());
     }
 
     #[test]

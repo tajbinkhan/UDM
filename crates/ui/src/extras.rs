@@ -109,6 +109,9 @@ pub struct Asks {
     pub checking: bool,
     /// Install now: `None` while it downloads, or why it failed.
     pub installing: Option<Option<String>>,
+    /// How far Install now's download is: the bytes that have come, and
+    /// the size, when the server gave one.
+    pub update_progress: Option<(ByteCount, Option<ByteCount>)>,
     next_request: u64,
 }
 
@@ -207,7 +210,13 @@ pub fn take(state: &mut AppState, event: &Event, at: Instant) {
                 }
             });
         }
-        Event::UpdateFailed { error } => a.installing = Some(Some(crate::errors::failure(lang, error))),
+        Event::UpdateProgress { done, total } if a.installing == Some(None) => {
+            a.update_progress = Some((*done, *total));
+        }
+        Event::UpdateFailed { error } => {
+            a.installing = Some(Some(crate::errors::failure(lang, error)));
+            a.update_progress = None;
+        }
         Event::Removed { id } => {
             a.login_wanted.retain(|x| x != id);
             if a.refresh == Some(*id) {

@@ -587,6 +587,14 @@ pub enum Event {
         error: Option<Failure>,
         ready: bool,
     },
+    /// How far Update now's download of the installer is: the bytes that
+    /// have come, and the size the server gave, when it gave one. Sent a
+    /// few times a second while it downloads; `Quit` or `UpdateFailed`
+    /// ends it.
+    UpdateProgress {
+        done: ByteCount,
+        total: Option<ByteCount>,
+    },
     UpdateFailed {
         error: Failure,
     },

@@ -67,6 +67,7 @@
   import ConvertSheet from './ConvertSheet.svelte';
   import VerifySheet from './VerifySheet.svelte';
   import Sheet from '../../components/Sheet.svelte';
+  import ProgressBar from '../../components/ProgressBar.svelte';
 
   type SheetOpen =
     | { kind: 'find' | 'export' | 'limiter' | 'columns' | 'font' | 'toolbar' | 'tip' | 'language' | 'tools' }
@@ -417,11 +418,21 @@
       {#if view.chrome.newer}
         <div class="banner strip" role="status">
           <span class="grow"
-            >{view.chrome.newerReady
-              ? t('UDM {version} is downloaded and ready to install.', { version: view.chrome.newer })
-              : t('UDM {version} is available', { version: view.chrome.newer })}</span
+            >{view.chrome.updating
+              ? t('Downloading the update...')
+              : view.chrome.newerReady
+                ? t('UDM {version} is downloaded and ready to install.', { version: view.chrome.newer })
+                : t('UDM {version} is available', { version: view.chrome.newer })}</span
           >
-          {#if view.chrome.newerReady}
+          {#if view.chrome.updating}
+            {#if view.chrome.updateProgress}
+              {@const progress = view.chrome.updateProgress}
+              {#if progress.percent != null}
+                <span class="update-bar"><ProgressBar fraction={progress.percent / 100} height={8} /></span>
+              {/if}
+              <span class="update-text">{progress.text}</span>
+            {/if}
+          {:else if view.chrome.newerReady}
             <button
               class="btn small"
               disabled={!can?.connected}
@@ -588,6 +599,15 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .update-bar {
+    width: 160px;
+  }
+
+  .update-text {
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
   }
 
   .close {

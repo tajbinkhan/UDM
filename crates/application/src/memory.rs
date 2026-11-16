@@ -658,7 +658,12 @@ impl ReleaseSource for Releases {
         self.latest.clone()
     }
 
-    fn fetch_setup(&self, setup: &SetupAsset) -> Result<PathBuf, UpdateError> {
+    fn fetch_setup(
+        &self,
+        setup: &SetupAsset,
+        progress: &udm_domain::ports::UpdateProgress<'_>,
+    ) -> Result<PathBuf, UpdateError> {
+        progress(setup.size, Some(setup.size));
         self.fetched.lock().unwrap().push(setup.clone());
         Ok(PathBuf::from("/tmp").join(&setup.name))
     }

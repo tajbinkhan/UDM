@@ -31,7 +31,8 @@ impl<'a, S: ReleaseSource, N: UpdateChecks> DownloadUpdate<'a, S, N> {
         let Some(setup) = release.setup.as_ref().filter(|_| self.checks.download_ahead()) else {
             return Ok(None);
         };
-        let path = self.source.fetch_setup(setup)?;
+        // Downloaded in the background: nobody watches its progress.
+        let path = self.source.fetch_setup(setup, &|_, _| {})?;
         Ok(Some(ReadyUpdate { release: release.clone(), path }))
     }
 }
