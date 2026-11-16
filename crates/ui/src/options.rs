@@ -1014,7 +1014,7 @@ mod tests {
 
     #[test]
     fn the_done_dialog_and_the_notification_agree() {
-        let s = Settings::default();
+        let s = Settings { notify: Notify::Toast, ..Settings::default() };
         let mut d = draft(&s);
         d.done_dialog = true;
         assert_eq!(settings(&d, &s).unwrap().notify, Notify::Dialog);
