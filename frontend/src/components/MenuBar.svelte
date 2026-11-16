@@ -48,7 +48,7 @@
 
 <svelte:window onkeydown={onwindowkeydown} />
 
-<div class="bar" role="menubar" aria-label={t('Menu')}>
+<div class="bar" class:active={open >= 0} role="menubar" aria-label={t('Menu')}>
   {#each menus as m, i (m.label)}
     {@const parts = mnemonic(m.label)}
     <button
@@ -85,8 +85,6 @@
   }
 
   .top {
-    position: relative;
-    z-index: 52;
     padding: 0 9px;
     background: none;
     border: 0;
@@ -94,6 +92,14 @@
     color: var(--fg);
   }
 
+
+  /* While one of the bar's menus is open, its names stay above the menu's
+     backdrop, so moving over another name opens that menu. Only then: a
+     right-click menu tall enough to reach the bar covers the names. */
+  .bar.active .top {
+    position: relative;
+    z-index: 52;
+  }
 
   .top:hover,
   .top.open {

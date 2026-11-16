@@ -52,5 +52,11 @@ specta-typescript = "=0.0.15"
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
 
+# Names the program `udm` before GTK starts, so the dock finds udm.desktop
+# and its icon (AGENTS.md section 3 allows platform crates that only serve
+# the window). Already in the build through Tauri's GTK; the same version.
+[target.'cfg(target_os = "linux")'.dependencies]
+glib = "0.18.5"
+
 [lints]
 workspace = true

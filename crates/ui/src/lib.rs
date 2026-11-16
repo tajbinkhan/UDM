@@ -104,6 +104,12 @@ pub struct Start {
 
 /// Open the window and run it until the user quits from the tray.
 pub fn run(start: Start) -> Result<(), UiError> {
+    // GNOME and KDE match a window to its menu entry by its Wayland app id
+    // or X11 class, which GTK takes from the program's name. That would be
+    // `udm-gui`, which no entry names, so the dock showed a blank icon:
+    // `udm.desktop` (installer/linux) is the entry, with StartupWMClass=udm.
+    #[cfg(target_os = "linux")]
+    glib::set_prgname(Some("udm"));
     let builder = commands::builder();
     let invoke = builder.invoke_handler();
     let language: CurrentLanguage = Arc::new(AtomicUsize::new(0));

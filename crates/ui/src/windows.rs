@@ -314,6 +314,7 @@ pub fn open_sized(
         .devtools(cfg!(debug_assertions))
         .visible(true);
     let builder = if main { builder.min_inner_size(520.0, 300.0) } else { builder.center() };
+    let builder = above_main(app, label, builder)?;
     // The drop target floats over other windows without a frame, and takes
     // links dropped on it as the page's own drops.
     let builder = if label == Label::DropTarget {
@@ -322,6 +323,55 @@ pub fn open_sized(
         builder
     };
     builder.build()
+}
+
+/// Whether window `label` is a dialog that belongs over the main window:
+/// not the main window or the other resizable ones, not a download's
+/// progress window, which is minimized on its own, nor the drop target.
+#[cfg(any(target_os = "linux", test))]
+fn is_dialog(label: Label) -> bool {
+    !matches!(
+        label,
+        Label::Main
+            | Label::Grabber
+            | Label::Links
+            | Label::PickLinks
+            | Label::PickVideos
+            | Label::Gallery
+            | Label::Download(_)
+            | Label::DropTarget
+    )
+}
+
+/// On Linux, a dialog opened while the main window is on screen is made the
+/// main window's transient, so it stacks above it. GNOME and others give no
+/// focus to a window that opens without the user's click, and put it under
+/// the focused window, which hid Download File Info behind the main window.
+/// Elsewhere the builder is unchanged.
+#[cfg(target_os = "linux")]
+fn above_main<'a>(
+    app: &'a AppHandle,
+    label: Label,
+    builder: WebviewWindowBuilder<'a, tauri::Wry, AppHandle>,
+) -> Result<WebviewWindowBuilder<'a, tauri::Wry, AppHandle>, tauri::Error> {
+    let main = app.get_webview_window(&Label::Main.to_string());
+    match main {
+        Some(main)
+            if is_dialog(label) && main.is_visible().unwrap_or(false) && !main.is_minimized().unwrap_or(false) =>
+        {
+            builder.parent(&main)
+        }
+        _ => Ok(builder),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn above_main<'a>(
+    _app: &'a AppHandle,
+    _label: Label,
+    builder: WebviewWindowBuilder<'a, tauri::Wry, AppHandle>,
+) -> Result<WebviewWindowBuilder<'a, tauri::Wry, AppHandle>, tauri::Error> {
+    Ok(builder)
 }
 
 /// Close the window `label`, if it is open.
@@ -379,6 +429,17 @@ mod tests {
             assert_eq!(Label::parse(&label.to_string()), Some(label));
         }
         assert_eq!(Label::parse("download-x"), None);
+    }
+
+    #[test]
+    fn dialogs_stack_over_the_main_window() {
+        assert!(is_dialog(Label::SaveAs(DownloadId::new(1))));
+        assert!(is_dialog(Label::Options));
+        assert!(is_dialog(Label::Done(DownloadId::new(1))));
+        assert!(!is_dialog(Label::Main));
+        assert!(!is_dialog(Label::Download(DownloadId::new(1))));
+        assert!(!is_dialog(Label::DropTarget));
+        assert!(!is_dialog(Label::Grabber));
     }
 
     #[test]

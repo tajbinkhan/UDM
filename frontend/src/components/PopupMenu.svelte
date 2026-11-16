@@ -31,9 +31,11 @@
   let active = $state(-1);
   let open = $state(-1);
   let subAt = $state({ x: 0, y: 0 });
-  // A menu taller than the window, such as View > Language in a small
-  // window, stops at the window's edges and scrolls.
+  // A menu taller than the window, such as the list's right-click menu in a
+  // small window, first packs its rows closer; one still too tall, such as
+  // View > Language, stops at the window's edges and scrolls.
   const room = Math.max(0, window.innerHeight - 4);
+  let compact = $state(false);
 
   const usable = (i: number) => {
     const e = items[i];
@@ -45,6 +47,11 @@
     top = y;
     await tick();
     if (!el) return;
+    if (el.scrollHeight > room) {
+      compact = true;
+      await tick();
+      if (!el) return;
+    }
     const r = el.getBoundingClientRect();
     if (rightToLeft()) {
       // `x` is the menu's right edge; a submenu with no room on the left
@@ -117,6 +124,7 @@
 {/if}
 <div
   class="menu"
+  class:compact
   role="menu"
   aria-label={label}
   tabindex="-1"
@@ -220,6 +228,14 @@
     padding-inline: 0 10px;
     border-radius: var(--radius);
     white-space: nowrap;
+  }
+
+  .compact .entry {
+    height: 22px;
+  }
+
+  .compact .sep {
+    margin-block: 2px;
   }
 
   .entry.active:not(.disabled) {
