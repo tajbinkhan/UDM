@@ -96,7 +96,7 @@
     "message": "Downloaden"
   },
   "noDownloads": {
-    "message": "Nog geen downloads."
+    "message": "Geen lopende of gepauzeerde downloads."
   },
   "stateQueued": {
     "message": "In wachtrij"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "Downloaden"
   },
-  "stateDone": {
-    "message": "Voltooid"
+  "statePaused": {
+    "message": "Gepauzeerd"
   },
-  "stateFailed": {
-    "message": "Mislukt"
+  "pause": {
+    "message": "Pauzeren"
   },
-  "stateCanceled": {
-    "message": "Geannuleerd"
-  },
-  "stateInterrupted": {
-    "message": "Onderbroken"
-  },
-  "stateConfirming": {
-    "message": "Wacht op jou in UDM"
-  },
-  "stateWaiting": {
-    "message": "Wacht om te starten"
-  },
-  "threatFound": {
-    "message": "Bedreiging gevonden"
-  },
-  "start": {
-    "message": "Starten"
-  },
-  "cancel": {
-    "message": "Annuleren"
-  },
-  "retry": {
-    "message": "Opnieuw proberen"
-  },
-  "remove": {
-    "message": "Verwijderen"
+  "resume": {
+    "message": "Hervatten"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

@@ -105,7 +105,7 @@
     "message": "डाउनलोड"
   },
   "noDownloads": {
-    "message": "अभी कोई डाउनलोड नहीं।"
+    "message": "कोई डाउनलोड चल या रुका हुआ नहीं है।"
   },
   "stateQueued": {
     "message": "कतार में"
@@ -113,38 +113,14 @@
   "stateDownloading": {
     "message": "डाउनलोड हो रहा है"
   },
-  "stateDone": {
-    "message": "पूर्ण"
+  "statePaused": {
+    "message": "रुका हुआ"
   },
-  "stateFailed": {
-    "message": "विफल"
+  "pause": {
+    "message": "रोकें"
   },
-  "stateCanceled": {
-    "message": "रद्द किया गया"
-  },
-  "stateInterrupted": {
-    "message": "बाधित"
-  },
-  "stateConfirming": {
-    "message": "UDM में आपकी प्रतीक्षा है"
-  },
-  "stateWaiting": {
-    "message": "शुरू होने की प्रतीक्षा में"
-  },
-  "threatFound": {
-    "message": "खतरा मिला"
-  },
-  "start": {
-    "message": "शुरू करें"
-  },
-  "cancel": {
-    "message": "रद्द करें"
-  },
-  "retry": {
-    "message": "फिर कोशिश करें"
-  },
-  "remove": {
-    "message": "हटाएँ"
+  "resume": {
+    "message": "फिर शुरू करें"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

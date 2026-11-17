@@ -82,7 +82,7 @@ test("every English message is used", () => {
 test("messages fill in their values as the browser does", () => {
   assert.equal(getMessage("statusNotConnectedReason", "no host"), "Not connected to UDM: no host. Downloads stay in the browser.");
   assert.equal(getMessage("sizeProgress", ["1.5 MB", "10.0 MB"]), "1.5 MB / 10.0 MB");
-  assert.equal(getMessage("noDownloads"), "No downloads yet.");
+  assert.equal(getMessage("noDownloads"), "No downloads running or paused.");
   assert.equal(getMessage("noSuchMessage"), "");
   // media.js's English, used without a browser, is the browser's.
   for (const name of Object.keys(en)) assert.equal(uiText(name, ["A", "B"]), getMessage(name, ["A", "B"]), name);

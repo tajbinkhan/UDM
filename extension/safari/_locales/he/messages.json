@@ -105,7 +105,7 @@
     "message": "הורדה"
   },
   "noDownloads": {
-    "message": "עדיין אין הורדות."
+    "message": "אין הורדות פעילות או מושהות."
   },
   "stateQueued": {
     "message": "בתור"
@@ -113,38 +113,14 @@
   "stateDownloading": {
     "message": "בהורדה"
   },
-  "stateDone": {
-    "message": "הסתיים"
+  "statePaused": {
+    "message": "מושהה"
   },
-  "stateFailed": {
-    "message": "נכשל"
+  "pause": {
+    "message": "השהיה"
   },
-  "stateCanceled": {
-    "message": "בוטל"
-  },
-  "stateInterrupted": {
-    "message": "הופסק"
-  },
-  "stateConfirming": {
-    "message": "ממתין לכם ב-UDM"
-  },
-  "stateWaiting": {
-    "message": "ממתין להתחלה"
-  },
-  "threatFound": {
-    "message": "נמצא איום"
-  },
-  "start": {
-    "message": "התחל"
-  },
-  "cancel": {
-    "message": "ביטול"
-  },
-  "retry": {
-    "message": "נסה שוב"
-  },
-  "remove": {
-    "message": "הסר"
+  "resume": {
+    "message": "המשך"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

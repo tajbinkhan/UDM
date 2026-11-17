@@ -96,7 +96,7 @@
     "message": "İndir"
   },
   "noDownloads": {
-    "message": "Henüz indirme yok."
+    "message": "Devam eden veya duraklatılmış indirme yok."
   },
   "stateQueued": {
     "message": "Kuyrukta"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "İndiriliyor"
   },
-  "stateDone": {
-    "message": "Bitti"
+  "statePaused": {
+    "message": "Duraklatıldı"
   },
-  "stateFailed": {
-    "message": "Başarısız"
+  "pause": {
+    "message": "Duraklat"
   },
-  "stateCanceled": {
-    "message": "İptal edildi"
-  },
-  "stateInterrupted": {
-    "message": "Kesildi"
-  },
-  "stateConfirming": {
-    "message": "UDM'da sizi bekliyor"
-  },
-  "stateWaiting": {
-    "message": "Başlamayı bekliyor"
-  },
-  "threatFound": {
-    "message": "Tehdit bulundu"
-  },
-  "start": {
-    "message": "Başlat"
-  },
-  "cancel": {
-    "message": "İptal"
-  },
-  "retry": {
-    "message": "Yeniden dene"
-  },
-  "remove": {
-    "message": "Kaldır"
+  "resume": {
+    "message": "Sürdür"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

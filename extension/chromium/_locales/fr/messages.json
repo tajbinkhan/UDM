@@ -96,7 +96,7 @@
     "message": "Télécharger"
   },
   "noDownloads": {
-    "message": "Aucun téléchargement pour l’instant."
+    "message": "Aucun téléchargement en cours ou en pause."
   },
   "stateQueued": {
     "message": "En file d’attente"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "Téléchargement en cours"
   },
-  "stateDone": {
-    "message": "Terminé"
+  "statePaused": {
+    "message": "En pause"
   },
-  "stateFailed": {
-    "message": "Échec"
+  "pause": {
+    "message": "Suspendre"
   },
-  "stateCanceled": {
-    "message": "Annulé"
-  },
-  "stateInterrupted": {
-    "message": "Interrompu"
-  },
-  "stateConfirming": {
-    "message": "Vous attend dans UDM"
-  },
-  "stateWaiting": {
-    "message": "En attente de démarrage"
-  },
-  "threatFound": {
-    "message": "Menace détectée"
-  },
-  "start": {
-    "message": "Démarrer"
-  },
-  "cancel": {
-    "message": "Annuler"
-  },
-  "retry": {
-    "message": "Réessayer"
-  },
-  "remove": {
-    "message": "Retirer"
+  "resume": {
+    "message": "Reprendre"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

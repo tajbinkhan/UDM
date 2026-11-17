@@ -105,7 +105,7 @@
     "message": "دانلود"
   },
   "noDownloads": {
-    "message": "هنوز دانلودی نیست."
+    "message": "دانلودی در حال اجرا یا متوقف‌شده نیست."
   },
   "stateQueued": {
     "message": "در صف"
@@ -113,38 +113,14 @@
   "stateDownloading": {
     "message": "در حال دانلود"
   },
-  "stateDone": {
-    "message": "انجام شد"
+  "statePaused": {
+    "message": "متوقف‌شده"
   },
-  "stateFailed": {
-    "message": "ناموفق"
+  "pause": {
+    "message": "توقف"
   },
-  "stateCanceled": {
-    "message": "لغو شد"
-  },
-  "stateInterrupted": {
-    "message": "قطع شد"
-  },
-  "stateConfirming": {
-    "message": "در UDM منتظر شماست"
-  },
-  "stateWaiting": {
-    "message": "در انتظار شروع"
-  },
-  "threatFound": {
-    "message": "تهدید پیدا شد"
-  },
-  "start": {
-    "message": "شروع"
-  },
-  "cancel": {
-    "message": "لغو"
-  },
-  "retry": {
-    "message": "تلاش دوباره"
-  },
-  "remove": {
-    "message": "حذف"
+  "resume": {
+    "message": "ادامه"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

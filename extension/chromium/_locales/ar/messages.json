@@ -96,7 +96,7 @@
     "message": "تنزيل"
   },
   "noDownloads": {
-    "message": "لا توجد تنزيلات بعد."
+    "message": "لا توجد تنزيلات جارية أو متوقفة مؤقتًا."
   },
   "stateQueued": {
     "message": "في الانتظار"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "قيد التنزيل"
   },
-  "stateDone": {
-    "message": "تم"
+  "statePaused": {
+    "message": "متوقف مؤقتًا"
   },
-  "stateFailed": {
-    "message": "فشل"
+  "pause": {
+    "message": "إيقاف مؤقت"
   },
-  "stateCanceled": {
-    "message": "أُلغي"
-  },
-  "stateInterrupted": {
-    "message": "متوقف"
-  },
-  "stateConfirming": {
-    "message": "في انتظارك في UDM"
-  },
-  "stateWaiting": {
-    "message": "في انتظار البدء"
-  },
-  "threatFound": {
-    "message": "تم العثور على تهديد"
-  },
-  "start": {
-    "message": "بدء"
-  },
-  "cancel": {
-    "message": "إلغاء"
-  },
-  "retry": {
-    "message": "إعادة المحاولة"
-  },
-  "remove": {
-    "message": "إزالة"
+  "resume": {
+    "message": "استئناف"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

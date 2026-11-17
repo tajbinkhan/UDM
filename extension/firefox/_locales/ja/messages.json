@@ -96,7 +96,7 @@
     "message": "ダウンロード"
   },
   "noDownloads": {
-    "message": "ダウンロードはまだありません。"
+    "message": "実行中または一時停止中のダウンロードはありません。"
   },
   "stateQueued": {
     "message": "待機中"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "ダウンロード中"
   },
-  "stateDone": {
-    "message": "完了"
+  "statePaused": {
+    "message": "一時停止中"
   },
-  "stateFailed": {
-    "message": "失敗"
+  "pause": {
+    "message": "一時停止"
   },
-  "stateCanceled": {
-    "message": "キャンセル済み"
-  },
-  "stateInterrupted": {
-    "message": "中断"
-  },
-  "stateConfirming": {
-    "message": "UDM で応答待ち"
-  },
-  "stateWaiting": {
-    "message": "開始待ち"
-  },
-  "threatFound": {
-    "message": "脅威が見つかりました"
-  },
-  "start": {
-    "message": "開始"
-  },
-  "cancel": {
-    "message": "キャンセル"
-  },
-  "retry": {
-    "message": "再試行"
-  },
-  "remove": {
-    "message": "削除"
+  "resume": {
+    "message": "再開"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

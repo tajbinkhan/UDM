@@ -96,7 +96,7 @@
     "message": "下载"
   },
   "noDownloads": {
-    "message": "还没有下载。"
+    "message": "没有正在进行或已暂停的下载。"
   },
   "stateQueued": {
     "message": "已排队"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "正在下载"
   },
-  "stateDone": {
-    "message": "已完成"
+  "statePaused": {
+    "message": "已暂停"
   },
-  "stateFailed": {
-    "message": "已失败"
+  "pause": {
+    "message": "暂停"
   },
-  "stateCanceled": {
-    "message": "已取消"
-  },
-  "stateInterrupted": {
-    "message": "已中断"
-  },
-  "stateConfirming": {
-    "message": "正在 UDM 中等待你的回答"
-  },
-  "stateWaiting": {
-    "message": "等待开始"
-  },
-  "threatFound": {
-    "message": "发现威胁"
-  },
-  "start": {
-    "message": "开始"
-  },
-  "cancel": {
-    "message": "取消"
-  },
-  "retry": {
-    "message": "重试"
-  },
-  "remove": {
-    "message": "删除"
+  "resume": {
+    "message": "继续"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

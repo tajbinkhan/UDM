@@ -967,6 +967,7 @@ function onHostMessage(msg) {
         },
       });
       if (JSON.stringify(menuHidden()) !== menuBuiltFor) buildMenus();
+      videoSettingsChanged();
       break;
     case "refresh_waiting":
       refreshWaiting = msg.id ?? null;
@@ -1964,6 +1965,31 @@ function snapshot() {
     videoExcluded: rules ? rules.video_button_excluded_sites || [] : [],
     items: [...downloads.values()].sort((a, b) => b.id - a.id),
   };
+}
+
+// The video button's settings as last sent to the pages. When UDM sends
+// others (the popup, or Options in the window, changed them), every open
+// page is told, so its button goes or comes back without a reload. The
+// first settings after the worker started are told too: a page may have
+// asked before they came (and been told yes), or they may have changed
+// while the worker was away. A page whose answer is the same does nothing.
+let videoSettingsSent = null;
+function videoSettingsChanged() {
+  const now = JSON.stringify([
+    rules.video_button,
+    rules.video_button_excluded_sites,
+    rules.video_view,
+    rules.video_protected_note,
+  ]);
+  const before = videoSettingsSent;
+  videoSettingsSent = now;
+  if (before === now || !chrome.tabs || !chrome.tabs.query) return;
+  chrome.tabs
+    .query({ url: ["http://*/*", "https://*/*"] })
+    .then((tabs) => {
+      for (const tab of tabs) chrome.tabs.sendMessage(tab.id, { type: "video:settings" }).catch(() => {});
+    })
+    .catch(() => {});
 }
 
 // Change the video button setting in UDM: on or off everywhere, or for one
