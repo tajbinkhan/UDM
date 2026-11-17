@@ -539,3 +539,103 @@ test("the content scripts can run twice in one frame", () => {
     assert.doesNotThrow(() => script.runInContext(world), `${file} the second time`);
   }
 });
+
+// After UDM is updated or reloaded, the content script already in an open
+// page is cut off from the extension: chrome.runtime.sendMessage throws
+// "Extension context invalidated", which showed in the extension's errors
+// as an uncaught promise from the video button. It throws nothing now, and
+// a magnet link clicked is left to the browser.
+test("a cut-off content script throws nothing", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vm = require("node:vm");
+  const dir = path.join(__dirname, "..", "chromium");
+  const listeners = {};
+  const on = (type, fn) => (listeners[type] = listeners[type] || []).push(fn);
+  const fire = (type, ev) => (listeners[type] || []).forEach((fn) => fn(ev));
+  class Element {}
+  class HTMLVideoElement extends Element {}
+  class HTMLAnchorElement extends Element {}
+  const invalidated = () => {
+    throw new Error("Extension context invalidated.");
+  };
+  let sent = 0;
+  const world = vm.createContext({
+    globalThis: undefined,
+    Element,
+    HTMLVideoElement,
+    HTMLAudioElement: class extends Element {},
+    HTMLObjectElement: class extends Element {},
+    HTMLEmbedElement: class extends Element {},
+    HTMLAnchorElement,
+    HTMLAreaElement: class extends Element {},
+    HTMLFormElement: class extends Element {},
+    innerWidth: 1000,
+    addEventListener: on,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    document: { addEventListener: on, querySelector: () => null },
+    chrome: {
+      storage: { local: { get: invalidated }, onChanged: { addListener: invalidated } },
+      runtime: {
+        id: undefined,
+        sendMessage: () => {
+          sent++;
+          invalidated();
+        },
+        onMessage: { addListener: invalidated },
+      },
+      i18n: { getMessage: invalidated, getUILanguage: invalidated },
+    },
+  });
+  world.globalThis = world;
+  world.window = world;
+  world.top = world;
+  // The page loaded while UDM ran, so the listeners are in place; storage
+  // and onMessage work then.
+  const chrome = world.chrome;
+  chrome.storage = {
+    local: { get: async () => ({ magnetCapture: true }) },
+    onChanged: { addListener: () => {} },
+  };
+  chrome.runtime.onMessage = { addListener: () => {} };
+  for (const file of ["rules.js", "links.js", "content.js"]) {
+    vm.runInContext(fs.readFileSync(path.join(dir, file), "utf8"), world, { filename: file });
+  }
+  await new Promise((r) => setImmediate(r));
+  // Then UDM is reloaded.
+  chrome.storage = { local: { get: invalidated }, onChanged: { addListener: invalidated } };
+  chrome.runtime.onMessage = { addListener: invalidated };
+
+  const rejections = [];
+  const onRejection = (err) => rejections.push(err);
+  process.on("unhandledRejection", onRejection);
+  try {
+    const video = new HTMLVideoElement();
+    video.readyState = 4;
+    assert.doesNotThrow(() => fire("play", { target: video }), "a video plays");
+    assert.doesNotThrow(() => fire("loadstart", { target: video }), "a video loads");
+    assert.doesNotThrow(() => fire("mouseover", { target: video }), "the mouse is over a video");
+    assert.doesNotThrow(() => fire("keydown", { isTrusted: true, key: "Shift", shiftKey: true }), "a key is pressed");
+    const link = new HTMLAnchorElement();
+    link.href = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567";
+    link.getAttribute = () => null;
+    let prevented = false;
+    fire("click", {
+      isTrusted: true,
+      button: 0,
+      detail: 1,
+      composedPath: () => [link],
+      preventDefault: () => (prevented = true),
+      stopImmediatePropagation: () => {},
+    });
+    assert.equal(prevented, false, "a magnet link is left to the browser");
+    await new Promise((r) => setTimeout(r, 20));
+  } finally {
+    process.off("unhandledRejection", onRejection);
+  }
+  assert.deepEqual(rejections, []);
+  assert.ok(sent > 0, "the playing video tried to tell the worker, and its throw was caught");
+});
