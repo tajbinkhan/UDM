@@ -66,16 +66,13 @@ function button(label, onClick, disabled) {
   return b;
 }
 
-const STATUS_TEXT = {
-  queued: t("stateQueued"),
-  downloading: t("stateDownloading"),
-  done: t("stateDone"),
-  failed: t("stateFailed"),
-  canceled: t("stateCanceled"),
-  interrupted: t("stateInterrupted"),
-  confirming: t("stateConfirming"),
-  waiting: t("stateWaiting"),
-};
+// The popup lists only what can be paused or resumed: downloads running
+// (or queued to run) and paused ones. Pausing stops a download and keeps
+// its partial file, as Stop does in UDM's window; resuming carries on from
+// it. The rest of the list is in UDM's window.
+const RUNNING = new Set(["queued", "downloading"]);
+const PAUSED = new Set(["canceled", "interrupted"]);
+const shown = (e) => RUNNING.has(e.status) || PAUSED.has(e.status);
 
 function row(e, connected) {
   const li = el("li");
@@ -83,33 +80,18 @@ function row(e, connected) {
 
   const bar = el("div", { className: "bar" });
   const fill = el("div");
-  const pct = e.total ? Math.min(100, (e.done / e.total) * 100) : e.status === "done" ? 100 : 0;
+  const pct = e.total ? Math.min(100, (e.done / e.total) * 100) : 0;
   fill.style.width = `${pct}%`;
   bar.append(fill);
   li.append(bar);
 
   const meta = el("div", { className: "meta" });
-  const status = el("span", { className: e.status, title: e.error || "" }, STATUS_TEXT[e.status] || e.status);
-  meta.append(status);
-  if (e.scan && e.scan.result === "threat") {
-    meta.append(el("span", { className: "failed", title: e.scan.detail || "" }, t("threatFound")));
-  }
+  const running = RUNNING.has(e.status);
+  const label = running ? (e.status === "queued" ? t("stateQueued") : t("stateDownloading")) : t("statePaused");
+  meta.append(el("span", { className: running ? e.status : "paused" }, label));
   meta.append(el("span", { className: "grow" }, e.total ? t("sizeProgress", [human(e.done), human(e.total)]) : human(e.done)));
-
-  if (e.status === "confirming") {
-    meta.append(button(t("start"), () => ask({ type: "start", id: e.id }), !connected));
-    meta.append(button(t("cancel"), () => ask({ type: "cancel", id: e.id }), !connected));
-  } else if (e.status === "waiting") {
-    meta.append(button(t("start"), () => ask({ type: "start", id: e.id }), !connected));
-    meta.append(button(t("remove"), () => ask({ type: "remove", id: e.id }), !connected));
-  } else if (e.status === "queued" || e.status === "downloading") {
-    meta.append(button(t("cancel"), () => ask({ type: "cancel", id: e.id }), !connected));
-  } else if (e.status === "failed" || e.status === "canceled" || e.status === "interrupted") {
-    meta.append(button(t("retry"), () => ask({ type: "retry", id: e.id }), !connected));
-    meta.append(button(t("remove"), () => ask({ type: "remove", id: e.id }), !connected));
-  } else if (e.status === "done") {
-    meta.append(button(t("remove"), () => ask({ type: "remove", id: e.id }), !connected));
-  }
+  if (running) meta.append(button(t("pause"), () => ask({ type: "cancel", id: e.id }), !connected));
+  else meta.append(button(t("resume"), () => ask({ type: "retry", id: e.id }), !connected));
   li.append(meta);
   return li;
 }
@@ -176,7 +158,7 @@ function render(state) {
 
   const list = $("list");
   list.replaceChildren();
-  const items = state.items.slice(0, MAX_ROWS);
+  const items = state.items.filter(shown).slice(0, MAX_ROWS);
   if (items.length === 0) {
     list.append(el("li", { className: "empty" }, t("noDownloads")));
   } else {

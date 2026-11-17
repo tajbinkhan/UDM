@@ -96,7 +96,7 @@
     "message": "다운로드"
   },
   "noDownloads": {
-    "message": "아직 다운로드가 없습니다."
+    "message": "진행 중이거나 일시 중지된 다운로드가 없습니다."
   },
   "stateQueued": {
     "message": "대기 중"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "다운로드 중"
   },
-  "stateDone": {
-    "message": "완료"
+  "statePaused": {
+    "message": "일시 중지됨"
   },
-  "stateFailed": {
-    "message": "실패"
+  "pause": {
+    "message": "일시 중지"
   },
-  "stateCanceled": {
-    "message": "취소됨"
-  },
-  "stateInterrupted": {
-    "message": "중단됨"
-  },
-  "stateConfirming": {
-    "message": "UDM에서 응답 대기 중"
-  },
-  "stateWaiting": {
-    "message": "시작 대기 중"
-  },
-  "threatFound": {
-    "message": "위협 발견"
-  },
-  "start": {
-    "message": "시작"
-  },
-  "cancel": {
-    "message": "취소"
-  },
-  "retry": {
-    "message": "다시 시도"
-  },
-  "remove": {
-    "message": "제거"
+  "resume": {
+    "message": "다시 시작"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

@@ -459,7 +459,20 @@ function playerCovered(el, container, points, hitAt, ignore) {
   return looked > 0;
 }
 
+// Where the video button's bar of `width` x `height` goes for a player at
+// rectangle `r` in a window `viewWidth` wide: just outside the player, above
+// its top right corner, its right edge on the player's (or the window's).
+// With no room above (the player starts at the top of the window), a video
+// gets it just inside its top instead, and an audio player, which is short,
+// below it.
+function videoButtonSpot(r, width, height, viewWidth, short) {
+  const left = Math.max(0, Math.min(r.right, viewWidth) - width);
+  const above = r.top - height - 2;
+  if (above >= 0) return { left, top: above };
+  return { left, top: short ? Math.max(0, r.bottom + 2) : Math.max(0, r.top) + 4 };
+}
+
 if (typeof module !== "undefined") {
-  module.exports = { isMagnet, catchesTorrents, isTorrentFile, mediaPlugin, playerContainer, samplePoints, playerCovered, mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickTaken, clickApplies, urlMatches, selectionButtonAllowed, formFileFields, heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS };
+  module.exports = { isMagnet, catchesTorrents, isTorrentFile, mediaPlugin, playerContainer, samplePoints, playerCovered, videoButtonSpot, mimeExtension, extensionOf, urlPath, hostOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, hiddenMenuItems, linkFileName, linkDescription, forceLeavesLink, clickTaken, clickApplies, urlMatches, selectionButtonAllowed, formFileFields, heldReport, heldApplies, greyPixels, HELD_REFRESH_MS, HELD_EXPIRE_MS };
 
 }

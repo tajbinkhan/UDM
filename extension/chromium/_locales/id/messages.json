@@ -96,7 +96,7 @@
     "message": "Unduh"
   },
   "noDownloads": {
-    "message": "Belum ada unduhan."
+    "message": "Tidak ada unduhan yang berjalan atau dijeda."
   },
   "stateQueued": {
     "message": "Diantrekan"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "Mengunduh"
   },
-  "stateDone": {
-    "message": "Selesai"
+  "statePaused": {
+    "message": "Dijeda"
   },
-  "stateFailed": {
-    "message": "Gagal"
+  "pause": {
+    "message": "Jeda"
   },
-  "stateCanceled": {
-    "message": "Dibatalkan"
-  },
-  "stateInterrupted": {
-    "message": "Terputus"
-  },
-  "stateConfirming": {
-    "message": "Menunggu Anda di UDM"
-  },
-  "stateWaiting": {
-    "message": "Menunggu untuk dimulai"
-  },
-  "threatFound": {
-    "message": "Ancaman ditemukan"
-  },
-  "start": {
-    "message": "Mulai"
-  },
-  "cancel": {
-    "message": "Batal"
-  },
-  "retry": {
-    "message": "Coba lagi"
-  },
-  "remove": {
-    "message": "Hapus"
+  "resume": {
+    "message": "Lanjutkan"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

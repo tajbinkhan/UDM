@@ -96,7 +96,7 @@
     "message": "Завантажити"
   },
   "noDownloads": {
-    "message": "Завантажень ще немає."
+    "message": "Немає активних або призупинених завантажень."
   },
   "stateQueued": {
     "message": "У черзі"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "Завантажується"
   },
-  "stateDone": {
-    "message": "Готово"
+  "statePaused": {
+    "message": "Призупинено"
   },
-  "stateFailed": {
-    "message": "Помилка"
+  "pause": {
+    "message": "Призупинити"
   },
-  "stateCanceled": {
-    "message": "Скасовано"
-  },
-  "stateInterrupted": {
-    "message": "Перервано"
-  },
-  "stateConfirming": {
-    "message": "Очікує вашої відповіді в UDM"
-  },
-  "stateWaiting": {
-    "message": "Очікує запуску"
-  },
-  "threatFound": {
-    "message": "Виявлено загрозу"
-  },
-  "start": {
-    "message": "Почати"
-  },
-  "cancel": {
-    "message": "Скасувати"
-  },
-  "retry": {
-    "message": "Повторити"
-  },
-  "remove": {
-    "message": "Видалити"
+  "resume": {
+    "message": "Відновити"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

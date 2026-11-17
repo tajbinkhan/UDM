@@ -127,8 +127,8 @@
     "description": "Popup button that sends the pasted address to UDM; also the video button's menu item for a whole video or audio file."
   },
   "noDownloads": {
-    "message": "No downloads yet.",
-    "description": "Popup download list when it is empty."
+    "message": "No downloads running or paused.",
+    "description": "Popup download list when no download is running or paused."
   },
 
   "stateQueued": {
@@ -139,49 +139,17 @@
     "message": "Downloading",
     "description": "State of a download in the popup list."
   },
-  "stateDone": {
-    "message": "Done",
-    "description": "State of a download in the popup list: finished."
+  "statePaused": {
+    "message": "Paused",
+    "description": "State of a download in the popup list: stopped with its partial file kept; it can resume."
   },
-  "stateFailed": {
-    "message": "Failed",
-    "description": "State of a download in the popup list."
+  "pause": {
+    "message": "Pause",
+    "description": "Popup button on a running download: stops it, keeping what it has."
   },
-  "stateCanceled": {
-    "message": "Canceled",
-    "description": "State of a download in the popup list."
-  },
-  "stateInterrupted": {
-    "message": "Interrupted",
-    "description": "State of a download in the popup list: stopped when UDM closed; it can resume."
-  },
-  "stateConfirming": {
-    "message": "Waiting for you in UDM",
-    "description": "State of a download in the popup list: UDM's window asks the user something about it (the file name is taken)."
-  },
-  "stateWaiting": {
-    "message": "Waiting to start",
-    "description": "State of a download in the popup list: added to UDM without starting it."
-  },
-  "threatFound": {
-    "message": "Threat found",
-    "description": "Popup list: the virus scan found a threat in the downloaded file."
-  },
-  "start": {
-    "message": "Start",
-    "description": "Popup button on a download."
-  },
-  "cancel": {
-    "message": "Cancel",
-    "description": "Popup button on a download."
-  },
-  "retry": {
-    "message": "Retry",
-    "description": "Popup button on a failed, canceled or interrupted download."
-  },
-  "remove": {
-    "message": "Remove",
-    "description": "Popup button on a download: removes it from UDM's list."
+  "resume": {
+    "message": "Resume",
+    "description": "Popup button on a paused download: carries on from where it stopped."
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

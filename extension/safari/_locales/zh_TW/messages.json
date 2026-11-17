@@ -96,7 +96,7 @@
     "message": "下載"
   },
   "noDownloads": {
-    "message": "尚無下載。"
+    "message": "沒有進行中或已暫停的下載。"
   },
   "stateQueued": {
     "message": "已排入佇列"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "下載中"
   },
-  "stateDone": {
-    "message": "完成"
+  "statePaused": {
+    "message": "已暫停"
   },
-  "stateFailed": {
-    "message": "失敗"
+  "pause": {
+    "message": "暫停"
   },
-  "stateCanceled": {
-    "message": "已取消"
-  },
-  "stateInterrupted": {
-    "message": "已中斷"
-  },
-  "stateConfirming": {
-    "message": "正在 UDM 中等候您回應"
-  },
-  "stateWaiting": {
-    "message": "等候開始"
-  },
-  "threatFound": {
-    "message": "發現威脅"
-  },
-  "start": {
-    "message": "開始"
-  },
-  "cancel": {
-    "message": "取消"
-  },
-  "retry": {
-    "message": "重試"
-  },
-  "remove": {
-    "message": "移除"
+  "resume": {
+    "message": "繼續"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

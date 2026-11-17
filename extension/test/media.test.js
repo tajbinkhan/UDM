@@ -436,6 +436,28 @@ test("the button follows the settings, and the popup changes them", async () => 
   assert.equal(set.settings.video_button, false);
 });
 
+test("open pages hear when the video button is turned on or off", async () => {
+  const w = connected();
+  w.chrome.tabs.query = async () => [{ id: 7, url: "https://v.net/watch" }];
+  const told = () => w.chrome.tabs.messages.filter(([, m]) => m.type === "video:settings").map(([id]) => id);
+  const settings = (more) =>
+    w.port.onMessage.fire({
+      op: "settings",
+      settings: { capture_types: [], capture_min_size_kb: 0, capture_excluded_sites: [], video_button: true, video_button_excluded_sites: [], ...more },
+    });
+  // The same settings again: nothing to tell.
+  settings({});
+  await tick();
+  same(told(), []);
+  // A site turned off (from the popup or Options), then the button.
+  settings({ video_button_excluded_sites: ["v.net"] });
+  await tick();
+  same(told(), [7]);
+  settings({ video_button_excluded_sites: ["v.net"], video_button: false });
+  await tick();
+  same(told(), [7, 7]);
+});
+
 test("a stream offers its sound alone, from its audio track or its smallest video", () => {
   const entries = [
     { id: 1, url: "https://v.net/a.mpd", kind: "dash", time: 2 },
