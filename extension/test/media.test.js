@@ -458,6 +458,21 @@ test("open pages hear when the video button is turned on or off", async () => {
   same(told(), [7, 7]);
 });
 
+test("open pages hear the first settings after the worker starts", async () => {
+  // A page may have asked before the settings came, or they may have
+  // changed while the worker was away; the page itself sees whether its
+  // answer changed.
+  const w = loadWorker();
+  w.chrome.tabs.query = async () => [{ id: 8, url: "https://v.net/watch" }];
+  w.port.onMessage.fire({ op: "hello", name: "udm-daemon", version: "x" });
+  w.port.onMessage.fire({
+    op: "settings",
+    settings: { capture_types: [], capture_min_size_kb: 0, capture_excluded_sites: [], video_button: false, video_button_excluded_sites: [] },
+  });
+  await tick();
+  same(w.chrome.tabs.messages.filter(([, m]) => m.type === "video:settings").map(([id]) => id), [8]);
+});
+
 test("a stream offers its sound alone, from its audio track or its smallest video", () => {
   const entries = [
     { id: 1, url: "https://v.net/a.mpd", kind: "dash", time: 2 },

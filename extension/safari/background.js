@@ -1969,7 +1969,10 @@ function snapshot() {
 
 // The video button's settings as last sent to the pages. When UDM sends
 // others (the popup, or Options in the window, changed them), every open
-// page is told, so its button goes or comes back without a reload.
+// page is told, so its button goes or comes back without a reload. The
+// first settings after the worker started are told too: a page may have
+// asked before they came (and been told yes), or they may have changed
+// while the worker was away. A page whose answer is the same does nothing.
 let videoSettingsSent = null;
 function videoSettingsChanged() {
   const now = JSON.stringify([
@@ -1980,7 +1983,7 @@ function videoSettingsChanged() {
   ]);
   const before = videoSettingsSent;
   videoSettingsSent = now;
-  if (before === null || before === now || !chrome.tabs || !chrome.tabs.query) return;
+  if (before === now || !chrome.tabs || !chrome.tabs.query) return;
   chrome.tabs
     .query({ url: ["http://*/*", "https://*/*"] })
     .then((tabs) => {

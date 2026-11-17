@@ -576,6 +576,26 @@ function selectionHasLinks(sel) {
     place();
   }
 
+  // The video button may have been turned on or off (for this site or
+  // everywhere), or its look changed: ask again, and if the answer is not
+  // the one this page has, show the button anew or not at all. A page that
+  // has not asked yet has nothing to change.
+  async function settingsChanged() {
+    if (enabled === null) return;
+    const answer = await ask({ type: "video:enabled" });
+    if (!answer) return;
+    const now = { enabled: !!answer.enabled, view: answer.view || "full", protectedNote: answer.protectedNote !== false };
+    if (now.enabled === enabled && now.view === view && now.protectedNote === protectedNote) return;
+    ({ enabled, view, protectedNote } = now);
+    const player = current;
+    clearTimeout(hideTimer);
+    hide();
+    if (host) host.remove();
+    host = null;
+    ui = null;
+    if (player) show(player);
+  }
+
   function protectedVideo() {
     return !!current && (encrypted.has(current) || !!current.mediaKeys);
   }
@@ -710,18 +730,7 @@ function selectionHasLinks(sel) {
   // players and their streams are the old page's.
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === "video:reset") hide();
-    // The video button was turned on or off (for this site or everywhere),
-    // or its look changed: ask again, and show the button anew or not at all.
-    if (msg && msg.type === "video:settings") {
-      const player = current;
-      enabled = null;
-      clearTimeout(hideTimer);
-      hide();
-      if (host) host.remove();
-      host = null;
-      ui = null;
-      if (player) show(player);
-    }
+    if (msg && msg.type === "video:settings") settingsChanged();
     return false;
   });
 })();
