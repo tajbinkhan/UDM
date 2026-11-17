@@ -191,20 +191,9 @@ pub fn complaint(stderr: &str) -> String {
 }
 
 /// End gallery-dl and what it started. A standalone gallery-dl unpacks
-/// itself and runs as a second process; on Windows `taskkill /T` ends the
-/// tree, elsewhere it runs in a process group of its own, which is ended.
+/// itself and runs as a second process; it runs in a process group of its
+/// own, which `ytdlp::kill_tree` ends.
 fn kill_tree(child: &mut Child) {
-    #[cfg(unix)]
-    {
-        if let Ok(pid) = i32::try_from(child.id()) {
-            // SAFETY: kill(2) takes plain integers and touches no memory;
-            // the negative id names the process group made at spawn, whose
-            // leader is our child, still unreaped.
-            unsafe {
-                libc::kill(-pid, libc::SIGKILL);
-            }
-        }
-    }
     crate::media::ytdlp::kill_tree(child);
 }
 

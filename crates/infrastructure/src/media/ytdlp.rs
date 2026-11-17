@@ -144,6 +144,12 @@ fn common_args(cmd: &mut Command, proxy: Option<&str>, source: Option<IpAddr>) {
 pub fn command(yt_dlp: &Path, proxy: Option<&str>, source: Option<IpAddr>) -> Command {
     let mut cmd = Command::new(yt_dlp);
     crate::platform::no_window(&mut cmd);
+    // A process group of its own, so `kill_tree` ends what it started too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        cmd.process_group(0);
+    }
     common_args(&mut cmd, proxy, source);
     cmd.stdin(Stdio::null());
     cmd
@@ -216,9 +222,24 @@ pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>, source: Option<IpAdd
     }
 }
 
-/// End yt-dlp and the processes it started: yt-dlp.exe unpacks itself into
-/// a second process, and ffmpeg runs under it while joining.
+/// End yt-dlp and the processes it started: the standalone yt-dlp unpacks
+/// itself into a second process, and ffmpeg runs under it while joining.
+/// Killing the first alone leaves the second downloading, holding the pipes
+/// UDM reads, so the download never stops. On Windows `taskkill /T` ends the
+/// tree; elsewhere the process group `command` (or the caller) made at spawn
+/// is ended.
 pub fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        if let Ok(pid) = i32::try_from(child.id()) {
+            // SAFETY: kill(2) takes plain integers and touches no memory;
+            // the negative id names the process group made at spawn, whose
+            // leader is our child, still unreaped.
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+            }
+        }
+    }
     #[cfg(windows)]
     {
         let _ = crate::platform::no_window(&mut Command::new("taskkill"))
@@ -745,6 +766,26 @@ mod tests {
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path
+    }
+
+    /// The standalone yt-dlp for Linux unpacks itself and runs as a second
+    /// process, which holds the pipes. Stopping must end that one too, or it
+    /// goes on downloading and the download never shows as stopped.
+    #[cfg(unix)]
+    #[test]
+    fn stopping_ends_the_process_yt_dlp_started() {
+        use std::io::Read as _;
+        let program = fake_yt_dlp("tree", "sleep 60 &\nwait");
+        let mut child = command(&program, None, None).stdout(Stdio::piped()).spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        kill_tree(&mut child);
+        let _ = child.wait();
+        let started = Instant::now();
+        let mut rest = Vec::new();
+        let _ = stdout.read_to_end(&mut rest);
+        assert!(started.elapsed() < Duration::from_secs(10), "the second process kept running");
+        let _ = std::fs::remove_dir_all(program.parent().unwrap());
     }
 
     #[cfg(unix)]

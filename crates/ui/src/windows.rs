@@ -293,9 +293,7 @@ pub fn open_sized(
     size: (f64, f64),
 ) -> Result<WebviewWindow, tauri::Error> {
     if let Some(w) = app.get_webview_window(&label.to_string()) {
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
+        bring_forward(&w);
         return Ok(w);
     }
     let zoom = f64::from(ZOOM.load(std::sync::atomic::Ordering::Relaxed).clamp(50, 400)) / 100.0;
@@ -374,6 +372,38 @@ fn above_main<'a>(
     Ok(builder)
 }
 
+/// Restore `w` from the taskbar or the tray and give it the focus.
+fn bring_forward(w: &WebviewWindow) {
+    let _ = w.unminimize();
+    let _ = w.show();
+    let _ = w.set_focus();
+}
+
+/// Bring the window `label` forward if it is open, restoring it when it is
+/// minimized, as double-clicking a download whose progress window is open
+/// does. Returns whether it was open.
+pub fn raise(app: &AppHandle, label: Label) -> bool {
+    let window = app.get_webview_window(&label.to_string());
+    if let Some(w) = &window {
+        bring_forward(w);
+    }
+    window.is_some()
+}
+
+/// Show the main window from the tray, with the progress windows that were
+/// minimized: a minimized progress window goes to the tray, as IDM's does,
+/// and comes back with UDM. Wayland never tells a window it is minimized,
+/// so on Linux every open progress window comes forward.
+pub fn show_from_tray(app: &AppHandle, lang: &'static Language) {
+    show_main(app, lang);
+    for (label, w) in app.webview_windows() {
+        let minimized = cfg!(target_os = "linux") || w.is_minimized().unwrap_or(false);
+        if matches!(Label::parse(&label), Some(Label::Download(_))) && minimized {
+            bring_forward(&w);
+        }
+    }
+}
+
 /// Close the window `label`, if it is open.
 pub fn close(app: &AppHandle, label: Label) {
     if let Some(w) = app.get_webview_window(&label.to_string()) {
@@ -391,13 +421,39 @@ pub fn show_main(app: &AppHandle, lang: &'static Language) {
 /// Set a window's title, such as a progress window's percentage.
 pub fn set_title(app: &AppHandle, label: Label, title: &str) {
     if let Some(w) = app.get_webview_window(&label.to_string()) {
-        let _ = w.set_title(title);
+        // GTK sizes a window that cannot be resized to show its whole
+        // title, so a long video name made the download window far wider.
+        let title = if cfg!(target_os = "linux") { short_title(title) } else { title.into() };
+        let _ = w.set_title(&title);
+    }
+}
+
+/// The most characters of a title shown in a fixed-size window's title bar,
+/// about what fits across the download window.
+const TITLE_CHARS: usize = 56;
+
+/// `title` cut to [`TITLE_CHARS`] characters, ending in an ellipsis when cut.
+fn short_title(title: &str) -> std::borrow::Cow<'_, str> {
+    match title.char_indices().nth(TITLE_CHARS) {
+        Some((end, _)) => format!("{}…", title[..end].trim_end()).into(),
+        None => title.into(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_titles_are_cut_to_fit_the_window() {
+        assert_eq!(short_title("12% Clip.mp4"), "12% Clip.mp4");
+        let name = "100% ঘরের উন্নতির জন্য সূরা বাকারা প্রতিদিন শুনুনI Surah Baqarah Full Quran Recitation.mp4";
+        let short = short_title(name);
+        assert!(short.starts_with("100% ঘরের"), "{short}");
+        assert!(short.ends_with('…'), "{short}");
+        assert_eq!(short.chars().count(), TITLE_CHARS + 1);
+        assert_eq!(short_title(&"x".repeat(TITLE_CHARS)), "x".repeat(TITLE_CHARS));
+    }
 
     #[test]
     fn labels_round_trip() {

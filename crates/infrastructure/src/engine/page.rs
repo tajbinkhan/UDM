@@ -95,7 +95,11 @@ pub(super) fn run(
     // yt-dlp reuses any file already at its own names: an unrelated
     // "Song.m4a" next to "Song.mp3" would be converted, then deleted. A name
     // of this download's own keeps its files apart, and stays the same
-    // between runs so yt-dlp can resume its parts.
+    // between runs so yt-dlp can resume its parts. Resume and Retry start a
+    // download again under a new id: it takes over its earlier run's parts.
+    if req.reuse_path.as_deref() == Some(output.as_path()) {
+        adopt_working_files(&output, id);
+    }
     let working = working_stem(&output, id);
     let template = format!("{}.%(ext)s", ytdlp::literal_template(&working.to_string_lossy()));
     let proxy = req.net.proxy.as_ref().and_then(|p| p.proxy_for(&req.url));
@@ -188,12 +192,15 @@ pub(super) fn run(
         }
         thread::sleep(Duration::from_millis(200));
     };
-    for r in readers {
-        let _ = r.join();
-    }
+    // A stopped download does not wait for the pipes to close: a process
+    // that left yt-dlp's group would hold them open, and the download would
+    // never show as stopped. The readers end when the pipes do.
     let Some(status) = status else {
         return Ok(output.into());
     };
+    for r in readers {
+        let _ = r.join();
+    }
     if !status.success() {
         return Err(EngineError::Io(ytdlp::complaint(&complaints.lock_or_recover())));
     }
@@ -243,6 +250,51 @@ pub(super) fn working_files(output: &Path, id: DownloadId) -> Vec<PathBuf> {
         })
         .map(|entry| entry.path())
         .collect()
+}
+
+/// Give download `id`, saving at `output`, the working files an earlier run
+/// of it left under another id (`<stem>.udm-<old id>.*`): a download started
+/// again (Resume, Retry) is a new row with a new id, and yt-dlp resumes only
+/// parts at its own names. When several earlier runs left files, the one
+/// that got furthest (the most bytes) is taken and the others' files go,
+/// since nothing else saves at `output` (it is this download's own file).
+fn adopt_working_files(output: &Path, id: DownloadId) {
+    let (Some(dir), Some(stem)) = (output.parent(), output.file_stem()) else {
+        return;
+    };
+    let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
+    let prefix = format!("{}.udm-", stem.to_string_lossy());
+    let ours = id.to_string();
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    // Each earlier id's files: (path, the rest of the name after the id).
+    let mut runs: std::collections::BTreeMap<String, Vec<(PathBuf, String)>> = Default::default();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(rest) = name.strip_prefix(&prefix) else {
+            continue;
+        };
+        let digits = rest.chars().take_while(char::is_ascii_digit).count();
+        let (old, tail) = rest.split_at(digits);
+        if old.is_empty() || old == ours || !(tail.is_empty() || tail.starts_with('.')) {
+            continue;
+        }
+        runs.entry(old.to_string()).or_default().push((entry.path(), tail.to_string()));
+    }
+    let size = |files: &[(PathBuf, String)]| -> u64 {
+        files.iter().filter_map(|(p, _)| fs::metadata(p).ok()).map(|m| m.len()).sum()
+    };
+    let furthest = runs.iter().max_by_key(|(_, files)| size(files)).map(|(old, _)| old.clone());
+    for (old, files) in runs {
+        for (path, tail) in files {
+            let mine = dir.join(format!("{prefix}{ours}{tail}"));
+            if Some(&old) == furthest.as_ref() && !mine.exists() && fs::rename(&path, &mine).is_ok() {
+                continue;
+            }
+            let _ = fs::remove_file(&path);
+        }
+    }
 }
 
 /// Move yt-dlp's finished file to the chosen name, keeping the extension
@@ -329,6 +381,41 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Resume starts a video page again as a new row: its parts must follow
+    /// it, or yt-dlp starts over and the old parts stay behind.
+    #[test]
+    fn a_restarted_download_takes_over_its_earlier_parts() {
+        let dir = std::env::temp_dir().join(format!("udm-adopt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, len: usize| fs::write(dir.join(name), vec![0u8; len]).unwrap();
+        write("Clip.udm-2.f137.mp4.part", 100);
+        write("Clip.udm-2.f140.m4a.part", 20);
+        write("Clip.udm-3.f137.mp4.part", 10);
+        // Not this download's: another name, an id-like word, a finished file.
+        write("Clip (1).udm-2.f137.mp4.part", 5);
+        write("Clip.udm-2x.part", 5);
+        write("Clip.mp4.old", 5);
+
+        adopt_working_files(&dir.join("Clip.mp4"), DownloadId::new(7));
+
+        let mut names: Vec<String> =
+            fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "Clip (1).udm-2.f137.mp4.part",
+                "Clip.mp4.old",
+                "Clip.udm-2x.part",
+                "Clip.udm-7.f137.mp4.part",
+                "Clip.udm-7.f140.m4a.part"
+            ]
+        );
+        assert_eq!(fs::metadata(dir.join("Clip.udm-7.f137.mp4.part")).unwrap().len(), 100, "the furthest run");
+        fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn working_stem_adds_the_id() {
         let stem = working_stem(Path::new("dl/Song.mp3"), DownloadId::new(42));
@@ -373,6 +460,129 @@ mod tests {
         assert_eq!(t.bytes(), 1100);
         t.update(300, Some(300));
         assert_eq!(t.bytes(), 1300);
+    }
+
+    /// Pauses, resumes and cancels a real video page as the download
+    /// window's buttons do (the daemon's `Cancel` and `Retry`): each stop must
+    /// end yt-dlp and every process it started at once, and the resumed run
+    /// must go on from yt-dlp's parts. It needs yt-dlp, ffmpeg and the
+    /// network, so it runs only when asked:
+    /// `UDM_TEST_VIDEO=<page> cargo test -- --ignored pauses_resumes`.
+    #[test]
+    #[ignore]
+    fn pauses_resumes_and_cancels_a_video_page() {
+        use super::super::Engine;
+        use std::sync::mpsc;
+        use std::time::Instant;
+        use udm_domain::media::MediaKind;
+        use udm_domain::settings::{FileExists, Folders, Settings};
+
+        let url =
+            std::env::var("UDM_TEST_VIDEO").unwrap_or_else(|_| "https://www.youtube.com/watch?v=EdWlMHoKEGg".into());
+        let ffmpeg = crate::settings::ffmpeg(&Settings::default());
+        let yt_dlp = ytdlp::find(ffmpeg.as_deref()).expect("yt-dlp");
+        let info = ytdlp::probe(&yt_dlp, &url, None, None, ytdlp::PROBE_TIMEOUT);
+        assert!(info.error.is_none(), "{:?}", info.error);
+        let dir = std::env::temp_dir().join(format!("udm_pause_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(tx);
+        let engine = Engine::new(
+            Arc::new(move |p: Progress| {
+                let _ = tx.lock().unwrap().send(p);
+            }),
+            1,
+        );
+        let request = || DownloadRequest {
+            url: url.clone(),
+            folders: Folders::fixed(dir.clone()),
+            filename: Some("Video.mp4".into()),
+            headers: Vec::new(),
+            connections: 1,
+            reuse_path: None,
+            file_exists: FileExists::Rename,
+            post_body: None,
+            net: Default::default(),
+            media: Some(MediaChoice {
+                kind: Some(MediaKind::Page),
+                video: info.video.first().map(|v| v.id.clone()),
+                ..MediaChoice::default()
+            }),
+            ffmpeg: ffmpeg.clone(),
+            speed_limit: None,
+            server_date: false,
+            server_date_created: false,
+            ignore_date: false,
+            temp_dir: None,
+            reuse_partial: None,
+            host_limit: None,
+            elevate: false,
+            resolve: None,
+            torrent_files: None,
+            torrent_uploaded: ByteCount::ZERO,
+        };
+        // The yt-dlp and ffmpeg processes working in `dir`.
+        let workers = || -> Vec<String> {
+            let needle = dir.to_string_lossy().into_owned();
+            fs::read_dir("/proc")
+                .unwrap()
+                .flatten()
+                .filter_map(|e| fs::read(e.path().join("cmdline")).ok())
+                .map(|c| String::from_utf8_lossy(&c).replace('\0', " "))
+                .filter(|c| c.contains(&needle) && !c.contains("cargo") && !c.contains("udm_infrastructure"))
+                .collect()
+        };
+        // Wait for `at_least` bytes, returning the first and the last count.
+        let advance = |at_least: u64| {
+            let mut first = None;
+            loop {
+                match rx.recv_timeout(Duration::from_secs(120)).expect("no progress") {
+                    Progress::Advanced { done, .. } => {
+                        first.get_or_insert(done.get());
+                        if done.get() >= at_least {
+                            return (first.unwrap_or(0), done.get());
+                        }
+                    }
+                    Progress::Failed { error, .. } => panic!("{error}"),
+                    Progress::Finished { .. } => panic!("finished before it could be stopped"),
+                    _ => {}
+                }
+            }
+        };
+        // Stop as Pause and Cancel do, and say how long the stop took.
+        let stop = |id| {
+            let asked = Instant::now();
+            engine.cancel(id);
+            loop {
+                match rx.recv_timeout(Duration::from_secs(30)).expect("the download did not stop") {
+                    Progress::Canceled { .. } => break,
+                    Progress::Finished { .. } => panic!("finished, not stopped"),
+                    _ => {}
+                }
+            }
+            let took = asked.elapsed();
+            thread::sleep(Duration::from_millis(500));
+            assert!(workers().is_empty(), "still running after the stop: {:?}", workers());
+            took
+        };
+
+        let id = engine.enqueue(request());
+        let (_, paused_at) = advance(3_000_000);
+        let took = stop(id);
+        assert!(took < Duration::from_secs(3), "Pause took {took:?}");
+        eprintln!("paused at {paused_at} bytes in {took:?}");
+
+        // The daemon's Resume starts it again as a new row, with its file.
+        let mut again = request();
+        again.reuse_path = Some(dir.join("Video.mp4"));
+        let id = engine.enqueue(again);
+        let (resumed_from, now) = advance(paused_at + 3_000_000);
+        assert!(resumed_from >= paused_at / 2, "resumed from {resumed_from}, paused at {paused_at}: started over");
+        let took = stop(id);
+        assert!(took < Duration::from_secs(3), "Cancel took {took:?}");
+        eprintln!("resumed from {resumed_from}, canceled at {now} bytes in {took:?}");
+        fs::remove_dir_all(&dir).ok();
     }
 
     /// Downloads YouTube's first video (19 seconds) through the engine. It

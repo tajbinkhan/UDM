@@ -1165,6 +1165,15 @@ impl Actor {
                     },
                     _ => false,
                 };
+                // Asked again for a progress window that is already open,
+                // perhaps minimized: bring it back. One not open yet opens
+                // when the state is reconciled.
+                if let UiMessage::ShowProgress(id) = &msg {
+                    let label = Label::Download(*id);
+                    if self.opened.contains(&label) {
+                        windows::raise(&self.app, label);
+                    }
+                }
                 let picked = matches!(&msg, UiMessage::Daemon { event, .. } if matches!(**event, Event::PickLinks { .. } | Event::PickGallery { .. }));
                 apply(&mut self.state, msg);
                 if restart {
