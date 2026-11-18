@@ -108,8 +108,15 @@ impl PartialEq<&str> for FileName {
     }
 }
 
+/// The endings of UDM's resume files and stream folders, with the ones it
+/// used as Pullbay and UIDM.
+const WORKING_SUFFIXES: [&str; 6] =
+    [".udmpart", ".udmparts", ".pullbaypart", ".pullbayparts", ".uidmpart", ".uidmparts"];
+
 /// Make `name` safe to use as a file name on every system UDM runs on:
-/// characters Windows forbids become `_`, and device names get a `_` prefix.
+/// characters Windows forbids become `_`, device names get a `_` prefix, and
+/// a name ending like one of UDM's working files gets a `_` after it, so a
+/// download cannot pass for the resume file of another.
 /// `None` when nothing is left of it.
 pub fn sanitize_filename(name: &str) -> Option<FileName> {
     let clean = name
@@ -124,7 +131,17 @@ pub fn sanitize_filename(name: &str) -> Option<FileName> {
         .trim_matches('.')
         .to_string();
     // No separator or NUL is left, nor `.` or `..`; only an empty name fails.
-    FileName::parse(&not_a_device(clean)).ok()
+    FileName::parse(&not_a_working_file(not_a_device(clean))).ok()
+}
+
+/// `name`, with `_` after it if it ends like one of UDM's working files.
+fn not_a_working_file(name: String) -> String {
+    let lower = name.to_ascii_lowercase();
+    if WORKING_SUFFIXES.iter().any(|suffix| lower.ends_with(suffix)) {
+        format!("{name}_")
+    } else {
+        name
+    }
 }
 
 /// A file name from `url`'s last path segment, without its query, or
@@ -189,6 +206,18 @@ mod tests {
         assert_eq!(name_from_url("https://x.com/"), "download");
         assert_eq!(proposed_name("https://x.com/f.bin", Some("a:b.txt")), "a_b.txt");
         assert_eq!(proposed_name("https://x.com/f.bin", Some("  ")), "f.bin");
+    }
+
+    #[test]
+    fn names_of_udms_working_files_are_not_kept() {
+        assert_eq!(clean("target.iso.udmpart"), "target.iso.udmpart_");
+        assert_eq!(clean("TARGET.ISO.UDMPART"), "TARGET.ISO.UDMPART_");
+        assert_eq!(clean("target.iso.udmparts"), "target.iso.udmparts_");
+        for old in ["pullbaypart", "uidmpart", "pullbayparts", "uidmparts"] {
+            assert_eq!(clean(&format!("target.iso.{old}")), format!("target.iso.{old}_"));
+        }
+        assert_eq!(clean("target.iso.udmpart_"), "target.iso.udmpart_");
+        assert_eq!(clean("notes.udmpart.txt"), "notes.udmpart.txt");
     }
 
     #[test]
