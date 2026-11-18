@@ -168,6 +168,14 @@ pub fn listed_sha256(sums: &str, name: &str) -> Option<String> {
     found
 }
 
+/// The names a checksum file in `sha256sum`'s format lists, in its order.
+pub fn listed_names(sums: &str) -> impl Iterator<Item = &str> {
+    sums.lines().filter_map(|line| {
+        let (hash, rest) = line.trim_end_matches('\r').split_once(char::is_whitespace)?;
+        is_sha256(hash).then(|| rest.trim_start().trim_start_matches('*'))
+    })
+}
+
 /// Whether `s` is 64 hex digits.
 pub fn is_sha256(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
@@ -314,6 +322,7 @@ mod tests {
         assert_eq!(listed_sha256(&sums, "yt-dlp.exe"), Some("b".repeat(64)));
         assert_eq!(listed_sha256(&sums, "yt-dlp_macos"), None);
         assert_eq!(listed_sha256(&sums, "short"), None);
+        assert_eq!(listed_names(&sums).collect::<Vec<_>>(), ["yt-dlp", "yt-dlp.exe"]);
         let twice = format!("{a}  x\n{}  x\n", "d".repeat(64));
         assert_eq!(listed_sha256(&twice, "x"), None);
         assert_eq!(hex(&[0, 0xab, 0x10]), "00ab10");

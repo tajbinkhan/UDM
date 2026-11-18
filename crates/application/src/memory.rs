@@ -663,7 +663,8 @@ impl ReleaseSource for Releases {
         setup: &SetupAsset,
         progress: &udm_domain::ports::UpdateProgress<'_>,
     ) -> Result<PathBuf, UpdateError> {
-        progress(setup.size, Some(setup.size));
+        let size = udm_domain::bytes::ByteCount::new(10);
+        progress(size, Some(size));
         self.fetched.lock().unwrap().push(setup.clone());
         Ok(PathBuf::from("/tmp").join(&setup.name))
     }

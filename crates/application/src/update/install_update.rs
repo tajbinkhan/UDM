@@ -66,8 +66,6 @@ mod tests {
         SetupAsset {
             name: "UDM-Setup-1.0.0.exe".into(),
             url: "https://x/".into(),
-            size: ByteCount::new(10),
-            sha256: None,
             installer: Default::default(),
             checksums: None,
         }

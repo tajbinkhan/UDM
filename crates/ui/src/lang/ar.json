@@ -98,6 +98,7 @@
   "UDM {version} is available.": "الإصدار {version} من UDM متاح.",
   "UDM {version} is available. Update it through your system's package manager.": "الإصدار {version} من UDM متاح. حدّثه عبر مدير الحزم في نظامك.",
   "This is the newest version.": "هذا هو أحدث إصدار.",
+  "GitHub is turning away requests from this network for now. Try again later.": "يرفض GitHub حاليًا الطلبات الواردة من هذه الشبكة. حاول مرة أخرى لاحقًا.",
   "Inside {name}": "داخل {name}",
   "{count} files, {size} unpacked": "{count} ملفات، {size} بعد فك الضغط",
   "Showing the first {count}.": "عرض أول {count}.",

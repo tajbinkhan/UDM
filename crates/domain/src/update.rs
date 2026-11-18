@@ -4,7 +4,6 @@
 //! the file against the release's signed checksums and installing it is
 //! `udm_infrastructure::update`.
 
-use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 
 /// How often the window's check runs on its own: once a week.
@@ -36,10 +35,6 @@ pub struct SetupAsset {
     pub name: String,
     /// Where GitHub serves it, under this repository's release downloads.
     pub url: String,
-    pub size: ByteCount,
-    /// Its SHA-256 in hex, when GitHub reports one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sha256: Option<String>,
     /// What kind of file it is. Releases before signed updates offered only
     /// Windows' Setup, so that is what a value without one is.
     #[serde(default)]
@@ -199,6 +194,9 @@ pub fn check_due(on: bool, last: u64, now: u64) -> bool {
 pub enum UpdateError {
     #[error("Could not reach GitHub: {0}")]
     Unreachable(String),
+    /// GitHub answered, and refused: this network has asked it too much.
+    #[error("GitHub is turning away requests from this network for now. Try again later.")]
+    RateLimited,
     /// GitHub's answer could not be read; the message says how.
     #[error("{0}")]
     Answer(String),
@@ -271,6 +269,7 @@ mod tests {
 
     #[test]
     fn a_setup_without_a_kind_is_windows_setup() {
+        // The size is what releases read from GitHub's API carried.
         let old: SetupAsset = serde_json::from_str(r#"{"name":"UDM-Setup-0.5.0.exe","url":"u","size":3}"#).unwrap();
         assert_eq!(old.installer, Installer::WindowsSetup);
         assert_eq!(old.checksums, None);

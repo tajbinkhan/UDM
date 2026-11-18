@@ -36,6 +36,9 @@ pub struct Behavior {
     pub ntlm_auth: Option<(String, String)>,
     /// Answer every request with a 302 to this URL.
     pub redirect_to: Option<String>,
+    /// Answer a request for one of these paths with a 302 to the address
+    /// beside it, which may be a path on this server.
+    pub redirects: HashMap<String, String>,
     /// Serve these files by path (such as `/v/1.ts`) instead of one body
     /// everywhere; other paths get 404.
     pub files: Option<Arc<HashMap<String, Vec<u8>>>>,
@@ -171,6 +174,14 @@ impl TestServer {
         Self::serve_on(listener, url, Vec::new(), behavior)
     }
 
+    /// Like `start_files`, behaving as `behavior` says besides.
+    pub fn start_files_with(files: HashMap<String, Vec<u8>>, behavior: Behavior) -> TestServer {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let behavior = Behavior { files: Some(Arc::new(files)), ..behavior };
+        Self::serve_on(listener, url, Vec::new(), behavior)
+    }
+
     fn serve_on(listener: TcpListener, url: String, body: Vec<u8>, behavior: Behavior) -> TestServer {
         let body = Arc::new(body);
         let seen = Seen {
@@ -260,6 +271,12 @@ fn serve(
         thread::sleep(wait);
     }
     let path = request_line.split(' ').nth(1).unwrap_or("/");
+    if let Some(to) = behavior.redirects.get(path) {
+        return write!(
+            stream,
+            "HTTP/1.1 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+    }
     let body: &[u8] = match &behavior.files {
         None => body,
         Some(files) => match files.get(path) {

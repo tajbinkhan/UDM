@@ -4,6 +4,10 @@
 //! against the release's signed checksums, and install it
 //! (`update_in_place`). `GitHub` is the adapter for `ReleaseSource`.
 //!
+//! The check reads GitHub's website, not its API, which answers a network
+//! only 60 times an hour: the latest release's page redirects to the page
+//! of its tag, and that release's `SHA256SUMS` names its files.
+//!
 //! The release workflow lists every file's SHA-256 in `SHA256SUMS` and
 //! signs the list with minisign (`installer/sign-checksums.js`). UDM pins
 //! the public key, `release-key.pub`, and installs nothing the signed list
@@ -23,7 +27,7 @@ use crate::connect::{config_for, NetState};
 use crate::engine;
 use crate::live_settings::LiveSettings;
 
-use udm_domain::tools::listed_sha256;
+use udm_domain::tools::{listed_names, listed_sha256};
 use udm_domain::update::{Install, Installer, Release, SetupAsset, SignedChecksums, CHECKSUMS, CHECKSUMS_SIGNATURE};
 
 /// The public half of UDM's release key, in minisign's format.
@@ -32,70 +36,58 @@ pub const RELEASE_KEY: &str = include_str!("release-key.pub");
 /// The largest checksum list or signature UDM reads.
 const MAX_CHECKSUMS_BYTES: ByteCount = ByteCount::kib(64);
 
-/// The releases of UDM's repository, newest first by GitHub's reckoning.
-pub const LATEST_RELEASE: &str = "https://api.github.com/repos/tajbinkhan/UDM/releases/latest";
+/// The page of UDM's latest release, which GitHub redirects to the page of
+/// that release's tag. The releases it may name, and their files, are under
+/// the same `.../releases`.
+pub const LATEST_RELEASE: &str = "https://github.com/tajbinkhan/UDM/releases/latest";
 
-/// Where release files are served from; a Setup anywhere else is not used.
-const DOWNLOADS: &str = "https://github.com/tajbinkhan/UDM/releases/download/";
 /// The largest Setup UDM downloads.
 pub const MAX_SETUP_BYTES: ByteCount = ByteCount::mib(256);
 
-/// Where a release serves the asset called `name`, if it is served from the
-/// repository's releases.
-fn asset_url<'a>(assets: &'a serde_json::Value, name: &str) -> Option<&'a str> {
-    assets.as_array()?.iter().find_map(|a| {
-        let url = a["browser_download_url"].as_str()?;
-        (a["name"].as_str()? == name && url.starts_with(DOWNLOADS)).then_some(url)
-    })
+/// The tag of the release whose page is `page`, when that is a release's
+/// page under `releases` (`https://github.com/tajbinkhan/UDM/releases`) and
+/// the tag is one that can go in an address as it is.
+fn release_tag<'a>(page: &'a str, releases: &str) -> Option<&'a str> {
+    let tag = page.strip_prefix(releases)?.strip_prefix("/tag/")?;
+    let plain = tag.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'+'));
+    (plain && !tag.is_empty() && tag != "." && tag != "..").then_some(tag)
 }
 
-/// The `installer` asset among a release's `assets`, for a machine whose
-/// processor is `arch`, if there is one UDM can use: named as that kind
-/// is, served from the repository's releases, and of a sensible size.
-fn setup_asset(assets: &serde_json::Value, installer: Installer, arch: &str) -> Option<SetupAsset> {
-    let checksums = match (asset_url(assets, CHECKSUMS), asset_url(assets, CHECKSUMS_SIGNATURE)) {
-        (Some(list), Some(signature)) => Some(SignedChecksums { list: list.into(), signature: signature.into() }),
-        _ => None,
-    };
-    assets.as_array()?.iter().find_map(|a| {
-        let name = a["name"].as_str()?;
-        let url = a["browser_download_url"].as_str()?;
-        let size = ByteCount::new(a["size"].as_u64()?);
-        let usable = installer.matches(name, arch)
-            && url.starts_with(DOWNLOADS)
-            && (ByteCount::new(1)..=MAX_SETUP_BYTES).contains(&size);
-        let sha256 = a["digest"]
-            .as_str()
-            .and_then(|d| d.strip_prefix("sha256:"))
-            .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
-            .map(str::to_ascii_lowercase);
-        usable.then(|| SetupAsset {
+/// The release tagged `tag` under `releases`, with the file that updates a
+/// copy installed as `install` on a machine whose processor is `arch`: the
+/// one of that kind the release's checksum list, `sums`, names. Without a
+/// list the release has nothing UDM installs.
+pub fn release_from(releases: &str, tag: &str, sums: Option<&str>, install: Install, arch: &str) -> Release {
+    let downloads = format!("{releases}/download/{tag}/");
+    let setup = install.installer().zip(sums).and_then(|(installer, sums)| {
+        let name = listed_names(sums).find(|name| installer.matches(name, arch))?;
+        Some(SetupAsset {
             name: name.to_string(),
-            url: url.to_string(),
-            size,
-            sha256,
+            url: format!("{downloads}{name}"),
             installer,
-            checksums: checksums.clone(),
+            checksums: Some(SignedChecksums {
+                list: format!("{downloads}{CHECKSUMS}"),
+                signature: format!("{downloads}{CHECKSUMS_SIGNATURE}"),
+            }),
         })
-    })
+    });
+    Release {
+        version: tag.trim_start_matches(['v', 'V']).to_string(),
+        url: format!("{releases}/tag/{tag}"),
+        // A package UDM can install itself is updated like any other copy.
+        package_manager: install.is_package() && setup.is_none(),
+        setup,
+    }
 }
 
 /// Why GitHub's answer or a downloaded Setup is refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ReleaseError {
-    /// What the JSON parser said.
-    #[error("GitHub's answer is not JSON: {0}")]
-    NotJson(String),
-    #[error("GitHub's answer names no release.")]
+    #[error("GitHub names no latest release.")]
     NoRelease,
-    /// The bytes downloaded and the size GitHub lists.
-    #[error("The update is {0} bytes, not the {1} GitHub lists.")]
-    WrongSize(ByteCount, ByteCount),
     /// What the file should have been.
     #[error("The update is not {0}.")]
     NotProgram(&'static str),
-    #[error("The update does not match the checksum GitHub lists.")]
-    WrongChecksum,
     #[error("This release's checksums are not signed, so UDM will not install it.")]
     Unsigned,
     /// What minisign said.
@@ -145,25 +137,16 @@ pub struct Signed<'a> {
 }
 
 /// Check a downloaded update against what the release says about it: its
-/// size, its kind, and its SHA-256 on the release's list of checksums,
-/// which must carry a good signature by `key` (minisign's public key
-/// format). GitHub's own checksum, when it lists one, must match too.
+/// kind, and its SHA-256 on the release's list of checksums, which must
+/// carry a good signature by `key` (minisign's public key format).
 pub fn check_setup(asset: &SetupAsset, bytes: &[u8], signed: Option<Signed>, key: &str) -> Result<(), ReleaseError> {
-    let got = ByteCount::new(bytes.len() as u64);
-    if got != asset.size {
-        return Err(ReleaseError::WrongSize(got, asset.size));
-    }
     looks_like(asset.installer, bytes)?;
     let signed = signed.ok_or(ReleaseError::Unsigned)?;
     verify_list(&signed, key)?;
     let list = std::str::from_utf8(signed.list).map_err(|_| ReleaseError::NotListed)?;
     let want = listed_sha256(list, &asset.name).ok_or(ReleaseError::NotListed)?;
-    let got = sha256_hex(bytes);
-    if got != want {
+    if sha256_hex(bytes) != want {
         return Err(ReleaseError::WrongSignedChecksum);
-    }
-    if asset.sha256.as_ref().is_some_and(|github| *github != got) {
-        return Err(ReleaseError::WrongChecksum);
     }
     Ok(())
 }
@@ -177,30 +160,21 @@ fn verify_list(signed: &Signed, key: &str) -> Result<(), ReleaseError> {
     key.verify(signed.list, &signature, false).map_err(bad)
 }
 
-/// The release in GitHub's answer for the latest release, with the file
-/// that updates a copy installed as `install` on a machine whose processor
-/// is `arch`.
-pub fn parse_release(json: &[u8], install: Install, arch: &str) -> Result<Release, ReleaseError> {
-    let v: serde_json::Value = serde_json::from_slice(json).map_err(|e| ReleaseError::NotJson(e.to_string()))?;
-    let tag = v["tag_name"].as_str().ok_or(ReleaseError::NoRelease)?;
-    let url = v["html_url"].as_str().unwrap_or("https://github.com/tajbinkhan/UDM/releases");
-    // Only a link to GitHub is ever shown.
-    let url = if url.starts_with("https://github.com/") { url } else { "https://github.com/tajbinkhan/UDM/releases" };
-    let setup = install.installer().and_then(|kind| setup_asset(&v["assets"], kind, arch));
-    Ok(Release {
-        version: tag.trim().trim_start_matches(['v', 'V']).to_string(),
-        url: url.to_string(),
-        // A package UDM can install itself is updated like any other copy.
-        package_manager: install.is_package() && setup.is_none(),
-        setup,
-    })
-}
-
 /// This copy's version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// GitHub's releases at `url`, reached through the settings' proxy, for
-/// this copy as it was installed, checked against UDM's release key.
+/// Why GitHub could not be asked: it turns a network that asked too much
+/// away with 403 or 429, which is not a network failure.
+fn unreachable(e: engine::EngineError) -> UpdateError {
+    match e {
+        engine::EngineError::Status(403 | 429) => UpdateError::RateLimited,
+        e => UpdateError::Unreachable(e.to_string()),
+    }
+}
+
+/// GitHub's releases, whose latest one's page is `url` (see
+/// `LATEST_RELEASE`), reached through the settings' proxy, for this copy as
+/// it was installed, checked against UDM's release key.
 pub struct GitHub {
     settings: Arc<LiveSettings>,
     retries: Arc<NetState>,
@@ -237,13 +211,25 @@ impl GitHub {
 
 impl ReleaseSource for GitHub {
     fn latest(&self) -> Result<Release, UpdateError> {
-        let headers = [
-            ("User-Agent".to_string(), format!("UDM/{VERSION}")),
-            ("Accept".to_string(), "application/vnd.github+json".to_string()),
-        ];
-        let body =
-            self.fetch(&self.url, &headers, ByteCount::mib(1)).map_err(|e| UpdateError::Unreachable(e.to_string()))?;
-        parse_release(&body, self.install, std::env::consts::ARCH).map_err(|e| UpdateError::Answer(e.to_string()))
+        let headers = [("User-Agent".to_string(), format!("UDM/{VERSION}"))];
+        // Only where the page redirects to is wanted, so none of it is read.
+        let page = engine::fetch(&self.url, &headers, &self.net(&self.url), ByteCount::ZERO).map_err(unreachable)?.url;
+        let releases = self.url.strip_suffix("/latest").unwrap_or(&self.url);
+        let tag =
+            release_tag(&page, releases).ok_or_else(|| UpdateError::Answer(ReleaseError::NoRelease.to_string()))?;
+        // The list is only read for a copy UDM updates itself.
+        let sums = match self.install.installer() {
+            None => None,
+            Some(_) => {
+                match self.fetch(&format!("{releases}/download/{tag}/{CHECKSUMS}"), &headers, MAX_CHECKSUMS_BYTES) {
+                    Ok(list) => Some(String::from_utf8_lossy(&list).into_owned()),
+                    // A release without the list: its page is shown.
+                    Err(engine::EngineError::Status(404)) => None,
+                    Err(e) => return Err(unreachable(e)),
+                }
+            }
+        };
+        Ok(release_from(releases, tag, sums.as_deref(), self.install, std::env::consts::ARCH))
     }
 
     fn fetch_setup(&self, setup: &SetupAsset, progress: &UpdateProgress<'_>) -> Result<PathBuf, UpdateError> {
@@ -280,7 +266,7 @@ impl ReleaseSource for GitHub {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::testserver::TestServer;
+    use crate::engine::testserver::{Behavior, TestServer};
     use std::collections::HashMap;
     use udm_domain::settings::Settings;
 
@@ -306,8 +292,6 @@ mod tests {
         SetupAsset {
             name: "UDM-Setup-0.6.0.exe".into(),
             url: url.into(),
-            size: ByteCount::new(SETUP.len() as u64),
-            sha256: None,
             installer: Installer::WindowsSetup,
             checksums,
         }
@@ -317,13 +301,76 @@ mod tests {
         Some(Signed { list: LIST.as_bytes(), signature: SIGNATURE })
     }
 
+    /// A server whose `/releases/latest` redirects to the page of `tag`,
+    /// which serves `files` too.
+    fn releases(tag: &str, mut files: HashMap<String, Vec<u8>>) -> TestServer {
+        files.insert(format!("/releases/tag/{tag}"), b"<html>the release's page</html>".to_vec());
+        let redirects = HashMap::from([("/releases/latest".to_string(), format!("/releases/tag/{tag}"))]);
+        TestServer::start_files_with(files, Behavior { redirects, ..Behavior::default() })
+    }
+
     #[test]
     fn the_latest_release_is_read_from_the_server() {
-        let answer = br#"{"tag_name":"v9.0.0","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/v9.0.0"}"#;
-        let server = TestServer::start(answer.to_vec());
-        let release = github(&server.url).latest().unwrap();
-        assert_eq!(release.version, "9.0.0");
-        assert!(release.setup.is_none());
+        let files = HashMap::from([("/releases/download/v0.6.0/SHA256SUMS".to_string(), LIST.as_bytes().to_vec())]);
+        let server = releases("v0.6.0", files);
+        let release = github(&format!("{}/releases/latest", server.url)).latest().unwrap();
+        assert_eq!(release.version, "0.6.0");
+        assert_eq!(release.url, format!("{}/releases/tag/v0.6.0", server.url));
+        let setup = release.setup.unwrap();
+        assert_eq!(setup.name, "UDM-Setup-0.6.0.exe");
+        assert_eq!(setup.url, format!("{}/releases/download/v0.6.0/UDM-Setup-0.6.0.exe", server.url));
+        let sums = setup.checksums.unwrap();
+        assert_eq!(sums.list, format!("{}/releases/download/v0.6.0/SHA256SUMS", server.url));
+        assert_eq!(sums.signature, format!("{}/releases/download/v0.6.0/SHA256SUMS.minisig", server.url));
+    }
+
+    #[test]
+    fn a_release_without_a_checksum_list_offers_its_page() {
+        let server = releases("v9.0.0", HashMap::new());
+        let latest = format!("{}/releases/latest", server.url);
+        let release = github(&latest).latest().unwrap();
+        assert_eq!((release.version.as_str(), release.setup), ("9.0.0", None));
+        // A copy UDM does not update itself never asks for the list.
+        let other = github(&latest).with(Install::Other, TEST_KEY).latest().unwrap();
+        assert_eq!((other.version.as_str(), other.setup), ("9.0.0", None));
+    }
+
+    #[test]
+    fn a_page_that_is_not_a_release_names_none() {
+        // A repository without releases sends its latest release's page to
+        // the list of them.
+        let files = HashMap::from([("/releases".to_string(), b"none yet".to_vec())]);
+        let redirects = HashMap::from([("/releases/latest".to_string(), "/releases".to_string())]);
+        let server = TestServer::start_files_with(files, Behavior { redirects, ..Behavior::default() });
+        let latest = github(&format!("{}/releases/latest", server.url)).latest();
+        assert_eq!(latest, Err(UpdateError::Answer(ReleaseError::NoRelease.to_string())));
+    }
+
+    #[test]
+    fn a_network_github_turns_away_is_told_so() {
+        assert_eq!(unreachable(engine::EngineError::Status(403)), UpdateError::RateLimited);
+        assert_eq!(unreachable(engine::EngineError::Status(429)), UpdateError::RateLimited);
+        assert_eq!(
+            unreachable(engine::EngineError::Status(500)),
+            UpdateError::Unreachable("server returned HTTP 500".into())
+        );
+    }
+
+    #[test]
+    fn a_tag_is_read_only_from_a_release_page() {
+        let releases = "https://github.com/tajbinkhan/UDM/releases";
+        assert_eq!(release_tag("https://github.com/tajbinkhan/UDM/releases/tag/v0.11.2", releases), Some("v0.11.2"));
+        for page in [
+            "https://github.com/tajbinkhan/UDM/releases",
+            "https://github.com/tajbinkhan/UDM/releases/tag/",
+            "https://github.com/tajbinkhan/UDM/releases/tag/..",
+            "https://github.com/tajbinkhan/UDM/releases/tag/v1/../../x",
+            "https://github.com/tajbinkhan/UDM/releases/tag/v1?x=1",
+            "https://github.com/someone/else/releases/tag/v9",
+            "https://evil.example/tajbinkhan/UDM/releases/tag/v9",
+        ] {
+            assert_eq!(release_tag(page, releases), None, "{page}");
+        }
     }
 
     #[test]
@@ -399,14 +446,7 @@ mod tests {
         assert!(matches!(check_setup(&asset, SETUP, forged, TEST_KEY), Err(ReleaseError::BadSignature(_))));
         let garbage = Some(Signed { list: LIST.as_bytes(), signature: "not a signature" });
         assert!(matches!(check_setup(&asset, SETUP, garbage, TEST_KEY), Err(ReleaseError::BadSignature(_))));
-
-        // GitHub's own checksum must agree as well.
-        let github_says = SetupAsset { sha256: Some("0".repeat(64)), ..asset.clone() };
-        assert_eq!(check_setup(&github_says, SETUP, signed(), TEST_KEY), Err(ReleaseError::WrongChecksum));
-        assert_eq!(
-            check_setup(&asset, b"MZ", signed(), TEST_KEY),
-            Err(ReleaseError::WrongSize(ByteCount::new(2), ByteCount::new(8)))
-        );
+        assert_eq!(check_setup(&asset, b"MZ", signed(), TEST_KEY), Err(ReleaseError::WrongSignedChecksum));
     }
 
     #[test]
@@ -435,55 +475,31 @@ mod tests {
         assert!(looks_like(Installer::Rpm, &[0x1f, 0x8b]).is_err());
     }
 
-    fn release_json(assets: &str) -> String {
-        format!(
-            r#"{{"tag_name":"v0.6.0","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/v0.6.0","assets":[{assets}]}}"#
-        )
-    }
-
-    fn asset(name: &str, size: usize) -> String {
-        format!(
-            r#"{{"name":"{name}","browser_download_url":"https://github.com/tajbinkhan/UDM/releases/download/v0.6.0/{name}","size":{size}}}"#
-        )
-    }
-
-    #[test]
-    fn releases_are_read_from_githubs_answer() {
-        let r = parse_release(
-            br#"{"tag_name":"v0.4.1","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/v0.4.1"}"#,
-            Install::WindowsSetup,
-            "x86_64",
-        )
-        .unwrap();
-        assert_eq!(r.version, "0.4.1");
-        assert!(r.url.ends_with("/v0.4.1"));
-        let elsewhere =
-            parse_release(br#"{"tag_name":"v9","html_url":"https://evil.example/x"}"#, Install::WindowsSetup, "x86_64")
-                .unwrap();
-        assert_eq!(elsewhere.url, "https://github.com/tajbinkhan/UDM/releases");
-        assert!(parse_release(b"{}", Install::WindowsSetup, "x86_64").is_err());
-        assert!(parse_release(b"not json", Install::WindowsSetup, "x86_64").is_err());
-        assert_eq!(r.setup, None);
-    }
+    const RELEASES: &str = "https://github.com/tajbinkhan/UDM/releases";
 
     #[test]
     fn each_install_finds_its_file_and_the_signed_list() {
-        let json = release_json(
-            &[
-                asset("UDM-Setup-0.6.0.exe", 8),
-                asset("UDM-0.6.0-macos.dmg", 9),
-                asset("UDM-0.6.0-x86_64.AppImage", 10),
-                asset("udm-0.6.0-linux-x86_64.tar.gz", 11),
-                asset("udm_0.6.0_amd64.deb", 12),
-                asset("udm-0.6.0-1.x86_64.rpm", 13),
-                asset("SHA256SUMS", 200),
-                asset("SHA256SUMS.minisig", 300),
-            ]
-            .join(","),
-        );
-        let read = |install| parse_release(json.as_bytes(), install, "x86_64").unwrap();
-        let windows = read(Install::WindowsSetup).setup.unwrap();
+        let sum = "a".repeat(64);
+        let list: String = [
+            "UDM-0.6.0-windows-portable.zip",
+            "UDM-Setup-0.6.0.exe",
+            "UDM-0.6.0-macos.dmg",
+            "UDM-0.6.0-x86_64.AppImage",
+            "udm-0.6.0-linux-x86_64.tar.gz",
+            "udm_0.6.0_amd64.deb",
+            "udm-0.6.0-1.x86_64.rpm",
+        ]
+        .iter()
+        .map(|name| format!("{sum}  {name}\n"))
+        .collect();
+        let on = |install, arch: &str| release_from(RELEASES, "v0.6.0", Some(&list), install, arch);
+        let read = |install| on(install, "x86_64");
+        let release = read(Install::WindowsSetup);
+        assert_eq!(release.version, "0.6.0");
+        assert_eq!(release.url, "https://github.com/tajbinkhan/UDM/releases/tag/v0.6.0");
+        let windows = release.setup.unwrap();
         assert_eq!((windows.name.as_str(), windows.installer), ("UDM-Setup-0.6.0.exe", Installer::WindowsSetup));
+        assert_eq!(windows.url, "https://github.com/tajbinkhan/UDM/releases/download/v0.6.0/UDM-Setup-0.6.0.exe");
         let sums = windows.checksums.unwrap();
         assert!(sums.list.ends_with("/v0.6.0/SHA256SUMS") && sums.signature.ends_with("/v0.6.0/SHA256SUMS.minisig"));
         assert_eq!(read(Install::MacApp).setup.unwrap().name, "UDM-0.6.0-macos.dmg");
@@ -503,35 +519,18 @@ mod tests {
         let package = read(Install::LinuxPackage);
         assert!(package.setup.is_none() && package.package_manager);
         // No package for this processor: the package manager it is.
-        let arm = parse_release(json.as_bytes(), Install::Deb, "aarch64").unwrap();
+        let arm = on(Install::Deb, "aarch64");
         assert!(arm.setup.is_none() && arm.package_manager);
         assert!(read(Install::Other).setup.is_none());
-        assert!(parse_release(json.as_bytes(), Install::AppImage, "aarch64").unwrap().setup.is_none());
+        assert!(on(Install::AppImage, "aarch64").setup.is_none());
 
-        // Without both checksum files, the setup is still offered, and
-        // refused when it is fetched.
-        let bare = release_json(&asset("UDM-Setup-0.6.0.exe", 8));
-        let setup = parse_release(bare.as_bytes(), Install::WindowsSetup, "x86_64").unwrap().setup.unwrap();
-        assert_eq!(setup.checksums, None);
+        // A release without the list has nothing UDM installs.
+        let bare = release_from(RELEASES, "v0.6.0", None, Install::WindowsSetup, "x86_64");
+        assert_eq!((bare.version.as_str(), bare.setup), ("0.6.0", None));
 
-        let elsewhere = json.replace(
-            "https://github.com/tajbinkhan/UDM/releases/download/v0.6.0/UDM-Setup",
-            "https://evil.example/UDM-Setup",
-        );
-        assert_eq!(
-            parse_release(elsewhere.as_bytes(), Install::WindowsSetup, "x86_64").unwrap().setup,
-            None,
-            "only from the repository's releases"
-        );
-    }
-
-    #[test]
-    fn githubs_digest_is_kept() {
-        let json = release_json(
-            r#"{"name":"UDM-Setup-0.6.0.exe","browser_download_url":"https://github.com/tajbinkhan/UDM/releases/download/v0.6.0/UDM-Setup-0.6.0.exe","size":8,"digest":"sha256:574CE2739035AAFF515080C231B4FB9ED9103174D63E201CAEC23D3D9A657DFC"}"#,
-        );
-        let setup = parse_release(json.as_bytes(), Install::WindowsSetup, "x86_64").unwrap().setup.unwrap();
-        assert_eq!(setup.sha256.as_deref(), Some("574ce2739035aaff515080c231b4fb9ed9103174d63e201caec23d3d9a657dfc"));
-        assert_eq!(check_setup(&setup, SETUP, signed(), TEST_KEY), Ok(()));
+        // A name that would leave the release's folder is not a file of it.
+        let elsewhere = format!("{sum}  ../../evil/UDM-Setup-0.6.0.exe\n");
+        let outside = release_from(RELEASES, "v0.6.0", Some(&elsewhere), Install::WindowsSetup, "x86_64");
+        assert_eq!(outside.setup, None, "only from the release's own files");
     }
 }

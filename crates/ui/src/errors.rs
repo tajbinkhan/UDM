@@ -758,6 +758,9 @@ pub mod text {
     fn update(lang: &'static Language, e: &UpdateError) -> String {
         match e {
             UpdateError::Unreachable(why) => trf!(lang, "Could not reach GitHub: {why}", why = why),
+            UpdateError::RateLimited => {
+                lang.tr("GitHub is turning away requests from this network for now. Try again later.").to_string()
+            }
             // How GitHub's answer or the Setup program was wrong.
             UpdateError::Answer(why) | UpdateError::BadSetup(why) => why.clone(),
             UpdateError::NewestAlready => lang.tr("This is the newest version.").to_string(),
@@ -922,6 +925,7 @@ pub mod text {
                 DownloadError::Files("disk full".into()).into(),
                 DownloadError::FilesStay { url: "http://a/f".into(), reason: "in use".into() }.into(),
                 UpdateError::Unreachable("offline".into()).into(),
+                UpdateError::RateLimited.into(),
                 UpdateError::Answer("no tag".into()).into(),
                 UpdateError::NewestAlready.into(),
                 UpdateError::Save { path: "/t/s.exe".into(), reason: "denied".into() }.into(),
