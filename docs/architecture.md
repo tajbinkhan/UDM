@@ -165,11 +165,13 @@ server's `Content-Disposition` (including the RFC 5987
 fallback. The file's folder is its category's, from that final name, unless
 the save-as dialog chose one.
 
-A new download never writes into an existing file unless that file is a
-partial copy of the same download, which its `.udmpart` sidecar proves (same
-size, and same ETag or Last-Modified when the server sends them). Otherwise it
-is saved as `name (1).ext`, `name (2).ext`, and so on, or replaces the file
-when Options says to overwrite. When Options says to ask, the engine stops
+A new download never writes into an existing file. Only a download the list
+already holds continues its own partial file, when its `.udmpart` sidecar still
+matches (same size, and same ETag or Last-Modified when the server sends them).
+A sidecar alone proves nothing, because a server can name a download after one,
+so names ending like UDM's working files also get a `_` after them. A name that
+is taken is saved as `name (1).ext`, `name (2).ext`, and so on, or replaces the
+file when Options says to overwrite. When Options says to ask, the engine stops
 before writing and reports `name_taken`. The daemon holds the download as
 `confirming` until the save-as dialog answers with rename or overwrite, or
 gives it a new name when no window answers within 20 seconds. A form

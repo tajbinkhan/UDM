@@ -1530,9 +1530,12 @@ const MAX_RENAMES: u32 = 9999;
 /// - the request's `reuse_path`, written by an earlier attempt of this same
 ///   download, is taken as is;
 /// - otherwise the first of `name`, `name (1)`, `name (2)`, ... that is not
-///   in use by another download and either does not exist, holds a partial
-///   copy whose sidecar matches what the server reports now (a resume), or
-///   may be overwritten under the `Overwrite` setting.
+///   in use by another download and either does not exist or may be
+///   overwritten under the `Overwrite` setting.
+///
+/// A sidecar beside an existing file does not make that file this download's:
+/// a server can put a file of that name in the folder. Only `reuse_path`,
+/// which comes from the download list, can.
 ///
 /// Under `Ask`, a name taken by an unrelated file is a `NameTaken` error
 /// instead, before anything is written. A POST does not ask: answering would
@@ -1630,9 +1633,6 @@ fn pick_free_path(
                 let _ = fs::remove_file(Manifest::sidecar_path(&work));
             }
             let _ = fs::remove_file(&sidecar);
-            return Ok(path);
-        }
-        if sidecar_matches(&sidecar, probe, req.ignore_date) {
             return Ok(path);
         }
         if req.file_exists == FileExists::Overwrite && path.is_file() {
@@ -2386,6 +2386,29 @@ mod tests {
             fs::remove_dir_all(&dir).ok();
         }
 
+        /// A server can name an earlier download `report.pdf.udmpart` and fill
+        /// it with a manifest that matches what it reports now.
+        #[test]
+        fn a_forged_sidecar_does_not_claim_an_existing_file() {
+            let data = body(LEN);
+            let server = TestServer::start(data.clone());
+            let dir = temp_dir("forged");
+            let existing = dir.join("report.pdf");
+            fs::write(&existing, b"the user's own report").unwrap();
+            Manifest::new(server.url.clone(), LEN as u64, Some("\"v1\"".into()), None, &split(LEN as u64, 2))
+                .save(&Manifest::sidecar_path(&existing))
+                .unwrap();
+
+            let path = download(|_| {}, request(&server.url, &dir, FileExists::Rename));
+            assert_eq!(path, dir.join("report (1).pdf"));
+            assert_eq!(fs::read(&path).unwrap(), data);
+            assert_eq!(fs::read(&existing).unwrap(), b"the user's own report");
+
+            assert_eq!(name_taken(request(&server.url, &dir, FileExists::Ask)).0, existing);
+            assert_eq!(fs::read(&existing).unwrap(), b"the user's own report");
+            fs::remove_dir_all(&dir).ok();
+        }
+
         #[test]
         fn a_matching_sidecar_still_resumes() {
             let data = body(LEN);
@@ -2403,7 +2426,9 @@ mod tests {
             m.segments[0].done = m.segments[0].len();
             m.save(&Manifest::sidecar_path(&partial)).unwrap();
 
-            let path = download(|_| {}, request(&server.url, &dir, FileExists::Rename));
+            let mut req = request(&server.url, &dir, FileExists::Rename);
+            req.reuse_path = Some(partial.clone());
+            let path = download(|_| {}, req);
             assert_eq!(path, partial);
             assert_eq!(fs::read(&path).unwrap(), data);
             assert!(!Manifest::sidecar_path(&partial).exists());
@@ -2438,6 +2463,7 @@ mod tests {
                 m.save(&Manifest::sidecar_path(&partial)).unwrap();
 
                 let mut req = request(&server.url, &dir, FileExists::Overwrite);
+                req.reuse_path = Some(partial.clone());
                 req.ignore_date = ignore_date;
                 // No splitting ranges midway, which can fetch a few bytes
                 // twice and throw the count off.
@@ -2524,7 +2550,7 @@ mod tests {
             let path = download(|_| {}, request(&server.url, &dir, FileExists::Ask));
             assert_eq!(path, dir.join("report.pdf"));
 
-            // A partial copy with a matching sidecar is this download's own.
+            // A partial copy the list names is this download's own.
             let partial = dir.join("partial.pdf");
             let half = LEN / 2;
             let mut on_disk = data[..half].to_vec();
@@ -2536,6 +2562,7 @@ mod tests {
             m.save(&Manifest::sidecar_path(&partial)).unwrap();
             let mut req = request(&server.url, &dir, FileExists::Ask);
             req.filename = Some("partial.pdf".into());
+            req.reuse_path = Some(partial.clone());
             assert_eq!(download(|_| {}, req), partial);
             assert_eq!(fs::read(&partial).unwrap(), data);
             fs::remove_dir_all(&dir).ok();
@@ -2626,7 +2653,9 @@ mod tests {
             assert!(m.segments.len() > 4, "the split ranges are saved: {}", m.segments.len());
             assert!(m.bytes_done() < LEN as u64);
 
-            let resumed = download(|_| {}, request(&server.url, &dir, FileExists::Rename));
+            let mut again = request(&server.url, &dir, FileExists::Rename);
+            again.reuse_path = Some(path.clone());
+            let resumed = download(|_| {}, again);
             assert_eq!(resumed, path, "resumes into the same file");
             assert_eq!(fs::read(&path).unwrap(), data);
             fs::remove_dir_all(&dir).ok();
@@ -2851,6 +2880,7 @@ mod tests {
                 server.rests.lock().unwrap().clear();
                 let mut req = request(&server.url, &dir, FileExists::Rename);
                 req.filename = None;
+                req.reuse_path = Some(path.clone());
                 assert_eq!(download(|_| {}, req), path, "{tls:?}: resumes into the same file");
                 assert_eq!(fs::read(&path).unwrap(), data);
                 assert!(!Manifest::sidecar_path(&path).exists());
