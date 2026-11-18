@@ -4,6 +4,11 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## [0.11.3](release-notes/v0.11.3.md) - 2026-11-18
+
+Patch. Check for Update no longer fails with "server returned HTTP 403" on a busy or shared
+network.
+
 ## [0.11.2](release-notes/v0.11.2.md) - 2026-11-18
 
 Patch. Security fix: a malicious download server can no longer overwrite a file you already have.
