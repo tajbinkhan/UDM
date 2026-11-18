@@ -98,6 +98,7 @@
   "UDM {version} is available.": "UDM {version} 已推出。",
   "UDM {version} is available. Update it through your system's package manager.": "UDM {version} 已推出。请通过系统的软件包管理器更新。",
   "This is the newest version.": "这是最新版本。",
+  "GitHub is turning away requests from this network for now. Try again later.": "GitHub 目前拒绝来自此网络的请求。请稍后再试。",
   "Inside {name}": "{name} 的内容",
   "{count} files, {size} unpacked": "{count} 个文件，解压后 {size}",
   "Showing the first {count}.": "显示前 {count} 个。",

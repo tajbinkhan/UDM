@@ -98,6 +98,7 @@
   "UDM {version} is available.": "UDM {version} is beschikbaar.",
   "UDM {version} is available. Update it through your system's package manager.": "UDM {version} is beschikbaar. Werk het bij via het pakketbeheer van uw systeem.",
   "This is the newest version.": "Dit is de nieuwste versie.",
+  "GitHub is turning away requests from this network for now. Try again later.": "GitHub weigert momenteel verzoeken van dit netwerk. Probeer het later opnieuw.",
   "Inside {name}": "Inhoud van {name}",
   "{count} files, {size} unpacked": "{count} bestanden, {size} uitgepakt",
   "Showing the first {count}.": "De eerste {count} worden weergegeven.",

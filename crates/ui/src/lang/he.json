@@ -98,6 +98,7 @@
   "UDM {version} is available.": "UDM {version} זמין.",
   "UDM {version} is available. Update it through your system's package manager.": "UDM {version} זמין. עדכנו אותו דרך מנהל החבילות של המערכת.",
   "This is the newest version.": "זו הגרסה העדכנית ביותר.",
+  "GitHub is turning away requests from this network for now. Try again later.": "GitHub דוחה כרגע בקשות מהרשת הזו. נסו שוב מאוחר יותר.",
   "Inside {name}": "בתוך {name}",
   "{count} files, {size} unpacked": "{count} קבצים, {size} לאחר חילוץ",
   "Showing the first {count}.": "מוצגים {count} הראשונים.",

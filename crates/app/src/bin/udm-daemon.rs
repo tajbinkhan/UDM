@@ -1847,15 +1847,16 @@ mod tests {
             thread::spawn(move || {
                 for mut s in listener.incoming().flatten() {
                     let mut buf = [0u8; 2048];
-                    let _ = s.read(&mut buf);
-                    let body = format!(
-                        r#"{{"tag_name":"{tag}","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/{tag}"}}"#
-                    );
-                    let _ = write!(
-                        s,
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    );
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    // As GitHub does: the latest release's page redirects
+                    // to the page of its tag.
+                    let answer = match request.split(' ').nth(1).unwrap_or("") {
+                        "/releases/latest" => format!("302 Found\r\nLocation: /releases/tag/{tag}"),
+                        page if page.starts_with("/releases/tag/") => "200 OK".to_string(),
+                        _ => "404 Not Found".to_string(),
+                    };
+                    let _ = write!(s, "HTTP/1.1 {answer}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
                 }
             });
             format!("http://{addr}/releases/latest")

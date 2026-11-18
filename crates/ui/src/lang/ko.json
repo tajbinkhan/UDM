@@ -98,6 +98,7 @@
   "UDM {version} is available.": "UDM {version}을(를) 사용할 수 있습니다.",
   "UDM {version} is available. Update it through your system's package manager.": "UDM {version}을(를) 사용할 수 있습니다. 시스템의 패키지 관리자로 업데이트하세요.",
   "This is the newest version.": "최신 버전입니다.",
+  "GitHub is turning away requests from this network for now. Try again later.": "GitHub가 현재 이 네트워크의 요청을 거부하고 있습니다. 나중에 다시 시도하세요.",
   "Inside {name}": "{name} 내용",
   "{count} files, {size} unpacked": "파일 {count}개, 압축 해제 시 {size}",
   "Showing the first {count}.": "처음 {count}개를 표시합니다.",

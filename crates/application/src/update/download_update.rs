@@ -41,7 +41,6 @@ impl<'a, S: ReleaseSource, N: UpdateChecks> DownloadUpdate<'a, S, N> {
 mod tests {
     use super::*;
     use crate::memory::{Checked, Releases};
-    use udm_domain::bytes::ByteCount;
     use udm_domain::update::SetupAsset;
 
     fn release(setup: bool) -> Release {
@@ -51,8 +50,6 @@ mod tests {
             setup: setup.then(|| SetupAsset {
                 name: "udm-1.0.0-linux-x86_64.tar.gz".into(),
                 url: "https://x/".into(),
-                size: ByteCount::new(10),
-                sha256: None,
                 installer: Default::default(),
                 checksums: None,
             }),

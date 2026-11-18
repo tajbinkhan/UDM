@@ -98,6 +98,7 @@
   "UDM {version} is available.": "UDM {version} を利用できます。",
   "UDM {version} is available. Update it through your system's package manager.": "UDM {version} を利用できます。システムのパッケージ マネージャーで更新してください。",
   "This is the newest version.": "これが最新バージョンです。",
+  "GitHub is turning away requests from this network for now. Try again later.": "GitHub は現在、このネットワークからのリクエストを拒否しています。しばらくしてからもう一度お試しください。",
   "Inside {name}": "{name} の内容",
   "{count} files, {size} unpacked": "{count} 個のファイル、展開後 {size}",
   "Showing the first {count}.": "最初の {count} 個を表示しています。",

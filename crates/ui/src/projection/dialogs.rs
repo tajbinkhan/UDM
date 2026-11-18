@@ -324,8 +324,6 @@ mod tests {
             let setup = installer.map(|installer| udm_domain::update::SetupAsset {
                 name: "x".into(),
                 url: "u".into(),
-                size: udm_domain::bytes::ByteCount::new(1),
-                sha256: None,
                 installer,
                 checksums: None,
             });

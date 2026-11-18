@@ -98,6 +98,7 @@
   "UDM {version} is available.": "UDM {version} ya está disponible.",
   "UDM {version} is available. Update it through your system's package manager.": "UDM {version} ya está disponible. Actualízalo con el gestor de paquetes de tu sistema.",
   "This is the newest version.": "Esta es la versión más reciente.",
+  "GitHub is turning away requests from this network for now. Try again later.": "GitHub está rechazando por ahora las solicitudes de esta red. Inténtelo de nuevo más tarde.",
   "Inside {name}": "Contenido de {name}",
   "{count} files, {size} unpacked": "{count} archivos, {size} descomprimidos",
   "Showing the first {count}.": "Se muestran los primeros {count}.",

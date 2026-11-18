@@ -98,6 +98,7 @@
   "UDM {version} is available.": "UDM {version} در دسترس است.",
   "UDM {version} is available. Update it through your system's package manager.": "UDM {version} در دسترس است. آن را از طریق مدیر بسته‌های سیستم خود به‌روزرسانی کنید.",
   "This is the newest version.": "این جدیدترین نسخه است.",
+  "GitHub is turning away requests from this network for now. Try again later.": "GitHub فعلاً درخواست‌های این شبکه را رد می‌کند. بعداً دوباره امتحان کنید.",
   "Inside {name}": "داخل {name}",
   "{count} files, {size} unpacked": "{count} فایل، {size} پس از استخراج",
   "Showing the first {count}.": "{count} مورد اول نمایش داده شده است.",
