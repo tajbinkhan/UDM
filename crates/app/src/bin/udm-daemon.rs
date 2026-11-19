@@ -99,7 +99,7 @@ use udm_infrastructure::settings;
 use udm_infrastructure::store::{DownloadStore, Ended, StoreEvents, StoreFiles, StoreIntake};
 use udm_infrastructure::torrent::{TorrentClient, TorrentDesk};
 use udm_infrastructure::transfers::{self, EarlyHandOver, GoOn, SyncChecker, Transfers};
-use udm_infrastructure::update::{GitHub, LATEST_RELEASE};
+use udm_infrastructure::update::{GitHub, LATEST_RELEASE, UPDATE_HOST};
 use udm_infrastructure::web_remote::devices::{DeviceFile, OsKeys};
 use udm_infrastructure::web_remote::WebRemote;
 
@@ -305,7 +305,7 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
     };
     let releases = {
         let (settings, retries) = (Arc::clone(&settings), Arc::clone(&retries));
-        Box::new(move |url: &str| GitHub::new(Arc::clone(&settings), Arc::clone(&retries), url))
+        Box::new(move |url: &str| GitHub::new(Arc::clone(&settings), Arc::clone(&retries), url).hosted_at(UPDATE_HOST))
     };
     let tool_releases =
         Arc::new(udm_infrastructure::video_tools::ForgeTools::new(Arc::clone(&settings), Arc::clone(&retries)));

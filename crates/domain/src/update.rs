@@ -179,6 +179,23 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
     a > b
 }
 
+/// Whether the file called `name` belongs to release `version`: its name
+/// holds the version's numbers, whole. A signature covers a release's file
+/// names and not the version a server says it is, so this is what stops an
+/// old signed release being offered as a new one. A pre-release's suffix is
+/// left out, since packages spell it in their own ways.
+pub fn names_version(name: &str, version: &str) -> bool {
+    let numbers = version.trim_start_matches(['v', 'V']).split(['-', '+']).next().unwrap_or_default();
+    !numbers.is_empty()
+        && name.match_indices(numbers).any(|(at, _)| {
+            let starts_inside = name[..at].ends_with(|c: char| c.is_ascii_digit() || c == '.');
+            let rest = &name[at + numbers.len()..];
+            let goes_on = rest.starts_with(|c: char| c.is_ascii_digit())
+                || rest.strip_prefix('.').is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()));
+            !starts_inside && !goes_on
+        })
+}
+
 /// Whether the weekly check is due: it is `on`, and a week has passed
 /// since the `last` one, at `now` (seconds since 1970).
 pub fn check_due(on: bool, last: u64, now: u64) -> bool {
@@ -227,6 +244,19 @@ mod tests {
         assert!(!is_newer("0.1.0", "0.1.0"));
         assert!(!is_newer("v0.1.0-beta", "0.1.0"));
         assert!(!is_newer("0.0.9", "0.1.0"));
+    }
+
+    #[test]
+    fn a_file_name_must_hold_the_whole_version() {
+        for name in ["UDM-Setup-0.6.0.exe", "UDM-0.6.0-macos.dmg", "udm_0.6.0_amd64.deb", "udm-0.6.0-1.x86_64.rpm"] {
+            assert!(names_version(name, "0.6.0"), "{name}");
+            assert!(names_version(name, "v0.6.0"), "{name}");
+            assert!(names_version(name, "0.6.0-rc.1"), "{name}");
+        }
+        for name in ["UDM-Setup-0.5.0.exe", "UDM-Setup-10.6.0.exe", "UDM-Setup-0.6.01.exe", "UDM-Setup-0.6.0.1.exe"] {
+            assert!(!names_version(name, "0.6.0"), "{name}");
+        }
+        assert!(!names_version("UDM-Setup-0.6.0.exe", ""));
     }
 
     #[test]

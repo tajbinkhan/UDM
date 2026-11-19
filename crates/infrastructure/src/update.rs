@@ -13,12 +13,20 @@
 //! the public key, `release-key.pub`, and installs nothing the signed list
 //! does not name with the same checksum, so a file swapped on GitHub, or a
 //! release made without the key, is refused.
+//!
+//! A build can name an update host (`UPDATE_HOST`, `docs/update-host.md`),
+//! which holds only the newest release: `latest.json` names its tag, and its
+//! files are in `releases/<tag>/`. UDM asks the host first and believes it
+//! only when the tag's signed list checks out. GitHub keeps every release, so
+//! whatever the host lacks or gets wrong comes from GitHub, and a `Release`
+//! always names GitHub's addresses.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use udm_domain::bytes::ByteCount;
 
-use tracing::info;
+use serde::Deserialize;
+use tracing::{info, warn};
 use udm_domain::download::Download;
 use udm_domain::ports::{ReleaseSource, UpdateProgress};
 use udm_domain::update::UpdateError;
@@ -28,7 +36,9 @@ use crate::engine;
 use crate::live_settings::LiveSettings;
 
 use udm_domain::tools::{listed_names, listed_sha256};
-use udm_domain::update::{Install, Installer, Release, SetupAsset, SignedChecksums, CHECKSUMS, CHECKSUMS_SIGNATURE};
+use udm_domain::update::{
+    is_newer, names_version, Install, Installer, Release, SetupAsset, SignedChecksums, CHECKSUMS, CHECKSUMS_SIGNATURE,
+};
 
 /// The public half of UDM's release key, in minisign's format.
 pub const RELEASE_KEY: &str = include_str!("release-key.pub");
@@ -41,26 +51,44 @@ const MAX_CHECKSUMS_BYTES: ByteCount = ByteCount::kib(64);
 /// the same `.../releases`.
 pub const LATEST_RELEASE: &str = "https://github.com/tajbinkhan/UDM/releases/latest";
 
+/// The update host this copy was built to ask first, such as
+/// `https://updates.example.com`, from the `UDM_UPDATE_HOST` variable at
+/// build time. Without one, UDM asks only GitHub.
+pub const UPDATE_HOST: Option<&str> = option_env!("UDM_UPDATE_HOST");
+
+/// The update host's file that names the release it holds.
+const HOST_LATEST: &str = "latest.json";
+
+/// What `HOST_LATEST` says.
+#[derive(Deserialize)]
+struct HostLatest {
+    tag: String,
+}
+
 /// The largest Setup UDM downloads.
 pub const MAX_SETUP_BYTES: ByteCount = ByteCount::mib(256);
+
+/// `tag`, when it can go in an address as it is.
+fn plain_tag(tag: &str) -> Option<&str> {
+    let plain = tag.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'+'));
+    (plain && !tag.is_empty() && tag != "." && tag != "..").then_some(tag)
+}
 
 /// The tag of the release whose page is `page`, when that is a release's
 /// page under `releases` (`https://github.com/tajbinkhan/UDM/releases`) and
 /// the tag is one that can go in an address as it is.
 fn release_tag<'a>(page: &'a str, releases: &str) -> Option<&'a str> {
-    let tag = page.strip_prefix(releases)?.strip_prefix("/tag/")?;
-    let plain = tag.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'+'));
-    (plain && !tag.is_empty() && tag != "." && tag != "..").then_some(tag)
+    plain_tag(page.strip_prefix(releases)?.strip_prefix("/tag/")?)
 }
 
 /// The release tagged `tag` under `releases`, with the file that updates a
 /// copy installed as `install` on a machine whose processor is `arch`: the
-/// one of that kind the release's checksum list, `sums`, names. Without a
-/// list the release has nothing UDM installs.
+/// one of that kind and of that version the release's checksum list, `sums`,
+/// names. Without a list the release has nothing UDM installs.
 pub fn release_from(releases: &str, tag: &str, sums: Option<&str>, install: Install, arch: &str) -> Release {
     let downloads = format!("{releases}/download/{tag}/");
     let setup = install.installer().zip(sums).and_then(|(installer, sums)| {
-        let name = listed_names(sums).find(|name| installer.matches(name, arch))?;
+        let name = listed_names(sums).find(|name| installer.matches(name, arch) && names_version(name, tag))?;
         Some(SetupAsset {
             name: name.to_string(),
             url: format!("{downloads}{name}"),
@@ -97,6 +125,24 @@ pub enum ReleaseError {
     NotListed,
     #[error("The update does not match this release's signed checksums.")]
     WrongSignedChecksum,
+    #[error("This release's signed checksums are for another version.")]
+    OtherVersion,
+}
+
+/// Why the update host's answer is not used.
+#[derive(Debug, thiserror::Error)]
+enum HostError {
+    #[error(transparent)]
+    Fetch(#[from] engine::EngineError),
+    #[error(transparent)]
+    Release(#[from] ReleaseError),
+}
+
+/// Where one copy of a release's files is served.
+struct ReleaseFiles {
+    list: String,
+    signature: String,
+    setup: String,
 }
 
 /// Whether `bytes` start (or end) as an `installer` file does, and if not,
@@ -173,20 +219,30 @@ fn unreachable(e: engine::EngineError) -> UpdateError {
 }
 
 /// GitHub's releases, whose latest one's page is `url` (see
-/// `LATEST_RELEASE`), reached through the settings' proxy, for this copy as
-/// it was installed, checked against UDM's release key.
+/// `LATEST_RELEASE`), and the update host in front of them when there is
+/// one, reached through the settings' proxy, for this copy as it was
+/// installed, checked against UDM's release key.
 pub struct GitHub {
     settings: Arc<LiveSettings>,
     retries: Arc<NetState>,
     url: String,
     install: Install,
     key: &'static str,
+    host: Option<String>,
+    version: &'static str,
 }
 
 impl GitHub {
     pub fn new(settings: Arc<LiveSettings>, retries: Arc<NetState>, url: &str) -> Self {
         let install = crate::update_in_place::this_install();
-        GitHub { settings, retries, url: url.to_string(), install, key: RELEASE_KEY }
+        GitHub { settings, retries, url: url.to_string(), install, key: RELEASE_KEY, host: None, version: VERSION }
+    }
+
+    /// Ask the update host at `host` first (see `UPDATE_HOST`). A build
+    /// whose variable was set but empty has none.
+    pub fn hosted_at(mut self, host: Option<&str>) -> Self {
+        self.host = host.map(|h| h.trim().trim_end_matches('/')).filter(|h| !h.is_empty()).map(str::to_string);
+        self
     }
 
     /// The same, for a copy installed as `install`, trusting `key` instead
@@ -207,14 +263,70 @@ impl GitHub {
         let settings = self.settings.get();
         config_for(&Download { url: url.into(), ..Download::default() }, &settings, &self.retries)
     }
-}
 
-impl ReleaseSource for GitHub {
-    fn latest(&self) -> Result<Release, UpdateError> {
+    /// The address all of GitHub's releases are under.
+    fn releases(&self) -> &str {
+        self.url.strip_suffix("/latest").unwrap_or(&self.url)
+    }
+
+    /// The release the update host holds, when it answers with one whose
+    /// signed list is UDM's and is that version's.
+    fn latest_on_host(&self) -> Option<Release> {
+        let host = self.host.as_deref()?;
+        self.read_host(host).inspect_err(|e| warn!(host, error = %e, "asking GitHub instead of the update host")).ok()
+    }
+
+    fn read_host(&self, host: &str) -> Result<Release, HostError> {
+        let headers = [("User-Agent".to_string(), format!("UDM/{VERSION}"))];
+        let get = |url: String| self.fetch(&url, &headers, MAX_CHECKSUMS_BYTES);
+        let latest: HostLatest =
+            serde_json::from_slice(&get(format!("{host}/{HOST_LATEST}"))?).map_err(|_| ReleaseError::NoRelease)?;
+        let tag = plain_tag(&latest.tag).ok_or(ReleaseError::NoRelease)?;
+        let list = get(format!("{host}/releases/{tag}/{CHECKSUMS}"))?;
+        let signature = get(format!("{host}/releases/{tag}/{CHECKSUMS_SIGNATURE}"))?;
+        verify_list(&Signed { list: &list, signature: &String::from_utf8_lossy(&signature) }, self.key)?;
+        let list = std::str::from_utf8(&list).map_err(|_| ReleaseError::NotListed)?;
+        if !listed_names(list).any(|name| names_version(name, tag)) {
+            return Err(ReleaseError::OtherVersion.into());
+        }
+        Ok(release_from(self.releases(), tag, Some(list), self.install, std::env::consts::ARCH))
+    }
+
+    /// Where the update host serves the file GitHub serves at `url`.
+    fn on_host(&self, url: &str) -> Option<String> {
+        let host = self.host.as_deref()?;
+        let file = url.strip_prefix(self.releases())?.strip_prefix("/download/")?;
+        Some(format!("{host}/releases/{file}"))
+    }
+
+    /// `setup`'s bytes from `files`, checked against their signed list.
+    fn fetch_checked(
+        &self,
+        setup: &SetupAsset,
+        files: &ReleaseFiles,
+        progress: &UpdateProgress<'_>,
+    ) -> Result<Vec<u8>, UpdateError> {
+        let headers = [("User-Agent".to_string(), format!("UDM/{VERSION}"))];
+        let get = |url: &str, limit| self.fetch(url, &headers, limit).map_err(|e| UpdateError::Download(e.to_string()));
+        // The signed list first: a release without one is refused before
+        // its installer is downloaded.
+        let list = get(&files.list, MAX_CHECKSUMS_BYTES)?;
+        let signature = get(&files.signature, MAX_CHECKSUMS_BYTES)?;
+        let signed = Signed { list: &list, signature: &String::from_utf8_lossy(&signature) };
+        info!(url = %files.setup, "downloading the update");
+        let net = self.net(&files.setup);
+        let body = engine::fetch_watched(&files.setup, &headers, &net, MAX_SETUP_BYTES, progress)
+            .map_err(|e| UpdateError::Download(e.to_string()))?;
+        check_setup(setup, &body, Some(signed), self.key).map_err(|e| UpdateError::BadSetup(e.to_string()))?;
+        Ok(body)
+    }
+
+    /// The latest release on GitHub.
+    fn latest_on_github(&self) -> Result<Release, UpdateError> {
         let headers = [("User-Agent".to_string(), format!("UDM/{VERSION}"))];
         // Only where the page redirects to is wanted, so none of it is read.
         let page = engine::fetch(&self.url, &headers, &self.net(&self.url), ByteCount::ZERO).map_err(unreachable)?.url;
-        let releases = self.url.strip_suffix("/latest").unwrap_or(&self.url);
+        let releases = self.releases();
         let tag =
             release_tag(&page, releases).ok_or_else(|| UpdateError::Answer(ReleaseError::NoRelease.to_string()))?;
         // The list is only read for a copy UDM updates itself.
@@ -231,22 +343,49 @@ impl ReleaseSource for GitHub {
         };
         Ok(release_from(releases, tag, sums.as_deref(), self.install, std::env::consts::ARCH))
     }
+}
+
+impl ReleaseSource for GitHub {
+    fn latest(&self) -> Result<Release, UpdateError> {
+        let Some(hosted) = self.latest_on_host() else { return self.latest_on_github() };
+        if is_newer(&hosted.version, self.version) {
+            return Ok(hosted);
+        }
+        // Nothing newer on the host. GitHub is asked too, so a release the
+        // host missed, or a host that stopped changing, holds no one back.
+        match self.latest_on_github() {
+            Ok(release) if is_newer(&release.version, &hosted.version) => Ok(release),
+            _ => Ok(hosted),
+        }
+    }
 
     fn fetch_setup(&self, setup: &SetupAsset, progress: &UpdateProgress<'_>) -> Result<PathBuf, UpdateError> {
-        let headers = [("User-Agent".to_string(), format!("UDM/{VERSION}"))];
-        let get = |url: &str, limit| self.fetch(url, &headers, limit).map_err(|e| UpdateError::Download(e.to_string()));
-        // The signed list first: a release without one is refused before
-        // its installer is downloaded.
         let checksums =
             setup.checksums.as_ref().ok_or_else(|| UpdateError::BadSetup(ReleaseError::Unsigned.to_string()))?;
-        let list = get(&checksums.list, MAX_CHECKSUMS_BYTES)?;
-        let signature = get(&checksums.signature, MAX_CHECKSUMS_BYTES)?;
-        let signed = Signed { list: &list, signature: &String::from_utf8_lossy(&signature) };
-        info!(url = %setup.url, "downloading the update");
-        let net = self.net(&setup.url);
-        let body = engine::fetch_watched(&setup.url, &headers, &net, MAX_SETUP_BYTES, progress)
-            .map_err(|e| UpdateError::Download(e.to_string()))?;
-        check_setup(setup, &body, Some(signed), self.key).map_err(|e| UpdateError::BadSetup(e.to_string()))?;
+        let hosted = (|| {
+            Some(ReleaseFiles {
+                list: self.on_host(&checksums.list)?,
+                signature: self.on_host(&checksums.signature)?,
+                setup: self.on_host(&setup.url)?,
+            })
+        })();
+        // The host keeps one release, so the file may have just gone from it.
+        let from_host = hosted.and_then(|files| {
+            self.fetch_checked(setup, &files, progress)
+                .inspect_err(|e| warn!(error = %e, "downloading the update from GitHub instead of the update host"))
+                .ok()
+        });
+        let body = match from_host {
+            Some(body) => body,
+            None => {
+                let files = ReleaseFiles {
+                    list: checksums.list.clone(),
+                    signature: checksums.signature.clone(),
+                    setup: setup.url.clone(),
+                };
+                self.fetch_checked(setup, &files, progress)?
+            }
+        };
         // A fresh folder only this user can write to, so nothing can swap
         // the checked file before it is installed.
         let dir = crate::paths::update_dir()
@@ -384,6 +523,7 @@ mod tests {
 
     #[test]
     fn a_signed_update_is_downloaded_and_saved() {
+        let _saving = SAVING.lock().unwrap();
         let files = HashMap::from([
             ("/UDM-Setup-0.6.0.exe".to_string(), SETUP.to_vec()),
             ("/SHA256SUMS".to_string(), LIST.as_bytes().to_vec()),
@@ -532,5 +672,146 @@ mod tests {
         let elsewhere = format!("{sum}  ../../evil/UDM-Setup-0.6.0.exe\n");
         let outside = release_from(RELEASES, "v0.6.0", Some(&elsewhere), Install::WindowsSetup, "x86_64");
         assert_eq!(outside.setup, None, "only from the release's own files");
+
+        // An older release's signed list, offered as this version.
+        let older = format!("{sum}  UDM-Setup-0.5.0.exe\n");
+        let relabelled = release_from(RELEASES, "v0.6.0", Some(&older), Install::WindowsSetup, "x86_64");
+        assert_eq!(relabelled.setup, None, "only a file of the version offered");
+    }
+
+    /// Saving an update writes one file in the data folder.
+    static SAVING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// The address of a server that is not there.
+    fn gone() -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        format!("http://{}", listener.local_addr().unwrap())
+    }
+
+    /// What an update host holding `v0.6.0` serves.
+    fn host_files() -> HashMap<String, Vec<u8>> {
+        HashMap::from([
+            ("/latest.json".to_string(), br#"{"tag":"v0.6.0"}"#.to_vec()),
+            ("/releases/v0.6.0/SHA256SUMS".to_string(), LIST.as_bytes().to_vec()),
+            ("/releases/v0.6.0/SHA256SUMS.minisig".to_string(), SIGNATURE.as_bytes().to_vec()),
+            ("/releases/v0.6.0/UDM-Setup-0.6.0.exe".to_string(), SETUP.to_vec()),
+        ])
+    }
+
+    /// GitHub at `releases` with the update host at `host` in front of it,
+    /// for a copy of version `running`.
+    fn hosted(releases: &str, host: &str, running: &'static str) -> GitHub {
+        let mut source = github(&format!("{releases}/releases/latest")).hosted_at(Some(host));
+        source.version = running;
+        source
+    }
+
+    /// `v0.6.0`'s Setup as a release names it, on GitHub at `releases`.
+    fn asset_on(releases: &str) -> SetupAsset {
+        let downloads = format!("{releases}/releases/download/v0.6.0");
+        let sums = SignedChecksums {
+            list: format!("{downloads}/SHA256SUMS"),
+            signature: format!("{downloads}/SHA256SUMS.minisig"),
+        };
+        setup(&format!("{downloads}/UDM-Setup-0.6.0.exe"), Some(sums))
+    }
+
+    #[test]
+    fn the_update_host_is_asked_first_and_the_release_still_names_github() {
+        let host = TestServer::start_files(host_files());
+        let github = gone();
+        let release = hosted(&github, &host.url, "0.5.0").latest().unwrap();
+        assert_eq!(release.version, "0.6.0");
+        assert_eq!(release.url, format!("{github}/releases/tag/v0.6.0"));
+        assert_eq!(release.setup, Some(asset_on(&github)));
+    }
+
+    #[test]
+    fn an_update_host_address_is_read_as_the_build_gave_it() {
+        let source = |host| github("u").hosted_at(host).host;
+        assert_eq!(source(Some("https://updates.example.com/")).as_deref(), Some("https://updates.example.com"));
+        assert_eq!(source(Some("  ")), None, "the variable was set but empty");
+        assert_eq!(source(None), None);
+    }
+
+    #[test]
+    fn a_host_that_is_down_leaves_github() {
+        let github = releases("v0.6.0", HashMap::new());
+        assert_eq!(hosted(&github.url, &gone(), "0.5.0").latest().unwrap().version, "0.6.0");
+    }
+
+    #[test]
+    fn a_host_is_believed_only_for_its_signed_version() {
+        let with = |path: &str, body: &[u8]| {
+            let mut files = host_files();
+            files.insert(path.to_string(), body.to_vec());
+            files
+        };
+        let forged = LIST.replace("574c", "474c");
+        let refused = [
+            with("/releases/v0.6.0/SHA256SUMS", forged.as_bytes()),
+            with("/latest.json", b"not json"),
+            with("/latest.json", br#"{"tag":"../v0.6.0"}"#),
+            // The real signed list of 0.6.0, offered as a later version.
+            {
+                let mut files = with("/latest.json", br#"{"tag":"v0.7.0"}"#);
+                files.insert("/releases/v0.7.0/SHA256SUMS".to_string(), LIST.as_bytes().to_vec());
+                files.insert("/releases/v0.7.0/SHA256SUMS.minisig".to_string(), SIGNATURE.as_bytes().to_vec());
+                files
+            },
+        ];
+        let github = releases("v9.0.0", HashMap::new());
+        for files in refused {
+            let host = TestServer::start_files(files);
+            assert_eq!(hosted(&github.url, &host.url, "0.5.0").latest().unwrap().version, "9.0.0");
+        }
+    }
+
+    #[test]
+    fn github_has_the_last_word_when_the_host_has_nothing_newer() {
+        let host = TestServer::start_files(host_files());
+        let newer = releases("v0.7.0", HashMap::new());
+        assert_eq!(hosted(&newer.url, &host.url, "0.6.0").latest().unwrap().version, "0.7.0");
+        // GitHub turning this network away is no failure: the host answered.
+        assert_eq!(hosted(&gone(), &host.url, "0.6.0").latest().unwrap().version, "0.6.0");
+    }
+
+    #[test]
+    fn an_update_comes_from_the_host_when_it_has_the_file() {
+        let _saving = SAVING.lock().unwrap();
+        let host = TestServer::start_files(host_files());
+        let github = gone();
+        let path = hosted(&github, &host.url, "0.5.0").fetch_setup(&asset_on(&github), &|_, _| {}).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), SETUP);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_update_comes_from_github_when_the_host_cannot_give_it() {
+        let _saving = SAVING.lock().unwrap();
+        let downloads = "/releases/download/v0.6.0";
+        let github = TestServer::start_files(HashMap::from([
+            (format!("{downloads}/SHA256SUMS"), LIST.as_bytes().to_vec()),
+            (format!("{downloads}/SHA256SUMS.minisig"), SIGNATURE.as_bytes().to_vec()),
+            (format!("{downloads}/UDM-Setup-0.6.0.exe"), SETUP.to_vec()),
+        ]));
+        let mut swapped = host_files();
+        swapped.insert("/releases/v0.6.0/UDM-Setup-0.6.0.exe".to_string(), b"MZ other".to_vec());
+        // The release was deleted from the host, or its file was changed.
+        for files in [HashMap::new(), swapped] {
+            let host = TestServer::start_files(files);
+            let source = hosted(&github.url, &host.url, "0.5.0");
+            let path = source.fetch_setup(&asset_on(&github.url), &|_, _| {}).unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), SETUP);
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn an_update_neither_place_has_is_a_failed_download() {
+        let host = TestServer::start_files(HashMap::new());
+        let github = TestServer::start_files(HashMap::new());
+        let failed = hosted(&github.url, &host.url, "0.5.0").fetch_setup(&asset_on(&github.url), &|_, _| {});
+        assert!(matches!(failed, Err(UpdateError::Download(_))), "{failed:?}");
     }
 }

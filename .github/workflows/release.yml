@@ -15,7 +15,9 @@
 # The `extension` job makes the zips the browser stores take, which the
 # release carries too, and for a tag the `firefox-store` and `chrome-store`
 # jobs submit them to the stores the repository has keys for
-# (docs/extension-stores.md).
+# (docs/extension-stores.md). For a tag, the `update-host` job also copies the
+# release to the update host, which keeps only the newest one
+# (docs/update-host.md).
 
 name: Release
 
@@ -29,6 +31,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Built into udm-daemon, which asks this address for updates before GitHub.
+  # Empty until the repository has the variable (docs/update-host.md).
+  UDM_UPDATE_HOST: ${{ vars.UDM_UPDATE_HOST }}
 
 jobs:
   windows:
@@ -356,6 +361,62 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "UDM $TAG" \
             "$@"
+
+  # Copies the published release to the update host and deletes the older one
+  # there (docs/update-host.md). It is a job of its own, so a problem with the
+  # host leaves the GitHub release and the stores alone, and UDM then updates
+  # from GitHub. A pre-release stays on GitHub.
+  update-host:
+    name: Update host
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: update-host
+      cancel-in-progress: false
+    steps:
+      - name: See whether the keys are there
+        id: keys
+        env:
+          KEYS: ${{ secrets.R2_ACCOUNT_ID != '' && secrets.R2_ACCESS_KEY_ID != '' && secrets.R2_SECRET_ACCESS_KEY != '' && secrets.R2_BUCKET != '' }}
+        run: echo "present=$KEYS" >> "$GITHUB_OUTPUT"
+
+      # Only the scripts and the pinned public key are read.
+      - uses: actions/checkout@v5
+        if: steps.keys.outputs.present == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Install Node
+        if: steps.keys.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The files GitHub published, checked against the key UDM pins.
+      - name: Download the release
+        if: steps.keys.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" --repo "${{ github.repository }}" --dir dist
+          node installer/sign-checksums.js verify dist crates/infrastructure/src/release-key.pub
+
+      # R2 does not take the checksums newer AWS tools add by default.
+      - name: Publish to the update host
+        if: steps.keys.outputs.present == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          TAG: ${{ github.ref_name }}
+        run: bash installer/publish-update-host.sh dist "$TAG"
 
   # The store zips go to each store once the release is out, when the
   # repository has that store's keys (docs/extension-stores.md says how to
