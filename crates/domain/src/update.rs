@@ -180,13 +180,16 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
 }
 
 /// Whether the file called `name` belongs to release `version`: its name
-/// holds the version's numbers, whole. A signature covers a release's file
-/// names and not the version a server says it is, so this is what stops an
-/// old signed release being offered as a new one. A pre-release's suffix is
-/// left out, since packages spell it in their own ways.
+/// holds the version's three numbers, whole. A signature covers a release's
+/// file names and not the version a server says it is, so this is what stops
+/// an old signed release being offered as a new one. A shorter version is
+/// refused, or `v86` would match the `86` of `x86_64`. A pre-release's suffix
+/// is left out, since packages spell it in their own ways.
 pub fn names_version(name: &str, version: &str) -> bool {
     let numbers = version.trim_start_matches(['v', 'V']).split(['-', '+']).next().unwrap_or_default();
-    !numbers.is_empty()
+    let is_number = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+    numbers.split('.').count() == 3
+        && numbers.split('.').all(is_number)
         && name.match_indices(numbers).any(|(at, _)| {
             let starts_inside = name[..at].ends_with(|c: char| c.is_ascii_digit() || c == '.');
             let rest = &name[at + numbers.len()..];
@@ -257,6 +260,21 @@ mod tests {
             assert!(!names_version(name, "0.6.0"), "{name}");
         }
         assert!(!names_version("UDM-Setup-0.6.0.exe", ""));
+    }
+
+    #[test]
+    fn a_short_tag_does_not_match_other_numbers_in_a_file_name() {
+        for (name, tag) in [
+            ("udm-0.10.0-linux-x86_64.tar.gz", "v86"),
+            ("UDM-0.10.0-x86_64.AppImage", "v64"),
+            ("udm_0.10.0_amd64.deb", "v64"),
+            ("udm-0.10.0-1.x86_64.rpm", "v1"),
+            ("udm-0.10.0-1.x86_64.rpm", "v1.0"),
+            ("UDM-Setup-0.10.0.exe", "v0.10"),
+            ("UDM-Setup-0.10.0.exe", "v0.10.0.1"),
+        ] {
+            assert!(!names_version(name, tag), "{name} is not {tag}");
+        }
     }
 
     #[test]

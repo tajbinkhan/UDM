@@ -353,9 +353,15 @@ impl ReleaseSource for GitHub {
         }
         // Nothing newer on the host. GitHub is asked too, so a release the
         // host missed, or a host that stopped changing, holds no one back.
+        // GitHub turning this network away is not reported: the host answered,
+        // and sparing such a network that error is what the host is for.
         match self.latest_on_github() {
             Ok(release) if is_newer(&release.version, &hosted.version) => Ok(release),
-            _ => Ok(hosted),
+            Ok(_) => Ok(hosted),
+            Err(e) => {
+                warn!(error = %e, version = %hosted.version, "only the update host answered the update check");
+                Ok(hosted)
+            }
         }
     }
 
@@ -677,6 +683,11 @@ mod tests {
         let older = format!("{sum}  UDM-Setup-0.5.0.exe\n");
         let relabelled = release_from(RELEASES, "v0.6.0", Some(&older), Install::WindowsSetup, "x86_64");
         assert_eq!(relabelled.setup, None, "only a file of the version offered");
+
+        // A tag made of the numbers in the processor's name.
+        let linux = format!("{sum}  udm-0.5.0-linux-x86_64.tar.gz\n");
+        let short = release_from(RELEASES, "v86", Some(&linux), Install::LinuxTar, "x86_64");
+        assert_eq!(short.setup, None, "86 is not this file's version");
     }
 
     /// Saving an update writes one file in the data folder.
