@@ -951,6 +951,25 @@ mod tests {
         assert_eq!(probe(&s.url, &saved(true)).unwrap().total, Some(10));
     }
 
+    /// A backslash ends the host for the connection, so this address reaches
+    /// the test server while its text after the `@` names the login's site.
+    #[test]
+    fn a_saved_login_goes_only_to_the_server_it_is_for() {
+        let forged = |url: &str| {
+            let (server, path) = url.strip_prefix("ftp://").unwrap().split_once('/').unwrap();
+            format!("ftp://{server}\\@victim.test/{path}")
+        };
+        let saved = |plain| FtpOptions {
+            logins: vec![Login { site: "victim.test".into(), username: "ann".into(), password: "p@ss".into(), plain }],
+            ..FtpOptions::default()
+        };
+        let plain = server::start(body(10), Some(("ann", "p@ss")));
+        assert!(matches!(probe(&forged(&plain.url), &saved(true)), Err(EngineError::NeedsLogin(..))));
+        // Nor when the server asks for TLS, which a login needs no permission for.
+        let tls = server::start_with(body(10), Some(("ann", "p@ss")), server::Tls::Required);
+        assert!(matches!(probe(&forged(&tls.url), &saved(false)), Err(EngineError::NeedsLogin(..))));
+    }
+
     #[test]
     fn logs_in_to_the_proxy_first_when_it_has_a_login() {
         // The test server stands in for the proxy: it takes any USER, and
