@@ -310,8 +310,9 @@ pub fn open_sized(
         .minimizable(main || matches!(label, Label::Download(_)))
         .on_navigation(stays_in_app)
         .devtools(cfg!(debug_assertions))
-        .visible(true);
-    let builder = if main { builder.min_inner_size(520.0, 300.0) } else { builder.center() };
+        .visible(true)
+        .center();
+    let builder = if main { builder.min_inner_size(520.0, 300.0) } else { builder };
     let builder = above_main(app, label, builder)?;
     // The drop target floats over other windows without a frame, and takes
     // links dropped on it as the page's own drops.
