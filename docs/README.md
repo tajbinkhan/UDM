@@ -79,6 +79,8 @@ Short guides for the first things people do, most with a screenshot:
   system, and adding a language.
 - **[Publishing the extension](extension-stores.md)**: for maintainers, listing the extension in
   the Chrome Web Store and on Firefox Add-ons, and what changes once it is.
+- **[The update host](update-host.md)**: for maintainers, the R2 bucket that serves the newest
+  release, how a release reaches it, and how to set it up.
 - **[Help translate](translating.md)**: the languages, which ones wait for review, and how to
   review or add one.
 

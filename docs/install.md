@@ -120,12 +120,15 @@ setup over an older one closes UDM first and keeps your settings. With the
 script, `.\install-host.ps1 -Uninstall` removes what it added. Downloaded
 files are left alone either way.
 
-**Updates.** UDM looks for a newer release on GitHub once a week (Options >
+**Updates.** UDM looks for a newer release once a week (Options >
 General can turn that off), and **About** (which also shows the version,
-the copyright, and a support link to the issue tracker) checks on demand. When a newer
+the copyright, and a support link to the issue tracker) checks on demand. It
+asks UDM's [update host](update-host.md) and GitHub, and each of them sees your
+IP address when it answers. When a newer
 release has a Setup attached, **Update now** (in About, and next to the
 notice in the status bar) has the daemon download `UDM-Setup-<version>.exe`
-through your proxy settings, only from this repository's release downloads.
+through your proxy settings, from the update host or this repository's release
+downloads.
 While it downloads, the daemon sends `update_progress` a few times a second
 and About shows a bar with how much has come (such as **12.3 MB of 40.0 MB
 (30%)**), then **Checking and installing...** once all of it is there; an
