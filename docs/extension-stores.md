@@ -32,7 +32,9 @@ changes in the repository once it is. Until then users load it by hand
   separate, so one failing does not stop the other. A store whose keys are
   missing is skipped; upload its zip from the release page by hand instead.
 - **The privacy policy**, which both stores ask for: [privacy.md](privacy.md),
-  at <https://github.com/tajbinkhan/UDM/blob/main/docs/privacy.md>.
+  published on the project page at <https://tajbinkhan.github.io/UDM/privacy.html>
+  (the Pages workflow renders it from this file) and readable on GitHub at
+  <https://github.com/tajbinkhan/UDM/blob/main/docs/privacy.md>.
 - **The host lets in a list of IDs.** `CHROMIUM_EXTENSION_IDS` in
   `crates/infrastructure/src/browsers.rs` is every Chromium extension ID the
   native host `com.udm.host` lets in, the unpacked one first. A test there,
@@ -77,7 +79,7 @@ transpiled. The zips are its source as it is in git.
      selling or transfer, no use unrelated to the single purpose, no
      creditworthiness).
    - Privacy policy URL:
-     <https://github.com/tajbinkhan/UDM/blob/main/docs/privacy.md>.
+     <https://tajbinkhan.github.io/UDM/privacy.html>.
 5. **Distribution**: public, all regions. Submit for review. Access to all
    sites and `webRequest` mean an in-depth review, which can take some days.
 6. Once it is accepted, the dashboard shows the item's ID (32 letters from

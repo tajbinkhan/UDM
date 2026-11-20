@@ -30,7 +30,7 @@
     "@type": "SoftwareApplication",
     "name": "UDM (Unified Download Manager)",
     "alternateName": "Unified Download Manager",
-    "description": "A free, open-source download manager for Windows, macOS and Linux that works like Internet Download Manager: up to 16 connections per file, resume after interruptions, capture from Chrome, Edge, Firefox and other browsers, and HLS, DASH and YouTube video downloads.",
+    "description": "A free, open-source download manager for Windows, macOS and Linux that works like Internet Download Manager: up to 16 connections per file, resume after interruptions, capture from Chrome, Edge, Firefox, Safari and other browsers, HLS, DASH and YouTube video downloads, and torrents.",
     "applicationCategory": "UtilitiesApplication",
     "operatingSystem": "Windows 10, Windows 11, macOS 11 or later, Linux",
     "url": "https://tajbinkhan.github.io/UDM/",
@@ -57,12 +57,12 @@
       {
         "@type": "Question",
         "name": "Is there an IDM alternative for Mac and Linux?",
-        "acceptedAnswer": { "@type": "Answer", "text": "UDM works the way Internet Download Manager does, with the same save-as dialog, categories, queues, scheduler and download windows, and it runs on Windows, macOS (Apple Silicon and Intel) and Linux." }
+        "acceptedAnswer": { "@type": "Answer", "text": "UDM works the way Internet Download Manager does, with the same save-as dialog, categories, queues, scheduler and download windows, and it runs on Windows, macOS (Apple Silicon and Intel) and Linux. The macOS build is experimental." }
       },
       {
         "@type": "Question",
         "name": "Which browsers does UDM work with?",
-        "acceptedAnswer": { "@type": "Answer", "text": "UDM's extension catches downloads from Chrome, Edge, Brave, Vivaldi, Opera and Firefox, with their cookies and referrer, so files behind a sign-in work too." }
+        "acceptedAnswer": { "@type": "Answer", "text": "UDM's extension catches downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and Safari, with their cookies and referrer, so files behind a sign-in work too." }
       },
       {
         "@type": "Question",
@@ -83,154 +83,263 @@
 
   <header class="top">
     <nav class="wrap nav" aria-label="Site">
-      <a class="brand" href="./"><img src="icon-256.png" alt="" width="32" height="32"> UDM</a>
+      <a class="brand" href="./"><img src="icon-256.png" alt="" width="30" height="30"> UDM</a>
       <ul>
-        <li><a href="#screenshots">Screenshots</a></li>
-        <li><a href="#features">Features</a></li>
+        <li><a href="#tour">Tour</a></li>
+        <li><a href="#more">Features</a></li>
         <li><a href="#compare">UDM and IDM</a></li>
-        <li><a href="#faq">FAQ</a></li>
+        <li><a href="#faq">Questions</a></li>
         <li><a href="https://github.com/tajbinkhan/UDM">GitHub</a></li>
       </ul>
+      <a class="button primary" href="#download">Download</a>
     </nav>
   </header>
 
   <main id="main">
-    <section class="hero wrap">
-      <img class="logo" src="icon-256.png" alt="UDM's logo: a globe with a ring and a green download arrow" width="144" height="144">
-      <h1>The free download manager that works like IDM, on Windows, macOS and Linux</h1>
-      <p class="lead">UDM (Unified Download Manager) fetches each file over up to 16 connections, resumes
-        after interruptions, catches downloads from your browser and saves streamed videos as one file.
-        Open source, with no ads, no trial and no sign-up.</p>
-      <p class="actions">
-        <a class="button primary" href="https://github.com/tajbinkhan/UDM/releases/latest">Download UDM</a>
-        <a class="button" href="https://github.com/tajbinkhan/UDM">View the source</a>
-      </p>
-      <p class="small">Windows 10 and 11 · macOS 11 or later (Apple Silicon and Intel) · Linux (Ubuntu, Debian, Mint, Fedora, openSUSE and more)</p>
-    </section>
-
-    <section id="screenshots" class="wrap">
-      <h2>Screenshots</h2>
-      <figure class="main-shot">
-        <a href="images/main-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/main-dark.webp"><img src="images/main-light.webp" alt="UDM's main window: the toolbar, the categories, and a list of downloads with two running, one queued and one interrupted" width="1100" height="640"></picture></a>
-      </figure>
-      <div class="shots">
-        <figure>
-          <a href="images/save-as-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/save-as-dark.webp"><img src="images/save-as-light.webp" alt="The Download File Info dialog with a file's address, category, save-as path and size" width="576" height="206" loading="lazy"></picture></a>
-          <figcaption><b>Download File Info</b>. The save-as dialog: the file's name, category and folder.</figcaption>
-        </figure>
-        <figure>
-          <a href="images/download-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/download-dark.webp"><img src="images/download-light.webp" alt="A download's window showing its progress and its connections" width="552" height="413" loading="lazy"></picture></a>
-          <figcaption><b>The download window</b>. A file coming in over several connections.</figcaption>
-        </figure>
-        <figure>
-          <a href="images/video-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/video-dark.webp"><img src="images/video-light.webp" alt="A video in the browser with UDM's Download this video button and its list of qualities and subtitles" width="960" height="660" loading="lazy"></picture></a>
-          <figcaption><b>Download this video</b>. The button over a video in the browser, with each quality.</figcaption>
-        </figure>
-        <figure>
-          <a href="images/scheduler-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/scheduler-dark.webp"><img src="images/scheduler-light.webp" alt="The Scheduler with the main queue set to start at 11:00 PM daily and shut down when done" width="657" height="464" loading="lazy"></picture></a>
-          <figcaption><b>The Scheduler</b>. A queue that starts at 11 PM and shuts the computer down when done.</figcaption>
-        </figure>
-        <figure>
-          <a href="images/options-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/options-dark.webp"><img src="images/options-light.webp" alt="The General page of UDM's Options" width="436" height="505" loading="lazy"></picture></a>
-          <figcaption><b>Options</b>. The settings IDM users know, in the same places.</figcaption>
-        </figure>
+    <section class="wrap hero">
+      <div>
+        <h1>The free download manager that works like IDM, on Windows, macOS and Linux</h1>
+        <p class="lead">UDM (Unified Download Manager) fetches each file over up to 16 connections,
+          resumes after interruptions, catches downloads from your browser and saves streamed videos
+          as one file. Open source, with no ads, no trial and no sign-up.</p>
+        <p class="actions">
+          <a class="button primary" href="https://github.com/tajbinkhan/UDM/releases/latest">Download UDM</a>
+          <a class="button" href="https://github.com/tajbinkhan/UDM">View the source</a>
+        </p>
+        <ul class="platforms" aria-label="Systems UDM runs on">
+          <li><b>Windows</b> 10 and 11</li>
+          <li><b>macOS</b> 11 or later, experimental</li>
+          <li><b>Linux</b> Ubuntu, Debian, Fedora and more</li>
+        </ul>
       </div>
-      <figure class="wide-shot">
-        <a href="images/linux-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/linux-dark.webp"><img src="images/linux-light.webp" alt="UDM's main window running on Linux, with two downloads in progress" width="1102" height="646" loading="lazy"></picture></a>
-        <figcaption><b>On Linux</b>. The real window, in a plain X11 session.</figcaption>
+
+      <figure class="job" aria-label="A 4.72 GB file downloading in 16 parts at once, until it is complete">
+        <div class="job-head" aria-hidden="true">
+          <img src="icon-256.png" alt="" width="40" height="40">
+          <div>
+            <div class="job-name">linux-desktop-26.04-amd64.iso</div>
+            <div class="job-size">4.72 GB</div>
+          </div>
+        </div>
+        <div class="bar" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div class="job-foot" aria-hidden="true">
+          <span class="pct"></span>
+          <span class="state"><span class="run">Downloading over 16 connections</span><span class="done">Complete</span></span>
+        </div>
+        <figcaption>UDM splits a file into parts and fetches each one over its own connection, so a
+          slow connection holds up only its own part.</figcaption>
       </figure>
-      <p>Step by step:
-        <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/first-download.md">your first download</a> ·
-        <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/catch-browser-downloads.md">catch browser downloads</a> ·
-        <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/download-overnight.md">download overnight</a> ·
-        <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/video-from-a-page.md">a video from a page</a> ·
-        <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/resume-a-broken-download.md">resume a broken download</a>.</p>
     </section>
 
-    <section id="features" class="wrap">
-      <h2>What UDM does</h2>
-      <div class="grid">
-        <article>
+    <div class="wrap">
+      <figure class="shot main-shot">
+        <a href="images/main-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/main-dark.webp"><img src="images/main-light.webp" alt="UDM's main window: the toolbar, the categories, and a list of downloads with two running, one queued, one interrupted and a torrent seeding" width="1100" height="640"></picture></a>
+      </figure>
+    </div>
+
+    <section id="tour" class="wrap section">
+      <div class="intro">
+        <h2>Nothing new to learn</h2>
+        <p>The browser hands its downloads over, a save-as dialog asks where they go, and the
+          categories, queues, scheduler and download windows are where IDM users expect them.</p>
+      </div>
+
+      <div class="tour">
+        <div class="stop">
+          <div>
+            <h3>Catch downloads from the browser</h3>
+            <p>The extension hands downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and
+              Safari to UDM with their cookies and referrer, so files behind a sign-in work. Download
+              File Info then asks for the name, category and folder.</p>
+            <p class="more"><a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/catch-browser-downloads.md">Set up browser capture</a></p>
+          </div>
+          <figure class="shot">
+            <a href="images/save-as-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/save-as-dark.webp"><img src="images/save-as-light.webp" alt="The Download File Info dialog with a file's address, category, save-as path and size" width="576" height="206" loading="lazy"></picture></a>
+          </figure>
+        </div>
+
+        <div class="stop flip">
+          <div>
+            <h3>See every connection</h3>
+            <p>Each download has a window of its own with its speed, the time left and the parts
+              coming in. If the computer crashes or the connection drops, it picks up where it
+              stopped. <b>New link</b> gives an expired download a fresh address and carries on.</p>
+            <p class="more"><a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/resume-a-broken-download.md">Resume a broken download</a></p>
+          </div>
+          <figure class="shot">
+            <a href="images/download-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/download-dark.webp"><img src="images/download-light.webp" alt="A download's window showing its progress and its connections" width="552" height="413" loading="lazy"></picture></a>
+          </figure>
+        </div>
+
+        <div class="stop">
+          <div>
+            <h3>Save the video on the page</h3>
+            <p>A button over a playing video lists each quality, audio track and subtitle. UDM fetches
+              HLS, DASH and HDS streams and joins them into one file with ffmpeg, and reads YouTube,
+              Vimeo, Facebook and Instagram pages with yt-dlp.</p>
+            <p class="more"><a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/video-from-a-page.md">Download a video from a page</a></p>
+          </div>
+          <figure class="shot">
+            <a href="images/video-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/video-dark.webp"><img src="images/video-light.webp" alt="A video in the browser with UDM's Download this video button and its list of qualities and subtitles" width="960" height="660" loading="lazy"></picture></a>
+          </figure>
+        </div>
+
+        <div class="stop flip">
+          <div>
+            <h3>Download overnight</h3>
+            <p>Queues start on a schedule, can wake the computer, and put it to sleep or shut it down
+              when they finish. A quota and speed limits keep the connection free for everyone else.</p>
+            <p class="more"><a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/download-overnight.md">Schedule a queue</a></p>
+          </div>
+          <figure class="shot">
+            <a href="images/scheduler-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/scheduler-dark.webp"><img src="images/scheduler-light.webp" alt="The Scheduler with the main queue set to start at 11:00 PM daily and shut down when done" width="657" height="464" loading="lazy"></picture></a>
+          </figure>
+        </div>
+
+        <div class="stop">
+          <div>
+            <h3>Torrents in the same list</h3>
+            <p>Paste a magnet link or open a <code>.torrent</code> file. Pick the files you want, and
+              the torrent waits in queues, follows the speed limit and seeds for a while when it is
+              done, like any other download.</p>
+            <p class="more"><a href="https://github.com/tajbinkhan/UDM/blob/main/docs/torrents.md">Torrents and magnet links</a></p>
+          </div>
+          <figure class="shot">
+            <a href="images/torrent-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/torrent-dark.webp"><img src="images/torrent-light.webp" alt="A torrent's download window on its Files tab, with four files, two finished and one at 60 percent" width="700" height="400" loading="lazy"></picture></a>
+          </figure>
+        </div>
+
+        <div class="pair">
+          <figure class="shot">
+            <a href="images/options-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/options-dark.webp"><img src="images/options-light.webp" alt="The General page of UDM's Options" width="436" height="505" loading="lazy"></picture></a>
+            <figcaption><b>Options</b>, with the settings IDM users know in the same places.</figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="images/linux-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="images/linux-dark.webp"><img src="images/linux-light.webp" alt="UDM's main window running on Linux, with two downloads in progress" width="1102" height="646" loading="lazy"></picture></a>
+            <figcaption><b>On Linux</b>, the same window in a plain X11 session.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="more" class="wrap section">
+      <div class="intro">
+        <h2>And the rest of the toolbox</h2>
+        <p>New to download managers? Start with <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/guides/first-download.md">your first download</a>.</p>
+      </div>
+      <ul class="more-list">
+        <li>
           <h3>Faster downloads</h3>
-          <p>Each file is fetched in parts over up to 16 connections at once, or as streams of one
-            connection when the server speaks HTTP/2. FTP works too.</p>
-        </article>
-        <article>
-          <h3>Resume anything</h3>
-          <p>Downloads pick up after a crash, a restart or a dropped connection. <b>New link</b> gives
-            an expired download a fresh address and carries on.</p>
-        </article>
-        <article>
-          <h3>Browser capture</h3>
-          <p>The extension hands downloads from Chrome, Edge, Brave, Vivaldi, Opera and Firefox to
-            UDM with their cookies, so files behind a sign-in work.</p>
-        </article>
-        <article>
-          <h3>Video downloader</h3>
-          <p>HLS, DASH and HDS streams in the quality you pick, with audio tracks and subtitles, joined
-            into one file. YouTube, Vimeo and more through yt-dlp.</p>
-        </article>
-        <article>
-          <h3>Queues and scheduler</h3>
-          <p>Download overnight: queues start on a schedule, can wake the computer, and put it to
-            sleep or shut it down when they're done.</p>
-        </article>
-        <article>
+          <p>Up to 16 connections per file, or streams over one connection when the server speaks
+            HTTP/2. FTP works too.</p>
+        </li>
+        <li>
           <h3>Many files at once</h3>
-          <p>Numbered patterns like <code>photo[001-120].jpg</code>, pasted lists, every link on a page,
-            or a site grabber that crawls a site for the files you want.</p>
-        </article>
-        <article>
+          <p>Numbered patterns like <code>photo[001-120].jpg</code>, pasted lists, every link on a
+            page, or a site grabber that crawls a site for the files you want.</p>
+        </li>
+        <li>
           <h3>Keeps going</h3>
-          <p>A background program owns the downloads, so they continue after you close the browser and
-            the window.</p>
-        </article>
-        <article>
+          <p>A background program owns the downloads, so they continue after you close the browser
+            and the window.</p>
+        </li>
+        <li>
           <h3>Scripts and AI assistants</h3>
-          <p>IDM's command-line switches, a <code>udm-cli</code> tool, a versioned automation API, and an
-            MCP server for Claude, Cursor and VS Code.</p>
-        </article>
-        <article>
-          <h3>Speed limits and proxies</h3>
-          <p>Limit all downloads or one, set a quota, and work through system, PAC, HTTP, HTTPS and
-            SOCKS proxies with site logins.</p>
-        </article>
+          <p>IDM's command-line switches, a <code>udm-cli</code> tool, a versioned automation API, and
+            an MCP server for Claude, Cursor and VS Code.</p>
+        </li>
+        <li>
+          <h3>Proxies and limits</h3>
+          <p>System, PAC, HTTP, HTTPS and SOCKS proxies with site logins, a speed limit for all
+            downloads or one, and a download quota.</p>
+        </li>
+        <li>
+          <h3>Your language</h3>
+          <p>21 languages, with Hebrew, Arabic and Persian laid out right to left, and Light, Dark
+            and High contrast themes.</p>
+        </li>
+      </ul>
+    </section>
+
+    <section id="compare" class="wrap section">
+      <div class="intro">
+        <h2>UDM and Internet Download Manager</h2>
+        <p>The same way of working, on every computer you use, for nothing.</p>
+      </div>
+      <div class="versus">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th scope="col"><span class="visually-hidden">Compared</span></th><th scope="col">UDM</th><th scope="col">IDM</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Windows</th><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">macOS and Linux</th><td>Yes</td><td>No</td></tr>
+              <tr><th scope="row">Price</th><td>Free, forever</td><td>Paid, after a 30-day trial</td></tr>
+              <tr><th scope="row">Sign-up or serial number</th><td>None</td><td>Registration needed</td></tr>
+              <tr><th scope="row">Open source</th><td>Yes (MIT)</td><td>No</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="bench">
+          <h3>Seconds to download a 64 MiB file</h3>
+          <p>UDM 0.4.0 and IDM 6.43 on one Windows machine, against a local test server that
+            misbehaves on purpose. Shorter is better.</p>
+          <dl class="race">
+            <dt>The server sends the wrong ranges</dt>
+            <dd class="udm"><span>UDM</span><span class="track"><span class="run" style="--w: 20.5%">3.3 s</span></span></dd>
+            <dd><span>IDM</span><span class="track"><span class="run" style="--w: 100%">16.1 s</span></span></dd>
+          </dl>
+          <dl class="race">
+            <dt>The server is slow to answer</dt>
+            <dd class="udm"><span>UDM</span><span class="track"><span class="run" style="--w: 24.8%">4.0 s</span></span></dd>
+            <dd><span>IDM</span><span class="track"><span class="run" style="--w: 39.1%">6.3 s</span></span></dd>
+          </dl>
+          <p>UDM finished sooner in all eight scenarios.
+            <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/bench/README.md">How it was measured</a></p>
+        </div>
       </div>
     </section>
 
-    <section id="compare" class="wrap">
-      <h2>UDM and Internet Download Manager</h2>
-      <p>Nothing new to learn: the browser hands its downloads over, a save-as dialog asks where they
-        go, and the categories, queues, scheduler and download windows are where you expect them.</p>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr><th scope="col"></th><th scope="col">UDM</th><th scope="col">IDM</th></tr>
-          </thead>
-          <tbody>
-            <tr><th scope="row">Windows</th><td><b>Yes</b></td><td>Yes</td></tr>
-            <tr><th scope="row">macOS and Linux</th><td><b>Yes</b></td><td>No</td></tr>
-            <tr><th scope="row">Price</th><td><b>Free, forever</b></td><td>Paid, after a 30-day trial</td></tr>
-            <tr><th scope="row">Sign-up or serial number</th><td><b>None</b></td><td>Registration needed</td></tr>
-            <tr><th scope="row">Open source</th><td><b>Yes (MIT)</b></td><td>No</td></tr>
-          </tbody>
-        </table>
+    <section id="download" class="get">
+      <div class="wrap section">
+        <div class="intro">
+          <h2>Download UDM</h2>
+          <p>Every release is on GitHub. Once installed, UDM checks for a new version each week.</p>
+        </div>
+        <ul class="oses">
+          <li>
+            <h3>Windows</h3>
+            <p class="needs">Windows 10 and 11</p>
+            <p class="files">An installer, or a portable zip that keeps everything in its own folder.</p>
+            <a class="button primary" href="https://github.com/tajbinkhan/UDM/releases/latest">Download for Windows</a>
+          </li>
+          <li>
+            <h3>macOS</h3>
+            <p class="needs">macOS 11 or later, Apple Silicon and Intel</p>
+            <p class="files">A disk image. The macOS build is experimental.</p>
+            <a class="button" href="https://github.com/tajbinkhan/UDM/releases/latest">Download for macOS</a>
+          </li>
+          <li>
+            <h3>Linux</h3>
+            <p class="needs">Ubuntu, Debian, Mint, Fedora, openSUSE and more</p>
+            <p class="files"><code>.deb</code>, <code>.rpm</code>, AppImage and <code>.tar.gz</code> files.</p>
+            <a class="button" href="https://github.com/tajbinkhan/UDM/releases/latest">Download for Linux</a>
+          </li>
+        </ul>
+        <p class="after">Then add the browser extension once, and downloads you start in the browser go
+          to UDM. The <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/install.md">install guide</a>
+          walks through each system.</p>
       </div>
-      <p>On a local test server that misbehaves on purpose, UDM finished a 64 MiB file sooner than
-        IDM 6.43 in all eight scenarios on one Windows machine.
-        <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/bench/README.md">How it was measured</a>.</p>
     </section>
 
-    <section id="download" class="wrap">
-      <h2>Download</h2>
-      <p>Every release is on the <a href="https://github.com/tajbinkhan/UDM/releases/latest">Releases page</a>:
-        a Windows installer and portable zip, a macOS disk image, and Linux <code>.deb</code>,
-        <code>.rpm</code>, AppImage and <code>.tar.gz</code> files. Then add the browser extension once
-        (<a href="https://github.com/tajbinkhan/UDM/blob/main/docs/install.md">install guide</a>).</p>
-      <p class="actions"><a class="button primary" href="https://github.com/tajbinkhan/UDM/releases/latest">Get the latest release</a></p>
-    </section>
-
-    <section id="faq" class="wrap">
+    <section id="faq" class="wrap section faq">
       <h2>Questions</h2>
       <details>
         <summary>Is UDM free?</summary>
@@ -241,12 +350,12 @@
         <summary>Is there an IDM alternative for Mac and Linux?</summary>
         <p>UDM works the way Internet Download Manager does, with the same save-as dialog,
           categories, queues, scheduler and download windows, and it runs on Windows, macOS (Apple
-          Silicon and Intel) and Linux.</p>
+          Silicon and Intel) and Linux. The macOS build is experimental.</p>
       </details>
       <details>
         <summary>Which browsers does UDM work with?</summary>
-        <p>UDM's extension catches downloads from Chrome, Edge, Brave, Vivaldi, Opera and Firefox,
-          with their cookies and referrer, so files behind a sign-in work too.</p>
+        <p>UDM's extension catches downloads from Chrome, Edge, Brave, Vivaldi, Opera, Firefox and
+          Safari, with their cookies and referrer, so files behind a sign-in work too.</p>
       </details>
       <details>
         <summary>Can UDM download videos?</summary>
@@ -258,15 +367,24 @@
         <p>Yes. UDM resumes after a crash, a restart or a dropped connection without starting over,
           and its downloads keep going after the browser is closed.</p>
       </details>
-      <p>More in the <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/README.md">help pages</a>
+      <p class="faq-more">More in the <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/README.md">help pages</a>
         and the <a href="https://github.com/tajbinkhan/UDM/blob/main/docs/known-gaps.md">known gaps</a>.</p>
     </section>
   </main>
 
   <footer class="wrap foot">
-    <p>UDM is free software under the <a href="https://github.com/tajbinkhan/UDM/blob/main/LICENSE">MIT License</a>.
-      <a href="https://github.com/tajbinkhan/UDM/issues">Report a bug or ask for a feature</a>.</p>
-    <p class="small">UDM isn't affiliated with, endorsed by or connected to Tonec Inc. "Internet Download
+    <div class="foot-row">
+      <a class="brand" href="./"><img src="icon-256.png" alt="" width="26" height="26"> UDM</a>
+      <ul>
+        <li><a href="https://github.com/tajbinkhan/UDM">Source code</a></li>
+        <li><a href="https://github.com/tajbinkhan/UDM/releases">Releases</a></li>
+        <li><a href="https://github.com/tajbinkhan/UDM/blob/main/docs/README.md">Help pages</a></li>
+        <li><a href="privacy.html">Privacy policy</a></li>
+        <li><a href="https://github.com/tajbinkhan/UDM/issues">Report a bug or ask for a feature</a></li>
+      </ul>
+    </div>
+    <p>UDM is free software under the <a href="https://github.com/tajbinkhan/UDM/blob/main/LICENSE">MIT License</a>.</p>
+    <p>UDM isn't affiliated with, endorsed by or connected to Tonec Inc. "Internet Download
       Manager" and "IDM" are names of their owner, used here only to describe the program UDM works like.</p>
   </footer>
 </body>
