@@ -14,7 +14,8 @@
   a password; without one, About says why and the package manager updates
   it. Microsoft Defender is Windows' own:
   choose a scanner program such as `clamscan`. These builds were tested on
-  Linux; the macOS build is checked by the compiler and CI only.
+  Linux. The macOS build is experimental. It is checked by the compiler and
+  CI only and has not been run on a real Mac.
 
 - Torrents (#249, [Torrents and magnet links](torrents.md)): no sequential download, RSS feeds,
   IP blocklists, web seeds, protocol encryption or BitTorrent v2-only torrents; incoming

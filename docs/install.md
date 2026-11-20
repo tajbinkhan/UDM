@@ -8,7 +8,7 @@ each system:
 |---|---|---|
 | Windows 10 and 11 | `UDM-Setup-<version>.exe` | the installer, below |
 | | `UDM-<version>-windows-portable.zip` | a [portable copy](portable.md), everything in its own folder |
-| macOS 11 or later | `UDM-<version>-macos.dmg` | Apple Silicon and Intel |
+| macOS 11 or later | `UDM-<version>-macos.dmg` | Apple Silicon and Intel, [experimental](#macos) |
 | Ubuntu, Debian, Mint | `udm_<version>_amd64.deb` | `sudo apt install ./udm_*.deb` |
 | Fedora, openSUSE, RHEL | `udm-<version>-1.x86_64.rpm` | `sudo dnf install ./udm-*.rpm` |
 | Any Linux | `UDM-<version>-x86_64.AppImage` | make it executable and run it |
@@ -179,10 +179,35 @@ agent). Closing the password prompt installs nothing, and About says so.
 
 ## macOS
 
-Open the disk image and drag **UDM** to **Applications**. UDM is not
-signed with an Apple Developer ID, so the first time, right-click it in
-Applications, choose **Open**, then **Open** again (or allow it under
-**System Settings > Privacy & Security**). The extension folders are inside
+The macOS build is **experimental**. It compiles and passes CI on macOS,
+but it has not been run on a real Mac yet, so parts of it may not work. If
+you try it, please [open an issue](https://github.com/tajbinkhan/UDM/issues)
+for anything that goes wrong.
+
+Open the disk image and drag **UDM** to **Applications**. UDM is signed ad
+hoc, not with an Apple Developer ID, and Apple has not notarized it, so
+macOS blocks it the first time it opens. To let it run:
+
+- **macOS 15 Sequoia and later.** Open UDM from Applications. When macOS
+  says it could not verify that UDM is free of malware, click **Done**.
+  Open **System Settings > Privacy & Security**, scroll down to
+  **Security**, and click **Open Anyway** next to the line about UDM. Enter
+  your password, then click **Open Anyway** once more. The button stays
+  there for about an hour after the blocked start; if it is gone, open UDM
+  again first. Control-click > **Open** no longer gets past the block on
+  these versions.
+- **macOS 14 Sonoma and earlier.** Control-click (or right-click) UDM in
+  Applications, choose **Open**, then **Open** again.
+
+macOS remembers the choice, so UDM opens normally after that. On any
+version, this Terminal command does the same in one step, by removing the
+mark macOS puts on files downloaded from the internet:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/UDM.app
+```
+
+The extension folders are inside
 the app: in Finder, right-click UDM, **Show Package Contents**, then
 `Contents/Resources/extension` (Chrome, Edge, Brave) or
 `Contents/Resources/firefox`. In Chrome's **Load unpacked** dialog,
