@@ -57,6 +57,12 @@ jobs:
           sed '/^---$/,$d' docs/privacy.md > "$RUNNER_TEMP/privacy.md"
           gh api markdown -f mode=markdown -F text=@"$RUNNER_TEMP/privacy.md" > "$RUNNER_TEMP/policy.html"
           grep -q '<h1' "$RUNNER_TEMP/policy.html"
+          # GitHub's renderer strips scripts, handlers and javascript: links;
+          # this stops the deploy if one ever comes through.
+          if grep -Eqi '<(script|iframe|object|embed|style|form|base|meta|link)[[:space:]>/]|[[:space:]]on[a-z]+[[:space:]]*=|javascript:' "$RUNNER_TEMP/policy.html"; then
+            echo "::error file=docs/privacy.md::The rendered policy holds HTML the page must not carry"
+            exit 1
+          fi
           sed -e "/<!-- policy -->/{r $RUNNER_TEMP/policy.html" -e 'd}' site/privacy.html > _site/privacy.html
           grep -q '<h1' _site/privacy.html
 
