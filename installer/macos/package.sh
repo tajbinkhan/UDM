@@ -11,7 +11,9 @@
 # Xcode it also builds the Safari extension into UDM.app
 # (installer/macos/safari/build.sh); without it the app has none, unless
 # UDM_SAFARI=require makes that an error. The app is signed ad hoc, not with
-# a Developer ID, so the first start needs right-click > Open.
+# a Developer ID or notarization, so macOS blocks the first start. On macOS 15
+# and later the user allows it with Open Anyway in System Settings > Privacy &
+# Security; on earlier versions with Control-click > Open (docs/install.md).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"

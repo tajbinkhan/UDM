@@ -2,6 +2,8 @@
 # https://tajbinkhan.github.io/UDM/ whenever it changes on main. The page is
 # plain HTML and CSS; the logo and the social preview image are copied in from
 # assets/, and the screenshots from docs/images/, so they are kept in one place.
+# The privacy policy page (privacy.html) is docs/privacy.md, rendered by GitHub's
+# Markdown API into site/privacy.html, so the policy is written once.
 
 name: Pages
 
@@ -13,6 +15,7 @@ on:
       - assets/icon-256.png
       - assets/social-preview.png
       - docs/images/**
+      - docs/privacy.md
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -44,6 +47,24 @@ jobs:
           cp assets/icon-256.png assets/social-preview.png _site/
           mkdir -p _site/images
           cp docs/images/*.webp _site/images/
+
+      # Everything from the policy's closing rule on (its link back to the help
+      # pages) belongs to GitHub, not the site, so it is left out.
+      - name: Put the privacy policy in its page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sed '/^---$/,$d' docs/privacy.md > "$RUNNER_TEMP/privacy.md"
+          gh api markdown -f mode=markdown -F text=@"$RUNNER_TEMP/privacy.md" > "$RUNNER_TEMP/policy.html"
+          grep -q '<h1' "$RUNNER_TEMP/policy.html"
+          # GitHub's renderer strips scripts, handlers and javascript: links;
+          # this stops the deploy if one ever comes through.
+          if grep -Eqi '<(script|iframe|object|embed|style|form|base|meta|link)[[:space:]>/]|[[:space:]]on[a-z]+[[:space:]]*=|javascript:' "$RUNNER_TEMP/policy.html"; then
+            echo "::error file=docs/privacy.md::The rendered policy holds HTML the page must not carry"
+            exit 1
+          fi
+          sed -e "/<!-- policy -->/{r $RUNNER_TEMP/policy.html" -e 'd}' site/privacy.html > _site/privacy.html
+          grep -q '<h1' _site/privacy.html
 
       - uses: actions/configure-pages@v5
 

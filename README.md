@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Windows-2a78d6?style=flat-square&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0yIDMuNWw4LjUtMS4ydjguMkgyek0xMS41IDIuMkwyMiAuOHY5LjdIMTEuNXpNMiAxMS41aDguNXY4LjJMMiAxOC41ek0xMS41IDExLjVIMjJ2OS43bC0xMC41LTEuNHoiLz48L3N2Zz4%3D" alt="Download for Windows" height="34"></a>
-  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-macOS-2a78d6?style=flat-square&logo=apple&logoColor=white" alt="Download for macOS" height="34"></a>
+  <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-macOS%20(experimental)-2a78d6?style=flat-square&logo=apple&logoColor=white" alt="Download for macOS (experimental)" height="34"></a>
   <a href="https://github.com/tajbinkhan/UDM/releases/latest"><img src="https://img.shields.io/badge/Download%20for-Linux-2a78d6?style=flat-square&logo=linux&logoColor=white" alt="Download for Linux" height="34"></a>
 </p>
 
@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  Windows 10 and 11 · macOS 11 or later (Apple Silicon and Intel) · Linux (Ubuntu, Debian, Mint, Fedora, openSUSE and more)<br>
+  Windows 10 and 11 · macOS 11 or later (Apple Silicon and Intel, experimental) · Linux (Ubuntu, Debian, Mint, Fedora, openSUSE and more)<br>
   21 languages, Hebrew, Arabic and Persian laid out right to left · no ads, no trial, no sign-up
 </p>
 
@@ -108,12 +108,14 @@ On the [Releases page](https://github.com/tajbinkhan/UDM/releases/latest), pick 
 | --- | --- |
 | **`UDM-Setup-<version>.exe`** | **On Windows and not sure? Take this one.** It installs for your user only, without administrator rights, and connects UDM to Chrome, Edge and Firefox. |
 | `UDM-<version>-windows-portable.zip` | You want to run UDM from a USB stick or without installing it. It keeps everything in its own folder ([portable mode](docs/portable.md)). |
-| `UDM-<version>-macos.dmg` | You're on a Mac (Apple Silicon or Intel). Drag UDM to Applications. |
+| `UDM-<version>-macos.dmg` | You're on a Mac (Apple Silicon or Intel). **Experimental**, not yet tried on a real Mac. Drag UDM to Applications. |
 
 > [!NOTE]
 > UDM isn't code-signed yet. On Windows, SmartScreen may say *"Windows protected your PC"*:
-> click **More info**, then **Run anyway**. On a Mac, right-click UDM in Applications the first
-> time and choose **Open**.
+> click **More info**, then **Run anyway**. On a Mac with macOS 15 or later, open UDM once, click
+> **Done** when macOS says it can't verify the app, then click **Open Anyway** in **System
+> Settings > Privacy & Security**. On macOS 14 and earlier, Control-click UDM in Applications and
+> choose **Open**. [Installing on macOS](docs/install.md#macos) has the details.
 
 Then add the browser extension once: [Chrome, Edge, Brave, Vivaldi and Opera](docs/install.md#windows),
 [Firefox](docs/install.md#firefox) or [Safari](docs/install.md#safari). On macOS and Linux, UDM
@@ -320,10 +322,13 @@ lists every module.
 ## Status and helping out
 
 UDM is young. The engine, the window and the browser integration are solid on Windows and
-Linux; the macOS build is checked by the compiler and CI only.
+Linux. The macOS build is **experimental**. It is checked by the compiler and CI only and hasn't
+been run on a real Mac, so parts of it may not work. If you try it, please
+[open an issue](https://github.com/tajbinkhan/UDM/issues) for anything that goes wrong.
 
-- **Not yet**: code signing, and the extension's listings in the Chrome Web Store and on Firefox
-  Add-ons. For now you load the extension by hand; in Firefox it stays loaded only until Firefox
+- **Not yet**: code signing (applied for with SignPath Foundation, see the
+  [code signing policy](#code-signing-policy)), and the extension's listings in the Chrome Web
+  Store and on Firefox Add-ons. For now you load the extension by hand; in Firefox it stays loaded only until Firefox
   closes. The Safari extension is built but has not been run in Safari yet.
 - **Translations**: 20 besides English. Most were made by machine and wait for a native
   speaker's review ([help translate](docs/translating.md)).
@@ -347,6 +352,30 @@ free download manager.
     <img src="https://api.star-history.com/svg?repos=tajbinkhan/UDM&type=Date" alt="UDM's GitHub stars over time" width="600">
   </picture>
 </a>
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/).
+
+Release files are built from this repository's source by the
+[Release workflow](.github/workflows/release.yml) on GitHub Actions, and only those files are
+signed. Nothing built on a developer's own computer is signed.
+
+Team roles:
+
+- Committers and reviewers: [Tajbin Khan](https://github.com/tajbinkhan)
+- Approvers: [Tajbin Khan](https://github.com/tajbinkhan)
+
+Every release is approved by hand before its files are signed.
+
+### Privacy
+
+This program will not transfer any information to other networked systems unless specifically
+requested by the user or the person installing or operating it. The one exception is the update
+check: once a week UDM asks GitHub, and UDM's update host, for the number of the latest release.
+The request names only UDM's version, nothing about you or your downloads, and
+**Options → General → Check for updates once a week** turns it off. The browser extension's own policy is in [docs/privacy.md](docs/privacy.md).
 
 ## Licence and credits
 

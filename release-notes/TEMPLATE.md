@@ -38,3 +38,7 @@ One or two sentences on what this release is about.
 
 Pick the file for your system from the list below. The
 [README](https://github.com/tajbinkhan/UDM#install) has the full steps.
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). The [code signing policy](https://github.com/tajbinkhan/UDM#code-signing-policy) says who builds, reviews and approves each release.
+
+The macOS disk image is experimental. It builds and passes CI on macOS, but it has not been run on a real Mac yet, so please [open an issue](https://github.com/tajbinkhan/UDM/issues) for anything that goes wrong.
