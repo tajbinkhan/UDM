@@ -2,7 +2,7 @@
      is taken, at startup and when removing downloads, and its size. -->
 <script lang="ts">
   import type { FileExistsChoice, NotifyChoice, OptionsView, StartTabChoice } from '../../ipc/types';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import { editing } from './draft.svelte';
   import PageHead from './PageHead.svelte';
 
@@ -12,19 +12,19 @@
   const e = $derived(d.extras);
 
   const notify: [NotifyChoice, string][] = [
-    ['toast', 'Show a Windows notification'],
-    ['dialog', 'Show a dialog in UDM'],
-    ['off', 'Show nothing'],
+    ['toast', english('Show a Windows notification')],
+    ['dialog', english('Show a dialog in UDM')],
+    ['off', english('Show nothing')],
   ];
   const exists: [FileExistsChoice, string][] = [
-    ['rename', 'Save with a new name'],
-    ['overwrite', 'Overwrite it'],
-    ['ask', 'Ask me'],
+    ['rename', english('Save with a new name')],
+    ['overwrite', english('Overwrite it')],
+    ['ask', english('Ask me')],
   ];
   const tabs: [StartTabChoice, string][] = [
-    ['status', 'Download status'],
-    ['speedLimit', 'Speed limit'],
-    ['whenDone', 'When done'],
+    ['status', english('Download status')],
+    ['speedLimit', english('Speed limit')],
+    ['whenDone', english('When done')],
   ];
 </script>
 

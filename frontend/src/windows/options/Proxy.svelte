@@ -2,7 +2,7 @@
 <script lang="ts">
   import { messageOf, systemProxy } from '../../ipc';
   import type { ProxyDraft } from '../../ipc/types';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import Sheet from '../../components/Sheet.svelte';
   import { editing } from './draft.svelte';
   import PageHead from './PageHead.svelte';
@@ -19,7 +19,7 @@
     bypass: string;
   };
   let advanced = $state<Advanced | null>(null);
-  const names = ['Use HTTP Proxy', 'Use HTTPS Proxy', 'Use FTP Proxy', 'Use socks'];
+  const names = [english('Use HTTP Proxy'), english('Use HTTPS Proxy'), english('Use FTP Proxy'), english('Use socks')];
   let note = $state('');
 
   /** Fill the manual proxies from the system's, keeping the logins typed. */

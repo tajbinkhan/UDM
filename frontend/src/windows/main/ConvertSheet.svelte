@@ -2,16 +2,16 @@
 <script lang="ts">
   import { convertDownload, messageOf } from '../../ipc';
   import type { ConvertTarget, Row } from '../../ipc/types';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import Sheet from '../../components/Sheet.svelte';
 
   let { row, onclose }: { row: Row; onclose: () => void } = $props();
   const targets: [ConvertTarget, string][] = [
-    ['mp4', 'An MP4 video'],
-    ['mp3', 'Its sound as an MP3'],
-    ['m4a', 'Its sound as an M4A'],
-    ['opus', 'Its sound as an Opus file'],
-    ['flac', 'Its sound as a FLAC file'],
+    ['mp4', english('An MP4 video')],
+    ['mp3', english('Its sound as an MP3')],
+    ['m4a', english('Its sound as an M4A')],
+    ['opus', english('Its sound as an Opus file')],
+    ['flac', english('Its sound as a FLAC file')],
   ];
   let target = $state<ConvertTarget>('mp3');
   let deleteOriginal = $state(false);

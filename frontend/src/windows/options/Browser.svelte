@@ -3,7 +3,7 @@
 <script lang="ts">
   import { addBrowser, messageOf, openExtensionFolder, pickPath, removeBrowser, restartBrowser, setBrowser } from '../../ipc';
   import type { OptionsView, SelectionChoice } from '../../ipc/types';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import { editing } from './draft.svelte';
   import PageHead from './PageHead.svelte';
 
@@ -24,9 +24,9 @@
   const d = $derived(editing.draft!);
   const e = $derived(d.extras);
   const places: [SelectionChoice, string][] = [
-    ['off', 'Nowhere'],
-    ['everywhere', 'On every site'],
-    ['sites', 'On these sites only'],
+    ['off', english('Nowhere')],
+    ['everywhere', english('On every site')],
+    ['sites', english('On these sites only')],
   ];
 </script>
 

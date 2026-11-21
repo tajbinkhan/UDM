@@ -2,7 +2,7 @@
 <script lang="ts">
   import { messageOf, pickPath } from '../../ipc';
   import type { QueueDraft, Then, WakeWarning } from '../../ipc/types';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
 
   let {
     q = $bindable(),
@@ -16,16 +16,16 @@
   // The days in the columns IDM shows them in; 0 is Monday.
   const columns: { day: number; label: string }[][] = [
     [
-      { day: 6, label: 'Sunday' },
-      { day: 0, label: 'Monday' },
-      { day: 1, label: 'Tuesday' },
+      { day: 6, label: english('Sunday') },
+      { day: 0, label: english('Monday') },
+      { day: 1, label: english('Tuesday') },
     ],
     [
-      { day: 2, label: 'Wednesday' },
-      { day: 3, label: 'Thursday' },
-      { day: 4, label: 'Friday' },
+      { day: 2, label: english('Wednesday') },
+      { day: 3, label: english('Thursday') },
+      { day: 4, label: english('Friday') },
     ],
-    [{ day: 5, label: 'Saturday' }],
+    [{ day: 5, label: english('Saturday') }],
   ];
   const daysOn = $derived(q.startOn && (q.sync || !q.once));
 

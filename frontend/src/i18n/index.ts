@@ -11,6 +11,15 @@ export function t(english: string, values?: Record<string, string | number>): st
   return text;
 }
 
+/** English kept in a variable and looked up later with `t()`, such as a
+ * toolbar button's label. It returns the text unchanged; it is there so the
+ * shell's tests (`crates/ui/src/i18n.rs`) find the string and require its
+ * translations. Menu labels need no mark: the tests read the labels of
+ * `item` and `sub` calls too. */
+export function english(text: string): string {
+  return text;
+}
+
 /** Whether the window is laid out right to left (Hebrew, Arabic, Persian),
  * for code that places things by the screen's coordinates. */
 export function rightToLeft(): boolean {

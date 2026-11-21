@@ -4,7 +4,7 @@
   import { closeWindow, messageOf, saveOptions } from '../../ipc';
   import type { OptionsView } from '../../ipc/types';
   import { projection } from '../../stores/projection.svelte';
-  import { t } from '../../i18n';
+  import { english, t } from '../../i18n';
   import Window from '../../components/Window.svelte';
   import { editing } from './draft.svelte';
   import General from './General.svelte';
@@ -48,27 +48,27 @@
   // IDM's two rows, and behind them a row of UDM's own pages.
   const rows: { key: Page; label: string }[][] = [
     [
-      { key: 'speed', label: 'Speed' },
-      { key: 'behavior', label: 'Behavior' },
-      { key: 'browser', label: 'Browser' },
-      { key: 'archives', label: 'Archives' },
-      { key: 'tools', label: 'Tools' },
-      { key: 'remote', label: 'Remote' },
-      { key: 'debrid', label: 'Debrid' },
+      { key: 'speed', label: english('Speed') },
+      { key: 'behavior', label: english('Behavior') },
+      { key: 'browser', label: english('Browser') },
+      { key: 'archives', label: english('Archives') },
+      { key: 'tools', label: english('Tools') },
+      { key: 'remote', label: english('Remote') },
+      { key: 'debrid', label: english('Debrid') },
     ],
     [
-      { key: 'proxy', label: 'Proxy / Socks' },
-      { key: 'network', label: 'Network' },
-      { key: 'torrents', label: 'Torrents' },
-      { key: 'logins', label: 'Sites Logins' },
-      { key: 'sounds', label: 'Sounds' },
+      { key: 'proxy', label: english('Proxy / Socks') },
+      { key: 'network', label: english('Network') },
+      { key: 'torrents', label: english('Torrents') },
+      { key: 'logins', label: english('Sites Logins') },
+      { key: 'sounds', label: english('Sounds') },
     ],
     [
-      { key: 'general', label: 'General' },
-      { key: 'types', label: 'File types' },
-      { key: 'saveTo', label: 'Save to' },
-      { key: 'downloads', label: 'Downloads' },
-      { key: 'connection', label: 'Connection' },
+      { key: 'general', label: english('General') },
+      { key: 'types', label: english('File types') },
+      { key: 'saveTo', label: english('Save to') },
+      { key: 'downloads', label: english('Downloads') },
+      { key: 'connection', label: english('Connection') },
     ],
   ];
 
