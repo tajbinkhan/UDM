@@ -60,12 +60,6 @@
     flex: 0 0 80px;
   }
 
-  .select[size] {
-    height: auto;
-    background-image: none;
-    padding-right: 4px;
-  }
-
   .sample {
     height: 56px;
     display: grid;

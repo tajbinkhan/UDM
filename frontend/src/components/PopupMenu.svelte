@@ -1,9 +1,11 @@
 <!-- A popup menu at a point: the menu bar's menus, the list's and the
      categories' right-click menus. Keyboard: Up and Down move, Right opens a
-     submenu, Left or Escape closes, Enter or Space picks. -->
+     submenu, Left or Escape closes, Enter or Space picks. Right to left, the
+     menu hangs left of `x`, submenus open to the left, and Left and Right
+     swap. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { mnemonic, plain } from '../i18n';
+  import { mnemonic, plain, rightToLeft } from '../i18n';
   import type { MenuEntry } from './menu';
   import PopupMenu from './PopupMenu.svelte';
 
@@ -29,6 +31,11 @@
   let active = $state(-1);
   let open = $state(-1);
   let subAt = $state({ x: 0, y: 0 });
+  // A menu taller than the window, such as the list's right-click menu in a
+  // small window, first packs its rows closer; one still too tall, such as
+  // View > Language, stops at the window's edges and scrolls.
+  const room = Math.max(0, window.innerHeight - 4);
+  let compact = $state(false);
 
   const usable = (i: number) => {
     const e = items[i];
@@ -40,9 +47,21 @@
     top = y;
     await tick();
     if (!el) return;
+    if (el.scrollHeight > room) {
+      compact = true;
+      await tick();
+      if (!el) return;
+    }
     const r = el.getBoundingClientRect();
-    if (left + r.width > window.innerWidth) left = nested ? Math.max(0, x - r.width - 200) : Math.max(0, window.innerWidth - r.width - 2);
-    if (top + r.height > window.innerHeight) top = Math.max(0, window.innerHeight - r.height - 2);
+    if (rightToLeft()) {
+      // `x` is the menu's right edge; a submenu with no room on the left
+      // opens on the right of its parent instead.
+      left = x - r.width;
+      if (left < 0) left = nested ? Math.min(window.innerWidth - r.width, x + 200) : 2;
+    } else if (left + r.width > window.innerWidth) {
+      left = nested ? Math.max(0, x - r.width - 200) : Math.max(0, window.innerWidth - r.width - 2);
+    }
+    if (top + r.height > window.innerHeight) top = Math.max(2, window.innerHeight - r.height - 2);
     el.focus();
   });
 
@@ -50,8 +69,8 @@
     const e = items[i];
     if (!e || e.kind === 'sep' || e.disabled) return;
     if (e.kind === 'sub') {
-      const r = (row ?? el?.querySelectorAll<HTMLElement>('[data-row]')[i])?.getBoundingClientRect();
-      if (r) subAt = { x: r.right - 2, y: r.top - 3 };
+      const r = (row ?? el?.querySelector<HTMLElement>(`[data-row="${i}"]`))?.getBoundingClientRect();
+      if (r) subAt = { x: rightToLeft() ? r.left + 2 : r.right - 2, y: r.top - 3 };
       open = i;
       return;
     }
@@ -64,6 +83,7 @@
       const i = (active + step * n + items.length * 2) % items.length;
       if (usable(i)) {
         active = i;
+        el?.querySelector(`[data-row="${i}"]`)?.scrollIntoView({ block: 'nearest' });
         return;
       }
     }
@@ -74,10 +94,10 @@
     const keys: Record<string, () => void> = {
       ArrowDown: () => move(1),
       ArrowUp: () => move(-1),
-      ArrowRight: () => {
+      [rightToLeft() ? 'ArrowLeft' : 'ArrowRight']: () => {
         if (items[active]?.kind === 'sub') pick(active);
       },
-      ArrowLeft: () => nested && onclose(false),
+      [rightToLeft() ? 'ArrowRight' : 'ArrowLeft']: () => nested && onclose(false),
       Escape: () => onclose(false),
       Enter: () => pick(active),
       ' ': () => pick(active),
@@ -104,13 +124,16 @@
 {/if}
 <div
   class="menu"
+  class:compact
   role="menu"
   aria-label={label}
   tabindex="-1"
   bind:this={el}
   style:left="{left}px"
   style:top="{top}px"
+  style:max-height="{room}px"
   {onkeydown}
+  onscroll={() => (open = -1)}
 >
   {#each items as e, i (i)}
     {#if e.kind === 'sep'}
@@ -118,7 +141,7 @@
     {:else}
       {@const m = mnemonic(e.label)}
       <div
-        data-row
+        data-row={i}
         class="entry"
         class:active={active === i}
         class:disabled={e.disabled}
@@ -173,19 +196,46 @@
     position: fixed;
     z-index: 51;
     min-width: 180px;
-    padding: 3px 2px;
+    padding: 4px;
     background: var(--menu);
     border: 1px solid var(--border);
-    box-shadow: 2px 3px 6px var(--shadow);
+    border-radius: var(--radius-large);
+    box-shadow: 0 8px 16px var(--shadow);
     color: var(--fg);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    animation: menu-in 0.12s ease-out;
+  }
+
+  @keyframes menu-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .menu {
+      animation: none;
+    }
   }
 
   .entry {
     display: flex;
     align-items: center;
-    height: 22px;
-    padding: 0 10px 0 0;
+    height: 26px;
+    padding-block: 0;
+    padding-inline: 0 10px;
+    border-radius: var(--radius);
     white-space: nowrap;
+  }
+
+  .compact .entry {
+    height: 22px;
+  }
+
+  .compact .sep {
+    margin-block: 2px;
   }
 
   .entry.active:not(.disabled) {
@@ -204,11 +254,11 @@
 
   .label {
     flex: 1;
-    padding-right: 24px;
+    padding-inline-end: 24px;
   }
 
   .shortcut {
-    padding-left: 12px;
+    padding-inline-start: 12px;
   }
 
   .arrow {
@@ -218,7 +268,8 @@
 
   .sep {
     height: 1px;
-    margin: 4px 1px 4px 30px;
+    margin: 4px -4px;
     background: var(--border);
   }
+
 </style>

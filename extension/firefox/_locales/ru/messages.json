@@ -96,7 +96,7 @@
     "message": "Загрузить"
   },
   "noDownloads": {
-    "message": "Загрузок пока нет."
+    "message": "Нет активных или приостановленных загрузок."
   },
   "stateQueued": {
     "message": "В очереди"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "Загрузка"
   },
-  "stateDone": {
-    "message": "Завершено"
+  "statePaused": {
+    "message": "Приостановлено"
   },
-  "stateFailed": {
-    "message": "Ошибка"
+  "pause": {
+    "message": "Приостановить"
   },
-  "stateCanceled": {
-    "message": "Отменено"
-  },
-  "stateInterrupted": {
-    "message": "Прервано"
-  },
-  "stateConfirming": {
-    "message": "Ожидает вашего ответа в UDM"
-  },
-  "stateWaiting": {
-    "message": "Ожидает запуска"
-  },
-  "threatFound": {
-    "message": "Обнаружена угроза"
-  },
-  "start": {
-    "message": "Запустить"
-  },
-  "cancel": {
-    "message": "Отмена"
-  },
-  "retry": {
-    "message": "Повторить"
-  },
-  "remove": {
-    "message": "Удалить"
+  "resume": {
+    "message": "Возобновить"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

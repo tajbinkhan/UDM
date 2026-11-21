@@ -1,6 +1,7 @@
 // A window drawn from the test fixtures in a plain browser, with Tauri's IPC
 // mocked, for checking its looks while working on it (`pnpm dev`, then
-// /dev/index.html?window=main&look=dark). Not part of the build.
+// /dev/index.html?window=main&look=dark, with &dir=rtl for right to left). Not part
+// of the build.
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import fixtures from '../test/fixtures/views.json';
 
@@ -8,12 +9,16 @@ type Kind = keyof typeof fixtures.views;
 
 const params = new URLSearchParams(location.search);
 const kind = (params.get('window') ?? 'main') as Kind;
-const look = params.get('look') === 'light' ? fixtures.look.light : fixtures.look.dark;
+const chosen = params.get('look') === 'light' ? fixtures.look.light : fixtures.look.dark;
+// `&dir=rtl` lays the window out right to left, as Hebrew, Arabic and Persian do.
+const look = params.get('dir') === 'rtl' ? { ...chosen, rightToLeft: true, language: 'ar' } : chosen;
 const labels: Record<Kind, string> = {
   main: 'main',
   'add-url': 'add-url',
   'save-as': 'save-as-17',
   download: 'download-12',
+  'download-torrent': 'download-18',
+  'save-as-torrent': 'save-as-20',
   done: 'done-17',
   remove: 'remove',
   about: 'about',
@@ -36,11 +41,31 @@ const labels: Record<Kind, string> = {
   exception: 'exception',
 };
 
+// `&ask=language` opens the main window with the first start's language picker,
+// and `&update=downloading` with the strip of an update that downloads.
+const updating = {
+  newer: '9.0.0',
+  newerInstallable: true,
+  updating: true,
+  updateProgress: { text: '12.3 MB of 40.0 MB (30%)', percent: 30 },
+};
+const chrome = {
+  ...(params.get('ask') === 'language' ? { askLanguage: true } : {}),
+  ...(params.get('update') === 'downloading' ? updating : {}),
+};
+const view =
+  kind === 'main' && Object.keys(chrome).length > 0
+    ? {
+        ...fixtures.views.main,
+        view: { ...fixtures.views.main.view, chrome: { ...fixtures.views.main.view.chrome, ...chrome } },
+      }
+    : fixtures.views[kind];
+
 mockWindows(labels[kind]);
 mockIPC((cmd, args) => {
   if (cmd === 'subscribe') {
     const channel = (args as { channel: { onmessage: (u: unknown) => void } }).channel;
-    setTimeout(() => channel.onmessage({ kind: 'snapshot', seq: 0, look, view: fixtures.views[kind] }));
+    setTimeout(() => channel.onmessage({ kind: 'snapshot', seq: 0, look, view }));
   }
   // `&denied=1` shows Download File Info for a folder UDM may not write to.
   if (cmd === 'check_save_folder') return { denied: params.get('denied') === '1' };
@@ -52,6 +77,8 @@ const entries: Record<Kind, () => Promise<unknown>> = {
   'add-url': () => import('../src/windows/add-url/entry'),
   'save-as': () => import('../src/windows/save-as/entry'),
   download: () => import('../src/windows/download/entry'),
+  'download-torrent': () => import('../src/windows/download/entry'),
+  'save-as-torrent': () => import('../src/windows/save-as/entry'),
   done: () => import('../src/windows/done/entry'),
   remove: () => import('../src/windows/remove/entry'),
   about: () => import('../src/windows/about/entry'),

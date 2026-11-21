@@ -193,8 +193,8 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-right: 14px;
-    border-right: 1px solid var(--border);
+    padding-inline-end: 14px;
+    border-inline-end: 1px solid var(--border);
   }
 
   .head {
@@ -257,7 +257,7 @@
   .tab {
     height: 18px;
     padding: 0 6px;
-    margin-right: -1px;
+    margin-inline-end: -1px;
     background: var(--face);
     border: 1px solid var(--frame);
     border-bottom: 0;
@@ -300,15 +300,15 @@
     align-items: center;
     justify-content: start;
     gap: 8px 6px;
-    padding-left: 24px;
+    padding-inline-start: 24px;
   }
 
   .quota label {
-    text-align: right;
+    text-align: end;
   }
 
   .num {
-    text-align: right;
+    text-align: end;
   }
 
   .foot {

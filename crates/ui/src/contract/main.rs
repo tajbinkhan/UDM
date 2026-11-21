@@ -51,11 +51,33 @@ pub struct MainChrome {
     pub tips_on_startup: bool,
     /// Show the tip now: the window just opened with tips on startup.
     pub show_tip: bool,
+    /// View > Language: "System default" (an empty code) and each language.
+    pub languages: Vec<super::Choice>,
+    /// The Language setting: a code such as `de`, or empty for the system's.
+    pub language: String,
+    /// The code of the language the window speaks now, which the
+    /// first-start picker starts on.
+    pub language_now: String,
+    /// Ask which language to use: the window's first start, with no
+    /// language chosen yet.
+    pub ask_language: bool,
     /// A newer release's version, for the strip offering it, unless that
     /// strip was closed for it.
     pub newer: Option<String>,
     /// That release has a setup Update now can run.
     pub newer_installable: bool,
+    /// Its setup is downloaded and checked already: Update now installs it
+    /// at once.
+    pub newer_ready: bool,
+    /// Update now is downloading that release's installer: the strip says
+    /// so in place of its button.
+    pub updating: bool,
+    /// How far that download is, once the daemon has said.
+    pub update_progress: Option<super::options::ToolProgressView>,
+    /// The tools UDM uses that it did not find, for the strip and the
+    /// first start's sheet that offer them; none while every one is there
+    /// or the daemon has not said.
+    pub missing_tools: Option<MissingTools>,
     /// What each package's menu offers, by the package's tree node.
     pub packages: Vec<PackageMenu>,
     /// The strip offering a problem report.
@@ -119,6 +141,9 @@ pub struct Row {
     pub save_to: String,
     pub page: String,
     pub referrer: String,
+    /// The server's country: its flag and ISO code, such as "🇺🇸 US"; empty
+    /// when unknown.
+    pub country: String,
 }
 
 /// The kind of file a row holds, for its icon.
@@ -159,6 +184,7 @@ pub enum ColumnKey {
     Page,
     Referrer,
     Description,
+    Country,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -230,6 +256,11 @@ pub struct Can {
     pub open_with: bool,
     /// A finished row's file can be dragged out of the window (Windows).
     pub drag_out: bool,
+    /// One torrent is selected, whose download window shows its files,
+    /// peers and seeding.
+    pub torrent: bool,
+    /// A seeding torrent is selected.
+    pub stop_seeding: bool,
     pub connected: bool,
 }
 
@@ -247,6 +278,40 @@ pub struct QueueItem {
 pub enum StripTone {
     Info,
     Warn,
+}
+
+/// The tools UDM did not find, and how to offer them.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingTools {
+    /// The strip's text, naming them.
+    pub text: String,
+    /// The strip shows: it was not closed for these same tools.
+    pub strip: bool,
+    /// Ask about them in a sheet: the offer was never answered.
+    pub ask: bool,
+    /// One of them is being installed.
+    pub busy: bool,
+    /// The strip's word while they install, with how far, such as
+    /// "Installing... 30%".
+    pub busy_text: String,
+    pub tools: Vec<MissingTool>,
+}
+
+/// One tool UDM did not find.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingTool {
+    pub tool: super::options::ToolKey,
+    pub name: String,
+    /// What downloads need it for.
+    pub purpose: String,
+    /// UDM can install it here.
+    pub installable: bool,
+    /// Where the install comes from, or the package manager's command.
+    pub hint: String,
+    /// How far its download is, while it installs and the daemon has said.
+    pub progress: Option<super::options::ToolProgressView>,
 }
 
 /// The strip offering a problem report, and what its buttons can do.
@@ -312,6 +377,8 @@ pub enum ListAction {
     },
     /// Select every row shown.
     SelectAll,
+    /// Stop the selected torrents' seeding.
+    StopSeeding,
 }
 
 /// How to open a finished download.

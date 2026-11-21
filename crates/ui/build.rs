@@ -39,6 +39,9 @@ const COMMANDS: &[&str] = &[
     "save_options",
     "pick_path",
     "install_tool",
+    "answer_tools_offer",
+    "dismiss_tools",
+    "check_debrid",
     "remote_status",
     "pair_phone",
     "remove_device",
@@ -47,6 +50,7 @@ const COMMANDS: &[&str] = &[
     "remove_browser",
     "restart_browser",
     "open_themes_folder",
+    "open_extension_folder",
     "play_sound",
     "system_proxy",
     "save_queue",
@@ -86,6 +90,7 @@ const COMMANDS: &[&str] = &[
     "set_panel_width",
     "set_list_font",
     "set_toolbar",
+    "set_language",
     "close_tip",
     "answer_login",
     "answer_countdown",
@@ -109,6 +114,10 @@ const COMMANDS: &[&str] = &[
     "drag_file",
     "answer_exception",
     "show_download",
+    "pick_torrent_files",
+    "set_seed_limits",
+    "stop_seeding",
+    "open_torrent_file",
 ];
 
 fn main() -> io::Result<()> {

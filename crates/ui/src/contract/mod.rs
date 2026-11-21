@@ -11,6 +11,7 @@ mod main;
 mod options;
 mod scheduler;
 mod tools;
+mod torrent;
 
 pub use dialogs::*;
 pub use extras::*;
@@ -20,6 +21,7 @@ pub use main::*;
 pub use options::*;
 pub use scheduler::*;
 pub use tools::*;
+pub use torrent::*;
 
 use std::collections::BTreeMap;
 
@@ -90,6 +92,9 @@ pub enum Update {
 /// A window's whole view, by its kind.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(tag = "window", content = "view", rename_all = "camelCase")]
+// A view lives only while it is projected and sent, one per window, so
+// boxing the main window's (the largest) would add churn for no gain.
+#[allow(clippy::large_enum_variant)]
 pub enum View {
     Main(MainView),
     AddUrl(AddUrlView),
@@ -116,12 +121,16 @@ pub enum View {
     Exception(ExceptionView),
 }
 
-/// A change to a view. The main window's list changes row by row; the
-/// small windows are sent whole.
+/// A change to a view. The main window's list, and a torrent's lists,
+/// change row by row; the other windows are sent whole.
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "window", content = "patch", rename_all = "camelCase")]
 pub enum Patch {
     Main(MainPatch),
+    /// A download window: its torrent's lists change row by row.
+    Download(Box<DownloadPatch>),
+    /// Download File Info: its torrent's files change row by row.
+    SaveAs(Box<SaveAsPatch>),
     Whole(View),
 }
 

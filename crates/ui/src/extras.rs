@@ -104,9 +104,14 @@ pub struct Asks {
     pub limit_lifted: bool,
     /// The update check's answer: a newer release, none, or why it failed.
     pub update: Option<Result<Option<Release>, String>>,
+    /// That newer release's installer is downloaded ahead, ready to install.
+    pub update_ready: bool,
     pub checking: bool,
     /// Install now: `None` while it downloads, or why it failed.
     pub installing: Option<Option<String>>,
+    /// How far Install now's download is: the bytes that have come, and
+    /// the size, when the server gave one.
+    pub update_progress: Option<(ByteCount, Option<ByteCount>)>,
     next_request: u64,
 }
 
@@ -193,14 +198,25 @@ pub fn take(state: &mut AppState, event: &Event, at: Instant) {
         }
         Event::Quota { used, limit, paused, .. } => a.quota = Some((*used, *limit, *paused)),
         Event::LimitLifted { lifted } => a.limit_lifted = *lifted,
-        Event::Update { newer, error } => {
+        Event::Update { newer, error, ready } => {
             a.checking = false;
+            a.update_ready = *ready && error.is_none();
             a.update = Some(match error {
                 Some(e) => Err(crate::errors::failure(lang, e)),
-                None => Ok(newer.clone()),
+                // An older daemon compares the release with its own
+                // version; the window offers only what is newer than itself.
+                None => {
+                    Ok(newer.clone().filter(|r| udm_domain::update::is_newer(&r.version, env!("CARGO_PKG_VERSION"))))
+                }
             });
         }
-        Event::UpdateFailed { error } => a.installing = Some(Some(crate::errors::failure(lang, error))),
+        Event::UpdateProgress { done, total } if a.installing == Some(None) => {
+            a.update_progress = Some((*done, *total));
+        }
+        Event::UpdateFailed { error } => {
+            a.installing = Some(Some(crate::errors::failure(lang, error)));
+            a.update_progress = None;
+        }
         Event::Removed { id } => {
             a.login_wanted.retain(|x| x != id);
             if a.refresh == Some(*id) {
@@ -729,6 +745,7 @@ mod tests {
             now: Instant::now(),
             unix: 1_700_000_000,
             downloads: std::path::PathBuf::from("/home/u/Downloads"),
+            flags: true,
         }
     }
 
@@ -875,5 +892,21 @@ mod tests {
             Event::Quota { used: ByteCount::new(95), limit: ByteCount::new(100), paused: false, resumes_at: None },
         );
         assert!(notice(lang, &s).unwrap().contains("nearly used"));
+    }
+
+    #[test]
+    fn a_release_no_newer_than_the_window_is_not_offered() {
+        let release = |version: &str| udm_domain::update::Release {
+            version: version.into(),
+            url: "u".into(),
+            setup: None,
+            package_manager: false,
+        };
+        let mut s = AppState::default();
+        // An older daemon thinks this window's own version is new.
+        event(&mut s, Event::Update { newer: Some(release(env!("CARGO_PKG_VERSION"))), error: None, ready: false });
+        assert!(matches!(s.asks.update, Some(Ok(None))));
+        event(&mut s, Event::Update { newer: Some(release("999.0.0")), error: None, ready: false });
+        assert!(matches!(&s.asks.update, Some(Ok(Some(r))) if r.version == "999.0.0"));
     }
 }

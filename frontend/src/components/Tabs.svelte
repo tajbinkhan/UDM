@@ -6,8 +6,9 @@
   let {
     tabs,
     current = $bindable(),
+    wrap = false,
     children,
-  }: { tabs: { key: string; label: string }[]; current: string; children: Snippet } = $props();
+  }: { tabs: { key: string; label: string }[]; current: string; wrap?: boolean; children: Snippet } = $props();
 
   let buttons: HTMLButtonElement[] = $state([]);
 
@@ -22,7 +23,7 @@
 </script>
 
 <div class="tabs">
-  <div class="strip" role="tablist">
+  <div class="strip" class:wrap role="tablist">
     {#each tabs as tab, i (tab.key)}
       <button
         bind:this={buttons[i]}
@@ -51,34 +52,65 @@
 
   .strip {
     display: flex;
-    align-items: flex-end;
-    height: 20px;
-    padding-left: 2px;
+    align-items: stretch;
+    gap: 2px;
+    height: 24px;
+    margin-bottom: 4px;
   }
 
+  /* Many tabs (a torrent's download window) go on in a second row rather
+     than off the edge. */
+  .strip.wrap {
+    flex-wrap: wrap;
+    height: auto;
+    row-gap: 2px;
+  }
+
+  .strip.wrap .tab {
+    height: 24px;
+    white-space: nowrap;
+  }
+
+  /* Tabs as Windows 11 draws a pivot: plain text, the current one bold
+     with the accent's short bar under it. */
   .tab {
     position: relative;
-    height: 18px;
-    margin-right: -1px;
-    padding: 0 6px;
-    background: var(--face);
-    border: 1px solid var(--frame);
-    border-bottom: 0;
+    padding: 0 10px;
+    background: none;
+    border: 0;
+    border-radius: var(--radius);
+    color: var(--fg-muted);
+    transition: background-color 0.08s ease-out;
+  }
+
+  .tab:hover {
+    background: var(--hover);
     color: var(--fg);
   }
 
   .tab.on {
-    z-index: 1;
-    height: 20px;
-    margin: 0 -1px -1px -2px;
-    padding: 0 8px;
-    background: var(--face);
-    border-color: var(--fg);
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .tab.on::after {
+    content: '';
+    position: absolute;
+    inset-inline-start: 50%;
+    bottom: 0;
+    width: 16px;
+    height: 3px;
+    margin-inline-start: -8px;
+    border-radius: 2px;
+    background: var(--accent);
   }
 
   .page {
     flex: 1;
+    background: var(--field);
     border: 1px solid var(--frame);
+    border-radius: var(--radius-large);
     padding: 8px 14px;
   }
+
 </style>

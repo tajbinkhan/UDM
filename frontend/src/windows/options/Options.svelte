@@ -21,6 +21,9 @@
   import Archives from './Archives.svelte';
   import Tools from './Tools.svelte';
   import Remote from './Remote.svelte';
+  import Debrid from './Debrid.svelte';
+  import Network from './Network.svelte';
+  import Torrents from './Torrents.svelte';
 
   const view: OptionsView | null = $derived(projection.view?.window === 'options' ? projection.view.view : null);
 
@@ -38,7 +41,10 @@
     | 'browser'
     | 'archives'
     | 'tools'
-    | 'remote';
+    | 'remote'
+    | 'debrid'
+    | 'network'
+    | 'torrents';
   // IDM's two rows, and behind them a row of UDM's own pages.
   const rows: { key: Page; label: string }[][] = [
     [
@@ -48,9 +54,12 @@
       { key: 'archives', label: english('Archives') },
       { key: 'tools', label: english('Tools') },
       { key: 'remote', label: english('Remote') },
+      { key: 'debrid', label: english('Debrid') },
     ],
     [
       { key: 'proxy', label: english('Proxy / Socks') },
+      { key: 'network', label: english('Network') },
+      { key: 'torrents', label: english('Torrents') },
       { key: 'logins', label: english('Sites Logins') },
       { key: 'sounds', label: english('Sounds') },
     ],
@@ -144,8 +153,14 @@
           <Tools {view} />
         {:else if page === 'remote'}
           <Remote {view} />
+        {:else if page === 'debrid'}
+          <Debrid {view} />
         {:else if page === 'proxy'}
           <Proxy />
+        {:else if page === 'network'}
+          <Network {view} />
+        {:else if page === 'torrents'}
+          <Torrents />
         {:else if page === 'logins'}
           <Logins />
         {:else}
@@ -172,40 +187,53 @@
   .tabs {
     display: flex;
     flex-direction: column;
+    gap: 2px;
+    margin-bottom: 6px;
     flex: none;
   }
 
   .tabrow {
     display: flex;
+    gap: 2px;
   }
 
+  /* IDM's rows of tabs, drawn as Windows 11 draws a pivot: plain text,
+     the current page's tab raised with the accent's short bar under it. */
   .tab {
+    position: relative;
     flex: 1 1 auto;
-    height: 18px;
+    height: 20px;
     padding: 0 6px;
-    margin-right: -1px;
-    background: var(--face);
-    border: 1px solid var(--frame);
-    border-bottom: 0;
-    color: var(--fg);
+    background: none;
+    border: 0;
+    border-radius: var(--radius);
+    color: var(--fg-muted);
     white-space: nowrap;
+    transition: background-color 0.08s ease-out;
   }
 
-  .tabrow:not(.front) .tab {
-    margin-left: 0;
+  .tab:hover {
+    background: var(--hover);
+    color: var(--fg);
   }
 
   .tab.on {
-    position: relative;
-    z-index: 1;
     background: var(--list);
-    height: 20px;
-    margin-top: -2px;
-    margin-bottom: -1px;
+    box-shadow: 0 0 0 1px var(--frame);
+    color: var(--fg);
+    font-weight: 600;
   }
 
-  .tabrow.front .tab:not(.on) {
-    background: var(--face);
+  .tab.on::after {
+    content: '';
+    position: absolute;
+    inset-inline-start: 50%;
+    bottom: 0;
+    width: 16px;
+    height: 3px;
+    margin-inline-start: -8px;
+    border-radius: 2px;
+    background: var(--accent);
   }
 
   .page {
@@ -215,6 +243,7 @@
     padding: 8px 10px;
     background: var(--list);
     border: 1px solid var(--frame);
+    border-radius: var(--radius-large);
   }
 
   .foot {
@@ -240,7 +269,7 @@
   }
 
   :global(.opt-indent) {
-    padding-left: 18px;
+    padding-inline-start: 18px;
   }
 
   :global(.opt-rule) {
@@ -256,10 +285,18 @@
     resize: none;
     background: var(--input-bg);
     border: 1px solid var(--input-border);
+    border-bottom-color: var(--input-underline);
+    border-radius: var(--radius);
     color: var(--fg);
     font: inherit;
     user-select: text;
   }
+
+  :global(.opt-area:focus) {
+    border-bottom-color: var(--focus);
+    box-shadow: inset 0 -1px 0 var(--focus);
+  }
+
 
   :global(.opt-right) {
     align-self: flex-end;

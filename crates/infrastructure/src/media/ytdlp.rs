@@ -10,10 +10,11 @@
 //! A playlist or channel page lists its videos instead (`--flat-playlist`,
 //! so each video's page is not read yet), and the window picks among them.
 //!
-//! yt-dlp is found in UDM's tools folder (Options > General installs it
+//! yt-dlp is found in UDM's tools folder (Options > Tools installs it
 //! there), on `PATH`, next to UDM's programs, or next to ffmpeg.
 
 use std::io::Read as _;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -28,7 +29,7 @@ use udm_domain::media::{
 
 /// Why a page cannot be read without yt-dlp, in words for the user.
 pub const MISSING: &str =
-    "Videos on YouTube, Facebook, Instagram, Vimeo and other sites need yt-dlp. Install it in UDM's Options > General, or put yt-dlp next to UDM.";
+    "Videos on YouTube, Facebook, Instagram, Vimeo and other sites need yt-dlp. Install it in UDM's Options > Tools, or put yt-dlp next to UDM.";
 
 /// How long reading a page with yt-dlp may take before it is given up: a
 /// little less than the extension waits for the answer (60 seconds).
@@ -120,8 +121,9 @@ pub fn find(ffmpeg: Option<&Path>) -> Option<PathBuf> {
 
 /// Arguments every yt-dlp run gets. yt-dlp needs a JavaScript runtime for
 /// YouTube and looks only for Deno unless told otherwise, so Node is named
-/// when it is there and Deno is not.
-fn common_args(cmd: &mut Command, proxy: Option<&str>) {
+/// when it is there and Deno is not. `source` is the address of the network
+/// adapter downloads are bound to, which yt-dlp connects from.
+fn common_args(cmd: &mut Command, proxy: Option<&str>, source: Option<IpAddr>) {
     cmd.args(["--no-playlist", "--no-warnings", "--no-color", "--ignore-config"]);
     let on_path = |name: &str| {
         std::env::var_os("PATH")
@@ -133,13 +135,22 @@ fn common_args(cmd: &mut Command, proxy: Option<&str>) {
     if let Some(proxy) = proxy {
         cmd.args(["--proxy", proxy]);
     }
+    if let Some(source) = source {
+        cmd.arg("--source-address").arg(source.to_string());
+    }
 }
 
 /// The yt-dlp command for `url`, ready for the arguments that differ.
-pub fn command(yt_dlp: &Path, proxy: Option<&str>) -> Command {
+pub fn command(yt_dlp: &Path, proxy: Option<&str>, source: Option<IpAddr>) -> Command {
     let mut cmd = Command::new(yt_dlp);
     crate::platform::no_window(&mut cmd);
-    common_args(&mut cmd, proxy);
+    // A process group of its own, so `kill_tree` ends what it started too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        cmd.process_group(0);
+    }
+    common_args(&mut cmd, proxy, source);
     cmd.stdin(Stdio::null());
     cmd
 }
@@ -159,9 +170,9 @@ pub fn complaint(stderr: &str) -> String {
 
 /// What the page at `url` offers, read by yt-dlp: its video's qualities,
 /// or a playlist's videos. Given up after `timeout`.
-pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>, timeout: Duration) -> MediaInfo {
+pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>, source: Option<IpAddr>, timeout: Duration) -> MediaInfo {
     let failed = |why: String| MediaInfo::failed(Some(MediaKind::Page), why);
-    let child = command(yt_dlp, proxy)
+    let child = command(yt_dlp, proxy, source)
         .args(["-J", "--flat-playlist", "--playlist-end", &MAX_PLAYLIST_ENTRIES.to_string(), "--"])
         .arg(url)
         .stdout(Stdio::piped())
@@ -211,9 +222,24 @@ pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>, timeout: Duration) -
     }
 }
 
-/// End yt-dlp and the processes it started: yt-dlp.exe unpacks itself into
-/// a second process, and ffmpeg runs under it while joining.
+/// End yt-dlp and the processes it started: the standalone yt-dlp unpacks
+/// itself into a second process, and ffmpeg runs under it while joining.
+/// Killing the first alone leaves the second downloading, holding the pipes
+/// UDM reads, so the download never stops. On Windows `taskkill /T` ends the
+/// tree; elsewhere the process group `command` (or the caller) made at spawn
+/// is ended.
 pub fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        if let Ok(pid) = i32::try_from(child.id()) {
+            // SAFETY: kill(2) takes plain integers and touches no memory;
+            // the negative id names the process group made at spawn, whose
+            // leader is our child, still unreaped.
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+            }
+        }
+    }
     #[cfg(windows)]
     {
         let _ = crate::platform::no_window(&mut Command::new("taskkill"))
@@ -742,23 +768,43 @@ mod tests {
         path
     }
 
+    /// The standalone yt-dlp for Linux unpacks itself and runs as a second
+    /// process, which holds the pipes. Stopping must end that one too, or it
+    /// goes on downloading and the download never shows as stopped.
+    #[cfg(unix)]
+    #[test]
+    fn stopping_ends_the_process_yt_dlp_started() {
+        use std::io::Read as _;
+        let program = fake_yt_dlp("tree", "sleep 60 &\nwait");
+        let mut child = command(&program, None, None).stdout(Stdio::piped()).spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        kill_tree(&mut child);
+        let _ = child.wait();
+        let started = Instant::now();
+        let mut rest = Vec::new();
+        let _ = stdout.read_to_end(&mut rest);
+        assert!(started.elapsed() < Duration::from_secs(10), "the second process kept running");
+        let _ = std::fs::remove_dir_all(program.parent().unwrap());
+    }
+
     #[cfg(unix)]
     #[test]
     fn any_page_is_read_by_the_program_and_slow_ones_give_up() {
         let json = r#"{"duration": 5, "formats": [{"format_id": "1", "vcodec": "avc1", "acodec": "mp4a", "height": 480, "tbr": 900}]}"#;
         let ok = fake_yt_dlp("ok", &format!("cat <<'EOF'\n{json}\nEOF"));
-        let info = probe(&ok, "https://videos.example/watch/1", None, Duration::from_secs(20));
+        let info = probe(&ok, "https://videos.example/watch/1", None, None, Duration::from_secs(20));
         assert!(info.error.is_none(), "{:?}", info.error);
         assert_eq!(info.video[0].height, Some(480));
 
         let slow = fake_yt_dlp("slow", "sleep 30");
         let started = Instant::now();
-        let info = probe(&slow, "https://videos.example/watch/2", None, Duration::from_millis(300));
+        let info = probe(&slow, "https://videos.example/watch/2", None, None, Duration::from_millis(300));
         assert!(info.error.unwrap().contains("did not answer"));
         assert!(started.elapsed() < Duration::from_secs(10));
 
         let fails = fake_yt_dlp("fails", "echo 'ERROR: Unsupported URL: https://x/' >&2; exit 1");
-        let info = probe(&fails, "https://x/", None, Duration::from_secs(20));
+        let info = probe(&fails, "https://x/", None, None, Duration::from_secs(20));
         assert!(info.error.unwrap().starts_with("yt-dlp: Unsupported URL"));
         for p in [ok, slow, fails] {
             let _ = std::fs::remove_dir_all(p.parent().unwrap());

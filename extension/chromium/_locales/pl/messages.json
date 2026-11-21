@@ -96,7 +96,7 @@
     "message": "Pobierz"
   },
   "noDownloads": {
-    "message": "Brak pobierań."
+    "message": "Brak trwających lub wstrzymanych pobrań."
   },
   "stateQueued": {
     "message": "W kolejce"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "Pobieranie"
   },
-  "stateDone": {
-    "message": "Gotowe"
+  "statePaused": {
+    "message": "Wstrzymane"
   },
-  "stateFailed": {
-    "message": "Niepowodzenie"
+  "pause": {
+    "message": "Wstrzymaj"
   },
-  "stateCanceled": {
-    "message": "Anulowano"
-  },
-  "stateInterrupted": {
-    "message": "Przerwano"
-  },
-  "stateConfirming": {
-    "message": "Czeka na Ciebie w UDM"
-  },
-  "stateWaiting": {
-    "message": "Oczekuje na uruchomienie"
-  },
-  "threatFound": {
-    "message": "Wykryto zagrożenie"
-  },
-  "start": {
-    "message": "Uruchom"
-  },
-  "cancel": {
-    "message": "Anuluj"
-  },
-  "retry": {
-    "message": "Ponów"
-  },
-  "remove": {
-    "message": "Usuń"
+  "resume": {
+    "message": "Wznów"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

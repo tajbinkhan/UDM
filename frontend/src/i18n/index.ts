@@ -20,6 +20,12 @@ export function english(text: string): string {
   return text;
 }
 
+/** Whether the window is laid out right to left (Hebrew, Arabic, Persian),
+ * for code that places things by the screen's coordinates. */
+export function rightToLeft(): boolean {
+  return document.documentElement.dir === 'rtl';
+}
+
 /** A menu label's text and its underlined letter: `&Tasks` is Tasks with T
  * underlined. */
 export function mnemonic(english: string): { before: string; key: string; after: string } {

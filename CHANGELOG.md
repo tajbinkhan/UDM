@@ -4,33 +4,85 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
-## Unreleased
+## [0.12.1](release-notes/v0.12.1.md) - 2026-11-19
 
-UDM's window is now drawn with Tauri (ADR 0002), in each system's webview, and the egui window
-is gone. It has every window IDM's has but Registration, in a light and a dark look that follow
-the Theme setting, plus UDM's own: the browser's link, video and gallery pickers, packages, the
-update check, Options' pages beyond IDM's, problem reports, the clipboard monitor, the zip
-preview, Convert, Verify checksum and Open with. On Windows a finished file drags out of the list
-or Download complete, and Setup installs the WebView2 runtime when Windows lacks it; on Linux the
-packages now need WebKitGTK 4.1. The domain's and the background service's errors show in your
-language again. Some of the new window's text is still English in other languages. What the
-egui window had beyond that is back too: Download File Info warns about a folder UDM may not
-save in and offers to save there with administrator rights (its Browse button now works), the
-Scheduler and the grabber's schedule warn when the power plan lets nothing wake the computer,
-Options leaves off the creation time where the system has none and starting at sign-in in a
-portable copy, the link picker hides web pages, images and repeated links, keeps only the types
-you name and renames the files by a pattern, and File Properties names a file's type as Windows
-does.
+Patch. The main window opens in the middle of the screen instead of the top-left corner.
 
-Pullbay is now called UDM (Unified Download Manager), with a new icon. Installing it over Pullbay or UIDM keeps
-your settings, list, saved site passwords and half-finished downloads, and Pullbay's Update now
-can install it.
+## [0.12.0](release-notes/v0.12.0.md) - 2026-11-19
 
-On Windows, the first download after the background service has stopped starts about two seconds
-sooner: the browser, the window and `udm-cli` no longer wait for Windows to report that the
-service isn't running before they start it. The service also no longer quits while short
-commands keep using it. A command or download that came and went within five seconds did not
-count, so the service could quit less than a minute after it.
+Minor. UDM can update from its own download server, and a crafted FTP address can no longer send
+a saved login to the wrong server.
+
+## [0.11.3](release-notes/v0.11.3.md) - 2026-11-18
+
+Patch. Check for Update no longer fails with "server returned HTTP 403" on a busy or shared
+network.
+
+## [0.11.2](release-notes/v0.11.2.md) - 2026-11-18
+
+Patch. Security fix: a malicious download server can no longer overwrite a file you already have.
+
+## [0.11.1](release-notes/v0.11.1.md) - 2026-11-17
+
+Patch. Stop, Pause and Resume work again for videos downloaded from sites such as YouTube, and a
+minimized download window comes back when you ask for it.
+
+## [0.11.0](release-notes/v0.11.0.md) - 2026-11-17
+
+Minor. The browser extension's video button now sits outside the video, and its popup lists
+only the downloads you can pause or resume.
+
+## [0.10.1](release-notes/v0.10.1.md) - 2026-11-17
+
+Patch. The browser extension no longer reports an error from tabs that were open when it was
+updated or reloaded.
+
+## [0.10.0](release-notes/v0.10.0.md) - 2026-11-16
+
+Minor. Update now shows how far the new version's download has come, in About and in the main
+window's update notice.
+
+## [0.9.2](release-notes/v0.9.2.md) - 2026-11-16
+
+Patch. A finished download opens the Download complete dialog by default, as IDM does.
+
+## [0.9.1](release-notes/v0.9.1.md) - 2026-11-16
+
+Patch. A download caught from the browser opens its dialog alone and in front, the dock shows
+UDM's icon on Linux, and right-click menus no longer draw under the menu bar's names.
+
+## [0.9.0](release-notes/v0.9.0.md) - 2026-11-16
+
+Minor. Installing yt-dlp, ffmpeg or gallery-dl shows a bar and how much has arrived, and the
+download window shows its values in one column with two decimals.
+
+## [0.8.0](release-notes/v0.8.0.md) - 2026-11-15
+
+Minor. Update now installs a new `.deb` or `.rpm` through the system's package manager, asking
+for your password, instead of telling you to update it yourself.
+
+## [0.7.1](release-notes/v0.7.1.md) - 2026-11-15
+
+Patch. Adds Open extension folder and Open Firefox extension folder to Options' Browser
+capture page, so the extension's folder opens in one click on every system.
+
+## [0.7.0](release-notes/v0.7.0.md) - 2026-11-15
+
+Minor. Offers to install the missing tools at the first start and from the main window,
+downloads a new version ahead so it installs in one click, and stops offering the version you
+already have after an upgrade.
+
+## [0.6.0](release-notes/v0.6.0.md) - 2026-11-15
+
+Minor. Adds torrents and magnet links, one network adapter for every download with DNS over
+HTTPS and the server's country, debrid accounts, a Safari extension, signed updates and four
+more languages with right-to-left windows. Downloads start while Download File Info is open.
+
+## [0.5.0](release-notes/v0.5.0.md) - 2026-11-14
+
+Minor. Pullbay is now called UDM, with a new icon and a new window drawn with Tauri and styled
+like Windows 11. Adds a command-line tool, an MCP server for AI assistants, control from a phone,
+a server mode, video sites through yt-dlp, image galleries, packages, FTPS and 13 more languages.
 
 ## [0.4.0](release-notes/v0.4.0.md) - 2026-11-09
 

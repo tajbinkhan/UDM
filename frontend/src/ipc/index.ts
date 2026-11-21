@@ -8,6 +8,7 @@ import type {
   AnswerInput,
   ColumnKey,
   DownloadControl,
+  ExtensionKind,
   Id,
   InvokeError,
   LimitInput,
@@ -33,10 +34,12 @@ import type {
   PickInput,
   LinkFilter,
   ToolKey,
+  DebridChoice,
   ReportAction,
   ConvertTarget,
   ExceptionChoice,
   Update,
+  SeedLimitsInput,
 } from './types';
 import { receive } from '../stores/projection.svelte';
 import { zoom } from '../theme';
@@ -168,6 +171,7 @@ export const setPanelWidth = (width: number) => commands.setPanelWidth(Math.roun
 export const setListFont = (font: { mono: boolean; size: number } | null) => commands.setListFont(font);
 export const setToolbar = (small: boolean, buttons: string[]) => commands.setToolbar(small, buttons);
 export const closeTip = (next: number, onStartup: boolean) => commands.closeTip(next, onStartup);
+export const setLanguage = (code: string) => commands.setLanguage(code);
 export const answerLogin = (user: string, password: string, save: boolean) => commands.answerLogin(user, password, save);
 export const answerCountdown = (now: boolean) => commands.answerCountdown(now);
 export const showRefresh = (id: Id) => commands.showRefresh(id);
@@ -184,6 +188,9 @@ export const checkUpdate = () => commands.checkUpdate();
 export const installUpdate = () => commands.installUpdate();
 export const dismissRelease = () => commands.dismissRelease();
 export const installTool = (tool: ToolKey) => commands.installTool(tool);
+export const answerToolsOffer = (tools: ToolKey[]) => commands.answerToolsOffer(tools);
+export const dismissTools = () => commands.dismissTools();
+export const checkDebrid = (service: DebridChoice, key: string) => commands.checkDebrid(service, key);
 export const remoteStatus = () => commands.remoteStatus();
 export const pairPhone = (on: boolean) => commands.pairPhone(on);
 export const removeDevice = (id: Id) => commands.removeDevice(id);
@@ -192,6 +199,7 @@ export const addBrowser = (program: string) => commands.addBrowser(program);
 export const removeBrowser = (index: number) => commands.removeBrowser(index);
 export const restartBrowser = (index: number) => commands.restartBrowser(index);
 export const openThemesFolder = () => commands.openThemesFolder();
+export const openExtensionFolder = (kind: ExtensionKind) => commands.openExtensionFolder(kind);
 export const playSound = (index: number, file: string) => commands.playSound(index, file);
 export const systemProxy = () => commands.systemProxy();
 export const heartbeat = (visible: boolean) => commands.heartbeat(visible);
@@ -202,3 +210,7 @@ export const verifyChecksum = (id: Id, checksum: string) => commands.verifyCheck
 export const openWith = (id: Id) => commands.openWith(id);
 export const dragFile = (id: Id) => commands.dragFile(id);
 export const answerException = (choice: ExceptionChoice, dontShow: boolean) => commands.answerException(choice, dontShow);
+export const pickTorrentFiles = (indexes: number[], chosen: boolean) => commands.pickTorrentFiles(indexes, chosen);
+export const setSeedLimits = (limits: SeedLimitsInput) => commands.setSeedLimits(limits);
+export const stopSeeding = () => commands.stopSeeding();
+export const openTorrentFile = () => commands.openTorrentFile();

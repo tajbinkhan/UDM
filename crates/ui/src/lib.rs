@@ -30,6 +30,7 @@ mod testing;
 mod theme;
 mod tips;
 mod tools;
+mod torrents;
 mod tray;
 mod watchdog;
 mod windows;
@@ -80,6 +81,8 @@ pub struct Start {
     pub window_files: Arc<dyn WindowFiles>,
     /// Registering UDM with the browsers, for Options.
     pub browsers: Arc<dyn BrowserRegistry>,
+    /// The computer's network adapters, for Options' Network page.
+    pub adapters: Arc<dyn udm_domain::ports::NetworkAdapters>,
     /// The theme files, for the custom themes.
     pub themes: Arc<dyn ThemeFiles>,
     /// Problem reports: the ones a crash left, and the watchdog's.
@@ -101,6 +104,12 @@ pub struct Start {
 
 /// Open the window and run it until the user quits from the tray.
 pub fn run(start: Start) -> Result<(), UiError> {
+    // GNOME and KDE match a window to its menu entry by its Wayland app id
+    // or X11 class, which GTK takes from the program's name. That would be
+    // `udm-gui`, which no entry names, so the dock showed a blank icon:
+    // `udm.desktop` (installer/linux) is the entry, with StartupWMClass=udm.
+    #[cfg(target_os = "linux")]
+    glib::set_prgname(Some("udm"));
     let builder = commands::builder();
     let invoke = builder.invoke_handler();
     let language: CurrentLanguage = Arc::new(AtomicUsize::new(0));
@@ -118,6 +127,7 @@ pub fn run(start: Start) -> Result<(), UiError> {
         files,
         window_files,
         browsers,
+        adapters,
         themes,
         reports,
         clipboard,
@@ -167,6 +177,7 @@ pub fn run(start: Start) -> Result<(), UiError> {
                 window_files,
                 folders,
                 browsers,
+                adapters,
                 themes,
                 reports: Arc::clone(&reports),
                 beats: Arc::clone(&beats),

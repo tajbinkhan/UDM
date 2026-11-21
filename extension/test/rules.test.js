@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { extensionOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed } = require("../chromium/rules.js");
+const { isMagnet, isTorrentFile, catchesTorrents, extensionOf, siteMatches, downloadType, captureDecision, keyAction, parseKeys, trackKey, forceLeavesLink, clickApplies, urlMatches, selectionButtonAllowed } = require("../chromium/rules.js");
 
 const RULES = {
   capture_types: ["zip", "pdf", "exe", "mp4"],
@@ -247,6 +247,65 @@ test("the worker keeps a skip-key download and sends a force-key link", async ()
   assert.equal(add.referrer, "https://dl.net/");
 });
 
+test("magnet links and torrent files", () => {
+  const hash = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
+  assert.ok(isMagnet(`magnet:?xt=urn:btih:${hash}&dn=a`));
+  assert.ok(isMagnet(`MAGNET:?dn=a&xt=urn:btih:${hash.toUpperCase()}`));
+  assert.ok(isMagnet("magnet:?xt=urn:btih:YEX6DQDLXISUVHOJ6UM3GNNKPQJWPKEK"), "base32");
+  assert.ok(!isMagnet("magnet:?xt=urn:ed2k:31d6cfe0d16ae931b73c59d7e0c089c0"), "not BitTorrent");
+  assert.ok(!isMagnet(`magnet:?xt=urn:btih:${hash}0`));
+  assert.ok(!isMagnet(`https://x/?xt=urn:btih:${hash}`));
+  assert.ok(isMagnet(`magnet:?dn=a&xt=urn%3Abtih%3A${hash}`), "percent-encoded, as the daemon reads it too");
+  assert.ok(isMagnet(`magnet:?xt.1=urn:btih:${hash}`));
+  assert.ok(!isMagnet("magnet:?xt=urn%3Abtih%3A%ZZ"));
+  assert.ok(isTorrentFile({ url: "https://x/a.torrent" }));
+  assert.ok(isTorrentFile({ url: "https://x/get?id=1", mime: "application/x-bittorrent; charset=binary" }));
+  assert.ok(isTorrentFile({ url: "https://x/get?id=1", filename: "Album.TORRENT" }));
+  assert.ok(!isTorrentFile({ url: "https://x/a.zip" }));
+  assert.ok(catchesTorrents({ torrents: { catch_torrent_files: true } }));
+  assert.ok(!catchesTorrents({ torrents: { catch_torrent_files: false } }));
+  assert.ok(!catchesTorrents({}), "an older UDM takes no torrents");
+
+  // A torrent file goes to UDM whatever its size and the captured types,
+  // unless its site or address is excluded or the skip key is held.
+  const rules = { ...RULES, torrents: { catch_torrent_files: true } };
+  const torrent = { url: "https://dl.net/a.torrent", size: 2000 };
+  assert.equal(captureDecision(rules, torrent).capture, true);
+  assert.equal(captureDecision(rules, { ...torrent, key: "skip" }).capture, false);
+  assert.equal(captureDecision(rules, { ...torrent, url: "https://cdn.example.com/a.torrent" }).capture, false);
+  assert.equal(captureDecision(RULES, torrent).capture, false, "UDM's settings say no: small, and not a captured type");
+});
+
+test("the worker hands a clicked magnet link to UDM while capture is on", async () => {
+  const w = loadWorker();
+  const magnet = "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Album";
+  assert.equal((await w.content({ type: "link:magnet", url: magnet }, 3, "https://site.net/")).ok, false, "not connected");
+  w.port.onMessage.fire({ op: "hello", name: "udm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "settings", settings: RULES });
+  assert.ok(w.chrome.storage.written.some((o) => o.magnetCapture === true), "content scripts hear magnet links go to UDM");
+  const answer = await w.content({ type: "link:magnet", url: magnet }, 3, "https://site.net/");
+  assert.equal(answer.ok, true);
+  const add = w.sent.filter((m) => m.op === "add").at(-1);
+  assert.equal(add.url, magnet);
+  const before = w.sent.length;
+  assert.equal((await w.content({ type: "link:magnet", url: "https://site.net/a.zip" }, 3)).ok, false);
+  // A page on a site the settings leave to the browser keeps its magnet links.
+  assert.equal((await w.content({ type: "link:magnet", url: magnet }, 3, "https://cdn.example.com/")).ok, false);
+  assert.equal(w.sent.length, before);
+});
+
+test("a .torrent download goes to UDM with its type, even without a request to tell it", async () => {
+  const w = loadWorker();
+  w.port.onMessage.fire({ op: "hello", name: "udm-daemon", version: "x" });
+  w.port.onMessage.fire({ op: "settings", settings: { ...RULES, torrents: { catch_torrent_files: true } } });
+  await w.chrome.downloads.onCreated.fire(
+    download({ url: "https://dl.net/download.php?id=3", filename: "/home/u/Downloads/x.torrent", mime: "application/x-bittorrent" }),
+  );
+  const add = w.sent.filter((m) => m.op === "add").at(-1);
+  assert.equal(add.url, "https://dl.net/download.php?id=3");
+  assert.equal(add.content_type, "application/x-bittorrent");
+});
+
 test("address exceptions with wildcards", () => {
   assert.ok(urlMatches("https://example.com/files/*", "https://example.com/files/a.zip"));
   assert.ok(urlMatches("https://example.com/files/*", "HTTPS://Example.com/files/sub/b.iso?x=1"));
@@ -479,4 +538,104 @@ test("the content scripts can run twice in one frame", () => {
     script.runInContext(world);
     assert.doesNotThrow(() => script.runInContext(world), `${file} the second time`);
   }
+});
+
+// After UDM is updated or reloaded, the content script already in an open
+// page is cut off from the extension: chrome.runtime.sendMessage throws
+// "Extension context invalidated", which showed in the extension's errors
+// as an uncaught promise from the video button. It throws nothing now, and
+// a magnet link clicked is left to the browser.
+test("a cut-off content script throws nothing", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vm = require("node:vm");
+  const dir = path.join(__dirname, "..", "chromium");
+  const listeners = {};
+  const on = (type, fn) => (listeners[type] = listeners[type] || []).push(fn);
+  const fire = (type, ev) => (listeners[type] || []).forEach((fn) => fn(ev));
+  class Element {}
+  class HTMLVideoElement extends Element {}
+  class HTMLAnchorElement extends Element {}
+  const invalidated = () => {
+    throw new Error("Extension context invalidated.");
+  };
+  let sent = 0;
+  const world = vm.createContext({
+    globalThis: undefined,
+    Element,
+    HTMLVideoElement,
+    HTMLAudioElement: class extends Element {},
+    HTMLObjectElement: class extends Element {},
+    HTMLEmbedElement: class extends Element {},
+    HTMLAnchorElement,
+    HTMLAreaElement: class extends Element {},
+    HTMLFormElement: class extends Element {},
+    innerWidth: 1000,
+    addEventListener: on,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
+    document: { addEventListener: on, querySelector: () => null },
+    chrome: {
+      storage: { local: { get: invalidated }, onChanged: { addListener: invalidated } },
+      runtime: {
+        id: undefined,
+        sendMessage: () => {
+          sent++;
+          invalidated();
+        },
+        onMessage: { addListener: invalidated },
+      },
+      i18n: { getMessage: invalidated, getUILanguage: invalidated },
+    },
+  });
+  world.globalThis = world;
+  world.window = world;
+  world.top = world;
+  // The page loaded while UDM ran, so the listeners are in place; storage
+  // and onMessage work then.
+  const chrome = world.chrome;
+  chrome.storage = {
+    local: { get: async () => ({ magnetCapture: true }) },
+    onChanged: { addListener: () => {} },
+  };
+  chrome.runtime.onMessage = { addListener: () => {} };
+  for (const file of ["rules.js", "links.js", "content.js"]) {
+    vm.runInContext(fs.readFileSync(path.join(dir, file), "utf8"), world, { filename: file });
+  }
+  await new Promise((r) => setImmediate(r));
+  // Then UDM is reloaded.
+  chrome.storage = { local: { get: invalidated }, onChanged: { addListener: invalidated } };
+  chrome.runtime.onMessage = { addListener: invalidated };
+
+  const rejections = [];
+  const onRejection = (err) => rejections.push(err);
+  process.on("unhandledRejection", onRejection);
+  try {
+    const video = new HTMLVideoElement();
+    video.readyState = 4;
+    assert.doesNotThrow(() => fire("play", { target: video }), "a video plays");
+    assert.doesNotThrow(() => fire("loadstart", { target: video }), "a video loads");
+    assert.doesNotThrow(() => fire("mouseover", { target: video }), "the mouse is over a video");
+    assert.doesNotThrow(() => fire("keydown", { isTrusted: true, key: "Shift", shiftKey: true }), "a key is pressed");
+    const link = new HTMLAnchorElement();
+    link.href = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567";
+    link.getAttribute = () => null;
+    let prevented = false;
+    fire("click", {
+      isTrusted: true,
+      button: 0,
+      detail: 1,
+      composedPath: () => [link],
+      preventDefault: () => (prevented = true),
+      stopImmediatePropagation: () => {},
+    });
+    assert.equal(prevented, false, "a magnet link is left to the browser");
+    await new Promise((r) => setTimeout(r, 20));
+  } finally {
+    process.off("unhandledRejection", onRejection);
+  }
+  assert.deepEqual(rejections, []);
+  assert.ok(sent > 0, "the playing video tried to tell the worker, and its throw was caught");
 });

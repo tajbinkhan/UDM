@@ -133,6 +133,7 @@ fn compare(sort: Sort, a: &DownloadEntry, b: &DownloadEntry, state: &AppState) -
         ColumnKey::Page => known(lower(a.page.as_deref()), lower(b.page.as_deref()), down),
         ColumnKey::Referrer => known(lower(a.referrer.as_deref()), lower(b.referrer.as_deref()), down),
         ColumnKey::Description => known(lower(a.description.as_deref()), lower(b.description.as_deref()), down),
+        ColumnKey::Country => known(a.country, b.country, down),
     }
 }
 
@@ -189,9 +190,12 @@ pub fn row(ctx: &Ctx, state: &AppState, queued: &HashMap<DownloadId, ()>, e: &Do
     let speed = state.speed(e.id).filter(|_| e.status == Status::Downloading);
     let fraction = format::fraction(e);
     let percent = fraction.map(|f| format!("{}%", lang.number(f64::from(f) * 100.0, 2)));
-    let status = match e.status {
-        Status::Downloading => percent.clone().unwrap_or_else(|| format::status_word(lang, e.status).to_string()),
-        s => format::status_word(lang, s).to_string(),
+    let status = match super::torrent::row_status(lang, e, state.torrents.get(&e.id)) {
+        Some(torrent) => torrent,
+        None => match e.status {
+            Status::Downloading => percent.clone().unwrap_or_else(|| format::status_word(lang, e.status).to_string()),
+            s => format::status_word(lang, s).to_string(),
+        },
     };
     let tone = match e.status {
         Status::Downloading => Tone::Running,
@@ -227,6 +231,7 @@ pub fn row(ctx: &Ctx, state: &AppState, queued: &HashMap<DownloadId, ()>, e: &Do
             .unwrap_or_default(),
         page: e.page.clone().unwrap_or_default(),
         referrer: e.referrer.clone().unwrap_or_default(),
+        country: e.country.map(|c| format::country(c, ctx.flags)).unwrap_or_default(),
     }
 }
 
@@ -244,6 +249,7 @@ fn column_title(key: ColumnKey) -> &'static str {
         ColumnKey::Page => "Parent web page",
         ColumnKey::Referrer => "Referrer",
         ColumnKey::Description => "Description",
+        ColumnKey::Country => "Country",
     }
 }
 
@@ -375,6 +381,8 @@ pub fn can(state: &AppState) -> Can {
         verify: one.is_some_and(|e| e.status == Status::Done && e.path.is_some()),
         open_with: open_with && one.is_some_and(|e| e.status == Status::Done && e.path.is_some()),
         drag_out: crate::drag::CAN_DRAG,
+        torrent: one.is_some_and(|e| e.torrent.is_some() && e.status != Status::Confirming),
+        stop_seeding: connected && selected.iter().any(|e| super::torrent::is_seeding(e)),
         connected,
     }
 }
@@ -396,6 +404,28 @@ fn banner(ctx: &Ctx, state: &AppState) -> Option<Banner> {
             .map(|n| Banner { text: lang.tr(&n.text).to_string(), error: n.error })
             .or_else(|| crate::extras::notice(lang, state).map(|text| Banner { text, error: false })),
     }
+}
+
+/// The key in `window.json` that remembers the first-start language
+/// picker was answered.
+pub const LANGUAGE_ASKED: &str = "language_asked";
+
+/// "System default" and each language, by its own name.
+pub fn language_choices(lang: &'static crate::i18n::Language) -> Vec<crate::contract::Choice> {
+    let mut choices =
+        vec![crate::contract::Choice { value: String::new(), label: lang.tr("System default").to_string() }];
+    choices.extend(
+        crate::i18n::LANGUAGES
+            .iter()
+            .map(|l| crate::contract::Choice { value: l.code.to_string(), label: l.name.to_string() }),
+    );
+    choices
+}
+
+/// Whether the window should ask for a language: the settings have
+/// arrived with none chosen, and the picker was never answered.
+fn ask_language(state: &AppState) -> bool {
+    state.settings.as_ref().is_some_and(|s| s.language.is_empty()) && !state.layout_rest.contains_key(LANGUAGE_ASKED)
 }
 
 pub fn chrome(ctx: &Ctx, state: &AppState) -> MainChrome {
@@ -438,6 +468,10 @@ pub fn chrome(ctx: &Ctx, state: &AppState) -> MainChrome {
         next_tip: state.settings.as_ref().map_or(0, |s| (s.next_tip % crate::tips::TIPS.len()) as u32),
         tips_on_startup: state.settings.as_ref().is_some_and(|s| s.tips_on_startup),
         show_tip: !state.tip_seen && state.settings.as_ref().is_some_and(|s| s.tips_on_startup),
+        languages: language_choices(lang),
+        language: state.settings.as_ref().map(|s| s.language.clone()).unwrap_or_default(),
+        language_now: lang.code.to_string(),
+        ask_language: ask_language(state),
         newer: match &state.asks.update {
             Some(Ok(Some(r)))
                 if state.layout_rest.get("dismissed_release").and_then(|v| v.as_str()) != Some(r.version.as_str()) =>
@@ -447,6 +481,10 @@ pub fn chrome(ctx: &Ctx, state: &AppState) -> MainChrome {
             _ => None,
         },
         newer_installable: matches!(&state.asks.update, Some(Ok(Some(r))) if r.setup.is_some()),
+        newer_ready: state.asks.update_ready && matches!(&state.asks.update, Some(Ok(Some(r))) if r.setup.is_some()),
+        updating: state.asks.installing == Some(None),
+        update_progress: super::dialogs::update_progress(lang, &state.asks),
+        missing_tools: crate::services::missing_tools(lang, state),
         packages: state.asks.packages.iter().map(|p| crate::extras::package_menu(state, p)).collect(),
         report: crate::reports::strip(lang, &state.reports),
         reconnect: matches!(state.link, Link::Lost(_)),
@@ -496,11 +534,30 @@ mod tests {
             now: std::time::Instant::now(),
             unix: 1_700_000_000,
             downloads: std::path::PathBuf::from("/home/u/Downloads"),
+            flags: true,
         }
     }
 
     fn entry(id: u64, name: &str, status: Status, total: u64) -> DownloadEntry {
         crate::testing::entry(id, name, status, total, 0)
+    }
+
+    #[test]
+    fn the_first_start_asks_for_a_language_once() {
+        let mut s = AppState::default();
+        assert!(!ask_language(&s), "not before the settings arrive");
+        s.settings = Some(Settings::default());
+        assert!(ask_language(&s));
+        let chrome = chrome(&ctx(), &s);
+        assert_eq!(chrome.languages[0].value, "");
+        assert_eq!(chrome.languages[0].label, "System default");
+        assert_eq!(chrome.languages.len(), crate::i18n::LANGUAGES.len() + 1);
+        assert_eq!(chrome.language_now, "en");
+        s.layout_rest.insert(LANGUAGE_ASKED.into(), true.into());
+        assert!(!ask_language(&s), "answered once");
+        s.layout_rest.clear();
+        s.settings = Some(Settings { language: "de".into(), ..Settings::default() });
+        assert!(!ask_language(&s), "chosen in Options already");
     }
 
     fn state_with(entries: Vec<DownloadEntry>) -> AppState {

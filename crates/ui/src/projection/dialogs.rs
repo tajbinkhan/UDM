@@ -7,15 +7,17 @@ use udm_domain::download::{DownloadEntry, SegmentState, Status};
 use udm_domain::id::DownloadId;
 use udm_domain::queue::WhenDone;
 use udm_domain::settings::{Settings, GENERAL};
+use udm_domain::update::{Installer, Release};
 
 use super::format;
 use super::main::{display_name, is_startable};
 use super::Ctx;
+use crate::contract::ToolProgressView;
 use crate::contract::{
     AboutView, AddUrlView, DoneView, DownloadView, DuplicateView, Id, LimitView, OnDoneView, QueueItem, RemoveView,
     SaveAsView, SegmentView, Then,
 };
-use crate::i18n::fill;
+use crate::i18n::{fill, Language};
 use crate::state::AppState;
 
 fn settings(state: &AppState) -> Settings {
@@ -81,9 +83,10 @@ pub fn save_as(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<SaveAsView
             break;
         }
     }
+    let torrent = super::torrent::save_as_part(ctx, state, e, &save_as);
     Some(SaveAsView {
         id: Id(id.get()),
-        can_preview: e.resumable && name.to_ascii_lowercase().ends_with(".zip"),
+        can_preview: e.resumable && torrent.is_none() && name.to_ascii_lowercase().ends_with(".zip"),
         url: e.url.to_string(),
         categories,
         remember_folder: settings.remembers_folder(&category),
@@ -103,6 +106,7 @@ pub fn save_as(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<SaveAsView
             .map(|q| QueueItem { id: Id(q.id.get()), name: ctx.lang.tr(&q.name).to_string(), running: q.running })
             .collect(),
         can_elevate: state.system.can_elevate,
+        torrent,
     })
 }
 
@@ -137,8 +141,8 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
     let percent = lang.number(f64::from(fraction) * 100.0, 2);
     let unknown = lang.tr("(unknown)").to_string();
     let downloaded = match format::fraction(e) {
-        Some(_) => format!("{} ( {} % )", format::bytes(lang, e.done, 3), percent),
-        None => format::bytes(lang, e.done, 3),
+        Some(_) => format!("{} ({}%)", format::bytes(lang, e.done, 2), percent),
+        None => format::bytes(lang, e.done, 2),
     };
     let total = e.total.map(|t| t.as_f64()).filter(|t| *t > 0.0);
     let segments = state
@@ -151,7 +155,7 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
                     SegmentView {
                         start: share(s.start.as_f64()),
                         reached: share(s.start.as_f64() + s.done.as_f64()),
-                        downloaded: format::bytes(lang, s.done, 3),
+                        downloaded: format::bytes(lang, s.done, 2),
                         info: lang
                             .tr(match s.state {
                                 SegmentState::Waiting => "Waiting",
@@ -170,10 +174,11 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
         id: Id(id.get()),
         title: format!("{}% {}", lang.number(f64::from(fraction) * 100.0, 0), name),
         address: e.url.to_string(),
-        status: format::status_line(lang, e).to_string(),
-        size: e.total.map(|t| format::bytes(lang, t, 3)).unwrap_or_else(|| unknown.clone()),
+        status: super::torrent::status_line(lang, e).unwrap_or_else(|| format::status_line(lang, e)).to_string(),
+        // Two decimals, as the list and Download File Info write sizes.
+        size: e.total.map(|t| format::bytes(lang, t, 2)).unwrap_or_else(|| unknown.clone()),
         downloaded,
-        speed: speed.map(|s| format::rate(lang, s, 3)).unwrap_or_default(),
+        speed: speed.map(|s| format::rate(lang, s, 2)).unwrap_or_default(),
         time_left: format::time_left(e, speed).map(|s| format::duration(lang, s)).unwrap_or_default(),
         resume: lang
             .tr(match (e.last_try, e.resumable) {
@@ -182,6 +187,7 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
                 (Some(_), false) => "No",
             })
             .to_string(),
+        country: e.country.map(|c| format::country(c, ctx.flags)).unwrap_or_default(),
         fraction,
         running: matches!(e.status, Status::Downloading | Status::Queued),
         can_resume: is_startable(e.status),
@@ -196,6 +202,7 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
         speed_tab: settings.progress_speed_tab,
         done_tab: settings.progress_done_tab,
         details: settings.progress_start_details,
+        torrent: super::torrent::download_part(ctx, state, e).map(Box::new),
     })
 }
 
@@ -229,6 +236,15 @@ pub fn remove(state: &AppState) -> Option<RemoveView> {
     Some(RemoveView { count: state.to_remove.len() as u32, has_files })
 }
 
+/// How far Update now's download is, for About and the main window's
+/// strip: only while it downloads and once the daemon has said.
+pub fn update_progress(lang: &'static Language, a: &crate::extras::Asks) -> Option<ToolProgressView> {
+    match (&a.installing, a.update_progress) {
+        (Some(None), Some((done, total))) => Some(crate::services::progress_view(lang, done, total)),
+        _ => None,
+    }
+}
+
 pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
     let lang = ctx.lang;
     let a = &state.asks;
@@ -236,6 +252,13 @@ pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
         (Some(None), _, _) => lang.tr("Downloading the update...").to_string(),
         (Some(Some(why)), _, _) => fill(lang.tr("The update did not install: {error}"), &[("error", why)]),
         (_, _, true) => lang.tr("Checking for updates...").to_string(),
+        (_, Some(Ok(Some(r))), _) if r.package_manager => fill(
+            lang.tr("UDM {version} is available. Update it through your system's package manager."),
+            &[("version", &r.version)],
+        ),
+        (_, Some(Ok(Some(r))), _) if a.update_ready => {
+            fill(lang.tr("UDM {version} is downloaded and ready to install."), &[("version", &r.version)])
+        }
         (_, Some(Ok(Some(r))), _) => fill(lang.tr("UDM {version} is available."), &[("version", &r.version)]),
         (_, Some(Ok(None)), _) => lang.tr("This is the latest version.").to_string(),
         (_, Some(Err(why)), _) => fill(lang.tr("Could not check for updates: {error}"), &[("error", why)]),
@@ -246,6 +269,18 @@ pub fn about(ctx: &Ctx, state: &AppState) -> AboutView {
         daemon: state.daemon_version.clone().unwrap_or_default(),
         update,
         can_install: matches!(&a.update, Some(Ok(Some(r))) if r.setup.is_some()) && a.installing.is_none(),
+        install_title: match &a.update {
+            Some(Ok(Some(Release { setup: Some(s), .. }))) if s.installer.is_package() => lang
+                .tr("Download the new package, check it, and install it with the system's package manager, which asks for your password. UDM closes and starts again; downloads stop and can be resumed.")
+                .to_string(),
+            Some(Ok(Some(Release { setup: Some(s), .. }))) if s.installer != Installer::WindowsSetup => lang
+                .tr("Download the new version, check it, and put it in place of this one. UDM closes and starts again; downloads stop and can be resumed.")
+                .to_string(),
+            _ => lang
+                .tr("Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.")
+                .to_string(),
+        },
+        progress: update_progress(lang, a),
         checking: a.checking,
         connected: state.connected(),
     }
@@ -267,6 +302,7 @@ mod tests {
             now: std::time::Instant::now(),
             unix: 1_700_000_000,
             downloads: std::path::PathBuf::from("/home/u/Downloads"),
+            flags: true,
         }
     }
 
@@ -279,6 +315,74 @@ mod tests {
 
     fn entry(status: Status) -> DownloadEntry {
         crate::testing::entry(4, "big.bin", status, 41_943_040, 13_183_549)
+    }
+
+    #[test]
+    fn about_says_how_a_newer_release_installs() {
+        let ready = |installer: Option<Installer>, package_manager: bool, ready: bool| {
+            let mut s = AppState::default();
+            let setup = installer.map(|installer| udm_domain::update::SetupAsset {
+                name: "x".into(),
+                url: "u".into(),
+                installer,
+                checksums: None,
+            });
+            let newer = Release { version: "9.0.0".into(), url: "u".into(), setup, package_manager };
+            let event = Event::Update { newer: Some(newer), error: None, ready };
+            apply(&mut s, UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: 0 });
+            about(&ctx(), &s)
+        };
+        let release = |installer: Option<Installer>, package_manager: bool| ready(installer, package_manager, false);
+        let windows = release(Some(Installer::WindowsSetup), false);
+        assert!(windows.can_install);
+        assert_eq!(windows.update, "UDM 9.0.0 is available.");
+        assert!(windows.install_title.starts_with("Download the new Setup"));
+        let appimage = release(Some(Installer::AppImage), false);
+        assert!(appimage.can_install);
+        assert!(appimage.install_title.starts_with("Download the new version"));
+        let package = release(None, true);
+        assert!(!package.can_install);
+        assert_eq!(package.update, "UDM 9.0.0 is available. Update it through your system's package manager.");
+        let deb = release(Some(Installer::Deb), false);
+        assert!(deb.can_install);
+        assert_eq!(deb.update, "UDM 9.0.0 is available.");
+        assert!(deb.install_title.starts_with("Download the new package"));
+        assert!(release(Some(Installer::Rpm), false).install_title.contains("asks for your password"));
+        let downloaded = ready(Some(Installer::LinuxTar), false, true);
+        assert!(downloaded.can_install);
+        assert_eq!(downloaded.update, "UDM 9.0.0 is downloaded and ready to install.");
+    }
+
+    #[test]
+    fn about_shows_how_far_update_now_has_downloaded() {
+        use udm_domain::bytes::ByteCount;
+        let mut s = AppState::default();
+        let daemon = |s: &mut AppState, event: Event| {
+            apply(s, UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: 0 });
+        };
+        let progress = |done, total: Option<u64>| Event::UpdateProgress {
+            done: ByteCount::mib(done),
+            total: total.map(ByteCount::mib),
+        };
+        // Heard while nothing installs, it is dropped.
+        daemon(&mut s, progress(1, Some(4)));
+        assert_eq!(about(&ctx(), &s).progress, None);
+        apply(&mut s, UiMessage::Installing);
+        let v = about(&ctx(), &s);
+        assert_eq!((v.update.as_str(), v.progress), ("Downloading the update...", None), "nothing heard yet");
+        daemon(&mut s, progress(1, Some(4)));
+        let bar = about(&ctx(), &s).progress.unwrap();
+        assert_eq!((bar.text.as_str(), bar.percent), ("1.0 MB of 4.0 MB (25%)", Some(25)));
+        // The main window's strip shows the same.
+        let strip = super::super::main::chrome(&ctx(), &s);
+        assert!(strip.updating);
+        assert_eq!(strip.update_progress, Some(bar));
+        daemon(&mut s, progress(4, Some(4)));
+        assert_eq!(about(&ctx(), &s).progress.unwrap().text, "Checking and installing...");
+        daemon(&mut s, Event::UpdateFailed { error: udm_application::daemon::Failure::Other("bad".into()) });
+        assert_eq!(about(&ctx(), &s).progress, None, "a failure ends it");
+        let strip = super::super::main::chrome(&ctx(), &s);
+        assert!(!strip.updating && strip.update_progress.is_none());
     }
 
     #[test]
@@ -318,8 +422,8 @@ mod tests {
     fn the_progress_window_reads_like_the_list() {
         let s = with(entry(Status::Downloading));
         let v = download(&ctx(), &s, DownloadId::new(4)).unwrap();
-        assert_eq!(v.size, "40.000 MB");
-        assert_eq!(v.downloaded, "12.573 MB ( 31.43 % )");
+        assert_eq!(v.size, "40.00 MB");
+        assert_eq!(v.downloaded, "12.57 MB (31.43%)");
         assert_eq!(v.title, "31% big.bin");
         assert!(v.running && !v.can_resume);
     }

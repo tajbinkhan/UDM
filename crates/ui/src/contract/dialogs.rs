@@ -32,7 +32,8 @@ pub struct SaveAsView {
     pub url: String,
     pub categories: Vec<String>,
     pub category: String,
-    /// The file's folder and name, joined.
+    /// The file's folder and name, joined; for a torrent of one file
+    /// (`torrent.fixed_name`), Save As holds and sends its folder alone.
     pub save_as: String,
     /// The folders the list remembers, for the Save As box's list.
     pub folders: Vec<String>,
@@ -48,6 +49,8 @@ pub struct SaveAsView {
     /// The system can ask for administrator rights to save in a folder UDM
     /// may not write to.
     pub can_elevate: bool,
+    /// A torrent's files to choose from.
+    pub torrent: Option<super::SaveAsTorrent>,
 }
 
 /// The Duplicate download link question.
@@ -139,6 +142,8 @@ pub struct DownloadView {
     pub speed: String,
     pub time_left: String,
     pub resume: String,
+    /// The server's country, its flag and code; empty when unknown.
+    pub country: String,
     #[specta(type = specta_typescript::Number)]
     pub fraction: f32,
     pub running: bool,
@@ -150,6 +155,8 @@ pub struct DownloadView {
     pub speed_tab: bool,
     pub done_tab: bool,
     pub details: bool,
+    /// A torrent's files, peers, trackers, pieces and seeding.
+    pub torrent: Option<Box<super::TorrentView>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
@@ -205,6 +212,12 @@ pub struct AboutView {
     pub update: String,
     /// A newer release can be installed.
     pub can_install: bool,
+    /// What Update now does, for its tooltip: run Windows' Setup, or put
+    /// the new copy in place of this one.
+    pub install_title: String,
+    /// How far Update now's download is, while it downloads and the daemon
+    /// has said.
+    pub progress: Option<super::options::ToolProgressView>,
     pub checking: bool,
     pub connected: bool,
 }

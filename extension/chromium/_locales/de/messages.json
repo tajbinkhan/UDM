@@ -96,7 +96,7 @@
     "message": "Herunterladen"
   },
   "noDownloads": {
-    "message": "Noch keine Downloads."
+    "message": "Keine laufenden oder pausierten Downloads."
   },
   "stateQueued": {
     "message": "In der Warteschlange"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "Wird heruntergeladen"
   },
-  "stateDone": {
-    "message": "Fertig"
+  "statePaused": {
+    "message": "Pausiert"
   },
-  "stateFailed": {
-    "message": "Fehlgeschlagen"
+  "pause": {
+    "message": "Pausieren"
   },
-  "stateCanceled": {
-    "message": "Abgebrochen"
-  },
-  "stateInterrupted": {
-    "message": "Unterbrochen"
-  },
-  "stateConfirming": {
-    "message": "Wartet in UDM auf Sie"
-  },
-  "stateWaiting": {
-    "message": "Wartet auf den Start"
-  },
-  "threatFound": {
-    "message": "Bedrohung gefunden"
-  },
-  "start": {
-    "message": "Starten"
-  },
-  "cancel": {
-    "message": "Abbrechen"
-  },
-  "retry": {
-    "message": "Wiederholen"
-  },
-  "remove": {
-    "message": "Entfernen"
+  "resume": {
+    "message": "Fortsetzen"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

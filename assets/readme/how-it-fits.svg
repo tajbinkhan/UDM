@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540" role="img" aria-labelledby="title desc">
+  <title id="title">How UDM fits together</title>
+  <desc id="desc">Five clients talk to udm-daemon: the browser extension through udm-host, the udm-gui window, the udm-cli tool and the udm-mcp server over an authenticated loopback connection, and a paired phone over HTTPS. The daemon owns every download and hands it to the engine, which speaks HTTP/1.1 and HTTP/2, FTP and FTPS, HLS, DASH and HDS, torrents, and yt-dlp and gallery-dl.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#6fa8ec"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="540" rx="24" fill="#0f1722"/>
+
+  <g font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" letter-spacing="2" fill="#93a1b2">
+    <text x="48" y="64">CLIENTS</text>
+    <text x="566" y="64">BACKGROUND SERVICE</text>
+    <text x="940" y="64">ENGINE</text>
+  </g>
+
+  <g id="clients" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+    <g fill="#182231" stroke="#2a3646" stroke-width="1.5">
+      <rect x="48" y="96" width="240" height="68" rx="12"/>
+      <rect x="306" y="96" width="164" height="68" rx="12"/>
+      <rect x="48" y="184" width="422" height="68" rx="12"/>
+      <rect x="48" y="272" width="422" height="68" rx="12"/>
+      <rect x="48" y="360" width="422" height="68" rx="12"/>
+      <rect x="48" y="448" width="422" height="68" rx="12"/>
+    </g>
+    <path d="M288 130 H302" stroke="#6fa8ec" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <g font-size="21" font-weight="600" fill="#eef3f8">
+      <text x="68" y="126">Browser extension</text>
+      <text x="326" y="138" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-weight="400">udm-host</text>
+      <text x="68" y="214" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-weight="400">udm-gui</text>
+      <text x="68" y="302" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-weight="400">udm-cli</text>
+      <text x="68" y="390" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-weight="400">udm-mcp</text>
+      <text x="68" y="478">A paired phone</text>
+    </g>
+    <g font-size="18" fill="#93a1b2">
+      <text x="68" y="151">Chromium, Firefox, Safari</text>
+      <text x="68" y="239">the desktop window</text>
+      <text x="68" y="327">terminals and scripts</text>
+      <text x="68" y="415">AI assistants (MCP)</text>
+      <text x="68" y="503">browser page over HTTPS</text>
+    </g>
+  </g>
+
+  <g id="links" stroke="#6fa8ec" stroke-width="2" fill="none">
+    <path d="M470 130 H520 V300 H556" marker-end="url(#arrow)"/>
+    <path d="M470 218 H520"/>
+    <path d="M470 306 H520"/>
+    <path d="M470 394 H520 V300"/>
+    <path d="M470 482 H536 V420 H556" stroke-dasharray="6 6" marker-end="url(#arrow)"/>
+  </g>
+
+  <g id="daemon" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+    <rect x="560" y="96" width="320" height="420" rx="16" fill="#182231" stroke="#4a92e8" stroke-width="2"/>
+    <text x="588" y="148" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="28" font-weight="700" fill="#eef3f8">udm-daemon</text>
+    <g font-size="20" fill="#eef3f8">
+      <text x="588" y="196">Owns every download,</text>
+      <text x="588" y="224">the queues and the list.</text>
+      <text x="588" y="276">Keeps running when the</text>
+      <text x="588" y="304">browser and window close.</text>
+    </g>
+    <g font-size="18" fill="#93a1b2">
+      <text x="588" y="388">Each client proves who it is</text>
+      <text x="588" y="412">with a secret only your</text>
+      <text x="588" y="436">account can read.</text>
+      <text x="588" y="484" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" fill="#6fa8ec">--server · Docker</text>
+    </g>
+  </g>
+
+  <path d="M880 306 H932" stroke="#2fb350" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+
+  <g id="engine" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" fill="#eef3f8">
+    <g fill="#182231" stroke="#2a3646" stroke-width="1.5">
+      <rect x="940" y="96" width="212" height="68" rx="12"/>
+      <rect x="940" y="184" width="212" height="68" rx="12"/>
+      <rect x="940" y="272" width="212" height="68" rx="12"/>
+      <rect x="940" y="360" width="212" height="68" rx="12"/>
+      <rect x="940" y="448" width="212" height="68" rx="12"/>
+    </g>
+    <g fill="#2fb350">
+      <rect x="940" y="108" width="5" height="44" rx="2"/>
+      <rect x="940" y="196" width="5" height="44" rx="2"/>
+      <rect x="940" y="284" width="5" height="44" rx="2"/>
+      <rect x="940" y="372" width="5" height="44" rx="2"/>
+      <rect x="940" y="460" width="5" height="44" rx="2"/>
+    </g>
+    <text x="962" y="137">HTTP/1.1 · HTTP/2</text>
+    <text x="962" y="225">FTP · FTPS</text>
+    <text x="962" y="313">HLS · DASH · HDS</text>
+    <text x="962" y="401">Torrents</text>
+    <text x="962" y="489">yt-dlp · gallery-dl</text>
+  </g>
+</svg>

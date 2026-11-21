@@ -8,14 +8,16 @@ each system:
 |---|---|---|
 | Windows 10 and 11 | `UDM-Setup-<version>.exe` | the installer, below |
 | | `UDM-<version>-windows-portable.zip` | a [portable copy](portable.md), everything in its own folder |
-| macOS 11 or later | `UDM-<version>-macos.dmg` | Apple Silicon and Intel |
+| macOS 11 or later | `UDM-<version>-macos.dmg` | Apple Silicon and Intel, [experimental](#macos) |
 | Ubuntu, Debian, Mint | `udm_<version>_amd64.deb` | `sudo apt install ./udm_*.deb` |
 | Fedora, openSUSE, RHEL | `udm-<version>-1.x86_64.rpm` | `sudo dnf install ./udm-*.rpm` |
 | Any Linux | `UDM-<version>-x86_64.AppImage` | make it executable and run it |
 | | `udm-<version>-linux-x86_64.tar.gz` | unpack and run `./install.sh` |
 
-The Linux files need glibc 2.35 and OpenSSL 3 (Ubuntu 22.04, Debian 12,
-Fedora 36 or newer) and GTK 3. The tray icon needs
+The Linux files need glibc 2.35, OpenSSL 3 and WebKitGTK 4.1 (Ubuntu 22.04,
+Debian 12, Fedora 36 or newer), which the window is drawn with. The `.deb`
+and `.rpm` pull it in; the AppImage and the `.tar.gz` need it installed
+(`libwebkit2gtk-4.1-0` on Ubuntu and Debian). The tray icon needs
 `libayatana-appindicator3` (and on GNOME the AppIndicator extension);
 notifications use `notify-send`. [Build](building.md#build) says how the files are made.
 
@@ -29,7 +31,10 @@ start-at-sign-in entry with UDM's. Half-finished downloads resume, and
 site passwords saved in Pullbay still work.
 
 - **Windows**: Setup closes Pullbay or UIDM, installs into a `UDM` folder
-  beside the old one, and removes the old folder and shortcuts.
+  beside the old one, and removes the old folder and shortcuts. Download
+  `UDM-Setup-<version>.exe` and run it yourself. Releases after 0.9.0 no
+  longer carry the `Pullbay-Setup` copy that Pullbay's **Update now**
+  looked for, so Pullbay finds no new version.
 - **Debian, Ubuntu, Fedora**: the `udm` package replaces the `pullbay`
   and `uidm` ones. `install.sh` removes their copies in `~/.local`.
 - **macOS and AppImage**: delete `Pullbay.app`, `UIDM.app` or the old
@@ -59,17 +64,25 @@ under [Build](building.md#build), run this from this folder:
 That builds the programs if needed, registers UDM with Chrome, Edge and
 Firefox, and adds **UDM** to the Start menu.
 
-Either way, load the extension once:
+Either way, add the extension to the browser once. It is not in the Chrome
+Web Store or on Firefox Add-ons yet. Once it is listed there, this page links
+to it and installing it from the store takes the place of the steps below;
+UDM then lets in both the store's copy and the one loaded by hand. Until then,
+load it by hand:
 
 1. Open `chrome://extensions` (or `edge://extensions`) and turn on
    **Developer mode**.
 2. Click **Load unpacked** and choose the `extension` folder inside the
    install folder (Setup's last page shows it and can open it), or
-   `extension/chromium` in this checkout.
+   `extension/chromium` in this checkout. In UDM, **Options > Browser
+   capture > Open extension folder** opens it on every system, and **Open
+   Firefox extension folder** opens the `firefox` one.
 3. Check that its ID reads `epmjakacaejhdhldkpbjnakhfmjjbhfm`. The manifest
    carries a fixed public key, so the ID is the same on every machine.
 
-After updating, reload the extension on the extensions page. It asks for
+After updating, reload the extension on the extensions page. What it does
+with each permission, and that nothing it reads leaves your computer, is in
+its [privacy policy](privacy.md). It asks for
 `webRequest` (to send downloads started by a form as the same POST, to send
 UDM the browser's whole request, and to notice the videos a page loads),
 `webNavigation` (to find the frame a link in an `about:blank` frame belongs
@@ -81,15 +94,15 @@ content script runs on every page for the video button; it does nothing
 until a video plays.
 
 For streamed videos to end up as one `.mp4`, install
-[ffmpeg](https://ffmpeg.org/): **Install ffmpeg** in **Options > General**
+[ffmpeg](https://ffmpeg.org/): **Install ffmpeg** in **Options > Tools**
 downloads the official build the yt-dlp project makes and checks it against
 its published checksum (on Windows and Linux), or put `ffmpeg.exe` on `PATH`,
-or choose it in **Options > General**. Without it UDM still downloads
+or choose it in **Options > Tools**. Without it UDM still downloads
 streams, as `.ts` files or as separate video and audio files.
 
 Videos on YouTube, Facebook, Instagram, Vimeo and the other sites
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) reads need yt-dlp as well:
-**Install yt-dlp** in **Options > General** downloads yt-dlp's own release
+**Install yt-dlp** in **Options > Tools** downloads yt-dlp's own release
 for your system and checks it the same way, and **Keep yt-dlp up to date**
 updates it once a day. `winget install yt-dlp.yt-dlp` installs it with
 ffmpeg and Deno too, which yt-dlp uses to read YouTube's player; Setup offers
@@ -107,31 +120,100 @@ setup over an older one closes UDM first and keeps your settings. With the
 script, `.\install-host.ps1 -Uninstall` removes what it added. Downloaded
 files are left alone either way.
 
-**Updates.** UDM looks for a newer release on GitHub once a week (Options >
+**Updates.** UDM looks for a newer release once a week (Options >
 General can turn that off), and **About** (which also shows the version,
-the copyright, and a support link to the issue tracker) checks on demand. When a newer
+the copyright, and a support link to the issue tracker) checks on demand. It
+asks UDM's [update host](update-host.md) and GitHub, and each of them sees your
+IP address when it answers. When a newer
 release has a Setup attached, **Update now** (in About, and next to the
 notice in the status bar) has the daemon download `UDM-Setup-<version>.exe`
-through your proxy settings, only from this repository's release downloads.
-It checks the file's size, that it is a Windows program, and its SHA-256
-when GitHub lists one, saves it to the temp folder and runs it with
+through your proxy settings, from the update host or this repository's release
+downloads.
+While it downloads, the daemon sends `update_progress` a few times a second
+and About shows a bar with how much has come (such as **12.3 MB of 40.0 MB
+(30%)**), then **Checking and installing...** once all of it is there; an
+installer downloaded ahead starts at once. It checks the file's size, that it is a Windows program, and its SHA-256
+against the release's signed checksums (below), saves it to the `update` folder in UDM's data folder and runs it with
 `/fromudm=yes` (Setup also takes Pullbay's `/frompullbay=yes`). UDM then stops its downloads, saves its list and quits;
 Setup closes whatever is left without asking again and replaces the files.
 Stopped downloads resume from the list as usual. The notice's **×** hides it
 for that version (remembered in `window.json`); a newer release shows it
-again.
+again. **Update now** works the same way on macOS and Linux (see
+[Updates on macOS and Linux](#updates-on-macos-and-linux)).
+
+**Signed releases.** Each release carries `SHA256SUMS`, the SHA-256 of every
+file in it, and `SHA256SUMS.minisig`, a [minisign](https://jedisct1.github.io/minisign/)
+signature of that list by UDM's release key. UDM has the public key built in
+(`crates/infrastructure/src/release-key.pub`) and installs nothing that the
+signed list does not name with the same checksum: a release without the two
+files, with a signature by another key, or with a file changed after signing
+is refused, and About says why. To check a download by hand:
+
+```sh
+minisign -Vm SHA256SUMS -p release-key.pub
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+### Updates on macOS and Linux
+
+**Update now** downloads the file that matches how UDM was installed, checks
+it as above, and puts it in place of the running copy (or, for a `.deb` or
+`.rpm`, has the package manager install it). UDM then stops its
+downloads, saves its list and quits, and the new copy starts a few seconds
+later.
+
+UDM tells a `.deb` copy by dpkg's list of the `udm` package's files, and an
+`.rpm` copy by asking `rpm -q udm`. Installing a package needs `pkexec` and a
+desktop that can ask for a password (GNOME, KDE and most others run a polkit
+agent). Closing the password prompt installs nothing, and About says so.
+
+| Installed from | Update now |
+| --- | --- |
+| The macOS disk image (`UDM.app`) | Downloads `UDM-<version>-macos.dmg`, opens it, and puts its `UDM.app` where the old one was. You need permission to write there (in `/Applications`, an administrator's account). |
+| The AppImage | Downloads `UDM-<version>-<arch>.AppImage` and replaces the AppImage file UDM runs from. |
+| The `.tar.gz`, with `install.sh` | Downloads `udm-<version>-linux-<arch>.tar.gz` and runs its `install.sh`, which replaces `~/.local/lib/udm`. |
+| The `.deb` | Downloads `udm_<version>_<arch>.deb` and installs it with `apt-get install` (or `dpkg -i` without apt) through `pkexec`, which asks for your password. The package manager keeps owning the files, so `apt remove udm` still removes it. |
+| The `.rpm` | Downloads `udm-<version>-1.<arch>.rpm` and installs it with `dnf install` (or `zypper install`, or `rpm -U` without either) through `pkexec`, which asks for your password. The package isn't signed with a key your system knows; the signed `SHA256SUMS` vouches for it instead. |
+| Some other package in `/usr` | Nothing: About says to update through your package manager. |
+| Anything else, such as a copy built from source | Nothing: the notice links to the release page. |
 
 ## macOS
 
-Open the disk image and drag **UDM** to **Applications**. UDM is not
-signed with an Apple Developer ID, so the first time, right-click it in
-Applications, choose **Open**, then **Open** again (or allow it under
-**System Settings > Privacy & Security**). The extension folders are inside
+The macOS build is **experimental**. It compiles and passes CI on macOS,
+but it has not been run on a real Mac yet, so parts of it may not work. If
+you try it, please [open an issue](https://github.com/tajbinkhan/UDM/issues)
+for anything that goes wrong.
+
+Open the disk image and drag **UDM** to **Applications**. UDM is signed ad
+hoc, not with an Apple Developer ID, and Apple has not notarized it, so
+macOS blocks it the first time it opens. To let it run:
+
+- **macOS 15 Sequoia and later.** Open UDM from Applications. When macOS
+  says it could not verify that UDM is free of malware, click **Done**.
+  Open **System Settings > Privacy & Security**, scroll down to
+  **Security**, and click **Open Anyway** next to the line about UDM. Enter
+  your password, then click **Open Anyway** once more. The button stays
+  there for about an hour after the blocked start; if it is gone, open UDM
+  again first. Control-click > **Open** no longer gets past the block on
+  these versions.
+- **macOS 14 Sonoma and earlier.** Control-click (or right-click) UDM in
+  Applications, choose **Open**, then **Open** again.
+
+macOS remembers the choice, so UDM opens normally after that. On any
+version, this Terminal command does the same in one step, by removing the
+mark macOS puts on files downloaded from the internet:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/UDM.app
+```
+
+The extension folders are inside
 the app: in Finder, right-click UDM, **Show Package Contents**, then
 `Contents/Resources/extension` (Chrome, Edge, Brave) or
 `Contents/Resources/firefox`. In Chrome's **Load unpacked** dialog,
 Cmd+Shift+G and `/Applications/UDM.app/Contents/Resources/extension` gets
-there directly.
+there directly. Safari's extension comes inside the app; [Safari](#safari)
+says how to turn it on.
 
 ## Linux
 
@@ -174,8 +256,9 @@ file that differs, is missing or is extra, and fails if there is any; the
 extension's tests, CI and the package builds run it. Setup and `install-host.ps1` register UDM with
 Firefox (under
 `HKCU\Software\Mozilla\NativeMessagingHosts`, with a host manifest that names
-that ID). Until the extension is signed by Mozilla, load it for each Firefox
-session:
+that ID). Once the extension is listed on Firefox Add-ons, install it from
+there: Mozilla signs that copy, so it stays installed when Firefox closes, and
+it keeps the same ID. Until then, load it for each Firefox session:
 
 1. Open `about:debugging`, choose **This Firefox**, then **Load Temporary
    Add-on...**, and pick `manifest.json` in the `firefox` folder.
@@ -186,7 +269,8 @@ session:
 
 Known gaps in Firefox:
 
-- A temporary add-on is removed when Firefox closes.
+- A temporary add-on is removed when Firefox closes, until the signed copy
+  is listed on Firefox Add-ons.
 - Firefox has no way to hide its download panel, as Chrome's `downloads.ui`
   does. It needs it less: it lets the extension cancel a download at its
   headers (`webRequestBlocking`, which only the Firefox copy asks for), so
@@ -195,6 +279,38 @@ Known gaps in Firefox:
 
 These were checked against a stand-in for the browser API in the extension's
 tests, not in a running Firefox.
+
+## Safari
+
+Safari 16.4 or later on macOS gets the extension from UDM.app itself: the
+disk image's app holds it as an app extension (`Contents/PlugIns/UDM
+Extension.appex`), made by Xcode's converter from `extension/safari`, a copy
+of the extension with its own manifest (`node installer/make-safari.js` makes
+it from `extension/chromium` and `extension/safari.json`, and
+`--check` tells whether it is current, as for Firefox). To turn it on:
+
+1. Open UDM once from **Applications**, so macOS finds the extension in it.
+2. UDM is signed ad hoc, not by a registered developer, so Safari hides the
+   extension until you allow unsigned extensions: turn on **Show features
+   for web developers** in **Safari > Settings > Advanced**, then choose
+   **Develop > Allow Unsigned Extensions** (in Safari 17 and later it is also
+   under **Safari > Settings > Developer**). Safari asks for your password,
+   and turns it off again each time it quits.
+3. In **Safari > Settings > Extensions**, tick **UDM**, then allow it on
+   every website (**Edit Websites...**, or **Always Allow on Every Website**
+   when Safari asks).
+
+Safari has no downloads API, so the extension cannot take a download the
+browser started. Instead it takes a link to a file as it is clicked, when
+the file's type is in UDM's captured types; other links open as usual. The
+context menu, **Download all links** and the popup work as in Chrome, and
+the video button as far as Safari lets the extension see a page's requests.
+Safari's native messages go to the app extension, not to a program Safari
+starts, and the app extension cannot send the extension anything of its
+own, so the extension keeps a request out that the app extension answers
+when UDM has news. The app extension runs `udm-host` inside Safari's
+sandbox, where it cannot start the daemon: UDM must already be running.
+[Known gaps](known-gaps.md) lists the rest.
 
 ---
 

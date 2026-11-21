@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="1064" viewBox="0 0 760 1064" font-family="system-ui, sans-serif" font-size="12">
+<title>Median seconds to download the file in each scenario, by tool</title>
 <rect width="760" height="1064" fill="#ffffff"/>
 <text x="16" y="24" font-size="14" font-weight="600" fill="#1d2430">Median seconds to download the file (shorter is better; each scenario has its own scale)</text>
 <text x="16" y="58" font-weight="600" fill="#1d2430">clean</text>

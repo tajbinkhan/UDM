@@ -86,6 +86,6 @@
   .edit {
     align-self: flex-start;
     width: 134px;
-    margin-left: 4px;
+    margin-inline-start: 4px;
   }
 </style>

@@ -28,6 +28,29 @@ function pageNames() {
   return { title: document.title, ogTitle: meta("og:title"), siteName: meta("og:site_name") };
 }
 
+// Whether this copy of the script still belongs to a running extension.
+// When UDM is updated, reloaded or turned off, the copy already in an open
+// page stays there, cut off: every chrome.runtime call then throws
+// "Extension context invalidated", and nothing it would show can work. The
+// worker gives the page a fresh copy (injectOpenTabs, in background.js).
+function udmConnected() {
+  try {
+    return !!(chrome.runtime && chrome.runtime.id);
+  } catch (_) {
+    return false;
+  }
+}
+
+// chrome.runtime.sendMessage, but a cut-off copy (udmConnected) gets a
+// rejected promise instead of a throw, which its callers' catch handles.
+function udmSend(msg) {
+  try {
+    return chrome.runtime.sendMessage(msg);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+}
+
 // The video button's "?": the help page on streams and the video button.
 var VIDEO_HELP = "https://github.com/tajbinkhan/UDM/blob/main/docs/streams-batches-and-grabber.md";
 
@@ -69,9 +92,25 @@ function makeMini(button) {
   if (udmContentAgain) return;
   // The capture_* key settings; none until they arrive.
   let keys = {};
-  chrome.storage.local.get("captureKeys").then((s) => s.captureKeys && (keys = s.captureKeys)).catch(() => {});
+  // Whether magnet links go to UDM as they are clicked: UDM is connected
+  // and capture is on (the worker shares it as `magnetCapture`).
+  let magnetCapture = false;
+  // Where the browser has no downloads API (Safari), whether links to files
+  // are taken as they are clicked, and the capture rules: { on, rules }, as
+  // the worker shares them (shareLinkCapture); none elsewhere.
+  let linkCapture = null;
+  chrome.storage.local
+    .get(["captureKeys", "linkCapture", "magnetCapture"])
+    .then((s) => {
+      if (s.captureKeys) keys = s.captureKeys;
+      if (s.linkCapture) linkCapture = s.linkCapture;
+      magnetCapture = !!s.magnetCapture;
+    })
+    .catch(() => {});
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.captureKeys && changes.captureKeys.newValue) keys = changes.captureKeys.newValue;
+    if (changes.linkCapture) linkCapture = changes.linkCapture.newValue || null;
+    if (changes.magnetCapture) magnetCapture = !!changes.magnetCapture.newValue;
   });
   // Insert and Del are no modifiers, so whether they are down is followed
   // by hand (trackKey, in rules.js).
@@ -88,7 +127,7 @@ function makeMini(button) {
           { alt: ev.altKey, ctrl: ev.ctrlKey, shift: ev.shiftKey, insert: held.insert, del: held.del },
         )
       : "";
-    if (heldReport(report, action, Date.now())) chrome.runtime.sendMessage({ type: "keys:held", action }).catch(() => {});
+    if (heldReport(report, action, Date.now())) udmSend({ type: "keys:held", action }).catch(() => {});
   }
   // A page's script can send key events; only the user's own count.
   addEventListener(
@@ -119,8 +158,12 @@ function makeMini(button) {
     // A page's script can send a click with the force key "held"; only the
     // user's own clicks count.
     if (!ev.isTrusted || ev.button > 1) return;
+    // A cut-off copy leaves the click to the browser.
+    if (!udmConnected()) return;
     const link = ev.composedPath().find((n) => n instanceof HTMLAnchorElement && n.href);
-    if (!link || !/^https?:/i.test(link.href)) return;
+    if (!link) return;
+    const magnet = isMagnet(link.href);
+    if (!magnet && !/^https?:/i.test(link.href)) return;
     const action = keyAction(keys, {
       alt: ev.altKey,
       ctrl: ev.ctrlKey,
@@ -131,15 +174,37 @@ function makeMini(button) {
       // A click made with Enter has a detail of 0.
       mouse: ev.detail > 0,
     });
-    if (action === "skip") {
-      chrome.runtime.sendMessage({ type: "link:skip" }).catch(() => {});
+    if (magnet) {
+      // A magnet link is no download the browser reports: UDM takes it as
+      // it is clicked, or the browser opens it as it would have, with the
+      // program it hands magnet links to (the skip keys, a middle click, or
+      // UDM not there).
+      if (action === "skip" || ev.button !== 0 || !magnetCapture) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      udmSend({ type: "link:magnet", url: link.href })
+        .then((r) => r && r.ok)
+        .catch(() => false)
+        .then((ok) => ok || link.click());
+    } else if (action === "skip") {
+      udmSend({ type: "link:skip" }).catch(() => {});
+    } else if (action === "" && linkCapture && linkCapture.on && clickTaken(linkCapture.rules, link.href, link.getAttribute("download"), location.href)) {
+      // Safari: the worker hands it to UDM, or the link is clicked again
+      // for the browser to follow as it would have (its target, its
+      // download attribute); that click is not the user's, so it is not
+      // taken again.
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      udmSend({ type: "link:capture", url: link.href, download: link.getAttribute("download") })
+        .then((r) => r && r.ok)
+        .catch(() => false)
+        .then((ok) => ok || link.click());
     } else if (action === "force" && !forceLeavesLink(keys, link.href)) {
 
       ev.preventDefault();
       ev.stopImmediatePropagation();
       const url = link.href;
-      chrome.runtime
-        .sendMessage({ type: "link:force", url })
+      udmSend({ type: "link:force", url })
         .then((r) => r && r.ok)
         .catch(() => false)
         .then((ok) => ok || location.assign(url));
@@ -161,7 +226,7 @@ if (!udmContentAgain) document.addEventListener(
     const files = formFileFields(form.elements);
     if (!files) return;
     const action = (ev.submitter && ev.submitter.formAction) || form.action;
-    chrome.runtime.sendMessage({ type: "form:files", url: action, ...files }).catch(() => {});
+    udmSend({ type: "form:files", url: action, ...files }).catch(() => {});
   },
   true,
 );
@@ -243,7 +308,7 @@ function selectionHasLinks(sel) {
     button.addEventListener("mousedown", (ev) => ev.preventDefault());
     button.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      chrome.runtime.sendMessage({ type: "selection:links" }).catch(() => {});
+      udmSend({ type: "selection:links" }).catch(() => {});
       hide();
     });
     root.append(style, button);
@@ -256,9 +321,9 @@ function selectionHasLinks(sel) {
 
   async function check() {
     const sel = getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount || !selectionHasLinks(sel)) return hide();
+    if (!udmConnected() || !sel || sel.isCollapsed || !sel.rangeCount || !selectionHasLinks(sel)) return hide();
     if (enabled === null) {
-      const answer = await chrome.runtime.sendMessage({ type: "selection:enabled" }).catch(() => null);
+      const answer = await udmSend({ type: "selection:enabled" }).catch(() => null);
       enabled = !!(answer && answer.enabled);
       if (answer && answer.view) view = answer.view;
     }
@@ -309,7 +374,7 @@ function selectionHasLinks(sel) {
   let nextId = 1;
   const startSent = new WeakMap();
 
-  const ask = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);
+  const ask = (msg) => udmSend(msg).catch(() => null);
 
   // A size, with numbers written the way the browser's language writes them.
   const SIZE_UNITS = ["sizeBytes", "sizeKB", "sizeMB", "sizeGB"];
@@ -369,7 +434,7 @@ function selectionHasLinks(sel) {
     const now = Date.now();
     if (now - (startSent.get(player) || 0) < 1000) return;
     startSent.set(player, now);
-    chrome.runtime.sendMessage({ type: "video:started", element: idOf(player) }).catch(() => {});
+    udmSend({ type: "video:started", element: idOf(player) }).catch(() => {});
   }
 
   // Players whose button was closed with its "x"; they get none until the
@@ -428,6 +493,10 @@ function selectionHasLinks(sel) {
       hide();
     });
     root.append(style, bar, menu);
+    // The button sits outside the player, so the pointer leaves the player
+    // to reach it: while the pointer is on it, it stays.
+    host.addEventListener("mouseenter", () => clearTimeout(hideTimer));
+    host.addEventListener("mouseleave", () => current && current.paused !== false && hideLater());
     ui = { bar, button, menu };
     (document.body || document.documentElement).append(host);
   }
@@ -444,9 +513,9 @@ function selectionHasLinks(sel) {
     return playerCovered(current, playerContainer(current), points, (x, y) => document.elementFromPoint(x, y), host);
   }
 
-  // Keep the button at the player's top right while it is on screen. An
-  // audio player is short: it gets the button above it (below, at the top
-  // of the window), and needs only some width.
+  // Keep the button outside the player, above its top right corner, while
+  // the player is on screen (videoButtonSpot in rules.js). An audio player
+  // is short and needs only some width.
   function place() {
     frame = 0;
     if (!current || !current.isConnected) return hide();
@@ -459,13 +528,16 @@ function selectionHasLinks(sel) {
     }
     host.style.display = "block";
     // The button's width depends on the language its label is in.
-    host.style.left = `${Math.max(0, Math.min(r.right, innerWidth) - ui.bar.offsetWidth - 20)}px`;
-    if (short) {
-      const height = ui.bar.offsetHeight || 28;
-      host.style.top = `${r.top - height - 4 >= 0 ? r.top - height - 4 : Math.max(0, r.bottom + 4)}px`;
-    } else {
-      host.style.top = `${Math.max(0, r.top) + 8}px`;
-    }
+    const spot = videoButtonSpot(r, ui.bar.offsetWidth, ui.bar.offsetHeight || 28, innerWidth, short);
+    host.style.left = `${spot.left}px`;
+    host.style.top = `${spot.top}px`;
+  }
+
+  // Hide the button a while after the pointer left its paused player (or
+  // the button itself), unless its menu is open.
+  function hideLater() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => ui && ui.menu.hidden && hide(), 2500);
   }
 
   function schedule() {
@@ -483,6 +555,8 @@ function selectionHasLinks(sel) {
   }
 
   async function show(player) {
+    // A cut-off copy takes its button away; the page's fresh copy has one.
+    if (!udmConnected()) return hide();
     if (enabled === null) {
       const answer = await ask({ type: "video:enabled" });
       enabled = !!(answer && answer.enabled);
@@ -500,6 +574,26 @@ function selectionHasLinks(sel) {
     clearTimeout(hideTimer);
     if (!recheck) recheck = setInterval(schedule, 1000);
     place();
+  }
+
+  // The video button may have been turned on or off (for this site or
+  // everywhere), or its look changed: ask again, and if the answer is not
+  // the one this page has, show the button anew or not at all. A page that
+  // has not asked yet has nothing to change.
+  async function settingsChanged() {
+    if (enabled === null) return;
+    const answer = await ask({ type: "video:enabled" });
+    if (!answer) return;
+    const now = { enabled: !!answer.enabled, view: answer.view || "full", protectedNote: answer.protectedNote !== false };
+    if (now.enabled === enabled && now.view === view && now.protectedNote === protectedNote) return;
+    ({ enabled, view, protectedNote } = now);
+    const player = current;
+    clearTimeout(hideTimer);
+    hide();
+    if (host) host.remove();
+    host = null;
+    ui = null;
+    if (player) show(player);
   }
 
   function protectedVideo() {
@@ -520,6 +614,7 @@ function selectionHasLinks(sel) {
   async function openMenu() {
     const menu = ui.menu;
     clearTimeout(closeTimer);
+    if (!udmConnected()) return hide();
     menu.hidden = false;
     if (protectedVideo()) {
       menu.replaceChildren(el("div", "note", chrome.i18n.getMessage("videoProtected")));
@@ -619,8 +714,7 @@ function selectionHasLinks(sel) {
     "mouseout",
     (ev) => {
       if (ev.target !== current || ev.relatedTarget === host || current.paused === false) return;
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => ui.menu.hidden && hide(), 2500);
+      hideLater();
     },
     true,
   );
@@ -636,6 +730,7 @@ function selectionHasLinks(sel) {
   // players and their streams are the old page's.
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === "video:reset") hide();
+    if (msg && msg.type === "video:settings") settingsChanged();
     return false;
   });
 })();

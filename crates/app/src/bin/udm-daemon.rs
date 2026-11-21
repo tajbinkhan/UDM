@@ -63,20 +63,23 @@ use udm_application::daemon::service::{
     confirm_answer, when_done, DaemonService, Note, Parts, RunProject, Served, Wiring,
 };
 use udm_application::daemon::Requests;
+use udm_application::debrid::ResolveLink;
 use udm_application::downloads::{RemoveDownload, RetryDownload, StartOrWait};
 use udm_application::pairing::{PairingDesk, Phone};
+use udm_domain::address::Address;
 use udm_domain::download::Answer;
 use udm_domain::id::DownloadId;
-use udm_domain::ports::{Browser, Probes, SiteCrawler};
+use udm_domain::ports::{Browser, Debrid, DebridKeys, Probes, SiteCrawler, Torrents};
 use udm_domain::seat::Seat;
 use udm_domain::settings::Settings;
 use udm_infrastructure::background;
 use udm_infrastructure::browser_bridge::BrowserBridge;
 use udm_infrastructure::clock::LocalClock;
-use udm_infrastructure::connect::ProxyRetries;
+use udm_infrastructure::connect::NetState;
 use udm_infrastructure::conversions::Conversions;
 use udm_infrastructure::crawler::Crawler;
 use udm_infrastructure::daemon_args::{self, Invocation};
+use udm_infrastructure::debrid::{DebridApi, KeyFile};
 use udm_infrastructure::files::DiskFiles;
 use udm_infrastructure::front::{self, AnswerWait, Front, Hook, Notices, Notifier, Windows};
 use udm_infrastructure::grab::{self, FoundFiles, ProjectFiles, ScheduledGrabs};
@@ -94,8 +97,9 @@ use udm_infrastructure::scan::Antivirus;
 use udm_infrastructure::server::{next_client, Clients, Server};
 use udm_infrastructure::settings;
 use udm_infrastructure::store::{DownloadStore, Ended, StoreEvents, StoreFiles, StoreIntake};
+use udm_infrastructure::torrent::{TorrentClient, TorrentDesk};
 use udm_infrastructure::transfers::{self, EarlyHandOver, GoOn, SyncChecker, Transfers};
-use udm_infrastructure::update::{GitHub, LATEST_RELEASE};
+use udm_infrastructure::update::{GitHub, LATEST_RELEASE, UPDATE_HOST};
 use udm_infrastructure::web_remote::devices::{DeviceFile, OsKeys};
 use udm_infrastructure::web_remote::WebRemote;
 
@@ -128,7 +132,7 @@ impl Wiring for Wired {
     type Projects = ProjectFiles;
     type GrabRuns = ScheduledGrabs;
     type Notifier = Notices;
-    type Retries = ProxyRetries;
+    type Retries = NetState;
     type Found = FoundFiles;
 }
 
@@ -142,6 +146,9 @@ struct Paths {
     store: StoreFiles,
     /// The remote-control page's certificate and the paired devices.
     remote: Option<PathBuf>,
+    /// The torrents' kept files and resume data; a temporary folder when
+    /// unknown.
+    torrents: Option<PathBuf>,
 }
 
 impl Paths {
@@ -155,6 +162,7 @@ impl Paths {
                 quota: warn("quota", udm_infrastructure::quota::quota_path()),
             },
             remote: warn("remote control", udm_infrastructure::paths::remote_dir()),
+            torrents: warn("torrents", udm_infrastructure::paths::torrents_dir()),
         }
     }
 }
@@ -221,7 +229,7 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
     let (store, dirty_rx, next_id) = DownloadStore::open(paths.store.clone(), Arc::clone(&clients) as _);
     let store = Arc::new(store);
     let settings = Arc::new(LiveSettings::new(settings, paths.settings.clone()));
-    let retries = Arc::new(ProxyRetries::default());
+    let retries = Arc::new(NetState::default());
     let events: Arc<dyn StoreEvents> = Arc::clone(&clients) as _;
     let windows: Arc<dyn Windows> = Arc::clone(&clients) as _;
     let files = Arc::new(DiskFiles);
@@ -297,12 +305,36 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
     };
     let releases = {
         let (settings, retries) = (Arc::clone(&settings), Arc::clone(&retries));
-        Box::new(move |url: &str| GitHub::new(Arc::clone(&settings), Arc::clone(&retries), url))
+        Box::new(move |url: &str| GitHub::new(Arc::clone(&settings), Arc::clone(&retries), url).hosted_at(UPDATE_HOST))
     };
     let tool_releases =
         Arc::new(udm_infrastructure::video_tools::ForgeTools::new(Arc::clone(&settings), Arc::clone(&retries)));
     let tool_folder = Arc::new(udm_infrastructure::video_tools::ToolDir::new(Arc::clone(&settings)));
     let remote = Arc::new(WebRemote::new(paths.remote.clone()));
+    // The debrid account (experimental): each download asks `links` for
+    // the address to start from, on its own thread.
+    let debrid: Arc<dyn Debrid> = Arc::new(DebridApi::new(Arc::clone(&settings), Arc::clone(&retries)));
+    let debrid_keys: Arc<dyn DebridKeys> = Arc::new(KeyFile::new());
+    let links = Arc::new(ResolveLink::new(
+        Arc::clone(&debrid),
+        Arc::clone(&debrid_keys),
+        Arc::new(LocalClock),
+        Arc::clone(&clients) as _,
+    ));
+    {
+        let (links, settings) = (Arc::clone(&links), Arc::clone(&settings));
+        transfers.resolve_with(Arc::new(move |link: &Address| links.run(&settings.get().debrid, link)));
+    }
+    // Torrents download through the engine; the client seeds them after.
+    let torrent_dir = paths
+        .torrents
+        .clone()
+        .unwrap_or_else(|| std::env::temp_dir().join(format!("udm-torrents-{}", std::process::id())));
+    let torrent_client = Arc::new(TorrentClient::new(torrent_dir));
+    transfers.torrents_with(Arc::clone(&torrent_client));
+    udm_infrastructure::torrent::watch_seeding(&torrent_client);
+    let torrents: Arc<dyn Torrents> =
+        Arc::new(TorrentDesk { client: torrent_client, transfers: Arc::clone(&transfers) });
     let pairing = Arc::new(PairingDesk::open(
         Arc::new(DeviceFile::in_dir(paths.remote.as_deref())),
         Arc::new(OsKeys),
@@ -352,6 +384,10 @@ fn new_daemon(paths: Paths, seat: Seat) -> Built {
         pairing,
         listener: Arc::clone(&remote) as _,
         seat,
+        debrid,
+        debrid_keys,
+        links,
+        torrents,
     });
     Built { daemon, clients, dirty: dirty_rx, notes: notes_rx, wake: wake_rx, remote }
 }
@@ -465,6 +501,7 @@ fn run(seat: Seat) -> anyhow::Result<()> {
         }
     }
     daemon.start_up();
+    daemon.resume_seeding();
     {
         let daemon = Arc::clone(&daemon);
         background::spawn_awake_keeper(move || daemon.wants_awake());
@@ -477,8 +514,9 @@ fn run(seat: Seat) -> anyhow::Result<()> {
             move || transfers.save_history(),
         );
     }
-    if !seat.exits_when_idle() {
-        // Nothing else stops a server's daemon; `docker stop` asks.
+    {
+        // Nothing else stops a server's daemon; `docker stop` asks. A
+        // desktop's is asked by a newer window replacing it after an upgrade.
         let transfers = Arc::clone(&daemon.transfers);
         background::spawn_stop_on_signal(move || transfers.save_history());
     }
@@ -624,8 +662,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("udm_dup_{}_{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let Built { daemon, clients: connections, .. } =
-            new_daemon(Paths { settings: None, store: StoreFiles::default(), remote: None }, Seat::Desktop);
+        let Built { daemon, clients: connections, .. } = new_daemon(
+            Paths { settings: None, store: StoreFiles::default(), remote: None, torrents: None },
+            Seat::Desktop,
+        );
         {
             let mut s = daemon.settings.lock();
             s.download_dir = Some(dir.display().to_string());
@@ -752,9 +792,54 @@ mod tests {
     }
 
     #[test]
+    fn a_torrent_file_on_the_command_line_is_added_as_its_torrent() {
+        let t = setup("command_line_torrent", Duplicate::NewName);
+        let mut info = b"d6:lengthi10e4:name5:a.iso12:piece lengthi16384e6:pieces20:".to_vec();
+        info.extend_from_slice(&[1; 20]);
+        info.push(b'e');
+        let cmd = udm_domain::download::CommandLine {
+            download: Some(Download { url: "a.torrent".into(), start: Some(false), ..Download::default() }),
+            metainfo: Some(udm_infrastructure::torrent::metainfo::build(&info, &[])),
+            quit_after: true,
+            ..Default::default()
+        };
+        // As udm-gui sends it: the file inside the download, base64-encoded.
+        let msg =
+            serde_json::to_vec(&udm_infrastructure::wire::incoming(udm_application::daemon::Command::CommandLine(cmd)))
+                .unwrap();
+        let (tx, _rx) = server::reply_channel();
+        send(&msg, &t, 9, &tx);
+        let added =
+            t.daemon.store.table().entries().find(|e| e.url.as_str().starts_with("magnet:?xt=urn:btih:")).cloned();
+        let added = added.expect("its torrent is in the list");
+        assert!(added.url.as_str().contains("dn=a.iso") && added.torrent.is_some());
+        assert_eq!(added.on_done, None, "/q counts only when the call started UDM");
+    }
+
+    #[test]
+    fn a_torrent_files_address_on_the_command_line_is_taken_as_its_torrent() {
+        let t = setup("command_line_torrent_web", Duplicate::NewName);
+        // Nothing listens there: fetching the file fails, which the windows
+        // hear, and no plain download of the file is added.
+        let msg = br#"{"op":"command_line","download":{"url":"http://127.0.0.1:1/album.torrent","start":false}}"#;
+        let (tx, _rx) = server::reply_channel();
+        send(msg, &t, 9, &tx);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut told = false;
+        while !told && Instant::now() < deadline {
+            told = t.window_got(|m| matches!(m, Outgoing::Rejected { .. }));
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(told, "the window hears why it was not added");
+        assert!(t.daemon.store.table().entries().all(|e| !e.url.as_str().ends_with("album.torrent")));
+    }
+
+    #[test]
     fn a_server_daemon_runs_on_when_it_has_nothing_to_do() {
-        let built =
-            |seat| new_daemon(Paths { settings: None, store: StoreFiles::default(), remote: None }, seat).daemon;
+        let built = |seat| {
+            new_daemon(Paths { settings: None, store: StoreFiles::default(), remote: None, torrents: None }, seat)
+                .daemon
+        };
         let desktop = built(Seat::Desktop);
         assert!(desktop.idle() && desktop.may_exit(), "a desktop daemon with nothing to do exits");
         let server = built(Seat::Server);
@@ -1135,7 +1220,7 @@ mod tests {
         let through = |s: &Settings| t.daemon.transfers.net_for(&d, s).proxy.and_then(|p| p.proxy_for(d.url.as_str()));
         let after = Settings { use_browser_proxy: true, browser_proxy_after_errors: true, ..Settings::default() };
         assert_eq!(through(&after), None, "not before it failed");
-        t.daemon.browser_proxy_retries.insert(d.url.to_string());
+        t.daemon.browser_proxy_retries.retries.insert(d.url.to_string());
         assert_eq!(through(&after).as_deref(), Some("http://bp:3128"), "once it failed");
         // A download that never failed is not retried through it.
         assert!(!t.daemon.retry_through_browser_proxy(DownloadId::new(999), &after));
@@ -1435,7 +1520,8 @@ mod tests {
                 ..Settings::default()
             };
             settings::save(&s, &path).unwrap();
-            let paths = Paths { settings: Some(path.clone()), store: StoreFiles::default(), remote: None };
+            let paths =
+                Paths { settings: Some(path.clone()), store: StoreFiles::default(), remote: None, torrents: None };
             let daemon = new_daemon(paths, Seat::Desktop).daemon;
             let s = daemon.settings.lock().clone();
             (s, daemon.transfers.engine().per_file_limit())
@@ -1761,24 +1847,28 @@ mod tests {
             thread::spawn(move || {
                 for mut s in listener.incoming().flatten() {
                     let mut buf = [0u8; 2048];
-                    let _ = s.read(&mut buf);
-                    let body = format!(
-                        r#"{{"tag_name":"{tag}","html_url":"https://github.com/tajbinkhan/UDM/releases/tag/{tag}"}}"#
-                    );
-                    let _ = write!(
-                        s,
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    );
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    // As GitHub does: the latest release's page redirects
+                    // to the page of its tag.
+                    let answer = match request.split(' ').nth(1).unwrap_or("") {
+                        "/releases/latest" => format!("302 Found\r\nLocation: /releases/tag/{tag}"),
+                        page if page.starts_with("/releases/tag/") => "200 OK".to_string(),
+                        _ => "404 Not Found".to_string(),
+                    };
+                    let _ = write!(s, "HTTP/1.1 {answer}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
                 }
             });
             format!("http://{addr}/releases/latest")
         };
         match t.daemon.check_update(&serve_tag("v99.0.0")) {
-            Event::Update { newer: Some(r), error: None } => assert_eq!(r.version, "99.0.0"),
+            Event::Update { newer: Some(r), error: None, ready: false } => assert_eq!(r.version, "99.0.0"),
             other => panic!("expected a newer release: {other:?}"),
         }
-        assert!(matches!(t.daemon.check_update(&serve_tag("v0.0.1")), Event::Update { newer: None, error: None }));
+        assert!(matches!(
+            t.daemon.check_update(&serve_tag("v0.0.1")),
+            Event::Update { newer: None, error: None, ready: false }
+        ));
         // Why not comes typed, for the window to translate.
         let failed = t.daemon.check_update("http://127.0.0.1:1/none");
         assert!(
@@ -2555,8 +2645,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("udm_phone_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let Built { daemon, clients: connections, remote, .. } =
-            new_daemon(Paths { settings: None, store: StoreFiles::default(), remote: Some(dir.join("remote")) }, seat);
+        let Built { daemon, clients: connections, remote, .. } = new_daemon(
+            Paths { settings: None, store: StoreFiles::default(), remote: Some(dir.join("remote")), torrents: None },
+            seat,
+        );
         {
             let mut s = daemon.settings.lock();
             s.download_dir = Some(dir.display().to_string());

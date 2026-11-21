@@ -313,7 +313,8 @@
     min-height: 0;
     display: flex;
     gap: 12px;
-    padding: 8px 12px 0 14px;
+    padding-block: 8px 0;
+    padding-inline: 14px 12px;
   }
 
   .art-col {
@@ -341,7 +342,8 @@
   .foot {
     display: flex;
     gap: 12px;
-    padding: 8px 36px 10px 222px;
+    padding-block: 8px 10px;
+    padding-inline: 222px 36px;
     margin: 0 12px;
     border-top: 1px solid var(--border);
   }
@@ -363,7 +365,7 @@
 
   .num {
     width: 50px;
-    text-align: right;
+    text-align: end;
   }
 
   .rule {

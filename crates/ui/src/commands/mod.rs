@@ -17,6 +17,7 @@ mod main;
 mod options;
 mod scheduler;
 mod tools;
+mod torrent;
 
 pub use common::Heart;
 pub use dialogs::Files;
@@ -66,6 +67,9 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         options::save_options,
         options::pick_path,
         options::install_tool,
+        options::answer_tools_offer,
+        options::dismiss_tools,
+        options::check_debrid,
         options::remote_status,
         options::pair_phone,
         options::remove_device,
@@ -74,6 +78,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         options::remove_browser,
         options::restart_browser,
         options::open_themes_folder,
+        options::open_extension_folder,
         options::play_sound,
         options::system_proxy,
         scheduler::save_queue,
@@ -113,6 +118,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         tools::set_panel_width,
         tools::set_list_font,
         tools::set_toolbar,
+        tools::set_language,
         tools::close_tip,
         extras::answer_login,
         extras::answer_countdown,
@@ -135,6 +141,10 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         extras::open_with,
         extras::drag_file,
         extras::answer_exception,
+        torrent::pick_torrent_files,
+        torrent::set_seed_limits,
+        torrent::stop_seeding,
+        torrent::open_torrent_file,
     ])
 }
 
@@ -165,6 +175,22 @@ async fn ask(
     } else {
         Err(errors::offline(lang(current)))
     }
+}
+
+/// Hand the actor a message with a reply, and wait for the reply off the
+/// main thread.
+async fn reply_of<T: Send + 'static>(
+    outbox: &State<'_, Outbox>,
+    current: &State<'_, CurrentLanguage>,
+    make: impl FnOnce(mpsc::Sender<T>) -> Inbox,
+) -> Result<T, InvokeError> {
+    let (tx, rx) = mpsc::channel();
+    post(outbox, current, make(tx))?;
+    tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(5)))
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .ok_or_else(|| errors::offline(lang(current)))
 }
 
 /// The label of the window that called, parsed.

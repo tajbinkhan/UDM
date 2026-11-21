@@ -24,8 +24,9 @@ pub struct Behavior {
     /// `slow_bytes_per_sec`: one slow connection.
     pub slow_range_start: Option<u64>,
     pub slow_bytes_per_sec: u64,
-    /// Serve the file only to a POST with exactly this body; a GET gets an
-    /// HTML error page with status 200, as many real sites send.
+    /// Serve the file only to a POST with exactly this body (at
+    /// `bytes_per_sec`, when set); a GET gets an HTML error page with status
+    /// 200, as many real sites send.
     pub post_only_body: Option<Vec<u8>>,
     /// Require HTTP Basic with this `user:password`: 401 without it.
     pub basic_auth: Option<String>,
@@ -35,6 +36,9 @@ pub struct Behavior {
     pub ntlm_auth: Option<(String, String)>,
     /// Answer every request with a 302 to this URL.
     pub redirect_to: Option<String>,
+    /// Answer a request for one of these paths with a 302 to the address
+    /// beside it, which may be a path on this server.
+    pub redirects: HashMap<String, String>,
     /// Serve these files by path (such as `/v/1.ts`) instead of one body
     /// everywhere; other paths get 404.
     pub files: Option<Arc<HashMap<String, Vec<u8>>>>,
@@ -77,6 +81,8 @@ pub struct TestServer {
     pub refused: Arc<AtomicU64>,
     /// The most connections from one client answered at once.
     pub peak_per_client: Arc<AtomicUsize>,
+    /// Connections accepted so far.
+    pub connections: Arc<AtomicU64>,
 }
 
 /// What every connection's thread shares.
@@ -168,6 +174,14 @@ impl TestServer {
         Self::serve_on(listener, url, Vec::new(), behavior)
     }
 
+    /// Like `start_files`, behaving as `behavior` says besides.
+    pub fn start_files_with(files: HashMap<String, Vec<u8>>, behavior: Behavior) -> TestServer {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let behavior = Behavior { files: Some(Arc::new(files)), ..behavior };
+        Self::serve_on(listener, url, Vec::new(), behavior)
+    }
+
     fn serve_on(listener: TcpListener, url: String, body: Vec<u8>, behavior: Behavior) -> TestServer {
         let body = Arc::new(body);
         let seen = Seen {
@@ -186,9 +200,12 @@ impl TestServer {
             cookies_seen: Arc::clone(&seen.cookies_seen),
             refused: Arc::clone(&seen.refused),
             peak_per_client: Arc::clone(&seen.peak_per_client),
+            connections: Arc::new(AtomicU64::new(0)),
         };
+        let connections = Arc::clone(&server.connections);
         thread::spawn(move || {
             for stream in listener.incoming().flatten() {
+                connections.fetch_add(1, Ordering::SeqCst);
                 let body = Arc::clone(&body);
                 let seen = seen.clone();
                 let behavior = behavior.clone();
@@ -254,6 +271,12 @@ fn serve(
         thread::sleep(wait);
     }
     let path = request_line.split(' ').nth(1).unwrap_or("/");
+    if let Some(to) = behavior.redirects.get(path) {
+        return write!(
+            stream,
+            "HTTP/1.1 302 Found\r\nLocation: {to}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
+    }
     let body: &[u8] = match &behavior.files {
         None => body,
         Some(files) => match files.get(path) {
@@ -324,8 +347,15 @@ fn serve(
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Disposition: attachment; filename=\"report.pdf\"\r\nConnection: close\r\n\r\n",
             body.len()
         )?;
-        served.fetch_add(body.len() as u64, Ordering::Relaxed);
-        return stream.write_all(body);
+        // At `bytes_per_sec` too, so a test can act while the answer comes.
+        for chunk in body.chunks(16 * 1024) {
+            served.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+            stream.write_all(chunk)?;
+            if let Some(rate) = behavior.bytes_per_sec {
+                thread::sleep(Duration::from_secs_f64(chunk.len() as f64 / rate.max(1) as f64));
+            }
+        }
+        return stream.flush();
     }
 
     let total = body.len() as u64;

@@ -82,10 +82,26 @@ pub enum ListFormat {
 #[error("{0}")]
 pub struct ListError(pub String);
 
-/// Exporting and importing the download list.
+/// Why a file could not be read whole.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ReadError {
+    /// It is larger than the most the caller takes, in bytes, so it was not
+    /// read.
+    #[error("The file is larger than {max} bytes.")]
+    TooBig { max: u64 },
+    #[error(transparent)]
+    Failed(#[from] ListError),
+}
+
+/// Exporting and importing the download list, and reading the files the
+/// window opens.
 pub trait ListFiles: Send + Sync {
     /// The text of the list file at `path`, whatever its encoding.
     fn read(&self, path: &Path) -> Result<String, ListError>;
+
+    /// The bytes of the file at `path`, such as a `.torrent` file the window
+    /// opens, unless it is larger than `max` bytes.
+    fn read_bytes(&self, path: &Path, max: u64) -> Result<Vec<u8>, ReadError>;
 
     /// Save `text` as the list file at `path`, replacing it whole.
     fn write(&self, path: &Path, text: &str) -> Result<(), ListError>;
@@ -254,6 +270,16 @@ pub struct IdentifiedBrowser {
     pub known: bool,
 }
 
+/// A copy of the browser extension, as the user loads it into a browser by
+/// hand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionCopy {
+    /// The copy for Chrome, Edge, Brave and the other Chromium browsers.
+    Chromium,
+    /// The copy for Firefox.
+    Firefox,
+}
+
 /// The system clipboard's text, for the clipboard monitor that offers the
 /// links the user copies.
 pub trait Clipboard: Send + Sync {
@@ -293,4 +319,8 @@ pub trait BrowserRegistry: Send + Sync {
     /// Close `browser` (or the added one at `program`) and start it again,
     /// waiting for it.
     fn restart(&self, browser: &BrowserSlot, program: Option<&Path>) -> Result<(), FilesError>;
+
+    /// The folder holding `copy` of the extension, which the user loads
+    /// into a browser by hand, or `None` when this copy of UDM has none.
+    fn extension_folder(&self, copy: ExtensionCopy) -> Option<PathBuf>;
 }

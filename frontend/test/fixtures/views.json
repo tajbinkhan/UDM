@@ -12,7 +12,7 @@
           },
           {
             "name": "--fg-muted",
-            "value": "#a6a6a6"
+            "value": "#b2b2b2"
           },
           {
             "name": "--fg-disabled",
@@ -20,7 +20,7 @@
           },
           {
             "name": "--face",
-            "value": "#39393b"
+            "value": "#202022"
           },
           {
             "name": "--bar",
@@ -28,71 +28,103 @@
           },
           {
             "name": "--field",
-            "value": "#19191b"
+            "value": "#2b2b2c"
           },
           {
             "name": "--input-bg",
-            "value": "#222a36"
+            "value": "#303031"
           },
           {
             "name": "--input-border",
-            "value": "#eeeeee"
-          },
-          {
-            "name": "--header",
-            "value": "#19191b"
-          },
-          {
-            "name": "--list",
             "value": "#39393b"
           },
           {
+            "name": "--input-underline",
+            "value": "#9a9a9a"
+          },
+          {
+            "name": "--header",
+            "value": "#2b2b2c"
+          },
+          {
+            "name": "--list",
+            "value": "#2b2b2c"
+          },
+          {
             "name": "--tree",
-            "value": "#202022"
+            "value": "#2b2b2c"
           },
           {
             "name": "--frame",
-            "value": "#828283"
+            "value": "#39393b"
           },
           {
             "name": "--scroll-track",
-            "value": "#161618"
+            "value": "#2b2b2c"
+          },
+          {
+            "name": "--scroll-thumb",
+            "value": "#757577"
           },
           {
             "name": "--grid",
-            "value": "#545455"
+            "value": "#39393b"
           },
           {
             "name": "--border",
-            "value": "#545455"
+            "value": "#39393b"
           },
           {
             "name": "--button",
-            "value": "#343436"
+            "value": "#303031"
           },
           {
             "name": "--button-border",
-            "value": "#8e8e8e"
+            "value": "#3c3c3d"
+          },
+          {
+            "name": "--button-border-foot",
+            "value": "#323234"
           },
           {
             "name": "--button-hover",
-            "value": "#484849"
+            "value": "#373738"
           },
           {
             "name": "--button-pressed",
-            "value": "#565657"
+            "value": "#28282a"
           },
           {
             "name": "--default-border",
-            "value": "#fafafa"
+            "value": "#60cdff"
+          },
+          {
+            "name": "--accent",
+            "value": "#60cdff"
+          },
+          {
+            "name": "--accent-hover",
+            "value": "#57b9e7"
+          },
+          {
+            "name": "--accent-pressed",
+            "value": "#4fa6ce"
+          },
+          {
+            "name": "--on-accent",
+            "value": "#000000"
           },
           {
             "name": "--hover",
-            "value": "#484849"
+            "value": "#fafafa0f"
+          },
+          {
+            "name": "--active",
+            "value": "#fafafa0a"
           },
           {
             "name": "--selected",
-            "value": "#4b7bb7"
+            "value": "#38525f"
           },
           {
             "name": "--selected-fg",
@@ -100,19 +132,23 @@
           },
           {
             "name": "--selected-blur",
-            "value": "#4c4c4e"
+            "value": "#3c3c3d"
           },
           {
             "name": "--menu",
-            "value": "#28282a"
+            "value": "#2d2d2f"
           },
           {
             "name": "--menu-hover",
-            "value": "#484849"
+            "value": "#fafafa0f"
           },
           {
             "name": "--focus",
-            "value": "#60a5fa"
+            "value": "#60cdff"
+          },
+          {
+            "name": "--focus-ring",
+            "value": "#fafafa"
           },
           {
             "name": "--progress",
@@ -120,19 +156,23 @@
           },
           {
             "name": "--progress-track",
-            "value": "#e2e2e2"
+            "value": "#454547"
           },
           {
             "name": "--segment",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--link",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--error",
             "value": "#f87171"
+          },
+          {
+            "name": "--on-error",
+            "value": "#000000"
           },
           {
             "name": "--warning",
@@ -148,7 +188,7 @@
           },
           {
             "name": "--tint-blue",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--tint-purple",
@@ -180,7 +220,11 @@
           },
           {
             "name": "--radius",
-            "value": "2px"
+            "value": "4px"
+          },
+          {
+            "name": "--radius-large",
+            "value": "8px"
           },
           {
             "name": "--border-width",
@@ -199,7 +243,7 @@
           },
           {
             "name": "--fg-muted",
-            "value": "#a6a6a6"
+            "value": "#b2b2b2"
           },
           {
             "name": "--fg-disabled",
@@ -207,7 +251,7 @@
           },
           {
             "name": "--face",
-            "value": "#39393b"
+            "value": "#202022"
           },
           {
             "name": "--bar",
@@ -215,71 +259,103 @@
           },
           {
             "name": "--field",
-            "value": "#19191b"
+            "value": "#2b2b2c"
           },
           {
             "name": "--input-bg",
-            "value": "#222a36"
+            "value": "#303031"
           },
           {
             "name": "--input-border",
-            "value": "#eeeeee"
-          },
-          {
-            "name": "--header",
-            "value": "#19191b"
-          },
-          {
-            "name": "--list",
             "value": "#39393b"
           },
           {
+            "name": "--input-underline",
+            "value": "#9a9a9a"
+          },
+          {
+            "name": "--header",
+            "value": "#2b2b2c"
+          },
+          {
+            "name": "--list",
+            "value": "#2b2b2c"
+          },
+          {
             "name": "--tree",
-            "value": "#202022"
+            "value": "#2b2b2c"
           },
           {
             "name": "--frame",
-            "value": "#828283"
+            "value": "#39393b"
           },
           {
             "name": "--scroll-track",
-            "value": "#161618"
+            "value": "#2b2b2c"
+          },
+          {
+            "name": "--scroll-thumb",
+            "value": "#757577"
           },
           {
             "name": "--grid",
-            "value": "#545455"
+            "value": "#39393b"
           },
           {
             "name": "--border",
-            "value": "#545455"
+            "value": "#39393b"
           },
           {
             "name": "--button",
-            "value": "#343436"
+            "value": "#303031"
           },
           {
             "name": "--button-border",
-            "value": "#8e8e8e"
+            "value": "#3c3c3d"
+          },
+          {
+            "name": "--button-border-foot",
+            "value": "#323234"
           },
           {
             "name": "--button-hover",
-            "value": "#484849"
+            "value": "#373738"
           },
           {
             "name": "--button-pressed",
-            "value": "#565657"
+            "value": "#28282a"
           },
           {
             "name": "--default-border",
-            "value": "#fafafa"
+            "value": "#60cdff"
+          },
+          {
+            "name": "--accent",
+            "value": "#60cdff"
+          },
+          {
+            "name": "--accent-hover",
+            "value": "#57b9e7"
+          },
+          {
+            "name": "--accent-pressed",
+            "value": "#4fa6ce"
+          },
+          {
+            "name": "--on-accent",
+            "value": "#000000"
           },
           {
             "name": "--hover",
-            "value": "#484849"
+            "value": "#fafafa0f"
+          },
+          {
+            "name": "--active",
+            "value": "#fafafa0a"
           },
           {
             "name": "--selected",
-            "value": "#4b7bb7"
+            "value": "#38525f"
           },
           {
             "name": "--selected-fg",
@@ -287,19 +363,23 @@
           },
           {
             "name": "--selected-blur",
-            "value": "#4c4c4e"
+            "value": "#3c3c3d"
           },
           {
             "name": "--menu",
-            "value": "#28282a"
+            "value": "#2d2d2f"
           },
           {
             "name": "--menu-hover",
-            "value": "#484849"
+            "value": "#fafafa0f"
           },
           {
             "name": "--focus",
-            "value": "#60a5fa"
+            "value": "#60cdff"
+          },
+          {
+            "name": "--focus-ring",
+            "value": "#fafafa"
           },
           {
             "name": "--progress",
@@ -307,19 +387,23 @@
           },
           {
             "name": "--progress-track",
-            "value": "#e2e2e2"
+            "value": "#454547"
           },
           {
             "name": "--segment",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--link",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--error",
             "value": "#f87171"
+          },
+          {
+            "name": "--on-error",
+            "value": "#000000"
           },
           {
             "name": "--warning",
@@ -335,7 +419,7 @@
           },
           {
             "name": "--tint-blue",
-            "value": "#60a5fa"
+            "value": "#60cdff"
           },
           {
             "name": "--tint-purple",
@@ -367,7 +451,11 @@
           },
           {
             "name": "--radius",
-            "value": "2px"
+            "value": "4px"
+          },
+          {
+            "name": "--radius-large",
+            "value": "8px"
           },
           {
             "name": "--border-width",
@@ -393,7 +481,7 @@
           },
           {
             "name": "--fg-muted",
-            "value": "#5f5f60"
+            "value": "#6b6b6d"
           },
           {
             "name": "--fg-disabled",
@@ -401,11 +489,11 @@
           },
           {
             "name": "--face",
-            "value": "#f0f0f0"
+            "value": "#f3f3f3"
           },
           {
             "name": "--bar",
-            "value": "#ffffff"
+            "value": "#f3f3f3"
           },
           {
             "name": "--field",
@@ -417,7 +505,11 @@
           },
           {
             "name": "--input-border",
-            "value": "#909091"
+            "value": "#e1e1e2"
+          },
+          {
+            "name": "--input-underline",
+            "value": "#7f7f80"
           },
           {
             "name": "--header",
@@ -433,19 +525,23 @@
           },
           {
             "name": "--frame",
-            "value": "#909091"
-          },
-          {
-            "name": "--scroll-track",
-            "value": "#f0f0f0"
-          },
-          {
-            "name": "--grid",
             "value": "#e6e6e7"
           },
           {
+            "name": "--scroll-track",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--scroll-thumb",
+            "value": "#9d9d9d"
+          },
+          {
+            "name": "--grid",
+            "value": "#ebebeb"
+          },
+          {
             "name": "--border",
-            "value": "#d3d3d3"
+            "value": "#e6e6e7"
           },
           {
             "name": "--button",
@@ -453,27 +549,51 @@
           },
           {
             "name": "--button-border",
-            "value": "#d3d3d3"
+            "value": "#e6e6e7"
+          },
+          {
+            "name": "--button-border-foot",
+            "value": "#cecece"
           },
           {
             "name": "--button-hover",
-            "value": "#e9effd"
+            "value": "#f9f9f9"
           },
           {
             "name": "--button-pressed",
-            "value": "#d3e0fb"
+            "value": "#f5f5f5"
           },
           {
             "name": "--default-border",
-            "value": "#2563eb"
+            "value": "#005fb8"
+          },
+          {
+            "name": "--accent",
+            "value": "#005fb8"
+          },
+          {
+            "name": "--accent-hover",
+            "value": "#1a6fbf"
+          },
+          {
+            "name": "--accent-pressed",
+            "value": "#337fc6"
+          },
+          {
+            "name": "--on-accent",
+            "value": "#ffffff"
           },
           {
             "name": "--hover",
-            "value": "#e9effd"
+            "value": "#09090b0a"
+          },
+          {
+            "name": "--active",
+            "value": "#09090b06"
           },
           {
             "name": "--selected",
-            "value": "#d3e0fb"
+            "value": "#e0ecf6"
           },
           {
             "name": "--selected-fg",
@@ -481,19 +601,23 @@
           },
           {
             "name": "--selected-blur",
-            "value": "#e1e1e2"
+            "value": "#eeeeee"
           },
           {
             "name": "--menu",
-            "value": "#fafafa"
+            "value": "#fdfdfd"
           },
           {
             "name": "--menu-hover",
-            "value": "#e5ecfd"
+            "value": "#09090b0a"
           },
           {
             "name": "--focus",
-            "value": "#2563eb"
+            "value": "#005fb8"
+          },
+          {
+            "name": "--focus-ring",
+            "value": "#09090b"
           },
           {
             "name": "--progress",
@@ -505,15 +629,19 @@
           },
           {
             "name": "--segment",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--link",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--error",
             "value": "#dc2626"
+          },
+          {
+            "name": "--on-error",
+            "value": "#ffffff"
           },
           {
             "name": "--warning",
@@ -529,7 +657,7 @@
           },
           {
             "name": "--tint-blue",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--tint-purple",
@@ -561,7 +689,11 @@
           },
           {
             "name": "--radius",
-            "value": "2px"
+            "value": "4px"
+          },
+          {
+            "name": "--radius-large",
+            "value": "8px"
           },
           {
             "name": "--border-width",
@@ -580,7 +712,7 @@
           },
           {
             "name": "--fg-muted",
-            "value": "#5f5f60"
+            "value": "#6b6b6d"
           },
           {
             "name": "--fg-disabled",
@@ -588,11 +720,11 @@
           },
           {
             "name": "--face",
-            "value": "#f0f0f0"
+            "value": "#f3f3f3"
           },
           {
             "name": "--bar",
-            "value": "#ffffff"
+            "value": "#f3f3f3"
           },
           {
             "name": "--field",
@@ -604,7 +736,11 @@
           },
           {
             "name": "--input-border",
-            "value": "#909091"
+            "value": "#e1e1e2"
+          },
+          {
+            "name": "--input-underline",
+            "value": "#7f7f80"
           },
           {
             "name": "--header",
@@ -620,19 +756,23 @@
           },
           {
             "name": "--frame",
-            "value": "#909091"
-          },
-          {
-            "name": "--scroll-track",
-            "value": "#f0f0f0"
-          },
-          {
-            "name": "--grid",
             "value": "#e6e6e7"
           },
           {
+            "name": "--scroll-track",
+            "value": "#ffffff"
+          },
+          {
+            "name": "--scroll-thumb",
+            "value": "#9d9d9d"
+          },
+          {
+            "name": "--grid",
+            "value": "#ebebeb"
+          },
+          {
             "name": "--border",
-            "value": "#d3d3d3"
+            "value": "#e6e6e7"
           },
           {
             "name": "--button",
@@ -640,27 +780,51 @@
           },
           {
             "name": "--button-border",
-            "value": "#d3d3d3"
+            "value": "#e6e6e7"
+          },
+          {
+            "name": "--button-border-foot",
+            "value": "#cecece"
           },
           {
             "name": "--button-hover",
-            "value": "#e9effd"
+            "value": "#f9f9f9"
           },
           {
             "name": "--button-pressed",
-            "value": "#d3e0fb"
+            "value": "#f5f5f5"
           },
           {
             "name": "--default-border",
-            "value": "#2563eb"
+            "value": "#005fb8"
+          },
+          {
+            "name": "--accent",
+            "value": "#005fb8"
+          },
+          {
+            "name": "--accent-hover",
+            "value": "#1a6fbf"
+          },
+          {
+            "name": "--accent-pressed",
+            "value": "#337fc6"
+          },
+          {
+            "name": "--on-accent",
+            "value": "#ffffff"
           },
           {
             "name": "--hover",
-            "value": "#e9effd"
+            "value": "#09090b0a"
+          },
+          {
+            "name": "--active",
+            "value": "#09090b06"
           },
           {
             "name": "--selected",
-            "value": "#d3e0fb"
+            "value": "#e0ecf6"
           },
           {
             "name": "--selected-fg",
@@ -668,19 +832,23 @@
           },
           {
             "name": "--selected-blur",
-            "value": "#e1e1e2"
+            "value": "#eeeeee"
           },
           {
             "name": "--menu",
-            "value": "#fafafa"
+            "value": "#fdfdfd"
           },
           {
             "name": "--menu-hover",
-            "value": "#e5ecfd"
+            "value": "#09090b0a"
           },
           {
             "name": "--focus",
-            "value": "#2563eb"
+            "value": "#005fb8"
+          },
+          {
+            "name": "--focus-ring",
+            "value": "#09090b"
           },
           {
             "name": "--progress",
@@ -692,15 +860,19 @@
           },
           {
             "name": "--segment",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--link",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--error",
             "value": "#dc2626"
+          },
+          {
+            "name": "--on-error",
+            "value": "#ffffff"
           },
           {
             "name": "--warning",
@@ -716,7 +888,7 @@
           },
           {
             "name": "--tint-blue",
-            "value": "#2563eb"
+            "value": "#005fb8"
           },
           {
             "name": "--tint-purple",
@@ -748,7 +920,11 @@
           },
           {
             "name": "--radius",
-            "value": "2px"
+            "value": "4px"
+          },
+          {
+            "name": "--radius-large",
+            "value": "8px"
           },
           {
             "name": "--border-width",
@@ -770,8 +946,10 @@
         "checking": false,
         "connected": true,
         "daemon": "",
+        "installTitle": "Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.",
+        "progress": null,
         "update": "",
-        "version": "0.4.0"
+        "version": "0.12.1"
       },
       "window": "about"
     },
@@ -800,25 +978,26 @@
     },
     "done": {
       "view": {
-        "address": "http://127.0.0.1:8765/udm-idm-test-40MB.bin",
+        "address": "https://downloads.example.com/files/summer-photos.zip",
         "canOpen": true,
         "canOpenWith": false,
         "dragOut": false,
         "failed": false,
         "headline": "Download complete",
         "id": 17,
-        "savedAs": "/home/u/Downloads/udm-idm-test-40MB.bin",
+        "savedAs": "/home/u/Downloads/summer-photos.zip",
         "sizeLine": "Downloaded 40.00 MB (41943040 Bytes)"
       },
       "window": "done"
     },
     "download": {
       "view": {
-        "address": "http://127.0.0.1:8765/office-suite-2016-x64.iso",
+        "address": "https://downloads.example.com/files/office-suite-24.8-x64.iso",
         "canResume": false,
+        "country": "🇺🇸 US",
         "details": false,
         "doneTab": true,
-        "downloaded": "633.453 MB ( 16.28 % )",
+        "downloaded": "633.45 MB (16.28%)",
         "fraction": 0.16279999911785126,
         "id": 12,
         "limit": {
@@ -833,63 +1012,709 @@
         },
         "resume": "Yes",
         "running": true,
-        "saveTo": "/home/u/Downloads/office-suite-2016-x64.iso",
+        "saveTo": "/home/u/Downloads/office-suite-24.8-x64.iso",
         "segments": [
           {
-            "downloaded": "63.229 MB",
+            "downloaded": "63.23 MB",
             "info": "Receiving data...",
             "reached": 0.016249999403953552,
             "start": 0.0
           },
           {
-            "downloaded": "66.633 MB",
+            "downloaded": "66.63 MB",
             "info": "Receiving data...",
             "reached": 0.1421249955892563,
             "start": 0.125
           },
           {
-            "downloaded": "70.038 MB",
+            "downloaded": "70.04 MB",
             "info": "Receiving data...",
             "reached": 0.2680000066757202,
             "start": 0.25
           },
           {
-            "downloaded": "73.442 MB",
+            "downloaded": "73.44 MB",
             "info": "Receiving data...",
             "reached": 0.39387500286102295,
             "start": 0.375
           },
           {
-            "downloaded": "76.847 MB",
+            "downloaded": "76.85 MB",
             "info": "Receiving data...",
             "reached": 0.5197499990463257,
             "start": 0.5
           },
           {
-            "downloaded": "80.252 MB",
+            "downloaded": "80.25 MB",
             "info": "Receiving data...",
             "reached": 0.6456249952316284,
             "start": 0.625
           },
           {
-            "downloaded": "83.656 MB",
+            "downloaded": "83.66 MB",
             "info": "Receiving data...",
             "reached": 0.7714999914169312,
             "start": 0.75
           },
           {
-            "downloaded": "87.061 MB",
+            "downloaded": "87.06 MB",
             "info": "Receiving data...",
             "reached": 0.8973749876022339,
             "start": 0.875
           }
         ],
-        "size": "3.800 GB",
-        "speed": "2.724 MB/s",
+        "size": "3.80 GB",
+        "speed": "2.72 MB/s",
         "speedTab": true,
         "status": "Receiving data...",
         "timeLeft": "19m 56s",
-        "title": "16% office-suite-2016-x64.iso"
+        "title": "16% office-suite-24.8-x64.iso",
+        "torrent": null
+      },
+      "window": "download"
+    },
+    "download-torrent": {
+      "view": {
+        "address": "magnet:?xt=urn:btih:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1&dn=Open%20Movies%20Collection",
+        "canResume": false,
+        "country": "",
+        "details": false,
+        "doneTab": true,
+        "downloaded": "1.40 GB (41.00%)",
+        "fraction": 0.4099999964237213,
+        "id": 18,
+        "limit": {
+          "kbPerSec": 10,
+          "on": false,
+          "remember": true
+        },
+        "onDone": {
+          "dialog": false,
+          "forceClose": false,
+          "then": "nothing"
+        },
+        "resume": "Yes",
+        "running": true,
+        "saveTo": "/home/u/Downloads/Open Movies Collection",
+        "segments": [],
+        "size": "3.42 GB",
+        "speed": "",
+        "speedTab": true,
+        "status": "Downloading",
+        "timeLeft": "",
+        "title": "41% Open Movies Collection",
+        "torrent": {
+          "canChoose": true,
+          "downSpeed": "4.50 MB/s",
+          "files": [
+            {
+              "chosen": true,
+              "fraction": 1.0,
+              "index": 0,
+              "path": "Big Buck Bunny (2008)/big-buck-bunny-1080p.mkv",
+              "progress": "100.00%",
+              "size": "885.65 MB"
+            },
+            {
+              "chosen": true,
+              "fraction": 1.0,
+              "index": 4,
+              "path": "README.txt",
+              "progress": "100.00%",
+              "size": "4.00 KB"
+            },
+            {
+              "chosen": true,
+              "fraction": 0.6000000238418579,
+              "index": 2,
+              "path": "Sintel (2010)/sintel-1080p.mkv",
+              "progress": "60.00%",
+              "size": "1.16 GB"
+            },
+            {
+              "chosen": true,
+              "fraction": 0.0,
+              "index": 3,
+              "path": "Tears of Steel (2012)/tears-of-steel-1080p.mkv",
+              "progress": "0.00%",
+              "size": "1.40 GB"
+            }
+          ],
+          "filesNote": "",
+          "limits": {
+            "defaults": "Until a share ratio of 1.00 or 60 minutes, whichever comes first",
+            "minutes": "60",
+            "minutesOn": true,
+            "own": false,
+            "progress": "",
+            "ratio": "1.00",
+            "ratioOn": true
+          },
+          "peers": [
+            {
+              "address": "203.0.113.24:51413",
+              "client": "Transmission 4.0.6",
+              "downSpeed": "2.5 MB/s",
+              "downloaded": "393.0 MB",
+              "transport": "TCP",
+              "upSpeed": "128.0 KB/s",
+              "uploaded": "20.0 MB"
+            },
+            {
+              "address": "198.51.100.7:6881",
+              "client": "qBittorrent 5.0.2",
+              "downSpeed": "1.5 MB/s",
+              "downloaded": "288.0 MB",
+              "transport": "uTP",
+              "upSpeed": "256.0 KB/s",
+              "uploaded": "60.0 MB"
+            },
+            {
+              "address": "[2001:db8::42]:6889",
+              "client": "rqbit 9.1.0",
+              "downSpeed": "512.0 KB/s",
+              "downloaded": "84.0 MB",
+              "transport": "TCP",
+              "upSpeed": "128.0 KB/s",
+              "uploaded": "70.0 MB"
+            }
+          ],
+          "peersLine": "3 connected, 87 known",
+          "phase": "Downloading",
+          "pieces": [
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            0,
+            100,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            50,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            100,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50,
+            0,
+            0,
+            0,
+            50
+          ],
+          "piecesLine": "419 of 876 pieces, 4 MB each",
+          "private": false,
+          "ratio": "0.04",
+          "seeding": false,
+          "timeLeft": "7m 39s",
+          "trackers": [
+            {
+              "skipped": false,
+              "state": "Used",
+              "url": "udp://tracker.example.org:6969/announce"
+            },
+            {
+              "skipped": true,
+              "state": "Skipped",
+              "url": "https://tracker.example.net/announce"
+            }
+          ],
+          "upSpeed": "512.00 KB/s",
+          "uploaded": "150.00 MB"
+        }
       },
       "window": "download"
     },
@@ -1358,7 +2183,7 @@
       "view": {
         "count": 2,
         "host": "127.0.0.1",
-        "ownSite": true,
+        "ownSite": false,
         "realm": "Private files",
         "refused": false,
         "user": ""
@@ -1373,7 +2198,7 @@
               "key": "name",
               "shown": true,
               "title": "File Name",
-              "width": 150
+              "width": 260
             },
             {
               "key": "queue",
@@ -1385,13 +2210,13 @@
               "key": "size",
               "shown": true,
               "title": "Size",
-              "width": 70
+              "width": 80
             },
             {
               "key": "status",
               "shown": true,
               "title": "Status",
-              "width": 72
+              "width": 84
             },
             {
               "key": "timeLeft",
@@ -1409,13 +2234,13 @@
               "key": "lastTry",
               "shown": true,
               "title": "Last Try Date",
-              "width": 65
+              "width": 124
             },
             {
               "key": "description",
               "shown": true,
               "title": "Description",
-              "width": 120
+              "width": 230
             },
             {
               "key": "progress",
@@ -1440,8 +2265,15 @@
               "shown": false,
               "title": "Referrer",
               "width": 100
+            },
+            {
+              "key": "country",
+              "shown": false,
+              "title": "Country",
+              "width": 100
             }
           ],
+          "askLanguage": false,
           "banner": null,
           "can": {
             "connected": true,
@@ -1449,16 +2281,18 @@
             "delete": true,
             "deleteCompleted": true,
             "dragOut": false,
-            "open": false,
+            "open": true,
             "openWith": false,
             "progress": false,
             "redownload": true,
             "refresh": false,
             "resume": false,
-            "resumeAll": false,
+            "resumeAll": true,
             "stop": false,
             "stopAll": true,
-            "verify": false
+            "stopSeeding": false,
+            "torrent": false,
+            "verify": true
           },
           "categories": [
             {
@@ -1510,7 +2344,7 @@
               "sort": null,
               "sortable": true,
               "title": "File Name",
-              "width": 150
+              "width": 260
             },
             {
               "key": "queue",
@@ -1524,14 +2358,14 @@
               "sort": null,
               "sortable": true,
               "title": "Size",
-              "width": 70
+              "width": 80
             },
             {
               "key": "status",
               "sort": null,
               "sortable": true,
               "title": "Status",
-              "width": 72
+              "width": 84
             },
             {
               "key": "timeLeft",
@@ -1552,14 +2386,14 @@
               "sort": "ascending",
               "sortable": true,
               "title": "Last Try Date",
-              "width": 65
+              "width": 124
             },
             {
               "key": "description",
               "sort": null,
               "sortable": true,
               "title": "Description",
-              "width": 120
+              "width": 230
             }
           ],
           "defaultColumns": [
@@ -1634,9 +2468,107 @@
               "shown": false,
               "title": "Referrer",
               "width": 100
+            },
+            {
+              "key": "country",
+              "shown": false,
+              "title": "Country",
+              "width": 100
             }
           ],
           "dropTarget": false,
+          "language": "",
+          "languageNow": "en",
+          "languages": [
+            {
+              "label": "System default",
+              "value": ""
+            },
+            {
+              "label": "English",
+              "value": "en"
+            },
+            {
+              "label": "Bahasa Indonesia",
+              "value": "id"
+            },
+            {
+              "label": "Deutsch",
+              "value": "de"
+            },
+            {
+              "label": "Español",
+              "value": "es"
+            },
+            {
+              "label": "Français",
+              "value": "fr"
+            },
+            {
+              "label": "Italiano",
+              "value": "it"
+            },
+            {
+              "label": "Nederlands",
+              "value": "nl"
+            },
+            {
+              "label": "Polski",
+              "value": "pl"
+            },
+            {
+              "label": "Português (Brasil)",
+              "value": "pt-BR"
+            },
+            {
+              "label": "Tiếng Việt",
+              "value": "vi"
+            },
+            {
+              "label": "Türkçe",
+              "value": "tr"
+            },
+            {
+              "label": "Русский",
+              "value": "ru"
+            },
+            {
+              "label": "Українська",
+              "value": "uk"
+            },
+            {
+              "label": "עברית",
+              "value": "he"
+            },
+            {
+              "label": "العربية",
+              "value": "ar"
+            },
+            {
+              "label": "فارسی",
+              "value": "fa"
+            },
+            {
+              "label": "हिन्दी",
+              "value": "hi"
+            },
+            {
+              "label": "日本語",
+              "value": "ja"
+            },
+            {
+              "label": "한국어",
+              "value": "ko"
+            },
+            {
+              "label": "简体中文",
+              "value": "zh-CN"
+            },
+            {
+              "label": "繁體中文",
+              "value": "zh-TW"
+            }
+          ],
           "limiter": {
             "kbPerSec": 1024,
             "on": false,
@@ -1644,11 +2576,29 @@
           },
           "listMono": false,
           "listSize": 12,
+          "missingTools": {
+            "ask": false,
+            "busy": false,
+            "busyText": "Installing...",
+            "strip": true,
+            "text": "Some downloads need tools UDM did not find: gallery-dl.",
+            "tools": [
+              {
+                "hint": "",
+                "installable": true,
+                "name": "gallery-dl",
+                "progress": null,
+                "purpose": "Downloads the pictures of image galleries.",
+                "tool": "galleryDl"
+              }
+            ]
+          },
           "newer": null,
           "newerInstallable": false,
+          "newerReady": false,
           "nextTip": 0,
           "packages": [],
-          "panelWidth": 143,
+          "panelWidth": 160,
           "queues": [
             {
               "id": 1,
@@ -1664,8 +2614,7 @@
           "reconnect": false,
           "report": null,
           "selected": [
-            2,
-            4
+            2
           ],
           "showTip": false,
           "tips": [
@@ -1797,10 +2746,13 @@
               "selected": false,
               "tip": null
             }
-          ]
+          ],
+          "updateProgress": null,
+          "updating": false
         },
         "rows": [
           {
+            "country": "",
             "description": "",
             "finished": true,
             "fraction": 1.0,
@@ -1820,13 +2772,14 @@
             "tone": "normal"
           },
           {
+            "country": "🇺🇸 US",
             "description": "",
             "finished": true,
             "fraction": 1.0,
             "icon": "program",
             "id": 2,
             "lastTry": "2026-10-21 14:01",
-            "name": "HandBrake-1.11.2-x86_64-Win_GUI.exe",
+            "name": "video-converter-1.11.2-setup.exe",
             "page": "",
             "progress": "100.00%",
             "queued": false,
@@ -1839,13 +2792,14 @@
             "tone": "normal"
           },
           {
-            "description": "MP3: 64kbs, 44100Hz, Length: 3:05:42",
+            "country": "",
+            "description": "MP3, 64 kbps, 3:05:42",
             "finished": true,
             "fraction": 1.0,
             "icon": "music",
             "id": 3,
             "lastTry": "2026-10-22 14:02",
-            "name": "Screen-Capture (3).mp3",
+            "name": "lecture-recording-2026-10-22.mp3",
             "page": "",
             "progress": "100.00%",
             "queued": false,
@@ -1858,6 +2812,7 @@
             "tone": "normal"
           },
           {
+            "country": "🇩🇪 DE",
             "description": "",
             "finished": true,
             "fraction": 1.0,
@@ -1877,13 +2832,14 @@
             "tone": "normal"
           },
           {
+            "country": "",
             "description": "",
             "finished": true,
             "fraction": 1.0,
             "icon": "archive",
             "id": 5,
             "lastTry": "2026-10-23 14:04",
-            "name": "sf-pro-display.zip",
+            "name": "display-fonts.zip",
             "page": "",
             "progress": "100.00%",
             "queued": false,
@@ -1896,7 +2852,8 @@
             "tone": "normal"
           },
           {
-            "description": "",
+            "country": "🇳🇱 NL",
+            "description": "Video: 1920x1080, 2:11:05",
             "finished": true,
             "fraction": 1.0,
             "icon": "video",
@@ -1915,6 +2872,7 @@
             "tone": "normal"
           },
           {
+            "country": "",
             "description": "",
             "finished": true,
             "fraction": 1.0,
@@ -1934,13 +2892,14 @@
             "tone": "normal"
           },
           {
+            "country": "",
             "description": "",
             "finished": true,
             "fraction": 1.0,
             "icon": "program",
             "id": 8,
             "lastTry": "2026-10-24 14:07",
-            "name": "UltraViewer_setup_6.6.exe",
+            "name": "remote-desktop-6.6-setup.exe",
             "page": "",
             "progress": "100.00%",
             "queued": false,
@@ -1953,6 +2912,7 @@
             "tone": "normal"
           },
           {
+            "country": "",
             "description": "",
             "finished": true,
             "fraction": 1.0,
@@ -1972,32 +2932,34 @@
             "tone": "normal"
           },
           {
+            "country": "",
             "description": "",
-            "finished": true,
-            "fraction": 1.0,
+            "finished": false,
+            "fraction": 0.3806999921798706,
             "icon": "archive",
             "id": 10,
             "lastTry": "2026-10-25 14:09",
             "name": "project-files-v2.zip",
             "page": "",
-            "progress": "100.00%",
+            "progress": "38.07%",
             "queued": false,
             "referrer": "",
             "saveTo": "/home/u/Downloads",
             "size": "337.41 MB",
             "speed": "",
-            "status": "Complete",
+            "status": "Interrupted",
             "timeLeft": "",
             "tone": "normal"
           },
           {
+            "country": "",
             "description": "",
             "finished": true,
             "fraction": 1.0,
             "icon": "program",
             "id": 11,
             "lastTry": "2026-10-26 14:10",
-            "name": "DTLite1260-2472i.exe",
+            "name": "disc-image-tool-12.6.exe",
             "page": "",
             "progress": "100.00%",
             "queued": false,
@@ -2010,13 +2972,14 @@
             "tone": "normal"
           },
           {
+            "country": "🇺🇸 US",
             "description": "",
             "finished": false,
             "fraction": 0.16279999911785126,
             "icon": "program",
             "id": 12,
             "lastTry": "2026-10-26 14:11",
-            "name": "office-suite-2016-x64.iso",
+            "name": "office-suite-24.8-x64.iso",
             "page": "",
             "progress": "16.28%",
             "queued": true,
@@ -2029,13 +2992,14 @@
             "tone": "running"
           },
           {
+            "country": "",
             "description": "",
             "finished": true,
             "fraction": 1.0,
             "icon": "program",
             "id": 13,
             "lastTry": "2026-10-27 14:12",
-            "name": "office-suite-2016-x86.iso",
+            "name": "office-suite-24.8-x86.iso",
             "page": "",
             "progress": "100.00%",
             "queued": false,
@@ -2048,32 +3012,34 @@
             "tone": "normal"
           },
           {
-            "description": "",
-            "finished": true,
-            "fraction": 1.0,
+            "country": "🇳🇱 NL",
+            "description": "Desktop installer, 26.04",
+            "finished": false,
+            "fraction": 0.47119998931884766,
             "icon": "program",
             "id": 14,
             "lastTry": "2026-10-27 14:13",
-            "name": "kubuntu-26.04.1-desktop-amd64.iso",
+            "name": "linux-desktop-26.04-amd64.iso",
             "page": "",
-            "progress": "100.00%",
-            "queued": false,
+            "progress": "47.12%",
+            "queued": true,
             "referrer": "",
             "saveTo": "/home/u/Downloads",
             "size": "4.72 GB",
-            "speed": "",
-            "status": "Complete",
-            "timeLeft": "",
-            "tone": "normal"
+            "speed": "5.32 MB/s",
+            "status": "47.12%",
+            "timeLeft": "8m 1s",
+            "tone": "running"
           },
           {
+            "country": "",
             "description": "",
             "finished": true,
             "fraction": 1.0,
             "icon": "program",
             "id": 15,
             "lastTry": "2026-10-28 14:14",
-            "name": "rufus-4.15.exe",
+            "name": "usb-writer-4.15.exe",
             "page": "",
             "progress": "100.00%",
             "queued": false,
@@ -2086,21 +3052,62 @@
             "tone": "normal"
           },
           {
+            "country": "",
             "description": "",
-            "finished": true,
-            "fraction": 1.0,
+            "finished": false,
+            "fraction": 0.0,
             "icon": "program",
             "id": 16,
             "lastTry": "2026-10-28 14:15",
             "name": "UDM-Setup-0.3.3.exe",
             "page": "",
-            "progress": "100.00%",
-            "queued": false,
+            "progress": "0.00%",
+            "queued": true,
             "referrer": "",
             "saveTo": "/home/u/Downloads",
             "size": "7.56 MB",
             "speed": "",
-            "status": "Complete",
+            "status": "Queued",
+            "timeLeft": "",
+            "tone": "normal"
+          },
+          {
+            "country": "",
+            "description": "",
+            "finished": false,
+            "fraction": 0.4099999964237213,
+            "icon": "other",
+            "id": 18,
+            "lastTry": "2026-10-30 20:18",
+            "name": "Open Movies Collection",
+            "page": "",
+            "progress": "41.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "3.42 GB",
+            "speed": "",
+            "status": "41.00%",
+            "timeLeft": "",
+            "tone": "running"
+          },
+          {
+            "country": "",
+            "description": "",
+            "finished": true,
+            "fraction": 1.0,
+            "icon": "program",
+            "id": 19,
+            "lastTry": "2026-10-30 20:19",
+            "name": "linux-distro-26.04-desktop-amd64.iso",
+            "page": "",
+            "progress": "100.00%",
+            "queued": false,
+            "referrer": "",
+            "saveTo": "/home/u/Downloads",
+            "size": "5.00 GB",
+            "speed": "",
+            "status": "Seeding (ratio 0.41)",
             "timeLeft": "",
             "tone": "normal"
           }
@@ -2146,6 +3153,31 @@
           16
         ],
         "creationTime": true,
+        "debrid": {
+          "check": {
+            "error": false,
+            "text": "The key works: ann, premium until 2023-12-14 22:13."
+          },
+          "checking": false,
+          "keyService": "realDebrid",
+          "services": [
+            {
+              "keyPage": "https://real-debrid.com/apitoken",
+              "name": "Real-Debrid",
+              "service": "realDebrid"
+            },
+            {
+              "keyPage": "https://alldebrid.com/apikeys/",
+              "name": "AllDebrid",
+              "service": "allDebrid"
+            },
+            {
+              "keyPage": "https://www.premiumize.me/account",
+              "name": "Premiumize",
+              "service": "premiumize"
+            }
+          ]
+        },
         "defaultCaptureTypes": "ZIP RAR 7Z TAR GZ BZ2 XZ PDF DOC DOCX XLS XLSX PPT PPTX TXT RTF ODT MP3 FLAC WAV M4A AAC OGG EXE MSI APK MSIX MP4 MKV AVI MOV WEBM WMV ISO IMG DMG DEB RPM BIN",
         "defaultExcludedSites": "",
         "draft": {
@@ -2227,11 +3259,24 @@
           "connections": 8,
           "doneDialog": true,
           "downloadDir": "",
+          "downloadUpdates": true,
           "extras": {
+            "adapter": {
+              "id": "wg0",
+              "name": "wg0",
+              "renew": false
+            },
             "autoStartTypes": "",
             "browserProxyAfterErrors": false,
             "captureMinSizeKb": 0,
+            "catchTorrentFiles": true,
             "confirmRemove": true,
+            "debridForget": false,
+            "debridKey": "",
+            "debridOn": true,
+            "debridService": "realDebrid",
+            "dns": "quad9",
+            "dnsUrl": "",
             "ffmpegPath": "",
             "fileExists": "rename",
             "idleMinutes": 5,
@@ -2252,6 +3297,10 @@
             "remotePort": 18443,
             "removeDeletesFiles": false,
             "resumeAtStartup": false,
+            "seedMinutes": 60,
+            "seedMinutesOn": true,
+            "seedRatio": 1.0,
+            "seedRatioOn": true,
             "selectionButton": "everywhere",
             "selectionSites": "",
             "serverFileDateCreated": false,
@@ -2259,6 +3308,15 @@
             "socksFtp": true,
             "socksHttps": false,
             "textSize": 100,
+            "torrentDht": true,
+            "torrentLocalPeers": true,
+            "torrentPeers": 128,
+            "torrentPeersOn": false,
+            "torrentPort": 6881,
+            "torrentPortFixed": false,
+            "torrentUploadKb": 100,
+            "torrentUploadOn": false,
+            "torrentUpnp": true,
             "unpackAuto": false,
             "unpackFolder": "",
             "unpackRecycle": false,
@@ -2382,10 +3440,10 @@
               "on": false
             }
           ],
-          "startWhileAsking": false,
+          "startWhileAsking": true,
           "startWithSystem": false,
           "tempDir": "",
-          "theme": "light",
+          "theme": "system",
           "trayIcon": true,
           "userAgent": "",
           "videoAutoCapture": false,
@@ -2537,6 +3595,22 @@
             "value": "uk"
           },
           {
+            "label": "עברית",
+            "value": "he"
+          },
+          {
+            "label": "العربية",
+            "value": "ar"
+          },
+          {
+            "label": "فارسی",
+            "value": "fa"
+          },
+          {
+            "label": "हिन्दी",
+            "value": "hi"
+          },
+          {
             "label": "日本語",
             "value": "ja"
           },
@@ -2587,6 +3661,47 @@
             "value": "gallery"
           }
         ],
+        "network": {
+          "adapters": [
+            {
+              "id": "eth0",
+              "label": "eth0 (192.168.1.5, fe80::5)",
+              "name": "eth0",
+              "renewable": false,
+              "up": true
+            },
+            {
+              "id": "wg0",
+              "label": "wg0 (10.2.0.2)",
+              "name": "wg0",
+              "renewable": false,
+              "up": true
+            }
+          ],
+          "adaptersError": null,
+          "resolvers": [
+            {
+              "label": "The system's (not encrypted)",
+              "value": "system"
+            },
+            {
+              "label": "Cloudflare (1.1.1.1)",
+              "value": "cloudflare"
+            },
+            {
+              "label": "Google (8.8.8.8)",
+              "value": "google"
+            },
+            {
+              "label": "Quad9 (9.9.9.9)",
+              "value": "quad9"
+            },
+            {
+              "label": "Another DNS over HTTPS server",
+              "value": "custom"
+            }
+          ]
+        },
         "portable": false,
         "remote": {
           "canPair": true,
@@ -3484,6 +4599,7 @@
             "busy": false,
             "hint": "Downloads the official build from GitHub and checks it against its published checksum",
             "installable": true,
+            "progress": null,
             "status": "Installed by UDM (2026.11.01): /home/u/.local/share/UDM/tools/yt-dlp",
             "tool": "ytDlp"
           },
@@ -3492,6 +4608,7 @@
             "busy": false,
             "hint": "Downloads the official build from GitHub and checks it against its published checksum",
             "installable": true,
+            "progress": null,
             "status": "Using /usr/bin/ffmpeg",
             "tool": "ffmpeg"
           },
@@ -3500,6 +4617,7 @@
             "busy": false,
             "hint": "Downloads the official build from Codeberg and checks it against its published checksum",
             "installable": true,
+            "progress": null,
             "status": "gallery-dl was not found.",
             "tool": "galleryDl"
           }
@@ -3634,7 +4752,7 @@
     },
     "properties": {
       "view": {
-        "address": "http://127.0.0.1:8765/HandBrake-1.11.2-x86_64-Win_GUI.exe",
+        "address": "https://downloads.example.com/files/video-converter-1.11.2-setup.exe",
         "canMove": true,
         "canOpen": true,
         "description": "",
@@ -3643,10 +4761,10 @@
         "id": 2,
         "kind": "EXE file",
         "loginUser": "",
-        "name": "HandBrake-1.11.2-x86_64-Win_GUI.exe",
+        "name": "video-converter-1.11.2-setup.exe",
         "page": "Unknown",
         "referrer": "",
-        "saveTo": "/home/u/Downloads/HandBrake-1.11.2-x86_64-Win_GUI.exe",
+        "saveTo": "/home/u/Downloads/video-converter-1.11.2-setup.exe",
         "size": "24.15 MB (25323520 Bytes)",
         "status": "Complete"
       },
@@ -3654,11 +4772,11 @@
     },
     "refresh": {
       "view": {
-        "address": "http://127.0.0.1:8765/Screen-Capture (3).mp3",
+        "address": "https://downloads.example.com/files/lecture-recording-2026-10-22.mp3",
         "connected": true,
         "id": 3,
         "mismatch": null,
-        "name": "Screen-Capture (3).mp3",
+        "name": "lecture-recording-2026-10-22.mp3",
         "waiting": false
       },
       "window": "refresh"
@@ -3673,7 +4791,7 @@
     "save-as": {
       "view": {
         "canElevate": true,
-        "canPreview": false,
+        "canPreview": true,
         "categories": [
           "General",
           "Compressed",
@@ -3682,13 +4800,13 @@
           "Programs",
           "Video"
         ],
-        "category": "General",
+        "category": "Compressed",
         "description": "",
         "duplicate": null,
         "folders": [
-          "/home/u/Downloads/udm-idm-test-40MB.bin"
+          "/home/u/Downloads/summer-photos.zip"
         ],
-        "icon": "program",
+        "icon": "archive",
         "id": 17,
         "queues": [
           {
@@ -3704,9 +4822,100 @@
         ],
         "rememberFolder": false,
         "remembered": "/home/u/Downloads",
-        "saveAs": "/home/u/Downloads/udm-idm-test-40MB.bin",
+        "saveAs": "/home/u/Downloads/summer-photos.zip",
         "size": "40.00 MB",
-        "url": "http://127.0.0.1:8765/udm-idm-test-40MB.bin"
+        "torrent": null,
+        "url": "https://downloads.example.com/files/summer-photos.zip"
+      },
+      "window": "saveAs"
+    },
+    "save-as-torrent": {
+      "view": {
+        "canElevate": true,
+        "canPreview": false,
+        "categories": [
+          "General",
+          "Compressed",
+          "Documents",
+          "Music",
+          "Programs",
+          "Video"
+        ],
+        "category": "General",
+        "description": "",
+        "duplicate": null,
+        "folders": [
+          "/home/u/Downloads/Free Music Album"
+        ],
+        "icon": "other",
+        "id": 20,
+        "queues": [
+          {
+            "id": 1,
+            "name": "Main queue",
+            "running": true
+          },
+          {
+            "id": 2,
+            "name": "Synchronization queue",
+            "running": false
+          }
+        ],
+        "rememberFolder": false,
+        "remembered": "/home/u/Downloads",
+        "saveAs": "/home/u/Downloads/Free Music Album",
+        "size": "121.00 MB",
+        "torrent": {
+          "chosen": "4 of 5 files, 120.00 MB of 121.00 MB",
+          "files": [
+            {
+              "chosen": true,
+              "fraction": null,
+              "index": 0,
+              "path": "01 - Opening.flac",
+              "progress": "",
+              "size": "30.00 MB"
+            },
+            {
+              "chosen": true,
+              "fraction": null,
+              "index": 1,
+              "path": "02 - Morning Light.flac",
+              "progress": "",
+              "size": "27.00 MB"
+            },
+            {
+              "chosen": true,
+              "fraction": null,
+              "index": 2,
+              "path": "03 - Long Road.flac",
+              "progress": "",
+              "size": "39.00 MB"
+            },
+            {
+              "chosen": true,
+              "fraction": null,
+              "index": 3,
+              "path": "04 - Closing.flac",
+              "progress": "",
+              "size": "24.00 MB"
+            },
+            {
+              "chosen": false,
+              "fraction": null,
+              "index": 4,
+              "path": "cover.jpg",
+              "progress": "",
+              "size": "1.00 MB"
+            }
+          ],
+          "fixedName": null,
+          "folder": "/home/u/Downloads",
+          "noneChosen": false,
+          "private": false,
+          "waiting": false
+        },
+        "url": "magnet:?xt=urn:btih:c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3&dn=Free%20Music%20Album"
       },
       "window": "saveAs"
     },
@@ -3720,10 +4929,26 @@
               {
                 "icon": "program",
                 "id": 12,
-                "name": "office-suite-2016-x64.iso",
+                "name": "office-suite-24.8-x64.iso",
                 "size": "3.80 GB",
                 "status": "16.28%",
                 "timeLeft": "19m 56s"
+              },
+              {
+                "icon": "program",
+                "id": 14,
+                "name": "linux-desktop-26.04-amd64.iso",
+                "size": "4.72 GB",
+                "status": "47.12%",
+                "timeLeft": "8m 1s"
+              },
+              {
+                "icon": "program",
+                "id": 16,
+                "name": "UDM-Setup-0.3.3.exe",
+                "size": "7.56 MB",
+                "status": "Queued",
+                "timeLeft": ""
               }
             ]
           },
@@ -3750,7 +4975,7 @@
             "forceClose": false,
             "id": 1,
             "main": true,
-            "maxConcurrent": 1,
+            "maxConcurrent": 2,
             "name": "Main queue",
             "once": false,
             "openFile": "",

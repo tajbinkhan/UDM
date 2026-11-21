@@ -43,50 +43,74 @@ fn vars(look: &Look) -> Vec<CssVar> {
     let s = look.sizes;
     let dark = p.dark;
     let (bg, fg) = (p.background, p.foreground);
-    // A step from the background toward the text: the faces of a desktop
-    // window are grays between the two.
+    // A step from the background toward the text. The surfaces follow
+    // Windows 11's: a Mica face behind everything, lists and fields on
+    // lighter layers, controls a hair off the layer they sit on.
     let step = |share: f32| bg.mix(fg, share);
-    let accent = tint(p.link, dark, Color::rgb(0x00, 0x78, 0xd4), Color::rgb(0x3b, 0x82, 0xf6));
+    let accent = tint(p.link, dark, Color::rgb(0x00, 0x5f, 0xb8), Color::rgb(0x60, 0xcd, 0xff));
     let progress = tint(p.progress, dark, Color::rgb(0x06, 0xb0, 0x25), Color::rgb(0x06, 0xb0, 0x25));
-    let field = if dark { step(0.065) } else { bg };
+    // Text on the accent: whichever of black and white reads better.
+    let white = Color::rgb(0xff, 0xff, 0xff);
+    let black = Color::rgb(0, 0, 0);
+    let on = |c: Color| if c.contrast(white) >= c.contrast(black) { white } else { black };
+    let on_accent = on(accent);
+    // Hover and press fills are the text's color thinly over whatever
+    // surface they sit on, so they read on the face and on a list alike.
+    let veil = |alpha: u8| Color::rgba(fg.r, fg.g, fg.b, alpha);
+    let face = if dark { step(0.095) } else { step(0.05) };
+    let field = if dark { step(0.14) } else { bg };
     let colors: Vec<(&str, Color)> = vec![
         ("fg", fg),
-        ("fg-muted", fg.mix(bg, 0.35)),
+        ("fg-muted", fg.mix(bg, if dark { 0.3 } else { 0.4 })),
         ("fg-disabled", fg.mix(bg, if dark { 0.6 } else { 0.55 })),
         // The window's face: toolbars, dialogs, tabs.
-        ("face", if dark { step(0.2) } else { step(0.06) }),
-        // The menu bar and the panel behind the categories.
-        ("bar", if dark { step(0.095) } else { bg }),
-        // The download list, the tree and text boxes.
+        ("face", face),
+        // The menu bar and dialogs' title strips, one with the face.
+        ("bar", face),
+        // The download list, list boxes and the tabs' pages.
         ("field", field),
-        ("input-bg", if dark { field.mix(accent, 0.12) } else { bg }),
-        ("input-border", if dark { fg.mix(bg, 0.05) } else { step(0.45) }),
+        ("input-bg", if dark { step(0.16) } else { bg }),
+        ("input-border", if dark { step(0.2) } else { step(0.12) }),
+        // The underline a text box draws along its foot.
+        ("input-underline", if dark { step(0.6) } else { step(0.52) }),
         ("header", field),
-        // The download list, the categories tree, the list's frame and the
-        // scroll bars' track.
-        ("list", if dark { step(0.2) } else { bg }),
-        ("tree", if dark { step(0.095) } else { bg }),
-        ("frame", if dark { step(0.5) } else { step(0.45) }),
-        ("scroll-track", if dark { step(0.055) } else { step(0.06) }),
-        ("grid", if dark { step(0.31) } else { step(0.1) }),
-        ("border", if dark { step(0.31) } else { step(0.18) }),
-        ("button", if dark { step(0.18) } else { bg.mix(fg, 0.008) }),
-        ("button-border", if dark { step(0.55) } else { step(0.18) }),
-        ("button-hover", if dark { step(0.26) } else { bg.mix(accent, 0.1) }),
-        ("button-pressed", if dark { step(0.32) } else { bg.mix(accent, 0.2) }),
-        ("default-border", if dark { fg } else { accent }),
-        ("hover", if dark { step(0.26) } else { bg.mix(accent, 0.1) }),
-        ("selected", if dark { accent.mix(field, 0.3) } else { bg.mix(accent, 0.2) }),
+        ("list", field),
+        // The categories, on a panel like the download list's.
+        ("tree", field),
+        // The edge round lists, panels and dialogs.
+        ("frame", if dark { step(0.2) } else { step(0.1) }),
+        ("scroll-track", field),
+        ("scroll-thumb", if dark { step(0.45) } else { step(0.4) }),
+        ("grid", if dark { step(0.2) } else { step(0.08) }),
+        ("border", if dark { step(0.2) } else { step(0.1) }),
+        ("button", if dark { step(0.16) } else { bg.mix(fg, 0.008) }),
+        ("button-border", if dark { step(0.21) } else { step(0.1) }),
+        // Windows 11 draws a button's foot a shade darker than its sides.
+        ("button-border-foot", if dark { step(0.17) } else { step(0.2) }),
+        ("button-hover", if dark { step(0.19) } else { step(0.025) }),
+        ("button-pressed", if dark { step(0.13) } else { step(0.04) }),
+        ("default-border", accent),
+        ("accent", accent),
+        ("accent-hover", accent.mix(bg, 0.1)),
+        ("accent-pressed", accent.mix(bg, 0.2)),
+        ("on-accent", on_accent),
+        ("hover", if dark { veil(15) } else { veil(10) }),
+        ("active", if dark { veil(10) } else { veil(6) }),
+        ("selected", if dark { field.mix(accent, 0.24) } else { bg.mix(accent, 0.12) }),
         ("selected-fg", fg),
-        ("selected-blur", if dark { step(0.28) } else { step(0.12) }),
-        ("menu", if dark { step(0.13) } else { step(0.02) }),
-        ("menu-hover", if dark { step(0.26) } else { bg.mix(accent, 0.12) }),
+        ("selected-blur", if dark { step(0.21) } else { step(0.07) }),
+        ("menu", if dark { step(0.15) } else { bg.mix(fg, 0.01) }),
+        ("menu-hover", if dark { veil(15) } else { veil(10) }),
         ("focus", accent),
+        // The keyboard's focus ring, in the text's color as Windows 11 draws it.
+        ("focus-ring", fg),
         ("progress", progress),
-        ("progress-track", if dark { fg.mix(bg, 0.1) } else { step(0.1) }),
+        ("progress-track", if dark { step(0.25) } else { step(0.1) }),
         ("segment", accent),
         ("link", p.link),
         ("error", p.error),
+        // Text on the error color, such as a dialog's close button under the mouse.
+        ("on-error", on(p.error)),
         ("warning", p.warning),
         ("shadow", p.shadow),
         ("tint-green", if dark { Color::rgb(0x4a, 0xc2, 0x6b) } else { Color::rgb(0x2e, 0x9e, 0x4f) }),
@@ -104,6 +128,8 @@ fn vars(look: &Look) -> Vec<CssVar> {
     out.push(px("text", s.text));
     out.push(px("control-height", s.control_height));
     out.push(px("radius", s.corner_radius));
+    // Menus, dialogs and panels: twice a control's corner, as Windows 11's are.
+    out.push(px("radius-large", s.corner_radius.saturating_mul(2)));
     out.push(px("border-width", s.border_width));
     out.push(CssVar { name: "--scheme".into(), value: if dark { "dark".into() } else { "light".into() } });
     out
@@ -125,7 +151,24 @@ mod tests {
         assert_eq!(value(&t.light, "--scheme"), "light");
         assert_eq!(value(&t.dark, "--scheme"), "dark");
         assert_eq!(value(&t.light, "--field"), "#ffffff");
-        assert_eq!(value(&t.light, "--face"), "#f0f0f0");
+        // Windows 11's light Mica.
+        assert_eq!(value(&t.light, "--face"), "#f3f3f3");
+    }
+
+    #[test]
+    fn text_on_the_accent_reads() {
+        let t = theme(&Appearance::FollowSystem { light: LIGHT, dark: DARK });
+        assert_eq!(value(&t.light, "--accent"), "#005fb8");
+        assert_eq!(value(&t.light, "--on-accent"), "#ffffff");
+        assert_eq!(value(&t.dark, "--accent"), "#60cdff");
+        assert_eq!(value(&t.dark, "--on-accent"), "#000000");
+    }
+
+    #[test]
+    fn menus_and_dialogs_round_twice_as_much_as_controls() {
+        let t = theme(&Appearance::Fixed(LIGHT));
+        assert_eq!(value(&t.light, "--radius"), "4px");
+        assert_eq!(value(&t.light, "--radius-large"), "8px");
     }
 
     #[test]

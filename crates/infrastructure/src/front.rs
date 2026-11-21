@@ -52,10 +52,25 @@ pub trait Windows: StoreEvents {
     fn window_open(&self) -> bool;
 }
 
-/// Start the desktop window from this program's folder.
+/// Start the desktop window from this program's folder, with its main
+/// window.
 pub fn open_window() -> io::Result<()> {
+    start_window(&[])
+}
+
+/// Start the desktop window in the tray, for a dialog it is wanted for: the
+/// dialog opens alone, as IDM's does, not beside (and under) the main window.
+pub fn open_window_in_tray() -> io::Result<()> {
+    start_window(&[crate::cli::IN_TRAY])
+}
+
+fn start_window(args: &[&str]) -> io::Result<()> {
     crate::platform::spawn_reaped(
-        crate::platform::program_command("udm-gui")?.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()),
+        crate::platform::program_command("udm-gui")?
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
     )
 }
 
@@ -280,7 +295,7 @@ impl AnswerWait {
     /// what happens if its name is taken, `None` leaving that to the setting.
     pub fn wait(&self, id: DownloadId, fallback: Option<FileExists>) {
         if !self.windows.window_open() && self.seat.has_desktop() {
-            if let Err(e) = open_window() {
+            if let Err(e) = open_window_in_tray() {
                 warn!(error = %e, "could not open the window");
             }
         }

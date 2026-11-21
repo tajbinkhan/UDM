@@ -33,7 +33,8 @@ const all = (text, re) => [...text.matchAll(re)].map((m) => m[1]);
 
 // Messages named in code (chrome.i18n.getMessage, popup.js's t and media.js's
 // uiText), in the popup's data-i18n attributes, and in the manifest.
-const called = all(code, /\b(?:getMessage|uiText|t)\(\s*"([^"]*)"/g);
+// The browser's own messages (@@bidi_dir, @@ui_locale) are in no locale file.
+const called = all(code, /\b(?:getMessage|uiText|t)\(\s*"([^"]*)"/g).filter((name) => !name.startsWith("@@"));
 const attributes = [...html.matchAll(/\bdata-i18n(-[a-z-]+)?="([^"]*)"/g)];
 const inManifest = all(manifest, /__MSG_(\w+)__/g);
 
@@ -81,7 +82,7 @@ test("every English message is used", () => {
 test("messages fill in their values as the browser does", () => {
   assert.equal(getMessage("statusNotConnectedReason", "no host"), "Not connected to UDM: no host. Downloads stay in the browser.");
   assert.equal(getMessage("sizeProgress", ["1.5 MB", "10.0 MB"]), "1.5 MB / 10.0 MB");
-  assert.equal(getMessage("noDownloads"), "No downloads yet.");
+  assert.equal(getMessage("noDownloads"), "No downloads running or paused.");
   assert.equal(getMessage("noSuchMessage"), "");
   // media.js's English, used without a browser, is the browser's.
   for (const name of Object.keys(en)) assert.equal(uiText(name, ["A", "B"]), getMessage(name, ["A", "B"]), name);

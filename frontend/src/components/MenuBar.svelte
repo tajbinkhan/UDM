@@ -2,7 +2,7 @@
      moving over another opens it. F10 or Alt with an underlined letter
      opens a menu from the keyboard. -->
 <script lang="ts">
-  import { mnemonic, plain, t } from '../i18n';
+  import { mnemonic, plain, rightToLeft, t } from '../i18n';
   import type { MenuEntry } from './menu';
   import PopupMenu from './PopupMenu.svelte';
 
@@ -15,7 +15,7 @@
   function show(i: number) {
     const r = buttons[i]?.getBoundingClientRect();
     if (!r) return;
-    at = { x: r.left, y: r.bottom };
+    at = { x: rightToLeft() ? r.right : r.left, y: r.bottom };
     open = i;
   }
 
@@ -35,8 +35,11 @@
   }
 
   function onbarkeydown(e: KeyboardEvent, i: number) {
-    if (e.key === 'ArrowRight') buttons[(i + 1) % menus.length]?.focus();
-    else if (e.key === 'ArrowLeft') buttons[(i - 1 + menus.length) % menus.length]?.focus();
+    // The next menu is on the right, or on the left right to left.
+    const next = rightToLeft() ? 'ArrowLeft' : 'ArrowRight';
+    const back = rightToLeft() ? 'ArrowRight' : 'ArrowLeft';
+    if (e.key === next) buttons[(i + 1) % menus.length]?.focus();
+    else if (e.key === back) buttons[(i - 1 + menus.length) % menus.length]?.focus();
     else if (e.key === 'ArrowDown') show(i);
     else return;
     e.preventDefault();
@@ -45,7 +48,7 @@
 
 <svelte:window onkeydown={onwindowkeydown} />
 
-<div class="bar" role="menubar" aria-label={t('Menu')}>
+<div class="bar" class:active={open >= 0} role="menubar" aria-label={t('Menu')}>
   {#each menus as m, i (m.label)}
     {@const parts = mnemonic(m.label)}
     <button
@@ -64,25 +67,38 @@
   {/each}
 </div>
 {#if open >= 0}
-  <PopupMenu items={menus[open].items} x={at.x} y={at.y} label={plain(menus[open].label)} onclose={() => (open = -1)} />
+  <!-- A new menu for each name, so it places itself under the name it
+       belongs to when the mouse slides from one name to the next. -->
+  {#key open}
+    <PopupMenu items={menus[open].items} x={at.x} y={at.y} label={plain(menus[open].label)} onclose={() => (open = -1)} />
+  {/key}
 {/if}
 
 <style>
   .bar {
     display: flex;
-    height: 22px;
-    padding: 0 8px;
+    gap: 2px;
+    height: 28px;
+    padding: 3px 6px;
     background: var(--bar);
     flex: none;
   }
 
   .top {
-    position: relative;
-    z-index: 52;
     padding: 0 9px;
     background: none;
     border: 0;
+    border-radius: var(--radius);
     color: var(--fg);
+  }
+
+
+  /* While one of the bar's menus is open, its names stay above the menu's
+     backdrop, so moving over another name opens that menu. Only then: a
+     right-click menu tall enough to reach the bar covers the names. */
+  .bar.active .top {
+    position: relative;
+    z-index: 52;
   }
 
   .top:hover,

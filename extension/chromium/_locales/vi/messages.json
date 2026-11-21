@@ -96,7 +96,7 @@
     "message": "Tải xuống"
   },
   "noDownloads": {
-    "message": "Chưa có mục tải xuống nào."
+    "message": "Không có tệp nào đang tải hoặc tạm dừng."
   },
   "stateQueued": {
     "message": "Đang chờ"
@@ -104,38 +104,14 @@
   "stateDownloading": {
     "message": "Đang tải xuống"
   },
-  "stateDone": {
-    "message": "Xong"
+  "statePaused": {
+    "message": "Đã tạm dừng"
   },
-  "stateFailed": {
-    "message": "Thất bại"
+  "pause": {
+    "message": "Tạm dừng"
   },
-  "stateCanceled": {
-    "message": "Đã hủy"
-  },
-  "stateInterrupted": {
-    "message": "Bị gián đoạn"
-  },
-  "stateConfirming": {
-    "message": "Đang chờ bạn trong UDM"
-  },
-  "stateWaiting": {
-    "message": "Đang chờ bắt đầu"
-  },
-  "threatFound": {
-    "message": "Phát hiện mối đe dọa"
-  },
-  "start": {
-    "message": "Bắt đầu"
-  },
-  "cancel": {
-    "message": "Hủy"
-  },
-  "retry": {
-    "message": "Thử lại"
-  },
-  "remove": {
-    "message": "Loại bỏ"
+  "resume": {
+    "message": "Tiếp tục"
   },
   "sizeProgress": {
     "message": "$DONE$ / $TOTAL$",

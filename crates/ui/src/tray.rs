@@ -76,7 +76,7 @@ pub fn install(app: &AppHandle, outbox: Outbox, lang: &'static Language) -> Resu
             let send = |command| on_menu.send(Inbox::Send { command: Box::new(command), reply: None });
             let _ = match event.id().as_ref() {
                 "open" => {
-                    windows::show_main(app, lang);
+                    windows::show_from_tray(app, lang);
                     Ok(())
                 }
                 "add" => on_menu.send(Inbox::OpenWindow(OpenWindow::AddUrl)),
@@ -94,7 +94,7 @@ pub fn install(app: &AppHandle, outbox: Outbox, lang: &'static Language) -> Resu
         })
         .on_tray_icon_event(move |tray, event| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                windows::show_main(tray.app_handle(), lang);
+                windows::show_from_tray(tray.app_handle(), lang);
             }
         })
         .build(app)?;

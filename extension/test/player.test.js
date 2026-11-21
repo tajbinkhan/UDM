@@ -9,7 +9,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { siteLabel, stripSiteName, videoName, noteMediaStart, startedElement, elementEntries, forgetMedia, recordMedia, START_GRACE_MS } = require("../chromium/media.js");
-const { mediaPlugin, playerContainer, samplePoints, playerCovered } = require("../chromium/rules.js");
+const { mediaPlugin, playerContainer, samplePoints, playerCovered, videoButtonSpot } = require("../chromium/rules.js");
 const { loadWorker } = require("./harness.js");
 
 const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
@@ -146,6 +146,22 @@ test("a player counts as covered only when something outside its player box is o
   assert.equal(covered((x, y) => (x < 300 ? video : dialog)), false, "partly visible");
   assert.equal(covered(() => button), false, "UDM's button covers nothing");
   assert.equal(covered(() => null), false, "nothing to look at");
+});
+
+test("the video button sits outside the player, above its top right corner", () => {
+  const rect = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+  // Room above: just above the player, its right edge on the player's.
+  same(videoButtonSpot(rect(100, 100, 640, 360), 180, 28, 1000, false), { left: 560, top: 70 });
+  // The player runs past the window's right edge: the window's edge.
+  same(videoButtonSpot(rect(400, 100, 900, 400), 180, 28, 1000, false), { left: 820, top: 70 });
+  // No room above: a video gets it just inside its top, at the window's top
+  // when the video is scrolled partly away.
+  same(videoButtonSpot(rect(100, 10, 640, 360), 180, 28, 1000, false), { left: 560, top: 14 });
+  same(videoButtonSpot(rect(100, -200, 640, 360), 180, 28, 1000, false), { left: 560, top: 4 });
+  // An audio player gets it below instead.
+  same(videoButtonSpot(rect(100, 10, 300, 40), 180, 28, 1000, true), { left: 220, top: 52 });
+  // Never off the window's left edge.
+  same(videoButtonSpot(rect(0, 100, 160, 90), 180, 28, 1000, false), { left: 0, top: 70 });
 });
 
 function connected() {

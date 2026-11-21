@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">UDM, the Unified Download Manager</title>
+  <desc id="desc">UDM downloads the way IDM does, on Windows, macOS and Linux, free and open source. Beside the title, a download of linux-desktop-26.04-amd64.iso is split into 16 parts that fill at once: 47.12 percent done at 5.32 MB/s with 8 minutes 1 second left.</desc>
+
+  <rect width="1200" height="420" rx="24" fill="#0f1722"/>
+
+  <g id="title-block" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+    <text x="64" y="92" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" letter-spacing="2" fill="#93a1b2">UNIFIED DOWNLOAD MANAGER</text>
+    <text x="60" y="204" font-size="124" font-weight="800" letter-spacing="-3" fill="#eef3f8">UDM</text>
+    <text x="64" y="256" font-size="32" font-weight="600" fill="#eef3f8">Downloads the way IDM does,</text>
+    <text x="64" y="296" font-size="32" font-weight="600" fill="#eef3f8">on Windows, macOS and Linux.</text>
+    <text x="64" y="342" font-size="21" fill="#93a1b2">Free and open source. No trial, no account, no ads.</text>
+    <text x="64" y="380" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#6fa8ec">Rust · MIT · 21 languages</text>
+  </g>
+
+  <g id="download-card" transform="translate(636 56)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+    <rect width="500" height="308" rx="18" fill="#182231" stroke="#2a3646" stroke-width="1.5"/>
+    <text x="28" y="48" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="20" fill="#eef3f8">linux-desktop-26.04-amd64.iso</text>
+    <text x="28" y="80" font-size="18" fill="#93a1b2">4.72 GB · downloading over 16 connections</text>
+
+    <!-- The file in 16 parts, each filled by its own connection. Fills average 47.12%. -->
+    <g id="segments" transform="translate(28 106)">
+      <rect x="0" y="0" width="444" height="44" rx="8" fill="#0f1722"/>
+      <g fill="#243044">
+        <rect x="4" y="4" width="25.5" height="36" rx="3"/><rect x="31.5" y="4" width="25.5" height="36" rx="3"/>
+        <rect x="59" y="4" width="25.5" height="36" rx="3"/><rect x="86.5" y="4" width="25.5" height="36" rx="3"/>
+        <rect x="114" y="4" width="25.5" height="36" rx="3"/><rect x="141.5" y="4" width="25.5" height="36" rx="3"/>
+        <rect x="169" y="4" width="25.5" height="36" rx="3"/><rect x="196.5" y="4" width="25.5" height="36" rx="3"/>
+        <rect x="224" y="4" width="25.5" height="36" rx="3"/><rect x="251.5" y="4" width="25.5" height="36" rx="3"/>
+        <rect x="279" y="4" width="25.5" height="36" rx="3"/><rect x="306.5" y="4" width="25.5" height="36" rx="3"/>
+        <rect x="334" y="4" width="25.5" height="36" rx="3"/><rect x="361.5" y="4" width="25.5" height="36" rx="3"/>
+        <rect x="389" y="4" width="25.5" height="36" rx="3"/><rect x="416.5" y="4" width="23.5" height="36" rx="3"/>
+      </g>
+      <g fill="#2fb350">
+        <rect x="4" y="4" width="25.5" height="36" rx="3"/><rect x="31.5" y="4" width="21.9" height="36" rx="3"/>
+        <rect x="59" y="4" width="18.1" height="36" rx="3"/><rect x="86.5" y="4" width="13.3" height="36" rx="3"/>
+        <rect x="114" y="4" width="16.3" height="36" rx="3"/><rect x="141.5" y="4" width="9.7" height="36" rx="3"/>
+        <rect x="169" y="4" width="14.0" height="36" rx="3"/><rect x="196.5" y="4" width="7.4" height="36" rx="3"/>
+        <rect x="224" y="4" width="12.0" height="36" rx="3"/><rect x="251.5" y="4" width="8.4" height="36" rx="3"/>
+        <rect x="279" y="4" width="10.5" height="36" rx="3"/><rect x="306.5" y="4" width="5.6" height="36" rx="3"/>
+        <rect x="334" y="4" width="9.2" height="36" rx="3"/><rect x="361.5" y="4" width="4.6" height="36" rx="3"/>
+        <rect x="389" y="4" width="7.9" height="36" rx="3"/><rect x="416.5" y="4" width="7.3" height="36" rx="3"/>
+      </g>
+    </g>
+
+    <g id="stats" font-size="18" fill="#93a1b2">
+      <text x="28" y="204" font-size="30" font-weight="700" fill="#eef3f8">47.12%</text>
+      <text x="28" y="232">done</text>
+      <text x="190" y="204" font-size="30" font-weight="700" fill="#eef3f8">5.32 MB/s</text>
+      <text x="190" y="232">transfer rate</text>
+      <text x="370" y="204" font-size="30" font-weight="700" fill="#eef3f8">8m 1s</text>
+      <text x="370" y="232">time left</text>
+    </g>
+
+    <line x1="28" y1="256" x2="472" y2="256" stroke="#2a3646" stroke-width="1.5"/>
+    <text x="28" y="286" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#93a1b2">resumes after a crash or a restart</text>
+  </g>
+</svg>

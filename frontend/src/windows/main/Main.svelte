@@ -9,6 +9,9 @@
     browseCategory,
     checkUpdate,
     dismissRelease,
+    installUpdate,
+    answerToolsOffer,
+    dismissTools,
     openPackage,
     showRefresh,
     ungroupPackage,
@@ -20,12 +23,14 @@
     openClipboardLinks,
     openDownload,
     openWindow,
+    openTorrentFile,
     queueSelection,
     saveCategory,
     setLimiter,
     setListFont,
     setPanelWidth,
     setToolbar,
+    setLanguage,
     showDropTarget,
     showProperties,
     quitApp,
@@ -57,12 +62,15 @@
   import FontSheet from './FontSheet.svelte';
   import ToolbarSheet from './ToolbarSheet.svelte';
   import TipSheet from './TipSheet.svelte';
+  import LanguageSheet from './LanguageSheet.svelte';
+  import ToolsSheet from './ToolsSheet.svelte';
   import ConvertSheet from './ConvertSheet.svelte';
   import VerifySheet from './VerifySheet.svelte';
   import Sheet from '../../components/Sheet.svelte';
+  import ProgressBar from '../../components/ProgressBar.svelte';
 
   type SheetOpen =
-    | { kind: 'find' | 'export' | 'limiter' | 'columns' | 'font' | 'toolbar' | 'tip' }
+    | { kind: 'find' | 'export' | 'limiter' | 'columns' | 'font' | 'toolbar' | 'tip' | 'language' | 'tools' }
     | { kind: 'convert' | 'verify'; row: Row }
     | { kind: 'category'; original: string | null; start: CategoryInput }
     | { kind: 'note'; text: string };
@@ -107,9 +115,25 @@
   let dragWidth = $state<number | null>(null);
   const panelWidth = $derived(dragWidth ?? view?.chrome.panelWidth ?? 143);
   // The tip of the day opens by itself once, when the window starts.
+  // On the first start the language picker comes first, and the tip after.
+  let languageOffered = false;
+  $effect(() => {
+    if (view?.chrome.askLanguage && !languageOffered) {
+      languageOffered = true;
+      sheet = { kind: 'language' };
+    }
+  });
+  // At the first start, after the language, offer the tools UDM did not find.
+  let toolsOffered = false;
+  $effect(() => {
+    if (view?.chrome.missingTools?.ask && !view.chrome.askLanguage && sheet === null && !toolsOffered) {
+      toolsOffered = true;
+      sheet = { kind: 'tools' };
+    }
+  });
   let tipOffered = false;
   $effect(() => {
-    if (view?.chrome.showTip && !tipOffered) {
+    if (view?.chrome.showTip && !view.chrome.askLanguage && !view.chrome.missingTools?.ask && sheet === null && !tipOffered) {
       tipOffered = true;
       sheet = { kind: 'tip' };
     }
@@ -140,6 +164,7 @@
         item('&Add new download', () => void openWindow('addUrl')),
         item('Add &batch download', () => void openWindow('batch')),
         item('Add batch download from &clipboard', when(can?.connected, () => void fromClipboard())),
+        item('Open &torrent file...', when(can?.connected, () => void tell(openTorrentFile()))),
         sep,
         item('Run site &grabber', when(can?.connected, () => void openWindow('grabber'))),
         item('Show &drop target', () => view && void showDropTarget(!view.chrome.dropTarget), { checked: !!view?.chrome.dropTarget }),
@@ -210,7 +235,10 @@
         sub('&Font', [item('&Choose Font...', () => (sheet = { kind: 'font' })), item('&Reset to default', () => void setListFont(null))]),
         sub('Tray &icon', [], true),
         item('C&ustomize URL List...', () => (sheet = { kind: 'columns' })),
-        sub('&Language', [], true),
+        sub(
+          '&Language',
+          (view?.chrome.languages ?? []).map((c) => item(c.label, () => void setLanguage(c.value), { checked: view?.chrome.language === c.value })),
+        ),
       ],
     },
     {
@@ -304,6 +332,12 @@
     sep,
     item('Resume Download', when(can?.resume, act({ action: 'resume' }))),
     item('Stop Download', when(can?.stop, act({ action: 'stop' }))),
+    ...(can?.torrent || can?.stopSeeding
+      ? [
+          item('Torrent details', when(can?.torrent && !!one, () => one && void showDownload(one.id))),
+          item('Stop seeding', when(can?.stopSeeding, act({ action: 'stopSeeding' }))),
+        ]
+      : []),
     sep,
     item('Refresh download address', when(can?.refresh && !!one, () => one && void tell(showRefresh(one.id)))),
     sep,
@@ -383,8 +417,31 @@
       <Toolbar {tools} small={view.chrome.toolbarSmall} />
       {#if view.chrome.newer}
         <div class="banner strip" role="status">
-          <span class="grow">{t('UDM {version} is available', { version: view.chrome.newer })}</span>
-          {#if view.chrome.newerInstallable}
+          <span class="grow"
+            >{view.chrome.updating
+              ? t('Downloading the update...')
+              : view.chrome.newerReady
+                ? t('UDM {version} is downloaded and ready to install.', { version: view.chrome.newer })
+                : t('UDM {version} is available', { version: view.chrome.newer })}</span
+          >
+          {#if view.chrome.updating}
+            {#if view.chrome.updateProgress}
+              {@const progress = view.chrome.updateProgress}
+              {#if progress.percent != null}
+                <span class="update-bar"><ProgressBar fraction={progress.percent / 100} height={8} /></span>
+              {/if}
+              <span class="update-text">{progress.text}</span>
+            {/if}
+          {:else if view.chrome.newerReady}
+            <button
+              class="btn small"
+              disabled={!can?.connected}
+              onclick={() => {
+                void openWindow('about');
+                void tell(installUpdate());
+              }}>{t('Update now')}</button
+            >
+          {:else if view.chrome.newerInstallable}
             <button
               class="btn small"
               disabled={!can?.connected}
@@ -395,6 +452,23 @@
             >
           {/if}
           <button class="btn small close" aria-label={t('Close')} onclick={() => void dismissRelease()}>×</button>
+        </div>
+      {/if}
+      {#if view.chrome.missingTools?.strip}
+        {@const missing = view.chrome.missingTools}
+        <div class="banner strip warn" role="status">
+          <span class="grow">{missing.text}</span>
+          {#if missing.busy}
+            <span>{missing.busyText}</span>
+          {:else if missing.tools.some((m) => m.installable)}
+            <button
+              class="btn small"
+              onclick={() => void tell(answerToolsOffer(missing.tools.filter((m) => m.installable).map((m) => m.tool)))}
+              >{t('Install them')}</button
+            >
+          {/if}
+          <button class="btn small" onclick={() => (sheet = { kind: 'tools' })}>{t('Show')}</button>
+          <button class="btn small close" aria-label={t('Close')} onclick={() => void dismissTools()}>×</button>
         </div>
       {/if}
       {#if view.chrome.banner}
@@ -487,6 +561,12 @@
       <ToolbarSheet current={view.chrome.toolbar} small={view.chrome.toolbarSmall} labels={toolLabels} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'tip'}
       <TipSheet tips={view.chrome.tips} next={view.chrome.nextTip} onStartup={view.chrome.tipsOnStartup} onclose={() => (sheet = null)} />
+    {:else if sheet?.kind === 'language'}
+      <LanguageSheet languages={view.chrome.languages} now={view.chrome.languageNow} onclose={() => (sheet = null)} />
+    {:else if sheet?.kind === 'tools'}
+      {#if view.chrome.missingTools}
+        <ToolsSheet missing={view.chrome.missingTools} onclose={() => (sheet = null)} />
+      {/if}
     {:else if sheet?.kind === 'convert'}
       <ConvertSheet row={sheet.row} onclose={() => (sheet = null)} />
     {:else if sheet?.kind === 'verify'}
@@ -521,6 +601,15 @@
     gap: 8px;
   }
 
+  .update-bar {
+    width: 160px;
+  }
+
+  .update-text {
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
   .close {
     min-width: 0;
     width: 22px;
@@ -539,7 +628,8 @@
     flex: 1;
     display: flex;
     min-height: 0;
-    padding: 4px 8px 8px 14px;
+    padding-block: 4px 8px;
+    padding-inline: 14px 8px;
   }
 
   .panel {

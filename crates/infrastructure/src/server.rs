@@ -283,6 +283,9 @@ pub fn receive(clients: &Clients, requests: &dyn Requests, client: ClientId, raw
     let msg: Incoming = match serde_json::from_slice(raw) {
         Ok(msg) => msg,
         Err(e) => {
+            // Only where it broke: serde's text may quote the message, and a
+            // message may carry cookies.
+            warn!(client = client.get(), kind = ?e.classify(), line = e.line(), column = e.column(), "unreadable message");
             reply.send(Event::Error { error: Failure::InvalidMessage(e.to_string()) });
             return;
         }

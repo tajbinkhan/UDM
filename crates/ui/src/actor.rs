@@ -60,6 +60,12 @@ pub enum Inbox {
     /// The Download File Info dialog's answer.
     Answer {
         answer: Box<udm_domain::download::Answer>,
+        reply: Sender<Result<(), contract::InvokeError>>,
+    },
+    /// Whether Download File Info of download `id` gives a folder alone,
+    /// for a torrent of one file.
+    FolderOnly {
+        id: DownloadId,
         reply: Sender<bool>,
     },
     /// Remove the downloads Confirm deletion asked about, and with
@@ -80,6 +86,13 @@ pub enum Inbox {
         id: DownloadId,
         bytes_per_sec: Option<u64>,
         remember: bool,
+    },
+    /// Tick or untick a torrent download's files in its download window.
+    ChooseTorrentFiles {
+        id: DownloadId,
+        indexes: Vec<usize>,
+        chosen: bool,
+        reply: Sender<Result<(), contract::InvokeError>>,
     },
     /// A progress window's Options on completion.
     OnDone {
@@ -230,6 +243,13 @@ pub enum Inbox {
     OpenPackage(udm_domain::id::PackageId),
     /// Close the strip offering this release.
     DismissRelease,
+    /// The first start's tools offer was answered.
+    ToolsAsked,
+    /// Close the strip offering the tools missing now.
+    DismissTools,
+    /// View > Language or the first-start picker: a language code from
+    /// `i18n::LANGUAGES`, or empty for the system's.
+    SetLanguage(String),
     /// Options' OK: the draft to check and send, and whether it went.
     SaveOptions {
         draft: Box<contract::OptionsDraft>,
@@ -241,6 +261,8 @@ pub enum Inbox {
     Browser(BrowserAction),
     /// Open the folder theme files go in.
     OpenThemesFolder,
+    /// Open the folder of a copy of the browser extension.
+    OpenExtensionFolder(udm_application::window::ExtensionCopy),
     /// Play an event's sound, from `file` or the system's own.
     PlaySound {
         sound: udm_domain::settings::Sound,
@@ -315,6 +337,8 @@ pub struct Ports {
     pub window_files: Arc<dyn WindowFiles>,
     /// Registering UDM with the browsers.
     pub browsers: Arc<dyn BrowserRegistry>,
+    /// The network adapters, for Options.
+    pub adapters: Arc<dyn udm_domain::ports::NetworkAdapters>,
     /// The theme files.
     pub themes: Arc<dyn ThemeFiles>,
     /// Problem reports.
@@ -363,6 +387,10 @@ struct Actor {
     clipboard_last: Option<String>,
     /// The system's Downloads folder, read once.
     downloads: std::path::PathBuf,
+    /// Whether this window already restarted a daemon older than itself, so
+    /// a daemon that stays older (a named copy's, which a restart only
+    /// reconnects) is not restarted again and again.
+    replaced_daemon: bool,
 }
 
 /// Why the link picker's ticked links cannot be added, for the user.
@@ -394,6 +422,7 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
             watching_wake: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             clipboard_last: None,
             downloads: std::path::PathBuf::new(),
+            replaced_daemon: false,
         };
         actor.downloads = actor.ports.folders.downloads_dir();
         // The layout file is small; reading it on this thread delays only
@@ -426,6 +455,21 @@ pub fn spawn(app: AppHandle, ports: Ports) -> Outbox {
 impl Actor {
     fn connect(&self) {
         self.connect_with(false);
+    }
+
+    /// The daemon said hello with its `version`. A daemon older than this
+    /// window is one an upgrade replaced on disk while it ran: it would
+    /// offer this very version as an update and miss what the window asks
+    /// of it, so it is restarted, once (true). Otherwise the window asks
+    /// where the tools are, for the strip that offers the missing ones.
+    fn on_hello(&mut self, version: &str) -> bool {
+        if !self.replaced_daemon && udm_domain::update::is_newer(env!("CARGO_PKG_VERSION"), version) {
+            tracing::info!(daemon = version, "the daemon is older than this window; restarting it");
+            self.replaced_daemon = true;
+            return true;
+        }
+        self.send(Command::ListTools);
+        false
     }
 
     /// Connect, first restarting the daemon if `restart`.
@@ -741,7 +785,11 @@ impl Actor {
     /// offered in Add URL.
     fn clipboard_text(&mut self, text: &str) {
         let Some(settings) = self.state.settings.as_ref().filter(|s| s.clipboard_monitor) else { return };
-        let Some(url) = udm_domain::batch::clipboard_link(text, &settings.capture_types) else { return };
+        let Some(url) =
+            udm_domain::batch::clipboard_link(text, &settings.capture_types, settings.torrents.catch_torrent_files)
+        else {
+            return;
+        };
         let url = url.to_string();
         if self.clipboard_last.as_deref() == Some(url.as_str()) {
             return;
@@ -806,6 +854,15 @@ impl Actor {
         thread::spawn(move || {
             let read = read_browsers(&*registry, &added);
             let _ = outbox.send(Inbox::Ui(UiMessage::BrowsersRead(Some(Box::new(read)))));
+        });
+    }
+
+    /// Read the network adapters on a worker.
+    fn read_adapters(&mut self) {
+        let (outbox, adapters) = (self.outbox.clone(), Arc::clone(&self.ports.adapters));
+        thread::spawn(move || {
+            let read = adapters.list();
+            let _ = outbox.send(Inbox::Ui(UiMessage::AdaptersRead(read)));
         });
     }
 
@@ -1101,8 +1158,28 @@ impl Actor {
                         self.app.exit(0);
                     }
                 }
+                let restart = match &msg {
+                    UiMessage::Daemon { event, .. } => match &**event {
+                        Event::Hello { version, .. } => self.on_hello(version),
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                // Asked again for a progress window that is already open,
+                // perhaps minimized: bring it back. One not open yet opens
+                // when the state is reconciled.
+                if let UiMessage::ShowProgress(id) = &msg {
+                    let label = Label::Download(*id);
+                    if self.opened.contains(&label) {
+                        windows::raise(&self.app, label);
+                    }
+                }
                 let picked = matches!(&msg, UiMessage::Daemon { event, .. } if matches!(**event, Event::PickLinks { .. } | Event::PickGallery { .. }));
                 apply(&mut self.state, msg);
+                if restart {
+                    apply(&mut self.state, UiMessage::DaemonAnswering);
+                    self.connect_with(true);
+                }
                 // A page's links are probed for their sizes, and a gallery
                 // page read, as their windows open.
                 if picked {
@@ -1120,12 +1197,27 @@ impl Actor {
                 tracing::info!(window = %label, "window subscribed");
                 // Options shows the tools, remote control and the browsers.
                 if label == Label::Options {
+                    apply(&mut self.state, UiMessage::OptionsOpened);
                     self.send(Command::ListTools);
                     self.send(Command::RemoteStatus);
                     self.read_browsers();
+                    self.read_adapters();
                 }
                 if let Label::Properties(id) = label {
                     self.read_type_name(id);
+                }
+                // A torrent's windows list its files, which rows do not carry.
+                if let Label::SaveAs(id) | Label::Download(id) = label {
+                    let torrent = self.state.table.get(id).and_then(|e| e.torrent.as_ref());
+                    let known = torrent.is_some_and(|t| t.phase != udm_domain::torrent::TorrentPhase::Metadata);
+                    let asked = self.state.files_asked.contains(&id) || self.state.files_missing.contains(&id);
+                    if known
+                        && !asked
+                        && !self.state.torrent_info.contains_key(&id)
+                        && self.send(Command::TorrentFiles { id })
+                    {
+                        apply(&mut self.state, UiMessage::FilesAsked(id));
+                    }
                 }
                 self.subscribers.insert(label, Subscriber { channel, seq: 0, last: None, look: None });
                 self.update_wake_watch();
@@ -1183,13 +1275,25 @@ impl Actor {
                     let _ = r.send(sent);
                 }
             }
-            Inbox::Answer { answer, reply } => {
+            Inbox::Answer { mut answer, reply } => {
                 let id = answer.id;
+                // A torrent's ticked files; none ticked sends nothing.
+                if let Some(known) = self.state.torrent_info.get(&id) {
+                    let picks = crate::torrents::picks_of(&self.state, id);
+                    match crate::torrents::answer_files(&known.info, picks.as_ref()) {
+                        Ok(files) => answer.files = files,
+                        Err(e) => {
+                            let text = crate::errors::text::torrent(self.lang(), &e);
+                            let _ = reply.send(Err(crate::errors::invalid_text(text)));
+                            return;
+                        }
+                    }
+                }
                 let sent = self.send(udm_application::daemon::Command::Confirm(*answer));
                 if sent {
                     apply(&mut self.state, UiMessage::Answered(id));
                 }
-                let _ = reply.send(sent);
+                let _ = reply.send(if sent { Ok(()) } else { Err(crate::errors::offline(self.lang())) });
             }
             Inbox::Remove { delete_files, dont_ask } => {
                 for c in actions::remove(&self.state, delete_files) {
@@ -1229,6 +1333,24 @@ impl Actor {
             }
             Inbox::OnDone { id, on_done } => {
                 self.send(Command::SetOnDone { id, on_done });
+            }
+            Inbox::FolderOnly { id, reply } => {
+                let _ = reply.send(crate::torrents::folder_only(&self.state, id));
+            }
+            Inbox::ChooseTorrentFiles { id, indexes, chosen, reply } => {
+                let lang = self.lang();
+                let result = match crate::torrents::choose(&self.state, id, &indexes, chosen) {
+                    Ok(files) => {
+                        if self.send(Command::SelectTorrentFiles { id, files: files.clone() }) {
+                            apply(&mut self.state, UiMessage::TorrentChosen { id, files });
+                            Ok(())
+                        } else {
+                            Err(crate::errors::offline(lang))
+                        }
+                    }
+                    Err(e) => Err(crate::errors::invalid_text(crate::errors::text::torrent(lang, &e))),
+                };
+                let _ = reply.send(result);
             }
             Inbox::OpenWindow(kind) => {
                 let label = match kind {
@@ -1309,6 +1431,20 @@ impl Actor {
                     Err(e) => tracing::warn!(error = %e, "the themes folder did not open"),
                 });
             }
+            Inbox::OpenExtensionFolder(copy) => {
+                let lang = self.lang();
+                let (outbox, registry, opener) =
+                    (self.outbox.clone(), Arc::clone(&self.ports.browsers), Arc::clone(&self.ports.opener));
+                apply(&mut self.state, UiMessage::BrowserNote(None));
+                thread::spawn(move || match registry.extension_folder(copy) {
+                    Some(folder) => opener.open(&folder.display().to_string()),
+                    None => {
+                        let text = lang.tr("UDM could not find its extension folder. Reinstall UDM to get it back.");
+                        let note = contract::Banner { text: text.to_string(), error: true };
+                        let _ = outbox.send(Inbox::Ui(UiMessage::BrowserNote(Some(note))));
+                    }
+                });
+            }
             Inbox::PlaySound { sound, file } => {
                 let system = Arc::clone(&self.ports.system);
                 thread::spawn(move || {
@@ -1327,10 +1463,20 @@ impl Actor {
                 let result = match self.state.settings.as_ref().map(|s| crate::options::settings(&draft, s)) {
                     None => Err(crate::errors::offline(lang)),
                     Some(Err(e)) => Err(crate::errors::options(lang, &e)),
-                    Some(Ok(settings)) => match self.send(Command::SetSettings { settings }) {
-                        true => Ok(()),
-                        false => Err(crate::errors::offline(lang)),
-                    },
+                    Some(Ok(mut settings)) => {
+                        if let Some(Ok(adapters)) = &self.state.services.adapters {
+                            crate::options::renew_adapter(&draft, &mut settings, adapters);
+                        }
+                        // The debrid key goes on its own, after the
+                        // settings, and only when it changes.
+                        let key = crate::options::debrid_key(&draft);
+                        let sent = self.send(Command::SetSettings { settings })
+                            && key.is_none_or(|command| self.send(command));
+                        match sent {
+                            true => Ok(()),
+                            false => Err(crate::errors::offline(lang)),
+                        }
+                    }
                 };
                 let _ = reply.send(result);
             }
@@ -1564,6 +1710,20 @@ impl Actor {
                         .insert("dismissed_release".into(), serde_json::Value::String(r.version.clone()));
                 }
             }
+            Inbox::ToolsAsked => {
+                self.state.layout_rest.insert(crate::services::TOOLS_ASKED.into(), true.into());
+            }
+            Inbox::DismissTools => {
+                let names = crate::services::missing_names(&self.state.services);
+                self.state.layout_rest.insert(crate::services::TOOLS_DISMISSED.into(), names.into());
+            }
+            Inbox::SetLanguage(code) => {
+                self.state.layout_rest.insert(crate::projection::main::LANGUAGE_ASKED.into(), true.into());
+                if let Some(mut settings) = self.state.settings.clone().filter(|s| s.language != code) {
+                    settings.language = code;
+                    self.send(Command::SetSettings { settings });
+                }
+            }
             Inbox::TipClosed { next, on_startup } => {
                 apply(&mut self.state, UiMessage::TipSeen);
                 if let Some(mut settings) = self.state.settings.clone() {
@@ -1582,7 +1742,7 @@ impl Actor {
         let wanted = windows::wanted(&self.state);
         let lang = self.lang();
         for label in wanted.difference(&self.opened.clone()) {
-            match windows::open(&self.app, *label, lang) {
+            match windows::open_sized(&self.app, *label, lang, windows::size(&self.state, *label)) {
                 Ok(_) => {
                     self.opened.insert(*label);
                 }
@@ -1617,6 +1777,7 @@ impl Actor {
             now: Instant::now(),
             unix: self.ports.times.unix_now(),
             downloads: self.downloads.clone(),
+            flags: !cfg!(windows),
         };
         let index = crate::i18n::LANGUAGES.iter().position(|l| l.code == ctx.lang.code).unwrap_or(0);
         self.ports.language.store(index, Ordering::Relaxed);
@@ -1644,6 +1805,12 @@ impl Actor {
                     let new_look = (sub.look.as_ref() != Some(&look)).then(|| look.clone());
                     let patch = match (before, &view) {
                         (View::Main(a), View::Main(b)) => main::diff(a, b).map(Patch::Main),
+                        (View::Download(a), View::Download(b)) => {
+                            projection::torrent::diff_download(a, b).map(|p| Patch::Download(Box::new(p)))
+                        }
+                        (View::SaveAs(a), View::SaveAs(b)) => {
+                            projection::torrent::diff_save_as(a, b).map(|p| Patch::SaveAs(Box::new(p)))
+                        }
                         (a, b) if a != b => Some(Patch::Whole(b.clone())),
                         _ => None,
                     };

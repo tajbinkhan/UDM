@@ -43,7 +43,9 @@
   .buttons {
     justify-content: center;
     gap: 34px;
-    margin-top: 10px;
+    /* Any height to spare goes above the buttons, so they keep to the bottom. */
+    margin-top: auto;
+    padding-top: 10px;
   }
 
   .buttons .btn {

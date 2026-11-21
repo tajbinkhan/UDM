@@ -119,9 +119,9 @@ impl Label {
             Label::Main => (814.0, 435.0),
             Label::AddUrl => (566.0, 96.0),
             Label::SaveAs(_) => (576.0, 206.0),
-            Label::Download(_) => (552.0, 244.0),
+            Label::Download(_) => (552.0, 248.0),
             Label::Done(_) => (462.0, 212.0),
-            Label::Remove => (423.0, 148.0),
+            Label::Remove => (423.0, 170.0),
             Label::About => (396.0, 378.0),
             Label::Options => (436.0, 505.0),
             Label::Scheduler => (657.0, 464.0),
@@ -264,17 +264,40 @@ pub fn set_zoom(percent: u32) {
     ZOOM.store(percent, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// A torrent's download window, with its tabs of files, peers, trackers,
+/// pieces and seeding, and its Download File Info, with its file list.
+const TORRENT_DOWNLOAD: (f64, f64) = (700.0, 400.0);
+const TORRENT_SAVE_AS: (f64, f64) = (576.0, 432.0);
+
+/// The size window `label` opens at: a torrent's windows are larger.
+pub fn size(state: &AppState, label: Label) -> (f64, f64) {
+    let torrent = |id: DownloadId| state.table.get(id).is_some_and(|e| e.torrent.is_some());
+    match label {
+        Label::Download(id) if torrent(id) => TORRENT_DOWNLOAD,
+        Label::SaveAs(id) if torrent(id) => TORRENT_SAVE_AS,
+        _ => label.size(),
+    }
+}
+
 /// Open the window `label`, or bring it forward when it is open.
 pub fn open(app: &AppHandle, label: Label, lang: &'static Language) -> Result<WebviewWindow, tauri::Error> {
+    open_sized(app, label, lang, label.size())
+}
+
+/// Open the window `label` at `size` (before the interface size), or bring
+/// it forward when it is open.
+pub fn open_sized(
+    app: &AppHandle,
+    label: Label,
+    lang: &'static Language,
+    size: (f64, f64),
+) -> Result<WebviewWindow, tauri::Error> {
     if let Some(w) = app.get_webview_window(&label.to_string()) {
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
+        bring_forward(&w);
         return Ok(w);
     }
     let zoom = f64::from(ZOOM.load(std::sync::atomic::Ordering::Relaxed).clamp(50, 400)) / 100.0;
-    let (width, height) = label.size();
-    let (width, height) = (width * zoom, height * zoom);
+    let (width, height) = (size.0 * zoom, size.1 * zoom);
     let main = matches!(
         label,
         Label::Main | Label::Grabber | Label::Links | Label::PickLinks | Label::PickVideos | Label::Gallery
@@ -287,8 +310,10 @@ pub fn open(app: &AppHandle, label: Label, lang: &'static Language) -> Result<We
         .minimizable(main || matches!(label, Label::Download(_)))
         .on_navigation(stays_in_app)
         .devtools(cfg!(debug_assertions))
-        .visible(true);
-    let builder = if main { builder.min_inner_size(520.0, 300.0) } else { builder.center() };
+        .visible(true)
+        .center();
+    let builder = if main { builder.min_inner_size(520.0, 300.0) } else { builder };
+    let builder = above_main(app, label, builder)?;
     // The drop target floats over other windows without a frame, and takes
     // links dropped on it as the page's own drops.
     let builder = if label == Label::DropTarget {
@@ -297,6 +322,87 @@ pub fn open(app: &AppHandle, label: Label, lang: &'static Language) -> Result<We
         builder
     };
     builder.build()
+}
+
+/// Whether window `label` is a dialog that belongs over the main window:
+/// not the main window or the other resizable ones, not a download's
+/// progress window, which is minimized on its own, nor the drop target.
+#[cfg(any(target_os = "linux", test))]
+fn is_dialog(label: Label) -> bool {
+    !matches!(
+        label,
+        Label::Main
+            | Label::Grabber
+            | Label::Links
+            | Label::PickLinks
+            | Label::PickVideos
+            | Label::Gallery
+            | Label::Download(_)
+            | Label::DropTarget
+    )
+}
+
+/// On Linux, a dialog opened while the main window is on screen is made the
+/// main window's transient, so it stacks above it. GNOME and others give no
+/// focus to a window that opens without the user's click, and put it under
+/// the focused window, which hid Download File Info behind the main window.
+/// Elsewhere the builder is unchanged.
+#[cfg(target_os = "linux")]
+fn above_main<'a>(
+    app: &'a AppHandle,
+    label: Label,
+    builder: WebviewWindowBuilder<'a, tauri::Wry, AppHandle>,
+) -> Result<WebviewWindowBuilder<'a, tauri::Wry, AppHandle>, tauri::Error> {
+    let main = app.get_webview_window(&Label::Main.to_string());
+    match main {
+        Some(main)
+            if is_dialog(label) && main.is_visible().unwrap_or(false) && !main.is_minimized().unwrap_or(false) =>
+        {
+            builder.parent(&main)
+        }
+        _ => Ok(builder),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn above_main<'a>(
+    _app: &'a AppHandle,
+    _label: Label,
+    builder: WebviewWindowBuilder<'a, tauri::Wry, AppHandle>,
+) -> Result<WebviewWindowBuilder<'a, tauri::Wry, AppHandle>, tauri::Error> {
+    Ok(builder)
+}
+
+/// Restore `w` from the taskbar or the tray and give it the focus.
+fn bring_forward(w: &WebviewWindow) {
+    let _ = w.unminimize();
+    let _ = w.show();
+    let _ = w.set_focus();
+}
+
+/// Bring the window `label` forward if it is open, restoring it when it is
+/// minimized, as double-clicking a download whose progress window is open
+/// does. Returns whether it was open.
+pub fn raise(app: &AppHandle, label: Label) -> bool {
+    let window = app.get_webview_window(&label.to_string());
+    if let Some(w) = &window {
+        bring_forward(w);
+    }
+    window.is_some()
+}
+
+/// Show the main window from the tray, with the progress windows that were
+/// minimized: a minimized progress window goes to the tray, as IDM's does,
+/// and comes back with UDM. Wayland never tells a window it is minimized,
+/// so on Linux every open progress window comes forward.
+pub fn show_from_tray(app: &AppHandle, lang: &'static Language) {
+    show_main(app, lang);
+    for (label, w) in app.webview_windows() {
+        let minimized = cfg!(target_os = "linux") || w.is_minimized().unwrap_or(false);
+        if matches!(Label::parse(&label), Some(Label::Download(_))) && minimized {
+            bring_forward(&w);
+        }
+    }
 }
 
 /// Close the window `label`, if it is open.
@@ -316,13 +422,39 @@ pub fn show_main(app: &AppHandle, lang: &'static Language) {
 /// Set a window's title, such as a progress window's percentage.
 pub fn set_title(app: &AppHandle, label: Label, title: &str) {
     if let Some(w) = app.get_webview_window(&label.to_string()) {
-        let _ = w.set_title(title);
+        // GTK sizes a window that cannot be resized to show its whole
+        // title, so a long video name made the download window far wider.
+        let title = if cfg!(target_os = "linux") { short_title(title) } else { title.into() };
+        let _ = w.set_title(&title);
+    }
+}
+
+/// The most characters of a title shown in a fixed-size window's title bar,
+/// about what fits across the download window.
+const TITLE_CHARS: usize = 56;
+
+/// `title` cut to [`TITLE_CHARS`] characters, ending in an ellipsis when cut.
+fn short_title(title: &str) -> std::borrow::Cow<'_, str> {
+    match title.char_indices().nth(TITLE_CHARS) {
+        Some((end, _)) => format!("{}…", title[..end].trim_end()).into(),
+        None => title.into(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_titles_are_cut_to_fit_the_window() {
+        assert_eq!(short_title("12% Clip.mp4"), "12% Clip.mp4");
+        let name = "100% ঘরের উন্নতির জন্য সূরা বাকারা প্রতিদিন শুনুনI Surah Baqarah Full Quran Recitation.mp4";
+        let short = short_title(name);
+        assert!(short.starts_with("100% ঘরের"), "{short}");
+        assert!(short.ends_with('…'), "{short}");
+        assert_eq!(short.chars().count(), TITLE_CHARS + 1);
+        assert_eq!(short_title(&"x".repeat(TITLE_CHARS)), "x".repeat(TITLE_CHARS));
+    }
 
     #[test]
     fn labels_round_trip() {
@@ -354,6 +486,17 @@ mod tests {
             assert_eq!(Label::parse(&label.to_string()), Some(label));
         }
         assert_eq!(Label::parse("download-x"), None);
+    }
+
+    #[test]
+    fn dialogs_stack_over_the_main_window() {
+        assert!(is_dialog(Label::SaveAs(DownloadId::new(1))));
+        assert!(is_dialog(Label::Options));
+        assert!(is_dialog(Label::Done(DownloadId::new(1))));
+        assert!(!is_dialog(Label::Main));
+        assert!(!is_dialog(Label::Download(DownloadId::new(1))));
+        assert!(!is_dialog(Label::DropTarget));
+        assert!(!is_dialog(Label::Grabber));
     }
 
     #[test]

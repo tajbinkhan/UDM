@@ -160,7 +160,8 @@ impl IdleWatch {
 
 /// Exit the process cleanly, after running `before_exit`, when it is asked to
 /// stop (`SIGTERM`, as `docker stop` and service managers send, or `SIGINT`,
-/// Ctrl+C), for a server's daemon, which nothing else stops. Without this the
+/// Ctrl+C): a server's daemon, which nothing else stops, and a desktop's,
+/// which a newer window ends after an upgrade (`ipc::restart_daemon`). Without this the
 /// signal ends the process at once: the list is saved a second after each
 /// change anyway, so this only keeps the last second's progress. Downloads
 /// still running load as interrupted next time, as after a crash. Programs

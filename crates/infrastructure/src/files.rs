@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use udm_domain::id::DownloadId;
 use udm_domain::ports::{DownloadFiles, FilesError};
 
 use crate::engine::{files_of, partial_files, sidecar_path};
@@ -13,8 +14,13 @@ use crate::recycle::recycle;
 pub struct DiskFiles;
 
 impl DownloadFiles for DiskFiles {
-    fn recycle(&self, path: Option<&str>, partial: Option<&str>) -> Result<(), FilesError> {
-        let mut files = path.map(|p| files_of(Path::new(p))).unwrap_or_default();
+    fn recycle(
+        &self,
+        download: Option<DownloadId>,
+        path: Option<&str>,
+        partial: Option<&str>,
+    ) -> Result<(), FilesError> {
+        let mut files = path.map(|p| files_of(Path::new(p), download)).unwrap_or_default();
         files.extend(partial.map(|p| partial_files(Path::new(p))).unwrap_or_default());
         if files.is_empty() {
             return Ok(());

@@ -5,6 +5,7 @@
   import { projection } from '../../stores/projection.svelte';
   import { t } from '../../i18n';
   import Window from '../../components/Window.svelte';
+  import ToolProgress from '../../components/ToolProgress.svelte';
   import logo from '../../../../assets/icon-256.png';
 
   const view: AboutView | null = $derived(projection.view?.window === 'about' ? projection.view.view : null);
@@ -38,15 +39,19 @@
             <button
               class="btn"
               disabled={!view.connected}
-              title={t('Download the new Setup, check it, and run it. UDM closes for it; downloads stop and can be resumed.')}
+              title={view.installTitle}
               onclick={() => void run(installUpdate)}>{t('Update now')}</button
             >
           {/if}
         </div>
       {/if}
+      {#if view.progress}<ToolProgress progress={view.progress} />{/if}
       <div class="box">
         <p>{t('UDM is free software under the MIT license.')}</p>
         {#if view.daemon}<p>{t('Background service: version {version}', { version: view.daemon })}</p>{/if}
+        <p class="credit">
+          {t('Server countries come from ip-location-db, with data from the Number Resource Organization (nro.net) under the CC BY 4.0 license.')}
+        </p>
       </div>
     </div>
   {/if}
@@ -75,7 +80,8 @@
   }
 
   .version {
-    margin: 2px 0 0 52px;
+    margin-block: 2px 0;
+    margin-inline: 52px 0;
     color: var(--link);
   }
 
@@ -90,12 +96,17 @@
 
   .box {
     margin-top: 8px;
-    height: 74px;
+    min-height: 74px;
     padding: 6px 8px;
     border: 1px solid var(--border);
   }
 
   .box p {
     margin: 0 0 4px;
+  }
+
+  .credit {
+    font-size: 11px;
+    color: var(--fg-muted);
   }
 </style>

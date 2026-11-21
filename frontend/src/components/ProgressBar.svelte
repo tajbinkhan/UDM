@@ -13,13 +13,15 @@
 <style>
   .bar {
     background: var(--progress-track);
-    border: 1px solid var(--border);
+    border-radius: var(--radius);
     overflow: hidden;
   }
 
   .fill {
     height: 100%;
     background: var(--progress);
+    border-radius: var(--radius);
     transition: width 0.2s linear;
   }
+
 </style>

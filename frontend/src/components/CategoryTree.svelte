@@ -2,7 +2,7 @@
      Left open and close a branch, Space or Enter shows its downloads. -->
 <script lang="ts">
   import type { TreeNode } from '../ipc/types';
-  import { t } from '../i18n';
+  import { rightToLeft, t } from '../i18n';
   import TreeGlyph from './TreeGlyph.svelte';
 
   let {
@@ -28,7 +28,9 @@
       focus = Math.max(0, Math.min(nodes.length - 1, j));
       items[focus]?.focus();
     };
-    switch (e.key) {
+    // Right to left, Left opens a branch and Right closes it.
+    const key = rightToLeft() && e.key === 'ArrowLeft' ? 'ArrowRight' : rightToLeft() && e.key === 'ArrowRight' ? 'ArrowLeft' : e.key;
+    switch (key) {
       case 'ArrowDown':
         go(i + 1);
         break;
@@ -68,7 +70,7 @@
         aria-expanded={n.open ?? undefined}
         aria-level={n.depth + 1}
         tabindex={i === focus ? 0 : -1}
-        style:padding-left="{4 + n.depth * 18}px"
+        style:padding-inline-start="{4 + n.depth * 18}px"
         onclick={() => {
           focus = i;
           onselect(n.key);
@@ -111,6 +113,8 @@
     height: 100%;
     background: var(--tree);
     border: 1px solid var(--frame);
+    border-radius: var(--radius-large);
+    overflow: hidden;
     min-width: 0;
   }
 
@@ -118,52 +122,76 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 17px;
-    padding: 0 2px 0 4px;
-    background: var(--face);
-    border-bottom: 1px solid var(--frame);
+    height: 26px;
+    padding-block: 0;
+    padding-inline: 8px 3px;
+    border-bottom: 1px solid var(--grid);
+    color: var(--fg-muted);
+    font-weight: 600;
     flex: none;
   }
 
   .close {
-    width: 15px;
-    height: 15px;
+    width: 20px;
+    height: 20px;
     padding: 0;
     font-size: 11px;
     line-height: 1;
     background: none;
-    border: 1px solid transparent;
-    color: var(--fg);
+    border: 0;
+    border-radius: var(--radius);
+    color: var(--fg-muted);
   }
 
   .close:hover {
-    border-color: var(--border);
     background: var(--hover);
+    color: var(--fg);
   }
 
   .tree {
     flex: 1;
     overflow: auto;
-    padding: 2px 0;
+    padding: 4px 0;
   }
 
   .node {
     display: flex;
     align-items: center;
-    gap: 3px;
-    height: 16px;
+    gap: 4px;
+    height: 24px;
+    margin: 0 6px;
+    border-radius: var(--radius);
     white-space: nowrap;
+  }
+
+  .node:hover {
+    background: var(--hover);
   }
 
   .label {
     padding: 0 3px;
-    line-height: 16px;
+    line-height: 24px;
   }
 
-  .node.selected .label {
-    background: var(--selected);
+  /* The selected category: a filled row with the accent's short bar, as a
+     navigation pane marks its page. */
+  .node.selected {
+    position: relative;
+    background: var(--selected-blur);
     color: var(--selected-fg);
   }
+
+  .node.selected::before {
+    content: '';
+    position: absolute;
+    inset-inline-start: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+
 
   .twist {
     width: 12px;
@@ -175,5 +203,10 @@
     background: none;
     border: 0;
     color: var(--fg-muted);
+  }
+
+  /* A closed node's arrow points along the reading direction. */
+  :global([dir='rtl']) .twist svg {
+    transform: scaleX(-1);
   }
 </style>
