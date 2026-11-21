@@ -54,10 +54,11 @@ fn io_err(what: impl Into<String>) -> impl FnOnce(io::Error) -> InPlaceError {
 
 /// How this copy was installed, from where its programs are.
 pub fn this_install() -> Install {
-    if cfg!(windows) {
-        return Install::WindowsSetup;
-    }
     let exe = std::env::current_exe().ok();
+    if cfg!(windows) {
+        let scoop = exe.as_deref().and_then(Path::parent).is_some_and(scoop_copy);
+        return if scoop { Install::Scoop } else { Install::WindowsSetup };
+    }
     if cfg!(target_os = "macos") {
         return if exe.as_deref().and_then(app_bundle).is_some() { Install::MacApp } else { Install::Other };
     }
@@ -66,6 +67,27 @@ pub fn this_install() -> Install {
     }
     let dir = exe.as_deref().and_then(Path::parent).map(Path::to_path_buf);
     linux_install(dir.as_deref(), crate::paths::user_lib_dir().as_deref(), package_kind)
+}
+
+/// Whether the programs in `dir` are a copy Scoop installed. Scoop keeps
+/// each version of an app in `<scoop>\apps\<app>\<version>`, reached
+/// through `current`, and writes its `install.json` and `manifest.json`
+/// there. The portable zip it installs from has the programs in
+/// `target\release` below that folder.
+fn scoop_copy(dir: &Path) -> bool {
+    let root = if dir.ends_with(Path::new("target").join("release")) {
+        dir.parent().and_then(Path::parent)
+    } else {
+        Some(dir)
+    };
+    root.is_some_and(|root| {
+        let in_apps = root
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .is_some_and(|n| n.eq_ignore_ascii_case("apps"));
+        in_apps && root.join("install.json").is_file() && root.join("manifest.json").is_file()
+    })
 }
 
 /// A Linux copy's install, from its programs' folder `dir` and
@@ -430,6 +452,29 @@ mod tests {
         assert_eq!(linux_install(Some(Path::new("/usr/lib/udm")), Some(lib), || Install::Rpm), Install::Rpm);
         assert_eq!(linux_install(Some(Path::new("/home/u/src/udm/target/release")), Some(lib), deb), Install::Other);
         assert_eq!(linux_install(None, Some(lib), deb), Install::Other);
+    }
+
+    #[test]
+    fn a_copy_in_scoops_apps_folder_is_scoops() {
+        let scoop = scratch("scoop");
+        let copy = scoop.join("apps").join("udm").join("current");
+        let programs = copy.join("target").join("release");
+        std::fs::create_dir_all(&programs).unwrap();
+        assert!(!scoop_copy(&programs), "no install.json and manifest.json yet");
+        std::fs::write(copy.join("install.json"), "{}").unwrap();
+        assert!(!scoop_copy(&programs), "no manifest.json yet");
+        std::fs::write(copy.join("manifest.json"), "{}").unwrap();
+        assert!(scoop_copy(&programs));
+        assert!(scoop_copy(&copy), "programs at the top of the copy");
+
+        // The same files in a folder Scoop does not keep apps in.
+        let other = scratch("not_scoop").join("tools").join("udm").join("current");
+        let programs = other.join("target").join("release");
+        std::fs::create_dir_all(&programs).unwrap();
+        std::fs::write(other.join("install.json"), "{}").unwrap();
+        std::fs::write(other.join("manifest.json"), "{}").unwrap();
+        assert!(!scoop_copy(&programs));
+        let _ = std::fs::remove_dir_all(scoop);
     }
 
     #[test]

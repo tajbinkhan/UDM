@@ -6,8 +6,9 @@ each system:
 
 | System | File | |
 |---|---|---|
-| Windows 10 and 11 | `UDM-Setup-<version>.exe` | the installer, below |
+| Windows 10 and 11 | `UDM-Setup-<version>.exe` | the installer, below, also through [winget](#winget-and-scoop) |
 | | `UDM-<version>-windows-portable.zip` | a [portable copy](portable.md), everything in its own folder |
+| | `udm.json` | the [Scoop](#winget-and-scoop) manifest, which installs the zip |
 | macOS 11 or later | `UDM-<version>-macos.dmg` | Apple Silicon and Intel, [experimental](#macos) |
 | Ubuntu, Debian, Mint | `udm_<version>_amd64.deb` | `sudo apt install ./udm_*.deb` |
 | Fedora, openSUSE, RHEL | `udm-<version>-1.x86_64.rpm` | `sudo dnf install ./udm-*.rpm` |
@@ -63,6 +64,45 @@ under [Build](building.md#build), run this from this folder:
 
 That builds the programs if needed, registers UDM with Chrome, Edge and
 Firefox, and adds **UDM** to the Start menu.
+
+### winget and Scoop
+
+Once the package is in winget (below), winget installs Setup without its pages:
+
+```powershell
+winget install TajbinKhan.UDM
+```
+
+That copy is Setup's in every way, so **Update now** updates it, and
+`winget upgrade TajbinKhan.UDM` does too. A silent install leaves out
+Setup's offer to install yt-dlp; `winget install yt-dlp.yt-dlp` does that.
+
+Scoop installs the portable zip from the manifest on the latest release:
+
+```powershell
+scoop install https://github.com/tajbinkhan/UDM/releases/latest/download/udm.json
+```
+
+The manifest takes `portable.txt` out of the copy, so UDM keeps its settings
+and download list in the same folders as Setup's copy and a new version finds
+them. It registers UDM with Chrome, Edge and Firefox (with `install-host.ps1`),
+adds **UDM** to the Start menu's Scoop Apps, and puts `udm` (the window),
+`udm-cli` and `udm-mcp` on `PATH`. `scoop update udm` reads the manifest from
+the latest release again; quit UDM from the tray first, since Scoop does not
+replace programs that are running. UDM sees that Scoop installed it, from
+Scoop's `install.json` and `manifest.json` beside it, so About tells you to
+update it through the package manager instead of offering **Update now**,
+which would install Setup's copy beside it. `scoop uninstall udm` removes the
+browser registrations and the **Start with Windows** entry, and leaves your
+settings, list and downloaded files.
+
+Install UDM one way only: Setup's copy and Scoop's both register as
+`com.udm.host`, and the browsers start whichever registered last.
+
+The winget package is sent to `microsoft/winget-pkgs` by the Release
+workflow's `winget` job once the first version (`installer/winget`) is
+there; its pull request is merged after winget's checks, so a new release
+can take a day or so to reach `winget install`.
 
 Either way, add the extension to the browser once. It is not in the Chrome
 Web Store or on Firefox Add-ons yet. Once it is listed there, this page links

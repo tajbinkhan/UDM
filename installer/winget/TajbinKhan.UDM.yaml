@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.9.0.schema.json
+#
+# The three files here are the first submission to microsoft/winget-pkgs,
+# under manifests/t/TajbinKhan/UDM/<version>/. After that, the Release
+# workflow's winget job sends each release (docs/install.md).
+
+PackageIdentifier: TajbinKhan.UDM
+PackageVersion: 0.12.1
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.9.0

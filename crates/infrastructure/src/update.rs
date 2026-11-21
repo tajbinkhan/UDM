@@ -664,6 +664,9 @@ mod tests {
         );
         let package = read(Install::LinuxPackage);
         assert!(package.setup.is_none() && package.package_manager);
+        // Scoop's copy is the portable zip, which UDM leaves to Scoop.
+        let scoop = read(Install::Scoop);
+        assert!(scoop.setup.is_none() && scoop.package_manager);
         // No package for this processor: the package manager it is.
         let arm = on(Install::Deb, "aarch64");
         assert!(arm.setup.is_none() && arm.package_manager);
