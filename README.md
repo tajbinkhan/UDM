@@ -326,10 +326,10 @@ Linux. The macOS build is **experimental**. It is checked by the compiler and CI
 been run on a real Mac, so parts of it may not work. If you try it, please
 [open an issue](https://github.com/tajbinkhan/UDM/issues) for anything that goes wrong.
 
-- **Not yet**: code signing (applied for with SignPath Foundation, see the
-  [code signing policy](#code-signing-policy)), and the extension's listings in the Chrome Web
-  Store and on Firefox Add-ons. For now you load the extension by hand; in Firefox it stays loaded only until Firefox
-  closes. The Safari extension is built but has not been run in Safari yet.
+- **Not yet**: code signing (see the [code signing policy](#code-signing-policy)), and the
+  extension's listings in the Chrome Web Store and on Firefox Add-ons. For now you load the
+  extension by hand; in Firefox it stays loaded only until Firefox closes. The Safari extension
+  is built but has not been run in Safari yet.
 - **Translations**: 20 besides English. Most were made by machine and wait for a native
   speaker's review ([help translate](docs/translating.md)).
 - **What's missing or different** on each system: [Known gaps](docs/known-gaps.md).
@@ -355,19 +355,20 @@ free download manager.
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/).
+UDM's release files are not code-signed yet, so Windows SmartScreen and macOS warn the first
+time you run them ([Download](#download) says how to get past the warning). This policy is the one
+UDM's signing will follow once it has a certificate.
 
 Release files are built from this repository's source by the
-[Release workflow](.github/workflows/release.yml) on GitHub Actions, and only those files are
-signed. Nothing built on a developer's own computer is signed.
+[Release workflow](.github/workflows/release.yml) on GitHub Actions, and only those files will be
+signed. Nothing built on a developer's own computer will be signed.
 
 Team roles:
 
 - Committers and reviewers: [Tajbin Khan](https://github.com/tajbinkhan)
 - Approvers: [Tajbin Khan](https://github.com/tajbinkhan)
 
-Every release is approved by hand before its files are signed.
+Every release will be approved by hand before its files are signed.
 
 ### Privacy
 
