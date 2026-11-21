@@ -134,6 +134,9 @@ pub enum Install {
     /// From some other package in `/usr`, which only its own package
     /// manager updates.
     LinuxPackage,
+    /// By Scoop on Windows, from the portable zip. Only `scoop update`
+    /// updates it, since Setup would install a second copy beside it.
+    Scoop,
     /// Some other way, such as a copy built from source: the release's page
     /// is shown.
     Other,
@@ -149,13 +152,13 @@ impl Install {
             Install::LinuxTar => Some(Installer::LinuxTar),
             Install::Deb => Some(Installer::Deb),
             Install::Rpm => Some(Installer::Rpm),
-            Install::LinuxPackage | Install::Other => None,
+            Install::LinuxPackage | Install::Scoop | Install::Other => None,
         }
     }
 
-    /// Whether this copy belongs to the system's package manager.
+    /// Whether this copy belongs to a package manager.
     pub fn is_package(self) -> bool {
-        matches!(self, Install::Deb | Install::Rpm | Install::LinuxPackage)
+        matches!(self, Install::Deb | Install::Rpm | Install::LinuxPackage | Install::Scoop)
     }
 }
 

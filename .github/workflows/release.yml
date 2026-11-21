@@ -17,7 +17,9 @@
 # jobs submit them to the stores the repository has keys for
 # (docs/extension-stores.md). For a tag, the `update-host` job also copies the
 # release to the update host, which keeps only the newest one
-# (docs/update-host.md).
+# (docs/update-host.md). The `publish` job attaches udm.json, the Scoop
+# manifest that installer/make-scoop.js makes from the portable zip, and for
+# a tag the `winget` job sends the new Setup to winget (docs/install.md).
 
 name: Release
 
@@ -330,6 +332,11 @@ jobs:
         with:
           node-version: 22
 
+      # `scoop install` reads it from the latest release (docs/install.md).
+      # Made before the list is signed, so the list names it too.
+      - name: Make the Scoop manifest
+        run: node installer/make-scoop.js dist
+
       # Update now installs only files this signed list names (#267,
       # docs/install.md). UDM_RELEASE_KEY is the line that
       # `node installer/sign-checksums.js keygen` wrote; without it the
@@ -534,3 +541,35 @@ jobs:
             -H "Authorization: Bearer $token" -H "Content-Length: 0" \
             "$api/v2/$item:publish")
           echo "$published"
+
+  # Sends the new Setup to winget as a pull request to microsoft/winget-pkgs,
+  # which copies the newest manifest there and changes its version, address
+  # and checksum. It needs WINGET_TOKEN, a classic token with the public_repo
+  # scope from an account with a fork of winget-pkgs; without it the job is
+  # skipped. The first version (installer/winget) goes to winget-pkgs by
+  # hand, since this job only updates a package winget already has. A
+  # pre-release tag is not sent.
+  winget:
+    name: winget
+    if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-')
+    needs: [publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Secrets cannot be read in `if:`, so this tells the step below
+      # whether the token is there, without showing it.
+      - name: See whether the token is there
+        id: token
+        env:
+          TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
+        run: echo "present=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Send the release to winget
+        if: steps.token.outputs.present == 'true'
+        # Pinned to v2's commit, since the action is handed WINGET_TOKEN.
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
+        with:
+          identifier: TajbinKhan.UDM
+          installers-regex: '^UDM-Setup-.*\.exe$'
+          release-tag: ${{ github.ref_name }}
+          token: ${{ secrets.WINGET_TOKEN }}
