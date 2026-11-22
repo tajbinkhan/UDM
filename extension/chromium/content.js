@@ -483,6 +483,12 @@ function selectionHasLinks(sel) {
       if (menu.hidden) openMenu();
       else menu.hidden = true;
     });
+    // Reading a video page's qualities takes yt-dlp seconds: the worker
+    // starts as the pointer (or the keyboard's focus) reaches the button,
+    // so the menu a click opens has them sooner.
+    const warm = () => current && udmConnected() && udmSend({ type: "video:warm", element: idOf(current), srcs: sources(current) }).catch(() => {});
+    button.addEventListener("pointerenter", warm);
+    button.addEventListener("focus", warm);
     help.addEventListener("click", (ev) => {
       ev.stopPropagation();
       window.open(VIDEO_HELP, "_blank", "noopener");

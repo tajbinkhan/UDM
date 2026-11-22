@@ -538,10 +538,13 @@ test("a playlist is offered beside its video and its videos are picked in the wi
   const list = sent.find((m) => m.download.url === "https://www.youtube.com/playlist?list=PLx");
   assert.ok(list, "the playlist is asked about");
   same(list.download.media, { kind: "page" });
+  // The video is read at the same time, not after the playlist's answer.
+  const video = sent.find((m) => m.download.url === "https://www.youtube.com/watch?v=a1");
+  assert.ok(video, "the video is asked about with the playlist");
   const entries = [{ url: "https://www.youtube.com/watch?v=a1", title: "One", duration: 60 }, { url: "https://www.youtube.com/watch?v=b2", title: "Two" }];
   w.port.onMessage.fire({ op: "media_info", request: list.request, info: { kind: "page", playlist: { title: "Talks", entries } } });
   await tick();
-  const video = w.sent.filter((m) => m.op === "probe_media").find((m) => m.download.url === "https://www.youtube.com/watch?v=a1");
+  assert.equal(w.sent.filter((m) => m.op === "probe_media").length, 2, "nothing is read twice");
   w.port.onMessage.fire({ op: "media_info", request: video.request, info: { kind: "page", video: [{ id: "18", label: "360p" }], audio: [] } });
   const menu = await asked;
   const item = menu.items.find((i) => i.label === "Playlist: Talks (2 videos)");
@@ -551,6 +554,24 @@ test("a playlist is offered beside its video and its videos are picked in the wi
   assert.equal(answer.ok, true);
   const pick = w.sent.find((m) => m.op === "pick_videos");
   same([pick.page, pick.playlist], ["https://www.youtube.com/playlist?list=PLx", { title: "Talks", entries }]);
+});
+
+test("the pointer on the video button starts the read the click then shares", async () => {
+  const w = connected();
+  const page = "https://www.youtube.com/watch?v=a1";
+  const warm = await w.content({ type: "video:warm" }, 7, page);
+  assert.equal(warm.ok, true);
+  await tick();
+  const probes = () => w.sent.filter((m) => m.op === "probe_media");
+  assert.equal(probes().length, 1, "yt-dlp starts before the click");
+  same((await w.content({ type: "video:warm" }, 7, page)).ok, false, "once per page for a while");
+  const asked = w.content({ type: "video:menu" }, 7, page);
+  await tick();
+  assert.equal(probes().length, 1, "the click waits for the same read");
+  w.port.onMessage.fire({ op: "media_info", request: probes()[0].request, info: { kind: "page", video: [{ id: "18", label: "360p" }], audio: [] } });
+  const menu = await asked;
+  assert.ok(menu.items.length > 0, JSON.stringify(menu.items));
+  assert.equal(probes().length, 1);
 });
 
 test("choosing the sound alone sends an audio_only stream", async () => {

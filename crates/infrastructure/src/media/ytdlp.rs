@@ -105,18 +105,19 @@ pub fn supports(url: &str) -> bool {
     SITES.iter().any(|(hosts, matches)| hosts.contains(&host.as_str()) && matches(&u))
 }
 
-/// yt-dlp: the one UDM installed, else the first on `PATH`, else next
-/// to UDM's programs, else next to `ffmpeg`.
+/// yt-dlp: the one UDM installed (its folder build, else an older UDM's
+/// one-file program), else the first on `PATH`, else next to UDM's
+/// programs, else next to `ffmpeg`.
 pub fn find(ffmpeg: Option<&Path>) -> Option<PathBuf> {
     let name = crate::platform::exe_name("yt-dlp");
-    let own = crate::paths::tools_dir();
+    let own = crate::paths::tools_dir().map(|dir| crate::video_tools::program_in(&dir, "yt-dlp"));
     let on_path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default();
-    let on_path = own.into_iter().chain(on_path);
     let beside = [
         std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)),
         ffmpeg.and_then(|f| f.parent().map(Path::to_path_buf)),
     ];
-    on_path.into_iter().chain(beside.into_iter().flatten()).map(|dir| dir.join(&name)).find(|p| p.is_file())
+    let elsewhere = on_path.into_iter().chain(beside.into_iter().flatten()).map(|dir| dir.join(&name));
+    own.into_iter().chain(elsewhere).find(|p| p.is_file())
 }
 
 /// Arguments every yt-dlp run gets. yt-dlp needs a JavaScript runtime for

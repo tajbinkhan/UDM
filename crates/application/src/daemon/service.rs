@@ -52,6 +52,7 @@ use crate::downloads::{
 };
 use crate::gallery::ReadGallery;
 use crate::grab::RunGrabSchedules;
+use crate::media::ReadMedia;
 use crate::pairing::PairingDesk;
 use crate::power::{CancelCountdown, CountdownNow, RunWhenDone};
 use crate::queues::{
@@ -343,6 +344,8 @@ pub struct DaemonService<W: Wiring> {
     tools_checked: Mutex<Option<Instant>>,
     /// The galleries being read, and the pages lately read that held none.
     gallery_reads: Arc<Mutex<udm_domain::gallery::GalleryReads>>,
+    /// What the video pages lately read offered.
+    page_answers: Mutex<udm_domain::media::PageAnswers>,
 }
 
 impl<W: Wiring> DaemonService<W> {
@@ -405,6 +408,7 @@ impl<W: Wiring> DaemonService<W> {
             tool_installs: Mutex::default(),
             tools_checked: Mutex::new(None),
             gallery_reads: Arc::default(),
+            page_answers: Mutex::default(),
         }
     }
 
@@ -1123,12 +1127,13 @@ impl<W: Wiring> DaemonService<W> {
         (added.ids, added.skipped)
     }
 
-    /// Read a stream's playlist on another thread and answer `reply` with
-    /// what it offers.
-    pub fn probe_media(&self, request: u64, download: Download, reply: Reply) {
-        let probes = Arc::clone(&self.probes);
+    /// Read a stream's playlist or a video page on another thread and
+    /// answer `reply` with what it offers (see `ReadMedia`).
+    pub fn probe_media(self: &Arc<Self>, request: u64, download: Download, reply: Reply) {
+        let daemon = Arc::clone(self);
         thread::spawn(move || {
-            reply.send(Event::MediaInfo { request, info: probes.media(&download) });
+            let info = ReadMedia::new(&*daemon.probes, &daemon.clock, &daemon.page_answers).run(&download);
+            reply.send(Event::MediaInfo { request, info });
         });
     }
 

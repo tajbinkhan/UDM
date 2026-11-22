@@ -43,7 +43,7 @@ where
             ToolError::NoBuild(tool.name().to_string(), tools::package_command(tool, self.platform.system).to_string())
         })?;
         let release = self.releases.latest(source.forge, source.repository)?;
-        if only_newer && self.folder.installed(tool).is_some_and(|t| t.version == release.version) {
+        if only_newer && self.folder.installed(tool).is_some_and(|t| t.is_current(&release.version, &source)) {
             self.folder.note_checked(tool, now);
             return Err(ToolError::UpToDate(tool.name().to_string()));
         }
@@ -69,7 +69,7 @@ where
             tracing::warn!(tool = tool.name(), file = source.asset, "download does not match its checksum");
             return Err(ToolError::WrongChecksum(source.asset.to_string()));
         }
-        let path = self.folder.install(tool, &downloaded, source.packing, &release.version, now)?;
+        let path = self.folder.install(tool, &downloaded, &source, &release.version, now)?;
         tracing::info!(tool = tool.name(), version = %release.version, path = %path.display(), "installed");
         Ok((release.version, path))
     }
@@ -91,15 +91,15 @@ mod tests {
     fn site(listed: &str) -> ToolSite {
         ToolSite::release(
             "2026.10.26",
-            &[("yt-dlp_linux", None), ("SHA2-256SUMS", None)],
-            &format!("{listed}  yt-dlp_linux\n"),
+            &[("yt-dlp_linux.zip", None), ("SHA2-256SUMS", None)],
+            &format!("{listed}  yt-dlp_linux.zip\n"),
         )
     }
 
     #[test]
     fn a_matching_download_is_installed() {
         let (site, shelf) = (site(&"ab".repeat(32)), ToolShelf::default());
-        let hashes = Hashes::with("/dl/yt-dlp_linux", digest());
+        let hashes = Hashes::with("/dl/yt-dlp_linux.zip", digest());
         let (version, path) = InstallTool::new(&site, &shelf, &hashes, LINUX).run(Tool::YtDlp, false, 50).unwrap();
         assert_eq!(version, "2026.10.26");
         assert_eq!(path, PathBuf::from("/tools/yt-dlp"));
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn the_download_tells_how_far_it_is() {
         let (site, shelf) = (site(&"ab".repeat(32)), ToolShelf::default());
-        let hashes = Hashes::with("/dl/yt-dlp_linux", digest());
+        let hashes = Hashes::with("/dl/yt-dlp_linux.zip", digest());
         let seen = std::sync::Mutex::new(Vec::new());
         let progress = |done: ByteCount, total: Option<ByteCount>| {
             seen.lock().unwrap().push((done.get(), total.map(ByteCount::get)))
@@ -122,21 +122,21 @@ mod tests {
     #[test]
     fn a_download_that_does_not_match_is_deleted_not_installed() {
         let (site, shelf) = (site(&"cd".repeat(32)), ToolShelf::default());
-        let hashes = Hashes::with("/dl/yt-dlp_linux", digest());
+        let hashes = Hashes::with("/dl/yt-dlp_linux.zip", digest());
         let err = InstallTool::new(&site, &shelf, &hashes, LINUX).run(Tool::YtDlp, false, 50).unwrap_err();
-        assert_eq!(err, ToolError::WrongChecksum("yt-dlp_linux".into()));
+        assert_eq!(err, ToolError::WrongChecksum("yt-dlp_linux.zip".into()));
         assert!(shelf.installs().is_empty());
-        assert_eq!(shelf.discarded(), [PathBuf::from("/dl/yt-dlp_linux")]);
+        assert_eq!(shelf.discarded(), [PathBuf::from("/dl/yt-dlp_linux.zip")]);
     }
 
     #[test]
     fn no_published_checksum_means_no_download() {
         let shelf = ToolShelf::default();
-        let hashes = Hashes::with("/dl/yt-dlp_linux", digest());
-        let unlisted = ToolSite::release("1", &[("yt-dlp_linux", None), ("SHA2-256SUMS", None)], "");
+        let hashes = Hashes::with("/dl/yt-dlp_linux.zip", digest());
+        let unlisted = ToolSite::release("1", &[("yt-dlp_linux.zip", None), ("SHA2-256SUMS", None)], "");
         let err = InstallTool::new(&unlisted, &shelf, &hashes, LINUX).run(Tool::YtDlp, false, 1).unwrap_err();
-        assert_eq!(err, ToolError::NoChecksum("yt-dlp_linux".into()));
-        let no_file = ToolSite::release("1", &[("yt-dlp_linux", None)], "");
+        assert_eq!(err, ToolError::NoChecksum("yt-dlp_linux.zip".into()));
+        let no_file = ToolSite::release("1", &[("yt-dlp_linux.zip", None)], "");
         assert!(matches!(
             InstallTool::new(&no_file, &shelf, &hashes, LINUX).run(Tool::YtDlp, false, 1),
             Err(ToolError::NoChecksum(_))
@@ -147,15 +147,15 @@ mod tests {
     #[test]
     fn githubs_own_digest_must_agree() {
         let shelf = ToolShelf::default();
-        let hashes = Hashes::with("/dl/yt-dlp_linux", digest());
+        let hashes = Hashes::with("/dl/yt-dlp_linux.zip", digest());
         let other = "ef".repeat(32);
         let site = ToolSite::release(
             "1",
-            &[("yt-dlp_linux", Some(other.as_str())), ("SHA2-256SUMS", None)],
-            &format!("{}  yt-dlp_linux\n", "ab".repeat(32)),
+            &[("yt-dlp_linux.zip", Some(other.as_str())), ("SHA2-256SUMS", None)],
+            &format!("{}  yt-dlp_linux.zip\n", "ab".repeat(32)),
         );
         let err = InstallTool::new(&site, &shelf, &hashes, LINUX).run(Tool::YtDlp, false, 1).unwrap_err();
-        assert_eq!(err, ToolError::WrongChecksum("yt-dlp_linux".into()));
+        assert_eq!(err, ToolError::WrongChecksum("yt-dlp_linux.zip".into()));
         assert!(site.downloaded().is_empty());
     }
 

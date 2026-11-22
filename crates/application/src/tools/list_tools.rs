@@ -35,7 +35,8 @@ mod tests {
 
     #[test]
     fn each_tool_says_where_it_is_and_what_installs_it() {
-        let shelf = ToolShelf::with(Tool::YtDlp, InstalledTool { version: "2026.10.26".into(), checked: 0 });
+        let shelf =
+            ToolShelf::with(Tool::YtDlp, InstalledTool { version: "2026.10.26".into(), checked: 0, asset: None });
         let mac = Platform { system: System::MacOs, cpu: Cpu::Aarch64 };
         let list = ListTools::new(&shelf, mac).run();
         assert_eq!(list[0].tool, Tool::YtDlp);

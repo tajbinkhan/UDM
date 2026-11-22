@@ -20,7 +20,7 @@ use crate::package::{ArchiveKind, Family, Package, Password, UnpackError};
 use crate::queue::{Moment, PowerRequest, Queue, RunEnd, WhenDone};
 use crate::quota::QuotaNotice;
 use crate::settings::Settings;
-use crate::tools::{Forge, InstalledTool, Packing, Tool, ToolError};
+use crate::tools::{Forge, InstalledTool, Tool, ToolError, ToolSource};
 use crate::update::{Release, SetupAsset, UpdateError};
 
 /// The download queues, the main queue first.
@@ -367,11 +367,18 @@ pub trait ToolFolder: Send + Sync {
     /// The tool UDM installed there, if it did.
     fn installed(&self, tool: Tool) -> Option<InstalledTool>;
 
-    /// Put the checked download at `file` in place as `tool` (unpacking an
-    /// archive), let it run, and note `version` and `now` as its release
-    /// and last check. Returns the program's path. `file` is gone after.
-    fn install(&self, tool: Tool, file: &Path, packing: Packing, version: &str, now: u64)
-        -> Result<PathBuf, ToolError>;
+    /// Put the checked download at `file`, `source`'s release file, in
+    /// place as `tool` (unpacking it as `source.packing` says), let it run,
+    /// and note `version`, the file and `now` as its release, its file and
+    /// last check. Returns the program's path. `file` is gone after.
+    fn install(
+        &self,
+        tool: Tool,
+        file: &Path,
+        source: &ToolSource,
+        version: &str,
+        now: u64,
+    ) -> Result<PathBuf, ToolError>;
 
     /// Remove a download that did not pass its checks.
     fn discard(&self, file: &Path);

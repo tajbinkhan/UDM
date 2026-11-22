@@ -1384,12 +1384,16 @@ impl udm_domain::ports::ToolFolder for ToolShelf {
         &self,
         tool: udm_domain::tools::Tool,
         _file: &Path,
-        _packing: udm_domain::tools::Packing,
+        source: &udm_domain::tools::ToolSource,
         version: &str,
         now: u64,
     ) -> Result<PathBuf, udm_domain::tools::ToolError> {
         self.installs.lock().unwrap().push((tool, version.to_string(), now));
-        let installed = udm_domain::tools::InstalledTool { version: version.into(), checked: now };
+        let installed = udm_domain::tools::InstalledTool {
+            version: version.into(),
+            checked: now,
+            asset: Some(source.asset.into()),
+        };
         self.tools.lock().unwrap().insert(tool, installed);
         Ok(PathBuf::from("/tools").join(tool.name()))
     }
@@ -1456,6 +1460,55 @@ impl udm_domain::ports::Probes for GalleryPages {
     ) -> Result<udm_domain::gallery::Gallery, udm_domain::gallery::GalleryError> {
         self.asked.lock().unwrap().push((page.as_str().to_string(), user_agent.map(String::from)));
         self.pages.get(page.as_str()).cloned().unwrap_or(Err(udm_domain::gallery::GalleryError::Unsupported))
+    }
+}
+
+/// A media probe that gives every address the same answer and counts the
+/// reads; the other probes are not asked.
+pub struct MediaPages {
+    answer: udm_domain::media::MediaInfo,
+    asked: AtomicUsize,
+}
+
+impl MediaPages {
+    pub fn answering(answer: udm_domain::media::MediaInfo) -> Self {
+        MediaPages { answer, asked: AtomicUsize::new(0) }
+    }
+
+    /// How many reads were made.
+    pub fn asked(&self) -> usize {
+        self.asked.load(Ordering::SeqCst)
+    }
+}
+
+impl udm_domain::ports::Probes for MediaPages {
+    fn link(&self, _: &Download) -> Result<udm_domain::ports::LinkFacts, udm_domain::ports::ProbeError> {
+        Err(udm_domain::ports::ProbeError("not asked".into()))
+    }
+
+    fn file(&self, _: &Download) -> Result<udm_domain::ports::FileFacts, udm_domain::ports::ProbeError> {
+        Err(udm_domain::ports::ProbeError("not asked".into()))
+    }
+
+    fn media(&self, _: &Download) -> udm_domain::media::MediaInfo {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        self.answer.clone()
+    }
+
+    fn zip(
+        &self,
+        _: &Download,
+        _: Option<ByteCount>,
+    ) -> Result<Vec<udm_domain::download::ZipEntry>, udm_domain::ports::ProbeError> {
+        Err(udm_domain::ports::ProbeError("not asked".into()))
+    }
+
+    fn gallery(
+        &self,
+        _: &udm_domain::address::Address,
+        _: Option<&str>,
+    ) -> Result<udm_domain::gallery::Gallery, udm_domain::gallery::GalleryError> {
+        Err(udm_domain::gallery::GalleryError::Unsupported)
     }
 }
 

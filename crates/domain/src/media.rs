@@ -2,9 +2,10 @@
 //! tracks a stream offers, and which of them to download. Reading the
 //! playlists and manifests is `udm_infrastructure::media`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::address::AddressError;
+use crate::address::{Address, AddressError};
 use crate::bytes::ByteCount;
 use serde::{Deserialize, Serialize};
 
@@ -306,6 +307,49 @@ impl MediaInfo {
     }
 }
 
+/// How long a video page's answer is kept. Reading a page is a yt-dlp run
+/// of several seconds, and the browser extension forgets what it was told
+/// whenever its worker sleeps. The answer lists qualities only: the
+/// download reads the page again for the streams, so an hour-old answer
+/// still downloads.
+pub const PAGE_ANSWER_KEPT_SECS: u64 = 60 * 60;
+
+/// The most page answers kept; the oldest goes first.
+const MAX_PAGE_ANSWERS: usize = 128;
+
+/// The video pages lately read, with what each offers, so a second look
+/// at the same page (the menu opened again, the extension's worker woken
+/// again) runs no yt-dlp. Only pages that offered something are kept: a
+/// failure may be the network's, and is asked about again.
+#[derive(Debug, Default)]
+pub struct PageAnswers {
+    kept: HashMap<String, (u64, MediaInfo)>,
+}
+
+impl PageAnswers {
+    /// What `page` offered when read less than `PAGE_ANSWER_KEPT_SECS`
+    /// before `now` (seconds since 1970).
+    pub fn kept(&mut self, page: &Address, now: u64) -> Option<MediaInfo> {
+        self.kept.retain(|_, (at, _)| now.saturating_sub(*at) < PAGE_ANSWER_KEPT_SECS);
+        self.kept.get(page.as_str()).map(|(_, info)| info.clone())
+    }
+
+    /// `page` was read at `now` and offered `info`. Kept only when it is a
+    /// page's answer that offers something to download.
+    pub fn keep(&mut self, page: &Address, info: &MediaInfo, now: u64) {
+        let offers = !info.video.is_empty() || !info.audio.is_empty() || info.playlist.is_some();
+        if info.kind != Some(MediaKind::Page) || info.error.is_some() || info.drm || !offers {
+            return;
+        }
+        if self.kept.len() >= MAX_PAGE_ANSWERS && !self.kept.contains_key(page.as_str()) {
+            if let Some(oldest) = self.kept.iter().min_by_key(|(_, (at, _))| *at).map(|(k, _)| k.clone()) {
+                self.kept.remove(&oldest);
+            }
+        }
+        self.kept.insert(page.as_str().to_string(), (now, info.clone()));
+    }
+}
+
 /// The key of an AES-128 encrypted segment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentKey {
@@ -554,6 +598,53 @@ pub fn is_video(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn page_answer(label: &str) -> MediaInfo {
+        let video = vec![MediaOption { id: "18".into(), label: label.into(), ..MediaOption::default() }];
+        MediaInfo { kind: Some(MediaKind::Page), video, ..MediaInfo::default() }
+    }
+
+    #[test]
+    fn a_page_answer_is_kept_an_hour() {
+        let page = Address::parse("https://www.youtube.com/watch?v=a1").unwrap();
+        let mut answers = PageAnswers::default();
+        assert_eq!(answers.kept(&page, 100), None);
+        answers.keep(&page, &page_answer("360p"), 100);
+        assert_eq!(answers.kept(&page, 100 + PAGE_ANSWER_KEPT_SECS - 1), Some(page_answer("360p")));
+        assert_eq!(answers.kept(&page, 100 + PAGE_ANSWER_KEPT_SECS), None, "too old");
+        let other = Address::parse("https://www.youtube.com/watch?v=b2").unwrap();
+        answers.keep(&other, &page_answer("720p"), 200);
+        assert_eq!(answers.kept(&page, 200), None);
+        assert_eq!(answers.kept(&other, 200), Some(page_answer("720p")));
+    }
+
+    #[test]
+    fn failures_streams_and_empty_pages_are_not_kept() {
+        let page = Address::parse("https://videos.example/clip").unwrap();
+        let mut answers = PageAnswers::default();
+        answers.keep(&page, &MediaInfo::failed(Some(MediaKind::Page), "yt-dlp: timed out".into()), 1);
+        answers.keep(&page, &MediaInfo { kind: Some(MediaKind::Page), ..MediaInfo::default() }, 1);
+        answers.keep(&page, &MediaInfo { kind: Some(MediaKind::Page), drm: true, ..page_answer("1080p") }, 1);
+        answers.keep(&page, &MediaInfo { kind: Some(MediaKind::Hls), ..page_answer("1080p") }, 1);
+        assert_eq!(answers.kept(&page, 1), None);
+        let list =
+            MediaInfo { kind: Some(MediaKind::Page), playlist: Some(Playlist::default()), ..MediaInfo::default() };
+        answers.keep(&page, &list, 1);
+        assert_eq!(answers.kept(&page, 1), Some(list), "a playlist offers its videos");
+    }
+
+    #[test]
+    fn the_oldest_answer_makes_room() {
+        let mut answers = PageAnswers::default();
+        let page = |i: usize| Address::parse(&format!("https://videos.example/{i}")).unwrap();
+        for i in 0..MAX_PAGE_ANSWERS {
+            answers.keep(&page(i), &page_answer("360p"), 10 + i as u64);
+        }
+        answers.keep(&page(MAX_PAGE_ANSWERS), &page_answer("360p"), 1000);
+        assert_eq!(answers.kept(&page(0), 1000), None);
+        assert!(answers.kept(&page(1), 1000).is_some());
+        assert!(answers.kept(&page(MAX_PAGE_ANSWERS), 1000).is_some());
+    }
 
     /// Sizes in a probe's answer are plain numbers on the wire.
     #[test]

@@ -345,28 +345,56 @@ async function askProbe(url, referrer, timeout, from, sent, page) {
 async function videoMenu(tabId, referrer, tab, player = {}) {
   const page = privateAllowed(tab) && videoPageUrl(referrer);
   if (page) recordPage(media, tabId, page, Date.now());
-  if (privateAllowed(tab)) await otherPages(tabId, referrer, tab, !page);
-  const entries = elementEntries(
-    [...(media.get(tabId) || new Map()).values()],
-    mediaStarts.get(tabId),
-    player.frameId,
-    player.element,
-    player.srcs,
-  );
-  const streams = entries.filter((e) => e.kind !== "file");
+  const listed = () =>
+    elementEntries(
+      [...(media.get(tabId) || new Map()).values()],
+      mediaStarts.get(tabId),
+      player.frameId,
+      player.element,
+      player.srcs,
+    );
   const infos = new Map();
-  await Promise.all(
-    streams.map(async (e) => {
-      const timeout = e.kind === "page" ? PAGE_PROBE_TIMEOUT_MS : PROBE_TIMEOUT_MS;
-      const info = await probeStream(e.url, referrer, timeout, tabContext(tab), mediaRequest(e), e.kind === "page");
-      if (info && !adoptFile(e, info)) infos.set(e.url, info);
-    }),
-  );
+  const asked = new Set();
+  const ask = (entries) =>
+    Promise.all(
+      entries
+        .filter((e) => e.kind !== "file" && !asked.has(e.url))
+        .map(async (e) => {
+          asked.add(e.url);
+          const timeout = e.kind === "page" ? PAGE_PROBE_TIMEOUT_MS : PROBE_TIMEOUT_MS;
+          const info = await probeStream(e.url, referrer, timeout, tabContext(tab), mediaRequest(e), e.kind === "page");
+          if (info && !adoptFile(e, info)) infos.set(e.url, info);
+        }),
+    );
+  // The tab's streams and its video page are read while the other pages
+  // (a YouTube video's playlist) are, not after them: each is a yt-dlp run
+  // of several seconds. What those pages add is read last, and is mostly
+  // read already, since otherPages asked about it.
+  const others = privateAllowed(tab) ? otherPages(tabId, referrer, tab, !page) : Promise.resolve();
+  await Promise.all([ask(listed()), others]);
+  const entries = listed();
+  await ask(entries);
   return mediaMenu(entries, infos);
 }
 
+// The pointer reached the video button: start reading what its menu will
+// list, so a click soon after finds the answer ready or on its way
+// (probeStream shares a read still running). Once per page of a tab every
+// WARM_AGAIN_MS, so moving the pointer to and fro starts nothing new.
+const warmed = new Map();
+const WARM_AGAIN_MS = 30 * 1000;
+function warmVideoMenu(tabId, referrer, tab, player, now) {
+  for (const [key, at] of warmed) if (at <= now - WARM_AGAIN_MS) warmed.delete(key);
+  const key = `${tabId} ${referrer}`;
+  if (warmed.has(key)) return false;
+  warmed.set(key, now);
+  videoMenu(tabId, referrer, tab, player).catch(() => {});
+  return true;
+}
+
 // Pages yt-dlp may read that the browser saw no stream on, asked about
-// only when the video button's menu opens (never on a page load, so no
+// only when the pointer reaches the video button or its menu opens (never
+// on a page load, so no
 // yt-dlp runs for pages nobody asked about): the playlist a YouTube video
 // is part of, and, when `any` and the tab has nothing else to offer, the
 // page itself. Each is kept in the tab's list only when yt-dlp finds a
@@ -488,6 +516,24 @@ function onContentMessage(msg, sender, sendResponse) {
         srcs: Array.isArray(msg.srcs) ? msg.srcs.filter((u) => typeof u === "string").slice(0, 20) : [],
       }).then((items) => sendResponse({ connected: true, items }));
       return true;
+    case "video:warm":
+      // The pointer is on the video button (see content.js).
+      sendResponse({
+        ok:
+          connected &&
+          warmVideoMenu(
+            tabId,
+            pageUrl,
+            sender.tab,
+            {
+              frameId: sender.frameId || 0,
+              element: Number.isInteger(msg.element) ? msg.element : null,
+              srcs: Array.isArray(msg.srcs) ? msg.srcs.filter((u) => typeof u === "string").slice(0, 20) : [],
+            },
+            Date.now(),
+          ),
+      });
+      return false;
     case "video:playlist":
       // The menu's "Choose videos": the window lists the playlist.
       sendResponse({ ok: Number.isInteger(msg.entry) && sendPlaylist(tabId, msg.entry) });
