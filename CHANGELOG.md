@@ -4,6 +4,11 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## [0.13.0](release-notes/v0.13.0.md) - 2026-11-22
+
+Minor. Install with winget or Scoop, a video's qualities show sooner, and the menus and toolbar
+are translated in every language.
+
 ## [0.12.1](release-notes/v0.12.1.md) - 2026-11-19
 
 Patch. The main window opens in the middle of the screen instead of the top-left corner.
