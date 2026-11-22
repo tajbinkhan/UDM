@@ -51,15 +51,15 @@ mod tests {
     fn site(version: &str) -> ToolSite {
         ToolSite::release(
             version,
-            &[("yt-dlp_linux", None), ("SHA2-256SUMS", None)],
-            &format!("{}  yt-dlp_linux\n", "ab".repeat(32)),
+            &[("yt-dlp_linux.zip", None), ("SHA2-256SUMS", None)],
+            &format!("{}  yt-dlp_linux.zip\n", "ab".repeat(32)),
         )
     }
 
     #[test]
     fn a_newer_release_replaces_the_installed_one_once_a_day() {
-        let shelf = ToolShelf::with(Tool::YtDlp, InstalledTool { version: "1".into(), checked: 0 });
-        let hashes = Hashes::with("/dl/yt-dlp_linux", vec![0xab; 32]);
+        let shelf = ToolShelf::with(Tool::YtDlp, InstalledTool { version: "1".into(), checked: 0, asset: None });
+        let hashes = Hashes::with("/dl/yt-dlp_linux.zip", vec![0xab; 32]);
         let site = site("2");
         let update = UpdateYtDlp::new(&site, &shelf, &hashes, LINUX);
         assert_eq!(update.run(true, 10).unwrap(), None, "not due yet");
@@ -71,9 +71,10 @@ mod tests {
 
     #[test]
     fn nothing_happens_when_off_newest_or_not_udms() {
-        let hashes = Hashes::with("/dl/yt-dlp_linux", vec![0xab; 32]);
+        let hashes = Hashes::with("/dl/yt-dlp_linux.zip", vec![0xab; 32]);
         let site = site("1");
-        let shelf = ToolShelf::with(Tool::YtDlp, InstalledTool { version: "1".into(), checked: 0 });
+        let folder = InstalledTool { version: "1".into(), checked: 0, asset: Some("yt-dlp_linux.zip".into()) };
+        let shelf = ToolShelf::with(Tool::YtDlp, folder);
         let update = UpdateYtDlp::new(&site, &shelf, &hashes, LINUX);
         assert_eq!(update.run(false, UPDATE_EVERY_SECS).unwrap(), None);
         assert!(site.asked().is_empty());
@@ -82,5 +83,15 @@ mod tests {
         assert_eq!(shelf.installed(Tool::YtDlp).unwrap().checked, UPDATE_EVERY_SECS);
         let none = ToolShelf::default();
         assert_eq!(UpdateYtDlp::new(&site, &none, &hashes, LINUX).run(true, UPDATE_EVERY_SECS).unwrap(), None);
+    }
+
+    #[test]
+    fn an_older_udms_one_file_yt_dlp_becomes_the_folder_build_of_the_same_release() {
+        let hashes = Hashes::with("/dl/yt-dlp_linux.zip", vec![0xab; 32]);
+        let site = site("1");
+        let shelf = ToolShelf::with(Tool::YtDlp, InstalledTool { version: "1".into(), checked: 0, asset: None });
+        let done = UpdateYtDlp::new(&site, &shelf, &hashes, LINUX).run(true, UPDATE_EVERY_SECS).unwrap();
+        assert_eq!(done.map(|d| d.0).as_deref(), Some("1"));
+        assert_eq!(shelf.installed(Tool::YtDlp).unwrap().asset.as_deref(), Some("yt-dlp_linux.zip"));
     }
 }

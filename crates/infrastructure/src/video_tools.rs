@@ -9,8 +9,13 @@
 //!
 //! What is downloaded, and from where:
 //! - yt-dlp: `https://github.com/yt-dlp/yt-dlp/releases/latest`, the
-//!   program for this system (`yt-dlp.exe`, `yt-dlp_macos`, `yt-dlp_linux`,
-//!   ...) and `SHA2-256SUMS`.
+//!   folder build for this system (`yt-dlp_win.zip`, `yt-dlp_macos.zip`,
+//!   `yt-dlp_linux.zip`, ...) and `SHA2-256SUMS`. It is unpacked in-process
+//!   into `tools/yt-dlp.d/`, the program renamed `yt-dlp` beside its
+//!   `_internal` folder, and replaces the one-file `tools/yt-dlp` an older
+//!   UDM installed. The one-file program unpacks itself into the temporary
+//!   folder on every run, which costs most of a second before yt-dlp reads
+//!   anything.
 //! - ffmpeg on Windows and Linux: `https://github.com/yt-dlp/FFmpeg-Builds/
 //!   releases/latest`, `ffmpeg-master-latest-<system>-gpl.zip` or `.tar.xz`
 //!   and `checksums.sha256`. The archive is unpacked with the system's own
@@ -43,7 +48,7 @@ use udm_domain::bytes::ByteCount;
 use udm_domain::download::Download;
 use udm_domain::ports::{ReleaseFile, ToolFolder, ToolProgress, ToolRelease, ToolReleases};
 use udm_domain::sync::LockExt;
-use udm_domain::tools::{Cpu, Forge, InstalledTool, Packing, Platform, System, Tool, ToolError};
+use udm_domain::tools::{Cpu, Forge, InstalledTool, Packing, Platform, System, Tool, ToolError, ToolSource};
 
 use crate::connect::{config_for, NetState};
 use crate::engine;
@@ -252,8 +257,87 @@ impl ToolDir {
 
     /// The program `name` in the folder.
     fn program(&self, name: &str) -> Option<PathBuf> {
-        self.dir.as_ref().map(|d| d.join(crate::platform::exe_name(name)))
+        self.dir.as_ref().map(|d| program_in(d, name))
     }
+}
+
+/// The folder a folder build of `name` is unpacked into, in `dir`.
+fn build_folder(dir: &Path, name: &str) -> PathBuf {
+    dir.join(format!("{name}.d"))
+}
+
+/// The program `name` installed in the tools folder `dir`: its folder
+/// build's when there is one, else the one-file program.
+pub fn program_in(dir: &Path, name: &str) -> PathBuf {
+    let exe = crate::platform::exe_name(name);
+    let built = build_folder(dir, name).join(&exe);
+    if built.is_file() {
+        built
+    } else {
+        dir.join(exe)
+    }
+}
+
+/// Unpack the zip `archive` into the empty folder `into`, in-process: the
+/// system's `tar` reads zip files on Windows and macOS but not on Linux.
+fn unzip(archive: &Path, into: &Path) -> Result<(), String> {
+    let file = fs::File::open(archive).map_err(|e| e.to_string())?;
+    let mut zip = ::zip::ZipArchive::new(io::BufReader::new(file)).map_err(|e| e.to_string())?;
+    zip.extract(into).map_err(|e| e.to_string())
+}
+
+/// Put the folder build in `file` (a zip of `program` and its `_internal`
+/// folder) in place as `name` in `dir`: unpacked aside, its program renamed
+/// `name`, then swapped for the folder there before. The one-file program
+/// an older UDM left goes. Returns the program's path.
+fn install_folder(dir: &Path, name: &str, file: &Path, program: &str) -> Result<PathBuf, ToolError> {
+    let archive = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let exe = crate::platform::exe_name(name);
+    let unpacked = dir.join(format!(".{name}.unpacked"));
+    let old = dir.join(format!(".{name}.old"));
+    let target = build_folder(dir, name);
+    let _ = fs::remove_dir_all(&unpacked);
+    let _ = fs::remove_dir_all(&old);
+    let staged = fs::create_dir_all(&unpacked)
+        .map_err(|e| save_error(&unpacked, &e))
+        .and_then(|()| unzip(file, &unpacked).map_err(|why| ToolError::Unpack(archive.clone(), why)))
+        .and_then(|()| {
+            let found = unpacked.join(program);
+            if !found.is_file() {
+                return Err(ToolError::Unpack(archive.clone(), format!("{program} is not in it")));
+            }
+            let to = unpacked.join(&exe);
+            fs::rename(&found, &to).and_then(|()| make_executable(&to)).map_err(|e| save_error(&to, &e))
+        });
+    let _ = fs::remove_file(file);
+    if let Err(e) = staged {
+        let _ = fs::remove_dir_all(&unpacked);
+        return Err(e);
+    }
+    // A running yt-dlp keeps Windows from moving its folder: the one in
+    // place stays, and the install fails as replacing a program does.
+    let had = target.exists();
+    if had {
+        if let Err(e) = fs::rename(&target, &old) {
+            let _ = fs::remove_dir_all(&unpacked);
+            return Err(save_error(&target, &e));
+        }
+    }
+    if let Err(e) = fs::rename(&unpacked, &target) {
+        if had {
+            let _ = fs::rename(&old, &target);
+        }
+        let _ = fs::remove_dir_all(&unpacked);
+        return Err(save_error(&target, &e));
+    }
+    let _ = fs::remove_dir_all(&old);
+    let one_file = dir.join(&exe);
+    if one_file.is_file() {
+        if let Err(e) = fs::remove_file(&one_file) {
+            tracing::warn!(path = %one_file.display(), error = %e, "could not remove the one-file program");
+        }
+    }
+    Ok(target.join(exe))
 }
 
 /// Let `path` run, for its owner and everyone else (as a package manager
@@ -341,14 +425,17 @@ impl ToolFolder for ToolDir {
         &self,
         tool: Tool,
         file: &Path,
-        packing: Packing,
+        source: &ToolSource,
         version: &str,
         now: u64,
     ) -> Result<PathBuf, ToolError> {
         let dir = self.dir.clone().ok_or_else(|| no_folder(file))?;
         fs::create_dir_all(&dir).map_err(|e| save_error(&dir, &e))?;
-        let program = dir.join(crate::platform::exe_name(tool.name()));
-        let placed = match packing {
+        let mut program = dir.join(crate::platform::exe_name(tool.name()));
+        let placed = match source.packing {
+            Packing::Folder { program: inside } => install_folder(&dir, tool.name(), file, inside).map(|p| {
+                program = p;
+            }),
             Packing::Program => {
                 let staged = dir.join(format!(".{}.new", tool.name()));
                 fs::rename(file, &staged)
@@ -392,7 +479,7 @@ impl ToolFolder for ToolDir {
             let _ = fs::remove_file(file);
             return Err(e);
         }
-        let installed = InstalledTool { version: version.to_string(), checked: now };
+        let installed = InstalledTool { version: version.to_string(), checked: now, asset: Some(source.asset.into()) };
         self.change(|tools| {
             tools.insert(tool, installed);
         })?;
@@ -468,6 +555,30 @@ mod tests {
         })
     }
 
+    /// A folder build as yt-dlp publishes one: `program`, holding
+    /// `bytes`, beside its `_internal` folder.
+    fn folder_zip(program: &str, bytes: &[u8]) -> Vec<u8> {
+        use ::zip::write::SimpleFileOptions;
+        use std::io::Write as _;
+        let mut w = ::zip::ZipWriter::new(io::Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(::zip::CompressionMethod::Deflated);
+        w.add_directory("_internal/", options).unwrap();
+        w.start_file("_internal/base_library.zip", options).unwrap();
+        w.write_all(b"python").unwrap();
+        w.start_file(program, options.unix_permissions(0o755)).unwrap();
+        w.write_all(bytes).unwrap();
+        w.finish().unwrap().into_inner()
+    }
+
+    /// What the release file for yt-dlp on this system holds when its
+    /// program holds `bytes`.
+    fn yt_dlp_release_file(bytes: &[u8]) -> Vec<u8> {
+        match udm_domain::tools::source(Tool::YtDlp, platform()).map(|s| s.packing) {
+            Some(Packing::Folder { program }) => folder_zip(program, bytes),
+            _ => bytes.to_vec(),
+        }
+    }
+
     fn origin(server: &TestServer) -> String {
         format!("{}/", server.url)
     }
@@ -494,8 +605,12 @@ mod tests {
             return;
         }
         let program = b"#!/bin/sh\necho fake yt-dlp\n";
-        let server = release_site(program, &sha(program));
+        let file = yt_dlp_release_file(program);
+        let server = release_site(&file, &sha(&file));
         let dir = scratch("good");
+        // The one-file program an older UDM installed.
+        let one_file = dir.join(crate::platform::exe_name("yt-dlp"));
+        fs::write(&one_file, b"one file").unwrap();
         let releases = ForgeTools::at(live(), &origin(&server), &origin(&server), dir.join(".downloads"));
         let folder = ToolDir::at(Some(dir.clone()), live());
         let (version, path) = InstallTool::new(&releases, &folder, &crate::hash::DiskHashes, platform())
@@ -503,14 +618,27 @@ mod tests {
             .unwrap();
         assert_eq!(version, "2026.10.26");
         assert_eq!(fs::read(&path).unwrap(), program);
+        assert_eq!(path, dir.join("yt-dlp.d").join(crate::platform::exe_name("yt-dlp")));
+        assert!(dir.join("yt-dlp.d").join("_internal").join("base_library.zip").is_file(), "beside its folder");
+        assert!(!one_file.exists(), "the folder build replaces the one-file program");
+        assert_eq!(program_in(&dir, "yt-dlp"), path);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
             assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o111, 0o111);
         }
-        assert_eq!(folder.installed(Tool::YtDlp), Some(InstalledTool { version, checked: 7 }));
+        let asset = udm_domain::tools::source(Tool::YtDlp, platform()).map(|s| s.asset.to_string());
+        assert_eq!(folder.installed(Tool::YtDlp), Some(InstalledTool { version, checked: 7, asset }));
         folder.note_checked(Tool::YtDlp, 9);
         assert_eq!(folder.installed(Tool::YtDlp).unwrap().checked, 9);
+        // Installing again swaps the folder for the new one.
+        let again = InstallTool::new(&releases, &folder, &crate::hash::DiskHashes, platform())
+            .run(Tool::YtDlp, false, 11)
+            .unwrap()
+            .1;
+        assert_eq!(fs::read(&again).unwrap(), program);
+        let left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert!(left.iter().all(|n| !n.to_string_lossy().ends_with(".old")), "{left:?}");
         assert!(fs::read_dir(dir.join(".downloads")).unwrap().next().is_none(), "the download moved");
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -529,6 +657,7 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, ToolError::WrongChecksum(_)), "{err}");
         assert!(!dir.join(crate::platform::exe_name("yt-dlp")).exists());
+        assert!(!dir.join("yt-dlp.d").exists());
         assert!(fs::read_dir(dir.join(".downloads")).unwrap().next().is_none(), "the download was deleted");
         assert_eq!(folder.installed(Tool::YtDlp), None);
         fs::remove_dir_all(&dir).unwrap();
@@ -594,14 +723,48 @@ mod tests {
         }
         let tools = dir.join("tools");
         let folder = ToolDir::at(Some(tools.clone()), live());
-        let path = folder.install(Tool::Ffmpeg, &archive, Packing::Archive, "2026-11-09", 3).unwrap();
+        let ff = udm_domain::tools::source(Tool::Ffmpeg, Platform { system: System::Linux, cpu: Cpu::X86_64 }).unwrap();
+        let path = folder.install(Tool::Ffmpeg, &archive, &ff, "2026-11-09", 3).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"ffmpeg");
         assert_eq!(fs::read(tools.join(crate::platform::exe_name("ffprobe"))).unwrap(), b"ffprobe");
         assert!(!tools.join("README.txt").exists() && !archive.exists());
         assert_eq!(folder.installed(Tool::Ffmpeg).unwrap().version, "2026-11-09");
         let broken = dir.join("broken.tar.gz");
         fs::write(&broken, b"not an archive").unwrap();
-        assert!(matches!(folder.install(Tool::Ffmpeg, &broken, Packing::Archive, "x", 1), Err(ToolError::Unpack(..))));
+        assert!(matches!(folder.install(Tool::Ffmpeg, &broken, &ff, "x", 1), Err(ToolError::Unpack(..))));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A folder build without its program installs nothing and leaves the
+    /// folder there before.
+    #[test]
+    fn a_folder_build_without_its_program_leaves_the_installed_one() {
+        let dir = scratch("folder");
+        let folder = ToolDir::at(Some(dir.clone()), live());
+        let source = |program| ToolSource {
+            forge: Forge::GitHub,
+            repository: "yt-dlp/yt-dlp",
+            asset: "yt-dlp_test.zip",
+            sums: "SHA2-256SUMS",
+            packing: Packing::Folder { program },
+        };
+        let good = dir.join("good.zip");
+        fs::write(&good, folder_zip("yt-dlp_test", b"one")).unwrap();
+        let path = folder.install(Tool::YtDlp, &good, &source("yt-dlp_test"), "1", 1).unwrap();
+        assert!(!good.exists());
+        let wrong = dir.join("wrong.zip");
+        fs::write(&wrong, folder_zip("something_else", b"two")).unwrap();
+        let err = folder.install(Tool::YtDlp, &wrong, &source("yt-dlp_test"), "2", 2).unwrap_err();
+        assert!(matches!(err, ToolError::Unpack(..)), "{err}");
+        let broken = dir.join("broken.zip");
+        fs::write(&broken, b"not a zip").unwrap();
+        assert!(matches!(
+            folder.install(Tool::YtDlp, &broken, &source("yt-dlp_test"), "3", 3),
+            Err(ToolError::Unpack(..))
+        ));
+        assert_eq!(fs::read(&path).unwrap(), b"one");
+        assert_eq!(folder.installed(Tool::YtDlp).unwrap().version, "1");
+        assert!(!wrong.exists() && !broken.exists() && !dir.join(".yt-dlp.unpacked").exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

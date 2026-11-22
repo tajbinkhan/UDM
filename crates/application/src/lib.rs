@@ -10,6 +10,7 @@ pub mod debrid;
 pub mod downloads;
 pub mod gallery;
 pub mod grab;
+pub mod media;
 pub mod pairing;
 pub mod power;
 pub mod queues;

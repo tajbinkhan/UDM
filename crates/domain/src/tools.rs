@@ -70,6 +70,11 @@ pub enum Packing {
     Program,
     /// A zip or tar.xz archive with the program (and ffprobe) in `bin/`.
     Archive,
+    /// A zip of a program's folder: the program, called `program` in it,
+    /// beside the `_internal` folder it runs from (PyInstaller's folder
+    /// build). It starts in a third of the time the one-file program
+    /// takes, which unpacks itself into the temporary folder on every run.
+    Folder { program: &'static str },
 }
 
 /// Where a tool's official build for a platform comes from: a repository's
@@ -103,28 +108,31 @@ pub const GALLERY_DL_REPOSITORY: &str = "mikf/gallery-dl";
 pub fn source(tool: Tool, platform: Platform) -> Option<ToolSource> {
     use Cpu::*;
     use System::*;
-    let (forge, repository, sums, packing) = match tool {
-        Tool::YtDlp => (Forge::GitHub, YT_DLP_REPOSITORY, "SHA2-256SUMS", Packing::Program),
-        Tool::Ffmpeg => (Forge::GitHub, FFMPEG_REPOSITORY, "checksums.sha256", Packing::Archive),
-        Tool::GalleryDl => (Forge::Codeberg, GALLERY_DL_REPOSITORY, "SHA256SUMS", Packing::Program),
+    let (forge, repository, sums) = match tool {
+        Tool::YtDlp => (Forge::GitHub, YT_DLP_REPOSITORY, "SHA2-256SUMS"),
+        Tool::Ffmpeg => (Forge::GitHub, FFMPEG_REPOSITORY, "checksums.sha256"),
+        Tool::GalleryDl => (Forge::Codeberg, GALLERY_DL_REPOSITORY, "SHA256SUMS"),
     };
-    let asset = match (tool, platform.system, platform.cpu) {
-        (Tool::YtDlp, Windows, X86_64) => "yt-dlp.exe",
-        (Tool::YtDlp, Windows, Aarch64) => "yt-dlp_arm64.exe",
-        (Tool::YtDlp, Windows, X86) => "yt-dlp_x86.exe",
-        // One universal program for Intel and Apple processors.
-        (Tool::YtDlp, MacOs, X86_64 | Aarch64) => "yt-dlp_macos",
-        (Tool::YtDlp, Linux, X86_64) => "yt-dlp_linux",
-        (Tool::YtDlp, Linux, Aarch64) => "yt-dlp_linux_aarch64",
-        (Tool::Ffmpeg, Windows, X86_64) => "ffmpeg-master-latest-win64-gpl.zip",
-        (Tool::Ffmpeg, Windows, Aarch64) => "ffmpeg-master-latest-winarm64-gpl.zip",
-        (Tool::Ffmpeg, Windows, X86) => "ffmpeg-master-latest-win32-gpl.zip",
-        (Tool::Ffmpeg, Linux, X86_64) => "ffmpeg-master-latest-linux64-gpl.tar.xz",
-        (Tool::Ffmpeg, Linux, Aarch64) => "ffmpeg-master-latest-linuxarm64-gpl.tar.xz",
-        (Tool::GalleryDl, Windows, X86_64) => "gallery-dl.exe",
-        (Tool::GalleryDl, Windows, X86) => "gallery-dl_x86.exe",
+    let folder = |program| Packing::Folder { program };
+    let (asset, packing) = match (tool, platform.system, platform.cpu) {
+        // yt-dlp's folder builds, which its README lists beside the
+        // one-file programs (`yt-dlp.exe`, `yt-dlp_macos`, `yt-dlp_linux`).
+        (Tool::YtDlp, Windows, X86_64) => ("yt-dlp_win.zip", folder("yt-dlp.exe")),
+        (Tool::YtDlp, Windows, Aarch64) => ("yt-dlp_win_arm64.zip", folder("yt-dlp_arm64.exe")),
+        (Tool::YtDlp, Windows, X86) => ("yt-dlp_win_x86.zip", folder("yt-dlp_x86.exe")),
+        // One universal build for Intel and Apple processors.
+        (Tool::YtDlp, MacOs, X86_64 | Aarch64) => ("yt-dlp_macos.zip", folder("yt-dlp_macos")),
+        (Tool::YtDlp, Linux, X86_64) => ("yt-dlp_linux.zip", folder("yt-dlp_linux")),
+        (Tool::YtDlp, Linux, Aarch64) => ("yt-dlp_linux_aarch64.zip", folder("yt-dlp_linux_aarch64")),
+        (Tool::Ffmpeg, Windows, X86_64) => ("ffmpeg-master-latest-win64-gpl.zip", Packing::Archive),
+        (Tool::Ffmpeg, Windows, Aarch64) => ("ffmpeg-master-latest-winarm64-gpl.zip", Packing::Archive),
+        (Tool::Ffmpeg, Windows, X86) => ("ffmpeg-master-latest-win32-gpl.zip", Packing::Archive),
+        (Tool::Ffmpeg, Linux, X86_64) => ("ffmpeg-master-latest-linux64-gpl.tar.xz", Packing::Archive),
+        (Tool::Ffmpeg, Linux, Aarch64) => ("ffmpeg-master-latest-linuxarm64-gpl.tar.xz", Packing::Archive),
+        (Tool::GalleryDl, Windows, X86_64) => ("gallery-dl.exe", Packing::Program),
+        (Tool::GalleryDl, Windows, X86) => ("gallery-dl_x86.exe", Packing::Program),
         // An x86-64 program; nothing for ARM.
-        (Tool::GalleryDl, Linux, X86_64) => "gallery-dl.bin",
+        (Tool::GalleryDl, Linux, X86_64) => ("gallery-dl.bin", Packing::Program),
         _ => return None,
     };
     Some(ToolSource { forge, repository, asset, sums, packing })
@@ -186,13 +194,31 @@ pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// A tool UDM installed: the release it came from, and when UDM
-/// last looked for a newer one (seconds since 1970).
+/// A tool UDM installed: the release it came from, the release file it
+/// was installed from, and when UDM last looked for a newer one (seconds
+/// since 1970).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstalledTool {
     pub version: String,
     #[serde(default)]
     pub checked: u64,
+    /// `None` for a tool an older UDM installed, which did not note it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<String>,
+}
+
+impl InstalledTool {
+    /// Whether this is what installing `version` from `source` would give,
+    /// so there is nothing to install. A tool an older UDM installed is,
+    /// unless `source` is now a folder build: it was a one-file program,
+    /// which the folder build replaces.
+    pub fn is_current(&self, version: &str, source: &ToolSource) -> bool {
+        let same_file = match &self.asset {
+            Some(asset) => asset == source.asset,
+            None => !matches!(source.packing, Packing::Folder { .. }),
+        };
+        self.version == version && same_file
+    }
 }
 
 /// What Options shows about a tool.
@@ -274,14 +300,33 @@ mod tests {
     const LINUX_ARM: Platform = Platform { system: System::Linux, cpu: Cpu::Aarch64 };
 
     #[test]
+    fn a_one_file_yt_dlp_is_replaced_by_the_folder_build_of_its_release() {
+        let yt = source(Tool::YtDlp, WIN).unwrap();
+        let older = InstalledTool { version: "2026.10.26".into(), checked: 0, asset: None };
+        assert!(!older.is_current("2026.10.26", &yt), "an older UDM's one-file program");
+        let folder = InstalledTool { asset: Some("yt-dlp_win.zip".into()), ..older.clone() };
+        assert!(folder.is_current("2026.10.26", &yt));
+        assert!(!folder.is_current("2026.11.02", &yt), "a newer release");
+        let ff = source(Tool::Ffmpeg, WIN).unwrap();
+        assert!(older.is_current("2026.10.26", &ff), "an archive's tool keeps its file kind");
+        let read: InstalledTool = serde_json::from_str(r#"{"version":"1","checked":5}"#).unwrap();
+        assert_eq!(read.asset, None, "tools.json as an older UDM wrote it");
+    }
+
+    #[test]
     fn each_system_gets_its_official_build() {
         let yt = source(Tool::YtDlp, WIN).unwrap();
         assert_eq!(
             (yt.repository, yt.asset, yt.sums, yt.packing),
-            ("yt-dlp/yt-dlp", "yt-dlp.exe", "SHA2-256SUMS", Packing::Program)
+            ("yt-dlp/yt-dlp", "yt-dlp_win.zip", "SHA2-256SUMS", Packing::Folder { program: "yt-dlp.exe" })
         );
-        assert_eq!(source(Tool::YtDlp, MAC).unwrap().asset, "yt-dlp_macos");
-        assert_eq!(source(Tool::YtDlp, LINUX_ARM).unwrap().asset, "yt-dlp_linux_aarch64");
+        let mac = source(Tool::YtDlp, MAC).unwrap();
+        assert_eq!((mac.asset, mac.packing), ("yt-dlp_macos.zip", Packing::Folder { program: "yt-dlp_macos" }));
+        let arm = source(Tool::YtDlp, LINUX_ARM).unwrap();
+        assert_eq!(
+            (arm.asset, arm.packing),
+            ("yt-dlp_linux_aarch64.zip", Packing::Folder { program: "yt-dlp_linux_aarch64" })
+        );
         let ff = source(Tool::Ffmpeg, WIN).unwrap();
         assert_eq!(
             (ff.repository, ff.asset, ff.packing),
@@ -330,7 +375,7 @@ mod tests {
 
     #[test]
     fn yt_dlp_updates_once_a_day_when_asked() {
-        let t = InstalledTool { version: "2026.10.26".into(), checked: 100 };
+        let t = InstalledTool { version: "2026.10.26".into(), checked: 100, asset: None };
         assert!(!update_due(false, Some(&t), 100 + UPDATE_EVERY_SECS));
         assert!(!update_due(true, None, 100 + UPDATE_EVERY_SECS));
         assert!(!update_due(true, Some(&t), 99 + UPDATE_EVERY_SECS));

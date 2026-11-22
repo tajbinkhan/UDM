@@ -77,11 +77,24 @@ one file is saved, with a note. Live streams are refused. UDM does not
 send the browser's cookies to yt-dlp, so only videos anyone can watch signed
 out are offered (on Facebook and Instagram that is public posts only).
 
+Each read is a yt-dlp run of a few seconds, most of it yt-dlp asking the
+site and solving its player's code. Three things keep the wait short. The
+worker starts reading when the pointer (or the keyboard's focus) reaches
+the **Download this video** button (`video:warm`, at most once a page per
+tab every 30 seconds), so the click usually finds the answer ready or on
+its way. A video and its playlist are read at the same time. And the
+daemon keeps each page's answer for an hour (`PageAnswers`, at most 128
+pages, only answers that offer something), so the menu opened again, or
+opened after the extension's worker slept and forgot, runs no yt-dlp. The
+answer lists qualities only; the download reads the page again for the
+streams, so an hour-old answer still downloads.
+
 **Any other site.** When the video button's menu opens on a page that is
 none of the sites above and the browser saw no file or stream in that tab,
 the worker asks UDM to read the page (the frame that holds the player)
-with yt-dlp. This runs only when the menu is opened, never on a page load,
-so no yt-dlp starts for pages nobody asked about; one probe per address is
+with yt-dlp. This runs only when the pointer reaches the button or the menu
+is opened, never on a page load, so no yt-dlp starts for pages nobody asked
+about; one probe per address is
 in flight at a time, a find is kept for the tab, and a page yt-dlp found
 nothing on is not asked about again for ten minutes. The menu shows the page
 ("Video on this page") only when yt-dlp found a video or a playlist.
@@ -137,9 +150,9 @@ downloaded, from where:
 
 | Tool | System | From | Checked against |
 |---|---|---|---|
-| yt-dlp | Windows (x64, ARM64, x86) | `github.com/yt-dlp/yt-dlp/releases/latest`: `yt-dlp.exe`, `yt-dlp_arm64.exe`, `yt-dlp_x86.exe` | `SHA2-256SUMS` in the same release |
-| yt-dlp | macOS | the same release: `yt-dlp_macos` | `SHA2-256SUMS` |
-| yt-dlp | Linux (x64, ARM64) | the same release: `yt-dlp_linux`, `yt-dlp_linux_aarch64` | `SHA2-256SUMS` |
+| yt-dlp | Windows (x64, ARM64, x86) | `github.com/yt-dlp/yt-dlp/releases/latest`: `yt-dlp_win.zip`, `yt-dlp_win_arm64.zip`, `yt-dlp_win_x86.zip` | `SHA2-256SUMS` in the same release |
+| yt-dlp | macOS | the same release: `yt-dlp_macos.zip` | `SHA2-256SUMS` |
+| yt-dlp | Linux (x64, ARM64) | the same release: `yt-dlp_linux.zip`, `yt-dlp_linux_aarch64.zip` | `SHA2-256SUMS` |
 | ffmpeg | Windows (x64, ARM64, x86) | `github.com/yt-dlp/FFmpeg-Builds/releases/latest`: `ffmpeg-master-latest-win64-gpl.zip` (or `winarm64`, `win32`) | `checksums.sha256` in the same release |
 | ffmpeg | Linux (x64, ARM64) | the same release: `ffmpeg-master-latest-linux64-gpl.tar.xz` (or `linuxarm64`) | `checksums.sha256` |
 | ffmpeg | macOS | nothing: no build there publishes a checksum, so Options shows `brew install ffmpeg` instead | |
@@ -158,7 +171,14 @@ executable, in the `tools` folder of UDM's data folder (the copy's
 `Data` folder when it is portable). A mismatch is deleted and nothing is
 installed; a release without a listed checksum is not downloaded at all.
 ffmpeg's archive is unpacked with the system's `tar` (System32's on Windows
-10 and later), keeping only `ffmpeg` and `ffprobe`. `tools/tools.json`
+10 and later), keeping only `ffmpeg` and `ffprobe`. yt-dlp's is its folder
+build, the program beside an `_internal` folder, unpacked by UDM itself into
+`tools/yt-dlp.d`. It starts in about a third of the time the one-file
+program takes, which unpacks itself into the temporary folder on every run,
+and every quality list the video button shows is a yt-dlp run. It replaces
+the one-file `tools/yt-dlp.exe` an older UDM installed: **Install** does at
+once, **Keep yt-dlp up to date** at its next daily look, even when the
+release is the same. `tools/tools.json`
 records each tool's release and last check. Both checksums come from the
 same release as the file, so they catch a damaged or swapped
 download, not a release the project's own account published; yt-dlp's GPG
