@@ -6,9 +6,9 @@ each system:
 
 | System | File | |
 |---|---|---|
-| Windows 10 and 11 | `UDM-Setup-<version>.exe` | the installer, below, also through [winget](#winget-and-scoop) |
+| Windows 10 and 11 | `UDM-Setup-<version>.exe` | the installer, below |
 | | `UDM-<version>-windows-portable.zip` | a [portable copy](portable.md), everything in its own folder |
-| | `udm.json` | the [Scoop](#winget-and-scoop) manifest, which installs the zip |
+| | `udm.json` | the [Scoop](#scoop) manifest, which installs the zip |
 | macOS 11 or later | `UDM-<version>-macos.dmg` | Apple Silicon and Intel, [experimental](#macos) |
 | Ubuntu, Debian, Mint | `udm_<version>_amd64.deb` | `sudo apt install ./udm_*.deb` |
 | Fedora, openSUSE, RHEL | `udm-<version>-1.x86_64.rpm` | `sudo dnf install ./udm-*.rpm` |
@@ -65,17 +65,7 @@ under [Build](building.md#build), run this from this folder:
 That builds the programs if needed, registers UDM with Chrome, Edge and
 Firefox, and adds **UDM** to the Start menu.
 
-### winget and Scoop
-
-Once the package is in winget (below), winget installs Setup without its pages:
-
-```powershell
-winget install TajbinKhan.UDM
-```
-
-That copy is Setup's in every way, so **Update now** updates it, and
-`winget upgrade TajbinKhan.UDM` does too. A silent install leaves out
-Setup's offer to install yt-dlp; `winget install yt-dlp.yt-dlp` does that.
+### Scoop
 
 Scoop installs the portable zip from the manifest on the latest release:
 
@@ -98,11 +88,6 @@ settings, list and downloaded files.
 
 Install UDM one way only: Setup's copy and Scoop's both register as
 `com.udm.host`, and the browsers start whichever registered last.
-
-The winget package is sent to `microsoft/winget-pkgs` by the Release
-workflow's `winget` job once the first version (`installer/winget`) is
-there; its pull request is merged after winget's checks, so a new release
-can take a day or so to reach `winget install`.
 
 Either way, add the extension to the browser once. It is not in the Chrome
 Web Store or on Firefox Add-ons yet. Once it is listed there, this page links

@@ -53,8 +53,7 @@ differs.
 | `installer/windows/build.ps1` | Builds the programs and the installer into `dist\` |
 | `installer/linux/` | `package.sh` (the `.deb`, `.rpm`, AppImage and `.tar.gz`), the tarball's `install.sh`, the AppImage's `AppRun` and the desktop entry |
 | `installer/macos/package.sh` | Builds the universal `.dmg` |
-| `installer/make-scoop.js` | Makes `udm.json`, the Scoop manifest a release carries, from the portable zip ([Install](install.md#winget-and-scoop)) |
-| `installer/winget/` | The winget manifests of the first version sent to `microsoft/winget-pkgs`; the Release workflow sends later ones ([Install](install.md#winget-and-scoop)) |
+| `installer/make-scoop.js` | Makes `udm.json`, the Scoop manifest a release carries, from the portable zip ([Install](install.md#scoop)) |
 | `installer/macos/safari/` | `build.sh`, which builds the Safari extension into `UDM.app` with Xcode, its native-messaging handler (`SafariWebExtensionHandler.swift`) and the sandbox entitlements |
 | `installer/make-firefox.js` | Makes `extension/firefox`, or with `--check` tells whether it is out of date |
 | `installer/make-safari.js` | The same for `extension/safari` (both use `installer/browser-copy.js`) |
