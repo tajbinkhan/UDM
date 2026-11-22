@@ -10,8 +10,15 @@
 # minute. PR-Agent's token table lacks that model, so CUSTOM_MODEL_MAX_TOKENS
 # keeps each Groq request under the cap. It does not change openrouter/free,
 # which is in that table at 200K. MAX_MODEL_TOKENS caps every model, and
-# PR-Agent's default of 32K pruned a 48K-token diff until the review failed,
-# so it is 64K here. Groq keeps its 6000, since the smaller limit wins.
+# PR-Agent's default of 32K pruned a 48K-token diff until the review failed.
+# OPENROUTER__MAX_TOKENS gives OpenRouter's free models 16K for the answer:
+# without it they hit their output limit, most likely while reasoning, and
+# returned nothing (finish_reason: length). Code suggestions still did at 16K
+# on a small diff, so OPENROUTER__REASONING_EFFORT asks them to reason less.
+# PR-Agent keeps the answer's room out of the same limit, so
+# MAX_MODEL_TOKENS is 80K, leaving 64K for the diff. Groq keeps its 6000,
+# since the smaller limit wins, and both OpenRouter settings are
+# OpenRouter's only.
 
 name: PR Agent
 
@@ -55,7 +62,9 @@ jobs:
           CONFIG__MODEL: openrouter/free
           CONFIG__FALLBACK_MODELS: '["groq/openai/gpt-oss-120b"]'
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: "6000"
-          CONFIG__MAX_MODEL_TOKENS: "64000"
+          CONFIG__MAX_MODEL_TOKENS: "80000"
+          OPENROUTER__MAX_TOKENS: "16000"
+          OPENROUTER__REASONING_EFFORT: low
           # Describe, review and suggest only when a PR is opened, reopened or
           # marked ready, not on every push. Comment a command to rerun it.
           github_action_config.auto_describe: "true"
