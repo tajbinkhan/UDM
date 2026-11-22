@@ -13,9 +13,12 @@
 # PR-Agent's default of 32K pruned a 48K-token diff until the review failed.
 # OPENROUTER__MAX_TOKENS gives OpenRouter's free models 16K for the answer:
 # without it they hit their output limit, most likely while reasoning, and
-# returned nothing (finish_reason: length). PR-Agent keeps the answer's room out of the same
-# limit, so MAX_MODEL_TOKENS is 80K, leaving 64K for the diff. Groq keeps its
-# 6000, since the smaller limit wins, and the answer cap is OpenRouter's only.
+# returned nothing (finish_reason: length). Code suggestions still did at 16K
+# on a small diff, so OPENROUTER__REASONING_EFFORT asks them to reason less.
+# PR-Agent keeps the answer's room out of the same limit, so
+# MAX_MODEL_TOKENS is 80K, leaving 64K for the diff. Groq keeps its 6000,
+# since the smaller limit wins, and both OpenRouter settings are
+# OpenRouter's only.
 
 name: PR Agent
 
@@ -61,6 +64,7 @@ jobs:
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: "6000"
           CONFIG__MAX_MODEL_TOKENS: "80000"
           OPENROUTER__MAX_TOKENS: "16000"
+          OPENROUTER__REASONING_EFFORT: low
           # Describe, review and suggest only when a PR is opened, reopened or
           # marked ready, not on every push. Comment a command to rerun it.
           github_action_config.auto_describe: "true"
