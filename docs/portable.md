@@ -10,7 +10,6 @@ A file called `portable.txt` beside the programs, or in the folder above
 `target\release` as the zip has it. What the file says does not matter. Delete
 it and the copy uses the usual folders in your user profile again (see
 [Install](install.md)); add it to any copy to make that copy portable.
-[Scoop](install.md#scoop) installs the zip without the file.
 
 ## Where things go
 

@@ -64,9 +64,6 @@ CloseApplications=no
 
 [Tasks]
 Name: desktopicon; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-; Shown only when winget is there and yt-dlp is not. winget installs yt-dlp
-; with FFmpeg and Deno, which it depends on.
-Name: videotools; Description: "Install yt-dlp, FFmpeg and Deno with winget, for YouTube and other video sites (downloads them now)"; GroupDescription: "Video tools:"; Check: CanInstallVideoTools
 
 [Files]
 Source: "{#Root}\target\release\udm-host.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -301,12 +298,6 @@ begin
     (ExpandConstant('{param:fromuidm|no}') = 'yes');
 end;
 
-function SetEnvironmentVariable(Name, Value: String): BOOL;
-  external 'SetEnvironmentVariableW@kernel32.dll stdcall';
-function ExpandEnvironmentStrings(Src: String; Dst: String; Size: DWORD): DWORD;
-  external 'ExpandEnvironmentStringsW@kernel32.dll stdcall';
-
-{ winget, through the alias Windows 10 1809 and later put in WindowsApps. }
 const
   WebView2Key = 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
 
@@ -327,84 +318,9 @@ begin
   Result := not (WebView2In(HKLM32) or WebView2In(HKCU));
 end;
 
-function WingetPath(): String;
-begin
-  Result := ExpandConstant('{localappdata}\Microsoft\WindowsApps\winget.exe');
-end;
-
 function YtDlpFound(): Boolean;
 begin
   Result := FileSearch('yt-dlp.exe', GetEnv('PATH')) <> '';
-end;
-
-{ The video tools task is offered when winget can install yt-dlp and it is
-  not installed yet. }
-function CanInstallVideoTools(): Boolean;
-begin
-  Result := FileExists(WingetPath()) and not YtDlpFound();
-end;
-
-{ %VARS% in S filled in. }
-function Expand(S: String): String;
-var
-  Size: DWORD;
-begin
-  Result := S;
-  if Pos('%', S) = 0 then
-    exit;
-  Size := ExpandEnvironmentStrings(S, '', 0);
-  if Size = 0 then
-    exit;
-  SetLength(Result, Size);
-  if ExpandEnvironmentStrings(S, Result, Size) = 0 then
-    Result := S
-  else
-    SetLength(Result, Size - 1);
-end;
-
-{ winget puts the tools on the user's PATH in the registry. Setup's own PATH
-  is the one it started with, and UDM started from the last page inherits
-  it, so read the new one in. }
-procedure RefreshPath();
-var
-  Machine, User, Path: String;
-begin
-  RegQueryStringValue(HKLM, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'Path', Machine);
-  RegQueryStringValue(HKCU, 'Environment', 'Path', User);
-  Path := Expand(Machine);
-  if User <> '' then
-  begin
-    if (Path <> '') and (Path[Length(Path)] <> ';') then
-      Path := Path + ';';
-    Path := Path + Expand(User);
-  end;
-  if Path <> '' then
-    SetEnvironmentVariable('PATH', Path);
-end;
-
-procedure InstallVideoTools();
-var
-  Code: Integer;
-  Ok: Boolean;
-begin
-  WizardForm.StatusLabel.Caption := 'Installing yt-dlp, FFmpeg and Deno with winget. This can take a few minutes...';
-  WizardForm.FilenameLabel.Caption := '';
-  WizardForm.ProgressGauge.Style := npbstMarquee;
-  try
-    Ok := Exec(WingetPath(),
-      'install --id yt-dlp.yt-dlp --exact --source winget --silent --disable-interactivity ' +
-      '--accept-package-agreements --accept-source-agreements',
-      '', SW_HIDE, ewWaitUntilTerminated, Code);
-  finally
-    WizardForm.ProgressGauge.Style := npbstNormal;
-  end;
-  RefreshPath();
-  if not (Ok and YtDlpFound()) then
-    SuppressibleMsgBox('winget could not install the video tools (exit code ' + IntToStr(Code) + ').' + #13#10#13#10 +
-      'UDM still downloads ordinary files. For YouTube and other video sites, use Install yt-dlp ' +
-      'and Install ffmpeg in UDM''s Options > Tools, or run this later:' + #13#10 +
-      '    winget install yt-dlp.yt-dlp',
-      mbError, MB_OK, IDOK);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -435,8 +351,6 @@ begin
       browser registrations and sign-in entry move when UDM first starts. }
     if (OldDir <> '') and DirExists(OldDir) then
       DelTree(OldDir, True, True, True);
-    if WizardIsTaskSelected('videotools') then
-      InstallVideoTools();
   end;
 end;
 
@@ -451,7 +365,7 @@ begin
   else
     Video := #13#10#13#10 +
       'For YouTube and other video sites, use Install yt-dlp and Install ffmpeg in UDM''s ' +
-      'Options > Tools, or run: winget install yt-dlp.yt-dlp';
+      'Options > Tools.';
   if OldDir <> '' then
     Video := #13#10#13#10 +
       OldName + ' is now called UDM. Remove the ' + OldName + ' extension from the browser first: ' +
