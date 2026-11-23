@@ -17,9 +17,7 @@
 # jobs submit them to the stores the repository has keys for
 # (docs/extension-stores.md). For a tag, the `update-host` job also copies the
 # release to the update host, which keeps only the newest one
-# (docs/update-host.md). The `publish` job attaches udm.json, the Scoop
-# manifest that installer/make-scoop.js makes from the portable zip
-# (docs/install.md).
+# (docs/update-host.md).
 
 name: Release
 
@@ -331,11 +329,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      # `scoop install` reads it from the latest release (docs/install.md).
-      # Made before the list is signed, so the list names it too.
-      - name: Make the Scoop manifest
-        run: node installer/make-scoop.js dist
 
       # Update now installs only files this signed list names (#267,
       # docs/install.md). UDM_RELEASE_KEY is the line that

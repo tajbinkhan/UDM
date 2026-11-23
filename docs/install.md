@@ -8,7 +8,6 @@ each system:
 |---|---|---|
 | Windows 10 and 11 | `UDM-Setup-<version>.exe` | the installer, below |
 | | `UDM-<version>-windows-portable.zip` | a [portable copy](portable.md), everything in its own folder |
-| | `udm.json` | the [Scoop](#scoop) manifest, which installs the zip |
 | macOS 11 or later | `UDM-<version>-macos.dmg` | Apple Silicon and Intel, [experimental](#macos) |
 | Ubuntu, Debian, Mint | `udm_<version>_amd64.deb` | `sudo apt install ./udm_*.deb` |
 | Fedora, openSUSE, RHEL | `udm-<version>-1.x86_64.rpm` | `sudo dnf install ./udm-*.rpm` |
@@ -65,30 +64,6 @@ under [Build](building.md#build), run this from this folder:
 That builds the programs if needed, registers UDM with Chrome, Edge and
 Firefox, and adds **UDM** to the Start menu.
 
-### Scoop
-
-Scoop installs the portable zip from the manifest on the latest release:
-
-```powershell
-scoop install https://github.com/tajbinkhan/UDM/releases/latest/download/udm.json
-```
-
-The manifest takes `portable.txt` out of the copy, so UDM keeps its settings
-and download list in the same folders as Setup's copy and a new version finds
-them. It registers UDM with Chrome, Edge and Firefox (with `install-host.ps1`),
-adds **UDM** to the Start menu's Scoop Apps, and puts `udm` (the window),
-`udm-cli` and `udm-mcp` on `PATH`. `scoop update udm` reads the manifest from
-the latest release again; quit UDM from the tray first, since Scoop does not
-replace programs that are running. UDM sees that Scoop installed it, from
-Scoop's `install.json` and `manifest.json` beside it, so About tells you to
-update it through the package manager instead of offering **Update now**,
-which would install Setup's copy beside it. `scoop uninstall udm` removes the
-browser registrations and the **Start with Windows** entry, and leaves your
-settings, list and downloaded files.
-
-Install UDM one way only: Setup's copy and Scoop's both register as
-`com.udm.host`, and the browsers start whichever registered last.
-
 Either way, add the extension to the browser once. It is not in the Chrome
 Web Store or on Firefox Add-ons yet. Once it is listed there, this page links
 to it and installing it from the store takes the place of the steps below;
@@ -130,8 +105,7 @@ Videos on YouTube, Facebook, Instagram, Vimeo and the other sites
 **Install yt-dlp** in **Options > Tools** downloads yt-dlp's own release
 for your system and checks it the same way, and **Keep yt-dlp up to date**
 updates it once a day. `winget install yt-dlp.yt-dlp` installs it with
-ffmpeg and Deno too, which yt-dlp uses to read YouTube's player; Setup offers
-to run that command for you when winget is there and yt-dlp is not. UDM
+ffmpeg and Deno too, which yt-dlp uses to read YouTube's player. UDM
 finds yt-dlp in its own tools folder, on `PATH`, next to UDM's programs
 or next to ffmpeg. Restart UDM after installing it yourself, so it sees
 the new `PATH`. What the buttons download, from where, and how it is checked
