@@ -314,6 +314,7 @@ pub fn open_sized(
         .center();
     let builder = if main { builder.min_inner_size(520.0, 300.0) } else { builder };
     let builder = above_main(app, label, builder)?;
+    let builder = page_below_title_bar(builder);
     // The drop target floats over other windows without a frame, and takes
     // links dropped on it as the page's own drops.
     let builder = if label == Label::DropTarget {
@@ -371,6 +372,26 @@ fn above_main<'a>(
     builder: WebviewWindowBuilder<'a, tauri::Wry, AppHandle>,
 ) -> Result<WebviewWindowBuilder<'a, tauri::Wry, AppHandle>, tauri::Error> {
     Ok(builder)
+}
+
+/// On macOS, the page gets the whole inner size below the title bar. Tauri's
+/// default title bar style there gives the window a full-size content view,
+/// which counts the title bar in the inner size, so every window's page was
+/// a title bar shorter than on Windows and Linux: fixed-size dialogs cut off
+/// their last rows and Options scrolled. The transparent style keeps the
+/// content view under the title bar. Elsewhere the builder is unchanged.
+#[cfg(target_os = "macos")]
+fn page_below_title_bar(
+    builder: WebviewWindowBuilder<'_, tauri::Wry, AppHandle>,
+) -> WebviewWindowBuilder<'_, tauri::Wry, AppHandle> {
+    builder.title_bar_style(tauri::TitleBarStyle::Transparent)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn page_below_title_bar(
+    builder: WebviewWindowBuilder<'_, tauri::Wry, AppHandle>,
+) -> WebviewWindowBuilder<'_, tauri::Wry, AppHandle> {
+    builder
 }
 
 /// Restore `w` from the taskbar or the tray and give it the focus.
