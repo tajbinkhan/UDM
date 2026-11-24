@@ -223,6 +223,9 @@ pub struct Client {
     proxied: bool,
 }
 
+/// The User-Agent a request sends when it names none of its own.
+pub const USER_AGENT: &str = concat!("UDM/", env!("CARGO_PKG_VERSION"));
+
 /// Most redirects followed.
 const MAX_REDIRECTS: usize = 8;
 
@@ -250,6 +253,10 @@ impl Client {
                 .use_native_tls()
                 .connect_timeout(CONNECT_TIMEOUT)
                 .read_timeout(READ_TIMEOUT)
+                // Sent only when the request names none of its own (the
+                // browser's, or the one set in Options): some servers refuse
+                // a request without a User-Agent with 403.
+                .user_agent(USER_AGENT)
                 // Redirects are followed in `send`, which drops cookies and
                 // logins on every hop.
                 .redirect(reqwest::redirect::Policy::none());

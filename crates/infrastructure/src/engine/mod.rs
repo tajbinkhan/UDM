@@ -2354,6 +2354,24 @@ mod tests {
         const LEN: usize = 2 * 1024 * 1024;
 
         #[test]
+        fn every_request_names_a_user_agent_and_the_downloads_own_wins() {
+            let server = TestServer::start(body(LEN));
+            let dir = temp_dir("agent");
+            download(|_| {}, request(&server.url, &dir, FileExists::Rename));
+            let agents = std::mem::take(&mut *server.agents_seen.lock().unwrap());
+            assert!(!agents.is_empty());
+            assert!(agents.iter().all(|a| a == http::USER_AGENT), "UDM's own when none is given: {agents:?}");
+
+            let mut req = request(&server.url, &dir, FileExists::Rename);
+            req.headers.push(("User-Agent".into(), "Browser/2.0".into()));
+            download(|_| {}, req);
+            let agents = server.agents_seen.lock().unwrap().clone();
+            assert!(!agents.is_empty());
+            assert!(agents.iter().all(|a| a == "Browser/2.0"), "the download's own alone: {agents:?}");
+            fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
         fn an_existing_file_is_never_overwritten() {
             let server = TestServer::start(body(LEN));
             let dir = temp_dir("existing");
