@@ -4,6 +4,11 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## [0.14.1](release-notes/v0.14.1.md) - 2026-11-26
+
+Patch. YouTube downloads start sooner, keep their names in any language and show each stream's
+progress, and a click in the browser is no longer lost after UDM's background service restarts.
+
 ## [0.14.0](release-notes/v0.14.0.md) - 2026-11-26
 
 Minor. UDM installs only from its own files, so Scoop and winget are gone, and windows on macOS
