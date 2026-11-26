@@ -77,6 +77,8 @@ pub struct TestServer {
     pub auth_seen: Arc<Mutex<Vec<String>>>,
     /// The path and `Cookie` header of every request that sent one.
     pub cookies_seen: Arc<Mutex<Vec<(String, String)>>>,
+    /// The `User-Agent` header of every request, empty for one without.
+    pub agents_seen: Arc<Mutex<Vec<String>>>,
     /// Connections refused with 503 for going over `max_per_client`.
     pub refused: Arc<AtomicU64>,
     /// The most connections from one client answered at once.
@@ -91,6 +93,7 @@ struct Seen {
     served: Arc<AtomicU64>,
     auth_seen: Arc<Mutex<Vec<String>>>,
     cookies_seen: Arc<Mutex<Vec<(String, String)>>>,
+    agents_seen: Arc<Mutex<Vec<String>>>,
     refused: Arc<AtomicU64>,
     peak_per_client: Arc<AtomicUsize>,
     /// Connections being answered, by client address.
@@ -188,6 +191,7 @@ impl TestServer {
             served: Arc::new(AtomicU64::new(0)),
             auth_seen: Arc::new(Mutex::new(Vec::new())),
             cookies_seen: Arc::new(Mutex::new(Vec::new())),
+            agents_seen: Arc::new(Mutex::new(Vec::new())),
             refused: Arc::new(AtomicU64::new(0)),
             peak_per_client: Arc::new(AtomicUsize::new(0)),
             open: Arc::new(Mutex::new(HashMap::new())),
@@ -198,6 +202,7 @@ impl TestServer {
             served: Arc::clone(&seen.served),
             auth_seen: Arc::clone(&seen.auth_seen),
             cookies_seen: Arc::clone(&seen.cookies_seen),
+            agents_seen: Arc::clone(&seen.agents_seen),
             refused: Arc::clone(&seen.refused),
             peak_per_client: Arc::clone(&seen.peak_per_client),
             connections: Arc::new(AtomicU64::new(0)),
@@ -232,6 +237,7 @@ fn serve(
     reader.read_line(&mut request_line)?;
     let mut content_length = 0usize;
     let mut auth: Option<String> = None;
+    let mut agent = String::new();
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 || line == "\r\n" || line == "\n" {
@@ -246,6 +252,9 @@ fn serve(
             seen.auth_seen.lock().unwrap().push(value.clone());
             auth = Some(value);
         }
+        if lower.starts_with("user-agent:") {
+            agent = line["user-agent:".len()..].trim().to_string();
+        }
         if lower.starts_with("cookie:") {
             let path = request_line.split(' ').nth(1).unwrap_or("/").to_string();
             seen.cookies_seen.lock().unwrap().push((path, line["cookie:".len()..].trim().to_string()));
@@ -257,6 +266,7 @@ fn serve(
             range = Some((start, end));
         }
     }
+    seen.agents_seen.lock().unwrap().push(agent);
 
     let mut sent_body = vec![0u8; content_length];
     reader.read_exact(&mut sent_body)?;
