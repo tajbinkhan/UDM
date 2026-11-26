@@ -4,6 +4,11 @@ Each release's full notes are in [`release-notes/`](release-notes/), and the sam
 [GitHub Release](https://github.com/tajbinkhan/UDM/releases). This page lists them, newest
 first. UDM was called Pullbay in version 0.4 and UIDM up to version 0.3.3.
 
+## [0.14.0](release-notes/v0.14.0.md) - 2026-11-26
+
+Minor. UDM installs only from its own files, so Scoop and winget are gone, and windows on macOS
+get their full height back.
+
 ## [0.13.0](release-notes/v0.13.0.md) - 2026-11-22
 
 Minor. Install with winget or Scoop, a video's qualities show sooner, and the menus and toolbar
