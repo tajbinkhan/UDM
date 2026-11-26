@@ -49,6 +49,11 @@ desktop window (udm-gui) ---------------+   (authenticated)   (owns downloads)
   for a daemon it just started, so it gives up within about 15 seconds if no
   genuine daemon answers. When the browser closes the port, the host closes
   its side, delivers any reply still in flight for up to 2 seconds, and exits.
+  When the daemon goes away while the browser keeps the host (an update, a
+  crash), the host connects again on the browser's next request, sends the
+  new daemon the browser's last `hello`, `list` and `get_settings`, then the
+  request. It resends a request only when the old daemon cannot have read it,
+  so a running daemon never gets one twice.
   The daemon is started with the host's stdio marked non-inheritable, so it
   never holds the browser's pipes open. `udm-host send` connects the same
   way to hand the daemon links from other programs.

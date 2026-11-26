@@ -6,7 +6,9 @@
 //! length prefix plus UTF-8 JSON, so a frame passes through unchanged.
 //!
 //! When the browser closes the port the host exits, but the daemon and its
-//! downloads keep running.
+//! downloads keep running. When the daemon goes away while the browser
+//! stays (an update, a crash), the host connects again on the browser's
+//! next request and sends it to the new daemon (see [`relay`]).
 //!
 //! stdout carries protocol frames only; logs go to `udm-host.log` in the
 //! data folder (see `udm_infrastructure::logging`).
@@ -31,11 +33,11 @@
 #![cfg_attr(test, allow(clippy::todo, clippy::unimplemented, clippy::unreachable))]
 
 use std::io::{self, Read, Write};
-use std::net::Shutdown;
+use std::net::{Shutdown, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use udm_infrastructure::app::MAX_MESSAGE_BYTES;
@@ -75,19 +77,19 @@ const BROWSER_OPS: &[&str] = &[
     "cookies",
 ];
 
-/// A frame from the browser as it may go to the daemon, or `None` to drop
-/// it. A `hello` loses any `client`, so a browser connection is never taken
-/// for the desktop window, which may change every setting.
-fn from_browser(frame: &[u8]) -> Option<Vec<u8>> {
+/// A frame from the browser as it may go to the daemon, with its `op`, or
+/// `None` to drop it. A `hello` loses any `client`, so a browser connection
+/// is never taken for the desktop window, which may change every setting.
+fn from_browser(frame: &[u8]) -> Option<(String, Vec<u8>)> {
     let mut msg: serde_json::Value = serde_json::from_slice(frame).ok()?;
-    let op = msg.get("op")?.as_str()?;
-    if !BROWSER_OPS.contains(&op) {
+    let op = msg.get("op")?.as_str()?.to_string();
+    if !BROWSER_OPS.contains(&op.as_str()) {
         return None;
     }
     if op == "hello" {
         msg.as_object_mut()?.remove("client");
     }
-    serde_json::to_vec(&msg).ok()
+    Some((op, serde_json::to_vec(&msg).ok()?))
 }
 
 fn main() {
@@ -135,8 +137,6 @@ fn mode(args: &[String]) -> Mode {
     }
 }
 
-/// Relay frames between the browser (stdio) and the daemon (loopback TCP),
-/// starting the daemon first when `spawn` and it is not running.
 /// The most a message to the browser may be: Chrome closes the native host
 /// that sends a larger one.
 const MAX_TO_BROWSER: usize = 1024 * 1024;
@@ -173,43 +173,130 @@ fn to_browser(frame: Vec<u8>) -> Option<Vec<u8>> {
     Some(frame)
 }
 
+/// Relay frames between the browser (stdio) and the daemon (loopback TCP),
+/// starting the daemon first when `spawn` and it is not running.
 fn run_relay(spawn: bool) -> anyhow::Result<()> {
-    use anyhow::Context as _;
-    let daemon =
-        if spawn { ipc::connect_or_spawn() } else { ipc::connect_running() }.context("could not reach the daemon")?;
-    tracing::info!(addr = %ipc::daemon_addr(), "connected to the daemon");
-    let mut to_daemon = daemon.try_clone().context("could not share the daemon connection")?;
-    let mut from_daemon = daemon;
+    let connect = || if spawn { ipc::connect_or_spawn() } else { ipc::connect_running() };
+    relay(&mut io::stdin().lock(), io::stdout(), connect)
+}
 
-    // daemon -> browser
-    let downstream = thread::spawn(move || {
-        let stdout = io::stdout();
-        let mut out = stdout.lock();
-        while let Ok(Some(frame)) = read_message(&mut from_daemon, MAX_MESSAGE_BYTES) {
-            let Some(frame) = to_browser(frame) else { continue };
-            if write_frame(&mut out, &frame).is_err() || out.flush().is_err() {
-                break;
-            }
-        }
-    });
+/// The browser's requests a new daemon connection starts with: the `hello`
+/// that tells the daemon a browser is there, then the reads that fill the
+/// extension's copy of the list and of the settings. None of them changes
+/// anything, so they may go again to a daemon that started again.
+const OPENING_OPS: [&str; 3] = ["hello", "list", "get_settings"];
 
-    // browser -> daemon
-    let stdin = io::stdin();
-    let mut input = stdin.lock();
-    loop {
-        match read_message(&mut input, MAX_MESSAGE_BYTES).context("could not read from the browser")? {
-            Some(frame) => {
-                let Some(frame) = from_browser(&frame) else {
-                    tracing::warn!("dropped a request the extension does not send");
-                    continue;
-                };
-                if write_frame(&mut to_daemon, &frame).is_err() {
-                    tracing::warn!("daemon connection lost");
-                    break;
+/// The latest frame the browser sent for each of [`OPENING_OPS`].
+#[derive(Default)]
+struct Opening([Option<Vec<u8>>; 3]);
+
+impl Opening {
+    /// Keep `frame` when `op` is an opening one, and say whether it was.
+    fn note(&mut self, op: &str, frame: &[u8]) -> bool {
+        let Some(slot) = OPENING_OPS.iter().position(|o| *o == op) else { return false };
+        self.0[slot] = Some(frame.to_vec());
+        true
+    }
+
+    fn frames(&self) -> impl Iterator<Item = &[u8]> {
+        self.0.iter().flatten().map(Vec::as_slice)
+    }
+}
+
+/// One connection to the daemon: the side the browser's frames go to, and
+/// the thread that copies the daemon's frames to the browser. The thread
+/// hands the browser's output back when it ends, for the next connection.
+struct Link<W> {
+    to_daemon: TcpStream,
+    /// Set once the daemon closed this connection or it broke.
+    gone: Arc<AtomicBool>,
+    downstream: JoinHandle<W>,
+}
+
+impl<W: Write + Send + 'static> Link<W> {
+    /// Start copying `daemon`'s frames to `out`.
+    fn open(daemon: TcpStream, mut out: W) -> io::Result<Self> {
+        tracing::info!(addr = %ipc::daemon_addr(), "connected to the daemon");
+        let to_daemon = daemon.try_clone()?;
+        let gone = Arc::new(AtomicBool::new(false));
+        let seen = Arc::clone(&gone);
+        let mut from_daemon = daemon;
+        let downstream = thread::spawn(move || {
+            while let Ok(Some(frame)) = read_message(&mut from_daemon, MAX_MESSAGE_BYTES) {
+                let Some(frame) = to_browser(frame) else { continue };
+                // The browser went: stdin closes too, which ends the relay.
+                if write_frame(&mut out, &frame).is_err() || out.flush().is_err() {
+                    return out;
                 }
             }
-            None => {
-                tracing::info!("stdin closed, exiting");
+            seen.store(true, Ordering::SeqCst);
+            out
+        });
+        Ok(Link { to_daemon, gone, downstream })
+    }
+
+    fn gone(&self) -> bool {
+        self.gone.load(Ordering::SeqCst)
+    }
+
+    /// Close this connection, connect again through `connect` and send the
+    /// new daemon the browser's `opening` requests.
+    fn reconnect(self, connect: &impl Fn() -> io::Result<TcpStream>, opening: &Opening) -> anyhow::Result<Self> {
+        use anyhow::Context as _;
+        let _ = self.to_daemon.shutdown(Shutdown::Both);
+        let out = self.downstream.join().map_err(|_| anyhow::anyhow!("the thread to the browser stopped"))?;
+        let daemon = connect().context("could not reach the daemon again")?;
+        let mut link = Link::open(daemon, out).context("could not share the daemon connection")?;
+        for frame in opening.frames() {
+            write_frame(&mut link.to_daemon, frame).context("could not greet the daemon again")?;
+        }
+        Ok(link)
+    }
+}
+
+/// Relay frames between the browser (`input` and `out`) and the daemon,
+/// which `connect` reaches. A daemon that stops and starts again while the
+/// browser keeps the host (an update, a crash) is reached again on the
+/// browser's next request, and that request goes to the new daemon instead
+/// of being lost. A request goes to the new daemon only when the old one
+/// cannot have read it: the old one had closed the connection before the
+/// request was written, or the write failed, which leaves at most part of
+/// a frame, and the daemon drops a part. So a live daemon never gets a
+/// request twice.
+fn relay<W: Write + Send + 'static>(
+    input: &mut impl Read,
+    out: W,
+    connect: impl Fn() -> io::Result<TcpStream>,
+) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    let daemon = connect().context("could not reach the daemon")?;
+    let mut link = Link::open(daemon, out).context("could not share the daemon connection")?;
+    let mut opening = Opening::default();
+
+    // browser -> daemon
+    loop {
+        let Some(frame) = read_message(input, MAX_MESSAGE_BYTES).context("could not read from the browser")? else {
+            tracing::info!("stdin closed, exiting");
+            break;
+        };
+        let Some((op, frame)) = from_browser(&frame) else {
+            tracing::warn!("dropped a request the extension does not send");
+            continue;
+        };
+        // An opening request goes with the new connection's opening.
+        let opens = opening.note(&op, &frame);
+        if link.gone() {
+            tracing::warn!(op, "daemon connection lost, connecting again");
+            link = link.reconnect(&connect, &opening)?;
+            if opens {
+                continue;
+            }
+        }
+        if write_frame(&mut link.to_daemon, &frame).is_err() {
+            tracing::warn!(op, "daemon connection lost while sending, connecting again");
+            link = link.reconnect(&connect, &opening)?;
+            if !opens && write_frame(&mut link.to_daemon, &frame).is_err() {
+                tracing::warn!(op, "daemon connection lost again");
                 break;
             }
         }
@@ -219,13 +306,13 @@ fn run_relay(spawn: bool) -> anyhow::Result<()> {
     // queued for this client, and closes its end, which ends the downstream
     // thread. If that takes longer than DRAIN_TIMEOUT, force the socket shut.
     // Either way the daemon's downloads are unaffected.
-    let _ = to_daemon.shutdown(Shutdown::Write);
+    let _ = link.to_daemon.shutdown(Shutdown::Write);
     let deadline = Instant::now() + DRAIN_TIMEOUT;
-    while !downstream.is_finished() && Instant::now() < deadline {
+    while !link.downstream.is_finished() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(20));
     }
-    let _ = to_daemon.shutdown(Shutdown::Both);
-    let _ = downstream.join();
+    let _ = link.to_daemon.shutdown(Shutdown::Both);
+    let _ = link.downstream.join();
     Ok(())
 }
 
@@ -415,7 +502,14 @@ fn print_progress(p: Progress, ok: &AtomicBool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{from_browser, mode, to_browser, Mode, MAX_TO_BROWSER};
+    use super::{from_browser, mode, relay, to_browser, Mode, MAX_TO_BROWSER};
+    use std::io::{self, Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+    use udm_infrastructure::app::MAX_MESSAGE_BYTES;
+    use udm_infrastructure::protocol::{read_message, write_frame};
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
@@ -436,7 +530,7 @@ mod tests {
     }
 
     fn op(frame: &[u8]) -> Option<serde_json::Value> {
-        from_browser(frame).map(|f| serde_json::from_slice(&f).unwrap())
+        from_browser(frame).map(|(_, f)| serde_json::from_slice(&f).unwrap())
     }
 
     #[test]
@@ -467,6 +561,205 @@ mod tests {
         assert_eq!(to_browser(plain.clone()), Some(plain), "passed on as it is");
         let big = format!(r#"{{"op":"pick_links","page":"{}"}}"#, "x".repeat(MAX_TO_BROWSER));
         assert_eq!(to_browser(big.into_bytes()), None);
+    }
+
+    /// The browser's side of the relay: what the test hands it, in chunks
+    /// sent on a channel, and EOF once the sender is dropped.
+    struct Browser {
+        chunks: mpsc::Receiver<Vec<u8>>,
+        held: Vec<u8>,
+    }
+
+    impl Read for Browser {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.held.is_empty() {
+                match self.chunks.recv() {
+                    Ok(chunk) => self.held = chunk,
+                    Err(_) => return Ok(0),
+                }
+            }
+            let n = buf.len().min(self.held.len());
+            buf[..n].copy_from_slice(&self.held[..n]);
+            self.held.drain(..n);
+            Ok(n)
+        }
+    }
+
+    /// What the relay wrote to the browser.
+    #[derive(Clone, Default)]
+    struct Heard(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Heard {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Heard {
+        fn ops(&self) -> Vec<String> {
+            let bytes = self.0.lock().unwrap().clone();
+            let mut reader = &bytes[..];
+            let mut ops = Vec::new();
+            while let Some(frame) = read_message(&mut reader, MAX_MESSAGE_BYTES).unwrap() {
+                ops.push(op_name(&frame));
+            }
+            ops
+        }
+    }
+
+    fn frame(json: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_frame(&mut out, json.as_bytes()).unwrap();
+        out
+    }
+
+    fn op_name(frame: &[u8]) -> String {
+        let msg: serde_json::Value = serde_json::from_slice(frame).unwrap();
+        msg["op"].as_str().unwrap().to_string()
+    }
+
+    /// A daemon on loopback that takes two connections, one after the other.
+    /// It answers each `hello` with its own. It closes the first connection
+    /// once it has read `first` frames, then tells `closed`; it reads the
+    /// second to its end. Returns the ops each connection brought.
+    fn daemon(listener: TcpListener, first: usize, closed: mpsc::Sender<()>) -> thread::JoinHandle<Vec<Vec<String>>> {
+        thread::spawn(move || {
+            let mut heard = Vec::new();
+            for turn in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut ops = Vec::new();
+                while let Some(frame) = read_message(&mut stream, MAX_MESSAGE_BYTES).unwrap() {
+                    ops.push(op_name(&frame));
+                    if ops.last().map(String::as_str) == Some("hello") {
+                        write_frame(&mut stream, br#"{"op":"hello","name":"udm-daemon","version":"1"}"#).unwrap();
+                    }
+                    if turn == 0 && ops.len() == first {
+                        break;
+                    }
+                }
+                heard.push(ops);
+                drop(stream);
+                if turn == 0 {
+                    closed.send(()).unwrap();
+                }
+            }
+            heard
+        })
+    }
+
+    /// Run the relay against `listener`'s daemon with the browser `browser`.
+    fn run(listener: &TcpListener, browser: Browser, heard: Heard) -> thread::JoinHandle<anyhow::Result<()>> {
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let mut browser = browser;
+            relay(&mut browser, heard, move || TcpStream::connect(addr))
+        })
+    }
+
+    /// Wait for the relay's thread from the daemon to read the close.
+    fn settle() {
+        thread::sleep(Duration::from_millis(300));
+    }
+
+    #[test]
+    fn a_request_after_the_daemon_restarted_reaches_the_new_daemon_once() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (closed_tx, closed) = mpsc::channel();
+        let daemon = daemon(listener.try_clone().unwrap(), 3, closed_tx);
+        let (to_host, chunks) = mpsc::channel();
+        let heard = Heard::default();
+        let relay = run(&listener, Browser { chunks, held: Vec::new() }, heard.clone());
+
+        // The extension's opening, which the first daemon reads, then closes.
+        to_host.send(frame(r#"{"op":"hello","version":"1"}"#)).unwrap();
+        to_host.send(frame(r#"{"op":"list"}"#)).unwrap();
+        to_host.send(frame(r#"{"op":"get_settings"}"#)).unwrap();
+        closed.recv_timeout(Duration::from_secs(5)).unwrap();
+        settle();
+        // The click right after the daemon came back.
+        to_host.send(frame(r#"{"op":"add","url":"https://a/b.mp4"}"#)).unwrap();
+        drop(to_host);
+
+        relay.join().unwrap().unwrap();
+        let ops = daemon.join().unwrap();
+        assert_eq!(ops[0], ["hello", "list", "get_settings"]);
+        // The new daemon hears the browser's opening again, then the click.
+        assert_eq!(ops[1], ["hello", "list", "get_settings", "add"]);
+        // Both daemons' greetings reach the browser.
+        assert_eq!(heard.ops(), ["hello", "hello"]);
+    }
+
+    #[test]
+    fn a_request_the_old_daemon_read_is_not_sent_again() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (closed_tx, closed) = mpsc::channel();
+        let daemon = daemon(listener.try_clone().unwrap(), 2, closed_tx);
+        let (to_host, chunks) = mpsc::channel();
+        let relay = run(&listener, Browser { chunks, held: Vec::new() }, Heard::default());
+
+        to_host.send(frame(r#"{"op":"hello","version":"1"}"#)).unwrap();
+        to_host.send(frame(r#"{"op":"add","url":"https://a/b.zip"}"#)).unwrap();
+        closed.recv_timeout(Duration::from_secs(5)).unwrap();
+        settle();
+        to_host.send(frame(r#"{"op":"cancel","id":1}"#)).unwrap();
+        drop(to_host);
+
+        relay.join().unwrap().unwrap();
+        let ops = daemon.join().unwrap();
+        assert_eq!(ops[0], ["hello", "add"]);
+        // Only the browser's hello opens the new connection: no second add.
+        assert_eq!(ops[1], ["hello", "cancel"]);
+    }
+
+    #[test]
+    fn a_request_that_restarts_the_opening_goes_once() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (closed_tx, closed) = mpsc::channel();
+        let daemon = daemon(listener.try_clone().unwrap(), 1, closed_tx);
+        let (to_host, chunks) = mpsc::channel();
+        let relay = run(&listener, Browser { chunks, held: Vec::new() }, Heard::default());
+
+        to_host.send(frame(r#"{"op":"hello","version":"1"}"#)).unwrap();
+        closed.recv_timeout(Duration::from_secs(5)).unwrap();
+        settle();
+        to_host.send(frame(r#"{"op":"list"}"#)).unwrap();
+        drop(to_host);
+
+        relay.join().unwrap().unwrap();
+        assert_eq!(daemon.join().unwrap()[1], ["hello", "list"]);
+    }
+
+    #[test]
+    fn a_daemon_that_does_not_come_back_ends_the_relay() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let tries = Arc::new(Mutex::new(0));
+        let counted = Arc::clone(&tries);
+        let connect = move || {
+            let mut tries = counted.lock().unwrap();
+            *tries += 1;
+            if *tries == 1 {
+                TcpStream::connect(addr)
+            } else {
+                Err(io::Error::new(io::ErrorKind::ConnectionRefused, "no daemon"))
+            }
+        };
+        let accepted = thread::spawn(move || drop(listener.accept().unwrap()));
+        let (to_host, chunks) = mpsc::channel();
+        let relay = thread::spawn(move || {
+            let mut browser = Browser { chunks, held: Vec::new() };
+            relay(&mut browser, Heard::default(), connect)
+        });
+        accepted.join().unwrap();
+        settle();
+        to_host.send(frame(r#"{"op":"add","url":"https://a/b.zip"}"#)).unwrap();
+
+        assert!(relay.join().unwrap().is_err(), "the browser sees the host go and connects again");
+        assert_eq!(*tries.lock().unwrap(), 2);
     }
 
     #[test]
