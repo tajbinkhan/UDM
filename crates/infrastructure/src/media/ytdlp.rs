@@ -671,19 +671,27 @@ pub fn progress_line(line: &str) -> Option<ProgressLine<'_>> {
 /// The streams yt-dlp is about to fetch for one video, in order: each
 /// format's id and size, when known. Read from the line `STREAMS_PRINT`
 /// prints. A video of one format (a whole file, or the sound alone) has no
-/// list of streams, and is one stream of the format it names.
+/// list of streams, and is one stream of the format it names. A line that
+/// does not read as expected (another yt-dlp's output) names none, and the
+/// download shows no rows, as before there were any.
 pub fn streams_line(line: &str) -> Option<Vec<(String, Option<u64>)>> {
     let rest = line.strip_prefix(STREAMS_TAG)?;
     let mut fields = rest.trim().splitn(4, '|');
     let (ids, exact, estimate, whole) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
-    let list = |field: &str| serde_json::from_str::<Vec<Value>>(field).unwrap_or_default();
+    // "NA" is yt-dlp's word for a field it does not have; anything else must
+    // be a JSON list.
+    let list = |field: &str| -> Option<Vec<Value>> {
+        match field.trim() {
+            "NA" => Some(Vec::new()),
+            field => serde_json::from_str::<Vec<Value>>(field).ok(),
+        }
+    };
     let size = |v: Option<&Value>| v.and_then(Value::as_f64).filter(|n| *n > 0.0).map(|n| n as u64);
-    let ids = list(ids);
+    let (ids, exact, estimate) = (list(ids)?, list(exact)?, list(estimate)?);
     if ids.is_empty() {
         let whole = whole.trim();
         return (!whole.is_empty() && whole != "NA").then(|| vec![(whole.to_string(), None)]);
     }
-    let (exact, estimate) = (list(exact), list(estimate));
     Some(
         ids.iter()
             .enumerate()
@@ -870,6 +878,10 @@ mod tests {
         assert_eq!(streams_line("UDM-STREAMS NA|NA|NA|18"), Some(vec![("18".into(), None)]));
         assert_eq!(streams_line("UDM-STREAMS NA|NA|NA|NA"), None);
         assert_eq!(streams_line("UDM-STREAMS garbled"), None);
+        // A field that is neither "NA" nor a JSON list names no streams, so
+        // the download keeps its byte count without rows.
+        assert_eq!(streams_line(r#"UDM-STREAMS ["137", "140"|[1, 2]|NA|137+140"#), None);
+        assert_eq!(streams_line(r#"UDM-STREAMS ["137"]|[1|NA|137"#), None);
         assert_eq!(streams_line("UDM-PROGRESS 1 2 3"), None);
     }
 
@@ -1020,20 +1032,26 @@ mod tests {
     #[test]
     fn any_page_is_read_by_the_program_and_slow_ones_give_up() {
         let json = r#"{"duration": 5, "formats": [{"format_id": "1", "vcodec": "avc1", "acodec": "mp4a", "height": 480, "tbr": 900}]}"#;
+        let reads = PageReads::default();
         let ok = fake_yt_dlp("ok", &format!("cat <<'EOF'\n{json}\nEOF"));
-        let info = probe(&ok, "https://videos.example/watch/1", None, None, Duration::from_secs(20));
+        let info = probe(&ok, "https://videos.example/watch/1", None, None, Duration::from_secs(20), Some(&reads));
         assert!(info.error.is_none(), "{:?}", info.error);
         assert_eq!(info.video[0].height, Some(480));
+        let kept = reads.fresh("https://videos.example/watch/1", Instant::now()).expect("the video's read is kept");
+        assert_eq!(String::from_utf8_lossy(&kept).trim(), json);
 
         let slow = fake_yt_dlp("slow", "sleep 30");
         let started = Instant::now();
-        let info = probe(&slow, "https://videos.example/watch/2", None, None, Duration::from_millis(300));
+        let info = probe(&slow, "https://videos.example/watch/2", None, None, Duration::from_millis(300), Some(&reads));
         assert!(info.error.unwrap().contains("did not answer"));
         assert!(started.elapsed() < Duration::from_secs(10));
 
         let fails = fake_yt_dlp("fails", "echo 'ERROR: Unsupported URL: https://x/' >&2; exit 1");
-        let info = probe(&fails, "https://x/", None, None, Duration::from_secs(20));
+        let info = probe(&fails, "https://x/", None, None, Duration::from_secs(20), Some(&reads));
         assert!(info.error.unwrap().starts_with("yt-dlp: Unsupported URL"));
+        let now = Instant::now();
+        assert!(reads.fresh("https://videos.example/watch/2", now).is_none(), "a read that gave up is not kept");
+        assert!(reads.fresh("https://x/", now).is_none(), "a failed read is not kept");
         for p in [ok, slow, fails] {
             let _ = std::fs::remove_dir_all(p.parent().unwrap());
         }

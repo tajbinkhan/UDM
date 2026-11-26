@@ -63,10 +63,27 @@ impl ServerProbes {
             return;
         }
         std::thread::spawn(move || {
-            let reads = engine.page_reads();
-            engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref(), true, Some(reads));
-            reads.end(&req.url);
+            // The read is over when this thread ends, even by a panic: else
+            // the page would stay "being read" and its downloads would wait.
+            let _end = EndRead(Arc::clone(&engine), req.url.clone());
+            engine::probe_media(
+                &req.url,
+                &req.headers,
+                &req.net,
+                req.ffmpeg.as_deref(),
+                true,
+                Some(engine.page_reads()),
+            );
         });
+    }
+}
+
+/// Ends the read of a page `ServerProbes::read_ahead` began, when dropped.
+struct EndRead(Arc<engine::Engine>, String);
+
+impl Drop for EndRead {
+    fn drop(&mut self) {
+        self.0.page_reads().end(&self.1);
     }
 }
 

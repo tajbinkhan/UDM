@@ -60,10 +60,11 @@ impl Tally {
         self.size = size;
     }
 
-    /// Bytes fetched: the streams' when yt-dlp named them, each finished one
-    /// whole, else every file's as it came.
+    /// Bytes fetched: the streams' once a progress line matched one of the
+    /// streams yt-dlp named, each finished one whole; else every file's as
+    /// it came (no streams named, or names no progress line uses).
     fn bytes(&self) -> u64 {
-        if self.streams.is_empty() {
+        if self.current.is_none() {
             return self.earlier + self.done;
         }
         self.streams
@@ -76,14 +77,13 @@ impl Tally {
             .sum()
     }
 
-    /// Take a progress line. Once yt-dlp named its streams, a line of one
-    /// moves its row; a line of something else it fetches (subtitles) moves
-    /// nothing, so it cannot hide where the next stream starts from 0.
+    /// Take a progress line. Every line counts toward the bytes as they
+    /// came; once yt-dlp named its streams, a line of one also moves its
+    /// row, and the rows count the bytes from then on, so a line of
+    /// something else it fetches (subtitles) cannot hide where the next
+    /// stream starts from 0.
     fn advance(&mut self, line: &ytdlp::ProgressLine<'_>) {
-        if self.streams.is_empty() {
-            self.update(line.done, line.size);
-            return;
-        }
+        self.update(line.done, line.size);
         let found = line.format.and_then(|f| self.streams.iter().position(|s| s.format == f));
         if let Some(i) = found {
             let stream = &mut self.streams[i];
@@ -236,6 +236,9 @@ pub(super) fn run(
     // reading the page again. If yt-dlp cannot use it (the addresses in it
     // expired, or the network changed), it reads the page.
     let tally = Arc::new(Mutex::new(Tally::default()));
+    // A read gives up after PROBE_TIMEOUT itself, so waiting as long covers
+    // any read still running. The read never sleeps for YouTube's ads; only
+    // a download does.
     let waiting = Instant::now();
     while shared.page_reads.reading(&req.url) && waiting.elapsed() < ytdlp::PROBE_TIMEOUT {
         if token.load(Ordering::Relaxed) {
@@ -698,6 +701,14 @@ mod tests {
             Tally::default().progress(DownloadId::new(1), "u"),
             Progress::Advanced { segments: None, .. }
         ));
+        // Streams named that no progress line matches still count every
+        // byte, as before there were rows.
+        let mut t = Tally::default();
+        t.plan(vec![("137+140".into(), None)]);
+        t.advance(&line(500, Some(1000), "137"));
+        t.advance(&line(1000, Some(1000), "137"));
+        t.advance(&line(200, Some(300), "140"));
+        assert_eq!(t.bytes(), 1200);
     }
 
     /// The finished file at the working name is found when the path yt-dlp
