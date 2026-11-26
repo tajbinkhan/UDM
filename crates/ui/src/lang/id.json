@@ -224,6 +224,7 @@
   "Waiting to be started": "Menunggu untuk dimulai",
   "Connecting...": "Menyambung...",
   "Receiving data...": "Menerima data...",
+  "Retrying...": "Mencoba lagi...",
   "(unknown)": "(tidak diketahui)",
   "Download status": "Status unduhan",
   "<< Hide details": "<< Sembunyikan detail",

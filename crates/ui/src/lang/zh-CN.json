@@ -224,6 +224,7 @@
   "Waiting to be started": "等待开始",
   "Connecting...": "正在连接...",
   "Receiving data...": "正在接收数据...",
+  "Retrying...": "正在重试...",
   "(unknown)": "（未知）",
   "Download status": "下载状态",
   "<< Hide details": "<< 隐藏详细信息",

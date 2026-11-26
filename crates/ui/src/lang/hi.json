@@ -224,6 +224,7 @@
   "Waiting to be started": "शुरू होने की प्रतीक्षा में",
   "Connecting...": "कनेक्ट हो रहा है...",
   "Receiving data...": "डेटा प्राप्त हो रहा है...",
+  "Retrying...": "फिर से कोशिश हो रही है...",
   "(unknown)": "(अज्ञात)",
   "Download status": "डाउनलोड स्थिति",
   "<< Hide details": "<< विवरण छिपाएँ",

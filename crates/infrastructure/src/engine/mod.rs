@@ -420,6 +420,9 @@ struct Shared {
     /// The BitTorrent client magnet links download through; none, and they
     /// fail.
     torrents: std::sync::OnceLock<Arc<crate::torrent::TorrentClient>>,
+    /// Video pages yt-dlp read for the menu, which a download of one starts
+    /// from.
+    page_reads: crate::media::ytdlp::PageReads,
 }
 
 /// How often a connection waiting for its host to have room looks again.
@@ -531,11 +534,18 @@ impl Engine {
                     claimed: Mutex::new(HashSet::new()),
                     route_source: std::sync::OnceLock::new(),
                     torrents: std::sync::OnceLock::new(),
+                    page_reads: crate::media::ytdlp::PageReads::default(),
                 }),
                 reporter: Reporter(cb),
             }),
             counter: AtomicU64::new(1),
         }
+    }
+
+    /// The video pages yt-dlp read lately, which `probe_media` fills and a
+    /// download of one of them starts from.
+    pub fn page_reads(&self) -> &crate::media::ytdlp::PageReads {
+        &self.inner.shared.page_reads
     }
 
     /// Queue `req` and return its id. It starts when a slot is free.
@@ -721,6 +731,7 @@ pub fn run_blocking(req: DownloadRequest, cb: Arc<dyn Fn(Progress) + Send + Sync
         claimed: Mutex::new(HashSet::new()),
         route_source: std::sync::OnceLock::new(),
         torrents: std::sync::OnceLock::new(),
+        page_reads: crate::media::ytdlp::PageReads::default(),
     };
     run(DownloadId::NONE, &RunFlags::default(), req, Reporter(cb), &shared);
 }
@@ -1372,13 +1383,15 @@ fn fetch_with(
 /// yt-dlp reads offers, or why it cannot be downloaded. A page of a site
 /// yt-dlp is known for goes to yt-dlp, and so does any web page when `page`
 /// says it is one (the extension asks so for a page where the browser saw
-/// no stream). `ffmpeg` is where to look for yt-dlp besides `PATH`.
+/// no stream). `ffmpeg` is where to look for yt-dlp besides `PATH`. A video
+/// page's read is kept in `reads`, for a download of it.
 pub fn probe_media(
     url: &str,
     headers: &[(String, String)],
     net: &NetConfig,
     ffmpeg: Option<&Path>,
     page: bool,
+    reads: Option<&crate::media::ytdlp::PageReads>,
 ) -> udm_domain::media::MediaInfo {
     use crate::media::ytdlp;
     use udm_domain::media::{MediaInfo, MediaKind};
@@ -1399,6 +1412,7 @@ pub fn probe_media(
             net.proxy.as_ref().and_then(|p| p.proxy_for(url)).as_deref(),
             source,
             ytdlp::PROBE_TIMEOUT,
+            reads,
         ),
         None => MediaInfo::failed(Some(MediaKind::Page), ytdlp::MISSING.into()),
     }
@@ -2919,6 +2933,7 @@ mod tests {
                 claimed: Mutex::new(HashSet::new()),
                 route_source: std::sync::OnceLock::new(),
                 torrents: std::sync::OnceLock::new(),
+                page_reads: crate::media::ytdlp::PageReads::default(),
             };
             let mut req = request("https://Files.Example.com/a", Path::new("."), FileExists::Rename);
             req.host_limit = Some(2);

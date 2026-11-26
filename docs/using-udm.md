@@ -180,7 +180,9 @@
   transfer rate, the time left and whether the server lets it resume, with
   **Pause** or **Resume** and **Cancel** (which stops it and closes the
   window; the download stays in the list). **Show details** adds the
-  connection bars and table from **More > Connections...**, and the **Speed
+  connection bars and table from **More > Connections...** (for a video
+  from a page such as YouTube, one row for the video stream and one for its
+  sound, fetched one after the other), and the **Speed
   limit** tab sets the download's own limit, with **Remember on stop and
   resume** (on by default; untick it to have the limit dropped when the
   download is stopped and resumed). The **When done** tab (also in

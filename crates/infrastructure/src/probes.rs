@@ -47,6 +47,44 @@ impl ServerProbes {
         let total = Some(info.files.selected_size(download.torrent_files.as_ref()));
         Ok(FileFacts { filename, path, total, resumable: true, torrent: Some(info) })
     }
+
+    /// Read the video page `download` names with yt-dlp on another thread,
+    /// unless a fresh read is kept or one is running: the browser keeps its
+    /// menus' answers, so the menu may not have asked UDM. The read runs
+    /// while the save-as dialog is open, and the download starts from it
+    /// (`ytdlp::PageReads`), past the wait YouTube asks for before a video
+    /// it shows an ad for.
+    /// Only pages of the sites yt-dlp is known for are read ahead; another
+    /// page is read when its download starts, as before.
+    fn read_ahead(&self, download: &Download) {
+        let req = self.transfers.request_for(download.clone());
+        let engine = Arc::clone(self.transfers.engine());
+        if !crate::media::ytdlp::supports(&req.url) || !engine.page_reads().begin(&req.url, std::time::Instant::now()) {
+            return;
+        }
+        std::thread::spawn(move || {
+            // The read is over when this thread ends, even by a panic: else
+            // the page would stay "being read" and its downloads would wait.
+            let _end = EndRead(Arc::clone(&engine), req.url.clone());
+            engine::probe_media(
+                &req.url,
+                &req.headers,
+                &req.net,
+                req.ffmpeg.as_deref(),
+                true,
+                Some(engine.page_reads()),
+            );
+        });
+    }
+}
+
+/// Ends the read of a page `ServerProbes::read_ahead` began, when dropped.
+struct EndRead(Arc<engine::Engine>, String);
+
+impl Drop for EndRead {
+    fn drop(&mut self) {
+        self.0.page_reads().end(&self.1);
+    }
 }
 
 impl Probes for ServerProbes {
@@ -69,6 +107,11 @@ impl Probes for ServerProbes {
         }
         // The file a debrid account unlocks the link into, when it does.
         let req = self.transfers.resolved_request(download.clone()).map_err(probe_error)?;
+        // A video page is read while its dialog is open, so its download
+        // starts from that read.
+        if download.media.as_ref().is_some_and(|m| m.kind == Some(udm_domain::media::MediaKind::Page)) {
+            self.read_ahead(download);
+        }
         // Probing a POST download would send a GET (or repeat the POST),
         // so its dialog proposes a name from the request alone. What the
         // browser's response said is all there is to show then. A video
@@ -89,7 +132,8 @@ impl Probes for ServerProbes {
     fn media(&self, download: &Download) -> MediaInfo {
         let req = self.transfers.request_for(download.clone());
         let page = download.media.as_ref().is_some_and(|m| m.kind == Some(udm_domain::media::MediaKind::Page));
-        engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref(), page)
+        let reads = self.transfers.engine().page_reads();
+        engine::probe_media(&req.url, &req.headers, &req.net, req.ffmpeg.as_deref(), page, Some(reads))
     }
 
     fn zip(&self, download: &Download, total: Option<ByteCount>) -> Result<Vec<ZipEntry>, ProbeError> {
@@ -214,6 +258,8 @@ mod tests {
             assert!(facts.path.starts_with(&dir) && facts.path.ends_with("Clip.mp4"), "{:?}", facts.path);
         }
         assert_eq!(server.served.load(std::sync::atomic::Ordering::Relaxed), 0, "the server was not asked");
+        let reads = probes.transfers.engine().page_reads();
+        assert!(!reads.reading(&server.url), "a page of no site yt-dlp is known for is not read ahead");
         // A page that cannot be reached still gets its dialog.
         let gone = Download {
             filename: Some("Clip.mp4".into()),

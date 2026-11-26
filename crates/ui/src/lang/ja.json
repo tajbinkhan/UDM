@@ -224,6 +224,7 @@
   "Waiting to be started": "開始を待機中",
   "Connecting...": "接続しています...",
   "Receiving data...": "データを受信しています...",
+  "Retrying...": "再試行中...",
   "(unknown)": "(不明)",
   "Download status": "ダウンロードの状態",
   "<< Hide details": "<< 詳細を隠す",

@@ -184,11 +184,12 @@ pub fn write_private(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
 /// `Zone.Identifier` stream says it came from the internet, so SmartScreen
 /// checks a program before it runs and Office opens a document in
 /// Protected View. A drive without streams (FAT) keeps no mark, which is
-/// not an error. Elsewhere this does nothing.
+/// not an error. A path with no file gets none: writing the stream would
+/// make an empty file there. Elsewhere this does nothing.
 pub fn mark_from_internet(path: &std::path::Path, url: &str, referrer: Option<&str>) {
     #[cfg(windows)]
     {
-        let Some(host_url) = zone_url(url) else {
+        let Some(host_url) = zone_url(url).filter(|_| path.is_file()) else {
             return;
         };
         let mut zone = String::from("[ZoneTransfer]\r\nZoneId=3\r\n");
@@ -206,10 +207,13 @@ pub fn mark_from_internet(path: &std::path::Path, url: &str, referrer: Option<&s
 
 /// Mark `path` as downloaded from the internet with no address to name, as
 /// a torrent's files are: only `ZoneId=3` in its `Zone.Identifier` stream on
-/// Windows. Elsewhere this does nothing.
+/// Windows, and only on a file that is there. Elsewhere this does nothing.
 pub fn mark_from_internet_unnamed(path: &std::path::Path) {
     #[cfg(windows)]
     {
+        if !path.is_file() {
+            return;
+        }
         let mut stream = path.as_os_str().to_owned();
         stream.push(":Zone.Identifier");
         let _ = std::fs::write(stream, "[ZoneTransfer]\r\nZoneId=3\r\n");
@@ -361,6 +365,12 @@ mod tests {
         assert!(zone.contains("HostUrl=https://example.com/a.exe"));
         assert!(zone.contains("ReferrerUrl=https://example.com/page"));
         assert!(!zone.contains("pw"), "no password in the mark");
+        // A path with no file stays without one: marking it made an empty
+        // file there.
+        let missing = dir.join("never-saved.mp4");
+        mark_from_internet(&missing, "https://example.com/v", None);
+        mark_from_internet_unnamed(&missing);
+        assert!(!missing.exists(), "marking made a file");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

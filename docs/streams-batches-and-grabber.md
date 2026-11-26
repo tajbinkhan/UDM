@@ -86,8 +86,27 @@ its way. A video and its playlist are read at the same time. And the
 daemon keeps each page's answer for an hour (`PageAnswers`, at most 128
 pages, only answers that offer something), so the menu opened again, or
 opened after the extension's worker slept and forgot, runs no yt-dlp. The
-answer lists qualities only; the download reads the page again for the
-streams, so an hour-old answer still downloads.
+answer lists qualities only. The engine also keeps yt-dlp's own read of the
+page for 30 minutes (`ytdlp::PageReads`, at most 8 pages), and a download
+of that page starts from it (`--load-info-json`) instead of reading the
+page again. That saves the few seconds of a read, and on YouTube the wait
+it asks for before a video it shows an ad for (yt-dlp sleeps 5 seconds or
+more before the first byte): it has passed by the time the save-as dialog
+is answered. The extension keeps its menus' answers while its worker runs,
+so the menu may not have asked UDM at all: when the save-as dialog opens
+for a page of YouTube, Facebook, Instagram or Vimeo and no read is kept,
+UDM reads the page then, while the dialog is open, and a download started
+before that read ends waits for it. If yt-dlp cannot use the read (its
+addresses expired, or the network changed), the download reads the page as
+before.
+
+yt-dlp runs with `--encoding utf-8`, so the paths it prints keep every
+letter of a title in Korean or Arabic whatever the system's code page; a
+finished file whose printed path still names nothing is found at the
+download's working name (`<name>.udm-<id>.<ext>`). Before fetching, yt-dlp
+names the streams it joins (the video's format and the sound's, with their
+sizes), and the download window's **Show details** shows a row for each,
+as it shows connections for other downloads.
 
 **Any other site.** When the video button's menu opens on a page that is
 none of the sites above and the browser saw no file or stream in that tab,

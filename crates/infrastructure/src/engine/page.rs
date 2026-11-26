@@ -12,15 +12,16 @@ use std::process::Stdio;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use udm_domain::bytes::ByteCount;
+use udm_domain::download::{SegmentInfo, SegmentState};
 use udm_domain::id::DownloadId;
 use udm_domain::sync::LockExt;
 
 use super::{
     choose_output, http, stream, CancelToken, DownloadRequest, EngineError, Progress, Reporter, Saved, Shared,
 };
-use crate::media::ytdlp::{self, DONE_TAG, PROGRESS_TEMPLATE};
+use crate::media::ytdlp::{self, DONE_TAG, PROGRESS_TEMPLATE, STREAMS_PRINT};
 use udm_domain::media::MediaChoice;
 
 /// What yt-dlp's estimate of the whole download starts with.
@@ -34,6 +35,19 @@ struct Tally {
     done: u64,
     size: Option<u64>,
     total: Option<u64>,
+    /// The streams yt-dlp named before fetching them (`streams_line`), in
+    /// the order it fetches them. The download window shows one row each,
+    /// as it shows a connection's.
+    streams: Vec<StreamTally>,
+    /// Which of `streams` is being fetched.
+    current: Option<usize>,
+}
+
+/// One stream of a video page's download: a format yt-dlp fetches.
+struct StreamTally {
+    format: String,
+    size: Option<u64>,
+    done: u64,
 }
 
 impl Tally {
@@ -46,9 +60,113 @@ impl Tally {
         self.size = size;
     }
 
+    /// Bytes fetched: the streams' once a progress line matched one of the
+    /// streams yt-dlp named, each finished one whole; else every file's as
+    /// it came (no streams named, or names no progress line uses).
     fn bytes(&self) -> u64 {
-        self.earlier + self.done
+        if self.current.is_none() {
+            return self.earlier + self.done;
+        }
+        self.streams
+            .iter()
+            .enumerate()
+            .map(|(i, s)| match self.current {
+                Some(c) if i < c => s.size.unwrap_or(s.done).max(s.done),
+                _ => s.done,
+            })
+            .sum()
     }
+
+    /// Take a progress line. Every line counts toward the bytes as they
+    /// came; once yt-dlp named its streams, a line of one also moves its
+    /// row, and the rows count the bytes from then on, so a line of
+    /// something else it fetches (subtitles) cannot hide where the next
+    /// stream starts from 0.
+    fn advance(&mut self, line: &ytdlp::ProgressLine<'_>) {
+        self.update(line.done, line.size);
+        let found = line.format.and_then(|f| self.streams.iter().position(|s| s.format == f));
+        if let Some(i) = found {
+            let stream = &mut self.streams[i];
+            stream.done = line.done;
+            stream.size = line.size.or(stream.size);
+            self.current = Some(i);
+        }
+    }
+
+    /// The streams yt-dlp is about to fetch. A second video run (after its
+    /// read could not be used) names the same ones and keeps what they have.
+    fn plan(&mut self, streams: Vec<(String, Option<u64>)>) {
+        if self.streams.iter().map(|s| &s.format).eq(streams.iter().map(|(f, _)| f)) {
+            return;
+        }
+        self.streams = streams.into_iter().map(|(format, size)| StreamTally { format, size, done: 0 }).collect();
+        self.current = None;
+    }
+
+    /// The whole download's size: yt-dlp's own estimate, else the streams'
+    /// sizes added up when each is known.
+    fn whole(&self) -> Option<u64> {
+        self.total.or_else(|| {
+            let sizes: Option<Vec<u64>> = self.streams.iter().map(|s| s.size).collect();
+            sizes.map(|s| s.iter().sum()).filter(|t| *t > 0)
+        })
+    }
+
+    /// One row per stream for the download window, laid end to end: the
+    /// streams before the one being fetched are done, the ones after it
+    /// wait.
+    fn segments(&self) -> Vec<SegmentInfo> {
+        let mut start = 0u64;
+        self.streams
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let before = self.current.is_some_and(|c| i < c);
+                let len = s.size.unwrap_or(s.done).max(s.done);
+                let done = if before { len } else { s.done };
+                let state = if before || s.size.is_some_and(|size| s.done >= size) {
+                    SegmentState::Done
+                } else if self.current == Some(i) && s.done > 0 {
+                    SegmentState::Receiving
+                } else if self.current == Some(i) || (self.current.is_none() && i == 0) {
+                    SegmentState::Connecting
+                } else {
+                    SegmentState::Waiting
+                };
+                let row = SegmentInfo {
+                    start: ByteCount::new(start),
+                    end: ByteCount::new((start + len).saturating_sub(1)),
+                    done: ByteCount::new(done),
+                    state,
+                };
+                start += len;
+                row
+            })
+            .collect()
+    }
+
+    /// What the download window hears of the tally now.
+    fn progress(&self, id: DownloadId, url: &str) -> Progress {
+        let whole = self.whole();
+        Progress::Advanced {
+            id,
+            url: url.to_string(),
+            done: ByteCount::new(self.bytes()),
+            total: whole.filter(|total| *total >= self.bytes()).map(ByteCount::new),
+            parts: None,
+            segments: (!self.streams.is_empty()).then(|| self.segments()),
+        }
+    }
+}
+
+/// How one run of yt-dlp ended.
+enum RunEnd {
+    /// The download was stopped (paused or canceled) and yt-dlp ended.
+    Stopped,
+    /// yt-dlp failed, saying why.
+    Failed(String),
+    /// yt-dlp finished, naming the file it saved, if it did.
+    Finished(Option<String>),
 }
 
 pub(super) fn run(
@@ -101,35 +219,6 @@ pub(super) fn run(
         adopt_working_files(&output, id);
     }
     let working = working_stem(&output, id);
-    let template = format!("{}.%(ext)s", ytdlp::literal_template(&working.to_string_lossy()));
-    let proxy = req.net.proxy.as_ref().and_then(|p| p.proxy_for(&req.url));
-    // Bound to the chosen network adapter through yt-dlp's own option; not
-    // run at all while it is down.
-    let source = req.net.route.source_address()?;
-    let mut cmd = ytdlp::command(&yt_dlp, proxy.as_deref(), source);
-    cmd.args(["-f", &ytdlp::format_spec(choice, req.ffmpeg.is_some())])
-        .args(["-o", &template])
-        .args(["--newline", "--progress", "--progress-template", PROGRESS_TEMPLATE])
-        .args(["--print", &format!("before_dl:{SIZE_TAG}%(filesize,filesize_approx)s")])
-        .args(["--print", &format!("after_move:{DONE_TAG}%(filepath)s")])
-        .arg("--no-mtime");
-    if let Some(ffmpeg) = &req.ffmpeg {
-        cmd.arg("--ffmpeg-location").arg(ffmpeg).args(["--merge-output-format", "mp4"]);
-    }
-    if let Some(target) = choice.audio_only {
-        cmd.args(["-x", "--audio-format", target.extension()]);
-    }
-    cmd.args(ytdlp::subtitle_args(choice, req.ffmpeg.is_some()));
-    if let Some(limit) = req.speed_limit {
-        cmd.args(["-r", &limit.to_string()]);
-    }
-    let mut child = cmd
-        .arg("--")
-        .arg(&req.url)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| EngineError::Io(format!("could not run yt-dlp ({}): {e}", yt_dlp.display())))?;
     reporter.send(Progress::Started {
         id,
         url: req.url.clone(),
@@ -142,26 +231,130 @@ pub(super) fn run(
         country: None,
     });
 
+    // A recent read of this page (the menu's, or the one its save-as dialog
+    // started, waited for while it runs): yt-dlp starts from it instead of
+    // reading the page again. If yt-dlp cannot use it (the addresses in it
+    // expired, or the network changed), it reads the page.
     let tally = Arc::new(Mutex::new(Tally::default()));
+    // A read gives up after PROBE_TIMEOUT itself, so waiting as long covers
+    // any read still running. The read never sleeps for YouTube's ads; only
+    // a download does.
+    let waiting = Instant::now();
+    while shared.page_reads.reading(&req.url) && waiting.elapsed() < ytdlp::PROBE_TIMEOUT {
+        if token.load(Ordering::Relaxed) {
+            return Ok(output.into());
+        }
+        shared.page_reads.wait(&req.url, Duration::from_millis(250));
+    }
+    let mut kept = shared.page_reads.fresh(&req.url, Instant::now()).and_then(|json| {
+        let mut path = working.clone().into_os_string();
+        path.push(".read.json");
+        let path = PathBuf::from(path);
+        fs::write(&path, json.as_slice()).ok().map(|()| path)
+    });
+    let saved_as = loop {
+        let end = run_yt_dlp(id, token, req, choice, reporter, &yt_dlp, &working, kept.as_deref(), &tally);
+        if let Some(read) = kept.take() {
+            let _ = fs::remove_file(read);
+            if matches!(end, Ok(RunEnd::Failed(_))) {
+                tracing::info!(download_id = id.get(), "yt-dlp could not use the menu's read; reading the page");
+                shared.page_reads.forget(&req.url);
+                continue;
+            }
+        }
+        match end? {
+            RunEnd::Stopped => return Ok(output.into()),
+            RunEnd::Failed(why) => return Err(EngineError::Io(why)),
+            RunEnd::Finished(saved_as) => break saved_as,
+        }
+    };
+    // The file yt-dlp names, or the one it left at this download's working
+    // name when that names none (a yt-dlp that wrote the path in another
+    // code page).
+    let saved = saved_as.map(PathBuf::from).filter(|p| p.is_file()).or_else(|| finished_file(&output, id));
+    let path = match saved {
+        Some(saved) => settle(&saved, &output),
+        None => output,
+    };
+    // Without ffmpeg the subtitles stay beside the video: give them its name.
+    settle_subtitles(&working, &path);
+    let note = req.ffmpeg.is_none().then(|| {
+        "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) UDM saves the quality you chose."
+            .to_string()
+    });
+    drop(claim);
+    Ok(Saved { path, note, complete: true })
+}
+
+/// Run yt-dlp once for download `id`, saving under `working`'s name: from
+/// the page's earlier read at `read` when there is one, else from the page.
+/// Its progress goes to `tally` and on to the window.
+#[allow(clippy::too_many_arguments)]
+fn run_yt_dlp(
+    id: DownloadId,
+    token: &CancelToken,
+    req: &DownloadRequest,
+    choice: &MediaChoice,
+    reporter: &Reporter,
+    yt_dlp: &Path,
+    working: &Path,
+    read: Option<&Path>,
+    tally: &Arc<Mutex<Tally>>,
+) -> Result<RunEnd, EngineError> {
+    let template = format!("{}.%(ext)s", ytdlp::literal_template(&working.to_string_lossy()));
+    let proxy = req.net.proxy.as_ref().and_then(|p| p.proxy_for(&req.url));
+    // Bound to the chosen network adapter through yt-dlp's own option; not
+    // run at all while it is down.
+    let source = req.net.route.source_address()?;
+    let mut cmd = ytdlp::command(yt_dlp, proxy.as_deref(), source);
+    cmd.args(["-f", &ytdlp::format_spec(choice, req.ffmpeg.is_some())])
+        .args(["-o", &template])
+        .args(["--newline", "--progress", "--progress-template", PROGRESS_TEMPLATE])
+        .args(["--print", &format!("before_dl:{SIZE_TAG}%(filesize,filesize_approx)s")])
+        .args(["--print", STREAMS_PRINT])
+        .args(["--print", &format!("after_move:{DONE_TAG}%(filepath)s")])
+        .arg("--no-mtime");
+    if let Some(ffmpeg) = &req.ffmpeg {
+        cmd.arg("--ffmpeg-location").arg(ffmpeg).args(["--merge-output-format", "mp4"]);
+    }
+    if let Some(target) = choice.audio_only {
+        cmd.args(["-x", "--audio-format", target.extension()]);
+    }
+    cmd.args(ytdlp::subtitle_args(choice, req.ffmpeg.is_some()));
+    if let Some(limit) = req.speed_limit {
+        cmd.args(["-r", &limit.to_string()]);
+    }
+    match read {
+        Some(read) => cmd.arg("--load-info-json").arg(read),
+        None => cmd.arg("--").arg(&req.url),
+    };
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| EngineError::Io(format!("could not run yt-dlp ({}): {e}", yt_dlp.display())))?;
+
     let saved_as = Arc::new(Mutex::new(None::<String>));
     let complaints = Arc::new(Mutex::new(String::new()));
     let read = |pipe: Box<dyn std::io::Read + Send>, keep: bool| {
         let (tally, saved_as, complaints, reporter, url) =
-            (Arc::clone(&tally), Arc::clone(&saved_as), Arc::clone(&complaints), reporter.clone(), req.url.clone());
+            (Arc::clone(tally), Arc::clone(&saved_as), Arc::clone(&complaints), reporter.clone(), req.url.clone());
         thread::spawn(move || {
-            for line in BufReader::new(pipe).lines().map_while(Result::ok) {
-                let line = line.trim();
-                if let Some((done, size)) = ytdlp::progress_line(line) {
+            // Line by line as bytes: a line that is not UTF-8 is read as
+            // well as it can be, and the lines after it still are.
+            let mut pipe = BufReader::new(pipe);
+            let mut bytes = Vec::new();
+            while matches!(pipe.read_until(b'\n', &mut bytes), Ok(n) if n > 0) {
+                let text = String::from_utf8_lossy(&bytes);
+                let line = text.trim();
+                if let Some(progress) = ytdlp::progress_line(line) {
                     let mut t = tally.lock_or_recover();
-                    t.update(done, size);
-                    reporter.send(Progress::Advanced {
-                        id,
-                        url: url.clone(),
-                        done: ByteCount::new(t.bytes()),
-                        total: t.total.filter(|total| *total >= t.bytes()).map(ByteCount::new),
-                        parts: None,
-                        segments: None,
-                    });
+                    t.advance(&progress);
+                    reporter.send(t.progress(id, &url));
+                } else if let Some(streams) = ytdlp::streams_line(line) {
+                    let mut t = tally.lock_or_recover();
+                    t.plan(streams);
+                    reporter.send(t.progress(id, &url));
                 } else if let Some(size) = line.strip_prefix(SIZE_TAG) {
                     tally.lock_or_recover().total = size.trim().parse::<f64>().ok().map(|s| s as u64);
                 } else if let Some(path) = line.strip_prefix(DONE_TAG) {
@@ -171,6 +364,7 @@ pub(super) fn run(
                     c.push_str(line);
                     c.push('\n');
                 }
+                bytes.clear();
             }
         })
     };
@@ -196,27 +390,34 @@ pub(super) fn run(
     // that left yt-dlp's group would hold them open, and the download would
     // never show as stopped. The readers end when the pipes do.
     let Some(status) = status else {
-        return Ok(output.into());
+        return Ok(RunEnd::Stopped);
     };
     for r in readers {
         let _ = r.join();
     }
     if !status.success() {
-        return Err(EngineError::Io(ytdlp::complaint(&complaints.lock_or_recover())));
+        return Ok(RunEnd::Failed(ytdlp::complaint(&complaints.lock_or_recover())));
     }
-    let saved = saved_as.lock_or_recover().take().map(std::path::PathBuf::from).filter(|p| p.is_file());
-    let path = match saved {
-        Some(saved) => settle(&saved, &output),
-        None => output,
-    };
-    // Without ffmpeg the subtitles stay beside the video: give them its name.
-    settle_subtitles(&working, &path);
-    let note = req.ffmpeg.is_none().then(|| {
-        "Saved with its sound in one file, the best quality the site sends that way. With ffmpeg (set in Options) UDM saves the quality you chose."
-            .to_string()
-    });
-    drop(claim);
-    Ok(Saved { path, note, complete: true })
+    let saved_as = saved_as.lock_or_recover().take();
+    Ok(RunEnd::Finished(saved_as))
+}
+
+/// The file yt-dlp finished at download `id`'s working name
+/// (`<stem>.udm-<id>.<ext>`), saving at `output`: one extension, not a part,
+/// a single stream (`.f137.mp4`), the page's read or subtitles. The largest,
+/// if there are several.
+fn finished_file(output: &Path, id: DownloadId) -> Option<PathBuf> {
+    const NOT_THE_VIDEO: [&str; 12] =
+        ["part", "ytdl", "json", "temp", "vtt", "srt", "ass", "lrc", "ttml", "srv1", "srv2", "srv3"];
+    let prefix = format!("{}.udm-{id}.", output.file_stem()?.to_string_lossy());
+    working_files(output, id)
+        .into_iter()
+        .filter(|p| {
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            name.strip_prefix(&prefix)
+                .is_some_and(|ext| !ext.is_empty() && !ext.contains('.') && !NOT_THE_VIDEO.contains(&ext))
+        })
+        .max_by_key(|p| fs::metadata(p).map(|m| m.len()).unwrap_or(0))
 }
 
 /// The name yt-dlp works under for download `id`, without an extension:
@@ -462,6 +663,77 @@ mod tests {
         assert_eq!(t.bytes(), 1300);
     }
 
+    /// The download window's rows: one per stream, laid end to end, each
+    /// with what it got and whether it is waiting, coming in or done.
+    #[test]
+    fn each_stream_is_a_row() {
+        let line = |done, size, format| ytdlp::ProgressLine { done, size, format: Some(format) };
+        let rows = |t: &Tally| -> Vec<(u64, u64, u64, SegmentState)> {
+            t.segments().iter().map(|s| (s.start.get(), s.end.get(), s.done.get(), s.state)).collect()
+        };
+        let mut t = Tally::default();
+        t.plan(vec![("137".into(), Some(1000)), ("140".into(), Some(300))]);
+        assert_eq!(rows(&t), [(0, 999, 0, SegmentState::Connecting), (1000, 1299, 0, SegmentState::Waiting)]);
+        assert_eq!(t.whole(), Some(1300), "the streams' sizes add up when yt-dlp gives no estimate");
+        t.advance(&line(400, Some(1000), "137"));
+        assert_eq!(rows(&t), [(0, 999, 400, SegmentState::Receiving), (1000, 1299, 0, SegmentState::Waiting)]);
+        assert_eq!(t.bytes(), 400);
+        // A subtitle in between has no row and is not counted.
+        t.advance(&ytdlp::ProgressLine { done: 5, size: Some(5), format: Some("en") });
+        assert_eq!(t.bytes(), 400);
+        t.advance(&line(100, Some(300), "140"));
+        assert_eq!(rows(&t), [(0, 999, 1000, SegmentState::Done), (1000, 1299, 100, SegmentState::Receiving)]);
+        assert_eq!(t.bytes(), 1100, "the video counts whole once the sound is coming");
+        t.advance(&line(300, Some(300), "140"));
+        assert_eq!(rows(&t)[1], (1000, 1299, 300, SegmentState::Done));
+        match t.progress(DownloadId::new(1), "https://v") {
+            Progress::Advanced { segments: Some(s), done, total, .. } => {
+                assert_eq!(s.len(), 2);
+                assert_eq!((done.get(), total.map(ByteCount::get)), (1300, Some(1300)));
+            }
+            _ => panic!("no rows sent"),
+        }
+        // The same streams named again (a second run) keep their progress.
+        t.plan(vec![("137".into(), Some(1000)), ("140".into(), Some(300))]);
+        assert_eq!(rows(&t)[1].3, SegmentState::Done);
+        // No streams named: no rows, as before.
+        assert!(matches!(
+            Tally::default().progress(DownloadId::new(1), "u"),
+            Progress::Advanced { segments: None, .. }
+        ));
+        // Streams named that no progress line matches still count every
+        // byte, as before there were rows.
+        let mut t = Tally::default();
+        t.plan(vec![("137+140".into(), None)]);
+        t.advance(&line(500, Some(1000), "137"));
+        t.advance(&line(1000, Some(1000), "137"));
+        t.advance(&line(200, Some(300), "140"));
+        assert_eq!(t.bytes(), 1200);
+    }
+
+    /// The finished file at the working name is found when the path yt-dlp
+    /// printed names none (yt-dlp wrote it in another code page).
+    #[test]
+    fn the_finished_file_is_found_by_its_working_name() {
+        let dir = std::env::temp_dir().join(format!("udm-finished-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let output = dir.join("강남스타일.mp4");
+        assert_eq!(finished_file(&output, DownloadId::new(45)), None);
+        for (name, len) in [
+            ("강남스타일.udm-45.f137.mp4.part", 900),
+            ("강남스타일.udm-45.read.json", 800),
+            ("강남스타일.udm-45.en.vtt", 700),
+            ("강남스타일.udm-45.vtt", 600),
+            ("강남스타일.udm-46.mp4", 500),
+            ("강남스타일.udm-45.mp4", 10),
+        ] {
+            fs::write(dir.join(name), vec![0u8; len]).unwrap();
+        }
+        assert_eq!(finished_file(&output, DownloadId::new(45)), Some(dir.join("강남스타일.udm-45.mp4")));
+        fs::remove_dir_all(&dir).ok();
+    }
+
     /// Pauses, resumes and cancels a real video page as the download
     /// window's buttons do (the daemon's `Cancel` and `Retry`): each stop must
     /// end yt-dlp and every process it started at once, and the resumed run
@@ -481,7 +753,7 @@ mod tests {
             std::env::var("UDM_TEST_VIDEO").unwrap_or_else(|_| "https://www.youtube.com/watch?v=EdWlMHoKEGg".into());
         let ffmpeg = crate::settings::ffmpeg(&Settings::default());
         let yt_dlp = ytdlp::find(ffmpeg.as_deref()).expect("yt-dlp");
-        let info = ytdlp::probe(&yt_dlp, &url, None, None, ytdlp::PROBE_TIMEOUT);
+        let info = ytdlp::probe(&yt_dlp, &url, None, None, ytdlp::PROBE_TIMEOUT, None);
         assert!(info.error.is_none(), "{:?}", info.error);
         let dir = std::env::temp_dir().join(format!("udm_pause_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -585,8 +857,11 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
-    /// Downloads YouTube's first video (19 seconds) through the engine. It
-    /// needs yt-dlp, ffmpeg and the network, so it runs only when asked:
+    /// Downloads YouTube's first video (19 seconds) through the engine, as
+    /// the menu does: the page read for the menu, then the download from
+    /// that read, under a name in Korean (which yt-dlp once printed in the
+    /// system's code page, leaving the file at its working name). It needs
+    /// yt-dlp, ffmpeg and the network, so it runs only when asked:
     /// `cargo test -- --ignored youtube`.
     #[test]
     #[ignore]
@@ -599,9 +874,6 @@ mod tests {
         let url = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
         let ffmpeg = crate::settings::ffmpeg(&Settings::default());
         let yt_dlp = ytdlp::find(ffmpeg.as_deref()).expect("yt-dlp");
-        let info = ytdlp::probe(&yt_dlp, url, None, None, ytdlp::PROBE_TIMEOUT);
-        assert!(info.error.is_none(), "{:?}", info.error);
-        assert!(!info.video.is_empty() && !info.audio.is_empty(), "{info:?}");
 
         let dir = std::env::temp_dir().join(format!("udm_page_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -614,10 +886,16 @@ mod tests {
             }),
             1,
         );
+        let info = ytdlp::probe(&yt_dlp, url, None, None, ytdlp::PROBE_TIMEOUT, Some(engine.page_reads()));
+        assert!(info.error.is_none(), "{:?}", info.error);
+        assert!(!info.video.is_empty() && !info.audio.is_empty(), "{info:?}");
+        assert!(engine.page_reads().fresh(url, Instant::now()).is_some(), "the menu's read is kept");
+        let name = "Me at the zoo 동물원.mp4";
+        let started = Instant::now();
         engine.enqueue(DownloadRequest {
             url: url.into(),
             folders: Folders::fixed(dir.clone()),
-            filename: Some("Me at the zoo.mp4".into()),
+            filename: Some(name.into()),
             headers: Vec::new(),
             connections: 1,
             reuse_path: None,
@@ -642,19 +920,28 @@ mod tests {
             torrent_files: None,
             torrent_uploaded: ByteCount::ZERO,
         });
-        let mut advanced = 0;
+        let (mut advanced, mut rows, mut first_bytes) = (0, 0, None);
         let path = loop {
             match rx.recv_timeout(Duration::from_secs(120)).expect("download timed out") {
-                Progress::Advanced { .. } => advanced += 1,
+                Progress::Advanced { done, segments, .. } => {
+                    advanced += 1;
+                    rows = rows.max(segments.map_or(0, |s| s.len()));
+                    if done.get() > 0 {
+                        first_bytes.get_or_insert_with(|| started.elapsed());
+                    }
+                }
                 Progress::Finished { path, .. } => break path,
                 Progress::Failed { error, .. } => panic!("{error}"),
                 _ => {}
             }
         };
-        assert_eq!(path, dir.join("Me at the zoo.mp4"));
+        eprintln!("first bytes after {first_bytes:?}");
+        assert_eq!(path, dir.join(name));
         assert!(fs::metadata(&path).unwrap().len() > 100_000);
         assert!(advanced > 0, "progress was reported");
-        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1, "no parts left behind");
+        assert_eq!(rows, 2, "a row for the video and one for the sound");
+        let left: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left.len(), 1, "no parts or read left behind: {left:?}");
         fs::remove_dir_all(&dir).ok();
     }
 }

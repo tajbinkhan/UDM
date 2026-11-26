@@ -576,7 +576,7 @@ test("a cut-off content script throws nothing", async () => {
     clearTimeout,
     setInterval,
     clearInterval,
-    document: { addEventListener: on, querySelector: () => null },
+    document: { addEventListener: on, querySelector: () => null, querySelectorAll: () => [] },
     chrome: {
       storage: { local: { get: invalidated }, onChanged: { addListener: invalidated } },
       runtime: {
@@ -638,4 +638,72 @@ test("a cut-off content script throws nothing", async () => {
   }
   assert.deepEqual(rejections, []);
   assert.ok(sent > 0, "the playing video tried to tell the worker, and its throw was caught");
+});
+
+// YouTube starts its video before the content script runs (document_idle),
+// so no "play" reached the script and its controls kept "mouseover" off the
+// video: the button showed only after a pause and play. A player already
+// playing gets its button as the script starts; a paused one gets none.
+test("a video already playing when the content script runs gets its button", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vm = require("node:vm");
+  const dir = path.join(__dirname, "..", "chromium");
+  class Element {}
+  class HTMLVideoElement extends Element {}
+  class HTMLAudioElement extends Element {}
+  const player = (Kind, paused, w, h) =>
+    Object.assign(new Kind(), { paused, ended: false, offsetWidth: w, offsetHeight: h, readyState: 4 });
+  const stopped = player(HTMLVideoElement, true, 1920, 1080);
+  const asked = await load([player(HTMLAudioElement, false, 0, 0), stopped, player(HTMLVideoElement, false, 1280, 720)]);
+  assert.deepEqual(asked, ["video:started", "video:enabled"], "the playing video was told to the worker and its button asked for");
+  assert.deepEqual(await load([stopped]), [], "a paused video waits for its play");
+
+  // The video messages the content script sends when it starts on a page
+  // with these players.
+  async function load(players) {
+    const sent = [];
+    const world = vm.createContext({
+      globalThis: undefined,
+      Element,
+      HTMLVideoElement,
+      HTMLAudioElement,
+      HTMLObjectElement: class extends Element {},
+      HTMLEmbedElement: class extends Element {},
+      HTMLAnchorElement: class extends Element {},
+      HTMLAreaElement: class extends Element {},
+      HTMLFormElement: class extends Element {},
+      innerWidth: 1000,
+      innerHeight: 800,
+      addEventListener: () => {},
+      setTimeout,
+      clearTimeout,
+      setInterval: () => 0,
+      clearInterval: () => {},
+      document: {
+        addEventListener: () => {},
+        querySelector: () => null,
+        querySelectorAll: (q) => (q === "video, audio" ? players : []),
+      },
+      chrome: {
+        storage: { local: { get: async () => ({}) }, onChanged: { addListener: () => {} } },
+        runtime: {
+          id: "udm",
+          // The video button is off here, so nothing is drawn: what counts is
+          // that the script asked about the playing video.
+          sendMessage: async (msg) => (sent.push(msg), msg.type === "video:enabled" ? { enabled: false } : {}),
+          onMessage: { addListener: () => {} },
+        },
+        i18n: { getMessage: () => "", getUILanguage: () => "en" },
+      },
+    });
+    world.globalThis = world;
+    world.window = world;
+    world.top = world;
+    for (const file of ["rules.js", "links.js", "content.js"]) {
+      vm.runInContext(fs.readFileSync(path.join(dir, file), "utf8"), world, { filename: file });
+    }
+    await new Promise((r) => setTimeout(r, 20));
+    return sent.map((m) => m.type).filter((t) => t.startsWith("video:"));
+  }
 });

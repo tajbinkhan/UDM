@@ -126,6 +126,10 @@ pub fn find(ffmpeg: Option<&Path>) -> Option<PathBuf> {
 /// adapter downloads are bound to, which yt-dlp connects from.
 fn common_args(cmd: &mut Command, proxy: Option<&str>, source: Option<IpAddr>) {
     cmd.args(["--no-playlist", "--no-warnings", "--no-color", "--ignore-config"]);
+    // Through a pipe yt-dlp otherwise writes in the system's code page, which
+    // on Windows drops letters it cannot spell: the finished file's path it
+    // prints for a title in Korean would name no file.
+    cmd.args(["--encoding", "utf-8"]);
     let on_path = |name: &str| {
         std::env::var_os("PATH")
             .is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(crate::platform::exe_name(name)).is_file()))
@@ -169,9 +173,122 @@ pub fn complaint(stderr: &str) -> String {
     format!("yt-dlp: {line} If this keeps happening, update yt-dlp (yt-dlp -U).")
 }
 
+/// How long a page's read is kept for a download of it: YouTube's addresses
+/// in it last hours, and a download chosen from the menu starts within
+/// seconds or minutes.
+pub const PAGE_READ_KEPT: Duration = Duration::from_secs(30 * 60);
+
+/// Most page reads kept at once (each is about half a megabyte).
+const PAGE_READS_MAX: usize = 8;
+
+/// The pages yt-dlp read lately, kept for a while so a download of one
+/// starts from that read (`--load-info-json`) instead of reading the page
+/// again. That saves the seconds a read takes, and the wait YouTube asks for
+/// before a video it shows an ad for (yt-dlp sleeps until then): by the time
+/// the download starts, it has passed. The video menu's reads are kept, and
+/// the save-as dialog of a video page starts one when there is none (the
+/// browser keeps its menus' answers and may not have asked UDM); a download
+/// waits for a read still running.
+#[derive(Default)]
+pub struct PageReads {
+    state: std::sync::Mutex<ReadsState>,
+    changed: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct ReadsState {
+    reads: Vec<PageRead>,
+    /// Pages being read for a download now (`begin`).
+    reading: Vec<String>,
+}
+
+struct PageRead {
+    url: String,
+    at: Instant,
+    json: std::sync::Arc<Vec<u8>>,
+}
+
+impl ReadsState {
+    fn fresh(&mut self, url: &str, now: Instant) -> Option<std::sync::Arc<Vec<u8>>> {
+        self.reads.retain(|r| now.saturating_duration_since(r.at) < PAGE_READ_KEPT);
+        self.reads.iter().find(|r| r.url == url).map(|r| std::sync::Arc::clone(&r.json))
+    }
+}
+
+impl PageReads {
+    /// Keep `json`, yt-dlp's answer for `url` read at `at`, in place of an
+    /// older one, dropping the oldest when there are too many.
+    pub fn keep(&self, url: &str, json: Vec<u8>, at: Instant) {
+        use udm_domain::sync::LockExt;
+        let mut state = self.state.lock_or_recover();
+        state.reads.retain(|r| r.url != url);
+        state.reads.push(PageRead { url: url.to_string(), at, json: std::sync::Arc::new(json) });
+        if state.reads.len() > PAGE_READS_MAX {
+            state.reads.remove(0);
+        }
+        state.reading.retain(|u| u != url);
+        self.changed.notify_all();
+    }
+
+    /// The read of `url` kept less than `PAGE_READ_KEPT` before `now`.
+    pub fn fresh(&self, url: &str, now: Instant) -> Option<std::sync::Arc<Vec<u8>>> {
+        use udm_domain::sync::LockExt;
+        self.state.lock_or_recover().fresh(url, now)
+    }
+
+    /// Whether to read `url` now for a download of it: no fresh read is kept
+    /// and none is running. A `true` marks it as being read until `keep` or
+    /// `end`.
+    pub fn begin(&self, url: &str, now: Instant) -> bool {
+        use udm_domain::sync::LockExt;
+        let mut state = self.state.lock_or_recover();
+        if state.fresh(url, now).is_some() || state.reading.iter().any(|u| u == url) {
+            return false;
+        }
+        state.reading.push(url.to_string());
+        true
+    }
+
+    /// The read of `url` that `begin` started is over, kept or not.
+    pub fn end(&self, url: &str) {
+        use udm_domain::sync::LockExt;
+        self.state.lock_or_recover().reading.retain(|u| u != url);
+        self.changed.notify_all();
+    }
+
+    /// Whether `url` is being read now.
+    pub fn reading(&self, url: &str) -> bool {
+        use udm_domain::sync::LockExt;
+        self.state.lock_or_recover().reading.iter().any(|u| u == url)
+    }
+
+    /// Wait at most `limit` for the read of `url` that is running to end.
+    pub fn wait(&self, url: &str, limit: Duration) {
+        use udm_domain::sync::LockExt;
+        let state = self.state.lock_or_recover();
+        if state.reading.iter().any(|u| u == url) {
+            let _ = udm_domain::sync::recover(self.changed.wait_timeout(state, limit));
+        }
+    }
+
+    /// Drop the read of `url`, which a download could not use.
+    pub fn forget(&self, url: &str) {
+        use udm_domain::sync::LockExt;
+        self.state.lock_or_recover().reads.retain(|r| r.url != url);
+    }
+}
+
 /// What the page at `url` offers, read by yt-dlp: its video's qualities,
-/// or a playlist's videos. Given up after `timeout`.
-pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>, source: Option<IpAddr>, timeout: Duration) -> MediaInfo {
+/// or a playlist's videos. Given up after `timeout`. The read of a single
+/// video goes into `reads`, for a download of it.
+pub fn probe(
+    yt_dlp: &Path,
+    url: &str,
+    proxy: Option<&str>,
+    source: Option<IpAddr>,
+    timeout: Duration,
+    reads: Option<&PageReads>,
+) -> MediaInfo {
     let failed = |why: String| MediaInfo::failed(Some(MediaKind::Page), why);
     let child = command(yt_dlp, proxy, source)
         .args(["-J", "--flat-playlist", "--playlist-end", &MAX_PLAYLIST_ENTRIES.to_string(), "--"])
@@ -218,7 +335,13 @@ pub fn probe(yt_dlp: &Path, url: &str, proxy: Option<&str>, source: Option<IpAdd
         return failed(complaint(&String::from_utf8_lossy(&err)));
     }
     match serde_json::from_slice::<Value>(&out) {
-        Ok(v) => describe(&v),
+        Ok(v) => {
+            let info = describe(&v);
+            if let Some(reads) = reads.filter(|_| info.error.is_none() && info.playlist.is_none()) {
+                reads.keep(url, out, started);
+            }
+            info
+        }
         Err(e) => failed(format!("yt-dlp gave an answer UDM cannot read: {e}")),
     }
 }
@@ -524,22 +647,72 @@ pub fn format_spec(choice: &MediaChoice, ffmpeg: bool) -> String {
     }
 }
 
-/// A progress line yt-dlp prints with `PROGRESS_TEMPLATE`: bytes done and
-/// the format's size, when known.
-pub fn progress_line(line: &str) -> Option<(u64, Option<u64>)> {
+/// A progress line yt-dlp prints with `PROGRESS_TEMPLATE`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressLine<'a> {
+    /// Bytes of the file being fetched.
+    pub done: u64,
+    /// That file's size, when known.
+    pub size: Option<u64>,
+    /// The format being fetched (`137`, `140`), when yt-dlp names one.
+    pub format: Option<&'a str>,
+}
+
+/// Read a progress line yt-dlp prints with `PROGRESS_TEMPLATE`.
+pub fn progress_line(line: &str) -> Option<ProgressLine<'_>> {
     let mut parts = line.strip_prefix(PROGRESS_TAG)?.split_whitespace();
     let num = |s: Option<&str>| s.and_then(|s| s.parse::<f64>().ok()).filter(|n| *n >= 0.0).map(|n| n as u64);
     let done = num(parts.next())?;
-    let total = num(parts.next()).or_else(|| num(parts.next()));
-    Some((done, total.filter(|t| *t > 0)))
+    let (exact, estimate) = (num(parts.next()), num(parts.next()));
+    let format = parts.next().filter(|f| *f != "NA");
+    Some(ProgressLine { done, size: exact.or(estimate).filter(|t| *t > 0), format })
 }
 
-/// What starts the lines `progress_line` reads, and the line naming the
-/// finished file.
+/// The streams yt-dlp is about to fetch for one video, in order: each
+/// format's id and size, when known. Read from the line `STREAMS_PRINT`
+/// prints. A video of one format (a whole file, or the sound alone) has no
+/// list of streams, and is one stream of the format it names. A line that
+/// does not read as expected (another yt-dlp's output) names none, and the
+/// download shows no rows, as before there were any.
+pub fn streams_line(line: &str) -> Option<Vec<(String, Option<u64>)>> {
+    let rest = line.strip_prefix(STREAMS_TAG)?;
+    let mut fields = rest.trim().splitn(4, '|');
+    let (ids, exact, estimate, whole) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
+    // "NA" is yt-dlp's word for a field it does not have; anything else must
+    // be a JSON list.
+    let list = |field: &str| -> Option<Vec<Value>> {
+        match field.trim() {
+            "NA" => Some(Vec::new()),
+            field => serde_json::from_str::<Vec<Value>>(field).ok(),
+        }
+    };
+    let size = |v: Option<&Value>| v.and_then(Value::as_f64).filter(|n| *n > 0.0).map(|n| n as u64);
+    let (ids, exact, estimate) = (list(ids)?, list(exact)?, list(estimate)?);
+    if ids.is_empty() {
+        let whole = whole.trim();
+        return (!whole.is_empty() && whole != "NA").then(|| vec![(whole.to_string(), None)]);
+    }
+    Some(
+        ids.iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let id = id.as_str().map_or_else(|| id.to_string(), str::to_string);
+                (id, size(exact.get(i)).or_else(|| size(estimate.get(i))))
+            })
+            .collect(),
+    )
+}
+
+/// What starts the lines `progress_line` and `streams_line` read, and the
+/// line naming the finished file.
 pub const PROGRESS_TAG: &str = "UDM-PROGRESS ";
+pub const STREAMS_TAG: &str = "UDM-STREAMS ";
 pub const DONE_TAG: &str = "UDM-FILE ";
-pub const PROGRESS_TEMPLATE: &str =
-    "download:UDM-PROGRESS %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s";
+pub const PROGRESS_TEMPLATE: &str = "download:UDM-PROGRESS %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(info.format_id)s";
+/// The `--print` that names the streams before they are fetched: the ids,
+/// sizes and estimated sizes of the formats a video is joined from, then
+/// the format as a whole.
+pub const STREAMS_PRINT: &str = "before_dl:UDM-STREAMS %(requested_formats.:.format_id)j|%(requested_formats.:.filesize)j|%(requested_formats.:.filesize_approx)j|%(format_id)s";
 
 /// `path` as a yt-dlp output template: `%` means something there.
 pub fn literal_template(path: &str) -> String {
@@ -683,13 +856,79 @@ mod tests {
 
     #[test]
     fn reads_progress_and_complaints() {
-        assert_eq!(progress_line("UDM-PROGRESS 1024 4096 NA"), Some((1024, Some(4096))));
-        assert_eq!(progress_line("UDM-PROGRESS 1024 NA 8000.5"), Some((1024, Some(8000))));
-        assert_eq!(progress_line("UDM-PROGRESS 10 NA NA"), Some((10, None)));
+        let line = |done, size, format| Some(ProgressLine { done, size, format });
+        assert_eq!(progress_line("UDM-PROGRESS 1024 4096 NA 137"), line(1024, Some(4096), Some("137")));
+        assert_eq!(progress_line("UDM-PROGRESS 1024 NA 8000.5 140"), line(1024, Some(8000), Some("140")));
+        assert_eq!(progress_line("UDM-PROGRESS 10 NA NA NA"), line(10, None, None));
+        // An older template's line, without the format.
+        assert_eq!(progress_line("UDM-PROGRESS 10 20 NA"), line(10, Some(20), None));
         assert_eq!(progress_line("[download] 10%"), None);
         let why = complaint("WARNING: x\nERROR: [youtube] abc: Video unavailable\n");
         assert!(why.starts_with("yt-dlp: [youtube] abc: Video unavailable"), "{why}");
         assert_eq!(literal_template(r"C:\100% real\a"), r"C:\100%% real\a");
+    }
+
+    #[test]
+    fn streams_are_read_in_order_with_their_sizes() {
+        assert_eq!(
+            streams_line(r#"UDM-STREAMS ["137", "140"]|[26455880, null]|[26455870, 3449447.4]|137+140"#),
+            Some(vec![("137".into(), Some(26_455_880)), ("140".into(), Some(3_449_447))])
+        );
+        // One format: no list, the format alone, its size from the progress.
+        assert_eq!(streams_line("UDM-STREAMS NA|NA|NA|18"), Some(vec![("18".into(), None)]));
+        assert_eq!(streams_line("UDM-STREAMS NA|NA|NA|NA"), None);
+        assert_eq!(streams_line("UDM-STREAMS garbled"), None);
+        // A field that is neither "NA" nor a JSON list names no streams, so
+        // the download keeps its byte count without rows.
+        assert_eq!(streams_line(r#"UDM-STREAMS ["137", "140"|[1, 2]|NA|137+140"#), None);
+        assert_eq!(streams_line(r#"UDM-STREAMS ["137"]|[1|NA|137"#), None);
+        assert_eq!(streams_line("UDM-PROGRESS 1 2 3"), None);
+    }
+
+    #[test]
+    fn page_reads_are_kept_a_while_and_by_address() {
+        let reads = PageReads::default();
+        let start = Instant::now();
+        reads.keep("https://v/a", b"a".to_vec(), start);
+        reads.keep("https://v/b", b"b".to_vec(), start);
+        assert_eq!(reads.fresh("https://v/a", start).as_deref().map(Vec::as_slice), Some(&b"a"[..]));
+        assert!(reads.fresh("https://v/c", start).is_none());
+        // A newer read of the same page replaces the old one.
+        reads.keep("https://v/a", b"a2".to_vec(), start);
+        assert_eq!(reads.fresh("https://v/a", start).as_deref().map(Vec::as_slice), Some(&b"a2"[..]));
+        reads.forget("https://v/a");
+        assert!(reads.fresh("https://v/a", start).is_none());
+        // Too old to use.
+        assert!(reads.fresh("https://v/b", start + PAGE_READ_KEPT).is_none());
+        // A page is read for a download once at a time, and not when a
+        // fresh read is kept; keeping or ending the read lets the next go.
+        reads.keep("https://v/kept", Vec::new(), start);
+        assert!(!reads.begin("https://v/kept", start));
+        assert!(reads.begin("https://v/new", start) && reads.reading("https://v/new"));
+        assert!(!reads.begin("https://v/new", start), "already being read");
+        reads.end("https://v/new");
+        assert!(!reads.reading("https://v/new") && reads.begin("https://v/new", start));
+        reads.keep("https://v/new", b"n".to_vec(), start);
+        assert!(!reads.reading("https://v/new"), "kept, so read");
+        // A download waits for a read running on another thread.
+        let reads = std::sync::Arc::new(PageReads::default());
+        assert!(reads.begin("https://v/w", Instant::now()));
+        let reader = std::sync::Arc::clone(&reads);
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            reader.keep("https://v/w", b"w".to_vec(), Instant::now());
+        });
+        let asked = Instant::now();
+        reads.wait("https://v/w", Duration::from_secs(10));
+        assert!(asked.elapsed() < Duration::from_secs(5), "woken when the read was kept");
+        assert!(reads.fresh("https://v/w", Instant::now()).is_some());
+        t.join().unwrap();
+        // Only the newest few are kept.
+        for i in 0..PAGE_READS_MAX + 2 {
+            reads.keep(&format!("https://v/{i}"), Vec::new(), start);
+        }
+        assert!(reads.fresh("https://v/0", start).is_none() && reads.fresh("https://v/1", start).is_none());
+        assert!(reads.fresh(&format!("https://v/{}", PAGE_READS_MAX + 1), start).is_some());
     }
 
     #[test]
@@ -793,20 +1032,26 @@ mod tests {
     #[test]
     fn any_page_is_read_by_the_program_and_slow_ones_give_up() {
         let json = r#"{"duration": 5, "formats": [{"format_id": "1", "vcodec": "avc1", "acodec": "mp4a", "height": 480, "tbr": 900}]}"#;
+        let reads = PageReads::default();
         let ok = fake_yt_dlp("ok", &format!("cat <<'EOF'\n{json}\nEOF"));
-        let info = probe(&ok, "https://videos.example/watch/1", None, None, Duration::from_secs(20));
+        let info = probe(&ok, "https://videos.example/watch/1", None, None, Duration::from_secs(20), Some(&reads));
         assert!(info.error.is_none(), "{:?}", info.error);
         assert_eq!(info.video[0].height, Some(480));
+        let kept = reads.fresh("https://videos.example/watch/1", Instant::now()).expect("the video's read is kept");
+        assert_eq!(String::from_utf8_lossy(&kept).trim(), json);
 
         let slow = fake_yt_dlp("slow", "sleep 30");
         let started = Instant::now();
-        let info = probe(&slow, "https://videos.example/watch/2", None, None, Duration::from_millis(300));
+        let info = probe(&slow, "https://videos.example/watch/2", None, None, Duration::from_millis(300), Some(&reads));
         assert!(info.error.unwrap().contains("did not answer"));
         assert!(started.elapsed() < Duration::from_secs(10));
 
         let fails = fake_yt_dlp("fails", "echo 'ERROR: Unsupported URL: https://x/' >&2; exit 1");
-        let info = probe(&fails, "https://x/", None, None, Duration::from_secs(20));
+        let info = probe(&fails, "https://x/", None, None, Duration::from_secs(20), Some(&reads));
         assert!(info.error.unwrap().starts_with("yt-dlp: Unsupported URL"));
+        let now = Instant::now();
+        assert!(reads.fresh("https://videos.example/watch/2", now).is_none(), "a read that gave up is not kept");
+        assert!(reads.fresh("https://x/", now).is_none(), "a failed read is not kept");
         for p in [ok, slow, fails] {
             let _ = std::fs::remove_dir_all(p.parent().unwrap());
         }
