@@ -130,6 +130,18 @@ pub fn when_done(t: Then) -> WhenDone {
     }
 }
 
+/// What a connection (or a video's stream) is doing, in the download
+/// window's Info column.
+fn segment_info(lang: &'static Language, state: SegmentState) -> &'static str {
+    match state {
+        SegmentState::Waiting => lang.tr("Waiting"),
+        SegmentState::Connecting => lang.tr("Connecting..."),
+        SegmentState::Receiving => lang.tr("Receiving data..."),
+        SegmentState::Retrying => lang.tr("Retrying..."),
+        SegmentState::Done => lang.tr("Finished"),
+    }
+}
+
 /// A download's progress window, while the download is in the list.
 pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadView> {
     let lang = ctx.lang;
@@ -156,14 +168,7 @@ pub fn download(ctx: &Ctx, state: &AppState, id: DownloadId) -> Option<DownloadV
                         start: share(s.start.as_f64()),
                         reached: share(s.start.as_f64() + s.done.as_f64()),
                         downloaded: format::bytes(lang, s.done, 2),
-                        info: lang
-                            .tr(match s.state {
-                                SegmentState::Waiting => "Waiting",
-                                SegmentState::Connecting => "Connecting...",
-                                SegmentState::Receiving => "Receiving data...",
-                                _ => "Retrying...",
-                            })
-                            .to_string(),
+                        info: segment_info(lang, s.state).to_string(),
                     }
                 })
                 .collect()
@@ -426,6 +431,42 @@ mod tests {
         assert_eq!(v.downloaded, "12.57 MB (31.43%)");
         assert_eq!(v.title, "31% big.bin");
         assert!(v.running && !v.can_resume);
+    }
+
+    /// A video page's streams show as rows the way connections do, and a
+    /// finished one says so instead of "Retrying...".
+    #[test]
+    fn each_row_says_what_its_connection_or_stream_is_doing() {
+        use udm_domain::bytes::ByteCount;
+        use udm_domain::download::SegmentInfo;
+        let mut s = with(entry(Status::Downloading));
+        let row = |start: u64, end: u64, done: u64, state| SegmentInfo {
+            start: ByteCount::new(start),
+            end: ByteCount::new(end),
+            done: ByteCount::new(done),
+            state,
+        };
+        let event = Event::Progress {
+            id: DownloadId::new(4),
+            url: "https://example.com/big.bin".into(),
+            done: ByteCount::new(30_000_000),
+            total: Some(ByteCount::new(41_943_040)),
+            parts: None,
+            segments: Some(vec![
+                row(0, 29_999_999, 30_000_000, SegmentState::Done),
+                row(30_000_000, 39_999_999, 0, SegmentState::Waiting),
+                row(40_000_000, 41_943_039, 0, SegmentState::Retrying),
+            ]),
+        };
+        apply(&mut s, UiMessage::Daemon { event: Box::new(event), at: Instant::now(), unix: 0 });
+        let v = download(&ctx(), &s, DownloadId::new(4)).unwrap();
+        let info: Vec<&str> = v.segments.iter().map(|r| r.info.as_str()).collect();
+        assert_eq!(info, ["Finished", "Waiting", "Retrying..."]);
+        assert_eq!(v.segments[0].downloaded, "28.61 MB");
+        assert!((v.segments[1].start - 30_000_000.0 / 41_943_040.0).abs() < 1e-6);
+        let german = Ctx { lang: resolve("de", &[]), ..ctx() };
+        let v = download(&german, &s, DownloadId::new(4)).unwrap();
+        assert_eq!(v.segments[0].info, "Abgeschlossen");
     }
 
     #[test]

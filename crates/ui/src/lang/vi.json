@@ -224,6 +224,7 @@
   "Waiting to be started": "Đang chờ được bắt đầu",
   "Connecting...": "Đang kết nối...",
   "Receiving data...": "Đang nhận dữ liệu...",
+  "Retrying...": "Đang thử lại...",
   "(unknown)": "(không xác định)",
   "Download status": "Trạng thái tải xuống",
   "<< Hide details": "<< Ẩn chi tiết",

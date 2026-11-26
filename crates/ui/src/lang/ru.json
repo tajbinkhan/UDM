@@ -224,6 +224,7 @@
   "Waiting to be started": "Ожидает запуска",
   "Connecting...": "Подключение...",
   "Receiving data...": "Получение данных...",
+  "Retrying...": "Повторная попытка...",
   "(unknown)": "(неизвестно)",
   "Download status": "Состояние загрузки",
   "<< Hide details": "<< Скрыть подробности",

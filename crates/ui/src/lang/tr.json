@@ -224,6 +224,7 @@
   "Waiting to be started": "Başlatılmayı bekliyor",
   "Connecting...": "Bağlanıyor...",
   "Receiving data...": "Veri alınıyor...",
+  "Retrying...": "Yeniden deneniyor...",
   "(unknown)": "(bilinmiyor)",
   "Download status": "İndirme durumu",
   "<< Hide details": "<< Ayrıntıları gizle",

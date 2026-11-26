@@ -224,6 +224,7 @@
   "Waiting to be started": "Aguardando para ser iniciado",
   "Connecting...": "Conectando...",
   "Receiving data...": "Recebendo dados...",
+  "Retrying...": "Tentando novamente...",
   "(unknown)": "(desconhecido)",
   "Download status": "Status do download",
   "<< Hide details": "<< Ocultar detalhes",

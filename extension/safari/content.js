@@ -739,4 +739,18 @@ function selectionHasLinks(sel) {
     if (msg && msg.type === "video:settings") settingsChanged();
     return false;
   });
+
+  // A player already playing when this script runs (it runs once the page
+  // has loaded, and YouTube starts its video sooner) sends no "play" to hear,
+  // and the site's own controls over it keep "mouseover" from reaching it:
+  // it gets its button now, as a "play" would give it. Of several, the
+  // largest video.
+  const size = (m) => (m instanceof HTMLVideoElement ? 1 + (m.offsetWidth || 0) * (m.offsetHeight || 0) : 0);
+  const playing = Array.from(document.querySelectorAll("video, audio"))
+    .filter((m) => isMediaElement(m) && m.paused === false && !m.ended)
+    .sort((a, b) => size(b) - size(a))[0];
+  if (playing) {
+    started(playing);
+    show(playing);
+  }
 })();

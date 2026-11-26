@@ -224,6 +224,7 @@
   "Waiting to be started": "ממתין להתחלה",
   "Connecting...": "מתחבר...",
   "Receiving data...": "מקבל נתונים...",
+  "Retrying...": "מנסה שוב...",
   "(unknown)": "(לא ידוע)",
   "Download status": "מצב ההורדה",
   "<< Hide details": "<< הסתר פרטים",

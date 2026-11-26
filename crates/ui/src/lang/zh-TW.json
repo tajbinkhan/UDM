@@ -224,6 +224,7 @@
   "Waiting to be started": "等候開始",
   "Connecting...": "正在連線...",
   "Receiving data...": "正在接收資料...",
+  "Retrying...": "正在重試...",
   "(unknown)": "(未知)",
   "Download status": "下載狀態",
   "<< Hide details": "<< 隱藏詳細資料",

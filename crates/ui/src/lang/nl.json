@@ -224,6 +224,7 @@
   "Waiting to be started": "Wacht om te worden gestart",
   "Connecting...": "Verbinden...",
   "Receiving data...": "Gegevens ontvangen...",
+  "Retrying...": "Opnieuw proberen...",
   "(unknown)": "(onbekend)",
   "Download status": "Downloadstatus",
   "<< Hide details": "<< Details verbergen",

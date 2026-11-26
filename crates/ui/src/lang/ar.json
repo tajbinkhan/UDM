@@ -224,6 +224,7 @@
   "Waiting to be started": "في انتظار البدء",
   "Connecting...": "جارٍ الاتصال...",
   "Receiving data...": "جارٍ استلام البيانات...",
+  "Retrying...": "إعادة المحاولة...",
   "(unknown)": "(غير معروف)",
   "Download status": "حالة التنزيل",
   "<< Hide details": "<< إخفاء التفاصيل",
